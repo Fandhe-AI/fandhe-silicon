@@ -16,3 +16,4 @@
 [submodule "docs/spec"]
 	path = docs/spec
 	url = https://github.com/Fandhe-AI/fandhe-silicon-spec.git
+	update = none
