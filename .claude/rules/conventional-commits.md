@@ -35,14 +35,18 @@
 
 | scope | 対象 |
 | ----- | ---- |
-| core | backend 非依存の共通 API |
-| metal / vulkan / cuda | 各 backend 実装 |
+| core | `crates/core`（共通型） |
+| contract | `crates/contract`（下-1。backend 横断の変更） |
+| metal / vulkan / cuda | `crates/contract` 内の各 backend 実装 |
+| exec | `crates/exec`（下-2） |
+| upper | `crates/upper`（上） |
+| deps | `Cargo.toml` の依存・`Cargo.lock`・`deny.toml` |
 | spec | `docs/spec` submodule 参照の更新 |
 | skills | `.claude/skills`・`.agents/skills`・`skills-lock.json` |
 | claude | `.claude/` の agents・rules・settings・`CLAUDE.md` |
 | ci / scripts | `.github/workflows/`・`scripts/` |
 
-※ クレート構成の確定後、クレート名に合わせて本表を更新する。
+※ crate 構成を変えたら本表も更新する。
 
 ## breaking change
 

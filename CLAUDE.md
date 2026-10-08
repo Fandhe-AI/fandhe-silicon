@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust を前提とする（`Cargo.toml` は実装着手時に追加。現時点ではコード未着手）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（空の公開面・依存なし・全 crate `publish = false`）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -17,6 +17,10 @@ wgpu を依存関係から外せる状態を目指す。
 fandhe-silicon/
 ├── CLAUDE.md
 ├── README.md
+├── Cargo.toml                # workspace（edition・lints を一元管理）
+├── Cargo.lock
+├── rust-toolchain.toml       # stable + rustfmt / clippy
+├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）
 ├── lefthook.yml              # pre-commit / commit-msg
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
@@ -28,13 +32,19 @@ fandhe-silicon/
 │   ├── workflows/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
+├── crates/
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし）
+│   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature）
+│   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
+│   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
 ├── docs/spec/                # private submodule（明示取得が必要）
-└── scripts/                  # help / doctor / setup / check / lib.sh
+└── scripts/                  # help / doctor / setup / check / verify / deny / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh
 ```
 
-Rust 導入後は `crates/`（共通 API と各 backend）を追加し、本ツリーと委譲表を更新する。
+依存の向きは contract → core / exec → core / upper → core, exec（spec BUILD-54〜58）。
+公開名・下-1 のチップ別分割は未決のため、構成を変えたら本ツリーと委譲表を更新する。
 
 ## 委譲方針（必読）
 
@@ -49,8 +59,8 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | ---- | ------ |
 | コード・構成の横断調査、`docs/spec` 参照（ポインタ表記） | explorer |
 | Metal / Vulkan / CUDA / wgpu・依存候補の外部調査 | reference-researcher |
-| 共通 API・CPU 実装・開発基盤（scripts / Makefile / CI） | core-builder |
-| Metal / Vulkan / CUDA backend・FFI | backend-builder |
+| `crates/core`・`crates/exec`・`crates/upper`・開発基盤（scripts / Makefile / CI） | core-builder |
+| `crates/contract`（Metal / Vulkan / CUDA backend・FFI・CPU ISA） | backend-builder |
 | テスト / 静的検査の実行と失敗解析 | test-runner |
 | ベンチマーク・性能回帰 | bench-runner |
 | レビュー / セキュリティ監査 | reviewer / security-auditor |
@@ -70,9 +80,9 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | -------- | ------------- | ----- | ---- |
 | research | explorer | sonnet | コードベース横断調査（読み取り専用） |
 | research | reference-researcher | sonnet | 外部仕様・ライブラリ調査（読み取り専用） |
-| implement | core-builder | sonnet | 共通 API・CPU 実装・開発基盤の実装 |
-| implement | backend-builder | sonnet | Metal / Vulkan / CUDA backend・FFI の実装 |
-| testing | test-runner | sonnet | `cargo test` / `cargo clippy` / `make check` と失敗解析 |
+| implement | core-builder | sonnet | core / exec / upper・開発基盤の実装 |
+| implement | backend-builder | sonnet | contract（Metal / Vulkan / CUDA backend・FFI・CPU ISA）の実装 |
+| testing | test-runner | sonnet | `make verify` / `make deny` / `make check` と失敗解析 |
 | testing | bench-runner | sonnet | ベンチマーク計測・性能回帰検出 |
 | quality | reviewer | sonnet | P0/P1/P2 観点のコードレビュー |
 | quality | security-auditor | sonnet | unsafe / FFI・秘密情報・spec 漏えい・サプライチェーン監査 |
@@ -139,8 +149,9 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する
+- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny）。CI は `check` と `rust-ci`（Fandhe-AI/actions `rust-base-ci`）で同じコマンドを実行する
 - **CI**: ジョブを追加したら `ci.yml` の `ci-complete` の `needs` に必ず追加する
-- **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。Rust 導入時に `[*.rs] indent_size = 4` を追加する
+- **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。`*.rs` は 4 スペース、staged の `*.rs` は pre-commit で `rustfmt --check`
 - **セキュリティレビュー**: PR 作成前に OWASP Top 10・秘密情報・spec 漏えいを確認（[security](.claude/rules/security.md)）
 - **ユーザー承認フロー**: implement-issue は計画承認後に実装。依存追加・Issue 起票・スコープ外対応はユーザー承認を経る
 
@@ -149,6 +160,6 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | イベント | 内容 |
 | -------- | ---- |
 | SessionStart | 日本語・委譲・Conventional Commits（`--no-verify` 禁止）・spec 機密・依存固定・unsafe 規約・計画承認のリマインダーを表示 |
-| PostToolUse（`Edit\|Write`） | 編集した `*.rs` を `rustfmt` で整形（edition は `Cargo.toml` から取得、無ければ 2024。`jq` / `rustfmt` / 対象ファイルが無ければ何もしない） |
+| PostToolUse（`Edit\|Write`） | 編集した `*.rs` を `rustfmt` で整形（edition は `Cargo.toml` の `[workspace.package]` から取得、無ければ 2024。`jq` / `rustfmt` / 対象ファイルが無ければ何もしない） |
 
 個人設定は `.claude/settings.local.json`（git 管理外）に置く。

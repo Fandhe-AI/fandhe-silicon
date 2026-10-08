@@ -11,7 +11,8 @@ tools: [Bash, Read, Glob, Grep]
 
 ## 役割
 
-- `cargo test --workspace` の実行と失敗テストの原因解析（Rust 導入後）
+- `make verify`（`cargo fmt --check`・clippy・`cargo test --workspace --all-features`）の実行と失敗テストの原因解析
+- `make deny`（cargo-deny）の実行
 - `cargo clippy --workspace --all-targets -- -D warnings` の実行と警告の整理
 - `make check`（editorconfig-checker + shellcheck）の実行
 - 失敗の再現手順・該当箇所（`path:line`）・推定原因の報告

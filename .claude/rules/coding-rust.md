@@ -2,22 +2,23 @@
 
 ## ツールチェーン
 
-- Rust 導入時に `rust-toolchain.toml`（stable・rustfmt・clippy）を追加し、単一真実源とする
-- `cargo fmt`・`cargo clippy --workspace --all-targets -- -D warnings` を通してからコミットする
-- `.editorconfig` に `[*.rs] indent_size = 4` を追加し、rustfmt と初期値を一致させる
+- `rust-toolchain.toml`（stable・rustfmt・clippy）を単一真実源とする。edition は 2024（`Cargo.toml` の `[workspace.package]`）
+- `make verify`（`cargo fmt --check`・`cargo clippy --workspace --all-targets --all-features -- -D warnings`・`cargo test`）を通してからコミットする
+- lint は `[workspace.lints]` で一元管理し、各 crate は `[lints] workspace = true` とする
 - 言語固有のコマンドは `scripts/` に実体を置き、`Makefile` からは 1 行で呼ぶ（README「派生リポジトリでの拡張」）
 
 ## 設計
 
-- backend 非依存の共通 API（device・メモリ・実行・同期・能力問合せ・診断）と、Metal / Vulkan / CUDA の背後実装を分離する
-- backend の選択は cargo feature / `cfg` で行い、対象外プラットフォームでもビルドが壊れないようにする
+- crate 構成（spec D-33）: `core`（共通型）/ `contract`（下-1: チップごとの薄い呼び出し）/ `exec`（下-2: 共通操作・代わりの実行）/ `upper`（上: wgpu 風の層）
+- 依存の向きは contract → core / exec → core / upper → core, exec を守る（spec BUILD-54〜58）。core はチップ crate に依存しない
+- backend の選択は `contract` の cargo feature（`backend-metal` 等）/ `cfg` で行い、対象外プラットフォームでもビルドが壊れないようにする。プロファイルは feature で切り替え、crate を分けない
 - 上位（fandhe-ai・vector-db・fandhe-3d）へは backend 固有型を漏らさない。wgpu を依存から外せる状態を維持する
 - 依存は最小限。追加・更新は必ずユーザー承認＋ `=x.y.z` 完全固定（[dependency-policy](./dependency-policy.md)）
 
 ## unsafe と FFI
 
-- `unsafe` は backend 実装（FFI 境界）に閉じ込め、公開 API は safe なラッパーとして提供する
-- すべての `unsafe` ブロック・`unsafe fn` に `// SAFETY:`（`unsafe fn` は `/// # Safety`）で、成立させている不変条件と根拠を書く
+- `unsafe` は `contract` の backend モジュール（FFI 境界）に閉じ込め、公開 API は safe なラッパーとして提供する。`core`・`exec`・`upper` は `#![forbid(unsafe_code)]`
+- すべての `unsafe` ブロック・`unsafe fn` に `// SAFETY:`（`unsafe fn` は `/// # Safety`）で、成立させている不変条件と根拠を書く（clippy `undocumented_unsafe_blocks` / `missing_safety_doc` を deny で強制）
 - FFI から受け取るポインタ・長さ・ハンドルは null / 範囲 / 生存期間を検証してから使う
 - GPU リソース（バッファ・コマンドキュー・イベント等）の所有権と解放責務を型で表現し、二重解放・解放後使用を作らない
 - ホスト・デバイス間の同期点を明示し、未同期のメモリ読み書きを safe API から到達可能にしない
