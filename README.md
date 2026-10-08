@@ -144,8 +144,12 @@ hooks に引っかかった場合は原因を修正してから再コミット�
 | `ai-review.yml` | Fandhe-AI/actions の ai-review（codex）による PR 自動レビュー。Actions variable `CODEX_HOME_DIR` が未設定の間は skip される |
 | `update-external.yml` | エージェントスキル（`skills-lock.json`）と submodule（`.gitmodules`）の日次自動追従 PR。secrets は org の `SUBMODULE_PAT` を使う（`SKILLS_PAT` 未登録時は共通側が `SUBMODULE_PAT` へフォールバック）。作成する PR には `dependencies` / `automated` ラベルが付く |
 
-- ruleset の required status checks には `ci-complete`（と ai-review の `codex / *`）を登録する（`verify` / `deny` の結果は `ci-complete` が集約する）。
-  ruleset・マージ設定の導入は `setup-repo-guards` スキルの手順に従う
+- `main` には ruleset `main-protection` を適用している（`setup-repo-guards` スキルの手順で導入）
+  - 削除・force push の禁止、PR 必須（承認数 0・レビュースレッドの resolve 必須・squash merge のみ）
+  - required status checks（`strict` は無効。いずれも GitHub Actions の発行に束縛）: `ci-complete`・
+    `codex / preflight`・`codex / review`・`codex / post_feedback`（`check` / `verify` / `deny` / `pr-title` の結果は
+    `ci-complete` が集約する）。codex のレビュー基準は `AGENTS.md`
+- マージ設定は squash のみ（コミット件名 = PR タイトル、本文 = PR 本文）・マージ後のブランチ自動削除
 - CI にジョブを追加したら `ci-complete` の `needs` にも必ず追加する
 
 ## MCP サーバー
