@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'fandhe-silicon: 日本語でやりとり / 作業は subagent へ委譲し main 消費を抑える (delegation.md, delegation-impl.md) / Conventional Commits 厳守 (--no-verify 禁止) / docs/spec (private) の本文を public 資産へ転記しない (spec-confidentiality.md) / 依存追加はユーザー承認 + =x.y.z 完全固定・wgpu 非依存 (dependency-policy.md) / unsafe は FFI 境界に閉じ SAFETY 必須 (coding-rust.md) / implement-issue は計画承認後に実装'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'command -v jq >/dev/null 2>&1 || exit 0; f=$(jq -r \".tool_input.file_path // empty\"); case \"$f\" in *.rs) ;; *) exit 0 ;; esac; [ -f \"$f\" ] && command -v rustfmt >/dev/null 2>&1 || exit 0; ed=$(sed -n \"s/^edition *= *\\\"\\([0-9]*\\)\\\".*/\\1/p\" \"${CLAUDE_PROJECT_DIR:-.}/Cargo.toml\" 2>/dev/null | head -n1); rustfmt --edition \"${ed:-2024}\" \"$f\" || true; exit 0'"
+          }
+        ]
+      }
+    ]
+  }
+}
