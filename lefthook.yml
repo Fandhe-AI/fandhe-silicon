@@ -31,6 +31,14 @@ pre-commit:
         - ".claude/skills/**"
       run: shellcheck {staged_files}
 
+    # staged の Rust ソースの整形差分を検出する（自動修正はしない。修正は `cargo fmt --all`）。
+    # edition は Cargo.toml の [workspace.package] と一致させる
+    - name: "style: rustfmt --check (staged *.rs)"
+      glob:
+        - "*.rs"
+        - "**/*.rs"
+      run: rustfmt --check --edition 2024 {staged_files}
+
 commit-msg:
   jobs:
     # Conventional Commits 形式の検証（npm 依存の commitlint は使わない）

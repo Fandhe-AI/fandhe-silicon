@@ -1,0 +1,5 @@
+# ツールチェーンの単一真実源。rustup が本ファイルを検出して未導入なら自動インストールする。
+# spec（TASK-1523）の「基盤のビルドは stable で通す」に合わせ stable 追従とする。
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

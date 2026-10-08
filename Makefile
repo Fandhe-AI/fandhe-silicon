@@ -10,12 +10,12 @@
 # 一覧は下記の `## ` コメントから生成されるため、`## ` の無いターゲットは表示されない。
 # ターゲットを追加・改名・削除したら scripts/help.sh も同じ変更で更新すること。
 #
-# 言語固有の build / test / fmt / lint 等は派生リポジトリで追加する。
+# Rust の品質ゲートは verify（fmt --check / clippy / test）と deny（cargo-deny）に分ける。
 # 中身の無いターゲット（`@true` 等）は呼び出し元が終了コードを信用してしまうため置かない。
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check
+.PHONY: help doctor setup check verify deny
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-8s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -28,3 +28,9 @@ setup: ## Git hooks を有効化し .env を雛形から作成する（再実行
 
 check: ## editorconfig-checker + shellcheck（ソースは変更しない）。直接: scripts/check.sh
 	@scripts/check.sh
+
+verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変更しない）。直接: scripts/verify.sh
+	@scripts/verify.sh
+
+deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
+	@scripts/deny.sh

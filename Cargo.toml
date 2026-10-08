@@ -1,0 +1,31 @@
+# fandhe-silicon workspace（spec TASK-4: workspace と crate の骨格）。
+#
+# spec D-33（3 段 + 共通 crate）に対応する 4 crate 構成:
+#   core     共通の型（3 段で受け渡す型。チップ crate に依存しない）
+#   contract 下-1: チップごとの薄い呼び出し（backend-* feature で背後実装を持つ）
+#   exec     下-2: 共通の操作と代わりの実行（core のみに依存）
+#   upper    上: wgpu 風の層（#![forbid(unsafe_code)]）
+# 依存の向き: contract → core / exec → core / upper → core, exec（spec BUILD-54〜58）。
+# 公開名・MSRV は未決（spec TASK-1516 / TASK-1523）のため全 crate を publish = false とする。
+# 依存の追加はユーザー承認制・=x.y.z 完全固定（.claude/rules/dependency-policy.md）。
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/contract", "crates/exec", "crates/upper"]
+
+[workspace.package]
+# .claude/settings.json の PostToolUse（rustfmt）が行頭の `edition = "..."` を
+# 本ファイルから読むため、この形式を維持すること。
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Fandhe-AI/fandhe-silicon"
+publish = false
+
+[workspace.lints.rust]
+# unsafe fn 内でも unsafe 操作ごとに unsafe ブロックと SAFETY 根拠を要求する
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# unsafe ブロックに `// SAFETY:` コメントを必須とする（.claude/rules/coding-rust.md）
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

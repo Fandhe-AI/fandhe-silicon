@@ -1,0 +1,13 @@
+# core: 3 段（contract / exec / upper）で受け渡す共通の型を置く crate。
+# チップ crate（Metal / Vulkan / CUDA のバインディング）には依存しない（spec BUILD-54）。
+[package]
+name = "fandhe-silicon-core"
+version = "0.0.0"
+description = "Common types shared across the fandhe-silicon layers"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

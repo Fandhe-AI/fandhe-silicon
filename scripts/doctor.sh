@@ -30,6 +30,9 @@ check_tool required make make --version
 check_tool required lefthook lefthook version
 check_tool required editorconfig-checker editorconfig-checker --version
 check_tool required shellcheck sh -c 'shellcheck --version | grep "^version:"'
+check_tool required cargo cargo --version
+check_tool required rustup rustup --version
+check_tool optional cargo-deny cargo-deny --version
 check_tool optional direnv direnv version
 
 if [ -f "${ROOT_DIR}/.env" ]; then

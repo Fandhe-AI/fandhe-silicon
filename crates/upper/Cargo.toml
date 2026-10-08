@@ -1,0 +1,17 @@
+# upper: 上（wgpu 風の層）。core と exec に依存する。チップ固有機能が必要な場合のみ
+# contract へ依存を張る（雛形では張らない。spec BUILD-54〜58）。
+[package]
+name = "fandhe-silicon-upper"
+version = "0.0.0"
+description = "Upper-layer API of fandhe-silicon for fandhe-ai / vector-db / fandhe-3d"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+fandhe-silicon-core = { path = "../core" }
+fandhe-silicon-exec = { path = "../exec" }
+
+[lints]
+workspace = true
