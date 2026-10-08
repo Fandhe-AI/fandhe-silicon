@@ -2,8 +2,8 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。言語固有のジョブ（fmt / lint / test / build 等）は派生リポジトリで
-# 本ファイルへ追加し、必ず ci-complete の needs にも追加すること。
+# 実処理の定義は一つ」）。Rust の品質ゲートは Fandhe-AI/actions の rust-base-ci reusable
+# workflow（rust-ci ジョブ）に委ねる。ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest）を使う。
 name: CI
@@ -87,6 +87,23 @@ jobs:
       - name: make check
         run: make check
 
+  # Rust ベースライン品質ゲート（fmt / clippy / test / cargo-deny）。ローカルの
+  # `make verify` / `make deny` と同じコマンド集合。reusable 側の集約ジョブは
+  # `rust-ci / rust-base-ci-complete` として報告される。
+  rust-ci:
+    # Fandhe-AI/actions は可変タグ latest（上流 main へ追従）で参照する（組織現行標準。
+    # 兄弟リポジトリ fandhe-db / rust-ai-library と同一）
+    uses: Fandhe-AI/actions/.github/workflows/rust-base-ci.yml@latest
+    permissions:
+      contents: read
+    with:
+      # public リポジトリのため GitHub ホステッド runner を明示指定（組織 runner 方針）
+      runner-label: ubuntu-latest
+      # make deny（scripts/deny.sh）と同一のチェック集合。bans は wgpu 系の混入検出に必要
+      deny-checks: advisories bans licenses sources
+      cache: true
+      cache-key-prefix: fandhe-silicon
+
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
   # PR タイトルは任意文字列のため、${{ }} を run へ直接展開せず env 経由でファイルへ書き出す
@@ -123,6 +140,7 @@ jobs:
     timeout-minutes: 5
     needs:
       - check
+      - rust-ci
       - pr-title
     steps:
       - name: 全ジョブ結果の検証
