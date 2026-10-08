@@ -1,5 +1,5 @@
-# cargo-deny 設定。`make deny`（scripts/deny.sh）と CI（rust-ci → Fandhe-AI/actions の
-# rust-base-ci reusable workflow）が `cargo deny check advisories bans licenses sources` で使う。
+# cargo-deny 設定。`make deny`（scripts/deny.sh。CI の deny ジョブも同じスクリプトを呼ぶ）が
+# `cargo deny check advisories bans licenses sources` で使う。
 # 依存方針（.claude/rules/dependency-policy.md）: 依存最小・wgpu 非依存・`=x.y.z` 完全固定・
 # 追加はユーザー承認制。
 

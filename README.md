@@ -82,7 +82,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 |---|---|---|
 | [GNU Make](https://www.gnu.org/software/make/) 3.81+ | `make` 入口 | ✓ |
 | [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
-| [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) | 依存の監査（`make deny`） | 任意 |
+| [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
@@ -93,7 +93,7 @@ macOS（Homebrew）の例:
 ```bash
 brew install lefthook editorconfig-checker shellcheck direnv rustup
 rustup-init          # 初回のみ。以降は rust-toolchain.toml の版が自動で使われる
-cargo install --locked cargo-deny   # 任意
+cargo install --locked cargo-deny@0.20.2   # 任意
 ```
 
 `make doctor` で導入状況を確認できます（読み取りのみで、何も導入・変更しません）。
@@ -140,11 +140,11 @@ hooks に引っかかった場合は原因を修正してから再コミット�
 
 | ワークフロー | 内容 |
 |---|---|
-| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`rust-ci`: Fandhe-AI/actions の `rust-base-ci` reusable workflow で fmt / clippy / test / cargo-deny を実行する（`make verify` / `make deny` と同じコマンド集合）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`ci-complete`: 全ジョブ結果の集約 |
+| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`ci-complete`: 全ジョブ結果の集約 |
 | `ai-review.yml` | Fandhe-AI/actions の ai-review（codex）による PR 自動レビュー。Actions variable `CODEX_HOME_DIR` が未設定の間は skip される |
 | `update-external.yml` | エージェントスキル（`skills-lock.json`）と submodule（`.gitmodules`）の日次自動追従 PR。secrets は org の `SUBMODULE_PAT` を使う（`SKILLS_PAT` 未登録時は共通側が `SUBMODULE_PAT` へフォールバック）。作成する PR には `dependencies` / `automated` ラベルが付く |
 
-- ruleset の required status checks には `ci-complete`（と ai-review の `codex / *`）を登録する（`rust-ci` の結果は `ci-complete` が集約する）。
+- ruleset の required status checks には `ci-complete`（と ai-review の `codex / *`）を登録する（`verify` / `deny` の結果は `ci-complete` が集約する）。
   ruleset・マージ設定の導入は `setup-repo-guards` スキルの手順に従う
 - CI にジョブを追加したら `ci-complete` の `needs` にも必ず追加する
 

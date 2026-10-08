@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 依存の監査: cargo deny check（advisories / bans / licenses / sources。設定は deny.toml）。
-# CI の rust-ci（deny-checks）と同じチェック集合をローカルで実行する。
+# CI の deny ジョブも本スクリプトを呼ぶ（チェック内容の定義はここにのみ置く）。
 # 呼び出し元: `make deny`。cargo-deny が無い場合は未検査で成功にせず失敗させる。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
