@@ -27,6 +27,7 @@
 3. 検証（test-runner → 失敗があれば builder へ差し戻し。性能影響がある変更は bench-runner）
 4. レビュー（reviewer / security-auditor。unsafe・FFI を含む変更は security-auditor 必須）
 5. コミット（create-commit スキル。Conventional Commits・`--no-verify` 禁止）
+6. PR 作成（create-pr スキル）の直後に `gh pr comment <PR 番号> --body '@cursor review'` を投稿し、Cursor Bugbot のレビューを起動する。指摘への修正を push した後も同じコメントを再投稿する（Bugbot はこのコメントで起動するため、投稿しないと pending のまま残る）
 
 ## 注意
 

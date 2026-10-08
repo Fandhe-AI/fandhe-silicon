@@ -153,6 +153,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 - **CI**: ジョブを追加したら `ci.yml` の `ci-complete` の `needs` に必ず追加する
 - **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。`*.rs` は 4 スペース、staged の `*.rs` は pre-commit で `rustfmt --check`
 - **セキュリティレビュー**: PR 作成前に OWASP Top 10・秘密情報・spec 漏えいを確認（[security](.claude/rules/security.md)）
+- **Cursor Bugbot**: PR 作成直後と修正 push 後に `gh pr comment <N> --body '@cursor review'` を投稿する（[delegation-impl](.claude/rules/delegation-impl.md) の実装フロー 6）
 - **ユーザー承認フロー**: implement-issue は計画承認後に実装。依存追加・Issue 起票・スコープ外対応はユーザー承認を経る
 
 ## hooks（settings.json）
