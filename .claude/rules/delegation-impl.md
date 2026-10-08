@@ -8,17 +8,17 @@
 
 | 対象パス・内容 | 委譲先 Agent | model |
 | -------------- | ------------ | ----- |
-| backend 非依存の共通 API（device・メモリ・実行・同期・能力問合せ・診断の trait / 型 / CPU 実装） | core-builder | sonnet |
-| Metal / Vulkan / CUDA の背後実装・FFI バインディング・シェーダ / カーネル | backend-builder | sonnet |
-| `scripts/`・`Makefile`・`lefthook.yml`・`.github/workflows/`・`.editorconfig` | core-builder（小規模なら main 直接可） | sonnet |
-| テスト実行・失敗解析（`cargo test` / `cargo clippy` / `make check`） | test-runner | sonnet |
+| `crates/core/`（共通型）・`crates/exec/`（下-2: 共通操作・代わりの実行）・`crates/upper/`（上: wgpu 風の層） | core-builder | sonnet |
+| `crates/contract/`（下-1: Metal / Vulkan / CUDA の背後実装・FFI・シェーダ / カーネル・CPU ISA） | backend-builder | sonnet |
+| `scripts/`・`Makefile`・`lefthook.yml`・`.github/workflows/`・`.editorconfig`・`deny.toml` | core-builder（小規模なら main 直接可） | sonnet |
+| テスト実行・失敗解析（`make verify` / `make deny` / `make check`） | test-runner | sonnet |
 | ベンチマーク計測・性能回帰検出 | bench-runner | sonnet |
 | コードレビュー | reviewer | sonnet |
 | セキュリティ監査（unsafe / FFI 境界・秘密情報・spec 漏えい） | security-auditor | sonnet |
 | lint・整形の機械的確認 | linter | haiku |
 | README・CLAUDE.md・ドキュメント更新 | docs-writer | haiku |
 
-※ クレート構成は未確定。`crates/` 導入時に「対象パス」列を実際のクレートパスへ更新する。
+※ crate 構成は spec D-33 対応の暫定構成。構成を変えたら本表も更新する。
 
 ## 実装フローの標準形
 

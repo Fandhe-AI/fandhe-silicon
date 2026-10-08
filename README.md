@@ -5,7 +5,7 @@ fandhe-ai・vector-db・fandhe-3d で共用する、独立した低レイヤー�
 Metal・Vulkan・CUDA を背後実装とし、wgpu を依存関係から外せる状態を目指します。
 
 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) から作成しています。
-言語固有の設定・実装は、実装着手の指示後にタスクに沿って追加します。
+実装言語は Rust（edition 2024・stable）で、現在は workspace と crate の骨格（空の公開面・依存なし）のみです。
 
 ## 仕様（`docs/spec`）
 
@@ -26,13 +26,45 @@ git -c submodule.docs/spec.update=checkout submodule update --init docs/spec
 
 MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE-MIT) / [LICENSE-APACHE](./LICENSE-APACHE)）。
 
+## crate 構成
+
+3 段（下-1・下-2・上）と、3 段で受け渡す型を置く共通 crate の 4 crate 構成です。
+公開名・crates.io への公開は未定のため、全 crate を `publish = false` としています。
+
+| パス | crate | 役割 |
+|---|---|---|
+| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない |
+| `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ |
+| `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する |
+| `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]` |
+
+依存の向きは `contract → core` / `exec → core` / `upper → core, exec` です。
+`unsafe` と FFI は `contract` の backend モジュールに閉じ込め、それ以外の crate は `#![forbid(unsafe_code)]` です。
+
+`fandhe-silicon-contract` の feature:
+
+| feature | 既定 | 内容 |
+|---|---|---|
+| `contract-core`・`cpu-isa`・`cpu-ops` | ✓ | CPU のみの構成 |
+| `backend-metal`・`backend-vulkan`・`backend-cuda` | | 各 GPU の背後実装 |
+| `graphics`・`ext-interop`・`native-blocking-wait` | | 描画・外部 API との相互運用・ブロッキング待機 |
+| `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない） |
+
+wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `deny.toml` で依存グラフへの混入を禁止しています。
+
 ## 構成
 
 | パス | 役割 |
 |---|---|
+| `crates/` | Rust の crate（前述の「crate 構成」） |
+| `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
+| `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |
+| `deny.toml` | cargo-deny の設定（アドバイザリ・ライセンス・取得元・wgpu 系の禁止） |
+| `CLAUDE.md`・`.claude/agents/`・`.claude/rules/`・`.claude/settings.json` | Claude Code 用のリポジトリ案内・subagent 定義・規約・hooks |
+| `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
-| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check`）。Make なしでも直接実行できる |
+| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `deny`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
 | `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
@@ -49,6 +81,8 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | ツール | 用途 | 必須 |
 |---|---|---|
 | [GNU Make](https://www.gnu.org/software/make/) 3.81+ | `make` 入口 | ✓ |
+| [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
+| [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
@@ -57,7 +91,9 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 macOS（Homebrew）の例:
 
 ```bash
-brew install lefthook editorconfig-checker shellcheck direnv
+brew install lefthook editorconfig-checker shellcheck direnv rustup
+rustup-init          # 初回のみ。以降は rust-toolchain.toml の版が自動で使われる
+cargo install --locked cargo-deny@0.20.2   # 任意
 ```
 
 `make doctor` で導入状況を確認できます（読み取りのみで、何も導入・変更しません）。
@@ -80,6 +116,10 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make doctor` | `scripts/doctor.sh` | 開発環境を診断する |
 | `make setup` | `scripts/setup.sh` | Git hooks 有効化と `.env` 雛形の配置 |
 | `make check` | `scripts/check.sh` | editorconfig-checker + shellcheck（ソースは変更しない） |
+| `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない） |
+| `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources） |
+
+整形は `cargo fmt --all` で行います（`make verify` は差分の検出のみ）。
 
 ## Git hooks
 
@@ -90,6 +130,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
     保守的なヒューリスティックであり、網羅的なスキャナの代替ではありません
   - staged ファイルの editorconfig-checker
   - staged の `*.sh` に対する shellcheck
+  - staged の `*.rs` に対する `rustfmt --check`
 - **commit-msg**: [Conventional Commits](https://www.conventionalcommits.org/ja/) 形式の検証
   （`<type>[(<scope>)][!]: <要約>`、type は `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci` `chore` `revert`）
 
@@ -99,11 +140,11 @@ hooks に引っかかった場合は原因を修正してから再コミット�
 
 | ワークフロー | 内容 |
 |---|---|
-| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`ci-complete`: 全ジョブ結果の集約 |
+| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`ci-complete`: 全ジョブ結果の集約 |
 | `ai-review.yml` | Fandhe-AI/actions の ai-review（codex）による PR 自動レビュー。Actions variable `CODEX_HOME_DIR` が未設定の間は skip される |
 | `update-external.yml` | エージェントスキル（`skills-lock.json`）と submodule（`.gitmodules`）の日次自動追従 PR。secrets は org の `SUBMODULE_PAT` を使う（`SKILLS_PAT` 未登録時は共通側が `SUBMODULE_PAT` へフォールバック）。作成する PR には `dependencies` / `automated` ラベルが付く |
 
-- ruleset の required status checks には `ci-complete`（と ai-review の `codex / *`）を登録する。
+- ruleset の required status checks には `ci-complete`（と ai-review の `codex / *`）を登録する（`verify` / `deny` の結果は `ci-complete` が集約する）。
   ruleset・マージ設定の導入は `setup-repo-guards` スキルの手順に従う
 - CI にジョブを追加したら `ci-complete` の `needs` にも必ず追加する
 

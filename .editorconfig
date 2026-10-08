@@ -16,6 +16,10 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
+# Rust は rustfmt の既定（4 スペース）に合わせる
+[*.rs]
+indent_size = 4
+
 # Markdown は行末スペース 2 つが強制改行の意味を持つため除去しない
 [*.md]
 trim_trailing_whitespace = false

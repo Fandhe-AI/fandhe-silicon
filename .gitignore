@@ -18,6 +18,9 @@
 # Claude Code の個人設定（共有設定は .claude/settings.json に置く）
 /.claude/settings.local.json
 
+# Rust のビルド成果物
+/target/
+
 # OS
 .DS_Store
 Thumbs.db

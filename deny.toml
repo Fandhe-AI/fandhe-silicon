@@ -1,0 +1,54 @@
+# cargo-deny 設定。`make deny`（scripts/deny.sh。CI の deny ジョブも同じスクリプトを呼ぶ）が
+# `cargo deny check advisories bans licenses sources` で使う。
+# 依存方針（.claude/rules/dependency-policy.md）: 依存最小・wgpu 非依存・`=x.y.z` 完全固定・
+# 追加はユーザー承認制。
+
+[graph]
+# backend-* 等の optional な依存も監査対象に含める（既定 feature だけを見ると漏れるため）
+all-features = true
+
+[advisories]
+# RUSTSEC アドバイザリ監査。ignore へ ID を追加する場合は理由と追跡 Issue をコメントで残す。
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+include-dev = true
+# 本リポは MIT OR Apache-2.0。互換な permissive ライセンスのみ許可し、
+# コピーレフト（GPL / LGPL / MPL 等）は列挙しないことで fail-closed に検出する。
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.8
+# allow は互換 permissive の代表集合を事前許可しているため、未使用の許可は警告しない
+unused-allowed-license = "allow"
+
+[sources]
+# git 依存・代替レジストリの混入を fail-closed で検出する（crates.io 由来のみ許可）
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[bans]
+multiple-versions = "warn"
+# バージョン無指定（`*`）の依存宣言を拒否する（`=x.y.z` 完全固定方針）。
+# workspace 内の path 依存（publish = false）だけは対象外とする。
+wildcards = "deny"
+allow-wildcard-paths = true
+# wgpu 系・naga を依存グラフに入れない（spec D-18。比較用の wgpu は基盤外の別 workspace に置く）
+deny = [
+    { name = "wgpu" },
+    { name = "wgpu-core" },
+    { name = "wgpu-hal" },
+    { name = "wgpu-types" },
+    { name = "naga" },
+]

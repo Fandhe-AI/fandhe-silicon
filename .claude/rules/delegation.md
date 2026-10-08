@@ -10,7 +10,7 @@ main が直接ファイルを読むのは、委譲結果の確認や小さなピ
 
 | 対象パス・内容 | 委譲先 Agent | model |
 | -------------- | ------------ | ----- |
-| `crates/` 配下（導入後）のコード調査・構造把握・影響範囲 | explorer | sonnet |
+| `crates/`（core / contract / exec / upper）のコード調査・構造把握・影響範囲 | explorer | sonnet |
 | `scripts/`・`Makefile`・`lefthook.yml`・`.github/workflows/` の構造把握 | explorer | sonnet |
 | `docs/spec/`（private submodule）のタスク・ビヘイビア参照 | explorer（ポインタ表記で報告） | sonnet |
 | Metal / Vulkan / CUDA / MSL / PTX 等の外部 API・仕様 | reference-researcher | sonnet |
@@ -18,7 +18,7 @@ main が直接ファイルを読むのは、委譲結果の確認や小さなピ
 | 依存候補クレート（FFI バインディング等）の調査 | reference-researcher | sonnet |
 | lint・フォーマット状況の確認 | linter | haiku |
 
-※ クレート構成は未確定。`crates/` 導入時に本表を実際のクレート単位へ更新する。
+※ crate 構成は spec D-33 の 3 段 + 共通 crate に対応する暫定構成（公開名・下-1 のチップ別分割は未決）。構成を変えたら本表も更新する。
 
 ## 参照スキル
 

@@ -2,8 +2,8 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。言語固有のジョブ（fmt / lint / test / build 等）は派生リポジトリで
-# 本ファイルへ追加し、必ず ci-complete の needs にも追加すること。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` を呼ぶ。
+# ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest）を使う。
 name: CI
@@ -28,6 +28,9 @@ env:
   EDITORCONFIG_CHECKER_SHA256: "cd32084fce5f3d49ba49697f362ac3a114989715c98819303247dd54c1f368b0"
   SHELLCHECK_VERSION: "0.11.0"
   SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+  # cargo-deny（x86_64-unknown-linux-musl のリリース資産。実測とリリース API の digest の一致を確認: 2026-10-09）
+  CARGO_DENY_VERSION: "0.20.2"
+  CARGO_DENY_SHA256: "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
 
 jobs:
   check:
@@ -87,6 +90,74 @@ jobs:
       - name: make check
         run: make check
 
+  # Rust の品質ゲート。ローカルの `make verify`（scripts/verify.sh: fmt --check / clippy
+  # -D warnings / test）をそのまま実行し、チェック内容の定義を scripts/ に一本化する。
+  # toolchain は rust-toolchain.toml を単一真実源とし、ホステッド runner 同梱の rustup で導入する。
+  verify:
+    name: "make verify (fmt + clippy + test)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        # 引数なしの `rustup toolchain install` は rust-toolchain.toml の toolchain を導入する
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: make verify
+        run: make verify
+
+  # 依存の監査。ローカルの `make deny`（scripts/deny.sh）をそのまま実行する。
+  # cargo-deny はバージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する（check ジョブと同方針）。
+  deny:
+    name: "make deny (cargo-deny)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: Install pinned cargo-deny
+        run: |
+          set -euo pipefail
+          bin_dir="${RUNNER_TEMP}/cargo-deny/bin"
+          work_dir="${RUNNER_TEMP}/cargo-deny/work"
+          mkdir -p "${bin_dir}" "${work_dir}"
+          cd "${work_dir}"
+
+          name="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl"
+          curl -fsSLo "${name}.tar.gz" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${name}.tar.gz"
+          echo "${CARGO_DENY_SHA256}  ${name}.tar.gz" | sha256sum -c -
+          tar -xzf "${name}.tar.gz" "${name}/cargo-deny"
+          install -m 0755 "${name}/cargo-deny" "${bin_dir}/cargo-deny"
+
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+      - name: Show cargo-deny version
+        # pin 版が PATH 上で優先されていることを確認する（不一致は失敗させる）
+        run: |
+          set -euo pipefail
+          actual="$(cargo-deny --version | awk '{print $2}')"
+          [ "${actual}" = "${CARGO_DENY_VERSION}" ] || { echo "::error::cargo-deny ${actual} != ${CARGO_DENY_VERSION}"; exit 1; }
+
+      - name: make deny
+        run: make deny
+
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
   # PR タイトルは任意文字列のため、${{ }} を run へ直接展開せず env 経由でファイルへ書き出す
@@ -123,6 +194,8 @@ jobs:
     timeout-minutes: 5
     needs:
       - check
+      - verify
+      - deny
       - pr-title
     steps:
       - name: 全ジョブ結果の検証

@@ -12,7 +12,7 @@ tools: [Bash, Read]
 ## 役割
 
 - `make check`（editorconfig-checker + shellcheck）の実行
-- `cargo fmt --check`・`cargo clippy` の実行と結果集計（Rust 導入後）
+- `cargo fmt --check`・`cargo clippy` の実行と結果集計（`make verify`）
 - `scripts/hooks/commit-msg-check.sh` によるコミットメッセージ / PR タイトル形式の検証
 
 ## 制約

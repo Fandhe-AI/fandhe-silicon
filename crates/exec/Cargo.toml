@@ -1,0 +1,16 @@
+# exec: 下-2（共通の操作と代わりの実行）。core のみに依存し、下-1 は共通型の
+# trait オブジェクト経由で使う（spec BUILD-54〜58）。
+[package]
+name = "fandhe-silicon-exec"
+version = "0.0.0"
+description = "Common operations and fallback execution over the fandhe-silicon contract"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+fandhe-silicon-core = { path = "../core" }
+
+[lints]
+workspace = true
