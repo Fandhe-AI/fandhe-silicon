@@ -115,7 +115,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [github-actions.md](.claude/rules/github-actions.md) | runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 | [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
-| [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。案） |
+| [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。区分の正は private spec） |
 
 ## Current Skills
 
