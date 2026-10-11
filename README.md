@@ -74,6 +74,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.mcp.json` | Claude Code のプロジェクト共有 MCP サーバー定義（ベースは空） |
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い） |
+| `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式（案） |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
