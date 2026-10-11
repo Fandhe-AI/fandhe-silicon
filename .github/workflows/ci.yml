@@ -141,7 +141,8 @@ jobs:
       - name: make verify
         run: make verify
 
-      - name: make build-profiles
+      # verify ジョブ名（必須チェック名）は維持したまま、feature の組ごとの検査をここで追加実行する
+      - name: make build-profiles (feature 組ごとの build / clippy / test + wasm32 check)
         run: make build-profiles
 
   # 依存の監査。ローカルの `make deny`（scripts/deny.sh）をそのまま実行する。
