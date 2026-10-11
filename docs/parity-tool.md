@@ -47,13 +47,13 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D1 | PoC からの持ち込みか書き直しか | PoC のファイルは複製せず、本リポの規約で新しく書く。記録・入力・生成物を写さない | TASK-6 の決定の記録、[poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
 | D2 | 依存・unsafe | 標準ライブラリだけで書く。外部依存は 0（承認フローに乗る依存は無い）。`unsafe` を使わない | [dependency-policy](../.claude/rules/dependency-policy.md)、[coding-rust](../.claude/rules/coding-rust.md) |
 | D3 | 背後実装への非依存 | 入力はホスト側に読み戻した値のスライスだけ。背後実装の型・ハンドル・device を引数に取らない。`backend-*` feature や target の `cfg` で分けない（wasm32 でもビルドできる書き方） | TASK-24 の完了の条件、`scripts/build-profiles.sh` |
-| D4 | 閾値の設定 | 閾値を持つ公開の値の型を 1 つ置き、spec の文言どおりの組を 1 つだけ公開する。値は読み取りのアクセサで比べを実行せずに公開テストから読める。比べの関数は設定を引数に取る。値を変える公開の構築手段は置かない。値そのものは本書に書かない | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2 |
+| D4 | 閾値の設定 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
 | D5 | 適用の範囲 | 道具は比べるだけで、どの範囲に当てるか・承認の有無を表す API を持たない | TASK-53（#196） |
 | D6 | TASK-23 の枠との接続 | 道具は背後実装に依らない素の結果の型を返す。試験のラベルの語彙は TASK-23 の持ち物で、道具はその名前を定義も公開もしない。素の結果からラベルへの対応づけは TASK-23 の側が行う。依存の向きは「枠・試験 → 道具」の一方向 | TASK-23（#91） |
-| D7 | TASK-25 の受け口 | 数値の一致（T-1）は要素ごとに「分類 → 判定」の 2 段に分ける。分類は TASK-24 が持ち、通常の有限値だけを判定に回す。それ以外（非有限の値、相対誤差が定義できない要素）は一致に数えず「判定しなかった要素」として区別して返す（fail-closed）。その要素の規則は TASK-25 が足す | TASK-25（#109）、PARITY-2〜PARITY-5 |
-| D8 | T-1 の比べの形 | 参照と被検の 2 列を役割を分けて受け取る（対称ではない）。要素ごとに判定する。長さの不一致は `Err` | PARITY-1 |
-| D9 | T-2 の比べの形 | 2 つの順位付きの結果の列を位置ごとに比べる。比較先は呼び出し側が渡すので、どの経路を比較先にするかは道具の形に影響しない | PARITY-6、`docs/spec/02-poc-plan.md` の T-2 |
-| D10 | CPU 参照の形 | trait を実装しない自由関数（スライスを受けて結果を書く）。検証専用とし、製品の CPU 演算の型・`cpu-ops` の中身を先取りしない。T-2 の参照の順序づけは T-2 の定義の一部なので TASK-24 が持ち、TASK-25 へ送らない（D7 の「判定しなかった要素」は T-1 だけの話） | TASK-1350・TASK-1378・CPU-27、`docs/spec/02-poc-plan.md` の T-2 |
+| D7 | T-1 の要素の分類 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-25（#109）、PARITY-2〜PARITY-5（ポインタのみ） |
+| D8 | T-1 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-1（ポインタのみ） |
+| D9 | T-2 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-6、`docs/spec/02-poc-plan.md` の T-2（ポインタのみ） |
+| D10 | CPU 参照の形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-1350・TASK-1378・CPU-27（ポインタのみ） |
 | D11 | 結果とエラー | 結果の型は素の結果（全体が一致したか、不一致の件数、判定しなかった要素の件数、最初の不一致の位置、誤差の最大値）を持つ。これは試験のラベルではない（D6）。入力の不備は `Result` の `Err`（panic しない。メッセージは英語）。要素数の計算は `checked_*` | [coding-rust](../.claude/rules/coding-rust.md)、[security](../.claude/rules/security.md)、[japanese-style](../.claude/rules/japanese-style.md) |
 | D12 | 走る場所 | `make verify` の `cargo test`。GPU の実機は要らず GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない | [unsafe-policy](unsafe-policy.md) と同じ考え方 |
 
