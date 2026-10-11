@@ -6,8 +6,7 @@
 ## 製品 workspace の構成
 
 - `members` は `crates/core`・`crates/contract`・`crates/exec`・`crates/upper` の 4 つ（正はルート `Cargo.toml`）
-- member を増やせるのは、private spec の TASK-1 の決定の記録にある crate だけ（`docs/spec/05-tasks.md`）
-- 測定専用の crate・ハーネスは member にしない。本リポの中の別 workspace に置く（比較基準の workspace とも別にする。TASK-6 のポインタ）
+- member の増減と、測定専用の crate・ハーネスの置き場は、private spec の TASK-1・TASK-6 の決定の記録に従う（`docs/spec/05-tasks.md`。本リポには内容を転記しない）
 - これ以外の workspace のコードを、member や path 依存として加えない
 
 ## 依存グラフから外すもの

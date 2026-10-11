@@ -34,8 +34,7 @@ private spec の TASK-6（`docs/spec/05-tasks.md`。関連: AP-4・AC-2）を前
 
 - 製品の crate は、測定専用の crate・ハーネスに依存しない。向きは「測定 → 製品の公開 API」の一方向だけにする（TASK-15 の検査のポインタ）
 - 比較用の wgpu を使うコードは基盤外の別 workspace に置く（`deny.toml` に記載済みの方針。TASK-7）
-- 測定専用の crate・ハーネスは製品の workspace の member にしない。本リポの中の別 workspace に置く（比較基準の workspace とも別にする）
-- PoC の上の層の試作は持ち込まない。測定や照合に使う層が要る場合は、製品の crate の公開 API の上に書き直し、測定専用の置き場に置く（TASK-6 のポインタ。関連: TASK-1050・TASK-1022）
+- 測定専用の crate の置き場と、上の層の試作の扱いは、TASK-6 の決定の記録に従う（本規約には内容を書かない。関連: TASK-15・TASK-1050・TASK-1022・TASK-1354・TASK-1356）
 
 ## 対象の外
 
