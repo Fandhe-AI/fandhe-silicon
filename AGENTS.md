@@ -46,7 +46,7 @@ P0 と P1 はいずれも codex ジョブを失敗させる（マージ前に解
   （`undocumented_unsafe_blocks`・`missing_safety_doc`・`unsafe_op_in_unsafe_fn`）の緩和は P1
 - **依存とサプライチェーン（P0/P1）**: wgpu・wgpu-core・wgpu-hal・wgpu-types・naga の
   （推移的依存を含む）混入、`deny.toml` の `[bans] deny`・`[sources]` の緩和は P0。
-  ユーザー承認の記録が無い依存追加・`=x.y.z` 完全固定でないバージョン指定・
+  ユーザー承認の記録（`deps-approved.toml`。`approval_ref` の先に明示の承認があるかをレビューで確かめる）が無い依存追加・`=x.y.z` 完全固定でないバージョン指定・
   コピーレフトライセンスの許可追加・`[advisories] ignore` への理由なき追加は P1
 - **CI の権限・トリガー（P0/P1）**: `pull_request_target` 等の fork PR へ secrets を露出する
   トリガー追加は P0。`permissions` の過剰付与、第三者 action の SHA 固定除去、

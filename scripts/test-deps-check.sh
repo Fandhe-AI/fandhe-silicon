@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# deps-check.sh の回帰テスト: Cargo が読む祖先・CARGO_HOME の設定の [patch] を拒否することを確かめる。
+# deps-check.sh の回帰テスト: Cargo が読む祖先・CARGO_HOME の設定の [patch] の拒否と、
+# 承認の記録（deps-approved.toml）の最小ケースを確かめる。
 # 呼び出し元: 手動（`scripts/test-deps-check.sh`）。CI への組み込みは別 Issue。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +21,8 @@ edition = "2024"
 T
 : > "${work}/ws/crates/core/src/lib.rs"
 (cd "${work}/ws" && cargo generate-lockfile --offline > /dev/null 2>&1)
+# 承認の記録は workspace ルート直下の deps-approved.toml（空の記録 = 外部依存 0 件の承認）。
+: > "${work}/ws/deps-approved.toml"
 
 fail=0
 # expect <説明> <期待する終了コード>: メンバー crate の cwd から deps-check を実行して終了コードを比べる。
@@ -44,5 +47,39 @@ rm -rf "${work}/.cargo"
 printf '[patch.crates-io]\nfoo = { path = "x" }\n' > "${work}/home/config.toml"
 expect "CARGO_HOME config [patch] is rejected" 1
 rm -f "${work}/home/config.toml"
+
+# 承認の記録の最小ケース（網羅的な回帰テストは別 Issue）。依存名はダミーで、manifest だけ読むので実在不要。
+# Cargo.lock は外部依存の宣言と食い違うため、これ以降は消して検査する。
+rm -f "${work}/ws/Cargo.lock"
+printf '[dependencies]\nexample-ext = "=1.0.0"\n' >> "${work}/ws/crates/core/Cargo.toml"
+expect "pinned external dependency without approval record is rejected" 1
+
+cat > "${work}/ws/deps-approved.toml" <<'T'
+[[approval]]
+name = "example-ext"
+version = "=1.0.0"
+used_by = ["fixture-core"]
+approved_on = "2000-01-01"
+approval_ref = "#0"
+purpose = "fixture"
+T
+expect "matching approval record passes" 0
+
+# sed -i は GNU / BSD で suffix の扱いが違うため、suffix 付きで書いてから消す（macOS でも動かす）。
+sed -i.bak 's/"=1.0.0"/"=2.0.0"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
+expect "approval record with a different version is rejected" 1
+
+sed -i.bak 's/"=2.0.0"/"=1.0.0"/; s/"fixture-core"/"other-member"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
+expect "approval record whose used_by lacks the declaring member is rejected" 1
+
+sed -i.bak 's/"other-member"/"fixture-core"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
+printf '[package]\nname = "fixture-core"\nversion = "0.0.0"\nedition = "2024"\n' > "${work}/ws/crates/core/Cargo.toml"
+expect "unused approval record is rejected" 1
+
+rm -f "${work}/ws/deps-approved.toml"
+expect "missing approval record file is rejected" 1
 
 exit "${fail}"

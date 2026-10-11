@@ -38,7 +38,7 @@ build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の 
 deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
 	@scripts/deny.sh
 
-deps-check: ## 依存の版指定が =x.y.z の完全固定かを検査する（cargo metadata + jq。ソースは変更しない）。直接: scripts/deps-check.sh
+deps-check: ## 依存の版指定が =x.y.z の完全固定で、承認の記録（deps-approved.toml）と一致するかを検査する（cargo metadata + jq。ソースは変更しない）。直接: scripts/deps-check.sh
 	@scripts/deps-check.sh
 
 test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh
