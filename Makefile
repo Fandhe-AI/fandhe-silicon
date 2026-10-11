@@ -44,7 +44,7 @@ deps-check: ## 依存の版指定が =x.y.z の完全固定で、承認の記録
 test-deps-check: ## scripts/deps-check.sh 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3。ネットワーク不要）。直接: scripts/test-deps-check.sh
 	@scripts/test-deps-check.sh
 
-inventory-trace-check: ## 一覧の鍵が項目ファイルに現れるかを検査する（要 private submodule の取得。CI では実行しない。ソースは変更しない）。直接: scripts/inventory-trace-check.sh
+inventory-trace-check: ## 一覧の鍵が項目ファイルに現れるかを検査する（ファイル単位。行単位は直接実行で --item-rows。要 private submodule の取得。CI では実行しない。ソースは変更しない）。直接: scripts/inventory-trace-check.sh
 	@scripts/inventory-trace-check.sh
 
 test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh

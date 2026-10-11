@@ -138,7 +138,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 |
 | `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定で、承認の記録（`deps-approved.toml`）と一致するかを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
-| `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
+| `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
 | `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
 
 整形は `cargo fmt --all` で行います（`make verify` は差分の検出のみ）。
