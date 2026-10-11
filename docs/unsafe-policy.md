@@ -1,6 +1,6 @@
 # `unsafe` の局所化・不変条件の書式・個数テストの枠の形
 
-`unsafe` を置ける場所、`// SAFETY:` に書く内容、背後実装ごとの `unsafe` の個数テストの枠の形、個数が変わるときの手順を記録する。
+`unsafe` を置ける場所、`// SAFETY:` に書く内容、背後実装ごとの `unsafe` の個数テストの枠の形、個数が変わるときの手順、完了の条件の確かめを記録する。
 ポインタ: TASK-9（`docs/spec/05-tasks.md`）・AP-8。
 
 - 本書は案である。オーナーの確認を経るまで、確定した方針として扱わない。
@@ -165,7 +165,32 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | `lib.rs` の `deny` / `allow` の指定、数える道具、背後実装ごとのテストファイルの実装、`unsafe impl` の確認 | #52（実装済み。論点 1・2 は未承認の仮置き） |
 | 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト（入口は `common` の `strip_comments_and_literals`・`count_unsafe`・`compare_counts`） | #53（実装済み） |
 | 個数が変わるときの承認の手順書 | #54（本書の「個数が変わるときの扱い」に案を記載。論点 4 は判断待ち） |
-| 完了の条件の確かめの記録。書式の確定後に `.claude/rules/coding-rust.md`・`AGENTS.md` から本書を参照する | #55 |
+| 完了の条件の確かめの記録 | #55（本書の「完了の条件の確かめ」に記録済み） |
+| `.claude/rules/coding-rust.md`・`AGENTS.md` から本書を参照する | 未実施（書式の確定後。オーナーの確認待ち） |
+
+## 完了の条件の確かめ
+
+本リポで観測できる事実による確かめの記録（ポインタ: TASK-9・AP-8）。
+spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
+実物を変える確かめは、コミットしない一時コピーで行った（本リポに `unsafe` を足していない）。
+
+| 確かめる項目 | 方法 | 現時点の結果 |
+| ------------ | ---- | ------------ |
+| 背後実装ごとに個数テストがある | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `common` の `BACKENDS` の登録 | 3 背後実装とも有り |
+| 個数テストがどの feature の組でも走る | `make verify`、`make build-profiles` | 通過 |
+| 数える道具が増減を数え、食い違いで失敗する | `cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples` | 通過 |
+| 実物の `unsafe` を 1 つ足すと、その背後実装の個数テストが失敗する | 一時コピーで `src/backend_<名前>.rs` に足し、`cargo test -p fandhe-silicon-contract --test backend_<名前>_unsafe_count` | 3 背後実装とも失敗（`expected` と `actual` の食い違い）。戻すと通過 |
+| 期待値が実際と 1 ずれると失敗する | 一時コピーで表の `expected` を 1 ずらす | 3 背後実装とも失敗。戻すと通過 |
+| `backend_<名前>/` 配下の表に無い `.rs` で失敗する | 一時コピーで `.rs` を 1 つ足す | 3 背後実装とも失敗（`not listed in the expected table`） |
+| backend 以外に `unsafe` を書くとビルドが失敗する | 一時コピーで `src/lib.rs` に足し、`cargo build -p fandhe-silicon-contract` | 失敗（`deny(unsafe_code)`） |
+| `core`・`exec`・`upper` の `#![forbid(unsafe_code)]` | 各 `src/lib.rs` の宣言 | 3 crate とも有り |
+| 不変条件の記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` の deny 3 件。書式の中身は本書「不変条件の書式」（案） | 有り（書式は案） |
+| 個数が変わるときの手順 | 本書「個数が変わるときの扱い」（案） | 記載済み（論点 4 は判断待ち） |
+| 品質ゲート | `make check`、`make deny` | 通過 |
+
+- 判定: 本リポで観測できる範囲では、背後実装ごとに個数テストが動き、増減で失敗することを確かめた。**TASK-9 の完了は本書では宣言しない**（spec との対応づけと論点 1・2・4 はオーナーの確認・判断待ち）
+- 再実行の契機: 論点 1・2・4 への回答、背後実装の追加、数える道具の変更、期待値を 0 から変える最初の PR
+- 確かめた日付: 2026-10-11（base: ad22662）
 
 ## 関連
 
