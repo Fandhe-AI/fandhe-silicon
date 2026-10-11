@@ -47,6 +47,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 |---|---|---|
 | `contract-core`・`cpu-isa`・`cpu-ops` | ✓ | CPU のみの構成 |
 | `backend-metal`・`backend-vulkan`・`backend-cuda` | | 各 GPU の背後実装。いずれも `contract-core` を有効にする（`--no-default-features` でも共通契約の入口は含まれる）。`backend-vulkan`・`backend-cuda` は `wasm32` では有効にならない |
+| `backend-dx12-compute` | | DX12 の compute の背後実装の置き場（名前は仮）。現時点で中身はなく、既定では無効。`contract-core` を有効にする |
 | `graphics`・`ext-interop`・`native-blocking-wait` | | 描画・外部 API との相互運用・ブロッキング待機 |
 | `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない）。`artifact-inspection` は `backend-metal`（したがって `contract-core`）も有効にするため、`--no-default-features` でこの feature だけを選んでも Metal の背後実装と共通契約の入口が含まれる |
 

@@ -34,7 +34,7 @@ fandhe-silicon/
 │   └── settings.json         # SessionStart / PostToolUse hooks
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし）
-│   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature）
+│   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
