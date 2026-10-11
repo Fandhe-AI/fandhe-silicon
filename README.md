@@ -33,7 +33,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 
 | パス | crate | 役割 |
 |---|---|---|
-| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない |
+| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。feature `test-support` の裏に検証用の道具（`parity`）がある |
 | `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ |
 | `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]` |
@@ -49,7 +49,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | `backend-metal`・`backend-vulkan`・`backend-cuda` | | 各 GPU の背後実装。いずれも `contract-core` を有効にする（`--no-default-features` でも共通契約の入口は含まれる）。`backend-vulkan`・`backend-cuda` は `wasm32` では有効にならない |
 | `backend-dx12-compute` | | DX12 の compute の背後実装の置き場（名前は仮）。現時点で中身はなく、既定では無効。`contract-core` を有効にする |
 | `graphics`・`ext-interop`・`native-blocking-wait` | | 描画・外部 API との相互運用・ブロッキング待機 |
-| `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない）。`artifact-inspection` は `backend-metal`（したがって `contract-core`）も有効にするため、`--no-default-features` でこの feature だけを選んでも Metal の背後実装と共通契約の入口が含まれる |
+| `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない）。`test-support` は `core` の同名 feature（検証用の道具）へ転送する。`artifact-inspection` は `backend-metal`（したがって `contract-core`）も有効にするため、`--no-default-features` でこの feature だけを選んでも Metal の背後実装と共通契約の入口が含まれる |
 
 wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `deny.toml` で依存グラフへの混入を禁止しています。
 
@@ -78,7 +78,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式（案） |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
-| `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の現状と前提・形（案） |
+| `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の現状と前提・形（案）。置き場の骨格と CPU 参照は未承認の仮置き |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形（TASK-9。案） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提 |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
