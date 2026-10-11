@@ -5,7 +5,7 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-25 を参照する（ポインタのみ）。
 本書は現状の挙動だけを書き、あるべき規則との差は書かない。「着手時点の事実」は着手時点の記録として残し、書き換えない。
-後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記する。3/4（#112）ではテストを足した（「テストの現状（3/4）」）。
+後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記した。3/4（#112）ではテストを足した（「テストの現状（3/4）」）。4/4（#113）では本リポで観測できる事実による確かめを記録した（「完了の条件の確かめ」）。TASK-25 の完了は本書では宣言しない。
 
 ## 前提タスクの状態
 
@@ -43,7 +43,7 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | TASK-24 | #100 | CLOSED（完了は宣言されていない） | `parity` の置き場・feature は未承認の仮置き。TASK-25 の側で確定扱いにしない |
 | TASK-23 | #91 | OPEN | 本書では触れない |
 | TASK-53 | #196 | OPEN | 本書では触れない |
-| TASK-26 | #114 | OPEN | `parity` 配下に新しいファイルを足しうる並行のタスク（[pixel-parity-tool](pixel-parity-tool.md) の D9）。`parity.rs` の `pub mod` の行で衝突しうる |
+| TASK-26 | #114 | OPEN（実行時点） | `parity` 配下に新しいファイルを足しうる並行のタスク（[pixel-parity-tool](pixel-parity-tool.md) の D9）。`parity.rs` の `pub mod` の行で衝突しうる |
 | TASK-6 | #35 | CLOSED | 持ち込む・除くの区分は決定の記録（private spec）に従う。[poc-carry-over](../.claude/rules/poc-carry-over.md) を参照 |
 
 ## コードの現状の形（2/4・未承認の仮置き）
@@ -96,7 +96,7 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 
 [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) に従い、推奨を既定として確定しない。回答があるまで、下の仮置きは確定扱いにしない。
 
-2/4 の PR（#7025）はマージ済みで、仮置きは未承認のまま main にある（マージ済みは履歴の事実であり、承認ではない）。下の判断への回答は本リポでは確認できていない。承認はまだ得ていない。本 PR（3/4）も未承認の仮置きを含むため、オーナーの判断が出るまでマージしない。判断が出た後に、承認の記録と、実装・文書を整合させる。
+2/4 の PR（#7025）はマージ済みで、仮置きは未承認のまま main にある（マージ済みは履歴の事実であり、承認ではない）。下の判断への回答は本リポでは確認できていない。承認はまだ得ていない。3/4 の PR（#7028）もマージ済みで、同じく履歴の事実であり承認ではない。4/4（#113）の記録も未承認の仮置きの上にあり、承認は得ていない。本 PR（4/4）を含め、未承認の仮置きを含む後続の PR は、オーナーの判断が出るまでマージしない。あわせて、仮置きを確定扱いにしない。判断が出た後に、承認の記録と、実装・文書を整合させる。
 
 | 論点 | 仮置き | 選択肢（列挙のみ） | 止まるもの |
 | ---- | ------ | ------------------ | ---------- |
@@ -127,7 +127,7 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 | -- | ----- | ---- |
 | 2/4 | #111 | 実装。済（未承認の仮置き） |
 | 3/4 | #112 | テスト。済（未承認の仮置き） |
-| 4/4 | #113 | 確かめ |
+| 4/4 | #113 | 確かめ。済（「完了の条件の確かめ」に記録。未承認の仮置きの上） |
 
 #112 の判断:
 
@@ -138,4 +138,32 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 
 親 #109 の「進み具合を spec に記録する」は spec リポ側の作業で、本リポからは書き換えない。
 
-確かめた日付: 2026-10-11（base: 83ad4f0）
+## 完了の条件の確かめ（4/4・未承認の仮置き）
+
+本リポで観測できる事実だけを書く。コマンドは worktree のルートで実行した。spec の完了の条件の本文は転記しない（`docs/spec/05-tasks.md` の TASK-25 を参照。ポインタのみ）。
+
+| 確かめる項目 | 方法 | 結果 |
+| ------------ | ---- | ---- |
+| 有限でない値の規則の道具に背後実装の feature での分岐が無い | `crates/core/src/parity.rs` と `parity/` を `backend`・`cfg(` で grep | `cfg(` は 0 件。`backend` は `special_values.rs` の doc コメントのポインタ行の 1 行だけ |
+| `unsafe` を使っていない | `crates/core/src` を `unsafe` で grep | `lib.rs` の `#![forbid(unsafe_code)]` の 1 行だけ |
+| 外部依存 0 のまま | `Cargo.lock` の `[[package]]` の数、`make deps-check` | 4（workspace の member のみ）、終了コード 0 |
+| 道具が workspace の外に依存しない | `special_values.rs` の `use`、`make deny` | `use` は `super::tolerance` の 1 行だけ、`make deny` は終了コード 0 |
+| 製品の経路から参照していない | `crates/exec`・`crates/upper`・`crates/contract/src` を `parity`・`special_values` で grep | 0 件 |
+| `test-support` が `default` に入っていない | 各 `Cargo.toml` の `[features]` | `core` に `default` なし。`contract` の `default` は `contract-core`・`cpu-isa`・`cpu-ops` |
+| 道具のテストが通る | `cargo test -p fandhe-silicon-core --features test-support` | `parity_special_values` 25 件、`parity_tolerance` 14 件、`parity_topk` 15 件、`parity_cpu_reference` 8 件、`parity_pixel` 22 件、doctest 3 件。失敗 0 |
+| 既存の比べ方を変えていない | 既存の `parity_*` が期待値を変えずに通ること、`agrees_with_compare_f32_on_all_finite_sequences`・`differs_from_compare_f32_only_on_matching_special_pairs` | 上のとおり全て通過 |
+| 値の種類の組ごとの区分・零の符号・NaN のビット列の幅の扱いが固定 | `verdict_matrix_over_value_kinds_is_fixed`・`zero_actual_sign_does_not_change_the_verdict`・`every_nan_bit_pattern_counts_as_nan`・`subnormals_are_treated_as_finite` | 通過 |
+| 集計が要素ごとの判定と整合する | `summary_agrees_with_per_element_verdicts`・`single_element_sequences`・`first_mismatch_can_be_a_non_finite_mismatch` | 通過 |
+| `contract` の `test-support` だけで `core` の外から届く | `make build-profiles` の `test-support` を含む 4 組で `contract_test_support_enables_core_special_values_tool` | 4 組とも通過（`test_support_special_values` は各組 4 件） |
+| 背後実装の feature の組に依らず区分と集計が同じ | 同 4 組で `special_value_verdicts_are_fixed_under_any_backend_feature_set`・`special_value_sequence_summary_is_fixed_under_any_backend_feature_set` | 4 組とも通過 |
+| 列のエラーが外から到達できる | 同 4 組で `special_value_sequence_errors_are_reachable_from_outside_core` | 4 組とも通過 |
+| GPU の実機なしで走る | 上のテストを実機なしで実行 | 実機なしで通過。CI の結果は未検証（PR 作成前） |
+| 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | 全て終了コード 0 |
+| spec の完了の条件との照合 | 論点 6 のとおり | 本段では行っていない（判断待ち） |
+| CPU 参照に有限でない入力を渡したときの出力の種類・前提の Q1・Q3・Q11・適用の範囲（TASK-53）・TASK-23 の枠との接続 | 論点 5・7 と [parity-tool](parity-tool.md) のまま | 該当なし（判断待ち。本段では触れない） |
+
+- 判定: 本リポで観測できる範囲では、上の項目を確かめられた。TASK-25 の完了は本書では宣言しない。論点 6・7 は未回答で、spec の完了の条件との照合は本段では行っていない
+- 論点 1〜7 は判断待ちで、置き場・公開名・形は未承認の仮置きのまま
+- 再実行の契機: 論点 1〜7 と Q1・Q3・Q11 への回答、`parity` の置き場・feature の変更、区分・比べの規則の変更、TASK-53（#196）の範囲の決定、TASK-23（#91）の枠の追加、`scripts/build-profiles.sh` の組の変更
+
+確かめた日付: 2026-10-11（base: ee6a825）
