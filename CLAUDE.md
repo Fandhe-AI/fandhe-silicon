@@ -47,6 +47,7 @@ fandhe-silicon/
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）・コードの現状の形（未承認の仮置き）・閾値と範囲の扱い（案）（TASK-24）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の現状と前提（TASK-16）
+├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と反映の方針（案。TASK-43）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）

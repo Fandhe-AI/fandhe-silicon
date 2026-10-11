@@ -81,6 +81,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の現状と前提・形（案）。コードの現状の形・閾値と範囲の扱いの案・オーナー判断待ち。置き場・feature・形は未承認の仮置き |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形（TASK-9。案） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提 |
+| `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポへの反映の方針（案。TASK-43） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
