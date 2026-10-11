@@ -29,17 +29,17 @@ tree_out="$(cargo tree --locked --workspace --all-features --target all \
 
 violations=0
 while IFS= read -r line; do
-  # "name vX.Y.Z (/path) ..." の形のみ対象。括弧なし（registry）は対象外。
-  case "${line}" in
-    *" ("*")"*) ;;
-    *) continue ;;
-  esac
-  src="${line#* (}"
-  src="${src%%)*}"
-  # "(proc-macro)" "(*)" 等の注記は path ではない。
-  case "${src}" in
-    proc-macro | "*") continue ;;
-  esac
+  # 末尾の重複注記 " (*)" を除く。
+  line="${line% (\*)}"
+  # "name vX.Y.Z (path)" と "name vX.Y.Z (proc-macro) (path)" の末尾の括弧を path とみなす。
+  # 括弧なし（registry）と "name vX.Y.Z (proc-macro)" 単独（registry の proc-macro）は対象外。
+  if [[ ! "${line}" =~ ^[^\ ]+\ v[^\ ]+(\ \(proc-macro\))?\ \((.+)\)$ ]]; then
+    continue
+  fi
+  src="${BASH_REMATCH[2]}"
+  if [[ "${src}" == "proc-macro" ]]; then
+    continue
+  fi
   if [[ "${src}" == "${ALLOWED_ROOT}"* ]]; then
     continue
   fi
