@@ -1,26 +1,37 @@
 #!/usr/bin/env bash
-# 一覧と項目の対応の検査（spec TASK-16 のポインタ。親 Issue #60 の 2/4）。
-# 一覧の各行の鍵が、項目ファイルのどれかに現れるかを確かめる（前向きの検査）。
+# 一覧と項目の対応の検査（spec TASK-16 のポインタ。親 Issue #60 の 2/4 と 3/4）。
+# 一覧の各行の鍵が、項目ファイルの表の行（項目の行）のどれかに現れるかを確かめる（前向きの検査）。
+# --list を付けると、合格のときだけ鍵と項目の対応の一覧を標準出力へ出す（保存はしない）。
 # 入力のポインタ: docs/spec/03-poc/wgpu-feature-inventory/inventory.csv（一覧）と
 # docs/spec/04-behavior/（項目ファイル群）。どちらも private の submodule の中にある。
 # 呼び出し元: `make inventory-trace-check`（手元だけの検査。CI は呼ばない。走らせる場所は未決）。
 #
 # 使い方:
 #   scripts/inventory-trace-check.sh [--csv PATH] [--items-dir DIR] [--key-column NAME]
-#                                    [--exclude BASENAME]... [--show-keys]
+#                                    [--exclude BASENAME]... [--item-id-column NAME]
+#                                    [--list] [--show-keys]
 #   --csv           一覧の CSV（既定: 上のポインタのパス）。先頭のレコードを見出しとして扱う
 #   --items-dir     項目ファイルのディレクトリ（既定: 上のポインタのパス）。直下の *.md だけを読む
 #   --key-column    鍵の列の見出しの名前（既定: 先頭の列）。値はスクリプトに書かず実行時に受ける
 #   --exclude       探索から外すファイル名（繰り返し可）。README.md は常に外す
+#   --item-id-column 項目の行のラベルの列の見出しの名前（既定: 各表の先頭の列）。指定したときは、
+#                   その名前の見出しがちょうど 1 つある表だけを項目の表として扱う。値は実行時に受ける
+#   --list          合格のときだけ、対応の一覧を標準出力へ TSV で出す（列: line / key / file / item。
+#                   並びは CSV の行順 → ファイル名順 → ファイル内の行順）。ファイルは作らない。
+#                   出力は spec の内容なので、PR・Issue・CI のログ・コミットに貼らない
 #   --show-keys     違反の行に鍵の文字列も出す。出力は spec の内容なので、PR・Issue・CI のログ・
 #                   コミットに貼らない（既定は CSV の行番号だけ）
 #
 # 終了コード:
-#   0  合格（すべての行の鍵が、少なくとも 1 つの項目ファイルに現れた）
-#   1  違反（現れない鍵／鍵が空／鍵が重複／列の数の不一致／データの行が 0／探索対象が 0／
+#   0  合格（すべての行の鍵が、少なくとも 1 つの項目の行に現れた）
+#   1  違反（項目の行に現れない鍵／項目の行が 0／鍵が空／鍵が重複／列の数の不一致／データの行が 0／探索対象が 0／
 #      CSV や項目ファイルを読めない）
-#   2  誤用・前提の不足（検査を終えていない。入力が無い場合を含む。成功扱いにしない）
+#   2  誤用・前提の不足（検査を終えていない。入力が無い場合・--item-id-column が解決できない場合を含む。成功扱いにしない）
 #
+# 項目の単位の規則も「未承認の仮置き」: 行頭が | の markdown の表のデータ行 1 行を項目の行とし、
+# ラベルのセル以外のセルに鍵が現れれば帰属とする。列の数が見出しと合わない行・ラベルが空の行は
+# 項目の行に数えない（違反にはせず件数だけを知らせる）。表の外の本文にだけ現れる鍵は違反になる。
+# 1 つの鍵が複数の項目に現れる場合はすべて一覧に出す。規則は locate() に閉じ込めてある。
 # 判定の規則は「未承認の仮置き」で、前向きだけ（逆向きは実装しない）。「対応」の定義は
 # spec 側の判断待ち（ポインタ: TASK-16。関連: TASK-552・TASK-1375）。仮置きの内容は
 # Python 側の occurs() に閉じ込めてあり、規則が決まったらこの関数だけを差し替える。
@@ -70,9 +81,93 @@ def occurs(text, key, alphabet):
         start = i + 1
 
 
-def locate(keys, texts, alphabet):
-    """鍵 -> 現れたファイル名の一覧。判定・出力とは分けてある（一覧を足すときの継ぎ目）。"""
-    return {k: [n for n, t in texts if occurs(t, k, alphabet)] for k in keys}
+def split_row(line):
+    """表の行をセルに分ける。行頭（空白を除く）が | でなければ None。\\| は区切りにしない。"""
+    t = line.strip()
+    if not t.startswith("|"):
+        return None
+    cells, cur, i = [], [], 1
+    while i < len(t):
+        c = t[i]
+        if c == "\\" and i + 1 < len(t) and t[i + 1] == "|":
+            cur.append("|")
+            i += 2
+            continue
+        if c == "|":
+            cells.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    # 閉じの | で終わる行は、最後のセルを足さない（空セルを落とさないため）。
+    if not (len(t) > 1 and t.endswith("|") and not t.endswith("\\|")):
+        cells.append("".join(cur).strip())
+    return cells
+
+
+def is_separator(cells):
+    """区切り行か。各セルが、両端の : を除いて 1 文字以上の - だけ。"""
+    if not cells:
+        return False
+    for c in cells:
+        core = c.strip(":")
+        if core == "" or core.strip("-") != "":
+            return False
+    return True
+
+
+def item_rows(name, text, id_column):
+    """項目の行を (ファイル名, 行番号, ラベル, ラベル以外のセル) で返す。
+
+    戻り値は (行の一覧, 項目の表の数, 読み飛ばした行数)。表の単位は未承認の仮置き。
+    """
+    lines = text.splitlines()
+    rows, tables, skipped = [], 0, 0
+    i = 0
+    while i + 1 < len(lines):
+        head = split_row(lines[i])
+        sep = split_row(lines[i + 1])
+        if head is None or sep is None or not is_separator(sep) or len(sep) != len(head):
+            i += 1
+            continue
+        if id_column is None:
+            col = 0
+        else:
+            hits = [k for k, h in enumerate(head) if h == id_column]
+            if len(hits) > 1:
+                raise Usage("--item-id-column matches more than one header in a table")
+            col = hits[0] if hits else None
+        j = i + 2
+        body = []
+        while j < len(lines):
+            cells = split_row(lines[j])
+            if cells is None:
+                break
+            body.append((j + 1, cells))
+            j += 1
+        if col is not None:
+            tables += 1
+            for ln, cells in body:
+                if len(cells) != len(head) or cells[col] == "":
+                    skipped += 1
+                    continue
+                rows.append((name, ln, cells[col], cells[:col] + cells[col + 1:]))
+        i = j
+    return rows, tables, skipped
+
+
+def locate(keys, rows, alphabet):
+    """鍵 -> [(ファイル名, 行番号, ラベル)]。ラベル以外のセルに現れた項目の行だけを数える。
+
+    未承認の仮置き（項目の単位）。判定は occurs() に任せ、帰属の単位はここだけで決める。
+    """
+    out = {}
+    for k in keys:
+        out[k] = [
+            (n, ln, label) for n, ln, label, cells in rows
+            if any(occurs(c, k, alphabet) for c in cells)
+        ]
+    return out
 
 
 class Usage(Exception):
@@ -159,22 +254,45 @@ def run(args):
         err("cannot read an item file")
         return 1
 
+    item_list, tables, skipped = [], 0, 0
+    for n, t in texts:
+        r, tb, sk = item_rows(n, t, args.item_id_column)
+        item_list.extend(r)
+        tables += tb
+        skipped += sk
+    if args.item_id_column is not None and texts and tables == 0:
+        raise Usage("--item-id-column matches no table header in the item files")
+    if skipped:
+        err("%d table row(s) were not treated as items (column count mismatch or empty label)" % skipped)
+    if texts and not item_list:
+        err("no item rows found in the item files")
+        violations += 1
+
     alphabet = set()
     for _, k in entries:
         alphabet.update(k)
-    found = locate([k for _, k in entries], texts, alphabet)
+    found = locate([k for _, k in entries], item_list, alphabet)
     for line, key in entries:
         if not found[key]:
             if args.show_keys:
-                err("no item file contains the key at line %d: %s" % (line, key))
+                err("no item row contains the key at line %d: %s" % (line, key))
             else:
-                err("no item file contains the key at line %d" % line)
+                err("no item row contains the key at line %d" % line)
             violations += 1
 
     if violations:
         print("[%s] FAILED: %d violation(s)" % (PROG, violations), file=sys.stderr)
         return 1
-    print("[%s] ok: every row key was found in at least one item file" % PROG, file=sys.stderr)
+    print("[%s] ok: every row key was found in at least one item row" % PROG, file=sys.stderr)
+    if args.list:
+        # 合格のときだけ書く。符号化・出力先の切断は呼び出し側で 2 に落ちる。
+        sys.stdout.reconfigure(encoding="utf-8", newline="")
+        w = csv.writer(sys.stdout, delimiter="\t", lineterminator="\n")
+        w.writerow(["line", "key", "file", "item"])
+        for line, key in entries:
+            for n, _, label in sorted(found[key], key=lambda x: (x[0], x[1])):
+                w.writerow([line, key, n, label])
+        sys.stdout.flush()
     return 0
 
 
@@ -186,6 +304,8 @@ def main():
     parser.add_argument("--items-dir")
     parser.add_argument("--key-column")
     parser.add_argument("--exclude", action="append", default=[])
+    parser.add_argument("--item-id-column")
+    parser.add_argument("--list", action="store_true")
     parser.add_argument("--show-keys", action="store_true")
     args = parser.parse_args(sys.argv[1:])
     args.csv = args.csv or args.default_csv
