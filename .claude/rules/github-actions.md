@@ -3,7 +3,8 @@ paths:
   - ".github/workflows/**"
 description: >
   GitHub Actions ワークフローを編集する際の方針。runner 方針（public は GitHub ホステッド）、必須チェックと
-  集約ジョブ、発火条件、ジョブ追加チェックリスト、所要時間の計測方法を規定する。
+  集約ジョブ、発火条件、ジョブ追加チェックリスト、キャッシュ方針（保存は main のみ・キー設計・容量）、
+  所要時間の計測方法を規定する。
 ---
 
 # GitHub Actions 編集ルール
@@ -42,6 +43,88 @@ description: >
 6. `actions/checkout` は `persist-credentials: false`。既存と同じ SHA 固定 + バージョンコメントでピン止めする
 7. ツールは版固定 + SHA256 検証で導入し、`permissions` は最小にする
 8. `timeout-minutes` を設定する
+9. キャッシュを使う場合は「キャッシュ方針」に従う（保存は main への push のみ。確認結果を PR 本文に書く）
+
+## キャッシュ方針
+
+現状（2026-10-11）: `ci.yml` は GitHub Actions のキャッシュを使っていない。残っているのは PR #3 の実行が保存した
+3 件・約 17MB（ref はすべて `refs/pull/3/merge`）だけで、main の実行からは読まれず、7 日間アクセスが無ければ自動で
+削除される。キャッシュを追加する場合は本節に従う。
+
+### 前提（容量と課金）
+
+- リポジトリあたりの上限は 10GB（Org 設定も 10GB）。超えると最終アクセスの古い順に追い出され、7 日間アクセスの無い
+  キャッシュは削除される
+- Org の Actions 予算は $0（超過時は停止）のため、10GB を超える上限は使えない。上げると 10GB を超えた時点で
+  キャッシュが読み取り専用になる。上限・予算の変更はユーザー判断
+
+### 入れる前に効果を測る
+
+- 本リポは GitHub ホステッド runner で毎回まっさらな VM から始まるため、キャッシュが効く余地はある。ただし現状の
+  各ジョブは 4〜18 秒で、復元にかかる時間の方が長くなり得る。足す前後でジョブログの復元秒数・`Compiling` の件数
+  （依存の再ビルド数）を比べ、効果を確かめてから入れる
+- self-hosted runner ではツールチェーンや `CARGO_TARGET_DIR` 等がジョブをまたいで残り、キャッシュが無意味になる
+  ことがある（他リポの実例: mirror-ui は pnpm キャッシュの復元に 1 ジョブ平均 75 秒かけていたが `downloaded 0` で
+  効果ゼロだったため撤去。team-hub は `Swatinem/rust-cache` が `./target` を保存対象にしていたが runner の
+  `CARGO_TARGET_DIR` が別の場所で registry しか保存されておらず、後処理が共有 `CARGO_HOME` の crate を消していた
+  ため撤去）。runner の種類を変えるときも測り直す
+
+### 保存は main への push だけ
+
+- PR から保存したキャッシュは `refs/pull/<N>/merge` スコープに入り、その PR からしか読めないのに上限を共有して
+  main のキャッシュを追い出す（上記の PR #3 の 3 件がこれにあたる）
+- `actions/cache` は `actions/cache/restore`（全イベント）と `actions/cache/save` に分け、save には
+  `if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.<id>.outputs.cache-hit != 'true'` を付け、
+  `key: ${{ steps.<id>.outputs.cache-primary-key }}` で保存する（`<id>` は restore ステップの `id`）
+- `Swatinem/rust-cache` を使うなら `save-if: ${{ github.ref == 'refs/heads/main' }}` を渡す
+- Fandhe-AI/actions の `rust-base-ci.yml` を `cache: true` で呼ぶなら `cache-save: ${{ github.ref == 'refs/heads/main' }}`
+  も渡す（共通側の `cache-save` の既定は true で、PR からも保存する）
+- `actions/setup-node` の `cache: pnpm` など、`setup-*` 系 action の一体型キャッシュは PR でも保存する。使うなら
+  保存を main に限れる restore / save の分離に置き換える
+
+### キーの設計
+
+- キーは中身のハッシュ（lockfile 等）にする。`github.sha`・`github.run_id` など毎回変わる値は入れない。入れる場合は
+  `restore-keys` の前方一致で直近を拾う設計にし、保存は main に限る
+- `hashFiles('**/Cargo.lock')` のような再帰 glob は使わず、ルートの `Cargo.lock` を指定する。本リポにも
+  `.agents/skills/make/samples/projects/` 配下にスキルのサンプル（`Cargo.lock` 3 件・`pnpm-lock.yaml` 2 件）があり、
+  再帰 glob はこれを拾う。依存が変わらないのにスキル更新でキーが変わり全キャッシュを作り直す事故が fandhe-browser・
+  fandhe-frontend・fandhe-db・fandhe-container・template-frontend-react_router で起きた
+- `target/` などビルド成果物をキャッシュするなら、キーにツールチェーンの版（`rustc -vV` の `release`・
+  `commit-hash`）を入れる。本リポの `rust-toolchain.toml` は `channel = "stable"` のため、このファイルのハッシュでは
+  版の更新を検知できない。版を入れないと toolchain 更新後も古い成果物に exact hit し続け、exact hit では再保存
+  されないため依存を毎回全再ビルドする（fandhe-db で依存 135 crate を毎回再ビルドしていた）
+- `restore-keys` で前方一致を許し、キーが変わっても cold にならないようにする
+
+### サイズを抑える
+
+- 1 世代の合計が 10GB に余裕をもって収まるようにする。キャッシュの種類を増やすときは 1 件のサイズ × 種類 × OS
+  （matrix）を見積もる
+- `target/` を保存するなら、保存前に workspace メンバー（`crates/*`）の成果物を prune し、`CARGO_INCREMENTAL=0`、
+  CI 限定で `CARGO_PROFILE_DEV_DEBUG=line-tables-only` 等で縮める
+- 上限に達しても、毎回読まれる main の最新キャッシュは最後まで残る（LRU）。キーの切り替えで古い世代が追い出されても
+  新しい世代が保存済みならミスにならない。この状態を保てていれば上限を上げる必要はない
+
+### 計測
+
+```bash
+gh api repos/Fandhe-AI/fandhe-silicon/actions/cache/usage                      # 件数・合計サイズ
+gh cache list -R Fandhe-AI/fandhe-silicon -L 100                                # key・サイズ・最終アクセス
+gh cache list -R Fandhe-AI/fandhe-silicon -L 100 --json id,key,ref,sizeInBytes  # ref（main か PR か）
+```
+
+- ジョブログの `Cache restored from key:`（primary key と一致なら exact、それ以外は partial）・`Cache not found`・
+  `Cache saved with key:` で hit / miss と保存を確かめる
+- 不要なキャッシュは `gh cache delete <id>` で消せるが、共有状態なので対象（key・ref）を確認してから消す
+
+### PR のチェックリスト
+
+ワークフローにキャッシュを追加・変更する PR では、次を確認したことを PR 本文に書く。
+
+- [ ] 効果を実測した（復元秒数・依存の再ビルド数。効果が無ければ入れない・残さない）
+- [ ] 保存は main への push に限っている
+- [ ] キーはルートの lockfile のハッシュで、成果物を含むならツールチェーンの版を含み、`restore-keys` がある
+- [ ] 1 世代の合計サイズを見積もり、10GB に余裕をもって収まる
 
 ## 計測方法
 
