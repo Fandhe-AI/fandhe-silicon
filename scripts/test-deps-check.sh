@@ -414,6 +414,7 @@ pinned_fixture; rm -f "${ws}/deps-approved.toml"; mkdir "${ws}/deps-approved.tom
 expect_violations "F15b record path is a directory" 2 'cannot parse approval record file ('
 
 # f16 <理由>: 標準入力の記録（固定済みの依存 1 件を宣言）が書式違反として落ちる。書式違反 + 記録なしの 2 件。
+# 呼び出しは < <(...) で行う（パイプだとサブシェルになり passed / failed がメインシェルへ戻らない）。
 f16() {
   local reason="$1"
   pinned_fixture
@@ -426,16 +427,16 @@ BASE_HEAD='[[approval]]
 name = "example-ext"
 version = "=1.0.0"
 used_by = ["fixture-core"]'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\n'; } | f16 'missing key purpose'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\nnote = "x"\n'; } | f16 'unknown key note'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "PR 12"\npurpose = "fixture"\n'; } | f16 'invalid approval_ref'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000/01/01"\napproval_ref = "#0"\npurpose = "fixture"\n'; } | f16 'invalid approved_on'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = 2000-01-01\napproval_ref = "#0"\npurpose = "fixture"\n'; } | f16 'invalid approved_on'
-{ printf '[[approval]]\nname = "example-ext"\nversion = "=1.0.0"\nused_by = []\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; } | f16 'invalid used_by'
-{ printf '[[approval]]\nname = "example-ext"\nversion = "=1.0.0"\nused_by = "fixture-core"\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; } | f16 'invalid used_by'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "   "\n'; } | f16 'invalid purpose'
-{ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "a\\nb"\n'; } | f16 'invalid purpose'
-{ printf '[[approval]]\nname = "example-ext"\nversion = "1.0.0"\nused_by = ["fixture-core"]\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; } | f16 'invalid version'
+f16 'missing key purpose' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\n'; })
+f16 'unknown key note' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\nnote = "x"\n'; })
+f16 'invalid approval_ref' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "PR 12"\npurpose = "fixture"\n'; })
+f16 'invalid approved_on' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000/01/01"\napproval_ref = "#0"\npurpose = "fixture"\n'; })
+f16 'invalid approved_on' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = 2000-01-01\napproval_ref = "#0"\npurpose = "fixture"\n'; })
+f16 'invalid used_by' < <({ printf '[[approval]]\nname = "example-ext"\nversion = "=1.0.0"\nused_by = []\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; })
+f16 'invalid used_by' < <({ printf '[[approval]]\nname = "example-ext"\nversion = "=1.0.0"\nused_by = "fixture-core"\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; })
+f16 'invalid purpose' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "   "\n'; })
+f16 'invalid purpose' < <({ printf '%s\n' "${BASE_HEAD}"; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "a\\nb"\n'; })
+f16 'invalid version' < <({ printf '[[approval]]\nname = "example-ext"\nversion = "1.0.0"\nused_by = ["fixture-core"]\n'; printf 'approved_on = "2000-01-01"\napproval_ref = "#0"\npurpose = "fixture"\n'; })
 
 pinned_fixture; approve example-ext '=1.0.0' fixture-core; approve example-ext '=1.0.0' fixture-core; run_check
 expect_violations "F17 duplicate record name" 1 'malformed approval record (approval #2: duplicate name'
