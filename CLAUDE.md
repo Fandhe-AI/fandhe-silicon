@@ -33,7 +33,7 @@ fandhe-silicon/
 │   ├── workflows/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
-├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外・make の対象外。骨格のみ）
+├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外・make の対象外。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
