@@ -27,6 +27,10 @@ ext-interop = []
 backend-metal = ["contract-core"]
 backend-vulkan = ["contract-core"]
 backend-cuda = ["contract-core"]
+# DX12 の compute の背後実装の置き場（中身なし・名前は仮。形は spec TASK-222、
+# モジュールの骨格と依存の閉じ込めは TASK-234。参照: BUILD-17・D-26・D-32）。
+backend-dx12-compute = ["contract-core"]
+# GL（GLES）の背後実装の feature はここに足す（形は spec TASK-2581、骨格は TASK-2583）。
 # テスト・診断専用（本番ビルドに含めない）
 test-support = []
 fault-injection = []
