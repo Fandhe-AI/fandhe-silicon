@@ -18,5 +18,9 @@ test-support = []
 name = "parity_cpu_reference"
 required-features = ["test-support"]
 
+[[test]]
+name = "parity_tolerance"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
