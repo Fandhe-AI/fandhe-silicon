@@ -45,7 +45,7 @@ fandhe-silicon/
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）・コードの現状の形（未承認の仮置き）・閾値と範囲の扱い（案）（TASK-24）
-├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の現状と前提・形（案）・入力の受け口（未承認の仮置き）・オーナー判断待ち（TASK-26）
+├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の現状と前提・形（案）・入力の受け口と比べる関数・閾値の設定（未承認の仮置き）・オーナー判断待ち（TASK-26）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の現状と前提（TASK-16）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と反映の方針（案。TASK-43）

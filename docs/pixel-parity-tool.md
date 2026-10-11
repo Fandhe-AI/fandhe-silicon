@@ -4,7 +4,7 @@ TASK-26（親 Issue #114）について、着手時点（1/6、#115）の現状�
 spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-26 と、`docs/spec/02-poc-plan.md` の閾値の表の T-3 を参照する（ポインタのみ）。
-画素の入力の受け口（3/6、#117）は本リポに入った。比べる関数と閾値の設定はまだ無く、その振る舞いは本書に書かない。
+画素の入力の受け口（3/6、#117）と、比べる関数・閾値の設定（4/6、#118）は本リポに入った。
 形の設計（案）とオーナー判断待ちは、オーナーの確認を経るまで確定扱いにしない。
 後続（3/6〜6/6）は、本書の該当節へ追記する。
 
@@ -65,7 +65,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 ## 現状の形（未承認の仮置き）
 
-3/6（#117）で入れたもの。Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採っている。
+3/6（#117）と 4/6（#118）で入れたもの。Q1〜Q8・Q10 の推奨を未承認の仮置きとして採っている。
 
 | 項目 | 現状 |
 | ---- | ---- |
@@ -73,7 +73,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | feature | 既存の `test-support` の裏。新しい feature なし |
 | 依存 | 外部依存 0 のまま。`Cargo.lock` に差分なし |
 | 走る場所 | `make verify`。`make build-profiles` は `contract` だけを対象にするため、本段のテストはそこでは走らない |
-| 入れていないもの | 比べる関数（2 つの軸とも #118）、閾値の設定（#118）、別 crate からのテスト（#119） |
+| 入れていないもの | 別 crate からのテスト（#119） |
 
 入力の受け口:
 
@@ -86,6 +86,17 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | `PixelInputError::SizeOverflow` | 幅 × 高さ、またはチャネル数を掛けた積が溢れるとき。panic しない | `every_size_product_is_checked_for_overflow` |
 | `PixelInputError::LengthMismatch` | 列の長さが求めた要素数と違うとき（期待値と実際の長さを持つ） | `length_mismatch_reports_expected_and_actual` |
 | `Display` | 全 variant で空でない ASCII | `error_display_is_non_empty_ascii` |
+
+比べる関数と閾値の設定（4/6）:
+
+| 公開アイテム | 観測できる振る舞い | 確かめ方 |
+| ------------ | ------------------ | -------- |
+| `T3` / `PixelTolerance` | 閾値の設定。getter で値を読め、外から任意の値を作れない（整数だけで持つ） | `t3_setting_is_readable`、`compile_fail` の doctest |
+| `compare_pixels_exact` | 閾値を取らない。4 要素がすべて等しい画素だけが一致。比べた数・違った画素数・最初の添字を返す | `identical_images_match_on_both_comparisons`、`exact_comparison_counts_mismatched_pixels` |
+| `compare_pixels` | 閾値を引数で受ける。画素の差は 4 要素（アルファを含む）の差の最大で、向きは対称。「内」の割合の下限と全体の上限の両方を、境界を含めて判定する | `pixel_difference_is_the_largest_channel_difference`、`readable_bounds_are_the_ones_applied`、`ratio_boundary_is_inclusive`、`max_difference_alone_fails_the_match`、`comparison_is_symmetric` |
+| 割合の比較 | 整数の掛け合わせ（`u128`）で行い、溢れない | `extreme_values_do_not_overflow` |
+| `PixelCompareError::SizeMismatch` | 幅か高さが違えば、要素数が同じでもエラー（両方の大きさを持つ）。不一致として数えない | `size_mismatch_is_an_error_even_with_equal_length` |
+| `Display` | 空でない ASCII | `compare_error_display_is_non_empty_ascii` |
 
 ## オーナー判断待ち
 
@@ -115,7 +126,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - Q3: 要素型・チャネル数・並びは 3/6 で Q10 の仮置きとしてコードに入った
 - Q5: 2 つの比べ（「同じ成果物・同じ背後実装」と「背後実装の間」）は軸の名前としてだけ使う
 
-Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採った。#118 が推奨を採る場合も未承認の仮置きとして明示する。
+Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採った。#118 は Q5 (a)・Q6 (a)・Q7 (a)（比べの型の分）の推奨を未承認の仮置きとして採った。閾値の数字を公開コードの定数に置く置き方（TASK-24 の前例と同じ）の可否もオーナー判断の対象。
 
 ## 別案に決まったときに変わる箇所
 
@@ -139,7 +150,7 @@ Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜
 | 現状と前提の確認 | #115（1/6。済） |
 | 形の設計（本書） | #116（2/6） |
 | 置き場の骨格・入力の受け口と検査（案） | #117（3/6。済） |
-| 比べの関数（2 つの軸とも）と閾値の設定（案） | #118（4/6） |
+| 比べの関数（2 つの軸とも）と閾値の設定（案） | #118（4/6。済） |
 | テスト（別 crate からの確かめ、feature の組ごとの確かめを含む） | #119（5/6） |
 | 完了の条件の確かめ | #120（6/6） |
 
@@ -152,4 +163,4 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 
 ## 確かめた日付
 
-2026-10-11（base: ce7ee05）
+2026-10-11（base: 6911d7d）
