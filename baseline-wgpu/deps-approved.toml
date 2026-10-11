@@ -1,0 +1,12 @@
+# 別 workspace（baseline-wgpu/）の依存の承認の記録。書式と検査の仕組みはルートの deps-approved.toml の先頭と
+# scripts/deps-check.sh に従う。検査はルートの `make deps-check` の対象外で、本 workspace に対しては
+# `scripts/deps-check.sh baseline-wgpu/Cargo.toml` で手動実行する（記録は workspace ルート直下のこのファイルを読む）。
+# ルート側の記録に入れない理由: ルートの workspace では未使用の記録が違反になり、wgpu をルートに混ぜる誤りも招くため。
+
+[[approval]]
+name = "wgpu"
+version = "=30.0.1"
+used_by = ["baseline-wgpu-smoke"]
+approved_on = "2026-10-11"
+approval_ref = "#40"
+purpose = "比較基準の wgpu。基盤の外の別 workspace でのみ使い、製品の workspace には入れない"

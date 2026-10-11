@@ -20,4 +20,4 @@
 #   approval_ref = "#0"
 #   purpose = "例示用のダミー"
 #
-# 現在、承認済みの外部依存は 0 件。
+# 現在、承認済みの外部依存は 0 件（別 workspace の baseline-wgpu/ の記録は baseline-wgpu/deps-approved.toml に分けて持つ）。

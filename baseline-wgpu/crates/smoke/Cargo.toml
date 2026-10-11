@@ -1,8 +1,8 @@
-# 比較基準の別 workspace の疎通確認用 bin。依存を持たない。
+# 比較基準の別 workspace の疎通確認用 bin。外部依存は wgpu のみ（完全固定。承認の記録は baseline-wgpu/deps-approved.toml）。
 [package]
 name = "baseline-wgpu-smoke"
 version = "0.0.0"
-description = "Skeleton binary for the baseline-wgpu workspace"
+description = "Smoke binary that lists wgpu adapters for the baseline-wgpu workspace"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,6 +11,9 @@ publish.workspace = true
 [[bin]]
 name = "baseline-wgpu-smoke"
 path = "src/main.rs"
+
+[dependencies]
+wgpu = "=30.0.1"
 
 [lints]
 workspace = true
