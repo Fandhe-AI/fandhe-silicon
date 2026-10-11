@@ -34,7 +34,13 @@ if ! python3 -I -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1
   exit 2
 fi
 
-metadata="$(cargo metadata --format-version 1 --no-deps --offline --locked --manifest-path "${manifest}")"
+# Cargo は cwd の祖先の .cargo/config(.toml) を読むため、呼び出し元の cwd に左右されないよう
+# manifest のあるディレクトリへ移ってから実行する（下の設定ファイル検査の起点とも一致させる）。
+manifest_abs="$(cd "$(dirname "${manifest}")" && pwd)/$(basename "${manifest}")"
+manifest_dir="$(dirname "${manifest_abs}")"
+cd "${manifest_dir}"
+
+metadata="$(cargo metadata --format-version 1 --no-deps --offline --locked --manifest-path "${manifest_abs}")"
 
 # 版指定の違反を 1 件 1 行で出す。crate 名・req は非信頼文字列として jq 内でのみ扱う。
 # path 依存は workspace メンバーの manifest ディレクトリと一致するものだけを免除する。
@@ -59,7 +65,18 @@ patch_violations=""
 root_dir="$(jq -r '.workspace_root' <<<"${metadata}")"
 files=()
 while IFS= read -r f; do files+=("${f}"); done < <(jq -r '.packages[].manifest_path' <<<"${metadata}")
-files+=("${manifest}" "${root_dir}/Cargo.toml" "${root_dir}/.cargo/config.toml" "${root_dir}/.cargo/config")
+files+=("${manifest_abs}" "${root_dir}/Cargo.toml" "${root_dir}/.cargo/config.toml" "${root_dir}/.cargo/config")
+# Cargo が実際に読む設定: 実行ディレクトリから祖先へ向かう .cargo/config(.toml) と CARGO_HOME 直下の config(.toml)。
+dir="${manifest_dir}"
+while :; do
+  files+=("${dir}/.cargo/config.toml" "${dir}/.cargo/config")
+  [ "${dir}" = "/" ] && break
+  dir="$(dirname "${dir}")"
+done
+cargo_home="${CARGO_HOME:-${HOME:-}/.cargo}"
+if [ -n "${cargo_home}" ]; then
+  files+=("${cargo_home}/config.toml" "${cargo_home}/config")
+fi
 for f in "${files[@]}"; do
   [ -f "${f}" ] || continue
   if ! out="$(python3 -I -c '
