@@ -12,7 +12,8 @@
 
 - `wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`・`naga` は `deny.toml` の `[bans] deny` で拒否する（D-18、AC-2 のポインタ）
 - 検出は `make deny` と CI の `deny` ジョブで行う
-- 比較基準の wgpu は基盤の外の別 workspace に置く（TASK-7 のポインタ）
+- 比較基準の wgpu は基盤の外の別 workspace に置く（TASK-7 のポインタ。現状と前提は [baseline-wgpu](baseline-wgpu.md)）
+- 比較用の run に残す wgpu の版の記録の書式は [wgpu-baseline-record](wgpu-baseline-record.md) に示す
 
 ## 外部の workspace からコードを持ち込むとき
 
