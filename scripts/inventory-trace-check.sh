@@ -53,6 +53,7 @@ exec python3 -I - \
 import argparse
 import csv
 import os
+import re
 import sys
 
 PROG = "inventory-trace-check.sh"
@@ -116,12 +117,32 @@ def is_separator(cells):
     return True
 
 
+def mask_fences(lines):
+    """コードフェンス（``` / ~~~）の開閉行と中身を空行にして返す。行数は保つ。
+
+    閉じは開きと同じ記号で、同じ長さ以上、記号だけの行。閉じが無ければ末尾までがフェンス内。
+    """
+    out, fence = [], None
+    for line in lines:
+        m = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None:
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+            out.append("" if fence else line)
+        else:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                    and m.group(2).strip() == "":
+                fence = None
+            out.append("")
+    return out
+
+
 def item_rows(name, text, id_column):
     """項目の行を (ファイル名, 行番号, ラベル, ラベル以外のセル) で返す。
 
     戻り値は (行の一覧, 項目の表の数, 読み飛ばした行数)。表の単位は未承認の仮置き。
     """
-    lines = text.splitlines()
+    lines = mask_fences(text.splitlines())
     rows, tables, skipped = [], 0, 0
     i = 0
     while i + 1 < len(lines):
