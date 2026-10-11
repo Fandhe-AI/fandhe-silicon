@@ -39,7 +39,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]` |
 
 依存の向きは `contract → core` / `exec → core` / `upper → core, exec` です。
-`unsafe` と FFI は `contract` の backend モジュールに閉じ込め、それ以外の crate は `#![forbid(unsafe_code)]` です。
+`unsafe` と FFI は `contract` の backend モジュールに閉じ込め、それ以外の crate は `#![forbid(unsafe_code)]` です。形は [docs/unsafe-policy.md](docs/unsafe-policy.md)（案）にあります。
 
 `fandhe-silicon-contract` の feature:
 
@@ -77,6 +77,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式（案） |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
+| `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形（TASK-9。案） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
