@@ -18,7 +18,7 @@
 | 背後実装のモジュール | `crates/contract/src/backend_{metal,vulkan,cuda}.rs`。doc コメントだけの骨格で、コードとしての `unsafe` は無い（`//!` コメントの中に `unsafe` という語はある） |
 | `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） |
 | cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")`（`crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs`） |
-| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。期待値は全背後実装・全種別で 0 |
+| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `crates/contract/tests/common_unsafe_count_samples.rs`。期待値は全背後実装・全種別で 0 |
 | 外部依存 | 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） |
 
 ## `unsafe` を置ける場所
@@ -76,14 +76,14 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 - `clippy::undocumented_unsafe_blocks` は `unsafe impl` も対象にする（rustc 1.99.0 / clippy 0.1.99 で確認）
 - 単純な文字列の一致だけで数えない理由: コメントや文字列の中の語、`forbid(unsafe_code)` のような識別子、edition 2024 で `unsafe` を伴う `extern` ブロックと属性を、取りこぼさず数えすぎないため
 - 「増減で失敗すること」は、道具に見本の文字列を与えるテストで確かめる。実物の `unsafe` をコミットせずに、増えた場合・減った場合の両方の失敗を示す（`scripts/test-deps-check.sh` と同じ考え方）
-- #53 が用意する見本の必須の場合
+- #53 の実装で `crates/contract/tests/common_unsafe_count_samples.rs` に足した見本（必須の場合）
     - コメントの中の `unsafe {`
     - 文字列リテラルの中の `unsafe {`
     - `forbid(unsafe_code)` の識別子
     - `unsafe extern` ブロックと `unsafe extern "C" fn` の区別
     - `pub unsafe fn`
     - `unsafe impl`
-    - 期待より 1 多い場合・1 少ない場合
+    - 期待より 1 多い場合・1 少ない場合（`compare_counts` への見本。実ファイルでは `check_backend` が、期待値を 1 ずらした表で背後実装ごとに失敗すること）
 
 ## 個数が変わるときの扱い
 
@@ -111,7 +111,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 作業 | 担当 |
 | ---- | ---- |
 | `lib.rs` の `deny` / `allow` の指定、数える道具、背後実装ごとのテストファイルの実装、`unsafe impl` の確認 | #52（実装済み。論点 1・2 は未承認の仮置き） |
-| 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト（入口は `common` の `strip_comments_and_literals`・`count_unsafe`・`compare_counts`） | #53 |
+| 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト（入口は `common` の `strip_comments_and_literals`・`count_unsafe`・`compare_counts`） | #53（実装済み） |
 | 個数が変わるときの承認の手順書（本書の該当節へ追記、または別文書） | #54 |
 | 完了の条件の確かめの記録。書式の確定後に `.claude/rules/coding-rust.md`・`AGENTS.md` から本書を参照する | #55 |
 
