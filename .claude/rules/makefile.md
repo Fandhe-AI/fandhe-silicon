@@ -42,7 +42,7 @@ description: >
 | `check` | editorconfig-checker + shellcheck。ソースを変更しない。ツール未導入は成功扱いにせず失敗 |
 | `verify` | `cargo fmt --check` + clippy（`-D warnings`）+ test。ソースを変更しない（整形は別途 `cargo fmt --all`） |
 | `build-profiles` | feature の組ごとの build / clippy / test と wasm32 の check。ソースを変更しない。wasm32 の target 未導入は失敗（skip しない） |
-| `deny` | cargo-deny の検査のみ |
+| `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6） |
 | `test-hooks` | `scripts/hooks/` の回帰テスト（bash + git のみ） |
 | `doctor` | 診断のみ。何も導入しない |
 | `setup` | Git hooks 有効化と `.env` 作成。再実行可（冪等） |
