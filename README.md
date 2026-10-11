@@ -66,7 +66,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
 | `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `deny`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
-| `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg） |
+| `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg）。編集方針は `.claude/rules/git-hooks.md`（フックの時間予算と CI との役割分担） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
 | `.shellcheckrc` | shellcheck が `source` 先（`scripts/lib.sh`）を追って検査するための設定 |
 | `.envrc`・`.env.example` | direnv による `.env` の読み込みと、その雛形 |
@@ -136,6 +136,11 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 
 hooks に引っかかった場合は原因を修正してから再コミットしてください。`--no-verify` によるバイパスは行いません。
 
+開発速度を落とさないため、hooks には staged ファイル限定で一瞬で終わる検査と、コミット単位でしか意味がない検査
+（シークレット検知・コミットメッセージ）だけを置きます。clippy・test・cargo-deny など重い処理や CI と重複する検査は
+CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` を実行してください。
+時間予算（pre-commit 合計 1 秒未満）と判断手順は `.claude/rules/git-hooks.md` に定義しています。
+
 ## CI
 
 | ワークフロー | 内容 |
@@ -167,6 +172,6 @@ API キー等は値を直接書かず `"${EXAMPLE_API_KEY:-}"` のように環�
 
 1. **言語固有のコマンド**: `scripts/` に処理（例: `scripts/verify.sh`）を追加し、`Makefile` に 1 行で呼ぶターゲットと `## ` コメントを足し、`scripts/help.sh` の一覧も更新する（中身の無いターゲット `@true` 等は置かない）
 2. **`make check` の拡張**: `scripts/check.sh` に fmt チェック・lint 等を追記する（自動修正は別ターゲットに分ける）
-3. **hooks の追加**: `lefthook.yml` に job を追加し、実体が長くなる場合は `scripts/hooks/` へ切り出す
+3. **hooks の追加**: `.claude/rules/git-hooks.md` の時間予算と判断手順に従う。staged 限定で 1 秒未満の検査のみ `lefthook.yml` に job を追加し（実体が長くなる場合は `scripts/hooks/` へ切り出す）、テスト・ビルド等は `ci.yml` にジョブを追加して `ci-complete` の `needs` にも加える
 4. **EditorConfig**: 言語ごとのセクション（例: `[*.rs] indent_size = 4`）を `.editorconfig` に追加する
 5. **`.gitignore`**: ビルド成果物（`/target`・`/dist`・`node_modules/` 等）を追加する
