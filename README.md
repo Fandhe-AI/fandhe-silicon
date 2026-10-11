@@ -64,9 +64,9 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
-| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `deny`）。Make なしでも直接実行できる |
+| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `deny` / `hooks/test-hooks`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
-| `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg） |
+| `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg）。編集方針は `.claude/rules/git-hooks.md`（フックの時間予算と CI との役割分担） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
 | `.shellcheckrc` | shellcheck が `source` 先（`scripts/lib.sh`）を追って検査するための設定 |
 | `.envrc`・`.env.example` | direnv による `.env` の読み込みと、その雛形 |
@@ -118,6 +118,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make check` | `scripts/check.sh` | editorconfig-checker + shellcheck（ソースは変更しない） |
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない） |
 | `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources） |
+| `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
 
 整形は `cargo fmt --all` で行います（`make verify` は差分の検出のみ）。
 
@@ -136,18 +137,26 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 
 hooks に引っかかった場合は原因を修正してから再コミットしてください。`--no-verify` によるバイパスは行いません。
 
+開発速度を落とさないため、hooks には staged ファイル限定で一瞬で終わる検査と、コミット単位でしか意味がない検査
+（シークレット検知・コミットメッセージ）だけを置きます。clippy・test・cargo-deny など重い処理や CI と重複する検査は
+CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` を実行してください。
+時間予算（pre-commit 合計 1 秒未満）と判断手順は `.claude/rules/git-hooks.md` に定義しています。
+
+フックスクリプト（`scripts/hooks/*.sh`）自体のテストもフックには置かず、CI の `test-hooks` ジョブ（`make test-hooks`）で
+Linux・macOS（標準の bash 3.2 を含む）について実行します。`scripts/hooks/` を変更したらローカルでも `make test-hooks` を実行してください。
+
 ## CI
 
 | ワークフロー | 内容 |
 |---|---|
-| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`ci-complete`: 全ジョブ結果の集約 |
+| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`test-hooks`: フックスクリプト自体の回帰テスト（`make test-hooks`。ubuntu-latest・macos-latest）。`ci-complete`: 全ジョブ結果の集約 |
 | `ai-review.yml` | Fandhe-AI/actions の ai-review（codex）による PR 自動レビュー。Actions variable `CODEX_HOME_DIR` が未設定の間は skip される |
 | `update-external.yml` | エージェントスキル（`skills-lock.json`）と submodule（`.gitmodules`）の日次自動追従 PR。secrets は org の `SUBMODULE_PAT` を使う（`SKILLS_PAT` 未登録時は共通側が `SUBMODULE_PAT` へフォールバック）。作成する PR には `dependencies` / `automated` ラベルが付く |
 
 - `main` には ruleset `main-protection` を適用している（`setup-repo-guards` スキルの手順で導入）
   - 削除・force push の禁止、PR 必須（承認数 0・レビュースレッドの resolve 必須・squash merge のみ）
   - required status checks（`strict` は無効。いずれも GitHub Actions の発行に束縛）: `ci-complete`・
-    `codex / preflight`・`codex / review`・`codex / post_feedback`（`check` / `verify` / `deny` / `pr-title` の結果は
+    `codex / preflight`・`codex / review`・`codex / post_feedback`（`check` / `verify` / `deny` / `test-hooks` / `pr-title` の結果は
     `ci-complete` が集約する）。codex のレビュー基準は `AGENTS.md`
 - マージ設定は squash のみ（コミット件名 = PR タイトル、本文 = PR 本文）・マージ後のブランチ自動削除
 - CI にジョブを追加したら `ci-complete` の `needs` にも必ず追加する
@@ -167,6 +176,6 @@ API キー等は値を直接書かず `"${EXAMPLE_API_KEY:-}"` のように環�
 
 1. **言語固有のコマンド**: `scripts/` に処理（例: `scripts/verify.sh`）を追加し、`Makefile` に 1 行で呼ぶターゲットと `## ` コメントを足し、`scripts/help.sh` の一覧も更新する（中身の無いターゲット `@true` 等は置かない）
 2. **`make check` の拡張**: `scripts/check.sh` に fmt チェック・lint 等を追記する（自動修正は別ターゲットに分ける）
-3. **hooks の追加**: `lefthook.yml` に job を追加し、実体が長くなる場合は `scripts/hooks/` へ切り出す
+3. **hooks の追加**: `.claude/rules/git-hooks.md` の時間予算と判断手順に従う。staged 限定で 1 秒未満の検査のみ `lefthook.yml` に job を追加し（実体が長くなる場合は `scripts/hooks/` へ切り出す）、テスト・ビルド等は `ci.yml` にジョブを追加して `ci-complete` の `needs` にも加える
 4. **EditorConfig**: 言語ごとのセクション（例: `[*.rs] indent_size = 4`）を `.editorconfig` に追加する
 5. **`.gitignore`**: ビルド成果物（`/target`・`/dist`・`node_modules/` 等）を追加する

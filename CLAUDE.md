@@ -22,7 +22,7 @@ fandhe-silicon/
 ├── rust-toolchain.toml       # stable + rustfmt / clippy
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）
-├── lefthook.yml              # pre-commit / commit-msg
+├── lefthook.yml              # pre-commit / commit-msg（方針: .claude/rules/git-hooks.md）
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
 ├── .agents/skills/           # スキル実体（外部取得物）
 ├── .claude/
@@ -40,7 +40,7 @@ fandhe-silicon/
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / deny / lib.sh
-    └── hooks/                # secret-scan.sh / commit-msg-check.sh
+    └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
 ```
 
 依存の向きは contract → core / exec → core / upper → core, exec（spec BUILD-54〜58）。
@@ -105,6 +105,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [conventional-commits.md](.claude/rules/conventional-commits.md) | Conventional Commits 規約（type / scope） |
 | [code-comment-style.md](.claude/rules/code-comment-style.md) | コメント規約（役割・呼び出し文脈・SAFETY） |
 | [out-of-scope-tracking.md](.claude/rules/out-of-scope-tracking.md) | スコープ外事項の Issue 追跡 |
+| [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 
 ## Current Skills
 
@@ -149,7 +150,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する
-- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny）。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ
+- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny）。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ。`scripts/hooks/` を変更したら `make test-hooks`（CI の `test-hooks` ジョブ）も通す
 - **CI**: ジョブを追加したら `ci.yml` の `ci-complete` の `needs` に必ず追加する
 - **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。`*.rs` は 4 スペース、staged の `*.rs` は pre-commit で `rustfmt --check`
 - **セキュリティレビュー**: PR 作成前に OWASP Top 10・秘密情報・spec 漏えいを確認（[security](.claude/rules/security.md)）

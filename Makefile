@@ -15,10 +15,10 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify deny
+.PHONY: help doctor setup check verify deny test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-8s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
 
 doctor: ## 開発環境を診断する（読み取りのみ・何も導入しない）。直接: scripts/doctor.sh
 	@scripts/doctor.sh
@@ -34,3 +34,6 @@ verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変�
 
 deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
 	@scripts/deny.sh
+
+test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh
+	@scripts/hooks/test-hooks.sh
