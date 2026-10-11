@@ -62,6 +62,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
 | `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |
 | `deny.toml` | cargo-deny の設定（アドバイザリ・ライセンス・取得元・wgpu 系の禁止） |
+| `deps-approved.toml` | 依存の承認の記録（`make deps-check` が宣言済みの外部依存と突き合わせる。書式は同ファイル先頭） |
 | `CLAUDE.md`・`.claude/agents/`・`.claude/rules/`・`.claude/settings.json` | Claude Code 用のリポジトリ案内・subagent 定義・規約・hooks |
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
@@ -132,7 +133,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない） |
 | `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、wasm32 は check（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
 | `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 |
-| `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定かを検査（`cargo metadata` + `jq`。ソースは変更しない） |
+| `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定で、承認の記録（`deps-approved.toml`）と一致するかを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
 
 整形は `cargo fmt --all` で行います（`make verify` は差分の検出のみ）。

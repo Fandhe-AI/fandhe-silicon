@@ -1,0 +1,23 @@
+# 依存の承認の記録。`scripts/deps-check.sh`（`make deps-check`）が workspace ルート直下のこのファイルを読み、
+# member が宣言する外部依存（member への path 依存を除く全種別・全 target）がここに記録済みかを検査する。
+# 記録は承認の代わりにならない。ユーザーの明示承認を得てから、依存の追加と同じ PR で書く
+# （手順と限界は .claude/rules/dependency-policy.md）。更新・削除でも記録を直す。
+#
+# 書式（案。オーナー確認待ち）: `[[approval]]` を 1 crate につき 1 件。キーはすべて必須で、未知のキーは違反。
+#   name         = 依存の実 package 名（`package = ` で改名していても実名）
+#   version      = 承認した版指定。manifest と完全一致させる（`=x.y.z`）
+#   used_by      = その依存を宣言してよい workspace member 名の配列（空は不可）
+#   approved_on  = 承認日（YYYY-MM-DD）
+#   approval_ref = 明示の承認が書かれた本リポの Issue / PR 番号（`#<数字>`）
+#   purpose      = 目的の 1 行。private spec の本文や内部判断は書かない
+#
+# 記入例（ダミー値。実在の crate の記録ではない）:
+#   [[approval]]
+#   name = "example-crate"
+#   version = "=0.0.0"
+#   used_by = ["fandhe-silicon-core"]
+#   approved_on = "2000-01-01"
+#   approval_ref = "#0"
+#   purpose = "例示用のダミー"
+#
+# 現在、承認済みの外部依存は 0 件。
