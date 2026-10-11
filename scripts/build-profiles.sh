@@ -43,13 +43,14 @@ run() {
   "$@"
 }
 
+# リポジトリ外から呼ばれても rust-toolchain.toml の toolchain を見るよう、確認の前に移動する。
+cd "${ROOT_DIR}"
+
 if ! rustup target list --installed | grep -qx "${WASM_TARGET}"; then
   echo "error: rust target not installed: ${WASM_TARGET}" >&2
   echo "  install with: rustup target add ${WASM_TARGET} (or: rustup toolchain install)" >&2
   exit 1
 fi
-
-cd "${ROOT_DIR}"
 
 # 既定（spec BUILD-8）
 run cargo build -p "${PKG}"
