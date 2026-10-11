@@ -106,3 +106,76 @@ fn works_with_cpu_reference_output() {
     shifted[3] += 10.0;
     assert!(!compare_f32(&c, &shifted, T1).unwrap().is_match());
 }
+
+#[test]
+fn readable_thresholds_are_the_ones_applied() {
+    // 絶対側: 参照 0 のとき、getter で読んだ絶対誤差の境界で内外が切り替わる。
+    let abs = T1.absolute() as f32;
+    let mut seen = (false, false);
+    for x in [abs.next_down(), abs, abs.next_up()] {
+        let expected = if f64::from(x) < T1.absolute() {
+            Within
+        } else {
+            Exceeded
+        };
+        assert_eq!(j(0.0, x), expected);
+        seen.0 |= expected == Within;
+        seen.1 |= expected == Exceeded;
+    }
+    assert!(seen.0 && seen.1);
+
+    // 相対側: 参照 1024（2 の冪で f64 の割り算が正確）。
+    let rel = (1024.0 * (1.0 + T1.relative())) as f32;
+    let mut seen = (false, false);
+    for x in [rel.next_down(), rel, rel.next_up()] {
+        let err = (f64::from(x) - 1024.0).abs();
+        assert!(err >= T1.absolute());
+        let expected = if err / 1024.0 < T1.relative() {
+            Within
+        } else {
+            Exceeded
+        };
+        assert_eq!(j(1024.0, x), expected);
+        seen.0 |= expected == Within;
+        seen.1 |= expected == Exceeded;
+    }
+    assert!(seen.0 && seen.1);
+}
+
+#[test]
+fn relative_error_is_measured_against_the_reference() {
+    assert_eq!(j(1000.0, 1001.0), Exceeded);
+    assert_eq!(j(1001.0, 1000.0), Within);
+}
+
+#[test]
+fn large_finite_difference_is_exceeded_not_non_finite() {
+    assert_eq!(j(f32::MAX, -f32::MAX), Exceeded);
+    assert_eq!(j(f32::MAX, f32::MAX), Within);
+}
+
+#[test]
+fn mixed_mismatches_are_counted_separately() {
+    let c = compare_f32(&[1.0, 2.0, 3.0, 4.0], &[1.0, f32::NAN, 3.5, 4.0], T1).unwrap();
+    assert_eq!(
+        (
+            c.compared(),
+            c.exceeded(),
+            c.non_finite(),
+            c.first_mismatch()
+        ),
+        (4, 1, 1, Some(1))
+    );
+    assert!(!c.is_match());
+}
+
+#[test]
+fn one_empty_side_is_a_length_mismatch() {
+    assert_eq!(
+        compare_f32(&[], &[1.0], T1).unwrap_err(),
+        CompareError::LengthMismatch {
+            reference: 0,
+            actual: 1
+        }
+    );
+}
