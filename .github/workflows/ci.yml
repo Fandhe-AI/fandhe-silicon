@@ -1,4 +1,4 @@
-# ベース CI。
+# ベース CI。ジョブ追加・変更時は .claude/rules/github-actions.md に従う。
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも

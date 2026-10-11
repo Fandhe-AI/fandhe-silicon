@@ -21,7 +21,7 @@ fandhe-silicon/
 ├── Cargo.lock
 ├── rust-toolchain.toml       # stable + rustfmt / clippy
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止）
-├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）
+├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）（編集方針: .claude/rules/makefile.md）
 ├── lefthook.yml              # pre-commit / commit-msg（方針: .claude/rules/git-hooks.md）
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
 ├── .agents/skills/           # スキル実体（外部取得物）
@@ -105,6 +105,8 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [conventional-commits.md](.claude/rules/conventional-commits.md) | Conventional Commits 規約（type / scope） |
 | [code-comment-style.md](.claude/rules/code-comment-style.md) | コメント規約（役割・呼び出し文脈・SAFETY） |
 | [out-of-scope-tracking.md](.claude/rules/out-of-scope-tracking.md) | スコープ外事項の Issue 追跡 |
+| [makefile.md](.claude/rules/makefile.md) | Makefile は薄い入口・ターゲット増減の同期点・scripts 規約（`Makefile`・`scripts/*.sh` 編集時のみ読み込み） |
+| [github-actions.md](.claude/rules/github-actions.md) | runner 方針・必須チェック `ci-complete`・発火条件・ジョブ追加チェックリスト（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 
 ## Current Skills

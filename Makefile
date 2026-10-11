@@ -1,4 +1,4 @@
-# 開発用 Makefile。
+# 開発用 Makefile。変更時は .claude/rules/makefile.md に従う。
 #
 # Make は scripts/*.sh を呼ぶだけの薄い入口であり、処理の定義は scripts/ 側にのみ置く
 # （各レシピは 1 行の呼び出しに限定し、ここでチェック内容を二重定義しない）。
