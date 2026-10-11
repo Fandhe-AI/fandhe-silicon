@@ -211,17 +211,31 @@ Q1〜Q10 への回答は、本リポでは確認できていない。Q6 につ�
 | Top-k の参照と T-2 の比べ（同上） | #105（5/8。済） |
 | 方針の整理（本書の構成の整理、閾値と範囲の扱いの案） | #106（6/8。済） |
 | テスト。判断: `build-profiles` に `test-support` を含む 4 組を足した / `Tolerance` を外から作れないことを rustdoc の `compile_fail` で固定した / `exec`・`upper` からの利用口は足していない（利用するコードが無い）/ TASK-23（#91）の枠との接続は触れていない（D6 のまま。#91 は未完了） | #107（7/8。済） |
-| 完了の条件の確かめ | #108（8/8） |
+| 完了の条件の確かめ | #108（8/8。済。本書の「完了の条件の確かめ」に記録） |
 
 ## 完了の条件の確かめ
 
-8/8（#108）で、本リポで観測できる事実により埋める。結果の欄は #108 まで空のまま。
+8/8（#108）で、本リポで観測できる事実による確かめを記録する（ポインタ: TASK-24）。
 spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
 
-| 確かめる点のポインタ | 見る場所（コード・テスト・コマンド） | 結果 |
-| -------------------- | ------------------------------------ | ---- |
-| TASK-24 の完了の条件 | 本書「現状の形」の各表のテスト、`make verify`、`make build-profiles`、`make deny` | （#108 で記入） |
+| 確かめる項目 | 方法 | 結果 |
+| ------------ | ---- | ---- |
+| `parity` に背後実装の feature での分岐が無い（D3） | `crates/core/src/parity.rs` と `crates/core/src/parity/` を `backend`・`cfg(` で grep | 0 件 |
+| `unsafe` を使っていない（D2） | `crates/core/src` を `unsafe` で grep | `lib.rs` の `#![forbid(unsafe_code)]` の 1 行だけ |
+| 外部依存 0 のまま（D2） | `Cargo.lock` の `[[package]]` の数 | 4（workspace の 4 crate だけ） |
+| 製品の経路から `parity` を参照していない | `crates/exec`・`crates/upper`・`crates/contract/src` を `parity` で grep | 0 件 |
+| `test-support` が `default` に入っていない | 各 `Cargo.toml` の `[features]` | `core` に `default` なし、`contract` の `default` に含まれない |
+| 道具のテストが通る | `cargo test -p fandhe-silicon-core --features test-support` | 通過（統合テスト 3 本が 8・14・15 件、doctest も通過） |
+| 背後実装の feature の組に依らず同じ結果になる | `make build-profiles` の `test-support` を含む 4 組で `parity_pipeline_gives_fixed_results_under_any_backend_feature_set` | 4 組すべてで通過 |
+| 閾値の設定が `core` の外から読める（D4） | 同 4 組で `threshold_setting_is_readable_from_outside_core` | 4 組すべてで通過 |
+| 読める値が判定に当たっている・外から任意の閾値を作れない・T-2 の比べが閾値の引数を持たない | `parity_tolerance`・`parity_topk` の統合テストと `Tolerance` の rustdoc の `compile_fail` | 通過 |
+| GPU の実機なしで走る（D12） | 上のテストはいずれも実機なしで実行した。CI の結果は PR で確かめる | ローカルでは通過。CI は PR の結果で確認（未検証） |
+| 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | すべて終了コード 0 |
+| 適用の範囲・TASK-23 の枠との接続 | 本書 D5・D6 のまま | 該当なし（判断待ち。本 PR では触れない） |
+
+- 判定: 本リポで観測できる範囲では、上の項目はすべて確かめられた。TASK-24 の完了は本書では宣言しない（spec との対応づけと Q1〜Q11 はオーナーの確認・判断待ち。置き場・feature・形は未承認の仮置きのまま）
+- 再実行の契機: Q1〜Q11 への回答、`parity` の置き場・feature の変更、`T1` の値・比べの規則の変更、TASK-25（#109）での規則の追加、TASK-53（#196）の範囲の決定、`scripts/build-profiles.sh` の組の変更
 
 ## 確かめた日付
 
-2026-10-11（base: e04f344）
+2026-10-11（base: f73258b）
