@@ -37,6 +37,7 @@ check_tool required shellcheck sh -c 'shellcheck --version | grep "^version:"'
 check_tool required rustup sh -c 'cd / && rustup --version 2>/dev/null'
 check_tool required cargo sh -c 'cd / && cargo --version'
 check_tool optional cargo-deny cargo-deny --version
+check_tool optional jq jq --version
 
 # rust-toolchain.toml の channel が導入済みかを、導入済み一覧との突き合わせだけで判定する
 toolchain_file="${ROOT_DIR}/rust-toolchain.toml"

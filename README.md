@@ -65,7 +65,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
-| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `hooks/test-hooks`）。Make なしでも直接実行できる |
+| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `deps-check` / `hooks/test-hooks`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
 | `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg）。編集方針は `.claude/rules/git-hooks.md`（フックの時間予算と CI との役割分担） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
@@ -87,6 +87,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | [GNU Make](https://www.gnu.org/software/make/) 3.81+ | `make` 入口 | ✓ |
 | [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
 | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
+| [jq](https://jqlang.org/) | 依存の版指定の検査（`make deps-check`） | 任意 |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
@@ -128,6 +129,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない） |
 | `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、wasm32 は check（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
 | `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources） |
+| `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定かを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
 
 整形は `cargo fmt --all` で行います（`make verify` は差分の検出のみ）。

@@ -5,7 +5,7 @@
 - **依存最小方針**: 本リポは上位（fandhe-ai・vector-db・fandhe-3d）の共通基盤であり、依存は推移的に全上位へ波及する。外部クレートへの依存は可能な限り避ける
 - **wgpu 非依存**: wgpu・wgpu-core・wgpu-hal・wgpu-types・naga を依存グラフに入れない（spec D-18。`deny.toml` の `[bans] deny` で CI が検出する）
 - **共通型 crate**: `crates/core` の外部依存は spec BUILD-54 の範囲に限る
-- **完全固定**: 採用する依存は `Cargo.toml` で `=x.y.z` の完全固定（exact pin）で管理する（`^`・`~`・範囲指定は禁止）
+- **完全固定**: 採用する依存は `Cargo.toml` で `=x.y.z` の完全固定（exact pin）で管理する（`^`・`~`・範囲指定は禁止）。`make deps-check`（`scripts/deps-check.sh`）が機械で検出する（spec TASK-8）
 - **ユーザー承認制**: 依存の追加・更新・削除は必ずユーザーの明示承認を経てから行う
 
 ## 承認を求める際に提示する情報
