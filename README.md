@@ -57,6 +57,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 
 | パス | 役割 |
 |---|---|
+| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make` の対象外。現状は外部依存 0 の骨格 |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
 | `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |

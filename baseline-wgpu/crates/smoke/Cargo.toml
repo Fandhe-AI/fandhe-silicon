@@ -1,0 +1,16 @@
+# 比較基準の別 workspace の疎通確認用 bin。依存を持たない。
+[package]
+name = "baseline-wgpu-smoke"
+version = "0.0.0"
+description = "Skeleton binary for the baseline-wgpu workspace"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "baseline-wgpu-smoke"
+path = "src/main.rs"
+
+[lints]
+workspace = true

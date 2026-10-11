@@ -1,0 +1,19 @@
+# 比較基準の wgpu を置く、基盤の外の別 Cargo workspace（spec TASK-7 / AC-2 / BUILD-50 のポインタ）。
+#
+# 基盤の workspace（ルートの Cargo.toml）とは独立しており、ここの依存は基盤の依存グラフに入らない。
+# ルート側は exclude で切り離し、本 workspace は自身の [workspace] で上方探索を止める。
+# 現状は外部依存 0 の骨格のみ。wgpu の依存追加はユーザー承認後に `=x.y.z` 完全固定で行う
+# （.claude/rules/dependency-policy.md）。`make deny` はルートの workspace のみを監査し、本 workspace は対象外。
+[workspace]
+resolver = "3"
+members = ["crates/smoke"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Fandhe-AI/fandhe-silicon"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
