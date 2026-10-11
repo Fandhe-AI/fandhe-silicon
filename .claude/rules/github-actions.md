@@ -21,7 +21,7 @@ description: >
 
 - ruleset `main-protection` の required status checks（11 件）:
   - `ci.yml`: `ci-complete`・`make check (editorconfig-checker + shellcheck)`・`make verify (fmt + clippy + test)`・
-    `make deny (cargo-deny)`・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`
+    `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` も含む。check 名は不変）・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`
   - `ai-review.yml`: `codex / preflight`・`codex / review`・`codex / post_feedback`
   - 外部 App: `Cursor Bugbot`（cursor App に束縛。それ以外は GitHub Actions の integration に束縛）
 - 個別ジョブまで登録するのは、implement-issue-tree の自動マージ前ゲート（G0）が PR 上の全 check を必須チェックに含めることを要求するため。
