@@ -47,9 +47,9 @@ description: >
 
 ## キャッシュ方針
 
-現状（2026-10-11）: `ci.yml` は GitHub Actions のキャッシュを使っていない。残っているのは PR #3 の実行が保存した
-3 件・約 17MB（ref はすべて `refs/pull/3/merge`）だけで、main の実行からは読まれず、7 日間アクセスが無ければ自動で
-削除される。キャッシュを追加する場合は本節に従う。
+現状（2026-10-11）: `ci.yml` は GitHub Actions のキャッシュを使っていない。リポジトリのキャッシュは 0 件・0 バイト
+（`gh cache list` と `actions/cache/usage` で確認。以前は PR #3 の実行が `refs/pull/3/merge` に保存した 3 件・約 17MB が
+残っていたが、すでに無い）。キャッシュを追加する場合は本節に従う。
 
 ### 前提（容量と課金）
 
@@ -72,7 +72,7 @@ description: >
 ### 保存は main への push だけ
 
 - PR から保存したキャッシュは `refs/pull/<N>/merge` スコープに入り、その PR からしか読めないのに上限を共有して
-  main のキャッシュを追い出す（上記の PR #3 の 3 件がこれにあたる）
+  main のキャッシュを追い出す（以前残っていた PR #3 の 3 件がこれにあたる）
 - `actions/cache` は `actions/cache/restore`（全イベント）と `actions/cache/save` に分け、save には
   `if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.<id>.outputs.cache-hit != 'true'` を付け、
   `key: ${{ steps.<id>.outputs.cache-primary-key }}` で保存する（`<id>` は restore ステップの `id`）
