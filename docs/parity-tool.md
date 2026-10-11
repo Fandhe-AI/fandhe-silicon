@@ -14,7 +14,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | workspace | member 4（core / contract / exec / upper）。外部依存 0 | `cargo metadata` の集計 |
-| 公開面 | 4 crate とも crate 冒頭の doc コメントのみ。`core`・`exec`・`upper` は `#![forbid(unsafe_code)]` | `crates/*/src/lib.rs` |
+| 公開面 | 4 crate とも crate 冒頭の doc コメントのみ（`contract` は cfg ゲート付きの空の backend モジュール宣言 `backend_metal`・`backend_vulkan`・`backend_cuda` を持つ）。`core`・`exec`・`upper` は `#![forbid(unsafe_code)]` | `crates/*/src/lib.rs` |
 | contract の feature | `cpu-ops`・`test-support` などは宣言のみで中身は無い | `crates/contract/Cargo.toml` |
 | 既存のテスト | `crates/contract/tests/backend_cfg_gate.rs` のみ | `find crates -name '*.rs'` |
 | 結果を比べる道具 | コード・テスト・文書とも 0 件 | リポ内検索 |
