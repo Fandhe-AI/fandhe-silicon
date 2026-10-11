@@ -23,6 +23,7 @@ cpu-ops = []
 native-blocking-wait = []
 graphics = []
 ext-interop = []
+# backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
 backend-metal = ["contract-core"]
 backend-vulkan = ["contract-core"]
 backend-cuda = ["contract-core"]
