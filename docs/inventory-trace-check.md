@@ -38,10 +38,12 @@ gitlink の指す commit の入力を一時ディレクトリへ取得し、使�
 
 CI では実行していない。取得物・生成物・スクリプトはコミットしていない（一時ファイルは削除済み）。
 
-## 検査のスクリプト（#62・#63）
+## 検査のスクリプト（#62・#63・#64）
 
 入口は `make inventory-trace-check`（実体は `scripts/inventory-trace-check.sh`。bash + `python3 -I`、標準ライブラリのみ）。
-入力は読むだけで、ファイルを作らず、ネットワークを使わない。CI には組み込んでいない（Q1 が未回答のため。いまの CI は submodule を取得しない）。
+入力は読むだけで、ファイルを作らず、ネットワークを使わない。実物の入力の検査は CI に組み込んでいない（Q1 が未回答のため。いまの CI は submodule を取得しない）。
+回帰テストの入口は `make test-inventory-trace-check`（実体は `scripts/test-inventory-trace-check.sh`）。合成の fixture だけで動き、`docs/spec` の取得は要らない。
+CI の `deny` ジョブがこのテストを呼ぶ（ジョブを増やさないので check 名・`ci-complete` の `needs`・ruleset は変わらない）。これは Q1 への回答ではない。
 
 引数（直接実行で渡す。`make` 経由は既定のパス）:
 
@@ -62,7 +64,7 @@ CI では実行していない。取得物・生成物・スクリプトはコ�
 | ------ | ---- |
 | 0 | 合格。既定（ファイル単位）では、すべての行の鍵が少なくとも 1 つの項目ファイルに現れた。項目の行への帰属まで確かめるのは直接実行で `--item-rows` を付けたときだけで、そのときは少なくとも 1 つの項目の行に現れた |
 | 1 | 違反（fail-closed）。項目ファイルに現れない鍵（`--item-rows` のときは項目の行に現れない鍵）・項目の行が 0（`--item-rows` のとき）・鍵が空・鍵が重複・列の数の不一致・データの行が 0・探索対象が 0・CSV や項目ファイルを読めない |
-| 2 | 誤用・前提の不足（検査を終えていない）。未知の引数・入力が無い（既定の clone など）・`python3` が無い・`--key-column`・`--exclude`・`--item-id-column` が解決できない・予期しない内部エラー |
+| 2 | 誤用・前提の不足（検査を終えていない）。未知の引数・入力が無い（既定の clone など）・CSV が 0 バイト・`python3` が無い・`--key-column`・`--exclude`・`--item-id-column` が解決できない・予期しない内部エラー |
 
 前提の検査を先に行い、欠けていれば内容を読まずに 2 で終える。入力が無いときに 0 を返さない。
 
@@ -90,7 +92,8 @@ CI では実行していない。取得物・生成物・スクリプトはコ�
 - 表の外の本文（地の文・箇条書き）にだけ現れる鍵は、`--item-rows` のときだけ違反になる（既定のファイル単位では合格する。`make inventory-trace-check` は引数を渡さないので既定のファイル単位で、行単位の確認は済まない）
 - 鍵の直後・直前に、鍵の文字集合に入る文字が句読点として続く書き方は「現れた」に数えない（厳しい側に倒れる）
 - CI では走らない。既定の clone では入力が無く、2 で終わる
-- 回帰テストは最小限（`scripts/test-inventory-trace-check.sh`）。網羅・Make のターゲット化・完了の条件の確かめは #64
+- 回帰テストは合成 fixture の範囲に限る。実物の入力での実行結果は本書に書かず、本 Issue では未検証
+- 回帰テストのうち、読めない項目ディレクトリのケースは権限が効かない環境（root 実行など）では 2 で止まり、成功扱いにしない
 
 Q1〜Q3 は未回答のままで、#62・#63 はどの案も確定させていない（CI に組み込まない・spec 由来の語を書かない）。#63 は一覧を実行時に標準出力へ出すだけで、コミットも保存もしていない（Q2 の置き場は未決）。
 
@@ -142,13 +145,32 @@ Q1〜Q3 は未回答のままで、#62・#63 はどの案も確定させてい�
 | ---- | ---- |
 | 現状と前提の確認（本節群） | #61（1/4） |
 | 実装 | #62（2/4。検査のスクリプト。済）・#63（3/4。項目の単位への絞り込みと一覧の出力。済） |
-| テスト | #64（4/4） |
+| テスト | #64（4/4。回帰テストの網羅・Make のターゲット化・完了の条件の確かめ。済） |
 
 ## 完了の条件の確かめ
 
-1/4 では未実施。#64 で、本リポで観測できる事実により埋める。
-spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
+本リポで観測できる事実と、その確かめ方だけを書く。
+spec の完了の条件との対応づけと完了の宣言はオーナーが確認する。条件の本文は転記しない。
+
+| 観測できる事実 | 確かめ方（`make test-inventory-trace-check` のケース） |
+| -------------- | ---------------------------------------------------- |
+| 鍵がどの項目ファイルにも現れない行があると 1 で終わり、該当の CSV 行番号を標準エラーに出す | `default: absent key fails`・`one row of several is absent` |
+| すべての鍵が現れれば 0 で終わる | `default: key in an item file` |
+| 入力が無い・読めない前提の不足は 0 を返さず 2 で終わる | `missing --csv path`・`missing --items-dir path`・`empty CSV file`・`python3 missing from PATH` |
+| 違反は件数つきで数え、鍵の空・重複・列の数の不一致・探索対象 0 も違反になる | `column mismatch, empty key and duplicate key`・`header-only CSV`・`only README.md to search` |
+| 読めない入力（不正な UTF-8・引用符の崩れ・権限なし）は 1 で終わる | `invalid UTF-8 in the CSV`・`unterminated quote in the CSV`・`invalid UTF-8 in an item file`・`unreadable items directory exits 1` |
+| `--list` は合格のときだけ標準出力へ出し、違反・誤用では空にする | `--list order: CSV row, file name, line in file`・`--list prints nothing on violation`・`--list prints nothing on misuse` |
+| 診断に鍵の文字列は既定で出ない（`--show-keys` のときだけ出る） | `keys are hidden by default`・`--show-keys prints the key` |
+| 入力を書き換えず、ファイルを作らない | `inputs are not modified and no files are created` |
+| 回帰テストが CI の `deny` ジョブで走る | `.github/workflows/ci.yml` の `make test-inventory-trace-check` ステップ |
+
+確かめていないこと（事実のみ）:
+
+- 実物の入力での実行結果。本リポの public な記録には書かない。本 Issue では未検証
+- 逆向きの検査。未実装で、spec 側の判断待ち
+- `--item-rows` の規則。未承認の仮置きで、既定の合否は変えていない
+- Q1〜Q3。未回答のまま
 
 ## 確かめた日付
 
-2026-10-11（base: ca29b60。#63 の追記）
+2026-10-11（base: 28b3c56。#64 の追記）
