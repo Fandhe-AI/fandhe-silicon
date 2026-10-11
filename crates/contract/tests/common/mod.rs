@@ -69,8 +69,41 @@ pub struct ExpectedFile {
     pub expected: UnsafeCounts,
 }
 
+/// 識別子を構成する文字か。Rust の `XID_Continue` を標準ライブラリだけで近似する。
+///
+/// 非 ASCII の文字は、コメント・リテラルの外では識別子にしか現れないので、空白（Rust が空白と
+/// みなす `U+200E` / `U+200F` を含む）以外はすべて識別子の一部として扱う。これで結合文字・連結文字
+/// （例: `unsafe` + `U+0301`）を含む識別子が `unsafe` キーワードの途中で切れない。
 fn is_ident(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+    if c.is_ascii() {
+        c.is_ascii_alphanumeric() || c == '_'
+    } else {
+        !c.is_whitespace() && !matches!(c, '\u{200E}' | '\u{200F}')
+    }
+}
+
+/// 文字・バイト文字リテラルの本体（開きの `'` の次から）を読み飛ばす。閉じの次の位置を返す。
+///
+/// エスケープ（`\'`・`\\`・`\x..`・`\u{..}` 等）は全体を読み飛ばしてから、エスケープされていない
+/// 閉じの `'` を探す。閉じが見つからない不正な形は閉じを消費しない。
+fn skip_char_body(cs: &[char], mut i: usize) -> usize {
+    if cs.get(i) == Some(&'\\') {
+        i += 1;
+        match cs.get(i) {
+            Some('x') => i += 3,
+            Some('u') => {
+                while i < cs.len() && cs[i] != '}' && cs[i] != '\'' && cs[i] != '\n' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            Some(_) => i += 1,
+            None => return i,
+        }
+    } else {
+        i += 1;
+    }
+    if cs.get(i) == Some(&'\'') { i + 1 } else { i }
 }
 
 /// 文字列リテラルの本体（開きの `"` の次から）を読み飛ばす。閉じの次の位置を返す。
@@ -146,12 +179,8 @@ pub fn strip_comments_and_literals(src: &str) -> String {
             out.push(' ');
         } else if c == '\'' {
             if next == Some('\\') {
-                // 文字リテラル（エスケープあり）。閉じの `'` まで進む。
-                i += 2;
-                while i < cs.len() && cs[i] != '\'' {
-                    i += 1;
-                }
-                i += 1;
+                // 文字リテラル（エスケープあり）。エスケープ全体を飛ばして閉じの `'` へ進む。
+                i = skip_char_body(&cs, i + 1);
                 out.push(' ');
             } else if cs.get(i + 2) == Some(&'\'') {
                 i += 3;
@@ -191,14 +220,7 @@ pub fn strip_comments_and_literals(src: &str) -> String {
                 out.push(' ');
             } else if word == "b" && after == Some('\'') {
                 // バイト文字リテラル。`b'"'` で文字列の走査がずれないよう読み飛ばす。
-                i += 1;
-                if cs.get(i) == Some(&'\\') {
-                    i += 1;
-                }
-                while i < cs.len() && cs[i] != '\'' {
-                    i += 1;
-                }
-                i += 1;
+                i = skip_char_body(&cs, i + 1);
                 out.push(' ');
             } else {
                 out.push_str(&word);
