@@ -22,5 +22,9 @@ required-features = ["test-support"]
 name = "parity_tolerance"
 required-features = ["test-support"]
 
+[[test]]
+name = "parity_topk"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
