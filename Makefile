@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify deny test-hooks
+.PHONY: help doctor setup check verify build-profiles deny test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -31,6 +31,9 @@ check: ## editorconfig-checker + shellcheck（ソースは変更しない）。�
 
 verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変更しない）。直接: scripts/verify.sh
 	@scripts/verify.sh
+
+build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）。直接: scripts/build-profiles.sh
+	@scripts/build-profiles.sh
 
 deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
 	@scripts/deny.sh
