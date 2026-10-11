@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -146,6 +146,9 @@ jobs:
         run: make build-profiles
 
   # 依存の監査。ローカルの `make deny`（scripts/deny.sh）をそのまま実行する。
+  # 必須チェック名（ジョブ名）を維持したまま、依存の完全固定・承認の記録の検査（`make deps-check`）と
+  # その回帰テスト（`make test-deps-check`）もここで追加実行する（ジョブを増やさないため ci-complete の needs は不変）。
+  # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
   # cargo-deny はバージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する（check ジョブと同方針）。
   deny:
     name: "make deny (cargo-deny)"
@@ -189,6 +192,19 @@ jobs:
 
       - name: make deny
         run: make deny
+
+      - name: Show jq / python3 versions
+        # 判定はしない（版を記録に残すだけ。要件未達は deps-check.sh が終了コード 2 で失敗させる）
+        run: |
+          set -euo pipefail
+          jq --version
+          python3 --version
+
+      - name: make deps-check
+        run: make deps-check
+
+      - name: make test-deps-check
+        run: make test-deps-check
 
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。

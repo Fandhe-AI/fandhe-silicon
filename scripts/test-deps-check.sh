@@ -2,7 +2,7 @@
 # deps-check.sh の回帰テスト（spec TASK-8 / AP-8 のポインタ）。
 # 版指定の未固定・取得元・[patch] / [replace]・承認の記録（deps-approved.toml）の各検査が
 # 実際に失敗として働くことを、一時 workspace の fixture で示す。実物の違反はコミットしない。
-# 呼び出し元: `make test-deps-check`（直接実行も可。CI への組み込みは別 Issue）。
+# 呼び出し元: `make test-deps-check`（直接実行も可。CI の `deny` ジョブも `make test-deps-check` を呼ぶ）。
 #
 # 判定は「終了コード + stderr のメッセージの部分一致 + FAILED の件数」で行う。終了コードだけでは
 # 未固定の依存が「未固定」と「承認の記録なし」の 2 件で落ちる区別が付かず、検査が素通りする退行

@@ -70,7 +70,7 @@ P0 と P1 はいずれも codex ジョブを失敗させる（マージ前に解
   不変条件が自明な箇所を除く）、backend のエラーコードの握りつぶし、能力が無い場合の
   暗黙のフォールバックは P1。明示的なエラーまたは能力問合せの結果として返す
 - **コマンド契約（P1）**: 処理の実体は `scripts/`、`Makefile` は 1 行の呼び出しのみ。
-  ローカル（`make check` / `make verify` / `make deny`）・Git hooks・CI が同じコマンドを
+  ローカル（`make check` / `make verify` / `make deny` / `make deps-check`）・Git hooks・CI が同じコマンドを
   共有する。CI に独自のチェック定義を持ち込む・`Makefile` に処理を直書きする・
   中身の無いターゲット（`@true` 等）を置く・ターゲット変更時に `scripts/help.sh` を
   更新しないことは P1
