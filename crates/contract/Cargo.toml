@@ -12,7 +12,8 @@ publish.workspace = true
 [dependencies]
 fandhe-silicon-core = { path = "../core" }
 
-# feature 名は spec BUILD-47 / BUILD-8 / BUILD-65 に合わせる（モジュールの骨格は spec TASK-5）。
+# feature 名は spec BUILD-47 / BUILD-8 / BUILD-65 に合わせる。
+# backend-* は src/backend_*.rs のモジュールを有効にする（Vulkan・CUDA は wasm32 で外す。spec TASK-5）。
 # default は CpuOnly プロファイル（contract-core・cpu-isa・cpu-ops）のみ。
 [features]
 default = ["contract-core", "cpu-isa", "cpu-ops"]
@@ -22,17 +23,18 @@ cpu-ops = []
 native-blocking-wait = []
 graphics = []
 ext-interop = []
-backend-metal = []
-backend-vulkan = []
-backend-cuda = []
+# backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
+backend-metal = ["contract-core"]
+backend-vulkan = ["contract-core"]
+backend-cuda = ["contract-core"]
 # DX12 の compute の背後実装の置き場（中身なし・名前は仮。形は spec TASK-222、
 # モジュールの骨格と依存の閉じ込めは TASK-234。参照: BUILD-17・D-26・D-32）。
-backend-dx12-compute = []
+backend-dx12-compute = ["contract-core"]
 # GL（GLES）の背後実装の feature はここに足す（形は spec TASK-2581、骨格は TASK-2583）。
 # テスト・診断専用（本番ビルドに含めない）
 test-support = []
 fault-injection = []
-artifact-inspection = []
+artifact-inspection = ["backend-metal"]
 
 [lints]
 workspace = true
