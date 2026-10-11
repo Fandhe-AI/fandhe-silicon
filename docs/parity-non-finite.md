@@ -5,7 +5,7 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-25 を参照する（ポインタのみ）。
 本書は現状の挙動だけを書き、あるべき規則との差は書かない。「着手時点の事実」は着手時点の記録として残し、書き換えない。
-後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記する。
+後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記する。3/4（#112）ではテストを足した（「テストの現状（3/4）」）。
 
 ## 前提タスクの状態
 
@@ -56,13 +56,47 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | 公開名 | `SpecialVerdict`・`judge_element_with_special_values`・`compare_f32_with_special_values` と、集計の型（getter は `compared`・`exceeded`・`non_finite_mismatch`・`first_mismatch`・`is_match`） | `crates/core/src/parity/special_values.rs` |
 | 判定の区分 | `SpecialVerdict` は 5 区分（`BothNan`・`SameInfinity`・`NonFiniteMismatch`・`Within`・`Exceeded`） | 同上 |
 | 有限どうし | `judge_element` へ委ねる。既存の `judge_element`・`compare_f32` は変えていない | 同上、公開テスト（`crates/core/tests/parity_special_values.rs`） |
-| テスト | `[[test]]` 1 件（`parity_special_values`、`required-features = ["test-support"]`） | `crates/core/Cargo.toml` |
+| テスト | `core` の `[[test]]` 1 件（`parity_special_values`、`required-features = ["test-support"]`）。3/4 で `contract` の `[[test]]` 1 件（`test_support_special_values`、同 feature）を足した | 各 `Cargo.toml` |
+| 走る場所（3/4） | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む 4 組。`build-profiles` の組は増やしていない | `scripts/build-profiles.sh` |
+
+## テストの現状（3/4・未承認の仮置き）
+
+本リポのコードと公開テストが示す事実のみ。`src` は変えていない。入力はテストの中でその場で組んだもので、既存の 12 件の期待値は変えていない。
+
+### core（`crates/core/tests/parity_special_values.rs`）
+
+| 観測できる振る舞い | 確かめ方（テスト名） |
+| ------------------ | -------------------- |
+| 同じビット列を参照と実測に渡すと必ず一致 | `same_bit_pattern_always_matches` |
+| 値の種類（NaN・±無限大・±0・有限）の組ごとの区分が固定 | `verdict_matrix_over_value_kinds_is_fixed` |
+| 非正規化数は有限として扱われる | `subnormals_are_treated_as_finite` |
+| NaN のビット列の幅（signaling の形・符号・payload）によらず NaN として扱われる | `every_nan_bit_pattern_counts_as_nan` |
+| 参照が零でない有限のとき、実測の零の符号は結果を変えない | `zero_actual_sign_does_not_change_the_verdict` |
+| getter で読んだ絶対誤差の境界で、参照が零のときの内外が切り替わる | `readable_absolute_bound_is_applied_for_zero_reference` |
+| 相対誤差は参照に対して測られる（向きが結果を変える） | `relative_error_is_measured_against_the_reference` |
+| 有限だけの列では既存の `compare_f32` と集計が一致する | `agrees_with_compare_f32_on_all_finite_sequences` |
+| 一致とみなす特殊値の組だけが `compare_f32` と異なる | `differs_from_compare_f32_only_on_matching_special_pairs` |
+| 集計が要素ごとの判定と整合する | `summary_agrees_with_per_element_verdicts`・`single_element_sequences` |
+| 最初の不一致が有限でない値の不一致になりうる | `first_mismatch_can_be_a_non_finite_mismatch` |
+| CPU 参照の出力（有限でない値を含む入力から得たものを含む）を比べに渡せる | `cpu_reference_output_feeds_the_comparison` |
+
+CPU 参照に有限でない入力を渡したときの出力の要素ごとの種類・零の符号は固定していない（着手時点の事実のとおり、振る舞いは約束されていない）。入力の源としてだけ使っている。
+
+### 別 crate からの確かめ（`crates/contract/tests/test_support_special_values.rs`）
+
+| 観測できる振る舞い | 確かめ方（テスト名） |
+| ------------------ | -------------------- |
+| `contract` の `test-support` だけで道具に届く | `contract_test_support_enables_core_special_values_tool` |
+| 背後実装の feature の組に依らず、区分と集計が同じ | `special_value_verdicts_are_fixed_under_any_backend_feature_set`・`special_value_sequence_summary_is_fixed_under_any_backend_feature_set` |
+| 列のエラーが外から見える | `special_value_sequence_errors_are_reachable_from_outside_core` |
+
+`exec`・`upper` への `test-support` の転送は足していない（使うコードが無い）。
 
 ## オーナー判断待ち（未承認の仮置き）
 
 [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) に従い、推奨を既定として確定しない。回答があるまで、下の仮置きは確定扱いにしない。
 
-本 PR（2/4 の #111）自体も、下の判断が出るまでマージしない（オーナー判断待ちのマージ停止対象）。後続の 3/4・4/4 だけでなく本 PR も止まる。承認はまだ得ていない。判断が出た後に、承認の記録と、実装・文書を整合させる。
+2/4 の PR（#7025）はマージ済みで、仮置きは未承認のまま main にある。下の判断への回答は本リポでは確認できていない。承認はまだ得ていない。判断が出た後に、承認の記録と、実装・文書を整合させる。
 
 | 論点 | 仮置き | 選択肢（列挙のみ） | 止まるもの |
 | ---- | ------ | ------------------ | ---------- |
@@ -71,10 +105,12 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | 3. 判定の区分 | 5 区分の別の型。`ElementVerdict` は変えない | `ElementVerdict` を細分化する（Q11 の経路） | 同上 |
 | 4. 既存の集計との関係 | `Comparison` と別の集計の型 | `Comparison` に項目を足す（Q5 の続き） | 同上 |
 | 5. 前提 | [parity-tool](parity-tool.md) の Q1・Q3・Q11 は未回答のまま着手 | 回答を待つ | TASK-24 の確定 |
+| 6. テストの入力の作り方（3/4） | 判定の区分ごとにその場で組んだ入力で固定する。PoC の入力は写さない | (a) 仮置きのまま、完了の条件との対応づけはオーナーが確かめる (b) PoC と同じ入力での確かめを、TASK-6 の決定の記録に沿う置き場・方法で別に行う | #113 での完了の条件との対応づけ、TASK-25 の完了の宣言 |
+| 7. CPU 参照に有限でない入力を渡す使い方（3/4） | 入力の源としてだけ使い、出力の要素ごとの種類は固定しない | (a) 仮置きのまま (b) 出力の種類も公開テストで固定する（TASK-24 の側の範囲に触れる） (c) CPU 参照を通さない | TASK-24 の CPU 参照の範囲（[parity-tool](parity-tool.md) の Q4） |
 
 ## 形の論点（列挙のみ）
 
-推奨は書かない。回答は無く、確定扱いにしない。規則の足し方・判定の区分・命名は 2/4 で仮置きした（前節「コードの現状の形」）。残るのは新しいテストの置き方・入力の作り方・`build-profiles` の組（3/4 の #112）。
+推奨は書かない。回答は無く、確定扱いにしない。規則の足し方・判定の区分・命名は 2/4 で、新しいテストの置き方・入力の作り方・`build-profiles` の組は 3/4 で仮置きした（前節「コードの現状の形」「テストの現状（3/4）」）。
 
 - 規則の足し方の置き場: `parity/` に新しいファイルと `pub mod` 1 行か、`tolerance.rs` を変えるか
 - `judge_element` の区分の扱い: 既存の区分を細かく分けるか、別の関数・型を足すか。既存の公開テストの期待値が変わる場合は [parity-tool](parity-tool.md) の「値・規則を変える変更の扱い（案）」と Q11 に従う
@@ -90,9 +126,16 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
 | 2/4 | #111 | 実装。済（未承認の仮置き） |
-| 3/4 | #112 | テスト |
+| 3/4 | #112 | テスト。済（未承認の仮置き） |
 | 4/4 | #113 | 確かめ |
+
+#112 の判断:
+
+- `build-profiles` の組は増やしていない（既存の `test-support` を含む組で新しいテストが走る）
+- `contract` 側のテストは新しいファイルにした
+- `exec`・`upper` の利用口は足していない
+- `src` は変えていない
 
 親 #109 の「進み具合を spec に記録する」は spec リポ側の作業で、本リポからは書き換えない。
 
-確かめた日付: 2026-10-11（base: 68145f4）
+確かめた日付: 2026-10-11（base: 83ad4f0）
