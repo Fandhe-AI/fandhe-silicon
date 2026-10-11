@@ -17,8 +17,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  # PR の古い実行のみ中断する。main への push は中断しない（連続マージ時も各コミットの結果を残す）
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # PR の古い実行のみ中断する。main への push はコミット SHA 単位のグループにし、待機中の実行も
+  # 置換されないようにする（連続マージ時も各コミットの結果を残す）
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # 検査ツールの pin の正（単一宣言点）。SHA256 は GitHub リリース資産を実際にダウンロードして
