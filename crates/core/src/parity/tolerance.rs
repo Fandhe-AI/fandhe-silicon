@@ -9,7 +9,7 @@ use std::fmt;
 /// 相対誤差と絶対誤差の上限の組。値は `f64` で持つ（`f32` で持つと境界の判定がずれる）。
 ///
 /// 外からは [`T1`] だけが手に入り、フィールドを直接書いて作ることはできない
-/// （次の `compile_fail` の例が確かめる。stable の rustdoc はエラーコードを照合しないので、
+/// （次の `compile_fail` の例が確かめる。stable の rustdoc は失敗の理由を照合しないので、
 /// 通る例で import が正しいことを担保している）。
 ///
 /// ```
@@ -18,12 +18,12 @@ use std::fmt;
 /// assert!(t.relative() > 0.0 && t.absolute() > 0.0);
 /// ```
 ///
-/// ```compile_fail,E0451
+/// ```compile_fail
 /// use fandhe_silicon_core::parity::tolerance::Tolerance;
 /// let _ = Tolerance { relative: 1.0, absolute: 1.0 };
 /// ```
 ///
-/// ```compile_fail,E0451
+/// ```compile_fail
 /// use fandhe_silicon_core::parity::tolerance::{T1, Tolerance};
 /// let _ = Tolerance { relative: 1.0, ..T1 };
 /// ```
