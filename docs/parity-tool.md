@@ -88,7 +88,10 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | T-1 と T-2 の違い | T-1 の内の差（1 ulp）でも `compare_topk` は不一致 | `difference_within_t1_is_still_a_topk_mismatch` |
 | `reference_topk_f32` | `k` が入力より大きくても（`usize::MAX`）有限の件数だけ降順で返る | `k_larger_than_input_returns_all_finite_entries` |
 
-公開テストから到達させていない経路: `TopKReferenceError::SlotOverflow` と `TopKReferenceError::AllocationFailed` は `u32` を超える件数の入力が要るため、表示のテストのみ。
+公開テストから到達させていない経路（表示のテストのみ）:
+
+- `TopKReferenceError::SlotOverflow`: 添字が `u32` に収まらないほど大きな入力が要るため。
+- `TopKReferenceError::AllocationFailed`: 有限の要素数に対する `try_reserve_exact` の失敗を変換したもので、`u32` 以下の件数でもメモリ不足なら起こる。確保の成否は実行環境の空きに依存し、テストで確実に起こせないため。
 
 ### 別 crate からの確かめ
 
