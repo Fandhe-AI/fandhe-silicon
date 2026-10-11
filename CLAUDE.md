@@ -99,7 +99,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [delegation-impl.md](.claude/rules/delegation-impl.md) | 作成・編集フェーズの委譲マッピング・実装フロー |
 | [coding-rust.md](.claude/rules/coding-rust.md) | Rust 規約（設計・unsafe / FFI・エラー・テスト） |
 | [security.md](.claude/rules/security.md) | 秘密情報・メモリ安全性・OWASP Top 10 観点 |
-| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0） |
+| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0）と、契約の明文（振る舞い）を public に書く例外 |
 | [dependency-policy.md](.claude/rules/dependency-policy.md) | 依存最小・wgpu 非依存・`=x.y.z` 固定・ユーザー承認制 |
 | [japanese-style.md](.claude/rules/japanese-style.md) | 日本語出力スタイル |
 | [conventional-commits.md](.claude/rules/conventional-commits.md) | Conventional Commits 規約（type / scope） |
@@ -148,7 +148,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 
 - **日本語**: やりとり・報告・コメント・コミット本文は日本語（[japanese-style](.claude/rules/japanese-style.md)）
 - **Conventional Commits**: `scripts/hooks/commit-msg-check.sh` が commit-msg フックと CI（PR タイトル）で検証。`--no-verify` によるバイパス禁止
-- **private spec**: `docs/spec` の本文をコード・ドキュメント・Issue・PR・コミットへ転記しない。参照は ID・パスのポインタ表記（[spec-confidentiality](.claude/rules/spec-confidentiality.md)）
+- **private spec**: `docs/spec` の本文をコード・ドキュメント・Issue・PR・コミットへ転記しない。参照は ID・パスのポインタ表記。例外は公開 API の振る舞いの契約だけ（[spec-confidentiality](.claude/rules/spec-confidentiality.md)）
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する
