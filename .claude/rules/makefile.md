@@ -45,7 +45,7 @@ description: >
 | `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6） |
 | `deps-check` | 依存の版指定が `=x.y.z` の完全固定かと承認の記録（`deps-approved.toml`）との一致の検査（cargo metadata + jq）。ソースを変更しない・ネットワーク不要。ツール未導入は失敗、違反は終了コード 1 |
 | `test-deps-check` | `scripts/deps-check.sh` の回帰テスト。一時ディレクトリの fixture だけを使い、リポジトリのファイルを変更しない・ネットワーク不要。ツール未導入は失敗（skip しない） |
-| `inventory-trace-check` | 一覧の鍵が項目の行（表のデータ行）に現れるかの検査（TASK-16 のポインタ。bash + python3）。`--list` で合格のときだけ対応の一覧を標準出力へ出す（保存しない）。入力は読むだけ・ネットワーク不要。終了コード 0 合格・1 違反・2 誤用または入力なし（`--item-id-column` が解決できない場合を含む）（入力が無ければ成功扱いにしない）。CI は呼ばない |
+| `inventory-trace-check` | 一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。項目の行〔表のデータ行〕への帰属は直接実行で `--item-rows` を付けたときだけ。TASK-16 のポインタ。bash + python3）。`--list` で合格のときだけ対応の一覧を標準出力へ出す（保存しない）。入力は読むだけ・ネットワーク不要。終了コード 0 合格・1 違反・2 誤用または入力なし（`--item-id-column` が解決できない場合を含む）（入力が無ければ成功扱いにしない）。CI は呼ばない |
 | `test-hooks` | `scripts/hooks/` の回帰テスト（bash + git のみ） |
 | `doctor` | 診断のみ。何も導入しない |
 | `setup` | Git hooks 有効化と `.env` 作成。再実行可（冪等） |
