@@ -108,6 +108,11 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 
 `make setup` は何度実行しても安全です（既存の `.env` は上書きしません）。
 
+ビルド成果物（`target/`）は肥大化しやすいため、ルート `Cargo.toml` の `[profile.dev.package."*"]` で依存クレート
+（workspace 外）のデバッグ情報を行番号のみにしています（`dev`・`test` に効き、本リポの crate は full debuginfo のままです。
+現在は外部依存が無いため実効は無く、依存を追加した時点から効きます）。溜まった古い成果物は `cargo install cargo-sweep` のうえ
+`cargo sweep --time 14`（14 日以上使われていない成果物を削除）で消せます。
+
 ## コマンド
 
 | コマンド | 直接実行 | 内容 |
