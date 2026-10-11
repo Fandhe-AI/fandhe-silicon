@@ -79,6 +79,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式（案） |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の現状と前提・形（案）。コードの現状の形・閾値と範囲の扱いの案・オーナー判断待ち。置き場・feature・形は未承認の仮置き |
+| `docs/parity-non-finite.md` | 有限でない値の規則の追加（TASK-25）の現状と前提。形の論点は列挙のみ |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の現状と前提、形（案）・オーナー判断待ち |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形（TASK-9。案） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提 |
