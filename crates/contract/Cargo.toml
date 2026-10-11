@@ -41,5 +41,9 @@ artifact-inspection = ["backend-metal"]
 name = "test_support_forwarding"
 required-features = ["test-support"]
 
+[[test]]
+name = "test_support_pixel"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
