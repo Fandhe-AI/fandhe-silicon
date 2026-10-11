@@ -1,4 +1,4 @@
-//! 画像の入力の受け口の振る舞いの確認（spec TASK-26 の 3/6）。
+//! 画像の入力の受け口・比べる関数・閾値の設定の振る舞いの確認（spec TASK-26 の 3/6・4/6）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 
 use fandhe_silicon_core::parity::pixel::{CHANNELS_PER_PIXEL, PixelInputError, PixelView};
@@ -75,4 +75,180 @@ fn error_display_is_non_empty_ascii() {
         let s = e.to_string();
         assert!(!s.is_empty() && s.is_ascii());
     }
+}
+
+// ---- 4/6: 比べる関数と閾値の設定 ----
+
+use fandhe_silicon_core::parity::pixel::{
+    PixelCompareError, T3, compare_pixels, compare_pixels_exact,
+};
+
+/// 全要素が `v` の w×h 画像の列。
+fn solid(w: usize, h: usize, v: u8) -> Vec<u8> {
+    vec![v; w * h * CHANNELS_PER_PIXEL]
+}
+
+fn view(data: &[u8], w: usize, h: usize) -> PixelView<'_> {
+    PixelView::new(data, w, h).unwrap()
+}
+
+#[test]
+fn t3_setting_is_readable() {
+    assert_eq!(T3.near_channel_diff(), 1);
+    assert_eq!(T3.max_channel_diff(), 2);
+    assert_eq!(T3.min_near_numerator(), 999);
+    assert_eq!(T3.min_near_denominator(), 1000);
+}
+
+#[test]
+fn identical_images_match_on_both_comparisons() {
+    let d = solid(3, 2, 7);
+    let e = compare_pixels_exact(view(&d, 3, 2), view(&d, 3, 2)).unwrap();
+    assert!(e.is_match());
+    assert_eq!(
+        (e.compared(), e.mismatched(), e.first_mismatch()),
+        (6, 0, None)
+    );
+    let c = compare_pixels(view(&d, 3, 2), view(&d, 3, 2), T3).unwrap();
+    assert!(c.is_match());
+    assert_eq!((c.compared(), c.near(), c.max_channel_diff()), (6, 6, 0));
+    assert_eq!(c.first_beyond_near(), None);
+}
+
+#[test]
+fn exact_comparison_counts_mismatched_pixels() {
+    let a = solid(2, 2, 10);
+    let mut b = a.clone();
+    // 画素 1 の 1 要素だけ最小の差。
+    b[CHANNELS_PER_PIXEL + 2] += 1;
+    // 画素 3 は複数チャネルが違っても 1 画素と数える。
+    b[3 * CHANNELS_PER_PIXEL] += 5;
+    b[3 * CHANNELS_PER_PIXEL + 1] += 5;
+    let e = compare_pixels_exact(view(&a, 2, 2), view(&b, 2, 2)).unwrap();
+    assert!(!e.is_match());
+    assert_eq!(
+        (e.compared(), e.mismatched(), e.first_mismatch()),
+        (4, 2, Some(1))
+    );
+}
+
+#[test]
+fn size_mismatch_is_an_error_even_with_equal_length() {
+    let d = solid(2, 3, 0);
+    let (r, a) = (view(&d, 2, 3), view(&d, 3, 2));
+    let expected = PixelCompareError::SizeMismatch {
+        reference: (2, 3),
+        actual: (3, 2),
+    };
+    assert_eq!(compare_pixels_exact(r, a).unwrap_err(), expected);
+    assert_eq!(compare_pixels(r, a, T3).unwrap_err(), expected);
+}
+
+#[test]
+fn pixel_difference_is_the_largest_channel_difference() {
+    let a = solid(1, 1, 100);
+    for ch in 0..CHANNELS_PER_PIXEL {
+        let mut b = a.clone();
+        b[ch] = 100 + 2;
+        let c = compare_pixels(view(&a, 1, 1), view(&b, 1, 1), T3).unwrap();
+        assert_eq!(c.max_channel_diff(), 2, "channel {ch}");
+    }
+    // 差の最大が画素の差になる（複数チャネルの差は足さない）。
+    let mut b = a.clone();
+    b[0] = 101;
+    b[3] = 103;
+    let c = compare_pixels(view(&a, 1, 1), view(&b, 1, 1), T3).unwrap();
+    assert_eq!(c.max_channel_diff(), 3);
+}
+
+#[test]
+fn readable_bounds_are_the_ones_applied() {
+    let near = T3.near_channel_diff();
+    let a = solid(1, 1, 100);
+    let mut inside = a.clone();
+    inside[0] = 100 + near;
+    let mut outside = a.clone();
+    outside[0] = 100 + near + 1;
+    let c_in = compare_pixels(view(&a, 1, 1), view(&inside, 1, 1), T3).unwrap();
+    assert_eq!((c_in.near(), c_in.first_beyond_near()), (1, None));
+    let c_out = compare_pixels(view(&a, 1, 1), view(&outside, 1, 1), T3).unwrap();
+    assert_eq!((c_out.near(), c_out.first_beyond_near()), (0, Some(0)));
+
+    // 全体の上限: ちょうどなら満たし、1 つ上は満たさない（割合は十分な大きさの画像で満たす）。
+    let n = T3.min_near_denominator() as usize;
+    let base = solid(n, 1, 100);
+    for (diff, expect) in [
+        (T3.max_channel_diff(), true),
+        (T3.max_channel_diff() + 1, false),
+    ] {
+        let mut b = base.clone();
+        b[0] = 100 + diff;
+        let c = compare_pixels(view(&base, n, 1), view(&b, n, 1), T3).unwrap();
+        assert_eq!(c.is_match(), expect, "diff {diff}");
+    }
+}
+
+#[test]
+fn ratio_boundary_is_inclusive() {
+    let den = T3.min_near_denominator() as usize;
+    let num = T3.min_near_numerator() as usize;
+    let base = solid(den, 1, 100);
+    // 「内」がちょうど下限になるよう、(den - num) 画素を内側の上限の外（全体の上限の内）にする。
+    let far = T3.near_channel_diff() + 1;
+    assert!(far <= T3.max_channel_diff());
+    let mut b = base.clone();
+    for p in 0..(den - num) {
+        b[p * CHANNELS_PER_PIXEL] = 100 + far;
+    }
+    let c = compare_pixels(view(&base, den, 1), view(&b, den, 1), T3).unwrap();
+    assert_eq!(c.near(), num);
+    assert!(c.is_match());
+    // もう 1 画素外すと下限を割る。
+    b[(den - num) * CHANNELS_PER_PIXEL] = 100 + far;
+    let c = compare_pixels(view(&base, den, 1), view(&b, den, 1), T3).unwrap();
+    assert_eq!(c.near(), num - 1);
+    assert!(!c.is_match());
+}
+
+#[test]
+fn max_difference_alone_fails_the_match() {
+    let n = (T3.min_near_denominator() * 10) as usize;
+    let base = solid(n, 1, 0);
+    let mut b = base.clone();
+    // 割合は十分に満たすが、1 画素が全体の上限を超える。
+    b[0] = T3.max_channel_diff() + 1;
+    let c = compare_pixels(view(&base, n, 1), view(&b, n, 1), T3).unwrap();
+    assert!(
+        c.near() as u128 * u128::from(T3.min_near_denominator())
+            >= c.compared() as u128 * u128::from(T3.min_near_numerator())
+    );
+    assert!(!c.is_match());
+}
+
+#[test]
+fn comparison_is_symmetric() {
+    let a: Vec<u8> = (0..(4 * CHANNELS_PER_PIXEL) as u8).collect();
+    let b: Vec<u8> = a.iter().map(|v| v.wrapping_add(3)).collect();
+    let ab = compare_pixels(view(&a, 2, 2), view(&b, 2, 2), T3).unwrap();
+    let ba = compare_pixels(view(&b, 2, 2), view(&a, 2, 2), T3).unwrap();
+    assert_eq!(ab, ba);
+}
+
+#[test]
+fn extreme_values_do_not_overflow() {
+    let lo = solid(2, 2, 0);
+    let hi = solid(2, 2, 255);
+    let c = compare_pixels(view(&lo, 2, 2), view(&hi, 2, 2), T3).unwrap();
+    assert_eq!(c.max_channel_diff(), 255);
+    assert!(!c.is_match());
+}
+
+#[test]
+fn compare_error_display_is_non_empty_ascii() {
+    let s = PixelCompareError::SizeMismatch {
+        reference: (2, 3),
+        actual: (3, 2),
+    }
+    .to_string();
+    assert!(!s.is_empty() && s.is_ascii());
 }
