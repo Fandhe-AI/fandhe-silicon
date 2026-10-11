@@ -31,7 +31,7 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | `reference_gemm_f32` に有限でない入力を渡したとき | 公開テストなし。振る舞いは約束しない | `crates/core/tests/parity_cpu_reference.rs` |
 | 有限でない値の規則だけを扱う専用のモジュール・テスト・文書 | 0 件（上記は既存のテスト内の一部） | リポ内検索 |
 | テストの置き方 | `core` の `[[test]]` 3 件（`parity_cpu_reference`・`parity_tolerance`・`parity_topk`）。いずれも `required-features = ["test-support"]` | `crates/core/Cargo.toml` |
-| `build-profiles` | `NATIVE_SETS` に `test-support` を含む組は無い。`make verify` は `--all-features` で検査する | `scripts/build-profiles.sh` |
+| `build-profiles` | `NATIVE_SETS` に `test-support` を含む組が 4 組ある（`test-support`・`backend-metal,test-support`・`backend-vulkan,test-support`・`backend-cuda,test-support`）。`make verify` は `--all-features` で検査する | `scripts/build-profiles.sh` |
 | `docs/spec` | gitlink で `update = none`。`ci.yml` は取得しない | `.gitmodules`、`.github/workflows/ci.yml` |
 
 ## 関連タスクの状態と引き継ぎ
