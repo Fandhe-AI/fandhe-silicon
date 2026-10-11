@@ -16,16 +16,16 @@
 | `unsafe` の禁止 | `crates/core`・`crates/exec`・`crates/upper` の `lib.rs` に `#![forbid(unsafe_code)]` |
 | 記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` で `unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` を deny |
 | 背後実装のモジュール | `crates/contract/src/backend_{metal,vulkan,cuda}.rs`。doc コメントだけの骨格で、コードとしての `unsafe` は無い（`//!` コメントの中に `unsafe` という語はある） |
-| `contract` の crate 直下 | `lib.rs` に `unsafe_code` の lint の指定は無い（backend 以外に `unsafe` を書いてもコンパイルは通る） |
+| `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） |
 | cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")`（`crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs`） |
-| 個数テスト | 無い |
+| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `crates/contract/tests/common_unsafe_count_samples.rs`。期待値は全背後実装・全種別で 0 |
 | 外部依存 | 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） |
 
 ## `unsafe` を置ける場所
 
 - 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
 - `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する。上の層の検査は TASK-15・TASK-262 のポインタ
-- `contract` の中の守り（実装は #52）
+- `contract` の中の守り（#52 で実装済み）
     - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend 以外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
     - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルを検出する
 
@@ -72,16 +72,18 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 走る場所 | `make verify` と `make build-profiles` の `cargo test`。GPU の実機は要らず、GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない |
 | 背後実装を足すとき | 同じ形のテストファイルを 1 つ足し、`lib.rs` の mod 宣言に `#[allow(unsafe_code)]` を付ける（DX12・GL の置き場のポインタ: `crates/contract/Cargo.toml` のコメント） |
 
+- #52 の実装で足した形: `BACKENDS`（登録点。登録した背後実装のテストファイルの存在も検査）、表の `path` と `include_str!` の中身の一致の検査、`src/` 配下のシンボリックリンクの拒否、文字リテラルとライフタイムの区別、raw 識別子 `r#unsafe` を数えないこと、検査の失敗を集めて 1 回で返すこと
+- `clippy::undocumented_unsafe_blocks` は `unsafe impl` も対象にする（rustc 1.99.0 / clippy 0.1.99 で確認）
 - 単純な文字列の一致だけで数えない理由: コメントや文字列の中の語、`forbid(unsafe_code)` のような識別子、edition 2024 で `unsafe` を伴う `extern` ブロックと属性を、取りこぼさず数えすぎないため
 - 「増減で失敗すること」は、道具に見本の文字列を与えるテストで確かめる。実物の `unsafe` をコミットせずに、増えた場合・減った場合の両方の失敗を示す（`scripts/test-deps-check.sh` と同じ考え方）
-- #53 が用意する見本の必須の場合
+- #53 の実装で `crates/contract/tests/common_unsafe_count_samples.rs` に足した見本（必須の場合）
     - コメントの中の `unsafe {`
     - 文字列リテラルの中の `unsafe {`
     - `forbid(unsafe_code)` の識別子
     - `unsafe extern` ブロックと `unsafe extern "C" fn` の区別
     - `pub unsafe fn`
     - `unsafe impl`
-    - 期待より 1 多い場合・1 少ない場合
+    - 期待より 1 多い場合・1 少ない場合（`compare_counts` への見本。実ファイルでは `check_backend` が、期待値を 1 ずらした表で背後実装ごとに失敗すること）
 
 ## 個数が変わるときの扱い
 
@@ -98,8 +100,8 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 
 | # | 論点 | 選択肢 | 推奨 | 止まるもの |
 | - | ---- | ------ | ---- | ---------- |
-| 1 | 数え方の厳密さ | (a) 依存 0 の自前の走査 (b) 構文木を使う外部 crate（依存の承認が要る） | (a) | #52 の実装の方式 |
-| 2 | 種別の分け方と「その他」の扱い | (a) 本書の 5 種別を個別に固定 (b) ブロック・impl・fn の 3 種別だけ固定し残りは合計で固定 | (a) | #52 の期待値の表の形 |
+| 1 | 数え方の厳密さ | (a) 依存 0 の自前の走査 (b) 構文木を使う外部 crate（依存の承認が要る） | (a) | #52 の実装の方式（#52 は (a) を未承認の仮置きとして実装した） |
+| 2 | 種別の分け方と「その他」の扱い | (a) 本書の 5 種別を個別に固定 (b) ブロック・impl・fn の 3 種別だけ固定し残りは合計で固定 | (a) | #52 の期待値の表の形（#52 は (a) を未承認の仮置きとして実装した。(b) へは `common` の `UnsafeCounts`・`compare_counts` と 3 つの表の書き換えで畳める） |
 | 3 | `#[allow(unsafe_code)]` を付けてよいモジュールの範囲（CPU の ISA 別の実装など、背後実装以外に広げるか） | (a) `backend_*` だけ (b) 専用のモジュールにも付け、同じ枠で数える | 現状は (a) のまま据え置き、必要になった時点で伺う | cpu-isa の実装（本 TASK の範囲外） |
 | 4 | 期待値の変更の承認者と記録の置き場 | (a) PR のレビューで足りる (b) オーナーの明示承認を要る | #54 で案を作って伺う | #54 |
 | 5 | 数える道具を `core`・`exec`・`upper` にも当てるか | (a) 当てない（`forbid` に任せる） (b) TASK-15・TASK-262 の側で使い回す | (a)。使い回しはそれぞれのタスクで決める | TASK-15・TASK-262 |
@@ -108,8 +110,8 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 
 | 作業 | 担当 |
 | ---- | ---- |
-| `lib.rs` の `deny` / `allow` の指定、数える道具、背後実装ごとのテストファイルの実装。`clippy::undocumented_unsafe_blocks` が `unsafe impl` も対象にするかを固定した toolchain で確かめる | #52 |
-| 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト | #53 |
+| `lib.rs` の `deny` / `allow` の指定、数える道具、背後実装ごとのテストファイルの実装、`unsafe impl` の確認 | #52（実装済み。論点 1・2 は未承認の仮置き） |
+| 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト（入口は `common` の `strip_comments_and_literals`・`count_unsafe`・`compare_counts`） | #53（実装済み） |
 | 個数が変わるときの承認の手順書（本書の該当節へ追記、または別文書） | #54 |
 | 完了の条件の確かめの記録。書式の確定後に `.claude/rules/coding-rust.md`・`AGENTS.md` から本書を参照する | #55 |
 

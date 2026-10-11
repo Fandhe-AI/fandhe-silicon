@@ -2,7 +2,7 @@
 # 依存の版指定の検査: 全依存が `=x.y.z` の完全固定か（spec TASK-8 のポインタ。方針は
 # .claude/rules/dependency-policy.md）。cargo-deny の wildcards は `*` しか拒否しないため、
 # `^`・`~`・範囲・部分版（"1.2" や "=1.2"）のすり抜けを本スクリプトで機械的に検出する。
-# 呼び出し元: `make deps-check`（CI への組み込みは別 Issue）。
+# 呼び出し元: `make deps-check`（CI の `deny` ジョブも呼ぶ）。回帰テストは scripts/test-deps-check.sh（`make test-deps-check`）。
 # 使い方: scripts/deps-check.sh [path/to/Cargo.toml]（省略時はルートの Cargo.toml。fixture 検証用）
 #
 # 判定は許可リスト方式: `=x.y.z`（pre-release / build metadata 付き完全一致を含む）と
