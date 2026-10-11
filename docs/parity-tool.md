@@ -46,7 +46,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | - | -- | -------- | ---- |
 | D1 | PoC からの持ち込みか書き直しか | PoC のファイルは複製せず、本リポの規約で新しく書く。記録・入力・生成物を写さない | TASK-6 の決定の記録、[poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
 | D2 | 依存・unsafe | 標準ライブラリだけで書く。外部依存は 0（承認フローに乗る依存は無い）。`unsafe` を使わない | [dependency-policy](../.claude/rules/dependency-policy.md)、[coding-rust](../.claude/rules/coding-rust.md) |
-| D3 | 背後実装への非依存 | 入力はホスト側に読み戻した値のスライスだけ。背後実装の型・ハンドル・device を引数に取らない。`backend-*` feature や target の `cfg` で分けない（wasm32 でもビルドできる書き方） | TASK-24 の完了の条件、`scripts/build-profiles.sh` |
+| D3 | 背後実装への非依存 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24（ポインタのみ） |
 | D4 | 閾値の設定 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
 | D5 | 適用の範囲 | 道具は比べるだけで、どの範囲に当てるか・承認の有無を表す API を持たない | TASK-53（#196） |
 | D6 | TASK-23 の枠との接続 | 道具は背後実装に依らない素の結果の型を返す。試験のラベルの語彙は TASK-23 の持ち物で、道具はその名前を定義も公開もしない。素の結果からラベルへの対応づけは TASK-23 の側が行う。依存の向きは「枠・試験 → 道具」の一方向 | TASK-23（#91） |
@@ -88,7 +88,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 数値の一致（T-1）の比べ方と、要素の分類（D7） | #104（4/8） |
 | 順位付きの結果の一致（T-2）の比べ方と、その CPU 参照（D10） | #105（5/8） |
 | 閾値を変えないこと・適用の範囲を TASK-53 に委ねることの整理、設定を外から確かめる方法の整理 | #106（6/8） |
-| テスト（背後実装に依らず動くこと、設定が外から読めること、入力の不備が `Err` になること）。Q1 が `core` の feature の裏に決まった場合は、wasm32 のビルドが `make build-profiles` の対象に入っているかを確かめる（`build-profiles.sh` は今 contract だけを回す） | #107（7/8） |
+| テスト（背後実装に依らず動くこと、設定が外から読めること、入力の不備が `Err` になること）。Q1 が `core` の feature の裏に決まった場合は、`make build-profiles` の対象に入っているかを確かめる（`build-profiles.sh` は今 contract だけを回す） | #107（7/8） |
 | 完了の条件の確かめ | #108（8/8） |
 
 ## 完了の条件の確かめ
