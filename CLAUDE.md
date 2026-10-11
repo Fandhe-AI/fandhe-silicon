@@ -99,7 +99,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [delegation-impl.md](.claude/rules/delegation-impl.md) | 作成・編集フェーズの委譲マッピング・実装フロー |
 | [coding-rust.md](.claude/rules/coding-rust.md) | Rust 規約（設計・unsafe / FFI・エラー・テスト） |
 | [security.md](.claude/rules/security.md) | 秘密情報・メモリ安全性・OWASP Top 10 観点 |
-| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0）と、契約の明文（振る舞い）を public に書く例外 |
+| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0）と、公開 API の振る舞いの契約を public に書く例外の範囲 |
 | [dependency-policy.md](.claude/rules/dependency-policy.md) | 依存最小・wgpu 非依存・`=x.y.z` 固定・ユーザー承認制 |
 | [japanese-style.md](.claude/rules/japanese-style.md) | 日本語出力スタイル |
 | [conventional-commits.md](.claude/rules/conventional-commits.md) | Conventional Commits 規約（type / scope） |
