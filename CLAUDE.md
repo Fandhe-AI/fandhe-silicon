@@ -46,6 +46,7 @@ fandhe-silicon/
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）・置き場の骨格（TASK-24）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
+├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の現状と前提（TASK-16）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
