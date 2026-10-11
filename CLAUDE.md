@@ -44,7 +44,7 @@ fandhe-silicon/
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
-├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提（TASK-24）
+├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）（TASK-24）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / lib.sh

@@ -1,7 +1,10 @@
-# 結果の一致を確かめる共通の道具（TASK-24）の現状と前提
+# 結果の一致を確かめる共通の道具（TASK-24）の現状・前提・形（案）
 
 TASK-24（親 Issue #100）について、着手時点の現状と前提を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+
+「形の設計（案）」以降は案であり、オーナーの確認を経るまで確定扱いにしない。
+値・比べ方の本文は書かない（コードと公開テストと同じ PR で入る）。
 
 ## 前提タスクの状態
 
@@ -30,32 +33,60 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | TASK-23 | #91 | 未完了（並行） | 本リポに共通の試験の枠やラベルの出力はまだ無い。あるものとして扱わない |
 | TASK-25 | #109 | 未完了 | TASK-24 を前提に引く下流。TASK-24 が終わるまで着手できない |
 | TASK-53 | #196 | 未完了 | 適用の範囲の判断はこのタスクに委ね、TASK-24 の側で広げも狭めもしない |
-| TASK-6 | #35 | 親が未完了 | PoC の隔離 workspace から持ち込む場合は決定の記録と [poc-carry-over](../.claude/rules/poc-carry-over.md) に従う。決定の記録に無いものは持ち込まない |
+| TASK-6 | #35 | 済（クローズ） | 決定の記録は spec リポの main にある（本リポの submodule の固定 SHA はこの記録より前）。持ち込みは [poc-carry-over](../.claude/rules/poc-carry-over.md) と [workspace-boundary](workspace-boundary.md) に従う |
 
 - 依存: 外部依存は 0。追加は未承認で、必要なら [dependency-policy](../.claude/rules/dependency-policy.md) の承認フローに乗せる
 - `cpu-ops` に関わる下流のポインタ: TASK-1350・TASK-1378
 
-## 形の設計（#102）で決める論点 / オーナー判断待ち
+## 形の設計（案）
 
-推奨案は書かない。既存の決定から一意に導けないものは [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の経路でオーナーに伺う。
+既存の決定から一意に導ける点だけを、根拠のポインタ付きで記録する。導けない点は次節に送る。
 
-- 置き場（どの crate か、feature の裏か、テスト専用か）
-- 公開面（製品の公開 API に含めるか、検証用に留めるか）
-- TASK-23 の枠との接続の仕方
-- TASK-25 が足す部分の受け口
-- PoC からの持ち込みか書き直しか（TASK-6 の確定に依存）
+| # | 点 | 形（案） | 根拠 |
+| - | -- | -------- | ---- |
+| D1 | PoC からの持ち込みか書き直しか | PoC のファイルは複製せず、本リポの規約で新しく書く。記録・入力・生成物を写さない | TASK-6 の決定の記録、[poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
+| D2 | 依存・unsafe | 標準ライブラリだけで書く。外部依存は 0（承認フローに乗る依存は無い）。`unsafe` を使わない | [dependency-policy](../.claude/rules/dependency-policy.md)、[coding-rust](../.claude/rules/coding-rust.md) |
+| D3 | 背後実装への非依存 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24（ポインタのみ） |
+| D4 | 閾値の設定 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
+| D5 | 適用の範囲 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-53（#196）（ポインタのみ） |
+| D6 | TASK-23 の枠との接続 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-23（#91）（ポインタのみ） |
+| D7 | T-1 の要素の分類 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-25（#109）、PARITY-2〜PARITY-5（ポインタのみ） |
+| D8 | T-1 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-1（ポインタのみ） |
+| D9 | T-2 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-6、`docs/spec/02-poc-plan.md` の T-2（ポインタのみ） |
+| D10 | CPU 参照の形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-1350・TASK-1378・CPU-27（ポインタのみ） |
+| D11 | 結果とエラー | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | [coding-rust](../.claude/rules/coding-rust.md)、[security](../.claude/rules/security.md)、[japanese-style](../.claude/rules/japanese-style.md) |
+| D12 | 走る場所 | `make verify` の `cargo test`。GPU の実機は要らず GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない | [unsafe-policy](unsafe-policy.md) と同じ考え方 |
+
+## オーナー判断待ち
+
+下表の推奨は案であり、確定ではなく、オーナーの承認を得たものでもない。
+回答の形は [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) に従い、「推奨で」と答えられる形にする。
+
+| # | 論点 | 選択肢 | 推奨（未承認） | 止まるもの |
+| - | ---- | ------ | -------------- | ---------- |
+| Q1 | 比べ方と閾値の設定の置き場 | (a) `crates/core` のモジュール。テスト専用の feature の裏 (b) `crates/contract` のモジュール。既存の `test-support` の裏 (c) 検証専用の新しい member crate | (a) | #103〜#105 の置き場、#107 |
+| Q2 | CPU 参照の置き場 | (a) Q1 と同じ場所（検証専用） (b) `crates/contract` の `cpu-ops` の裏 | (a) | #103、TASK-1350 |
+| Q3 | Q1 が (a)・(b) の場合の feature | (a) 既存の `test-support` と同名にする（core に置く場合は contract から転送） (b) 道具専用の feature を新しく作る | (a) | #103 の `Cargo.toml` の変更 |
+| Q4 | CPU 参照が持つ演算の範囲 | (a) 最小の参照だけ (b) 要素ごとの演算の参照も含める | (a)。増やす分は TASK-1350 で決める | #103 の範囲 |
+
+各案の影響（本リポの公開済みの事実とポインタだけ）:
+
+- Q1 (a): 既存の依存の向きのまま 4 crate すべてのテストから届く。`core` に feature と公開アイテムが増える（BUILD-54・BUILD-15 のポインタ）。測定のビルドとの関係は TASK-15 のポインタ
+- Q1 (b): `exec` は `contract` に依存しないので、今の依存の向きでは `exec` のテストから届かない。`test-support` を本番経路で必須にしない規約（`AGENTS.md` 2 節、BUILD-65 のポインタ）には沿う
+- Q1 (c): 本番の feature と公開面に触れない。member の増減は TASK-1・TASK-6 の決定の記録の変更に当たり（[workspace-boundary](workspace-boundary.md)）、依存の向きの規約（`AGENTS.md` 2 節、TASK-15 のポインタ）の改定も要る
+- Q2 (b): 本番の既定 feature の公開面に検証用の参照が入り、TASK-1350 が決める範囲に踏み込む（CPU-25・CPU-27 のポインタ）
 
 ## 後続の分担
 
-後続は本文書の該当節へ追記する。
-
 | 作業 | 担当 |
 | ---- | ---- |
-| 形の設計 | #102（2/8） |
-| 実装 | #103〜#105（3/8〜5/8） |
-| 方針の整理 | #106（6/8） |
-| テスト | #107（7/8） |
-| 確かめ | #108（8/8） |
+| 形の設計（本節群） | #102（2/8） |
+| 置き場の骨格（Q1〜Q3 の回答に従う） | #103（3/8） |
+| T-1 に関わる作業 | #104（4/8） |
+| T-2 に関わる作業 | #105（5/8） |
+| 整理の作業 | #106（6/8） |
+| テスト。Q1 が `core` の feature の裏に決まった場合は、`make build-profiles` の対象に入っているかを確かめる（`build-profiles.sh` は今 contract だけを回す） | #107（7/8） |
+| 完了の条件の確かめ | #108（8/8） |
 
 ## 完了の条件の確かめ
 
@@ -64,4 +95,4 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 
 ## 確かめた日付
 
-2026-10-11（base: c6622f2）
+2026-10-11（base: 6d105dc）
