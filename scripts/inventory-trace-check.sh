@@ -137,11 +137,16 @@ def run(args):
         seen[key] = line
         entries.append((line, key))
 
-    names = sorted(
-        n for n in os.listdir(args.items_dir)
-        if n.endswith(".md") and n not in excluded
-        and os.path.isfile(os.path.join(args.items_dir, n))
-    )
+    # 列挙の失敗（権限なし等）も読み取りの失敗として 1 で終える（2 の誤用と区別する）。
+    try:
+        names = sorted(
+            n for n in os.listdir(args.items_dir)
+            if n.endswith(".md") and n not in excluded
+            and os.path.isfile(os.path.join(args.items_dir, n))
+        )
+    except OSError:
+        err("cannot list the items directory")
+        return 1
     if not names:
         err("no item files (*.md) to search")
         violations += 1
