@@ -1,7 +1,7 @@
 # 決定の記録の雛形
 
 「形を決める」タスクで、項目ごとの決定を同じ形で残すための雛形。
-進め方は手順書（`procedure.md`）に従う。
+進め方は private spec 側の手順書（`docs/spec` submodule 内。ポインタ参照のみで本文は転記しない）に従う。
 
 - 使い方: 項目ごとにこのファイルを複製して記入する。本リポ（`docs/contract/`）に置くのは、公開してよい欄だけにする。
 - 書いてよい範囲は [spec-confidentiality](../../.claude/rules/spec-confidentiality.md) の「公開 API の振る舞いの契約の書き方」に従う。
