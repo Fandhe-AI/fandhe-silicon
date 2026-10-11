@@ -95,13 +95,26 @@ description: >
   版の更新を検知できない。版を入れないと toolchain 更新後も古い成果物に exact hit し続け、exact hit では再保存
   されないため依存を毎回全再ビルドする（fandhe-db で依存 135 crate を毎回再ビルドしていた）
 - `restore-keys` で前方一致を許し、キーが変わっても cold にならないようにする
+- キーが捕捉しない変更（`Cargo.toml` の `[profile]`、`RUSTFLAGS`・`CARGO_PROFILE_*` 等の env、`.cargo/config.toml`、
+  ビルドコマンドやフラグ）で保存内容が変わるときは、キーに版セグメント（`-v2-` 等。無ければ追加する）を入れて上げ、
+  `restore-keys` も同時に上げる。上げないと旧内容に exact hit したまま依存を毎回再ビルドし、exact hit なので
+  再保存もされない（他リポで `[profile.dev.package."*"]` を足したときに起きた。依存のビルドスクリプト・proc-macro の
+  debuginfo が変わり `-C metadata` が連鎖して変わる）。キーが `Cargo.toml` を含んでいても、旧世代の部分復元で新旧の
+  成果物が混ざった太い保存になるため上げる
+- `Swatinem/rust-cache` は workspace メンバーの `Cargo.toml` しかハッシュしない（`cargo metadata --no-deps` の
+  packages の manifest のみ）。本リポのルートは仮想 manifest（`[package]` なし）のため、ルートの `[profile]` の変更は
+  キーに入らない。変えるときは `prefix-key` に版セグメントを付けて上げる
+- Fandhe-AI/actions の `rust-base-ci.yml` を `cache: true` で呼ぶ場合、呼び出し側からキーは変えられない。上記の
+  変更を入れた PR の **マージ後に** main スコープの `<prefix>-<OS>-{clippy,test}-v4-*` を `gh cache delete` する
+  （マージ前に消すと main の push で旧内容が保存し直される）
 
 ### サイズを抑える
 
 - 1 世代の合計が 10GB に余裕をもって収まるようにする。キャッシュの種類を増やすときは 1 件のサイズ × 種類 × OS
   （matrix）を見積もる
 - `target/` を保存するなら、保存前に workspace メンバー（`crates/*`）の成果物を prune し、`CARGO_INCREMENTAL=0`、
-  CI 限定で `CARGO_PROFILE_DEV_DEBUG=line-tables-only` 等で縮める
+  CI 限定で `CARGO_PROFILE_DEV_DEBUG=line-tables-only` 等で縮める（依存側はルート `Cargo.toml` の
+  `[profile.dev.package."*"]` で既に行番号のみ。メンバーまで行番号のみにするのは env だけ）
 - 上限に達しても、毎回読まれる main の最新キャッシュは最後まで残る（LRU）。キーの切り替えで古い世代が追い出されても
   新しい世代が保存済みならミスにならない。この状態を保てていれば上限を上げる必要はない
 
