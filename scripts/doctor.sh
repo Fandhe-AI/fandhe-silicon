@@ -46,7 +46,7 @@ if command -v python3 >/dev/null 2>&1; then
     echo "note python3: $(python3 --version 2>&1 | head -n1) is older than 3.11; \`make deps-check\` needs 3.11 or later"
   fi
 else
-  echo "skip python3: not found on PATH (optional; 3.11 or later for \`make deps-check\`; also used by \`make inventory-trace-check\`)"
+  echo "skip python3: not found on PATH (optional; 3.11 or later for \`make deps-check\`; also used by \`make inventory-trace-check\` / \`make test-inventory-trace-check\`)"
 fi
 
 # rust-toolchain.toml の channel が導入済みかを、導入済み一覧との突き合わせだけで判定する
