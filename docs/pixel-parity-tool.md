@@ -7,7 +7,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 画素の入力の受け口（3/6、#117）と、比べる関数・閾値の設定（4/6、#118）は本リポに入った。
 5/6（#119）で、別 crate からの確かめと境界のテストを足した。
 形の設計（案）とオーナー判断待ちは、オーナーの確認を経るまで確定扱いにしない。
-後続（3/6〜6/6）は、本書の該当節へ追記する。
+6/6（#120）で、本リポで観測できる事実による完了の条件の確かめを記録した。TASK-26 の完了は本書では宣言しない。
 
 ## 前提タスクの状態
 
@@ -36,10 +36,10 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 | 関連 | Issue | 状態 | 引き継ぎ |
 | ---- | ----- | ---- | -------- |
-| TASK-24 | #100 | OPEN（sub-issue #101〜#108 は全てクローズ。完了は宣言されていない） | `parity` の置き場・feature は未承認の仮置き。TASK-26 の側で確定扱いにしない |
+| TASK-24 | #100 | CLOSED（sub-issue #101〜#108 は全てクローズ） | `parity` の置き場・feature は未承認の仮置き。TASK-26 の側で確定扱いにしない |
 | TASK-23 | #91 | OPEN | 共通の試験の枠は本リポにまだ無い。あるものとして扱わない |
 | TASK-53 | #196 | OPEN | 閾値を当てる範囲の判断はこのタスクに委ね、TASK-26 の側で広げも狭めもしない |
-| TASK-25 | #109 | OPEN（sub-issue は未着手） | `parity` 配下に規則を足す並行のタスク。同じモジュールに触れうる |
+| TASK-25 | #109 | OPEN（sub-issue は #110・#111 がクローズ、#112・#113 が OPEN） | `parity` 配下に規則を足す並行のタスク。同じモジュールに触れうる |
 | TASK-27 | #121 | OPEN | 並びのタスク |
 | TASK-6 | #35 | CLOSED | 持ち込む・除くの区分は決定の記録（private spec）に従う。[poc-carry-over](../.claude/rules/poc-carry-over.md)・[workspace-boundary](workspace-boundary.md) を参照。本リポの submodule の固定 SHA は、この記録より前（[parity-tool](parity-tool.md) に既出の公開の事実） |
 | TASK-7 | — | — | 比較基準の wgpu は製品 workspace の外。製品の crate から依存できない |
@@ -158,11 +158,11 @@ Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜
 | 作業 | 担当 |
 | ---- | ---- |
 | 現状と前提の確認 | #115（1/6。済） |
-| 形の設計（本書） | #116（2/6） |
+| 形の設計（本書） | #116（2/6。済） |
 | 置き場の骨格・入力の受け口と検査（案） | #117（3/6。済） |
 | 比べの関数（2 つの軸とも）と閾値の設定（案） | #118（4/6。済） |
 | テスト（別 crate からの確かめ、feature の組ごとの確かめを含む） | #119（5/6。済） |
-| 完了の条件の確かめ | #120（6/6） |
+| 完了の条件の確かめ | #120（6/6。済。本書の「完了の条件の確かめ」に記録） |
 
 #119 の判断: `build-profiles` の組は増やしていない / contract 側は新しいファイルにした / `exec`・`upper` の利用口は足していない / TASK-23 の枠との接続は触れていない。
 
@@ -170,9 +170,31 @@ Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜
 
 ## 完了の条件の確かめ
 
-5/6 までは未実施。6/6（#120）で、本リポで観測できる事実により埋める。
-spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
+観測した事実だけを書く。コマンドは worktree のルートで実行した。
+
+| 確かめる項目 | 方法 | 結果 |
+| ------------ | ---- | ---- |
+| 画素の道具に背後実装の feature での分岐が無い（D3） | `crates/core/src/parity.rs` と `parity/` を `backend`・`cfg(` で grep | `cfg(` は 0 件。`backend` は TASK-25 側のコメント 1 行の語句のみ。画素の道具（`pixel.rs`）は該当なし |
+| `unsafe` を使っていない（D2） | `crates/core/src` を `unsafe` で grep | `lib.rs` の `#![forbid(unsafe_code)]` の 1 行だけ |
+| 外部依存 0 のまま（D2） | `Cargo.lock` の `[[package]]` の数、`make deps-check` | 4。`make deps-check` は終了コード 0 |
+| 道具が workspace の外に依存しない（D4） | `pixel.rs` の `use`、`make deny` | `use std::fmt;` の 1 行だけ。`make deny` は終了コード 0 |
+| 製品の経路から `parity` を参照していない | `crates/exec`・`crates/upper`・`crates/contract/src` を `parity` で grep | 0 件 |
+| `test-support` が `default` に入っていない | 各 `Cargo.toml` の `[features]` | `core` に `default` なし。`contract` の `default` は `contract-core`・`cpu-isa`・`cpu-ops` |
+| 大きさの計算が溢れず、panic せずエラーになる（D5） | `every_size_product_is_checked_for_overflow`・`extreme_values_do_not_overflow` | 通過 |
+| 道具のテストが通る | `cargo test -p fandhe-silicon-core --features test-support` | 統合テスト `parity_pixel` は 22 件通過。ほかのテストと doctest も失敗なし |
+| 固定の小さな画像で、2 つの比べが背後実装の feature の組に依らず固定の結果になる | `make build-profiles` の `test-support` を含む組で `pixel_comparisons_give_fixed_results_under_any_backend_feature_set` | `make build-profiles` は終了コード 0。`test_support_pixel` は各実行で 4 件全て通過 |
+| `contract` の `test-support` だけで `core` の外から道具に届く | 同上の `contract_test_support_enables_core_pixel_tool` | 同上 |
+| 閾値の設定が `core` の外から読める・外から任意の値を作れない | 同上の `pixel_threshold_setting_is_readable_from_outside_core`、`PixelTolerance` の rustdoc の `compile_fail` | 同上。doctest は通過 |
+| 2 つの比べの入口が分かれている | `compare_pixels_exact`・`compare_pixels` のシグネチャ、`identical_images_match_on_both_comparisons`・`readable_bounds_are_the_ones_applied`・`difference_within_near_bound_matches_with_tolerance_but_not_exactly` | 通過 |
+| 入力と大きさの不一致のエラーが外から到達できる | `pixel_input_and_size_errors_are_reachable_from_outside_core` | 通過（`build-profiles` 経由） |
+| GPU の実機なしで走る（D3・D10） | 上のテストを実機なしで実行 | ローカルで通過。CI は PR の結果で確認（未検証） |
+| 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+| 適用の範囲・TASK-23 の枠との接続・比較基準の側から呼ぶ経路 | 本書 D7・D8・Q9 のまま | 該当なし（判断待ち。本段では触れない） |
+
+- 判定: 本リポで観測できる範囲では、上の項目を確かめられた。TASK-26 の完了は本書では宣言しない。spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない
+- Q1〜Q10 は判断待ちで、置き場・feature・形は未承認の仮置きのまま
+- 再実行の契機: Q1〜Q10 への回答、`parity` の置き場・feature の変更、閾値の値・比べの規則の変更、TASK-25（#109）での `parity` 配下の変更、TASK-53（#196）の範囲の決定、TASK-23（#91）の枠の追加、`scripts/build-profiles.sh` の組の変更
 
 ## 確かめた日付
 
-2026-10-11（base: 68145f4）
+2026-10-11（base: 83ad4f0）
