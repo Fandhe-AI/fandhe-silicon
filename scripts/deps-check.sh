@@ -6,7 +6,7 @@
 # 使い方: scripts/deps-check.sh [path/to/Cargo.toml]（省略時はルートの Cargo.toml。fixture 検証用）
 #
 # 判定は許可リスト方式: `=x.y.z`（pre-release / build metadata 付き完全一致を含む）と
-# workspace 内の path 依存だけを許可し、未知の形は違反にする（fail-closed）。
+# workspace メンバーへの path 依存だけを許可し、未知の形は違反にする（fail-closed）。
 # 承認記録の無い依存追加の検出は、ここへ検査を足して violations を共用する想定の拡張点。
 # 既知の限界: どの crate からも継承されない [workspace.dependencies] の項目は
 # cargo metadata に現れず検査されない（依存グラフに入らないため影響なし。使われた時点で検査される）。
@@ -28,16 +28,24 @@ fi
 require_cmd cargo
 require_cmd jq
 require_cmd python3
+# TOML 解析に標準ライブラリの tomllib（Python 3.11 以上）を使うため、起動時に版を検証する。
+if ! python3 -I -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+  echo "error: Python 3.11 or later is required (tomllib); run \`make doctor\` for details" >&2
+  exit 2
+fi
 
 metadata="$(cargo metadata --format-version 1 --no-deps --offline --locked --manifest-path "${manifest}")"
 
 # 版指定の違反を 1 件 1 行で出す。crate 名・req は非信頼文字列として jq 内でのみ扱う。
+# path 依存は workspace メンバーの manifest ディレクトリと一致するものだけを免除する。
+# exclude 済みの crate や別 workspace への path 依存は（--no-deps で版指定も見えないため）違反にする。
 version_violations="$(jq -r '
-  .workspace_root as $root
+  .workspace_members as $members
+  | [.packages[] | select(.id as $id | $members | index($id)) | .manifest_path | sub("/Cargo\\.toml$"; "")] as $dirs
   | .packages[] | .name as $pkg | .dependencies[]
   | . as $d
-  | (if ($d.path != null) and ($d.path | (. == $root or startswith($root + "/"))) then empty
-      elif $d.path != null then "path outside workspace"
+  | (if ($d.path != null) and ($dirs | index($d.path)) then empty
+      elif $d.path != null then "path dependency is not a workspace member"
       elif ($d.source // "" | startswith("git+")) then "git source"
       elif ($d.req | test("^=[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")) then empty
       else "not pinned to =x.y.z" end) as $why
