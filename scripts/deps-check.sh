@@ -27,6 +27,7 @@ fi
 
 require_cmd cargo
 require_cmd jq
+require_cmd python3
 
 metadata="$(cargo metadata --format-version 1 --no-deps --offline --locked --manifest-path "${manifest}")"
 
@@ -35,7 +36,7 @@ version_violations="$(jq -r '
   .workspace_root as $root
   | .packages[] | .name as $pkg | .dependencies[]
   | . as $d
-  | (if ($d.path != null) and ($d.path | startswith($root + "/")) then empty
+  | (if ($d.path != null) and ($d.path | (. == $root or startswith($root + "/"))) then empty
       elif $d.path != null then "path outside workspace"
       elif ($d.source // "" | startswith("git+")) then "git source"
       elif ($d.req | test("^=[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")) then empty
@@ -43,7 +44,9 @@ version_violations="$(jq -r '
   | "error: \($why): \($pkg) -> \($d.name) \"\($d.req)\" (kind=\($d.kind // "normal"), target=\($d.target // "all"))"
 ' <<<"${metadata}")"
 
-# [patch] / [replace] は cargo metadata に現れず固定版を差し替えられるため、見出しの存在自体を拒否する。
+# [patch] / [replace] は cargo metadata に現れず固定版を差し替えられるため、TOML を構造的に解析し、
+# トップレベルの patch / replace キーの存在自体を拒否する（見出しの書き方 `["patch"...]`・`[patch . x]`・
+# `patch = {...}` の揺れを正規表現で追わない）。解析できないファイルも fail-closed で違反にする。
 patch_violations=""
 root_dir="$(jq -r '.workspace_root' <<<"${metadata}")"
 files=()
@@ -51,9 +54,20 @@ while IFS= read -r f; do files+=("${f}"); done < <(jq -r '.packages[].manifest_p
 files+=("${manifest}" "${root_dir}/Cargo.toml" "${root_dir}/.cargo/config.toml" "${root_dir}/.cargo/config")
 for f in "${files[@]}"; do
   [ -f "${f}" ] || continue
-  if grep -Eq '^[[:space:]]*\[(patch|replace)([].]|$)' "${f}"; then
-    patch_violations+="error: [patch]/[replace] section is not allowed: ${f}"$'\n'
+  if ! out="$(python3 -I -c '
+import sys, tomllib
+try:
+    with open(sys.argv[1], "rb") as fh:
+        data = tomllib.load(fh)
+except Exception as e:
+    print("error: cannot parse TOML (%s): %s" % (type(e).__name__, sys.argv[1]))
+    sys.exit(0)
+if "patch" in data or "replace" in data:
+    print("error: [patch]/[replace] section is not allowed: %s" % sys.argv[1])
+' "${f}")"; then
+    out="error: failed to inspect ${f}"
   fi
+  [ -z "${out}" ] || patch_violations+="${out}"$'\n'
 done
 
 violations="$(printf '%s\n%s\n' "${version_violations}" "${patch_violations}" | sed '/^$/d' | sort -u)"
