@@ -32,6 +32,7 @@ fandhe-silicon/
 │   ├── workflows/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
+├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外・make の対象外。骨格のみ）
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
@@ -61,7 +62,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | ---- | ------ |
 | コード・構成の横断調査、`docs/spec` 参照（ポインタ表記） | explorer |
 | Metal / Vulkan / CUDA / wgpu・依存候補の外部調査 | reference-researcher |
-| `crates/core`・`crates/exec`・`crates/upper`・開発基盤（scripts / Makefile / CI） | core-builder |
+| `crates/core`・`crates/exec`・`crates/upper`・`baseline-wgpu/`・開発基盤（scripts / Makefile / CI） | core-builder |
 | `crates/contract`（Metal / Vulkan / CUDA backend・FFI・CPU ISA） | backend-builder |
 | テスト / 静的検査の実行と失敗解析 | test-runner |
 | ベンチマーク・性能回帰 | bench-runner |
