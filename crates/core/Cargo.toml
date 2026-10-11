@@ -9,5 +9,14 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+# テスト・検証専用（本番ビルドに含めない。default にも入れない）。
+# 置き場と feature 名は未承認の仮置き（docs/parity-tool.md の Q1・Q3）。
+[features]
+test-support = []
+
+[[test]]
+name = "parity_cpu_reference"
+required-features = ["test-support"]
+
 [lints]
 workspace = true

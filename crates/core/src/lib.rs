@@ -3,4 +3,10 @@
 //! device・メモリ・実行・同期・能力問合せ・診断について、下-1（`fandhe-silicon-contract`）・
 //! 下-2（`fandhe-silicon-exec`）・上（`fandhe-silicon-upper`）の 3 段で受け渡す型を定義する。
 //! チップ固有の型はここへ持ち込まない。
+//!
+//! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
+//! （`parity` モジュール）が公開される。製品の経路からは使わない。
 #![forbid(unsafe_code)]
+
+#[cfg(feature = "test-support")]
+pub mod parity;

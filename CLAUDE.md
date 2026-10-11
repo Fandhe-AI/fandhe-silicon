@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（空の公開面・依存なし・全 crate `publish = false`）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` だけ feature `test-support` の裏に検証用の道具 `parity` を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -35,7 +35,7 @@ fandhe-silicon/
 │   └── settings.json         # SessionStart / PostToolUse hooks
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外・make の対象外。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -44,7 +44,7 @@ fandhe-silicon/
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
-├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）（TASK-24）
+├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形（案）・置き場の骨格（TASK-24）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / lib.sh
