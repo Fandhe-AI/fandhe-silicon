@@ -65,13 +65,17 @@ purpose = "fixture"
 T
 expect "matching approval record passes" 0
 
-sed -i 's/"=1.0.0"/"=2.0.0"/' "${work}/ws/deps-approved.toml"
+# sed -i は GNU / BSD で suffix の扱いが違うため、suffix 付きで書いてから消す（macOS でも動かす）。
+sed -i.bak 's/"=1.0.0"/"=2.0.0"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
 expect "approval record with a different version is rejected" 1
 
-sed -i 's/"=2.0.0"/"=1.0.0"/; s/"fixture-core"/"other-member"/' "${work}/ws/deps-approved.toml"
+sed -i.bak 's/"=2.0.0"/"=1.0.0"/; s/"fixture-core"/"other-member"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
 expect "approval record whose used_by lacks the declaring member is rejected" 1
 
-sed -i 's/"other-member"/"fixture-core"/' "${work}/ws/deps-approved.toml"
+sed -i.bak 's/"other-member"/"fixture-core"/' "${work}/ws/deps-approved.toml"
+rm -f "${work}/ws/deps-approved.toml.bak"
 printf '[package]\nname = "fixture-core"\nversion = "0.0.0"\nedition = "2024"\n' > "${work}/ws/crates/core/Cargo.toml"
 expect "unused approval record is rejected" 1
 
