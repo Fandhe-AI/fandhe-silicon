@@ -1,4 +1,4 @@
-//! 画像の入力の受け口・比べる関数・閾値の設定の振る舞いの確認（spec TASK-26 の 3/6・4/6）。
+//! 画像の入力の受け口・比べる関数・閾値の設定の振る舞いの確認（spec TASK-26 の 3/6・4/6・5/6）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 
 use fandhe_silicon_core::parity::pixel::{CHANNELS_PER_PIXEL, PixelInputError, PixelView};
@@ -251,4 +251,64 @@ fn compare_error_display_is_non_empty_ascii() {
     }
     .to_string();
     assert!(!s.is_empty() && s.is_ascii());
+}
+
+// ---- 5/6: 境界の補強 ----
+
+#[test]
+fn exact_comparison_sees_an_alpha_only_difference() {
+    let a = solid(2, 1, 50);
+    let mut b = a.clone();
+    b[CHANNELS_PER_PIXEL + 3] += 1;
+    let e = compare_pixels_exact(view(&a, 2, 1), view(&b, 2, 1)).unwrap();
+    assert!(!e.is_match());
+    assert_eq!((e.mismatched(), e.first_mismatch()), (1, Some(1)));
+}
+
+#[test]
+fn exact_comparison_is_symmetric() {
+    let a: Vec<u8> = (0..(4 * CHANNELS_PER_PIXEL) as u8).collect();
+    let mut b = a.clone();
+    b[5] = b[5].wrapping_add(9);
+    let ab = compare_pixels_exact(view(&a, 2, 2), view(&b, 2, 2)).unwrap();
+    let ba = compare_pixels_exact(view(&b, 2, 2), view(&a, 2, 2)).unwrap();
+    assert_eq!(ab, ba);
+}
+
+#[test]
+fn first_index_is_the_earliest_pixel_in_row_major_order() {
+    let near = T3.near_channel_diff();
+    let a = solid(3, 2, 100);
+    let mut b = a.clone();
+    // 添字 1 は内側の上限ちょうど、添字 4・5（2 行目）は上限の外。
+    b[CHANNELS_PER_PIXEL] += near;
+    b[4 * CHANNELS_PER_PIXEL] += near + 1;
+    b[5 * CHANNELS_PER_PIXEL] += near + 1;
+    let c = compare_pixels(view(&a, 3, 2), view(&b, 3, 2), T3).unwrap();
+    assert_eq!((c.first_beyond_near(), c.near()), (Some(4), 4));
+    let e = compare_pixels_exact(view(&a, 3, 2), view(&b, 3, 2)).unwrap();
+    assert_eq!((e.first_mismatch(), e.mismatched()), (Some(1), 3));
+}
+
+#[test]
+fn difference_within_near_bound_matches_with_tolerance_but_not_exactly() {
+    let n = T3.min_near_denominator() as usize;
+    let a = solid(n, 1, 100);
+    let mut b = a.clone();
+    b[0] += T3.near_channel_diff();
+    let tol = compare_pixels(view(&a, n, 1), view(&b, n, 1), T3).unwrap();
+    assert!(tol.is_match());
+    let exact = compare_pixels_exact(view(&a, n, 1), view(&b, n, 1)).unwrap();
+    assert!(!exact.is_match());
+}
+
+#[test]
+fn ratio_is_applied_to_images_smaller_than_the_denominator() {
+    assert!(T3.near_channel_diff() < T3.max_channel_diff());
+    let a = solid(1, 1, 100);
+    let mut b = a.clone();
+    b[0] += T3.near_channel_diff() + 1;
+    let c = compare_pixels(view(&a, 1, 1), view(&b, 1, 1), T3).unwrap();
+    assert_eq!(c.near(), 0);
+    assert!(!c.is_match());
 }
