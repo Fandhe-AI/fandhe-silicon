@@ -4,7 +4,7 @@ TASK-26（親 Issue #114）について、着手時点（1/6、#115）の現状�
 spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-26 と、`docs/spec/02-poc-plan.md` の閾値の表の T-3 を参照する（ポインタのみ）。
-画素の比べ方のコードと公開テストは、まだ本リポに無い。このため道具の振る舞いは本書に書かない。
+画素の入力の受け口（3/6、#117）は本リポに入った。比べる関数と閾値の設定はまだ無く、その振る舞いは本書に書かない。
 形の設計（案）とオーナー判断待ちは、オーナーの確認を経るまで確定扱いにしない。
 後続（3/6〜6/6）は、本書の該当節へ追記する。
 
@@ -63,6 +63,30 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D9 | 並行する TASK-25 との衝突の避け方 | 追加は新しいファイル 1 つと `pub mod` 1 行に留め、既存の `tolerance.rs`・`topk.rs`・`cpu_reference.rs` の公開アイテムを変えない（Q1 の (a) の場合） | `crates/core/src/parity.rs` の冒頭コメント、TASK-25（#109）（ポインタのみ） |
 | D10 | 走る場所 | 既存の `parity` 配下に置く場合、`make verify` と `make build-profiles` の `test-support` を含む 4 組で走る。新しい make ターゲット・CI ジョブは足さない（Q1 の (a) の場合） | `scripts/build-profiles.sh` の `NATIVE_SETS`、`scripts/verify.sh` |
 
+## 現状の形（未承認の仮置き）
+
+3/6（#117）で入れたもの。Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採っている。
+
+| 項目 | 現状 |
+| ---- | ---- |
+| 置き場 | `crates/core/src/parity/pixel.rs`（`parity.rs` に `pub mod pixel;` を 1 行足しただけ） |
+| feature | 既存の `test-support` の裏。新しい feature なし |
+| 依存 | 外部依存 0 のまま。`Cargo.lock` に差分なし |
+| 走る場所 | `make verify`。`make build-profiles` は `contract` だけを対象にするため、本段のテストはそこでは走らない |
+| 入れていないもの | 比べる関数（2 つの軸とも #118）、閾値の設定（#118）、別 crate からのテスト（#119） |
+
+入力の受け口:
+
+| 公開アイテム | 観測できる振る舞い | 確かめ方 |
+| ------------ | ------------------ | -------- |
+| `CHANNELS_PER_PIXEL` | 1 画素あたりの要素数（4。要素型は `u8`）を外から読める | `channel_count_is_readable` |
+| `PixelView::new` | 正しい長さの列で作れ、`width()`・`height()`・`data()` が渡した値を返す。行の詰め物は受けない | `valid_input_exposes_what_was_passed`、doctest |
+| `PixelView` | 構造体の式で直接作れない | `compile_fail` の doctest |
+| `PixelInputError::ZeroSize` | 幅か高さが 0 のとき（列が空でなくても） | `zero_width_or_height_is_a_zero_size_error` |
+| `PixelInputError::SizeOverflow` | 幅 × 高さ、またはチャネル数を掛けた積が溢れるとき。panic しない | `every_size_product_is_checked_for_overflow` |
+| `PixelInputError::LengthMismatch` | 列の長さが求めた要素数と違うとき（期待値と実際の長さを持つ） | `length_mismatch_reports_expected_and_actual` |
+| `Display` | 全 variant で空でない ASCII | `error_display_is_non_empty_ascii` |
+
 ## オーナー判断待ち
 
 下表の推奨は案であり、確定ではなく、オーナーの承認を得たものでもない。
@@ -79,6 +103,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | Q7 | 結果とエラーの型 | (a) 画素の比べ専用のエラー型と集計の型を新しく作る (b) 既存の `CompareError` に variant を足して再利用する (c) 既存の `CompareError` を今の variant のまま再利用する | (a)。D9 と両立する | #117・#118 |
 | Q8 | 大きさ 0 の入力 | (a) エラー (b) 0 件を比べて一致 | (a)。[parity-tool](parity-tool.md) の Q7 と同じ向き | #117・#119 |
 | Q9 | 比較基準（workspace の外）の側から道具を呼ぶ経路 | (a) 本タスクでは決めず、道具はメモリ上の入力を受ける口だけを持つ (b) `baseline-wgpu/` から `crates/core` への path 依存を足す | (a)。(b) は `baseline-wgpu/` の構成の変更で、TASK-7 の判断待ちの論点に関わる | 比較基準と突き合わせる作業（#117・#118 は止まらない） |
+| Q10 | 入力の要素型・チャネル数・並び（3/6 で追加） | (a) `u8` の 4 要素・隙間なく行優先に固定する (b) 要素型を型引数にする (c) チャネル数を実行時の値として受ける | (a)。公開面を最小にする向きは、既存の `parity` が `T1` 以外の `Tolerance` を作らせないのと同じ。別の形は後から入口を足せば互換 | #118・#119 |
 
 各案の影響:
 
@@ -87,10 +112,10 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - Q1 (c): #117 以降が止まる
 - Q7 (b): 既存の `CompareError` は `#[non_exhaustive]` でないため、variant の追加は網羅的な `match` を壊す。TASK-25（#109）と同じファイルに触れる
 - Q9 (b): `baseline-wgpu/` は「外部依存は wgpu のみ」の現状から変わる（[baseline-wgpu](baseline-wgpu.md)）
-- Q3: 要素型・チャネル数・並びは本書では具体化しない。実装と公開テストの PR でコードから記述する
+- Q3: 要素型・チャネル数・並びは 3/6 で Q10 の仮置きとしてコードに入った
 - Q5: 2 つの比べ（「同じ成果物・同じ背後実装」と「背後実装の間」）は軸の名前としてだけ使う
 
-Q1〜Q9 への回答は本リポでは確認できていない。#117・#118 が推奨を採る場合は未承認の仮置きとして明示する。
+Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採った。#118 が推奨を採る場合も未承認の仮置きとして明示する。
 
 ## 別案に決まったときに変わる箇所
 
@@ -105,6 +130,7 @@ Q1〜Q9 への回答は本リポでは確認できていない。#117・#118 が
 | Q7 | (b)・(c) | 専用の型を外し、`tolerance.rs` の型を使う |
 | Q8 | (b) | エラーの variant を外す |
 | Q9 | (b) | `baseline-wgpu/Cargo.toml` の変更（承認の経路は TASK-7 側） |
+| Q10 | (b)・(c) | `PixelView` の型引数・フィールドとチャネル数の定数、`new` の長さの検査 |
 
 ## 後続の分担
 
@@ -112,8 +138,8 @@ Q1〜Q9 への回答は本リポでは確認できていない。#117・#118 が
 | ---- | ---- |
 | 現状と前提の確認 | #115（1/6。済） |
 | 形の設計（本書） | #116（2/6） |
-| 置き場の骨格・入力の受け口と検査（案） | #117（3/6） |
-| 比べの関数と閾値の設定（案） | #118（4/6） |
+| 置き場の骨格・入力の受け口と検査（案） | #117（3/6。済） |
+| 比べの関数（2 つの軸とも）と閾値の設定（案） | #118（4/6） |
 | テスト（別 crate からの確かめ、feature の組ごとの確かめを含む） | #119（5/6） |
 | 完了の条件の確かめ | #120（6/6） |
 
@@ -126,4 +152,4 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 
 ## 確かめた日付
 
-2026-10-11（base: 40817ac）
+2026-10-11（base: ce7ee05）

@@ -19,6 +19,10 @@ name = "parity_cpu_reference"
 required-features = ["test-support"]
 
 [[test]]
+name = "parity_pixel"
+required-features = ["test-support"]
+
+[[test]]
 name = "parity_tolerance"
 required-features = ["test-support"]
 
