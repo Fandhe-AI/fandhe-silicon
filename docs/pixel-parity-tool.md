@@ -5,6 +5,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-26 と、`docs/spec/02-poc-plan.md` の閾値の表の T-3 を参照する（ポインタのみ）。
 画素の入力の受け口（3/6、#117）と、比べる関数・閾値の設定（4/6、#118）は本リポに入った。
+5/6（#119）で、別 crate からの確かめと境界のテストを足した。
 形の設計（案）とオーナー判断待ちは、オーナーの確認を経るまで確定扱いにしない。
 後続（3/6〜6/6）は、本書の該当節へ追記する。
 
@@ -65,15 +66,15 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 ## 現状の形（未承認の仮置き）
 
-3/6（#117）と 4/6（#118）で入れたもの。Q1〜Q8・Q10 の推奨を未承認の仮置きとして採っている。
+3/6（#117）と 4/6（#118）で入れたもの（5/6 でテストを足した）。Q1〜Q8・Q10 の推奨を未承認の仮置きとして採っている。
 
 | 項目 | 現状 |
 | ---- | ---- |
 | 置き場 | `crates/core/src/parity/pixel.rs`（`parity.rs` に `pub mod pixel;` を 1 行足しただけ） |
 | feature | 既存の `test-support` の裏。新しい feature なし |
 | 依存 | 外部依存 0 のまま。`Cargo.lock` に差分なし |
-| 走る場所 | `make verify`。`make build-profiles` は `contract` だけを対象にするため、本段のテストはそこでは走らない |
-| 入れていないもの | 別 crate からのテスト（#119） |
+| 走る場所 | `make verify` と、`make build-profiles` の `test-support` を含む 4 組（`crates/contract/tests/test_support_pixel.rs` 経由） |
+| 入れていないもの | `exec`・`upper` への `test-support` の転送（使うコードが無い。TASK-24 の前例と同じ） |
 
 入力の受け口:
 
@@ -92,11 +93,20 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 公開アイテム | 観測できる振る舞い | 確かめ方 |
 | ------------ | ------------------ | -------- |
 | `T3` / `PixelTolerance` | 閾値の設定。getter で値を読め、外から任意の値を作れない（整数だけで持つ） | `t3_setting_is_readable`、`compile_fail` の doctest |
-| `compare_pixels_exact` | 閾値を取らない。4 要素がすべて等しい画素だけが一致。比べた数・違った画素数・最初の添字を返す | `identical_images_match_on_both_comparisons`、`exact_comparison_counts_mismatched_pixels` |
-| `compare_pixels` | 閾値を引数で受ける。画素の差は 4 要素（アルファを含む）の差の最大で、向きは対称。「内」の割合の下限と全体の上限の両方を、境界を含めて判定する | `pixel_difference_is_the_largest_channel_difference`、`readable_bounds_are_the_ones_applied`、`ratio_boundary_is_inclusive`、`max_difference_alone_fails_the_match`、`comparison_is_symmetric` |
+| `compare_pixels_exact` | 閾値を取らない。4 要素がすべて等しい画素だけが一致。比べた数・違った画素数・最初の添字を返す | `identical_images_match_on_both_comparisons`、`exact_comparison_counts_mismatched_pixels`、`exact_comparison_sees_an_alpha_only_difference`、`exact_comparison_is_symmetric` |
+| `compare_pixels` | 閾値を引数で受ける。画素の差は 4 要素（アルファを含む）の差の最大で、向きは対称。「内」の割合の下限と全体の上限の両方を、境界を含めて判定する | `pixel_difference_is_the_largest_channel_difference`、`readable_bounds_are_the_ones_applied`、`ratio_boundary_is_inclusive`、`max_difference_alone_fails_the_match`、`comparison_is_symmetric`、`first_index_is_the_earliest_pixel_in_row_major_order`、`difference_within_near_bound_matches_with_tolerance_but_not_exactly`、`ratio_is_applied_to_images_smaller_than_the_denominator` |
 | 割合の比較 | 整数の掛け合わせ（`u128`）で行い、溢れない | `extreme_values_do_not_overflow` |
 | `PixelCompareError::SizeMismatch` | 幅か高さが違えば、要素数が同じでもエラー（両方の大きさを持つ）。不一致として数えない | `size_mismatch_is_an_error_even_with_equal_length` |
 | `Display` | 空でない ASCII | `compare_error_display_is_non_empty_ascii` |
+
+別 crate からの確かめ（5/6）:
+
+| 観測できる振る舞い | 確かめ方（`crates/contract/tests/test_support_pixel.rs`） |
+| ------------------ | --------------------------------------------------------- |
+| `contract` の `test-support` だけで、`core` の画素の道具が使え、同じ画像どうしが一致する | `contract_test_support_enables_core_pixel_tool` |
+| `core` の外の crate から `T3` の getter が読め、値どうしの関係が成り立つ | `pixel_threshold_setting_is_readable_from_outside_core` |
+| 固定の小さな画像で、2 つの比べが背後実装の feature の組に依らず固定の結果になる（`make build-profiles` の各組で走る） | `pixel_comparisons_give_fixed_results_under_any_backend_feature_set` |
+| 大きさ 0 の入力と大きさの不一致が、外から到達できるエラーになる | `pixel_input_and_size_errors_are_reachable_from_outside_core` |
 
 ## オーナー判断待ち
 
@@ -126,7 +136,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - Q3: 要素型・チャネル数・並びは 3/6 で Q10 の仮置きとしてコードに入った
 - Q5: 2 つの比べ（「同じ成果物・同じ背後実装」と「背後実装の間」）は軸の名前としてだけ使う
 
-Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採った。#118 は Q5 (a)・Q6 (a)・Q7 (a)（比べの型の分）の推奨を未承認の仮置きとして採った。閾値の数字を公開コードの定数に置く置き方（TASK-24 の前例と同じ）の可否もオーナー判断の対象。
+Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜Q4・Q7（入力のエラー型の分）・Q8・Q10 の推奨を未承認の仮置きとして採った。#118 は Q5 (a)・Q6 (a)・Q7 (a)（比べの型の分）の推奨を未承認の仮置きとして採った。#119 は Q6・Q8・Q10 の仮置きの形をテストで固定したが、形が決まったとは扱わない。閾値の数字を公開コードの定数に置く置き方（TASK-24 の前例と同じ）の可否もオーナー判断の対象。
 
 ## 別案に決まったときに変わる箇所
 
@@ -151,16 +161,18 @@ Q1〜Q10 への回答は本リポでは確認できていない。#117 は Q1〜
 | 形の設計（本書） | #116（2/6） |
 | 置き場の骨格・入力の受け口と検査（案） | #117（3/6。済） |
 | 比べの関数（2 つの軸とも）と閾値の設定（案） | #118（4/6。済） |
-| テスト（別 crate からの確かめ、feature の組ごとの確かめを含む） | #119（5/6） |
+| テスト（別 crate からの確かめ、feature の組ごとの確かめを含む） | #119（5/6。済） |
 | 完了の条件の確かめ | #120（6/6） |
+
+#119 の判断: `build-profiles` の組は増やしていない / contract 側は新しいファイルにした / `exec`・`upper` の利用口は足していない / TASK-23 の枠との接続は触れていない。
 
 #117・#118 の切り方は案。Issue 本文の範囲と食い違うと実装側が判断した場合は、実装側の計画を優先する。
 
 ## 完了の条件の確かめ
 
-2/6 までは未実施。6/6（#120）で、本リポで観測できる事実により埋める。
+5/6 までは未実施。6/6（#120）で、本リポで観測できる事実により埋める。
 spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
 
 ## 確かめた日付
 
-2026-10-11（base: 6911d7d）
+2026-10-11（base: 68145f4）
