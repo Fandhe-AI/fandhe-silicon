@@ -43,6 +43,7 @@ fandhe-silicon/
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
+├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提（TASK-24）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
