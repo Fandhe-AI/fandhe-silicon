@@ -22,6 +22,7 @@ cat <<'EOF'
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査
   deps-check      scripts/deps-check.sh          依存の版指定が =x.y.z の完全固定で承認の記録と一致するかを検査する（cargo metadata + jq）
   test-deps-check scripts/test-deps-check.sh     deps-check 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3）
+  inventory-trace-check scripts/inventory-trace-check.sh  一覧の鍵が項目ファイルに現れるかの検査（要 docs/spec の取得。CI では実行しない）
   test-hooks      scripts/hooks/test-hooks.sh    フックスクリプト自体の回帰テスト（bash + git のみ）
 
 Git hooks（lefthook.yml から呼ばれる。直接実行も可）:
