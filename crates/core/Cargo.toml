@@ -23,6 +23,10 @@ name = "parity_pixel"
 required-features = ["test-support"]
 
 [[test]]
+name = "parity_special_values"
+required-features = ["test-support"]
+
+[[test]]
 name = "parity_tolerance"
 required-features = ["test-support"]
 
