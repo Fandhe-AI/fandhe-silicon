@@ -6,6 +6,9 @@
 - `make verify`（`cargo fmt --check`・`cargo clippy --workspace --all-targets --all-features -- -D warnings`・`cargo test`）を通してからコミットする
 - lint は `[workspace.lints]` で一元管理し、各 crate は `[lints] workspace = true` とする
 - 言語固有のコマンドは `scripts/` に実体を置き、`Makefile` からは 1 行で呼ぶ（README「派生リポジトリでの拡張」）
+- ルート `Cargo.toml` の `[profile.dev.package."*"]`（依存クレートの debuginfo を `line-tables-only` にする）を維持する。外せるのはデバッガで依存の変数・型を追う必要が恒常的に出たときだけ。`[profile]` は workspace ルートにだけ書ける（メンバー側は無視される）
+- `[profile]` を変えるときは CI キャッシュへの影響を確認する（キーが捕捉せず旧成果物に exact hit し続ける。[github-actions](./github-actions.md)「キーの設計」）
+- ローカルの `target/` は古い成果物で肥大化する（worktree ごとにも増える）。`cargo install cargo-sweep` のうえ `cargo sweep --time 14`（14 日以上使われていない成果物を削除）で掃除する
 
 ## 設計
 
