@@ -40,7 +40,7 @@ fandhe-silicon/
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
 ├── docs/contract/            # 契約の明文のまとめと、形を決める作業の手順書（書式・更新の順は README）
 ├── docs/spec/                # private submodule（明示取得が必要）
-└── scripts/                  # help / doctor / setup / check / verify / deny / lib.sh
+└── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
 ```
 

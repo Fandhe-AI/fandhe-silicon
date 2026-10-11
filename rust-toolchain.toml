@@ -3,3 +3,5 @@
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]
+# wasm32 の cfg ゲートのビルド確認（scripts/build-profiles.sh）に必要。
+targets = ["wasm32-unknown-unknown"]

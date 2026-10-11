@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# プロファイルごとの feature の組で contract crate がビルドできることを確かめる（非破壊）。
+# native では build / clippy（-D warnings）/ test、wasm32 では check のみを回す。
+# 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
+# feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
+# 組の spec 対応は ID のポインタだけを添える（本文は転記しない）。
+# wasm32 の target が無い場合は skip せず失敗する（導入は rust-toolchain.toml / rustup の役割）。
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+source "${DIR}/lib.sh"
+
+reject_args "$(basename "$0")" "$@"
+require_cmd cargo
+require_cmd rustup
+
+readonly PKG="fandhe-silicon-contract"
+readonly WASM_TARGET="wasm32-unknown-unknown"
+
+# native の組（--no-default-features に付ける feature 列）
+NATIVE_SETS=(
+  "contract-core,cpu-isa,cpu-ops"                                                  # spec BUILD-1
+  "contract-core,cpu-isa,cpu-ops,backend-metal"                                    # spec BUILD-2
+  "contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics"                          # spec BUILD-3
+  "contract-core,cpu-isa,cpu-ops,backend-vulkan,backend-cuda,graphics,ext-interop" # spec BUILD-4
+  "backend-metal"                                                                  # spec TASK-5（含意で contract-core が入る）
+  "backend-vulkan"                                                                 # spec TASK-5
+  "backend-cuda"                                                                   # spec TASK-5
+  "artifact-inspection"                                                            # spec BUILD-65
+)
+
+# wasm32 の組
+WASM_SETS=(
+  "contract-core,cpu-isa,cpu-ops"                 # spec BUILD-19
+  "contract-core,cpu-isa,cpu-ops,backend-metal"   # spec BUILD-22
+  "contract-core,cpu-isa,cpu-ops,backend-vulkan"  # spec BUILD-23
+  "contract-core,cpu-isa,cpu-ops,backend-cuda"    # spec BUILD-23
+)
+
+# コマンドを表示してから実行する。
+run() {
+  log "$*"
+  "$@"
+}
+
+if ! rustup target list --installed | grep -qx "${WASM_TARGET}"; then
+  echo "error: rust target not installed: ${WASM_TARGET}" >&2
+  echo "  install with: rustup target add ${WASM_TARGET} (or: rustup toolchain install)" >&2
+  exit 1
+fi
+
+cd "${ROOT_DIR}"
+
+# 既定（spec BUILD-8）
+run cargo build -p "${PKG}"
+run cargo clippy -p "${PKG}" --all-targets -- -D warnings
+run cargo test -p "${PKG}"
+
+for feats in "${NATIVE_SETS[@]}"; do
+  run cargo build -p "${PKG}" --no-default-features --features "${feats}"
+  run cargo clippy -p "${PKG}" --all-targets --no-default-features --features "${feats}" -- -D warnings
+  run cargo test -p "${PKG}" --no-default-features --features "${feats}"
+done
+
+# 全 feature（spec BUILD-6。後から増える feature も自動で含む）
+run cargo build -p "${PKG}" --all-features
+run cargo clippy -p "${PKG}" --all-targets --all-features -- -D warnings
+run cargo test -p "${PKG}" --all-features
+
+for feats in "${WASM_SETS[@]}"; do
+  run cargo check -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${feats}"
+done
+
+log "build-profiles: all feature sets passed"

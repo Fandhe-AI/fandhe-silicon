@@ -141,6 +141,9 @@ jobs:
       - name: make verify
         run: make verify
 
+      - name: make build-profiles
+        run: make build-profiles
+
   # 依存の監査。ローカルの `make deny`（scripts/deny.sh）をそのまま実行する。
   # cargo-deny はバージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する（check ジョブと同方針）。
   deny:
