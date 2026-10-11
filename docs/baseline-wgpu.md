@@ -19,15 +19,21 @@ spec の本文・比較基準の版・計測値は転記しない（[spec-confid
 - `deny.toml` の `[bans] deny` が wgpu 系を拒否する。検出は `make deny` と CI の `deny` ジョブ
 - 境界の案内は [workspace-boundary](workspace-boundary.md) を参照
 
+## 別 workspace の配置と骨格（TASK-7 の 2/4）
+
+- 置き場は本リポ内の非 member ディレクトリ `baseline-wgpu/`。ルートの `Cargo.toml` の `exclude` で切り離し、自身の `[workspace]` と `Cargo.lock` を持つ
+- 骨格は外部依存 0 の smoke crate のみ。比較基準は稼働していない。詳細は [baseline-wgpu/README.md](../baseline-wgpu/README.md) を参照
+- `make deny`・`make verify` はルートの workspace が対象で、本 workspace は範囲外のまま。別 workspace を検査する仕組み（検査と CI ジョブ）は未整備
+
 ## オーナー判断待ちの論点
 
 推奨案は確定しない。決まるまで後続の作業は仮置きで進めない。
 
-1. 別 workspace の置き場（本リポ内の非 member ディレクトリ／別リポジトリ／PoC の隔離 workspace の継続利用）
-    - 本リポ内に置く場合、`make deny`・`make verify` の範囲外になる。別の検査と CI ジョブが要る
-    - 止まるもの: 別 workspace の作成、版の記録の書式、完了の条件の確かめ
-2. wgpu の依存追加の承認（`=x.y.z` 完全固定。[dependency-policy](../.claude/rules/dependency-policy.md)）
-3. TASK-6 の決定の記録の確定
+1. 置き場の最終確認: 本リポ内の `baseline-wgpu/` を置き場として骨格を作成済み。別リポジトリや PoC の隔離 workspace への移行をオーナーが望む場合は再判断する
+    - 別 workspace を `make deny`・`make verify` の範囲に含める検査と CI ジョブは未決
+    - 止まるもの: 版の記録の書式、完了の条件の確かめ
+2. wgpu の依存追加の承認（`=x.y.z` 完全固定。[dependency-policy](../.claude/rules/dependency-policy.md)）は未承認。承認まで依存は追加しない
+3. TASK-6 の決定の記録の確定は未完了のまま。TASK-7 の完了は宣言しない
 
 ## 後続の分担
 

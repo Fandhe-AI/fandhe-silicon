@@ -20,6 +20,7 @@
 
 # Rust のビルド成果物
 /target/
+/baseline-wgpu/target/
 
 # OS
 .DS_Store
