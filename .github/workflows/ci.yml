@@ -1,4 +1,4 @@
-# ベース CI。
+# ベース CI。ジョブ追加・変更時は .claude/rules/github-actions.md に従う。
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
@@ -17,8 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # PR の古い実行のみ中断する。main への push はコミット SHA 単位のグループにし、待機中の実行も
+  # 置換されないようにする（連続マージ時も各コミットの結果を残す）
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # 検査ツールの pin の正（単一宣言点）。SHA256 は GitHub リリース資産を実際にダウンロードして
 # 実測し、リリース API の digest と一致することを確認した値（2026-10-07）。
