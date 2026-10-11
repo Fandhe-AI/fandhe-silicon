@@ -19,9 +19,16 @@ description: >
 
 ## 必須チェックと集約ジョブ
 
-- ruleset `main-protection` の required status checks: `ci-complete`・`codex / preflight`・`codex / review`・`codex / post_feedback`
+- ruleset `main-protection` の required status checks（11 件）:
+  - `ci.yml`: `ci-complete`・`make check (editorconfig-checker + shellcheck)`・`make verify (fmt + clippy + test)`・
+    `make deny (cargo-deny)`・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`
+  - `ai-review.yml`: `codex / preflight`・`codex / review`・`codex / post_feedback`
+  - 外部 App: `Cursor Bugbot`（cursor App に束縛。それ以外は GitHub Actions の integration に束縛）
+- 個別ジョブまで登録するのは、implement-issue-tree の自動マージ前ゲート（G0）が PR 上の全 check を必須チェックに含めることを要求するため。
+  PR で生成される check を増やす・減らす・改名するときは、ruleset 側も同時に更新する（ユーザー判断事項。
+  登録漏れは自動マージの停止、登録した check が生成されないと pending のままマージ不能になる）
 - `ci.yml` の集約ジョブ `ci-complete` が各ジョブの結果を検証する。**ジョブを追加したら必ず `needs` にも追加する**
-- 上記のジョブ名・ジョブ ID を変えるときは ruleset 側の更新が必要（ユーザー判断事項。名前を変えると pending のままマージ不能になる）
+- matrix を変えると check 名（`hook script tests (<os>)` 等）が変わる。push だけで生成される check は ruleset に登録しない
 
 ## 発火条件
 
