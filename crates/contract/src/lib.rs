@@ -5,11 +5,11 @@
 //! モジュールに閉じ込め、公開 API は safe なラッパーとして下-2・上へ渡す。
 
 // 背後実装のモジュール。
-// Metal は feature のみでゲートし、OS 固有の分岐は将来モジュール内部で行う（spec BUILD-22）。
+// Metal は feature のみでゲートする（spec BUILD-22）。
 #[cfg(feature = "backend-metal")]
 pub mod backend_metal;
 
-// Vulkan・CUDA は wasm32 ではビルドしない（spec BUILD-23）。
+// Vulkan・CUDA は wasm32 では有効にしない（spec BUILD-23）。
 #[cfg(all(feature = "backend-vulkan", not(target_arch = "wasm32")))]
 pub mod backend_vulkan;
 
