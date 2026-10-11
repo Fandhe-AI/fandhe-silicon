@@ -18,7 +18,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR の古い実行のみ中断する。main への push は中断しない（連続マージ時も各コミットの結果を残す）
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # 検査ツールの pin の正（単一宣言点）。SHA256 は GitHub リリース資産を実際にダウンロードして
 # 実測し、リリース API の digest と一致することを確認した値（2026-10-07）。
