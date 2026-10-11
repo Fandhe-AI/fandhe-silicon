@@ -46,9 +46,33 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 | TASK-26 | #114 | OPEN | `parity` 配下に新しいファイルを足しうる並行のタスク（[pixel-parity-tool](pixel-parity-tool.md) の D9）。`parity.rs` の `pub mod` の行で衝突しうる |
 | TASK-6 | #35 | CLOSED | 持ち込む・除くの区分は決定の記録（private spec）に従う。[poc-carry-over](../.claude/rules/poc-carry-over.md) を参照 |
 
+## コードの現状の形（2/4・未承認の仮置き）
+
+本リポのコードと公開テストが示す事実のみ。確定扱いにしない。
+
+| 項目 | 現状 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `crates/core/src/parity/special_values.rs`。`parity.rs` に `pub mod special_values;` を 1 行足した。`test-support` の裏 | `crates/core/src/parity.rs` |
+| 公開名 | `SpecialVerdict`・`judge_element_with_special_values`・`compare_f32_with_special_values` と、集計の型（getter は `compared`・`exceeded`・`non_finite_mismatch`・`first_mismatch`・`is_match`） | `crates/core/src/parity/special_values.rs` |
+| 判定の区分 | `SpecialVerdict` は 5 区分（`BothNan`・`SameInfinity`・`NonFiniteMismatch`・`Within`・`Exceeded`） | 同上 |
+| 有限どうし | `judge_element` へ委ねる。既存の `judge_element`・`compare_f32` は変えていない | 同上、公開テスト（`crates/core/tests/parity_special_values.rs`） |
+| テスト | `[[test]]` 1 件（`parity_special_values`、`required-features = ["test-support"]`） | `crates/core/Cargo.toml` |
+
+## オーナー判断待ち（未承認の仮置き）
+
+[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) に従い、推奨を既定として確定しない。回答があるまで、下の仮置きは確定扱いにしない。
+
+| 論点 | 仮置き | 選択肢（列挙のみ） | 止まるもの |
+| ---- | ------ | ------------------ | ---------- |
+| 1. 置き場 | `parity/special_values.rs` に新ファイル | `tolerance.rs` を変える／別の置き場 | TASK-25 の 3/4・4/4（#112・#113） |
+| 2. 公開名 | `special_values` 系の名前 | 別名にする | 同上 |
+| 3. 判定の区分 | 5 区分の別の型。`ElementVerdict` は変えない | `ElementVerdict` を細分化する（Q11 の経路） | 同上 |
+| 4. 既存の集計との関係 | `Comparison` と別の集計の型 | `Comparison` に項目を足す（Q5 の続き） | 同上 |
+| 5. 前提 | [parity-tool](parity-tool.md) の Q1・Q3・Q11 は未回答のまま着手 | 回答を待つ | TASK-24 の確定 |
+
 ## 形の論点（列挙のみ）
 
-推奨は書かない。回答は無く、確定扱いにしない。規則の足し方・判定の区分・命名は 2/4 で仮置きした（上記）。残るのは新しいテストの置き方・入力の作り方・`build-profiles` の組（3/4 の #112）。
+推奨は書かない。回答は無く、確定扱いにしない。規則の足し方・判定の区分・命名は 2/4 で仮置きした（次節「コードの現状の形」）。残るのは新しいテストの置き方・入力の作り方・`build-profiles` の組（3/4 の #112）。
 
 - 規則の足し方の置き場: `parity/` に新しいファイルと `pub mod` 1 行か、`tolerance.rs` を変えるか
 - `judge_element` の区分の扱い: 既存の区分を細かく分けるか、別の関数・型を足すか。既存の公開テストの期待値が変わる場合は [parity-tool](parity-tool.md) の「値・規則を変える変更の扱い（案）」と Q11 に従う
