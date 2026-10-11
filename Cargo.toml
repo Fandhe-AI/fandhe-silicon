@@ -29,3 +29,17 @@ missing_docs = "warn"
 # unsafe ブロックに `// SAFETY:` コメントを必須とする（.claude/rules/coding-rust.md）
 undocumented_unsafe_blocks = "deny"
 missing_safety_doc = "deny"
+
+# 依存クレート（workspace メンバー以外）のデバッグ情報を行番号のみにする。
+# 依存グラフ全体の full debuginfo はローカルの `target/` 肥大化（他リポでは 20GB 超）と
+# リンク時間の主因になるため、依存の内部をデバッガで追う機能だけを諦めて両方を減らす。
+# - 残るもの: panic 位置・バックトレースの file:line・プロファイラの行番号
+# - 失うもの: デバッガ（lldb / gdb）で依存クレートの変数・型を見る機能のみ
+# - `"*"` はメンバー以外にだけ効くため、本リポのクレートは full debuginfo のまま
+# - 依存のビルドスクリプト・proc-macro にも適用される（`build-override` より優先）
+# - `test` と `inherits = "dev"` のプロファイルにも継承される。`release`・`bench` は不変
+# - 2026-10-11 時点で外部依存は 0 のため実効は無く、依存を追加した時点から効く
+# - profile は workspace ルートにだけ書ける（メンバーの `[profile]` は無視される）。
+#   変更時は CI キャッシュへの影響を確認する（.claude/rules/github-actions.md「キーの設計」）
+[profile.dev.package."*"]
+debug = "line-tables-only"
