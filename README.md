@@ -160,9 +160,11 @@ Linux・macOS（標準の bash 3.2 を含む）について実行します。`sc
 
 - `main` には ruleset `main-protection` を適用している（`setup-repo-guards` スキルの手順で導入）
   - 削除・force push の禁止、PR 必須（承認数 0・レビュースレッドの resolve 必須・squash merge のみ）
-  - required status checks（`strict` は無効。いずれも GitHub Actions の発行に束縛）: `ci-complete`・
-    `codex / preflight`・`codex / review`・`codex / post_feedback`（`check` / `verify` / `deny` / `test-hooks` / `pr-title` の結果は
-    `ci-complete` が集約する）。codex のレビュー基準は `AGENTS.md`
+  - required status checks（`strict` は無効。`Cursor Bugbot` は cursor App、それ以外は GitHub Actions の発行に束縛）:
+    `ci-complete`・`codex / preflight`・`codex / review`・`codex / post_feedback`・`Cursor Bugbot` と、
+    `ci.yml` の個別ジョブ（`check` / `verify` / `deny` / `test-hooks`（ubuntu-latest・macos-latest）/ `pr-title`）の check 名すべて。
+    個別ジョブも登録するのは、implement-issue-tree の自動マージ前ゲートが PR 上の全 check を必須チェックに含めることを要求するため
+    （`ci-complete` の集約は従来どおり維持する）。codex のレビュー基準は `AGENTS.md`
 - マージ設定は squash のみ（コミット件名 = PR タイトル、本文 = PR 本文）・マージ後のブランチ自動削除
 - CI にジョブを追加したら `ci-complete` の `needs` にも必ず追加する
 

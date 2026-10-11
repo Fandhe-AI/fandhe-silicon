@@ -210,7 +210,9 @@ jobs:
           printf '%s\n' "${PR_TITLE}" > "${msg_file}"
           bash scripts/hooks/commit-msg-check.sh "${msg_file}"
 
-  # 必須チェックの集約ジョブ。ruleset の required status checks には本ジョブのみを登録する。
+  # 必須チェックの集約ジョブ。ruleset の required status checks には本ジョブに加えて各ジョブの
+  # check 名も登録している（implement-issue-tree の自動マージ前ゲートの要件。.claude/rules/github-actions.md）。
+  # ジョブの追加・改名・matrix 変更で check 名が変わる場合は ruleset 側も同時に更新する。
   # ジョブを追加したら必ず needs へも追加すること（漏れると未検査のままマージ可能になる）。
   # fail-closed: success 以外は失敗とし、skipped は条件付きジョブ（pr-title）が
   # 本来 skip されるべき状況（pull_request 以外のイベント）でのみ明示的に許容する。
