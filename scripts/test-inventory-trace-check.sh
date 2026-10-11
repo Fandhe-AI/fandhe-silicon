@@ -32,51 +32,63 @@ expect() {
 
 printf 'key\nalpha\n' >"${work}/inv.csv"
 printf '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n' >"${work}/items/a.md"
-expect "key in a table row" 0 ""
+expect "key in a table row" 0 "" --item-rows
 
 printf 'prose with alpha only\n\n| id | text |\n| --- | --- |\n| ITEM-A | other |\n' >"${work}/items/a.md"
-expect "key only in prose" 1 ""
+expect "key only in prose" 1 "" --item-rows
 
 printf '| id | text |\n| --- | --- |\n| ITEM-A | x \\| alpha |\n' >"${work}/items/a.md"
-expect "escaped pipe stays in the cell" 0 ""
+expect "escaped pipe stays in the cell" 0 "" --item-rows
 
 printf '| id | text |\n| --- | --- |\n| ITEM-A | alpha | extra |\n' >"${work}/items/a.md"
-expect "row with a column mismatch is not an item" 1 ""
+expect "row with a column mismatch is not an item" 1 "" --item-rows
 
 printf '| id | text |\n| --- | --- |\n| alpha | other |\n' >"${work}/items/a.md"
-expect "key only in the label cell" 1 ""
+expect "key only in the label cell" 1 "" --item-rows
+
+# 既定（--item-rows なし）はファイル単位で、表の外の本文・ラベルのセル・フェンス内でも合格する（#62 と同じ合否）
+printf 'prose with alpha only\n' >"${work}/items/a.md"
+expect "default: key in prose passes" 0 ""
+printf '| id | text |\n| --- | --- |\n| alpha | other |\n' >"${work}/items/a.md"
+expect "default: key in label cell passes" 0 ""
+printf 'other\n' >"${work}/items/a.md"
+expect "default: absent key fails" 1 ""
+expect "--item-id-column without --item-rows is misuse" 2 "" --item-id-column id
+printf '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n' >"${work}/items/a.md"
+want="$(printf 'line\tkey\tfile\titem\n2\talpha\ta.md\t')"
+expect "default: --list has an empty item column" 0 "${want}" --list
 
 # --list: 2 ファイル・複数項目。合格のときだけ TSV を出す。
 printf 'key\nalpha\nbeta\n' >"${work}/inv.csv"
 printf '| id | text |\n| --- | --- |\n| ITEM-B | alpha beta |\n| ITEM-A | alpha |\n' >"${work}/items/b.md"
 printf '| id | text |\n| --- | --- |\n| ITEM-C | alpha |\n' >"${work}/items/a.md"
 want="$(printf 'line\tkey\tfile\titem\n2\talpha\ta.md\tITEM-C\n2\talpha\tb.md\tITEM-B\n2\talpha\tb.md\tITEM-A\n3\tbeta\tb.md\tITEM-B')"
-expect "--list output" 0 "${want}" --list
-expect "no stdout without --list" 0 ""
+expect "--list output" 0 "${want}" --item-rows --list
+expect "no stdout without --list" 0 "" --item-rows
 
 printf 'key\nalpha\ngamma\n' >"${work}/inv.csv"
-expect "--list prints nothing on violation" 1 "" --list
+expect "--list prints nothing on violation" 1 "" --list --item-rows
 
 # --item-id-column
 printf 'key\nalpha\n' >"${work}/inv.csv"
 rm "${work}/items/b.md"
 printf '| id | name | text |\n| --- | --- | --- |\n| 1 | ITEM-A | alpha |\n' >"${work}/items/a.md"
 want="$(printf 'line\tkey\tfile\titem\n2\talpha\ta.md\tITEM-A')"
-expect "--item-id-column selects another column" 0 "${want}" --item-id-column name --list
-expect "--item-id-column that matches no table" 2 "" --item-id-column nothing
+expect "--item-id-column selects another column" 0 "${want}" --item-id-column name --item-rows --list
+expect "--item-rows --item-id-column that matches no table" 2 "" --item-rows --item-id-column nothing
 
 # コードフェンス内の例示表は、帰属にも合格判定にも使わない
 bt='```'
 printf 'key\nalpha\n' >"${work}/inv.csv"
 printf '%s\n' "${bt}markdown" '| id | text |' '| --- | --- |' '| EXAMPLE | alpha |' "${bt}" >"${work}/items/a.md"
-expect "key only in backtick fence" 1 ""
+expect "key only in backtick fence" 1 "" --item-rows
 printf '%s\n' '~~~' '| id | text |' '| --- | --- |' '| EXAMPLE | alpha |' '~~~' >"${work}/items/a.md"
-expect "key only in tilde fence" 1 ""
+expect "key only in tilde fence" 1 "" --item-rows
 printf '%s\n' "${bt}\`" "${bt}" '| id | text |' '| --- | --- |' '| EXAMPLE | alpha |' "${bt}\`" >"${work}/items/a.md"
-expect "shorter inner fence does not close" 1 ""
+expect "shorter inner fence does not close" 1 "" --item-rows
 printf '%s\n' "${bt}" 'example' "${bt}" '' '| id | text |' '| --- | --- |' '| ITEM-A | alpha |' >"${work}/items/a.md"
 want="$(printf 'line\tkey\tfile\titem\n2\talpha\ta.md\tITEM-A')"
-expect "table after a closed fence still counts" 0 "${want}" --list
+expect "table after a closed fence still counts" 0 "${want}" --item-rows --list
 
 printf 'key\nalpha\n' >"${work}/inv.csv"
 printf '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n' >"${work}/items/a.md"
