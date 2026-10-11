@@ -4,7 +4,7 @@
 
 private spec の TASK-6（`docs/spec/05-tasks.md`。関連: AP-4・AC-2）を前提に、PoC の隔離 workspace のコードや考え方を本リポへ持ち込む作業で適用する。
 持ち込む・除くの区分とその理由の正は、private spec 側の TASK-6 の決定の記録とする。本リポには区分の一覧・理由・経緯を書かない（ポインタのみ）。
-本規約は案であり、オーナーの確認を経るまで確定した方針として扱わない。
+区分は TASK-6 の決定の記録に従う。決定の記録に無いものは持ち込まない（[workspace-boundary](../../docs/workspace-boundary.md)）。
 
 ## 依存グラフに足場を入れない（AP-4・AC-2）
 
@@ -34,20 +34,15 @@ private spec の TASK-6（`docs/spec/05-tasks.md`。関連: AP-4・AC-2）を前
 
 - 製品の crate は、測定専用の crate・ハーネスに依存しない。向きは「測定 → 製品の公開 API」の一方向だけにする（TASK-15 の検査のポインタ）
 - 比較用の wgpu を使うコードは基盤外の別 workspace に置く（`deny.toml` に記載済みの方針。TASK-7）
-- 測定専用の crate を本 workspace に置くか外に置くかは本規約では決めない（下の「オーナー判断待ち」）
+- 測定専用の crate の置き場と、上の層の試作の扱いは、TASK-6 の決定の記録に従う（本規約には内容を書かない。関連: TASK-15・TASK-1050・TASK-1022・TASK-1354・TASK-1356）
 
 ## 対象の外
 
 製品として作る上の層（`crates/upper`）の実装は、持ち込む・除くの対象ではない（UPPER 系タスクのポインタ）。
 
-## オーナー判断待ち
+## 区分に迷うとき
 
-自動運転では決めない。推奨案を既定として先行確定しない（[contract-shaping-escalation](./contract-shaping-escalation.md) の経路に従い、PR 本文に残す）。
-
-| 論点 | ポインタ |
-| ---- | -------- |
-| 上の層の試作の扱い | TASK-6・TASK-1050・TASK-1022 |
-| 測定専用の crate の置き場 | TASK-15・TASK-1354・TASK-1356 |
+決定の記録から区分が一意に決まらないものは、自動運転では決めない。推奨案を既定として先行確定せず、[contract-shaping-escalation](./contract-shaping-escalation.md) の経路でオーナーに伺う（PR 本文に残す）。
 
 ## 関連規約
 

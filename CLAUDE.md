@@ -21,6 +21,7 @@ fandhe-silicon/
 ├── Cargo.lock
 ├── rust-toolchain.toml       # stable + rustfmt / clippy
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止）
+├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。初期は 0 件）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）（編集方針: .claude/rules/makefile.md）
 ├── lefthook.yml              # pre-commit / commit-msg（方針: .claude/rules/git-hooks.md）
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
@@ -44,6 +45,7 @@ fandhe-silicon/
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提（TASK-24）
+├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形（案。TASK-9）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
@@ -115,7 +117,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [github-actions.md](.claude/rules/github-actions.md) | runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 | [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
-| [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。案） |
+| [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。区分の正は private spec） |
 
 ## Current Skills
 
@@ -160,7 +162,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する
-- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny + workspace の path が `crates/` の外を指さないことの検査）・`make deps-check`（依存の `=x.y.z` 完全固定の検査。CI への組み込みは未）。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ。`scripts/hooks/` を変更したら `make test-hooks`（CI の `test-hooks` ジョブ）も通す
+- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny + workspace の path が `crates/` の外を指さないことの検査）・`make deps-check`（依存の `=x.y.z` 完全固定と承認の記録との一致の検査。CI への組み込みは未）。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ。`scripts/hooks/` を変更したら `make test-hooks`（CI の `test-hooks` ジョブ）も通す
 - **CI**: ジョブを追加したら `ci.yml` の `ci-complete` の `needs` に必ず追加する
 - **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。`*.rs` は 4 スペース、staged の `*.rs` は pre-commit で `rustfmt --check`
 - **セキュリティレビュー**: PR 作成前に OWASP Top 10・秘密情報・spec 漏えいを確認（[security](.claude/rules/security.md)）
