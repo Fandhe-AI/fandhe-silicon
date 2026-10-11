@@ -1,6 +1,6 @@
 # 結果の一致を確かめる共通の道具（TASK-24）の現状・前提・形（案）
 
-TASK-24（親 Issue #100）について、着手時点の現状と前提、および 3/8（#103）で入れた置き場の骨格を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-24（親 Issue #100）について、着手時点の現状と前提、および 3/8（#103）で入れた置き場の骨格、4/8（#104）で入れた要素ごとの比べ方を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 「形の設計（案）」以降は案であり、オーナーの確認を経るまで確定扱いにしない。
@@ -41,6 +41,20 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - 別案に決まったときに変わる箇所: Q1 (b) は `parity` を `crates/contract/src/` へ移し、`core` の feature と転送を直す。Q1 (c) は同じファイルを新しい crate へ移す（member の増減は TASK-1・TASK-6 の記録の変更が要る）。Q2 (b) は `cpu_reference.rs` を `cpu-ops` の裏へ移す。Q3 (b) は feature 名の置換。Q4 (b) は関数の追加だけ
 - 3/8 では、Top-k の参照・要素ごとの演算の参照・比べ方・閾値の設定を入れない。`exec`・`upper` からの利用口も足していない（#107 で判断する）
 
+## 要素ごとの比べ方と閾値の設定（4/8。未承認の仮置き）
+
+置き場・feature は 3/8 と同じ未承認の仮置きを続ける。コードと公開テストから観測できる事実だけを書く。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `crates/core/src/parity/tolerance.rs`（`parity.rs` に `pub mod tolerance;` を 1 行足した） | `crates/core/src/parity.rs` |
+| 公開アイテム | `Tolerance`・`T1`・`ElementVerdict`・`judge_element`・`Comparison`・`CompareError`・`compare_f32`。閾値は `T1` の getter で読め、任意の値を作る口は無い | rustdoc |
+| 計算 | 閾値と誤差は `f64` で持ち、比較は厳密な `<`。絶対誤差か相対誤差（参照の絶対値に対する比）のどちらかが内なら `Within` | `tolerance.rs`、テスト |
+| 有限でない値 | 参照か実測が有限でなければ `NonFinite`。不一致として数える | テスト |
+| 列の集計 | 件数・最初に外れた添字を返す。1 要素でも外れれば `is_match()` は偽。長さ 0 は `EmptyInput`、長さ違いは `LengthMismatch` | テスト |
+| 公開テスト | `crates/core/tests/parity_tolerance.rs`（`required-features = ["test-support"]`） | `crates/core/Cargo.toml` |
+| 依存 | 外部依存は 0 のまま | `Cargo.lock` に差分なし |
+
 ## 関連タスクの状態と引き継ぎ
 
 事実のみを書く。向きは決めない。
@@ -64,11 +78,11 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D1 | PoC からの持ち込みか書き直しか | PoC のファイルは複製せず、本リポの規約で新しく書く。記録・入力・生成物を写さない | TASK-6 の決定の記録、[poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
 | D2 | 依存・unsafe | 標準ライブラリだけで書く。外部依存は 0（承認フローに乗る依存は無い）。`unsafe` を使わない | [dependency-policy](../.claude/rules/dependency-policy.md)、[coding-rust](../.claude/rules/coding-rust.md) |
 | D3 | 背後実装への非依存 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24（ポインタのみ） |
-| D4 | 閾値の設定 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
+| D4 | 閾値の設定 | `crates/core/src/parity/tolerance.rs` の rustdoc とテストを参照（4/8 で実装） | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
 | D5 | 適用の範囲 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-53（#196）（ポインタのみ） |
 | D6 | TASK-23 の枠との接続 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-23（#91）（ポインタのみ） |
-| D7 | T-1 の要素の分類 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | TASK-25（#109）、PARITY-2〜PARITY-5（ポインタのみ） |
-| D8 | T-1 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-1（ポインタのみ） |
+| D7 | T-1 の要素の分類 | 4/8 では有限でない値を `NonFinite` として不一致に数えるだけ。それ以外の規則は TASK-25（#109）で扱う | TASK-25（#109）、PARITY-2〜PARITY-5（ポインタのみ） |
+| D8 | T-1 の比べの形 | `crates/core/src/parity/tolerance.rs` の rustdoc とテストを参照（4/8 で実装） | PARITY-1（ポインタのみ） |
 | D9 | T-2 の比べの形 | 本書では記述しない。実装と公開テストが入る PR でコードから記述する（spec 側の判断待ち） | PARITY-6、`docs/spec/02-poc-plan.md` の T-2（ポインタのみ） |
 | D10 | CPU 参照の形 | `crates/core/src/parity/cpu_reference.rs` の rustdoc とテストを参照（3/8 で実装） | TASK-1350・TASK-1378・CPU-27（ポインタのみ） |
 | D11 | 結果とエラー | `crates/core/src/parity/cpu_reference.rs` の rustdoc とテストを参照（3/8 で実装） | [coding-rust](../.claude/rules/coding-rust.md)、[security](../.claude/rules/security.md)、[japanese-style](../.claude/rules/japanese-style.md) |
@@ -85,6 +99,9 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | Q2 | CPU 参照の置き場 | (a) Q1 と同じ場所（検証専用） (b) `crates/contract` の `cpu-ops` の裏 | (a) | #103、TASK-1350 |
 | Q3 | Q1 が (a)・(b) の場合の feature | (a) 既存の `test-support` と同名にする（core に置く場合は contract から転送） (b) 道具専用の feature を新しく作る | (a) | #103 の `Cargo.toml` の変更 |
 | Q4 | CPU 参照が持つ演算の範囲 | (a) 最小の参照だけ (b) 要素ごとの演算の参照も含める | (a)。増やす分は TASK-1350 で決める | #103 の範囲 |
+| Q5 | 有限でない値を含む要素の数え方 | (a) 不一致に数え専用の区分で区別する (b) 比べの対象から外して件数だけ出す | (a)。規則の追加は TASK-25（#109） | #109 の足し方 |
+| Q6 | 閾値の設定の形 | (a) 固定の定数だけを公開し任意の値を作る口は持たない (b) 検査付きのコンストラクタも公開する | (a) | #105・#107 の使い方 |
+| Q7 | 長さ 0 の入力 | (a) エラー (b) 0 件を比べて一致 | (a) | #107 |
 
 各案の影響（本リポの公開済みの事実とポインタだけ）:
 
@@ -93,7 +110,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - Q1 (c): 本番の feature と公開面に触れない。member の増減は TASK-1・TASK-6 の決定の記録の変更に当たり（[workspace-boundary](workspace-boundary.md)）、依存の向きの規約（`AGENTS.md` 2 節、TASK-15 のポインタ）の改定も要る
 - Q2 (b): 本番の既定 feature の公開面に検証用の参照が入り、TASK-1350 が決める範囲に踏み込む（CPU-25・CPU-27 のポインタ）
 
-Q1〜Q4 は 3/8 の時点でも未回答。#103 は推奨を未承認の仮置きで実装した。回答が出るまで、その PR は自動でマージしない。
+Q1〜Q7 は 4/8 の時点でも未回答。#103・#104 は推奨を未承認の仮置きで実装した。回答が出るまで、その PR は自動でマージしない。
 
 ## 後続の分担
 
@@ -101,7 +118,7 @@ Q1〜Q4 は 3/8 の時点でも未回答。#103 は推奨を未承認の仮置�
 | ---- | ---- |
 | 形の設計（本節群） | #102（2/8） |
 | 置き場の骨格と CPU 参照（Q1〜Q4 は未承認の仮置きで実装済み） | #103（3/8。済） |
-| T-1 に関わる作業 | #104（4/8） |
+| 許容誤差つきの要素ごとの比べ方と閾値の設定（未承認の仮置きで実装済み） | #104（4/8。済） |
 | T-2 に関わる作業 | #105（5/8） |
 | 整理の作業 | #106（6/8） |
 | テスト。Q1 が `core` の feature の裏に決まった場合は、`make build-profiles` の対象に入っているかを確かめる（`build-profiles.sh` は今 contract だけを回す）。`exec`・`upper` からの利用口の要否も判断する | #107（7/8） |
@@ -114,4 +131,4 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 
 ## 確かめた日付
 
-2026-10-11（base: a83bf42）
+2026-10-11（base: 2ab7b91）
