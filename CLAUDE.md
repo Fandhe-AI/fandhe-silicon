@@ -108,6 +108,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [makefile.md](.claude/rules/makefile.md) | Makefile は薄い入口・ターゲット増減の同期点・scripts 規約（`Makefile`・`scripts/*.sh` 編集時のみ読み込み） |
 | [github-actions.md](.claude/rules/github-actions.md) | runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
+| [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
 
 ## Current Skills
 
