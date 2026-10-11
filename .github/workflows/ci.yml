@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -148,6 +148,8 @@ jobs:
   # 依存の監査。ローカルの `make deny`（scripts/deny.sh）をそのまま実行する。
   # 必須チェック名（ジョブ名）を維持したまま、依存の完全固定・承認の記録の検査（`make deps-check`）と
   # その回帰テスト（`make test-deps-check`）もここで追加実行する（ジョブを増やさないため ci-complete の needs は不変）。
+  # 一覧と項目の対応の検査の回帰テスト（`make test-inventory-trace-check`。合成 fixture だけで submodule 不要）も同様に追加実行する。
+  # 実物の入力の検査（`make inventory-trace-check`）はここでは走らせない（走らせる場所は未決）。
   # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
   # cargo-deny はバージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する（check ジョブと同方針）。
   deny:
@@ -205,6 +207,9 @@ jobs:
 
       - name: make test-deps-check
         run: make test-deps-check
+
+      - name: make test-inventory-trace-check
+        run: make test-inventory-trace-check
 
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
