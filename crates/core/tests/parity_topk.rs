@@ -2,7 +2,7 @@
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 
 use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
-use fandhe_silicon_core::parity::tolerance::CompareError;
+use fandhe_silicon_core::parity::tolerance::{CompareError, T1, compare_f32};
 use fandhe_silicon_core::parity::topk::{
     TopKEntry, TopKReferenceError, compare_topk, reference_topk_f32,
 };
@@ -146,4 +146,21 @@ fn gemm_output_feeds_topk_and_compares_equal() {
     let x = reference_topk_f32(&c, 3).unwrap();
     let y = reference_topk_f32(&c, 3).unwrap();
     assert!(compare_topk(&x, &y).unwrap().is_match());
+}
+
+#[test]
+fn difference_within_t1_is_still_a_topk_mismatch() {
+    let x = 1.0_f32;
+    let y = x.next_up();
+    assert!(compare_f32(&[x], &[y], T1).unwrap().is_match());
+    assert!(!compare_topk(&[e(0, x)], &[e(0, y)]).unwrap().is_match());
+}
+
+#[test]
+fn k_larger_than_input_returns_all_finite_entries() {
+    let r = reference_topk_f32(&[1.0, 2.0], usize::MAX).unwrap();
+    assert_eq!(
+        pairs(&r),
+        vec![(1, 2.0_f32.to_bits()), (0, 1.0_f32.to_bits())]
+    );
 }

@@ -27,6 +27,10 @@ NATIVE_SETS=(
   "backend-vulkan"                                                                 # spec TASK-5
   "backend-cuda"                                                                   # spec TASK-5
   "artifact-inspection"                                                            # spec BUILD-65
+  "test-support"                                                                   # spec TASK-24（検証用の道具。背後実装なし）
+  "backend-metal,test-support"                                                     # spec TASK-24
+  "backend-vulkan,test-support"                                                    # spec TASK-24
+  "backend-cuda,test-support"                                                      # spec TASK-24
 )
 
 # wasm32 の組

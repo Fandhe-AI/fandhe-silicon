@@ -37,14 +37,18 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | feature | `core` に `test-support` を新設。`contract` の `test-support` は `fandhe-silicon-core/test-support` へ転送する。どの crate の `default` にも入れない | 各 `Cargo.toml`、`cargo metadata`、`contract_test_support_enables_core_parity_tool`（`crates/contract/tests/test_support_forwarding.rs`） |
 | 依存 | 外部依存は 0 のまま。`contract` から `core` への feature の転送だけを足した | `Cargo.lock` に差分なし |
 | 続きの足し方 | 比べ方は `parity/` にファイルを足して `parity.rs` に `pub mod` を 1 行足す | `crates/core/src/parity.rs` |
-| 入れていないもの | 要素ごとの演算の参照。`exec`・`upper` からの利用口 | リポ内検索 |
+| 入れていないもの | 要素ごとの演算の参照。`exec`・`upper` からの利用口（使うコード・テストが無く、使われない feature の転送は公開面だけを増やすので足していない。置き場は Q1 が未回答） | リポ内検索 |
+| 走る場所 | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む 4 組（背後実装なし・Metal だけ・Vulkan だけ・CUDA だけ）。背後実装を選んだ組でも道具のテストは `required-features` で skip されず走る | `scripts/build-profiles.sh` の `NATIVE_SETS`、`make build-profiles` のログ |
+| 背後実装の feature での分岐 | `core` に宣言の無い feature 名の `cfg` を書くと `unexpected_cfgs` が `-D warnings` でエラーになる。`core` の `Cargo.toml` に backend の feature を足さない限り `parity` は背後実装で分岐できない | 試行（コミットしていない） |
 
 ### CPU 参照
 
 | 公開アイテム | 観測できる振る舞い | 確かめ方（`crates/core/tests/parity_cpu_reference.rs`） |
 | ------------ | ------------------ | ------------------------------------------------------ |
 | `reference_gemm_f32`・`ReferenceError` | f32 の行列積。小さな整数行列で手計算と一致。k の昇順に融合積和で累積する | `small_integer_matrices_match_hand_computed_result`、`accumulates_with_fused_multiply_add_in_ascending_k` |
-| 入力検査 | 長さの不一致は入力を名指しするエラー。次元の積のオーバーフローは確保せずにエラー | `length_mismatch_names_the_offending_input`、`dimension_overflow_is_an_error_without_allocation` |
+| 入力検査 | 長さの不一致は入力を名指しするエラー。次元の積のオーバーフローは確保せずにエラー | `length_mismatch_names_the_offending_input`、`dimension_overflow_is_an_error_without_allocation`、`every_dimension_product_is_checked_for_overflow` |
+| 確保の失敗 | 出力が大きすぎるときは panic せず `AllocationFailed` | `oversized_output_is_an_allocation_error` |
+| 次元 0 | 次元の一つが 0 のとき、`k == 0` は `+0.0` で埋め、`m == 0`・`n == 0` は空の `Ok` | `zero_dimensions_give_zeros_or_empty` |
 | エラー表示 | 空でなく ASCII | `error_display_is_non_empty_ascii` |
 
 ### 要素ごとの比べ方と閾値の設定
@@ -52,6 +56,12 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 公開アイテム | 観測できる振る舞い | 確かめ方（`crates/core/tests/parity_tolerance.rs`） |
 | ------------ | ------------------ | --------------------------------------------------- |
 | `Tolerance`・`T1` | 閾値は `T1` の getter（`relative()`・`absolute()`）で読める | `threshold_is_readable` |
+| 同上 | getter で読んだ値が実際に判定へ適用されている（境界の前後で内外が切り替わる） | `readable_thresholds_are_the_ones_applied` |
+| 同上 | 外の crate は `T1` 以外の `Tolerance` を作れない（構造体の式がコンパイルできない） | `Tolerance` の rustdoc の doctest（`compile_fail` 2 件と通る例 1 件。`--features test-support --doc`） |
+| `judge_element` | 相対誤差は参照に対する比（引数を入れ替えると結果が変わる） | `relative_error_is_measured_against_the_reference` |
+| 同上 | 有限で差が大きいだけの組は `NonFinite` でなく `Exceeded` | `large_finite_difference_is_exceeded_not_non_finite` |
+| `compare_f32` | 外れと有限でない値が混ざる列で件数を別々に数える | `mixed_mismatches_are_counted_separately` |
+| 同上 | 片側だけ空は `EmptyInput` でなく `LengthMismatch` | `one_empty_side_is_a_length_mismatch` |
 | `ElementVerdict`・`judge_element` | 相対誤差（参照の絶対値に対する比）の境界は厳密な `<` | `relative_boundary_is_strict` |
 | 同上 | 絶対誤差が内なら小さな値でも `Within` | `absolute_rescues_small_values` |
 | 同上 | 参照が 0 のときは絶対誤差だけで判定 | `zero_reference_uses_absolute_only` |
@@ -75,6 +85,20 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 同上 | `-0.0` と `+0.0` は不一致。有限でない値も同じビット比較 | `signed_zero_difference_is_caught`、`non_finite_entries_follow_the_same_bitwise_rule` |
 | 同上 | 長さ 0 は `EmptyInput`、長さ違いは `LengthMismatch`（`CompareError` を再利用） | `length_mismatch_and_empty_are_errors` |
 | CPU 参照との接続 | 行列積の出力から Top-k を作って比べられる | `gemm_output_feeds_topk_and_compares_equal` |
+| T-1 と T-2 の違い | T-1 の内の差（1 ulp）でも `compare_topk` は不一致 | `difference_within_t1_is_still_a_topk_mismatch` |
+| `reference_topk_f32` | `k` が入力より大きくても（`usize::MAX`）有限の件数だけ降順で返る | `k_larger_than_input_returns_all_finite_entries` |
+
+公開テストから到達させていない経路（表示のテストのみ）:
+
+- `TopKReferenceError::SlotOverflow`: 添字が `u32` に収まらないほど大きな入力が要るため。
+- `TopKReferenceError::AllocationFailed`: 有限の要素数に対する `try_reserve_exact` の失敗を変換したもので、`u32` 以下の件数でもメモリ不足なら起こる。確保の成否は実行環境の空きに依存し、テストで確実に起こせないため。
+
+### 別 crate からの確かめ
+
+| 観測できる振る舞い | 確かめ方（`crates/contract/tests/test_support_forwarding.rs`） |
+| ------------------ | -------------------------------------------------------------- |
+| `core` の外の crate から `T1` の getter が読め、有限で正 | `threshold_setting_is_readable_from_outside_core` |
+| 行列積 → 比べ → Top-k → T-2 の比べが、背後実装の feature の組に依らず固定の期待値になる（`make build-profiles` の各組で走る） | `parity_pipeline_gives_fixed_results_under_any_backend_feature_set` |
 
 ## 閾値の設定と当てる範囲の扱い（6/8。案）
 
@@ -83,7 +107,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 点 | 事実 | 確かめ方 |
 | -- | ---- | -------- |
 | 閾値の置き場 | 値の定義は `crates/core/src/parity/tolerance.rs` の `T1` の 1 か所。本書には数値を持たない | `T1` の定義 |
-| 閾値の作り方 | `Tolerance` のフィールドは非公開で、コンストラクタが無い。外の crate が得られる値は `T1` だけ | `tolerance.rs` の定義（これを確かめる公開テストは無い。要否は #107 で判断する） |
+| 閾値の作り方 | `Tolerance` のフィールドは非公開で、コンストラクタが無い。外の crate が得られる値は `T1` だけ | `tolerance.rs` の定義。`Tolerance` の rustdoc の doctest（`compile_fail` 2 件）で確かめる。stable の rustdoc は `compile_fail` のエラーコードを照合せず、何らかの理由でコンパイルに失敗することしか確かめないので、通る例を同じ rustdoc に置いて import の正しさを担保している |
 | 比べる関数との関係 | `judge_element`・`compare_f32` は閾値を引数で受ける。道具の内側に既定値の暗黙の適用は無い | 各関数のシグネチャ |
 | T-2 | `compare_topk` は閾値の引数を持たず、位置ごとのビット比較だけ | `slot_difference_and_one_ulp_difference_are_mismatches`、`signed_zero_difference_is_caught` |
 | 当てる範囲 | 道具は「どの出力に当てるか」の情報を持たず、入力の列を受けて集計を返すだけ。`parity` を使うのは `crates/core/tests/` と `crates/contract/tests/test_support_forwarding.rs` だけで、`src/` からの利用は `core` 内に限る。`exec`・`upper` には feature の転送が無い | `grep -rn parity crates`、各 `Cargo.toml` |
@@ -130,7 +154,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D9 | T-2 の比べの形 | `crates/core/src/parity/topk.rs` の rustdoc とテスト、本書「現状の形」を参照 | PARITY-6、`docs/spec/02-poc-plan.md` の T-2（ポインタのみ） |
 | D10 | CPU 参照の形 | `crates/core/src/parity/cpu_reference.rs` の rustdoc とテスト、本書「現状の形」を参照 | TASK-1350・TASK-1378・CPU-27（ポインタのみ） |
 | D11 | 結果とエラー | `crates/core/src/parity/cpu_reference.rs` の rustdoc とテスト、本書「現状の形」を参照 | [coding-rust](../.claude/rules/coding-rust.md)、[security](../.claude/rules/security.md)、[japanese-style](../.claude/rules/japanese-style.md) |
-| D12 | 走る場所 | `make verify` の `cargo test`。GPU の実機は要らず GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない | [unsafe-policy](unsafe-policy.md) と同じ考え方 |
+| D12 | 走る場所 | `make verify` の `cargo test` と、`make build-profiles` の `test-support` を含む 4 組。GPU の実機は要らず GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない | [unsafe-policy](unsafe-policy.md) と同じ考え方 |
 
 
 ## オーナー判断待ち
@@ -160,7 +184,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 - Q2 (b): 本番の既定 feature の公開面に検証用の参照が入り、TASK-1350 が決める範囲に踏み込む（CPU-25・CPU-27 のポインタ）
 
 
-Q1〜Q10 への回答は、本リポでは確認できていない。#103〜#105 の PR（#7009・#7010・#7012）はマージ済みで、置き場・feature・形は未承認の仮置きのまま main にある。
+Q1〜Q10 への回答は、本リポでは確認できていない。Q6 については、仮置きの形（固定の定数だけを公開）が外から観測できることを公開テストで固定したが、形が決まったとは扱わない。#103〜#105 の PR（#7009・#7010・#7012）はマージ済みで、置き場・feature・形は未承認の仮置きのまま main にある。
 仮置きを確定するかどうかはオーナーの判断で、本書は承認を得たとは扱わない。Q11 は 6/8 で足した論点で、同じく未回答。
 
 ## 別案に決まったときに変わる箇所
@@ -172,6 +196,7 @@ Q1〜Q10 への回答は、本リポでは確認できていない。#103〜#105
 | Q2 | (b) | `cpu_reference.rs` を `cpu-ops` の裏へ移す。`reference_topk_f32` と `TopKReferenceError` も一緒に移す |
 | Q3 | (b) | feature 名の置換 |
 | Q4 | (b) | 関数の追加だけ |
+| Q6 | (b) | コンストラクタの追加と、`Tolerance` の rustdoc の `compile_fail` の doctest の置き換え |
 | Q8 | (b) | 番兵の定数の追加と埋める処理 |
 | Q9 | (b) | エラーの variant の追加 |
 | Q10 | (b) | 定数の追加 |
@@ -185,7 +210,7 @@ Q1〜Q10 への回答は、本リポでは確認できていない。#103〜#105
 | 許容誤差つきの要素ごとの比べ方と閾値の設定（同上） | #104（4/8。済） |
 | Top-k の参照と T-2 の比べ（同上） | #105（5/8。済） |
 | 方針の整理（本書の構成の整理、閾値と範囲の扱いの案） | #106（6/8。済） |
-| テスト。次の点を #107 で判断する: `make build-profiles`（`scripts/build-profiles.sh`）は今 `fandhe-silicon-contract` だけを回すので `core` の `test-support` の組は `make verify` の `--all-features` で走る / `Tolerance` を外から作れないことの公開テストは無い / `exec`・`upper` からの利用口は無い / TASK-23（#91）の枠との接続は未着手（D6 のまま） | #107（7/8） |
+| テスト。判断: `build-profiles` に `test-support` を含む 4 組を足した / `Tolerance` を外から作れないことを rustdoc の `compile_fail` で固定した / `exec`・`upper` からの利用口は足していない（利用するコードが無い）/ TASK-23（#91）の枠との接続は触れていない（D6 のまま。#91 は未完了） | #107（7/8。済） |
 | 完了の条件の確かめ | #108（8/8） |
 
 ## 完了の条件の確かめ
@@ -195,8 +220,8 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 
 | 確かめる点のポインタ | 見る場所（コード・テスト・コマンド） | 結果 |
 | -------------------- | ------------------------------------ | ---- |
-| TASK-24 の完了の条件 | 本書「現状の形」の各表のテスト、`make verify`、`make deny` | （#108 で記入） |
+| TASK-24 の完了の条件 | 本書「現状の形」の各表のテスト、`make verify`、`make build-profiles`、`make deny` | （#108 で記入） |
 
 ## 確かめた日付
 
-2026-10-11（base: ca29b60）
+2026-10-11（base: e04f344）

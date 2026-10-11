@@ -78,3 +78,40 @@ fn error_display_is_non_empty_ascii() {
         assert!(!msg.is_empty() && msg.is_ascii());
     }
 }
+
+#[test]
+fn every_dimension_product_is_checked_for_overflow() {
+    for (m, k, n) in [(usize::MAX, 2, 1), (1, usize::MAX, 2), (usize::MAX, 0, 2)] {
+        assert_eq!(
+            reference_gemm_f32(&[], &[], m, k, n).unwrap_err(),
+            ReferenceError::SizeOverflow,
+            "({m}, {k}, {n})"
+        );
+    }
+}
+
+#[test]
+fn oversized_output_is_an_allocation_error() {
+    // k == 0 なので入力は空でよく、出力の容量の溢れで確保前に失敗する。
+    let m = isize::MAX as usize;
+    assert_eq!(
+        reference_gemm_f32(&[], &[], m, 0, 1).unwrap_err(),
+        ReferenceError::AllocationFailed
+    );
+}
+
+#[test]
+fn zero_dimensions_give_zeros_or_empty() {
+    let c = reference_gemm_f32(&[], &[], 2, 0, 3).unwrap();
+    assert_eq!(bits(&c), vec![0.0_f32.to_bits(); 6]);
+    assert!(
+        reference_gemm_f32(&[], &[1.0; 3], 0, 1, 3)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        reference_gemm_f32(&[1.0; 3], &[], 3, 1, 0)
+            .unwrap()
+            .is_empty()
+    );
+}
