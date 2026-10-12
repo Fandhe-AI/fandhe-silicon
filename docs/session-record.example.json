@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "session": "example-session",
+  "machine": "mac-mini",
+  "asked_utc": "2000-01-01T00:00:00Z",
+  "answered_utc": "2000-01-01T00:01:00Z",
+  "started_utc": "2000-01-01T00:02:00Z",
+  "ended_utc": "2000-01-01T00:03:00Z",
+  "owner_answer": 1,
+  "run_ids": ["example-run-a", "example-run-b"],
+  "interrupted": false,
+  "low_power_mode": false,
+  "resident_process_stopped": "example-value",
+  "gui_login_state": "example-value"
+}
