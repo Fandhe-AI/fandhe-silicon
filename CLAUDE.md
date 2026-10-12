@@ -51,6 +51,7 @@ fandhe-silicon/
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の現状と前提（TASK-16）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と反映の方針（TASK-43）
 ├── docs/vulkan-extraction-tool.md  # Vulkan の抽出の道具の現状と前提・論点の列挙（TASK-98）
+├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と方針（案。TASK-236）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
