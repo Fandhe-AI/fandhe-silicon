@@ -417,7 +417,7 @@ check "redact: output mode is 600" "$(python3 -I -c 'import os, stat, sys
 sys.exit(0 if stat.S_IMODE(os.stat(sys.argv[1]).st_mode) == 0o600 else 1)' "${red}" && echo 0 || echo 1)"
 
 ms scan "${words}" "${red}"
-expect "scan: passes after redaction" 0 "ok: no listed word remains in 1 file(s)"
+expect "scan: passes after redaction" 0 "ok: no listed word or IP address/UUID-shaped value remains in 1 file(s)"
 
 ms scan "${words}" "${log}"
 expect "scan: finds remaining words" 1 "input 1: 4 residual occurrence(s) on line(s) 1, 2, 3" "FAILED: 4 residual occurrence(s)" '!example-host' '!example-user' '!a.b*c' '!(x|y)' '!<example'
@@ -494,7 +494,7 @@ check "words: no default mark is used" "$([ ! -e "${work}/o7.txt" ] && echo 0 ||
 printf 'example-host\t<example-machine>\nexample-user\n' >"${work}/w-nomark2.txt"
 ms scan "${work}/w-nomark2.txt" "${log}"
 expect "words: one line without a mark refuses the whole list" 2 "without a mark"
-for m in 'x' '<>' '<A>' '<a b>' '<a_b>' '<a>x' ' <a>' '<a>	<b>' '<a.b>'; do
+for m in 'x' '<>' '<a b>' '<a_b>' '<a>x' ' <a>' '<a>	<b>' '<a.b>'; do
   printf 'example-host\t%s\n' "${m}" >"${work}/w-badmark.txt"
   ms scan "${work}/w-badmark.txt" "${log}"
   expect "words: malformed mark '${m}'" 2 "malformed mark" '!example-host'
@@ -595,6 +595,239 @@ expect "input: redact over size limit" 1 "too large"
 ms scan "${words}" "${work}/in-big.txt"
 expect "input: scan over size limit" 1 "too large"
 check "input: refused inputs leave no output" "$([ ! -e "${work}/o3.txt" ] && [ ! -e "${work}/o4.txt" ] && [ ! -e "${work}/o5.txt" ] && echo 0 || echo 1)"
+
+# ---- 印の英大文字 ----
+
+# 機材の別名は英大文字を含む（印は英字の大小・数字・ハイフンだけで作る）。
+printf 'example-host\t<Node-A2>\nexample-user\t<example-person>\n' >"${work}/w-upper.txt"
+ms redact "${work}/w-upper.txt" "${log}" "${work}/out-upper.txt"
+expect "marks: a mark with upper-case letters is accepted" 0 "ok: replaced 2 occurrence(s)" '!Node-A2'
+check "marks: the upper-case mark is written as given" "$(grep -qF 'line1 <Node-A2> connected' "${work}/out-upper.txt" && echo 0 || echo 1)"
+ms scan "${work}/w-upper.txt" "${work}/out-upper.txt"
+expect "marks: scan passes on output with an upper-case mark" 0 "ok:"
+for m in '<<a>>' '<a>>' '<a-B_c>' '<A B>' '<Ä>'; do
+  printf 'example-host\t%s\n' "${m}" >"${work}/w-badmark2.txt"
+  ms scan "${work}/w-badmark2.txt" "${log}"
+  expect "marks: malformed mark '${m}' stays refused" 2 "malformed mark" '!example-host'
+done
+printf 'example-host\t<00000000-0000-4000-8000-0000000000ab>\n' >"${work}/w-uuidmark.txt"
+ms scan "${work}/w-uuidmark.txt" "${log}"
+expect "marks: a mark shaped like a UUID is refused" 2 "mark with the shape" '!example-host'
+
+# ---- 形で拾う値（IPv4・IPv6・UUID）----
+
+# 値は文書用の予約済みの範囲と作り物の UUID。リテラルを避けるため、DOT と COL と FW（全角の点）を
+# 実行時に置き換える。表の「拾う」行は種類ごとの行番号が出力に出ること、「拾わない」行は止まらないことを固定する。
+shapes="${work}/shapes.txt"
+passfile="${work}/passes.txt"
+exp="${work}/shapes-expected.txt"
+python3 -I - "${shapes}" "${passfile}" "${exp}" <<'PY'
+import sys
+
+HIT = [
+    ("ipv4", "peer 192DOT0DOT2DOT7 up"),
+    ("ipv4", "peer 198DOT51DOT100DOT9COL8080 up"),
+    ("ipv4", "see 203DOT0DOT113DOT5."),
+    ("ipv4", "version 1DOT2DOT3DOT4"),
+    ("ipv4", "build 1DOT2DOT3DOT4DOT5"),
+    ("ipv4", "port by dot 192DOT0DOT2DOT7DOT8080"),
+    ("ipv4", "glued x1DOT192DOT0DOT2DOT7"),
+    ("ipv4", "zero padded 010DOT000DOT002DOT007"),
+    ("ipv4", "over range 256DOT1DOT1DOT1"),
+    ("ipv4", "long digits 1234DOT5DOT6DOT7"),
+    ("ipv6", "addr 2001COLdb8COLCOL1"),
+    ("ipv6", "addr 2001COLdb8COL0COL0COL0COL0COL0COL1"),
+    ("ipv6", "lo COLCOL1"),
+    ("ipv6", "[2001COLdb8COLCOL1]COL443"),
+    ("ipv6", "link fe80COLCOL1%en0"),
+    ("ipv6", "eui 00COL11COL22COL33COL44COL55COL66COL77"),
+    ("ipv6", "id aCOLCOLb"),
+    ("ipv6", "addrCOL2001COLdb8COLCOL1"),
+    ("ipv6", "IPv6COL2001COLdb8COLCOL1"),
+    ("ipv6", "peer 2001COLdb8COLCOL1COL refused"),
+    ("ipv6", "peer COL 2001COLdb8COLCOL1COL"),
+    ("ipv6", "lo COLCOLa"),
+    ("ipv6", "lo COLCOLdead end"),
+    ("ipv6", "lo xCOLCOLdead end"),
+    ("ipv6", "lo 1COLCOL"),
+    ("ipv6", "lo COLCOL1ab"),
+    ("ipv6", "lo xCOLCOL1"),
+    ("ipv6", "lo COLCOLffffCOLc000COL201"),
+    ("ipv6", "lo fe80COLCOL1"),
+    ("ipv6", "lo 2001COLdb8COLCOL1COL"),
+    ("ipv6", "lo IPv6COL COLCOL1"),
+    ("uuid", "gpu 00000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"),
+    ("uuid", "hex 0x00000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "tail 00000000-0000-4000-8000-0000000000ab0"),
+    ("uuid", "head 000000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "head x00000000-0000-4000-8000-0000000000ab"),
+]
+MISS = [
+    "three parts 1DOT2DOT3 and two 12DOT34",
+    "names aDOTbDOTcDOTd and 1DOTDOT2DOT3DOT4 and 1 DOT2DOT3DOT4",
+    "fullwidth 192FWFW0FW2FW7 and 2001FWdb8FWFW1",
+    "t 12COL34COL56 and 23COL59COL59",
+    "mac 00COL11COL22COL33COL44COL55",
+    "path stdCOLCOLfmtCOLCOLDisplay and FooCOLCOLBar",
+    "colons COLCOLCOL and COLCOL and a COL b",
+    "keyCOL value and a COL b",
+    "sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "uuid without hyphens 0123456789abcdef0123456789abcdef",
+    "short uuid 00000000-0000-4000-8000 and 0000000-0000-4000-8000-0000000000ab",
+    "plain text only",
+    "rust <T as Trait>::from and >::fmt and >::drop",
+    "rust <alloc::vec::Vec<T> as core::ops::drop::Drop>::drop",
+    "rust Foo::<T>::bar",
+    "rust use std::{fmt, io};",
+    "rust use alloc::{vec, string};",
+]
+
+
+def fx(t):
+    return t.replace("DOT", ".").replace("COL", ":").replace("FW", "．")
+
+
+lines = [t for _, t in HIT] + MISS
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write(fx("\n".join(lines)) + "\n")
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    f.write(fx("\n".join(MISS)) + "\n")
+out = []
+for kind in ("ipv4", "ipv6", "uuid"):
+    ln = [i + 1 for i, (k, _) in enumerate(HIT) if k == kind]
+    out.append("input 1: %d %s-shaped value(s) on line(s) %s" % (len(ln), kind, ", ".join(map(str, ln[:20]))))
+out.append("FAILED: %d residual occurrence(s)" % len(HIT))
+open(sys.argv[3], "w").write("\n".join(out) + "\n")
+PY
+shapes2="${work}/shapes2.txt"
+passfile2="${work}/passes2.txt"
+exp2="${work}/shapes2-expected.txt"
+python3 -I - "${shapes2}" "${passfile2}" "${exp2}" <<'PY'
+import sys
+
+HIT = [
+    "label ends in hex: srcCOL2001COLdb8COL0COL0COL0COL0COL0COL1",
+    "label ends in hex: deviceCOL2001COLdb8COL0COL0COL0COL0COL0COL1",
+    "label with ::: srcCOL2001COLdb8COL1COL2COL3COL4COL5COLCOL1",
+    "label with ::: srcCOL2001COLdb8COL1COL2COL3COL4COLCOL1",
+    "nine groups aCOLbCOLcCOLdCOLeCOLfCOL1COL2COL3",
+    "nine two-digit groups 00COL11COL22COL33COL44COL55COL66COL77COL88",
+    "two compressions 1COLCOL2COLCOL3",
+    "unconnected path cafeCOLCOLbeefCOLCOLdead",
+    "peer=2001COLdb8COLCOL1COL refused",
+    "peer=2001COLdb8COL0COL0COL0COL0COL0COL1COL refused",
+    "peerCOL 2001COLdb8COLCOL1COL refused",
+]
+MISS = [
+    "seven groups 1COL2COL3COL4COL5COL6COL7",
+    "t 12COL34COL56 and mac 00COL11COL22COL33COL44COL55",
+    "core::fmt::Debug and std::fmt::Display and alloc::collections::btree::map::Entry",
+    "core::ops::deref::Deref and <T as core::fmt::Debug>::fmt and >::drop",
+    "rust xfade::bad::eg(x)",
+    "use std::{fmt, io}; Foo::<T>::bar",
+    "src: value and device: ok",
+]
+
+
+def fx(t):
+    return t.replace("COL", ":")
+
+
+with open(sys.argv[1], "w") as f:
+    f.write(fx("\n".join(HIT + MISS)) + "\n")
+with open(sys.argv[2], "w") as f:
+    f.write(fx("\n".join(MISS)) + "\n")
+ln = list(range(1, len(HIT) + 1))
+open(sys.argv[3], "w").write(
+    "input 1: %d ipv6-shaped value(s) on line(s) %s\nFAILED: %d residual occurrence(s)\n"
+    % (len(HIT), ", ".join(map(str, ln)), len(HIT))
+)
+PY
+ms scan "${words}" "${shapes2}"
+expect "shapes: hex-ending labels, nine groups and separator colons are stopped" 1 "$(sed -n 1p "${exp2}")" "$(sed -n 2p "${exp2}")" '!ipv4' '!uuid' '!2001'
+ms scan "${words}" "${passfile2}"
+expect "shapes: Rust paths, short groupings and labels pass" 0 "ok: no listed word"
+ms scan "${words}" "${shapes}"
+expect "shapes: each kind reports its own lines" 1 "$(sed -n 1p "${exp}")" "$(sed -n 2p "${exp}")" "$(sed -n 3p "${exp}")" "$(sed -n 4p "${exp}")" '!word' '!192' '!2001' '!fe80' '!0000'
+ms scan "${words}" "${shapes}" "${log}"
+expect "shapes: file index of the shaped file" 1 "input 2: 4 residual occurrence(s) on line(s) 1, 2, 3" '!input 2: 4 ipv4' "input 1: 10 ipv4-shaped"
+ms scan "${words}" "${passfile}"
+expect "shapes: look-alikes and unsupported spellings pass" 0 "ok: no listed word or IP address/UUID-shaped value remains in 1 file(s)"
+
+# 形の検出は語の一覧の検索と併せて数える。
+python3 -I - "${work}/mixed.txt" <<'PY'
+import sys
+
+open(sys.argv[1], "w").write("example-host at 192DOT0DOT2DOT7\n".replace("DOT", "."))
+PY
+ms scan "${words}" "${work}/mixed.txt"
+expect "shapes: words and shapes are both reported" 1 "input 1: 1 residual occurrence(s) on line(s) 1" "input 1: 1 ipv4-shaped value(s) on line(s) 1" "FAILED: 2 residual occurrence(s)" '!example-host' '!192'
+
+# redact は形で拾う値を置き換えない。残りを知らせ、scan が止める。
+ms redact "${words}" "${work}/mixed.txt" "${work}/mixed-out.txt"
+expect "shapes: redact leaves shapes and notes them without values" 0 "ok: replaced 1 occurrence(s)" "note: values of IP address or UUID shape are not replaced (ipv4: 1)" '!192'
+check "shapes: redact output keeps the shaped value" "$(grep -q '^<example-machine> at 192\.0\.2\.7$' "${work}/mixed-out.txt" && echo 0 || echo 1)"
+ms scan "${words}" "${work}/mixed-out.txt"
+expect "shapes: scan stops on redact output with a shape" 1 "input 1: 1 ipv4-shaped value(s) on line(s) 1" '!192'
+
+# 多数の行・大きな入力でも結果が正しい（行番号は上限まで。数え方は線形）。
+python3 -I - "${work}/ipmany.txt" "${work}/big.txt" "${work}/big-expected.txt" <<'PY'
+import sys
+
+open(sys.argv[1], "w").write("x 198DOT51DOT100DOT1 y\n".replace("DOT", ".") * 5000)
+# 詰め物の各行は、形の検出が拾わない見かけだけの値（時刻・6 組の MAC・3 つ組の版・キーと値）で、
+# `::` を含まない。形の値は最後の 1 行の IPv4 だけで、行番号は詰め物の行数 + 1。
+chunk = ("ts 12COL34COL56 mac 00COL11COL22COL33COL44COL55 v 1DOT2DOT3 key: value " + "ab" * 20 + "\n").replace("DOT", ".").replace("COL", ":")
+n = (60 * 1024 * 1024) // len(chunk)
+with open(sys.argv[2], "w") as f:
+    f.write(chunk * n)
+    f.write("last 198DOT51DOT100DOT7\n".replace("DOT", "."))
+open(sys.argv[3], "w").write("input 1: 1 ipv4-shaped value(s) on line(s) %d\n" % (n + 1))
+PY
+ms scan "${words}" "${work}/ipmany.txt"
+expect "shapes: many shaped lines" 1 "input 1: 5000 ipv4-shaped value(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20" "FAILED: 5000 residual occurrence(s)" '!, 21'
+ms scan "${words}" "${work}/big.txt"
+expect "shapes: 60 MiB input finds exactly the one shaped value on its line" 1 "$(cat "${work}/big-expected.txt")" "FAILED: 1 residual occurrence(s)" '!ipv6' '!uuid'
+
+# 止まった値を語の一覧に印つきで足して redact をやり直すと、置き換わって scan が通る。
+python3 -I - "${work}/flow.txt" "${work}/flow-words.txt" <<'PY'
+import sys
+
+v = "192DOT0DOT2DOT7".replace("DOT", ".")
+open(sys.argv[1], "w").write("example-host at %s\n" % v)
+open(sys.argv[2], "w").write("example-host\t<example-machine>\n%s\t<example-address>\n" % v)
+PY
+ms scan "${work}/flow-words.txt" "${work}/flow.txt"
+expect "flow: scan stops while the value is not in the list" 1 "FAILED:"
+ms redact "${work}/flow-words.txt" "${work}/flow.txt" "${work}/flow-out.txt"
+expect "flow: redact with the value added replaces it" 0 "ok: replaced 2 occurrence(s)" '!note:' '!192'
+check "flow: the value became the mark" "$([ "$(cat "${work}/flow-out.txt")" = "<example-machine> at <example-address>" ] && echo 0 || echo 1)"
+ms scan "${work}/flow-words.txt" "${work}/flow-out.txt"
+expect "flow: scan passes after the rerun" 0 "ok:"
+
+# 長い 1 行（16 MiB）とコロン・ドットだらけの入力で、結果が正しい（後戻りで止まらない）。
+python3 -I - "${work}" <<'PY'
+import os
+import sys
+
+d = sys.argv[1]
+n = 16 * 1024 * 1024
+open(os.path.join(d, "long-colon-a.txt"), "w").write("a:" * (n // 2) + "\n")
+open(os.path.join(d, "long-colons.txt"), "w").write(":" * n + "\n")
+open(os.path.join(d, "long-hex.txt"), "w").write("a" * n + "\n")
+open(os.path.join(d, "long-dots.txt"), "w").write("1." * (n // 2) + "\n")
+open(os.path.join(d, "long-dotnum.txt"), "w").write("9" * n + "." * 3 + "\n")
+open(os.path.join(d, "long-dash.txt"), "w").write("0000000-" * (n // 8) + "\n")
+PY
+for f in long-colons long-hex long-dotnum long-dash; do
+  ms scan "${words}" "${work}/${f}.txt"
+  expect "perf: 16 MiB line ${f} is not shaped" 0 "ok:"
+done
+ms scan "${words}" "${work}/long-colon-a.txt"
+expect "perf: 16 MiB line of hex groups is stopped once, as one value" 1 "input 1: 1 ipv6-shaped value(s) on line(s) 1" "FAILED: 1 residual occurrence(s)"
+ms scan "${words}" "${work}/long-dots.txt"
+expect "perf: 16 MiB line of dotted numbers is stopped once per line" 1 "ipv4-shaped value(s) on line(s) 1" '!, 2'
 
 # 誤用
 ms redact "${words}" "${log}"
