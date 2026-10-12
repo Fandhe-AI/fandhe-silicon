@@ -56,7 +56,7 @@ fandhe-silicon/
 ├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8）（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
-├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順（TASK-19）
+├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順・記録の書式・完了の条件の確かめ（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / session-record-check（make ターゲットなし）/ test-session-record-check / lib.sh
