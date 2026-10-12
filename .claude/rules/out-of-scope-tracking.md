@@ -31,7 +31,7 @@
 
 ## 本リポ固有の注意
 
-- Issue は public リポに作られる。`docs/spec`（private）の本文を Issue 本文へ転記せず、タスク / ビヘイビア ID のポインタ表記に留める（[spec-confidentiality](./spec-confidentiality.md)）
+- Issue は public リポに作られる。`docs/spec`（private）の本文を Issue 本文へ転記せず、タスク / ビヘイビア ID のポインタ表記に留める。private spec 側の状態の語（判断待ち・保留等）も書かない（[spec-confidentiality](./spec-confidentiality.md)）
 - spec 側（タスク定義・フェーズ文書）の変更が必要と判断した事項は、本リポの Issue ではなく spec リポ側の課題としてユーザーに報告する
 - 上位ライブラリ（fandhe-ai・vector-db・fandhe-3d）側の対応が必要な事項は、該当リポの課題としてユーザーに報告する
 
