@@ -2,6 +2,7 @@
 
 TASK-98（親 Issue #387）について、現状と前提（1/6、#3530）・方針（2/6、#3531）・形（3/6、#3532）を、本リポで公開済みの事実とポインタだけで記録する。
 5/6（#3534）で、別 crate からの統合テストと境界のテストを足した（「公開テスト（5/6）」節）。
+6/6（#3535）で、本リポで観測できる事実による完了の条件の確かめを記録した（「完了の条件の確かめ（6/6）」節）。TASK-98 の完了は本書では宣言しない。
 spec の本文・PoC の方式と結果は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-98 と `docs/spec/03-poc/kernel-artifacts-and-parity/` を参照する（ポインタのみ）。
@@ -91,7 +92,7 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 - Q4 (b): バイナリと外部のコンパイラの版の記録を本リポに持つ（出どころの記録が要る）。(c): CI に道具の導入（版固定・SHA256 の検証）が要る
 - Q5 (b): 長さが 4 の倍数でない入力のエラーと、マジックの読み方によるバイト順の判定が公開面に入る
 - Q6 (b): 入力にエントリポイントの名前が増え、見つからない場合のエラーが増える
-- Q4 共通: どの入力で確かめれば完了の条件を満たすかは、6/6（#3535）で TASK-98 と照らす（ポインタのみ）。(a) で足りないと分かったら、spec 側の判断待ちとして報告する
+- Q4 共通: どの入力で確かめれば完了の条件を満たすかの判断は、6/6（#3535）でも回答が無く判断待ちのまま（「完了の条件の確かめ（6/6）」節の 項目 17）。(a) で足りないと分かったら、spec 側の判断待ちとして報告する
 
 回答の形: 「Q1〜Q6 とも推奨で」または「Qn は (x)」。
 
@@ -165,11 +166,45 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 | 3/6 形の設計 | #3532 | 本書の「形の設計」節（F1〜F14。Q1〜Q6 は未回答のため未承認の仮置きを含む） |
 | 4/6 実装 | #3533 | F1〜F10・F12 の実装。入力の検証を security-auditor がレビューする。回答が仮置きと違えば下の節に従って直す |
 | 5/6 テスト | #3534 | F13。D4・D5 の境界（切れた入力・不正な語数・決まらない量）を公開テストで固定する。結果: `crates/contract/tests/backend_vulkan_spirv_operands.rs`（済） |
-| 6/6 確かめ | #3535 | 本リポで観測できる事実による確かめの記録。完了の条件との対応づけの正は private spec 側 |
+| 6/6 確かめ | #3535 | 本リポで観測できる事実による確かめの記録。完了の条件との対応づけの正は private spec 側。結果: 下の「完了の条件の確かめ（6/6）」節（済） |
+
+## 完了の条件の確かめ（6/6）
+
+本リポで観測できる事実だけを書く。コマンドは worktree のルートで実行した。条件の本文は転記しない（`docs/spec/05-tasks.md` の TASK-98 を参照。ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 前段（1/6〜5/6）の状態 | Issue と PR の状態の読み取り | #3530〜#3534 は CLOSED。PR #7036・#7037・#7041・#7043・#7050 は MERGED |
+| 2 | 範囲のポインタ（TASK-98） | 本書では spec の内容を確かめない | ポインタのみ。内容の照合は spec 側 |
+| 3 | TASK-98 の進み具合・決定の記録 | 本リポからは確かめない | spec 側の判断待ち（ポインタ: TASK-98） |
+| 4 | Q1〜Q6 への回答の記録 | #387・#3530〜#3535 のコメント | 無い（コメントは全て 0 件）。形は未承認の仮置きのまま |
+| 5 | 別 crate から公開の入口に届く | `tool_is_reachable_from_another_crate` | 通過 |
+| 6 | 取り出した宣言が、外で組んだ期待値と `==` で一致する | `extracted_operands_equal_expected_declarations`・`order_is_by_set_then_binding`・`scalar_kinds_and_element_bytes` | 通過 |
+| 7 | 決まらない量・対象外の変数が、0 や推測で埋まらず区別して返る | `runtime_array_is_unsized_never_zero`・`non_storage_buffer_variables_are_skipped`・`unsupported_element_shapes_are_reported` ほか | 通過 |
+| 8 | 不正な入力で panic しない | `every_prefix_is_classified_without_panic`・`single_word_corruption_never_panics` | 通過 |
+| 9 | `unsafe` を使っていない | `spirv_operands.rs` の `#![forbid(unsafe_code)]`、`backend_vulkan_unsafe_count.rs` の表の行（個数 0） | 成り立つ |
+| 10 | 外部依存 0 のまま | `Cargo.lock` の `[[package]]` の数、`make deps-check` | 4 件（workspace の member のみ）。`make deps-check` は終了コード 0 |
+| 11 | ファイル IO・外部コマンドの起動が無い | `spirv_operands.rs` を `std::fs`・`std::process`・`std::env` で grep、`use` の行 | 該当 0 件。`use` は `std::collections`・`std::fmt` のみ |
+| 12 | 製品の経路から参照していない | `crates` を `spirv_operands` で grep | `backend_vulkan.rs` の `test-support` ゲート付きの `pub mod` と、テスト・`Cargo.toml` のみ。`core`・`exec`・`upper` からの参照は無い |
+| 13 | `test-support` が `default` に入っておらず、`test-support` なしのビルドに入らない | `crates/contract/Cargo.toml` の `[features]`、`make build-profiles` | `default` は `contract-core`・`cpu-isa`・`cpu-ops`。`make build-profiles` は終了コード 0 |
+| 14 | 道具のテストが通る | `cargo test --locked -p fandhe-silicon-contract --features backend-vulkan,test-support` | lib の単体テスト 19 件・統合テスト `backend_vulkan_spirv_operands` 33 件・個数テスト 1 件が通過。失敗 0 |
+| 15 | GPU の実機・外部の CLI なしで走る | 上のテストを実機なしで実行、`ci.yml` を `spirv` で grep | ローカルでは通過。`ci.yml` に SPIR-V の道具の導入は 0 件。CI での結果は未検証（PR 作成前） |
+| 16 | テストの入力の出どころ | `crates/contract/tests/backend_vulkan_spirv_operands.rs`、リポ内の `.spv`・シェーダーのソースの拡張子のファイル | 入力はテストコードで組み立てた語の列だけ。該当する拡張子のファイルは 0 件 |
+| 17 | 手で組み立てた入力で足りるか（Q4） | 本リポからは決めない | **判断待ち**。回答が無く、足りる・足りないのどちらにも結論しない |
+| 18 | 足していないもの | `ls docs/contract`、変更の範囲 | feature・make ターゲット・CI ジョブ・`docs/contract/` の領域の文書・契約の入口・能力の問合せは足していない（関連: TASK-418・TASK-448・TASK-513 のポインタ） |
+| 19 | 関連タスクの状態 | Issue の状態の読み取り | #387・#388・#612・#633・#669・#91 は OPEN |
+| 20 | 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+| 21 | spec の完了の条件との照合 | 記録の正は private spec 側 | 本書では行っていない |
+
+- 判定: 本リポで確かめられる項目に問題は無い。ただし **TASK-98 の完了は本リポからは確かめられず、宣言しない**。Q1〜Q6 が未回答で、spec 側の判断待ちがあるため。回答に依る部分は保留とする
+- Q1〜Q6 は判断待ちで、置き場・feature・入力の型・対象の範囲・エラーの形は未承認の仮置きのまま
+- 再実行の契機: Q1〜Q6 への回答、範囲の記述についての spec 側の判断、submodule の参照先の更新（`update-external.yml` の PR）、道具の置き場・feature の変更、`scripts/build-profiles.sh` の組の変更、取り込みの段（TASK-513 のポインタ）
+- 引き継ぎ（親 #387 へ）: 残るのは、Q1〜Q6 への回答、spec 側の判断、本表の再実行、親のクローズの判断の順。いずれも本リポの自動運転の対象外
+- 持ち越し（5/6 から）: `SpirvExtractError::SizeOverflow` の扱い、`BadMagic` の表示の扱いは本 Issue で決めない
 
 ## 確かめた日付
 
-2026-10-12（base: `d8e06a1`）。5/6 は 2026-10-12（base: `23c4e0b`）。
+2026-10-12（base: `d8e06a1`）。5/6 は 2026-10-12（base: `23c4e0b`）。6/6 は 2026-10-12（base: `678bd79`）。
 
 ## 関連
 
