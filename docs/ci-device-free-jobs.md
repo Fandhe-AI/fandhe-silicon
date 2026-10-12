@@ -72,6 +72,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
+| `public-api-check` | CI のジョブからは呼ばれていない（`scripts/public-api-check.sh` の先頭コメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
