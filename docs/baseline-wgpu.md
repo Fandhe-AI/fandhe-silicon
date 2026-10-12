@@ -32,14 +32,14 @@ spec の本文・値は転記しない（[spec-confidentiality](../.claude/rules
 （`approval_ref = "#40"`）に置く。ルートの `deps-approved.toml` に入れないのは、ルートの workspace では使われない記録が違反になるため。
 本 workspace の検査は手動: `scripts/deps-check.sh baseline-wgpu/Cargo.toml`（`make deps-check` と CI はルートのみ。CI には組み込まない）。
 
-版の記録（[wgpu-baseline-record](wgpu-baseline-record.md) の書式の案に沿った、本リポの実物から取った値。spec 由来の値ではない。`basis` は語彙が未決のため空欄）:
+版の記録（[wgpu-baseline-record](wgpu-baseline-record.md) の書式に沿った、本リポの実物から取った値。spec 由来の値ではない。`basis` は run の設定から取る欄で、版の置き場の記録には run が無いため空欄）:
 
 | 欄 | 値 |
 | -- | -- |
 | `wgpu_baseline.version` | `30.0.1` |
 | `wgpu_baseline.source` | `crates-io` |
 | `wgpu_baseline.lockfile_sha256` | `966b73974affc4ed4f3a215e941f7e1d0674b8f900dfc2c3afb3919e3a519d44`（`baseline-wgpu/Cargo.lock`） |
-| `wgpu_baseline.basis` | 未記入（語彙が未決） |
+| `wgpu_baseline.basis` | 未記入（run の設定から取る欄） |
 
 補足（公開情報）:
 
@@ -79,7 +79,7 @@ wgpu adapters: 2 adapter(s)
 | 作業 | 担当 | 状態 |
 | ---- | ---- | ---- |
 | 別 workspace の作成 | TASK-7 の 2/4 | 済 |
-| 版の記録の書式 | TASK-7 の 3/4 | 済（書式は案。[wgpu-baseline-record](wgpu-baseline-record.md)） |
+| 版の記録の書式 | TASK-7 の 3/4 | 済（[wgpu-baseline-record](wgpu-baseline-record.md)） |
 | wgpu の依存追加と版の記録 | TASK-7（本書の該当節） | 済 |
 | 完了の条件の確かめ | TASK-7 の 4/4 | 下の節に記録（対応づけの記録の正は private spec 側。TASK-7 の状態） |
 
@@ -93,7 +93,7 @@ spec の完了の条件との対応づけの記録の正は private spec 側（T
 | 製品 workspace の依存グラフに wgpu 系・naga が無い | `make deny`、`cargo metadata --format-version 1 --all-features --locked` | 通過。member 4・パッケージ 4・該当 0 件 |
 | 品質ゲート | `make verify`、`make check` | 通過 |
 | 別 workspace が製品 workspace の外にあり、member・path 依存になっていない | `make deny` の path 検査、`cargo metadata` | 通過（`make deny` は crates/ の外を指す path 依存を検出しない。wgpu 追加後もパッケージ 4・wgpu 系 0 件） |
-| 比較基準の版の記録が決めた書式で残っている | 本書の「wgpu の依存追加と版の記録」 | 案の書式で記録済み（書式の確定は未。`basis` の語彙は未決のため未記入） |
+| 比較基準の版の記録が決めた書式で残っている | 本書の「wgpu の依存追加と版の記録」 | 記録済み（`basis` は run の設定から取る欄のため未記入） |
 | 別 workspace から wgpu を使う bin がビルド・実行できる | `baseline-wgpu/` で `cargo build`・`cargo run` | 通過（ローカル実行。CI では未実行。出力は「ローカル実測」の節） |
 | 前提の TASK-6 が確定している | 対応する Issue の状態 | Issue #35 はクローズ済み |
 

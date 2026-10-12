@@ -3,7 +3,6 @@
 比較用の run の記録に、比較基準の wgpu の **どの版** を使ったかを残すための書式。
 ポインタ: TASK-7（`docs/spec/05-tasks.md`）・M-6・AC-2。
 
-- 本書式は案である。TASK-28（記録の全体の形式と置き場）でオーナーの確認を経るまで、確定した方針として扱わない。
 - 書式を選んだ理由・経緯・判断は private spec 側の TASK-7 の決定の記録に置く。本リポにはポインタだけを書く。
 - 例示値は実在しないダミー。実際の版番号・タグ名・commit SHA は本書に書かない。
 
@@ -24,9 +23,9 @@
 | `wgpu_baseline.git_tag` | `git` のとき必須 | 固定したタグ名 | 別 workspace の `Cargo.toml` の `tag` から取る |
 | `wgpu_baseline.git_commit` | `git` のとき必須 | commit SHA（40 桁の小文字 16 進） | `Cargo.lock` の `#<sha>` から取る |
 | `wgpu_baseline.lockfile_sha256` | 必須 | 別 workspace の `Cargo.lock` の SHA-256 | run の時点のファイルから計算する |
-| `wgpu_baseline.basis` | 必須 | どの比較基準の版で測ったかの区分。ID のポインタで示す（M-6・AP-3 のポインタ） | run の設定から取る |
+| `wgpu_baseline.basis` | 必須 | どの比較基準の版で測ったかの区分（M-6・AP-3 のポインタ） | run の設定から取る |
 
-- 区分の名前・数・意味は spec 側を正とし、本書には列挙しない。`basis` の値の語彙は未決（オーナー判断待ち）
+- 区分の名前・数・意味は spec 側を正とし、本書には列挙しない（ポインタ: `docs/spec/05-tasks.md` の TASK-28）。値の定義は、記録を出す道具の PR でコードと公開テストとともに入れる（ポインタ: TASK-27）
 - 2 つの版が同じ値であっても `basis` は省略しない
 
 ## 記録の規則
