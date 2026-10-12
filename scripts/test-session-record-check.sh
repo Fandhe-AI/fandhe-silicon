@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# session-record-check.sh の回帰テスト（spec TASK-19 のポインタ。親 Issue #76 の 3/4）。
+# session-record-check.sh の回帰テスト（spec TASK-19 のポインタ）。
 # 一時ディレクトリの fixture（合成のダミー値）で、終了コード・標準出力・標準エラーの文言・
 # 違反の件数・入力の値の秘匿・入力を変更しないことを確かめる。
 # 呼び出し元: `make test-session-record-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
