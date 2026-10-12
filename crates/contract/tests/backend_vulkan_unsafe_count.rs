@@ -8,11 +8,18 @@ mod common;
 
 use common::{ExpectedFile, UnsafeCounts, check_backend};
 
-const EXPECTED: &[ExpectedFile] = &[ExpectedFile {
-    path: "src/backend_vulkan.rs",
-    source: include_str!("../src/backend_vulkan.rs"),
-    expected: UnsafeCounts::ZERO,
-}];
+const EXPECTED: &[ExpectedFile] = &[
+    ExpectedFile {
+        path: "src/backend_vulkan.rs",
+        source: include_str!("../src/backend_vulkan.rs"),
+        expected: UnsafeCounts::ZERO,
+    },
+    ExpectedFile {
+        path: "src/backend_vulkan/spirv_operands.rs",
+        source: include_str!("../src/backend_vulkan/spirv_operands.rs"),
+        expected: UnsafeCounts::ZERO,
+    },
+];
 
 #[test]
 fn backend_vulkan_unsafe_count_matches_expected() {

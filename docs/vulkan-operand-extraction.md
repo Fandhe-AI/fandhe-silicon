@@ -68,6 +68,19 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 
 回答の形: 「Q1〜Q4 とも推奨で」または「Qn は (x)」。
 
+## 現状の形（4/6。未承認の仮置き）
+
+本節はコードと本リポのテストから観測できる事実だけを書く。Q1〜Q4 は本リポでは回答を確認できていないので、入力の型・置き場・対象の範囲・エラーの形は推奨案を採った未承認の仮置きで、判断が出るまでマージしない。識別子はすべて仮。
+
+- 置き場: `crates/contract/src/backend_vulkan/spirv_operands.rs`。`backend_vulkan.rs` の `#[cfg(feature = "test-support")] pub mod spirv_operands;` で公開する。有効になる条件は `backend-vulkan` かつ `test-support` で wasm32 でない。`test-support` なしのビルドには入らない。
+- 入口: `extract_storage_buffer_operands(&[u32]) -> Result<Vec<ExtractedOperand>, SpirvExtractError>`。語の列を借用で受け、ファイル IO・外部コマンドの起動はしない。並びは（set, binding）の昇順。
+- 取り出す内容: set・binding・要素の型（`ScalarKind`）・要素 1 個分のバイト数・`ArrayStride` の値・全体のバイト長。固定長の配列は `ByteLength::Fixed`、runtime array は `ByteLength::Unsized`（0 や推測で埋めない）。
+- 対象: storage class が `StorageBuffer` の変数で、`Block` 装飾の struct がメンバー 1 つ（配列）だけを持つ形。モジュール全体の変数が対象で、エントリポイントでの絞り込みと push constant は含めない。
+- 対象外の形は `SpirvExtractError::Unsupported` で返す（bool・vector・matrix・struct の要素、block の配列、`Uniform` + `BufferBlock`、メンバーの並びが違う block、8 の倍数でないビット幅、定数でない配列の長さ、`ArrayStride` が 0）。
+- 入力の拒否: ヘッダーに満たない・マジック違い・逆のバイト順のマジック・語数 0 の命令・残りを超える命令・オペランド不足・未定義の id・装飾の欠落・定義の重複・（set, binding）の重複・大きさの溢れ。panic しない。
+- `unsafe`: 0。`#![forbid(unsafe_code)]` を置き、`crates/contract/tests/backend_vulkan_unsafe_count.rs` の期待値の表に個数 0 の行を足した。
+- 走るテスト: 同じファイルの単体テスト（語の列をテストコードの中で組み立てる。バイナリ・外部の道具に依らない）。`make verify` と `make build-profiles` の `backend-vulkan,test-support` の組で走る。境界の網羅と統合テストは 5/6（#3534）。
+
 ## 後続の分担
 
 | 段 | Issue | 引き継ぐこと |
