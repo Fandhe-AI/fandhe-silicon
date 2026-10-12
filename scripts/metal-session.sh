@@ -9,7 +9,7 @@
 #   scripts/metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
 #   scripts/metal-session.sh redact <words-file> <input> <output>
 #   scripts/metal-session.sh scan <words-file> <file>...
-# 終了コード: 0 成功 / 1 違反（置き換えの後に語が残る・入力が不適）/ 2 誤用・前提の不足。
+# 終了コード: 0 成功 / 1 違反（置き換えの後に語か形が残る・入力が不適）/ 2 誤用・前提の不足。
 # `run` は起動したコマンドの終了コードをそのまま返す。
 #
 # probe: 環境の集計値を JSON で標準出力へ出す。キーは回の前後の環境の欄（utc・power_source・
@@ -33,11 +33,17 @@
 #   上書きしない）。
 #   値を前もって知らないものは「形」で拾う: IPv4 アドレス・IPv6 アドレス・UUID。`scan` は語の一覧に
 #   加えて、この 3 種の形が残っていても 1 で終わる（種類ごとの件数と行番号だけを出し、値は出さない。
-#   検出を切るオプションは無い）。`redact` は形で拾った値を置き換えない（置き換え後の印を持たないため）。
-#   形が残っているときは件数を標準エラーへ注記するだけで、確かめは `scan` が受け持つ。
-#   形は取りこぼすより止まりすぎる側に倒す。前後が何であっても 0〜255 の 1〜3 桁の数が 4 つドットで
-#   つながっていれば IPv4 として止まる（版の番号の 4 つ組・5 つ組も止まる。止まった行は人が確かめる）。
-#   止まった値は、語の一覧に印つきで足して `redact` をやり直せば置き換わり、`scan` が通る。
+#   検出を切るオプションは無い）。`redact` は語の置き換えのあと、`scan` と同じ判定で拾った形を、
+#   IPv4・IPv6 は `<ip>`、UUID は `<uuid>` に置き換える（切るオプションは無い。この 2 つの印は予約で、
+#   語の一覧の印に同じものを使ってよいが、語がこの印の中に含まれる一覧は拒否する）。種類ごとの
+#   置き換えの件数と先頭の行番号だけを出し、値も印も出さない。置き換えの後に語か形が残るなら
+#   何も書かずに 1 で終わる。
+#   形は取りこぼすより置き換えすぎる側に倒す。前後が何であっても 0〜255 の 1〜3 桁の数が 4 つドットで
+#   つながっていれば IPv4 として置き換わる（版の番号の 4 つ組・5 つ組も `<ip>` になる。出力の件数と
+#   行番号を、人が元のファイルと見比べて確かめる）。IPv6 の候補が前の文字を取り込んで切り分けが
+#   一意にできないときは候補の全体を置き換える。元の値の断片を残さないよう、置き換えの範囲は一致を含む
+#   数字とドットの並び（IPv4）・16 進数字とハイフンの並び（UUID）の全体と、IPv6 のゾーンまで伸ばす。形で拾えない値と語の一覧の漏れは残りうるので、
+#   `scan` で確かめ、止まった値を語の一覧に印つきで足して `redact` をやり直す。
 #
 # 入れていないもの: 設定の変更・プロセスの停止（低電力モードの切り替え・常駐プロセスの停止は人の作業）、
 #   `xcode-select` の呼び出し、ネットワーク、プロセスの一覧の取得。
@@ -277,6 +283,7 @@ cmd_run() {
 text_tool() {
   require_cmd python3 || exit 2
   python3 -I - "${ROOT_DIR}" "$@" <<'PY'
+import heapq
 import os
 import re
 import stat
@@ -288,10 +295,14 @@ MAX_INPUT_BYTES = 64 * 1024 * 1024
 MAX_WORDS = 10000
 MAX_LINES_SHOWN = 20
 MARK_RE = re.compile(r"<[A-Za-z0-9-]+>")
+# 形で拾った値の置き換えの印。予約で、語の一覧の側で同じ印を使うことは許す。
+IP_MARK = b"<ip>"
+UUID_MARK = b"<uuid>"
+RESERVED_MARKS = ("<ip>", "<uuid>")
 
 # ---- 形で拾う値（値を前もって知らないもの）----
 # scan が語の一覧に加えて探す 3 種。バイト列に当てる（バイナリも対象）。誤検出は安全側に倒す:
-# 止まりすぎる側は人が行を確かめ、取りこぼす側は漏れになるため。
+# 置き換えすぎる側は人が行を確かめ、取りこぼす側は漏れになるため。
 # IPv4: 前後が何であっても（英数字・ドット・4 桁以上の数字の一部でも）、0〜255 の 1〜3 桁の数
 # （先頭ゼロつきを含む）が 4 つドットでつながっていれば拾う。境界を持たないので後戻りは起きない。
 _OCT = rb"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})"
@@ -350,20 +361,23 @@ def is_alpha_path(cand):
     return rest != b"" and rest.strip(b"abcdefABCDEF") == b""
 
 
-def ipv6_match(data, m):
-    """候補の一致が IPv6 として止める対象か。
+def ipv6_span(data, m):
+    """候補の一致が IPv6 として拾う対象なら、その範囲 (開始, 終了) を返す。対象でなければ None。
 
+    scan の検出と redact の置き換えが共有する判定で、二重に持たない。
     区間の先頭の単独のコロン（`addr:` の直後）と末尾の単独のコロン（ログの区切り）は外して確かめる。
     候補全体が正しい形のとき:
     - 前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。片側だけなら拾う。
     - Rust のパスの `::`（`>::drop`・`std::{`）は、`::` と英字だけの 1 組（a〜f、数字なし）の形で、
       その組の外側に識別子の文字（g〜z・下線）が直接つながっているときに限り拾わない。
     候補全体が正しい形でないとき（ラベルの末尾の 16 進文字が付いて 9 組になった形、`::` が 2 つ以上
-    の並びなど）も、その中に正しい形になる連続した一部があれば拾う（止まりすぎる側）。ただし
+    の並びなど）も、その中に正しい形になる連続した一部があれば拾う（置き換えすぎる側）。ただし
     英字だけの並び（`a::b::c`）は、前後のどちらかが識別子の文字か、両方が語の文字なら拾わない。
     """
     cand = m.group(0)
     s, e = m.span()
+    # 範囲は、先頭・末尾の単独のコロンを外した候補。ラベルの末尾の 16 進文字を取り込んだ候補は
+    # アドレスとの切り分けが一意にできないので、候補の全体（外したあと）が範囲になる。
     if cand.startswith(b":") and not cand.startswith(b"::"):
         cand = cand[1:]
         s += 1
@@ -374,25 +388,27 @@ def ipv6_match(data, m):
     after = e < len(data) and data[e] in _WORD_BYTES
     if not valid_ipv6(cand):
         if not has_ipv6_window(cand):
-            return False
+            return None
         if is_alpha_path(cand):
             ident = (s > 0 and data[s - 1] in _IDENT_BYTES) or (e < len(data) and data[e] in _IDENT_BYTES)
             if ident or (before and after):
-                return False
-        return True
+                return None
+        return (s, e)
     if _ALPHA_PRE_RE.fullmatch(cand) and s > 0 and data[s - 1] in _IDENT_BYTES:
-        return False
+        return None
     if _ALPHA_POST_RE.fullmatch(cand) and e < len(data) and data[e] in _IDENT_BYTES:
-        return False
-    return not (before and after)
+        return None
+    return None if (before and after) else (s, e)
 
 
-# (種類名, 正規表現, 一致を絞る関数(data, 一致))。種類名は出力に出す（値は出さない）。
+# (種類名, 正規表現, 範囲を絞る関数(data, 一致) -> (開始, 終了) か None)。種類名は出力に出す（値は出さない）。
+# 関数が None のものは一致の範囲そのもの。
 SHAPES = (
     ("ipv4", IPV4_RE, None),
-    ("ipv6", IPV6_CAND_RE, ipv6_match),
+    ("ipv6", IPV6_CAND_RE, ipv6_span),
     ("uuid", UUID_RE, None),
 )
+SHAPE_MARKS = {"ipv4": IP_MARK, "ipv6": IP_MARK, "uuid": UUID_MARK}
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -497,7 +513,7 @@ def load_words(path, root):
     if len(words) > MAX_WORDS:
         misuse("words file has too many words")
     for w in words:
-        for m in set(words.values()):
+        for m in set(words.values()) | set(RESERVED_MARKS):
             if w in m:
                 misuse("a word occurs in a replacement mark")
     return words
@@ -534,10 +550,10 @@ def byte_pattern(words):
     return re.compile(b"|".join(re.escape(w) for w in ws))
 
 
-def residual(pattern, data, accept=None):
+def residual(pattern, data, span_fn=None):
     """一致の残りの件数と、先頭の行番号（上限まで）を返す。
 
-    accept(data, 一致) があれば、それが真を返す一致だけを数える（IPv6 の候補の絞り込み）。
+    span_fn(data, 一致) があれば、None を返す一致は数えない（IPv6 の候補の絞り込み）。
     行番号は前の一致の位置からの差分だけ数え、上限に達したら数えるのをやめて件数だけ数える。
     """
     n = 0
@@ -545,7 +561,7 @@ def residual(pattern, data, accept=None):
     pos = 0
     ln = 1
     for m in pattern.finditer(data):
-        if accept is not None and not accept(data, m):
+        if span_fn is not None and span_fn(data, m) is None:
             continue
         n += 1
         if len(lines) < MAX_LINES_SHOWN:
@@ -554,6 +570,106 @@ def residual(pattern, data, accept=None):
             if not lines or lines[-1] != ln:
                 lines.append(ln)
     return n, lines
+
+
+# 置き換えの範囲を伸ばすための文字種（検出の判定には使わない。伸ばすのは一致が成立した後だけ）。
+_DIGDOT = frozenset(b"0123456789.")
+_DIGDOT_RE = re.compile(rb"[0-9.]*")
+_HEXDASH = frozenset(b"0123456789ABCDEFabcdef-")
+_HEXDASH_RE = re.compile(rb"[0-9A-Fa-f-]*")
+_ZONE_RE = re.compile(rb"[A-Za-z0-9_.-]*")
+
+
+def run_spans(data, pat, members, tail_re, edge):
+    """一致を含む、members の文字だけの連続した並びの全体を範囲にして順に返す。
+
+    断片を残さないため、一致の前後に伸ばす。並びの端の edge（ドット・ハイフン）は、一致の外側にある
+    分は範囲に含めない（文の終わりのピリオドや `GPU-` のハイフンを巻き込まない）。すでに範囲に入った
+    並びの中の一致は読み飛ばす（長い並びでも走査は線形）。
+    """
+    last = 0
+    for m in pat.finditer(data):
+        ms, me = m.span()
+        if ms < last:
+            continue
+        s = ms
+        while s > last and data[s - 1] in members:
+            s -= 1
+        while s < ms and data[s] == edge:
+            s += 1
+        e = tail_re.match(data, me).end()
+        last = e
+        while e > me and data[e - 1] == edge:
+            e -= 1
+        yield s, e
+
+
+def ipv6_spans(data):
+    """IPv6 の範囲。アドレスの直後の `%` とゾーンの名前（`%25` の形を含む）も範囲に含める。"""
+    for m in IPV6_CAND_RE.finditer(data):
+        r = ipv6_span(data, m)
+        if r is None:
+            continue
+        s, e = r
+        if e < len(data) and data[e] == 0x25:
+            ze = _ZONE_RE.match(data, e + 1).end()
+            while ze > e + 1 and data[ze - 1] in b".-":
+                ze -= 1
+            if ze > e + 1:
+                e = ze
+        yield s, e
+
+
+def merged_shape_spans(data):
+    """形で拾う全種類の置き換えの範囲を、開始位置の順に [開始, 終了, 種類名] で返す。
+
+    検出は scan と同じ判定（SHAPES）で、範囲だけを伸ばす（IPv4 は数字とドットの並び、UUID は 16 進数字と
+    ハイフンの並び、IPv6 はゾーンまで）。種類をまたいで重なる範囲（IPv6 の末尾に IPv4 が続く形など）や
+    伸ばして重なった範囲は 1 つにまとめ、種類名は先に始まる方のもの。接するだけの範囲はまとめない。
+    """
+    streams = (
+        run_spans(data, IPV4_RE, _DIGDOT, _DIGDOT_RE, 0x2E),
+        ipv6_spans(data),
+        run_spans(data, UUID_RE, _HEXDASH, _HEXDASH_RE, 0x2D),
+    )
+
+    def tag(order, kind, it):
+        for s, e in it:
+            yield (s, order, e, kind)
+
+    cur = None
+    for s, _, e, kind in heapq.merge(*[tag(i, SHAPES[i][0], st) for i, st in enumerate(streams)]):
+        if cur is not None and s < cur[1]:
+            if e > cur[1]:
+                cur[1] = e
+            continue
+        if cur is not None:
+            yield cur
+        cur = [s, e, kind]
+    if cur is not None:
+        yield cur
+
+
+def replace_shapes(data):
+    """形で拾う値を印に置き換えた bytes と、種類ごとの (件数, 先頭の行番号) を返す。"""
+    out = bytearray()
+    view = memoryview(data)
+    # 種類ごとの [件数, 行番号, 数えた位置, 数えた位置の行]
+    stats = {kind: [0, [], 0, 1] for kind, _, _ in SHAPES}
+    pos = 0
+    for s, e, kind in merged_shape_spans(data):
+        out += view[pos:s]
+        out += SHAPE_MARKS[kind]
+        pos = e
+        st = stats[kind]
+        st[0] += 1
+        if len(st[1]) < MAX_LINES_SHOWN:
+            st[3] += data.count(b"\n", st[2], s)
+            st[2] = s
+            if not st[1] or st[1][-1] != st[3]:
+                st[1].append(st[3])
+    out += view[pos:]
+    return bytes(out), {k: (v[0], v[1]) for k, v in stats.items()}
 
 
 def cmd_redact(root, words_path, in_path, out_path):
@@ -568,11 +684,24 @@ def cmd_redact(root, words_path, in_path, out_path):
         misuse("output already exists")
     ordered = sorted(words, key=len, reverse=True)
     pat = re.compile("|".join(re.escape(w) for w in ordered))
+    # 語の置き換えを先に行い、そのあとで形を置き換える（語の印は形の検出に当たらない）。
     result, count = pat.subn(lambda m: words[m.group(0)], text)
-    data = result.encode("utf-8")
+    data, shaped = replace_shapes(result.encode("utf-8"))
     left, _ = residual(byte_pattern(words), data)
     if left:
         reject("a listed word would remain after replacement (%d occurrence(s))" % left)
+    left = 0
+    for kind, shape, fn in SHAPES:
+        n, lines = residual(shape, data, fn)
+        if n:
+            left += n
+            # 値は出さない。人が元のファイルの行を確かめられるよう、種類ごとの件数と行番号を出す。
+            print(
+                "error: %d %s-shaped value(s) would remain on line(s) %s" % (n, kind, ", ".join(str(x) for x in lines)),
+                file=sys.stderr,
+            )
+    if left:
+        reject("a shaped value would remain after replacement (%d occurrence(s))" % left)
     try:
         fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError:
@@ -587,15 +716,11 @@ def cmd_redact(root, words_path, in_path, out_path):
             pass
         misuse("cannot write output")
     print("ok: replaced %d occurrence(s)" % count)
-    # 形で拾う値は置き換えない。残っていれば、確かめの scan が止まることを先に知らせる。
-    kinds = [(k, residual(pat, data, ok)[0]) for k, pat, ok in SHAPES]
-    kinds = [(k, n) for k, n in kinds if n]
-    if kinds:
-        print(
-            "note: values of IP address or UUID shape are not replaced (%s); run scan on the output"
-            % ", ".join("%s: %d" % kn for kn in kinds),
-            file=sys.stderr,
-        )
+    # 値も印も出さない。置き換えすぎた行を人が元のファイルと見比べられるよう、件数と行番号を出す。
+    for kind, _, _ in SHAPES:
+        n, lines = shaped[kind]
+        if n:
+            print("replaced %d %s-shaped value(s) on line(s) %s" % (n, kind, ", ".join(str(x) for x in lines)))
 
 
 def cmd_scan(root, words_path, paths):
@@ -611,8 +736,8 @@ def cmd_scan(root, words_path, paths):
                 % (i, n, ", ".join(str(x) for x in lines)),
                 file=sys.stderr,
             )
-        for kind, shape, ok in SHAPES:
-            n, lines = residual(shape, data, ok)
+        for kind, shape, span_fn in SHAPES:
+            n, lines = residual(shape, data, span_fn)
             if n:
                 total += n
                 print(
