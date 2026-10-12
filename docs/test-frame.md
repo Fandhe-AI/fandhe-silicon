@@ -1,6 +1,6 @@
 # 共通の試験の枠（TASK-23）の現状・前提・形の設計・現状の形
 
-TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計、5/8（#96）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -203,6 +203,51 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 - 着手時に gitlink の版の spec と決定の記録を当て直す。一意に導けない点は推奨案で確定せず伺う
 - 公開アイテムを足したら、本書に「現状の形（5/8）」を足し、`README.md`・`CLAUDE.md`・crate 冒頭の `//!` を同じ PR で直す
 
+## 現状の形（5/8）
+
+本節はコードと公開テストから観測できる事実だけを書く。範囲は `docs/spec/05-tasks.md` の TASK-23 の内容の (2) のうち、出力の先に依らない部分。
+追加分も feature `test-support` の裏にだけ公開される。綴りの表と上限の値はコードの定数が示す。
+
+### 置き場
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| モジュール | `crates/core/src/test_frame/` に `identifier`・`threshold`・`label`・`outcome` の 4 ファイルを追加。`decision.rs` には `NotRunReason::name()` を足しただけ | 同ディレクトリ |
+| テスト | `crates/core/tests/` の `test_frame_identifiers.rs`・`test_frame_label.rs`・`test_frame_outcome.rs`（`[[test]]` に `required-features = ["test-support"]`）。`crates/contract/tests/test_support_test_frame.rs` に到達性のテストを追記 | 各 `Cargo.toml` |
+| `parity` | 差分なし。比較型から判定への写像（`From<&比較型> for Verdict`）は `test_frame` の側にある | `git diff origin/main -- crates/core/src/parity` |
+
+### 公開アイテムと観測できる振る舞い
+
+| アイテム | 観測できる振る舞い | 確かめ方（テスト名） |
+| -------- | ------------------ | -------------------- |
+| `TestId`・`BehaviorId` | 文字種と長さを限って検査し、外れは種類だけの `IdentifierError`（入力の値を含まない） | `test_id_accepts_valid_names`・`test_id_rejects_invalid_names`・`behavior_id_accepts_valid_names`・`behavior_id_rejects_invalid_names`・`identifier_errors_are_ascii_and_do_not_echo_input`・`length_limits_are_fixed` |
+| `ThresholdId` | 正規の綴りだけを受ける。`is_approved()` は承認の表（`APPROVED_THRESHOLDS`。1 か所の定数）に載る ID だけ `true` で、表に無い ID は `false` | `threshold_id_accepts_only_the_canonical_spelling`・`approval_table_content_is_fixed`・`only_ids_in_the_table_are_approved` |
+| `Label`・`IndeterminateReason` | 5 種のラベル。種類と理由のトークンは `[a-z0-9-]` で重複なし。`fails_test()` は `Ng` のときだけ `true`。表示は英語の ASCII | `kind_tokens_are_distinct_and_well_formed`・`reason_tokens_exist_only_for_kinds_with_a_reason`・`not_run_reason_tokens_cover_every_variant_without_duplicates`・`indeterminate_reason_tokens_cover_every_variant_without_duplicates`・`only_ng_fails_the_test`・`display_is_ascii_english` |
+| `Subject` | 名前を受けて検査し、重複を取り除く。件数に上限がある | `subject_validates_and_deduplicates`・`subject_limits_counts`・`subject_errors_are_ascii_and_do_not_echo_input` |
+| `judge` | 順（上から先に当たったもの）: 実行の可否が `NotRun` なら未実施（本体は呼ばない）→ 本体が判定不能なら判定不能 → 宣言の閾値に未承認があれば判定保留（宣言の順で最初の ID）→ 一致なら OK、不一致なら NG。入力以外の状態を読まない | `not_run_reasons_pass_through_and_the_body_is_not_called`・`indeterminate_wins_over_pending_and_verdicts`・`unapproved_threshold_gives_pending_with_the_first_one_in_declared_order`・`approved_thresholds_map_verdicts_to_ok_and_ng`・`only_declared_combinations_run_over_all_seven` |
+| `Outcome` | getter だけを公開し、`judge` 以外からは作れない。走らせた組み合わせは本体を呼んだときだけ `Some` | `outcome_getters_report_what_was_declared_and_run` |
+| 試験の成否 | `Termination` を実装。`Ng` のときだけ失敗で、ほかの 4 種は成功。`report()` は何も書き出さない。試験は `Outcome` を返せる | `termination_fails_only_for_ng`・`test_function_may_return_not_run_outcome`・`test_function_may_return_ok_outcome` |
+| `Verdict` と `parity` | `parity` の 5 つの比較型から `Verdict` への `From` を持つ（`is_match()` を読むだけ） | `from_match_maps_booleans`・`parity_comparisons_map_to_verdicts` |
+| contract からの到達 | `contract` の `test-support` だけで届き、背後実装の feature に依らず同じラベル | `judge_is_reachable_and_fixed_under_any_backend_feature_set` |
+
+### 入れていないもの
+
+- 機械可読の記録の組み立て、ファイル・標準出力・標準エラーへの書き出し、出力の先の指定の受け口
+- 組み合わせごとの集計（後続の段）
+- 実機の device を取って宣言と照合する経路、`contract` 側の受け口（判定不能の値を作る経路は試験の側に残る）
+- 比べの関数が返す `Err`（長さの不一致など）からラベルへの写像（扱いは試験の側に残る）
+- 外部依存、`unsafe`、新しい feature・make ターゲット・CI ジョブ・`build-profiles` の組
+
+### 公開テストから到達させていない経路
+
+- `RunSetting::from_env` が読む実際の環境変数の値（3/8 と同じ）
+- `judge` に渡した本体の panic（そのまま伝わる。ラベルにはしない）
+
+### 6/8（#97）への引き継ぎ
+
+- 集計は `Outcome` の getter の上に乗せる。形は決定の記録に従い、一意に決まらない点は推奨案で確定せず伺う
+- 公開アイテムを足したら、本書の現状の形・`README.md`・`CLAUDE.md`・crate 冒頭の `//!` を同じ PR で直す
+
 ## 出力の先の記録の所在
 
 - 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
@@ -214,7 +259,7 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | #93 | 2/8 形の設計（本書の「形の設計（2/8）」） |
 | #94 | 3/8 実装（済。本書の「現状の形（3/8）」） |
 | #95 | 4/8 形の設計（済。本書の「形の設計（4/8）」） |
-| #96 | 5/8 実装 |
+| #96 | 5/8 実装（済。本書の「現状の形（5/8）」） |
 | #97 | 6/8 実装 |
 | #98 | 7/8 テスト |
 | #99 | 8/8 確かめ |
@@ -232,6 +277,8 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 2026-10-12（3/8。base: `origin/main` の `e671bc6`、gitlink: `a7de5c2`）。
 
 2026-10-12（4/8。base: `origin/main` の `0975b66`、gitlink: `a7de5c2`）。
+
+2026-10-12（5/8。base: `origin/main` の `065bd04`、gitlink: `a7de5c2`）。
 
 ## 関連
 
