@@ -1,6 +1,6 @@
-# 共通の試験の枠（TASK-23）の現状・前提・形の設計
+# 共通の試験の枠（TASK-23）の現状・前提・形の設計・現状の形
 
-TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、および 2/8（#93）の形の設計を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -8,8 +8,8 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 項目 | 所在 |
 | ---- | ---- |
 | タスクの中身と決定の記録 | private spec 側（`docs/spec/05-tasks.md` の TASK-23 と、そこから辿る決定の記録）。本リポには決定の内容・理由・経緯を置かない |
-| 本リポの `docs/spec` の gitlink | `c1cb4c9`（`update = none`） |
-| gitlink と記録の前後 | 未検証（2/8 の着手時に gitlink が `0621b49` に変わっていた。本段では spec を取得していない）。後続の段は、gitlink の更新が取り込まれるまで、spec の main を読み取りで取得して辿る（取得物は本リポの worktree に置かず、作業の後に削除する） |
+| 本リポの `docs/spec` の gitlink | `a7de5c2`（`update = none`） |
+| gitlink と記録の前後 | 3/8 の着手時に、gitlink と spec の main の先端が同じことを確かめた（確かめ方: `git ls-tree HEAD docs/spec` と、読み取りで取得した spec の `git rev-parse HEAD`。取得物は本リポの worktree に置かず、作業の後に削除した）。後続の段も同じ方法で辿る |
 | gitlink の更新 | `update-external.yml` の PR 経由。本作業では進めない |
 | 完了の条件との対応づけの記録 | spec 側が正。本リポからは書き換えない |
 
@@ -105,23 +105,74 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 - 3/8 で公開アイテムを足したら、本書に「現状の形」節を足し、公開アイテム・観測できる振る舞い・確かめ方（テスト名）を表で書く（書式は [parity-tool](./parity-tool.md) の「現状の形」に合わせる）
 - 公開面が変わる crate の説明（crate 冒頭の `//!`・`README.md`・`CLAUDE.md`）は、公開面が変わる PR で更新する
 
-## オーナー判断待ち
+## 現状の形（3/8）
 
-2/8（#93）の時点で、範囲 (1) の形について本リポ側から新たに伺う論点は見つかっていない。後続で見つかった場合だけ、同じ形式で追記する。
+本節はコードと公開テストから観測できる事実だけを書く。範囲は `docs/spec/05-tasks.md` の TASK-23 の内容の (1)（ポインタのみ）。
+`test_frame` は feature `test-support` の裏にだけ公開され、どの crate の `default` にも入れていない。
+
+### 置き場
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| モジュール | `crates/core/src/test_frame.rs` と配下 4 ファイル（`combination`・`declaration`・`setting`・`decision`） | `crates/core/src/test_frame/` |
+| feature | `core` の `test-support`。`contract` の `test-support` が転送する。背後実装の feature は `core` に無い | 各 `Cargo.toml` |
+| テスト | `crates/core/tests/` の `test_frame_types.rs`・`test_frame_decide.rs`、`crates/contract/tests/test_support_test_frame.rs`（いずれも `[[test]]` に `required-features = ["test-support"]`） | 各 `Cargo.toml` |
+| 走る場所 | `make verify`（`--all-features`）と `make build-profiles` の `test-support` を含む組。GPU の実機は要らない | `scripts/verify.sh`・`scripts/build-profiles.sh` |
+
+### 公開アイテムと観測できる振る舞い
+
+| アイテム | 観測できる振る舞い | 確かめ方（テスト名） |
+| -------- | ------------------ | -------------------- |
+| `MachineCombination` | `ALL` は 7 値で重複なし。`name()` は ASCII の小文字・数字・ハイフンだけ。`from_name` は完全一致のみ（空白・大文字違いは `None`）。`backend()`・`machine()` は値ごとに固定 | `all_combinations_are_distinct`・`name_round_trips_for_every_combination`・`names_use_only_lowercase_digits_and_hyphen`・`backend_and_machine_are_fixed_per_combination`・`from_name_is_exact_match_only` |
+| `Backend`・`Machine` | 名前だけの列挙。機材の呼び名は `Machine::name()` が返すものだけ | 同上 |
+| `Permission` | `[a-z0-9-]`・1〜64 バイト。外れは `PermissionError`（種類だけで入力の値を含まない） | `permission_accepts_valid_names`・`permission_rejects_invalid_names`・`error_messages_are_ascii_and_do_not_echo_input` |
+| `Declaration` | 組み合わせが空なら `Err`。重複は取り除かれ、結果は重複の有無に依らない。組み合わせ 64 件・許可 16 件を超えると `Err` | `declaration_requires_a_combination`・`declaration_limits_counts`・`declaration_drops_duplicates`・`from_parts_reports_permission_errors` |
+| `declaration!` | `Declaration::from_parts` を呼ぶだけ。マクロ無しでも同じ宣言を書ける | `macro_matches_function_api` |
+| `RunSetting` | `from_lookup` が検査と分類を行い、生成は失敗しない。`from_env` は `from_lookup` へ `std::env::var_os` を渡すだけ | `decide` の各テスト |
+| 環境変数の名前 | `COMBINATION_ENV`（組み合わせの名前 1 つ）・`PERMISSIONS_ENV`（許可の名前のカンマ区切り）。綴りはコードの定数が示す | `environment_names_are_fixed_constants` |
+| `decide` | 下の順で先に当たった条件が勝つ。入力以外の状態を読まず、panic しない | `earlier_conditions_win_over_later_ones`・`every_combination_runs_only_when_declared` ほか |
+| `NotRunReason`・`Decision` | 理由は列挙で、`as_str()`・`Display` は英語の ASCII。入力の値を含まない | `reasons_and_decisions_have_ascii_text_without_input_values` |
+| contract からの到達 | `contract` の `test-support` だけで届き、背後実装の feature に依らず `decide` の結果が同じ | `contract_test_support_enables_core_test_frame`・`decisions_are_fixed_under_any_backend_feature_set` |
+
+`decide` の順（上から先に当たったもの）: 組み合わせの設定なし → 組み合わせの設定が不正 → 許可の設定が不正 → 宣言に無い組み合わせ → 要る許可が足りない → 走らせる。
+不正な設定は宣言に関わらず走らせない側に倒し、「設定なし」と区別できる理由を返す。
+組み合わせの値は完全一致だけを受ける。許可の値は未設定と空文字を「許可なし」とし、不正な要素・64 バイトを超える要素・16 件を超える件数・1039 バイト（16 件 × 64 バイトと区切りの 15 バイト）を超える値・UTF-8 でない値は「不正」とする。
+テストはプロセスの環境を書き換えず、値を `from_lookup` へ渡す。
+
+### 入れていないもの
+
+- 結果のラベルの型・出力・集計、機械可読の記録、閾値の ID と承認の表（後続の段）
+- ファイル・標準出力・標準エラーへの書き出し
+- `parity` との接続（`parity` の公開面・値・規則は変えていない）
+- 実機の device を取って宣言と照合する経路（`core` からは device を取れない。`contract` 側の受け口も足していない）
+- 外部依存、`unsafe`、新しい feature・make ターゲット・CI ジョブ・`build-profiles` の組
+
+### 公開テストから到達させていない経路
+
+- `RunSetting::from_env` が読む実際の環境変数の値（プロセスの環境を書き換えないため。呼び出しが panic しないことだけを確かめている）
+
+## 4/8（#95）への引き継ぎ
+
+- 範囲 (2) が乗る型は `Decision`・`NotRunReason`（`crates/core/src/test_frame/decision.rs`）。`Declaration` はフィールドが非公開で、後続で変えられる
+- 環境変数の名前（`COMBINATION_ENV`・`PERMISSIONS_ENV`）と許可の名前の形は、実装で決めた綴りである
+
+## 出力の先の記録の所在
+
+- 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
 
 ## 後続の分担
 
 | Issue | 段 |
 | ----- | -- |
 | #93 | 2/8 形の設計（本書の「形の設計（2/8）」） |
-| #94 | 3/8 実装 |
+| #94 | 3/8 実装（済。本書の「現状の形（3/8）」） |
 | #95 | 4/8 形の設計 |
 | #96 | 5/8 実装 |
 | #97 | 6/8 実装 |
 | #98 | 7/8 テスト |
 | #99 | 8/8 確かめ |
 
-- [parity-tool](./parity-tool.md) と [pixel-parity-tool](./pixel-parity-tool.md) の枠に関する記述は、実装とテストが入る PR で更新する。
+- [parity-tool](./parity-tool.md) と [pixel-parity-tool](./pixel-parity-tool.md) の枠に関する記述は、置き場と範囲 (1) が入った段で現状に直した。接続の記述は、接続が入る PR で更新する。
 - 完了の条件の確かめは未実施。#99 で、本リポで観測できる事実により埋める（条件の本文は転記しない）。
 - 親 #91 の「進み具合を spec に記録する」は spec リポ側の作業。
 
@@ -130,6 +181,8 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 2026-10-12（1/8。base: `origin/main` の `3d2ef33`、gitlink: `c1cb4c9`）。
 
 2026-10-12（2/8。base: `origin/main` の `048db9d`、gitlink: `0621b49`）。
+
+2026-10-12（3/8。base: `origin/main` の `e671bc6`、gitlink: `a7de5c2`）。
 
 ## 関連
 

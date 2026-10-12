@@ -35,7 +35,7 @@ fandhe-silicon/
 │   └── settings.json         # SessionStart / PostToolUse hooks
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外・make の対象外。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity` と `test_frame`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -53,7 +53,7 @@ fandhe-silicon/
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
-├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計（TASK-23）
+├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順（TASK-19）

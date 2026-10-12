@@ -34,5 +34,13 @@ required-features = ["test-support"]
 name = "parity_topk"
 required-features = ["test-support"]
 
+[[test]]
+name = "test_frame_decide"
+required-features = ["test-support"]
+
+[[test]]
+name = "test_frame_types"
+required-features = ["test-support"]
+
 [lints]
 workspace = true

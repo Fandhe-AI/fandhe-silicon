@@ -53,5 +53,9 @@ required-features = ["test-support"]
 name = "test_support_special_values"
 required-features = ["test-support"]
 
+[[test]]
+name = "test_support_test_frame"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
