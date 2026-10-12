@@ -1,8 +1,9 @@
-# 機材の要らないジョブの枠（TASK-112）の現状・前提・形の設計・現状の形
+# 機材の要らないジョブの枠（TASK-112）の現状・前提・形の設計・現状の形・完了の条件の確かめ
 
 TASK-112（親 Issue #393）について、1/4（#3565）の現状と前提、形の設計を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 ジョブ・runner の表は複製せず [ci-job-split](./ci-job-split.md) を指す。
+4/4（#3568）の完了の条件の確かめは「完了の条件の確かめ（4/4）」の節に記録する。
 
 ## 記録の所在
 
@@ -124,7 +125,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | - | ---- | ---------- |
 | J1 | PR で生成される check を増やす・変える必要が出たときの ruleset の更新（本段の形は増やさないので、いまは生じない） | 新しいジョブ・ラベル・matrix を要る検査 |
 | J2 | 規約に、実機が要る試験と CI の関係についての規範の文を足すか（ポインタ: `docs/spec/05-tasks.md` の TASK-18） | 無し（本段は足していない） |
-| J3 | 完了の条件の確かめに、回帰テストに加えて実際に失敗する CI の実行の観測が要るか | 4/4 |
+| J3 | 完了の条件の確かめに、回帰テストに加えて実際に失敗する CI の実行の観測が要るか | 4/4 では観測していない（「完了の条件の確かめ（4/4）」の D 行）。回答まで未検証のまま残る |
 
 ## 現状の形（2/4）
 
@@ -205,6 +206,56 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 - 守る規約: [github-actions](../.claude/rules/github-actions.md)（check 名の増減・改名は ruleset の更新が要る。ジョブを足したら `ci-complete` の `needs` に足す）、[makefile](../.claude/rules/makefile.md)（中身のないターゲットを足さない）
 - 観測した事実: `ci-complete` の判定は `ci.yml` に直接書かれた式で、これ自体の回帰テストは無い
 
+## 完了の条件の確かめ（4/4）
+
+TASK-112 の完了の条件（ポインタ: `docs/spec/05-tasks.md` の TASK-112）に対する確かめを、本リポで観測できる事実だけで記録する。
+条件の本文は転記しない。条件との対応づけの記録の正は private spec 側にあり、本書は TASK-112 の完了を宣言しない。
+実物を変える確かめはコミットしない一時コピーで行い、`.github/workflows/ci.yml`・`Makefile`・`scripts/` は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 検査のステップが既存ジョブの上で動いている | main の CI の実行 `38223679761`（push、SHA `d60c54f`）の `gh run view 38223679761 --json jobs` | `make deny (cargo-deny)` ジョブの `make ci-frame-check`・`make test-ci-frame-check` のステップが success。`ci-complete` も success（`pr-title` は skipped） |
+| A2 | 検査が実物の `ci.yml` で通る | `make ci-frame-check` | 終了コード 0（`ok: ci workflow frame (6 jobs, rules F1-F6)`） |
+| B1 | 違反の入力で検査が非 0 終了する | `make test-ci-frame-check` | `passed: 48, failed: 0` |
+| B2 | 実物に違反を入れると make が非 0 終了する | 一時コピー（`scripts/`・`Makefile`・`ci.yml`）の `deny` のステップに `continue-on-error: true` を 1 つ入れて `make -C <コピー> ci-frame-check` | 入れる前は 0。入れた後は `violation: F4 … continue-on-error key`・`FAILED: 1 violation(s)` を出し、make の終了コードは 2 |
+| B3 | ステップに失敗を打ち消す書き方が無い | `ci-frame-check` の F4〜F6（A2 に含まれる） | 通過 |
+| B4 | ステップの非 0 終了がジョブの失敗になる | 未検証（GitHub Actions の実行系の挙動で、本リポでは観測していない） | — |
+| C1 | 検査を載せたジョブが集約の `needs` にある | `ci-frame-check` の F2（A2 に含まれる） | 通過 |
+| C2 | 集約の判定が success 以外を失敗にする | `ci-complete` の `run` を変えずに取り出し、合成の `RESULTS`・`EVENT_NAME` で実行（手元の jq 1.8.1） | 下の「C2 の入力と終了コード」のとおり |
+| C3 | 判定の入力が空のオブジェクトのとき | 同上 | 終了コード 0。実物では `needs` が固定の 5 件で、F2 が網羅を確かめているので、この入力には到達しない。式は変えていない |
+| D | 実際に失敗した CI の実行 | `gh run list --workflow ci.yml --status failure` | 0 件。失敗する CI の実行は観測していない（未検証。J3） |
+| E | 品質ゲート | `make check` | 通過（コード・設定は変えていないので `make verify`・`make deny` は実行していない） |
+| F | 本 PR の CI | 未検証（本節の作成時点では PR が無い） | — |
+
+### C2 の入力と終了コード
+
+- 5 ジョブ（`check`・`verify`・`deny`・`test-hooks`・`pr-title`）が全部 success: push・pull_request のどちらも 0（push では `pr-title` が skipped でも 0）
+- 5 ジョブのそれぞれが failure・cancelled・skipped: 1（push・pull_request のどちらでも）。例外は push のときの `pr-title` が skipped の場合だけで、0
+- 空文字: 4／JSON でない文字列: 5
+- runner の jq は 1.7（A1 の実行の「Show jq / python3 versions」ステップの出力）で、手元の 1.8.1 と版が違う。runner の版での実行は観測していない
+
+### 判定
+
+- A1・A2・B1・B2・B3・C1・C2・C3 は上の表のとおり観測した
+- B4 と D は観測していない。D の観測の要否は J3（オーナー判断待ち。承認は得ていない）
+- 実物の違反を push して観測する方法は採っていない（違反を含むコミットが PR の参照に残るため）。推奨案を既定として確定していない
+
+### 3/4 からの引き継ぎの扱い
+
+- `ci-complete` の判定式の回帰テスト: 本段では足していない。実物の `run` を変えずに取り出して合成の入力で実行した結果を C2 に記録した。検査として足す案は後続の候補（採否は未決）
+- 実際に失敗する CI の実行の観測: 上の D と J3
+
+### 再実行の契機
+
+- `ci-complete` の判定式・`needs` の変更、ジョブの追加・改名
+- `scripts/ci-frame-check.sh` の規則の変更
+- J3 の回答
+- `docs/spec` の gitlink の更新
+
+### gitlink の照合
+
+- 本節の作成時の gitlink は `b06022e`。読み取りで取得した spec の main の先端は `a3e9ea2` で、一致しない（gitlink が古い。`update = none` のため独断で進めない）
+
 ## 分担
 
 | Issue | 段 |
@@ -219,6 +270,8 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 ## 確かめた日付
 
 2026-10-12（1/4。base: origin/main の `ca396fd`、gitlink: `a7de5c2`）
+
+2026-10-12（4/4。base: origin/main の `5bd4a5a`、gitlink: `b06022e`）
 
 ## 関連
 
