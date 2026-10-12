@@ -85,6 +85,31 @@ spec の本文・点検の対象の名前・候補・結果・件数は転記し
 | F9 | 見直しの提案 | 本リポには ID のポインタ・「spec 側の判断待ち」・「保留」だけを書く | [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)、[out-of-scope-tracking](../.claude/rules/out-of-scope-tracking.md) |
 | F10 | 検査 | 文書だけなので `make check` で足りる。make ターゲット・CI ジョブ・スクリプトは足さない | [makefile](../.claude/rules/makefile.md)、[github-actions](../.claude/rules/github-actions.md) |
 
+## 確かめの記録
+
+本リポで観測できる事実だけを記録する（F5〜F7）。点検の記録（表・結果）の正は private spec 側で、本書には置かない（ポインタ: `docs/spec/05-tasks.md` の TASK-236）。
+
+### 4/8（Issue #3935）
+
+範囲は TASK-236 の内容の (1)（対象の項目: `docs/spec/04-behavior/build-profiles.md` の BUILD-18）。(2)（BUILD-64）は 5/8（Issue #3936）の受け持ち。
+
+| # | 確かめる項目 | 方法 | 現時点の結果 |
+| - | ------------ | ---- | ------------ |
+| 1 | 前段（1/8〜3/8）が済んでいる | Issue #3932・#3933・#3934 の状態 | 成り立つ（いずれも CLOSED） |
+| 2 | TASK-236 が gitlink の commit の `docs/spec/05-tasks.md` に見出しとして在る | gitlink の commit の当該ファイルを `gh api` で読み取り、見出しを検索する（取得物は残さない） | 在る |
+| 3 | BUILD-18 が gitlink の commit の `docs/spec/04-behavior/build-profiles.md` に在る | 同上 | 在る |
+| 4 | 「方針（2/8）が前提にする本リポの事実」の表がいまも成り立つ | `crates/contract/Cargo.toml`、`grep -rni dx12 crates --include='*.rs'`、`ls crates/contract/src`、`ls docs/contract` | 成り立つ |
+| 5 | 製品 crate の公開面に DX12 の compute に関する操作・型が在る | `grep -rnE 'pub (fn\|struct\|enum\|trait\|type\|const\|static\|mod\|use)' crates/*/src`、`crates/contract/src/lib.rs` | 無い（`contract` の公開面は Metal・Vulkan・CUDA のモジュール宣言だけ。`core` の公開項目は `test-support` の裏の比較の道具 `parity` で、DX12 に関する記述は無い。`exec`・`upper` に公開項目は無い。本リポのコードを対象にした点検は行わない） |
+| 6 | 範囲 (1) の点検の記録（表）そのもの | 本リポからは確かめない | 本リポからは確かめない（正は private spec 側。書き手は論点 1 の判断待ち） |
+| 7 | 外部仕様の確かめ（F8） | 本段では reference-researcher へ委譲していない | 未検証（理由: 結果の置き場が spec 側で、書き手が論点 1 の判断待ち） |
+| 8 | 見直しの提案（F9）で本リポから挙げたもの | 本書の「オーナー判断待ち」 | 無い（新しい論点は足していない） |
+| 9 | 本作業で feature・モジュール・テスト・領域ごとの契約の文書・make ターゲット・CI ジョブを足していない | `git diff --stat origin/main...HEAD`、`ls docs/contract` | 成り立つ |
+| 10 | 品質ゲート | `make check` | 通過（`make verify`・`make deny` は未実行。コード・設定の変更が無いため） |
+
+- 判定: 本リポで確かめられる項目に問題は見つからなかった。範囲 (1) の記録の正は private spec 側（ポインタのみ）
+- 再実行の契機: gitlink の更新（`update-external.yml` の PR）、`crates/contract/Cargo.toml` のコメントのポインタの変更、製品 crate の公開面の追加
+- 版の記録: 2026-10-12（base: `d8e06a1`、gitlink: `c1cb4c9`）
+
 ## オーナー判断待ち
 
 論点 1: spec 側の点検の記録を、誰がどの経路で書くか（ポインタ: TASK-236、#461）

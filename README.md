@@ -86,7 +86,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポへの反映の方針（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具（TASK-98）の現状と前提・方針（案） |
 | `docs/vulkan-extraction-tool.md` | Vulkan の抽出の道具の現状と前提・論点の列挙（TASK-98） |
-| `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポへの反映の方針・文書の形（案。TASK-236） |
+| `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポへの反映の方針・文書の形・確かめの記録（案。TASK-236） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
