@@ -33,6 +33,9 @@ const OP_CONSTANT: u16 = 43;
 const OP_VARIABLE: u16 = 59;
 const OP_DECORATE: u16 = 71;
 const OP_MEMBER_DECORATE: u16 = 72;
+const OP_DECORATION_GROUP: u16 = 73;
+const OP_GROUP_DECORATE: u16 = 74;
+const OP_GROUP_MEMBER_DECORATE: u16 = 75;
 
 const DECORATION_BLOCK: u32 = 2;
 const DECORATION_BUFFER_BLOCK: u32 = 3;
@@ -74,7 +77,6 @@ pub enum ByteLength {
 
 /// 取り出した storage buffer の宣言 1 件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ExtractedOperand {
     /// descriptor set の番号。
     pub set: u32,
@@ -120,6 +122,9 @@ pub enum UnsupportedShape {
     NonZeroMemberOffset,
     /// 配列の長さが整数型の定数でない、または正でない。
     InvalidLength,
+    /// 装飾グループ（`OpDecorationGroup` / `OpGroupDecorate` / `OpGroupMemberDecorate`）を使っている。
+    /// 展開しないので、装飾を見落とさないよう拒否する。`id` はグループの id。
+    DecorationGroup,
     /// 上のどれでもない想定外の型。
     OtherType,
 }
@@ -436,6 +441,12 @@ pub fn extract_storage_buffer_operands(
                     id,
                     ptr_type: o(0)?,
                     storage_class: o(2)?,
+                });
+            }
+            OP_DECORATION_GROUP | OP_GROUP_DECORATE | OP_GROUP_MEMBER_DECORATE => {
+                return Err(SpirvExtractError::Unsupported {
+                    id: o(0)?,
+                    shape: UnsupportedShape::DecorationGroup,
                 });
             }
             OP_MEMBER_DECORATE => {
@@ -821,6 +832,41 @@ mod tests {
             extract_storage_buffer_operands(&module(&insts)),
             unsupported(UnsupportedShape::NonZeroMemberOffset)
         );
+    }
+
+    #[test]
+    fn decoration_groups_are_rejected() {
+        // グループ経由の Offset / BufferBlock を黙って落とさず、明示的に拒否する。
+        let cases = [
+            (OP_DECORATION_GROUP, vec![9]),
+            (OP_GROUP_DECORATE, vec![9, 3]),
+            (OP_GROUP_MEMBER_DECORATE, vec![9, 3, 0]),
+        ];
+        for (opcode, ops) in cases {
+            let mut insts = buffer_insts(false, 16, 0, 0);
+            insts.push(inst(opcode, &ops));
+            assert_eq!(
+                extract_storage_buffer_operands(&module(&insts)),
+                Err(SpirvExtractError::Unsupported {
+                    id: 9,
+                    shape: UnsupportedShape::DecorationGroup,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn extracted_operand_can_be_built_outside_the_module() {
+        let x = ExtractedOperand {
+            set: 0,
+            binding: 0,
+            element: ScalarKind::Float { bits: 32 },
+            element_bytes: 4,
+            array_stride: Some(4),
+            byte_length: ByteLength::Fixed(64),
+        };
+        let m = module(&buffer_insts(false, 16, 0, 0));
+        assert_eq!(extract_storage_buffer_operands(&m), Ok(vec![x]));
     }
 
     #[test]
