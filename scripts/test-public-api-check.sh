@@ -32,7 +32,7 @@ run_case() {
 }
 
 ROOT='"0":{"crate_id":0,"name":"c","visibility":"public","inner":{"module":{}}}'
-HEAD='{"root":0,"includes_private":false,"index":{'
+HEAD='{"root":0,"includes_private":false,"format_version":57,"index":{'
 run_case "valid, no references" 0 "" \
     "${HEAD}${ROOT}},\"paths\":{},\"external_crates\":{}}"
 run_case "public item without inner" 2 "without a valid 'inner'" \
@@ -43,6 +43,17 @@ run_case "root without inner" 2 "'root'" \
     "${HEAD}\"0\":{\"crate_id\":0,\"visibility\":\"public\"}},\"paths\":{},\"external_crates\":{}}"
 run_case "wgpu reference" 1 "violation:" \
     "${HEAD}${ROOT},\"1\":{\"crate_id\":0,\"name\":\"f\",\"visibility\":\"public\",\"inner\":{\"x\":{\"id\":7}}}},\"paths\":{\"7\":{\"crate_id\":1}},\"external_crates\":{\"1\":{\"name\":\"wgpu\"}}}"
+
+run_case "unresolved reference id" 2 "unresolved reference" \
+    "${HEAD}${ROOT},\"1\":{\"crate_id\":0,\"name\":\"f\",\"visibility\":\"public\",\"inner\":{\"x\":{\"id\":7}}}},\"paths\":{},\"external_crates\":{}}"
+run_case "internal reference resolved by index" 0 "" \
+    "${HEAD}${ROOT},\"1\":{\"crate_id\":0,\"name\":\"f\",\"visibility\":\"public\",\"inner\":{\"x\":{\"id\":0}}}},\"paths\":{},\"external_crates\":{}}"
+run_case "string reference id (old format)" 2 "non-integer" \
+    "${HEAD}${ROOT},\"1\":{\"crate_id\":0,\"name\":\"f\",\"visibility\":\"public\",\"inner\":{\"x\":{\"id\":\"0:7\"}}}},\"paths\":{},\"external_crates\":{}}"
+run_case "format_version missing" 2 "format_version" \
+    '{"root":0,"includes_private":false,"index":{'"${ROOT}"'},"paths":{},"external_crates":{}}'
+run_case "format_version is a string" 2 "format_version" \
+    '{"root":0,"includes_private":false,"format_version":"1","index":{'"${ROOT}"'},"paths":{},"external_crates":{}}'
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]

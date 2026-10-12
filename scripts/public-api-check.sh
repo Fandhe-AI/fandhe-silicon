@@ -18,7 +18,8 @@
 # （rust-toolchain.toml の stable では終了コード 2 になる。rustup の仕組みで選ぶ）。
 #
 # 数える段: 自 crate の公開アイテム（visibility が public / default）の inner をたどり、整数の id を持つ
-# object を拾って paths / external_crates で crate 名に解決する。wgpu 系の crate（定数 WGPU_NAMES・
+# object を拾って paths / external_crates で crate 名に解決する（paths に無い id は index の
+# 内部アイテムだけ許し、どちらにも無い id・整数でない id・整数でない format_version は終了コード 2）。wgpu 系の crate（定数 WGPU_NAMES・
 # 接頭辞 WGPU_PREFIXES）への参照を、型の参照（type）とそれ以外の参照（path: トレイト・境界・再 export）に分けて
 # 数え、合計が 1 件以上なら違反。標準出力に組ごとに `scanned:` の行を出す。ホストのパスは出さない。
 #
@@ -63,8 +64,10 @@ def is_wgpu(name):
 def collect_ids(node, out, in_resolved=False):
     """inner を再帰でたどり (id, 種別) を集める。resolved_path の値の id は type、ほかは path。"""
     if isinstance(node, dict):
-        nid = node.get("id")
-        if isinstance(nid, int) and not isinstance(nid, bool):
+        if "id" in node:
+            nid = node["id"]
+            if not isinstance(nid, int) or isinstance(nid, bool):
+                raise Misuse("rustdoc json: non-integer reference id (unsupported format)")
             out.append((nid, "type" if in_resolved else "path"))
         for k, v in node.items():
             collect_ids(v, out, k == "resolved_path")
@@ -91,7 +94,9 @@ def scan(doc, features):
     crate = "-"
     if isinstance(root_item.get("name"), str):
         crate = root_item["name"]
-    fv = doc.get("format_version", "-")
+    fv = doc.get("format_version")
+    if not isinstance(fv, int) or isinstance(fv, bool):
+        raise Misuse("rustdoc json: missing or non-integer 'format_version'")
 
     public_items = 0
     counts = {"type": 0, "path": 0}
@@ -114,7 +119,11 @@ def scan(doc, features):
         for rid, kind in found:
             p = paths.get(str(rid))
             if not isinstance(p, dict):
-                continue
+                # paths に無い id は、index にある内部アイテムへの参照だけ許す。
+                # どちらにも無い参照は解決できないので、成功扱いにしない。
+                if str(rid) in index:
+                    continue
+                raise Misuse("rustdoc json: unresolved reference id")
             cid = p.get("crate_id")
             if cid == 0:
                 continue
