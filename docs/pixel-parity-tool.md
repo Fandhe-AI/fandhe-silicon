@@ -13,7 +13,7 @@
 | 型 | 入力・閾値の設定・集計・エラーは `pixel.rs` の中の専用の型。`tolerance.rs` の型は使わない | `crates/core/src/parity/pixel.rs` |
 | 入力 | メモリ上の列を受ける口だけを持つ。画像ファイルの読み込み・復号はしない。`baseline-wgpu/`（ルート `Cargo.toml` の `exclude` の別 workspace）を参照しない | `crates/core/src/parity/pixel.rs`、ルート `Cargo.toml` |
 | 利用側 | `exec`・`upper` に `test-support` の転送は無い | 各 `Cargo.toml` |
-| 走る場所 | `make verify` と、`make build-profiles` の `test-support` を含む 4 組（`crates/contract/tests/test_support_pixel.rs` 経由）。GPU の実機は要らない | `scripts/build-profiles.sh` の `NATIVE_SETS` |
+| 走る場所 | `core` の `parity_pixel` は `make verify`（`--all-features`）で走る。`contract` の `test_support_pixel` は `make verify` に加え、`make build-profiles`（対象は `fandhe-silicon-contract` だけ）の `test-support` を含む 4 組でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` の `PKG`・`NATIVE_SETS` |
 
 ## 振る舞い
 
@@ -54,7 +54,7 @@
 | -------- | ------ |
 | `contract` の `test-support` だけで、`core` の画素の道具が使え、同じ画像どうしが一致する | `contract_test_support_enables_core_pixel_tool` |
 | `core` の外の crate から `T3` の getter が読め、値どうしの関係が成り立つ | `pixel_threshold_setting_is_readable_from_outside_core` |
-| 固定の小さな画像で、2 つの比べが背後実装の feature の組に依らず固定の結果になる（`make build-profiles` の各組で走る） | `pixel_comparisons_give_fixed_results_under_any_backend_feature_set` |
+| 固定の小さな画像で、2 つの比べが背後実装の feature の組に依らず固定の結果になる（`contract` のテストなので、`make build-profiles` の各組で走る） | `pixel_comparisons_give_fixed_results_under_any_backend_feature_set` |
 | 大きさ 0 の入力と大きさの不一致が、外から到達できるエラーになる | `pixel_input_and_size_errors_are_reachable_from_outside_core` |
 
 ## 確かめ方
@@ -63,7 +63,7 @@ worktree のルートで実行する。
 
 - `cargo test -p fandhe-silicon-core --features test-support`: 画素の道具の統合テスト（`parity_pixel`）と doctest
 - `cargo test -p fandhe-silicon-contract --features test-support --test test_support_pixel`: 別 crate からの確かめ
-- `make build-profiles`: `test-support` を含む組を含む feature の組ごとのビルド・clippy・test
+- `make build-profiles`: `contract` の feature の組ごとのビルド・clippy・test（`test-support` を含む組で `test_support_pixel` が走る）
 - `make verify`: `--all-features` の fmt・clippy・test
 - `make deny`・`make deps-check`: 依存が増えていないこと
 - `make check`: editorconfig-checker と shellcheck

@@ -12,7 +12,7 @@
 | 依存 | 外部依存 0。`unsafe` を使わない（`core` は `#![forbid(unsafe_code)]`） | `Cargo.lock`、`crates/core/src/lib.rs` |
 | 背後実装での分岐 | `parity` に背後実装の `cfg` は無い。`core` の `Cargo.toml` に背後実装の feature は無い | `grep -rn "cfg(" crates/core/src/parity.rs crates/core/src/parity`（0 件） |
 | 利用側 | `crates/core/tests/`・`crates/contract/tests/test_support_*.rs`・`crates/core/src/test_frame`（[test-frame](test-frame.md)）。`contract`（`src`）・`exec`・`upper` は参照しない。`exec`・`upper` に `test-support` の転送は無い | `grep -rl parity crates` |
-| 走る場所 | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む 4 組（背後実装なし・Metal だけ・Vulkan だけ・CUDA だけ）。GPU の実機は要らない。背後実装を選んだ組でも、道具のテストは `required-features` で skip されず走る | `scripts/build-profiles.sh` の `NATIVE_SETS` |
+| 走る場所 | `core` の `parity_*` の統合テストは `make verify`（`cargo test --workspace --all-features`）で走る。`contract` の `test_support_*` のテストは `make verify` に加え、`make build-profiles`（対象は `fandhe-silicon-contract` だけ）の `test-support` を含む 4 組（背後実装なし・Metal だけ・Vulkan だけ・CUDA だけ）でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` の `PKG`・`NATIVE_SETS` |
 
 ## 振る舞い
 
@@ -85,7 +85,7 @@
 | 振る舞い | テスト |
 | -------- | ------ |
 | `core` の外の crate から `T1` の getter が読め、有限で正 | `threshold_setting_is_readable_from_outside_core` |
-| 行列積 → 比べ → Top-k → T-2 の比べが、背後実装の feature の組に依らず固定の期待値になる（`make build-profiles` の各組で走る） | `parity_pipeline_gives_fixed_results_under_any_backend_feature_set` |
+| 行列積 → 比べ → Top-k → T-2 の比べが、背後実装の feature の組に依らず固定の期待値になる（`contract` のテストなので、`make build-profiles` の各組で走る） | `parity_pipeline_gives_fixed_results_under_any_backend_feature_set` |
 
 ## 閾値の設定と当てる範囲の扱い
 
@@ -110,7 +110,7 @@ worktree のルートで実行する。
 
 - `cargo test -p fandhe-silicon-core --features test-support`: 道具の統合テストと doctest
 - `cargo test -p fandhe-silicon-contract --features test-support --test test_support_forwarding`: 別 crate からの確かめ
-- `make build-profiles`: `test-support` を含む組を含む feature の組ごとのビルド・clippy・test
+- `make build-profiles`: `contract` の feature の組ごとのビルド・clippy・test（`test-support` を含む組で `test_support_*` が走る）
 - `make verify`: `--all-features` の fmt・clippy・test
 - `make deny`・`make deps-check`: 依存が増えていないこと
 - `make check`: editorconfig-checker と shellcheck
