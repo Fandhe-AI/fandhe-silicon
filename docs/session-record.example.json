@@ -10,6 +10,6 @@
   "run_ids": ["example-run-a", "example-run-b"],
   "interrupted": false,
   "low_power_mode": false,
-  "resident_process_stopped": "example-value",
-  "gui_login_state": "example-value"
+  "resident_process_stopped": "not-stopped",
+  "gui_login_state": "logged-out"
 }

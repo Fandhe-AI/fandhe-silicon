@@ -194,6 +194,31 @@ for f in resident_process_stopped gui_login_state; do
   bad "word: ${f} number" "d['${f}'] = 1" 1 "field ${f}: invalid word"
 done
 
+# 値の一覧: 欄ごとの許す語は合格し、一覧に無い語・欄を取り違えた語は違反になる。
+for v in stopped not-stopped not-running; do
+  mut "d['resident_process_stopped'] = '${v}'"
+  run_check "${IN_F}"
+  judge "list: resident_process_stopped ${v}" 0 "ok: session record shape"
+done
+for v in logged-in logged-out; do
+  mut "d['gui_login_state'] = '${v}'"
+  run_check "${IN_F}"
+  judge "list: gui_login_state ${v}" 0 "ok: session record shape"
+done
+for v in paused unknown logged-in logged-out; do
+  bad "list: resident_process_stopped '${v}' not in list" "d['resident_process_stopped'] = '${v}'" 1 \
+    "field resident_process_stopped: not in the value list" "!${v}"
+done
+for v in paused unknown stopped not-stopped not-running; do
+  bad "list: gui_login_state '${v}' not in list" "d['gui_login_state'] = '${v}'" 1 \
+    "field gui_login_state: not in the value list" "!${v}"
+done
+bad "list: swapped fields" "d['resident_process_stopped'] = 'logged-in'; d['gui_login_state'] = 'stopped'" 2 \
+  "field gui_login_state: not in the value list"
+mut "d['gui_login_state'] = 'secretmarkx'"
+run_check "${IN_F}"
+judge "list: unlisted value not echoed" 1 "" "not in the value list" "!secretmarkx"
+
 # 複数の違反は件数が合うこと。
 bad "count: two violations" "d['session'] = 1; d['machine'] = 'x'" 2
 
