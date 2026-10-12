@@ -18,7 +18,8 @@
 #   （他の cargo の呼び出し・make・CI には広げない）。依存の crate も同じ呼び出しの中で
 #   その環境変数の下でコンパイルされるため、成果物は cargo metadata の target_directory 配下の
 #   専用ディレクトリ（public-api-check）に分け、製品のビルドと共有しない。
-#   流す前に古い JSON を消し、流した後に在ることを確かめる。target は native だけ。
+#   流す前に古い JSON を消し、流した後に在ることを確かめ、組ごとの専用パス（{lib}.{組}.json）へ移す
+#   （組が同じ出力パスを共有して上書きし合わないため）。target は native だけ。
 #
 # 数える段の規則（外れたら終了コード 2。違反は 1）:
 #   V1 トップが object で index・paths・external_crates が object、root が在り、includes_private が false、
@@ -244,7 +245,10 @@ def build_docs(root):
             done = run(cmd, with_env=env, to_stderr=True)
             need(done.returncode == 0, "cargo rustdoc failed for %s (%s)" % (clean(name), label))
             need(os.path.isfile(path), "rustdoc JSON was not produced for %s" % clean(name))
-            out.append((name, label, path))
+            # 次の組が同じパスへ出力して上書きするため、組ごとの専用パスへ移して保持する。
+            kept = os.path.join(tdir, "doc", "%s.%s.json" % (lib, label))
+            os.replace(path, kept)
+            out.append((name, label, kept))
     return out
 
 

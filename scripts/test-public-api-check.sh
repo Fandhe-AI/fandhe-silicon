@@ -283,5 +283,45 @@ judge "json_without_path" 2 "!ok: "
 run_check --json "${work}/ok_noref.json" "${work}/notjson.json"
 judge "second_unreadable" 2 "e:error: " "!ok: "
 
+# ---- 組ごとの JSON を取り違えないこと（偽の cargo / rustdoc を PATH の先頭に置く）----
+# 偽の cargo は、--all-features の有無で別の合成 JSON を {lib}.json へ書く。片方の組にだけ禁止参照が
+# ある場合に、後の組の JSON で上書きされて見逃されないことを確かめる。
+fakebin="${work}/fakebin"
+mkdir -p "${fakebin}"
+cat >"${fakebin}/cargo" <<'FAKE'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "cargo fake"; exit 0 ;;
+  metadata)
+    printf '{"workspace_members":["fake 0.0.0"],"target_directory":"%s","packages":[{"id":"fake 0.0.0","name":"fake","targets":[{"kind":["lib"],"name":"dummy"}]}]}\n' "${FAKE_TARGET}"
+    exit 0 ;;
+  rustdoc)
+    src="${FAKE_PROD}"
+    for a in "$@"; do
+      if [ "$a" = "--all-features" ]; then src="${FAKE_ALL}"; fi
+    done
+    mkdir -p "${FAKE_TARGET}/public-api-check/doc"
+    cp "${src}" "${FAKE_TARGET}/public-api-check/doc/dummy.json"
+    exit 0 ;;
+esac
+exit 1
+FAKE
+printf '#!/usr/bin/env bash\nexit 0\n' >"${fakebin}/rustdoc"
+chmod +x "${fakebin}/cargo" "${fakebin}/rustdoc"
+
+# run_fake <production の JSON> <all-features の JSON>: 偽の cargo で JSON を作る経路を流す。
+run_fake() {
+  rc=0
+  PATH="${fakebin}:${PATH}" FAKE_TARGET="${work}/faketarget" FAKE_PROD="$1" FAKE_ALL="$2" \
+    "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+}
+
+run_fake "${work}/bad_type.json" "${work}/ok_noref.json"
+judge "build_prod_only_bad" 1 "e:features=production" "e:FAILED: 1 reference(s)" "o:features=production" "o:features=all-features" "!ok: "
+run_fake "${work}/ok_noref.json" "${work}/bad_type.json"
+judge "build_all_only_bad" 1 "e:features=all-features" "e:FAILED: 1 reference(s)" "!ok: "
+run_fake "${work}/ok_noref.json" "${work}/ok_noref.json"
+judge "build_both_ok" 0 "o:ok: 2 public API document(s)" "!violation"
+
 echo "passed: ${passed}, failed: ${failed}"
 [ "${failed}" -eq 0 ]
