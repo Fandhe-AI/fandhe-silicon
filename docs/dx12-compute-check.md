@@ -154,6 +154,27 @@ git grep -n -E '^[[:space:]]*pub(\([a-z]+\))? (fn|struct|enum|trait|type|const|s
 - 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）
 - 版の記録: 2026-10-12（base: `c0d94a2`、gitlink: `c1cb4c9`。spec リポの `main` の先端は 2026-10-12 時点で確かめた）
 
+### 7/8（Issue #3938）
+
+範囲のポインタ: TASK-236 の成果物に対応する決定の記録（`docs/spec/05-tasks.md`、`docs/spec/04-behavior/build-profiles.md` の BUILD-18・BUILD-64）。本リポで観測できる事実だけを記録する。決定の記録と成果物の本体の正は private spec 側で、本書には置かない。
+
+| # | 確かめる項目 | 方法 | 現時点の結果 |
+| - | ------------ | ---- | ------------ |
+| 1 | 前段（1/8〜6/8）の状態 | Issue #3932〜#3937 の状態 | 1/8〜5/8 は CLOSED。6/8（#3937）は OPEN（PR #7042 も OPEN で base と衝突中） |
+| 2 | 範囲のポインタ（TASK-236）が gitlink の指す commit に在る | `gh api` の読み取り（取得物は削除） | 在る |
+| 3 | 決定の記録の所在 | 本書「記録の所在」、`docs/contract/procedure.md` の置き場の表 | private spec 側（ポインタのみ） |
+| 4 | TASK-236 の状態・決定の記録が、gitlink の指す commit に在る | 同上の取得物を「状態」「決定の記録」で検索 | 無い |
+| 5 | 論点 1・2 への回答の記録 | 本リポの文書・Issue #3937 の状態 | 無い（回答待ち。6/8 が OPEN のまま） |
+| 6 | 成果物の本体（spec 側） | 本リポからは確かめない | 本リポからは確かめない（書き手と経路は論点 1 の判断待ち） |
+| 7 | 本リポ側で決まっている点 | 本書「形の設計（3/8）」 | 在る（既存の決定から一意に導いた点だけ） |
+| 8 | 本範囲で新しい決定・新しい論点を足していない。推奨案を確定していない | `git diff origin/main...HEAD` | 成り立つ |
+| 9 | feature・モジュール・テスト・領域ごとの契約の文書・make ターゲット・CI ジョブを足していない | `git diff --stat origin/main...HEAD`、`ls docs/contract crates/contract/src` | 成り立つ |
+| 10 | 品質ゲート | `make check` | 通過（`make verify`・`make deny` は未実行。コード・設定の変更なし） |
+
+- 判定: 決定の記録は spec 側にまだ無く、本書は案のまま。回答に依る部分は「保留」で、8/8（#3939）へ引き継ぐ
+- 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）
+- 版の記録: 2026-10-12（base: `08b9c22`、gitlink: `c1cb4c9`）
+
 ## オーナー判断待ち
 
 論点 1: spec 側の点検の記録を、誰がどの経路で書くか（ポインタ: TASK-236、#461）
