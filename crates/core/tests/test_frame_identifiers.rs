@@ -123,6 +123,19 @@ fn every_id_in_the_table_is_canonical_unique_and_approved() {
     }
 }
 
+/// 表の中身と期待の集合の完全な一致（順は問わない）。表に ID を足しても消しても落ちる。
+/// 期待の集合は表を変える PR が一緒に直す、ここ 1 か所だけに置く。
+#[test]
+fn the_table_equals_the_expected_set_exactly() {
+    let mut expected = vec![
+        "t-1", "t-2", "t-3", "t-5", "t-7", "t-8", "t-9", "t-10", "t-11", "t-15", "t-16", "t-17",
+    ];
+    let mut actual = APPROVED_THRESHOLDS.to_vec();
+    expected.sort_unstable();
+    actual.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn ids_outside_the_table_are_not_approved() {
     for n in ["t-100", "t-998", "t-999"] {

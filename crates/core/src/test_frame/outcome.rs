@@ -301,15 +301,15 @@ mod tests {
     /// 承認の判定を差し替えられるのはこの crate の中だけ。差し替えた判定が、宣言の順の最初の未承認を選ぶ。
     #[test]
     fn injected_approval_picks_the_first_unapproved_threshold_in_declared_order() {
-        let s = Subject::from_parts("inject", &[], &["t-1", "t-13", "t-12"]).unwrap();
-        let approve = |t: &ThresholdId| t.as_str() == "t-1";
+        let s = Subject::from_parts("inject", &[], &["t-996", "t-997", "t-998"]).unwrap();
+        let approve = |t: &ThresholdId| t.as_str() == "t-996";
         for body in [Verdict::Match, Verdict::Mismatch] {
             let o = judge_with_approval(&s, &declaration(), &running_setting(), approve, |_| {
                 RunResult::Verdict(body)
             });
             assert_eq!(
                 o.label(),
-                &Label::Pending(ThresholdId::new("t-13").unwrap())
+                &Label::Pending(ThresholdId::new("t-997").unwrap())
             );
         }
     }
@@ -317,7 +317,7 @@ mod tests {
     /// 全て承認済みと判定されれば、比べの結果がそのまま OK・NG になる。
     #[test]
     fn injected_full_approval_maps_verdicts_to_ok_and_ng() {
-        let s = Subject::from_parts("inject", &[], &["t-12", "t-13"]).unwrap();
+        let s = Subject::from_parts("inject", &[], &["t-997", "t-998"]).unwrap();
         let all = |_: &ThresholdId| true;
         let ok = judge_with_approval(&s, &declaration(), &running_setting(), all, |_| {
             RunResult::Verdict(Verdict::Match)
