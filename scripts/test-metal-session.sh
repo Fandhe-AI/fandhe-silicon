@@ -764,12 +764,113 @@ PY
 ms scan "${words}" "${work}/mixed.txt"
 expect "shapes: words and shapes are both reported" 1 "input 1: 1 residual occurrence(s) on line(s) 1" "input 1: 1 ipv4-shaped value(s) on line(s) 1" "FAILED: 2 residual occurrence(s)" '!example-host' '!192'
 
-# redact は形で拾う値を置き換えない。残りを知らせ、scan が止める。
+# redact は語の置き換えのあと、scan と同じ判定で拾った形を決まった印（IPv4・IPv6 は <ip>、UUID は <uuid>）に置き換える。
 ms redact "${words}" "${work}/mixed.txt" "${work}/mixed-out.txt"
-expect "shapes: redact leaves shapes and notes them without values" 0 "ok: replaced 1 occurrence(s)" "note: values of IP address or UUID shape are not replaced (ipv4: 1)" '!192'
-check "shapes: redact output keeps the shaped value" "$(grep -q '^<example-machine> at 192\.0\.2\.7$' "${work}/mixed-out.txt" && echo 0 || echo 1)"
+expect "redact shapes: words and a shape on one line" 0 "ok: replaced 1 occurrence(s)" "replaced 1 ipv4-shaped value(s) on line(s) 1" '!192' '!<ip>' '!<example'
+check "redact shapes: the word and the shape are replaced" "$([ "$(cat "${work}/mixed-out.txt")" = "<example-machine> at <ip>" ] && echo 0 || echo 1)"
 ms scan "${words}" "${work}/mixed-out.txt"
-expect "shapes: scan stops on redact output with a shape" 1 "input 1: 1 ipv4-shaped value(s) on line(s) 1" '!192'
+expect "redact shapes: scan passes on the output" 0 "ok:"
+
+# 各形が決まった印に置き換わる（期待の出力の完全一致）。値は実行時に組み立てる。
+python3 -I - "${work}/rs-in.txt" "${work}/rs-want.txt" <<'PY'
+import sys
+
+CASES = [
+    ("peer 192DOT0DOT2DOT7 up", "peer <ip> up"),
+    ("peer 198DOT51DOT100DOT9COL8080 up", "peer <ip>:8080 up"),
+    ("version 1DOT2DOT3DOT4 build 1DOT2DOT3DOT4DOT5", "version <ip> build <ip>.5"),
+    ("port by dot 192DOT0DOT2DOT7DOT8080", "port by dot <ip>.8080"),
+    ("zero padded 010DOT000DOT002DOT007", "zero padded <ip>"),
+    ("addr 2001COLdb8COLCOL1", "addr <ip>"),
+    ("[2001COLdb8COLCOL1]COL443", "[<ip>]:443"),
+    ("link fe80COLCOL1%en0", "link <ip>%en0"),
+    ("lo COLCOL1", "lo <ip>"),
+    ("addrCOL2001COLdb8COLCOL1", "addr:<ip>"),
+    ("peer 2001COLdb8COLCOL1COL refused", "peer <ip>: refused"),
+    ("eui 00COL11COL22COL33COL44COL55COL66COL77", "eui <ip>"),
+    ("gpu 00000000-0000-4000-8000-0000000000ab", "gpu <uuid>"),
+    ("GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE", "GPU-<uuid>"),
+    ("hex 0x00000000-0000-4000-8000-0000000000ab", "hex 0x<uuid>"),
+    ("tail 00000000-0000-4000-8000-0000000000ab0", "tail <uuid>0"),
+    ("a 192DOT0DOT2DOT7 b 2001COLdb8COLCOL1 c 00000000-0000-4000-8000-0000000000ab", "a <ip> b <ip> c <uuid>"),
+    ("192DOT0DOT2DOT7 192DOT0DOT2DOT8 192DOT0DOT2DOT9", "<ip> <ip> <ip>"),
+    ("example-host at 192DOT0DOT2DOT7 and 00000000-0000-4000-8000-0000000000ab", "<example-machine> at <ip> and <uuid>"),
+    ("mapped COLCOLffffCOL192DOT0DOT2DOT7 end", "mapped <ip> end"),
+    ("over range 256DOT1DOT1DOT1", "over range 2<ip>"),
+    ("label ends in hex IPv6COL2001COLdb8COLCOL1", "label ends in hex IPv<ip>"),
+    ("label ends in hex srcCOL2001COLdb8COL0COL0COL0COL0COL0COL1", "label ends in hex sr<ip>"),
+]
+
+
+def fx(t):
+    return t.replace("DOT", ".").replace("COL", ":")
+
+
+open(sys.argv[1], "w").write("\n".join(fx(i) for i, _ in CASES) + "\n")
+open(sys.argv[2], "w").write("\n".join(fx(o) for _, o in CASES) + "\n")
+PY
+ms redact "${words}" "${work}/rs-in.txt" "${work}/rs-out.txt"
+expect "redact shapes: each form becomes its mark" 0 "ok: replaced 1 occurrence(s)" "ipv4-shaped value(s)" "ipv6-shaped value(s)" "uuid-shaped value(s)" '!192' '!2001' '!fe80' '!0000' '!AAAA' '!<ip>' '!<uuid>'
+check "redact shapes: output matches the expected text exactly" "$(cmp -s "${work}/rs-want.txt" "${work}/rs-out.txt" && echo 0 || echo 1)"
+ms scan "${words}" "${work}/rs-out.txt"
+expect "redact shapes: scan passes on the output of every form" 0 "ok:"
+
+# 語の一覧の側で予約の印を使える。語が予約の印の中に含まれる一覧は拒否する。
+printf 'example-host\t<ip>\n' >"${work}/w-resv.txt"
+ms redact "${work}/w-resv.txt" "${log}" "${work}/out-resv.txt"
+expect "redact shapes: a list may use the reserved mark" 0 "ok: replaced 1 occurrence(s)"
+check "redact shapes: the reserved mark from the list is written" "$(grep -qF 'line1 <ip> connected' "${work}/out-resv.txt" && echo 0 || echo 1)"
+printf 'example-host\t<example-machine>\nuuid\t<example-word>\n' >"${work}/w-resv2.txt"
+ms redact "${work}/w-resv2.txt" "${log}" "${work}/out-resv2.txt"
+expect "redact shapes: a word inside the reserved uuid mark is refused" 2 "occurs in a replacement mark" '!example-host'
+printf 'ip\t<example-word>\n' >"${work}/w-resv3.txt"
+ms scan "${work}/w-resv3.txt" "${log}"
+expect "redact shapes: a word inside the reserved ip mark is refused by scan" 2 "occurs in a replacement mark"
+check "redact shapes: no output for the refused list" "$([ ! -e "${work}/out-resv2.txt" ] && echo 0 || echo 1)"
+
+# 語の置き換えが先。形が語の一部と重なっても、残りの形だけが置き換わる。
+printf '192DOT0DOT2\t<example-net>\ndb8\t<example-db>\n' | sed -e 's/DOT/./g' >"${work}/w-overlap2.txt"
+python3 -I - "${work}/in-overlap2.txt" <<'PY'
+import sys
+
+open(sys.argv[1], "w").write("192DOT0DOT2DOT7 and 2001COLdb8COLCOL1\n".replace("DOT", ".").replace("COL", ":"))
+PY
+ms redact "${work}/w-overlap2.txt" "${work}/in-overlap2.txt" "${work}/out-overlap2.txt"
+expect "redact shapes: words are replaced first, then what is left of a shape" 0 "ok: replaced 2 occurrence(s)" "replaced 1 ipv6-shaped value(s) on line(s) 1" '!192' '!2001'
+check "redact shapes: overlap with a word leaves the rest as text" "$([ "$(cat "${work}/out-overlap2.txt")" = "<example-net>.7 and 2001:<example-db><ip>" ] && echo 0 || echo 1)"
+ms scan "${work}/w-overlap2.txt" "${work}/out-overlap2.txt"
+expect "redact shapes: scan passes after the overlap case" 0 "ok:"
+
+# 前の確かめで固定した「拾う形」は、redact のあと scan を通る。種類ごとの件数と行番号は scan と同じ。
+ms redact "${words}" "${shapes}" "${work}/shapes-out.txt"
+expect "redact shapes: every hit form is replaced and counted per kind" 0 "$(sed -n 1p "${exp}" | sed 's/^input 1: /replaced /')" "$(sed -n 2p "${exp}" | sed 's/^input 1: /replaced /')" "$(sed -n 3p "${exp}" | sed 's/^input 1: /replaced /')" '!192' '!2001' '!fe80' '!0000' '!<ip>' '!<uuid>'
+ms scan "${words}" "${work}/shapes-out.txt"
+expect "redact shapes: scan passes on the output of the hit forms" 0 "ok:"
+ms redact "${words}" "${shapes2}" "${work}/shapes2-out.txt"
+expect "redact shapes: hex-ending labels and nine groups are replaced" 0 "replaced 11 ipv6-shaped value(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11" '!ipv4' '!uuid' '!2001'
+ms scan "${words}" "${work}/shapes2-out.txt"
+expect "redact shapes: scan passes on the output of the label forms" 0 "ok:"
+
+# 拾わない形は置き換わらない（出力は入力と同じ）。
+for f in passfile passfile2; do
+  src="${work}/passes.txt"
+  [ "${f}" = passfile ] || src="${work}/passes2.txt"
+  ms redact "${words}" "${src}" "${work}/${f}-out.txt"
+  expect "redact shapes: look-alikes are not replaced (${f})" 0 "ok: replaced 0 occurrence(s)" '!-shaped'
+  check "redact shapes: look-alike text is unchanged (${f})" "$(cmp -s "${src}" "${work}/${f}-out.txt" && echo 0 || echo 1)"
+done
+
+# 置き換えの結果で別の形が現れたら（前後の文字が印に変わって判定が変わる）、書かずに 1 で終わる。
+python3 -I - "${work}/in-reveal.txt" <<'PY'
+import sys
+
+open(sys.argv[1], "w").write("1DOT7DOT2DOT2deadCOLCOL\n".replace("DOT", ".").replace("COL", ":"))
+PY
+ms redact "${words}" "${work}/in-reveal.txt" "${work}/out-reveal.txt"
+expect "redact shapes: a shape revealed by the replacement is refused" 1 "1 ipv6-shaped value(s) would remain on line(s) 1" "a shaped value would remain after replacement (1 occurrence(s))" "FAILED: 1 violation(s)" '!dead' '!<ip>'
+check "redact shapes: nothing is written for the refused case" "$([ ! -e "${work}/out-reveal.txt" ] && echo 0 || echo 1)"
+ms redact "${words}" "${work}/mixed.txt" "${work}/mixed-out.txt"
+expect "redact shapes: existing output is still not overwritten" 2 "output already exists"
 
 # 多数の行・大きな入力でも結果が正しい（行番号は上限まで。数え方は線形）。
 python3 -I - "${work}/ipmany.txt" "${work}/big.txt" "${work}/big-expected.txt" <<'PY'
@@ -789,8 +890,22 @@ ms scan "${words}" "${work}/ipmany.txt"
 expect "shapes: many shaped lines" 1 "input 1: 5000 ipv4-shaped value(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20" "FAILED: 5000 residual occurrence(s)" '!, 21'
 ms scan "${words}" "${work}/big.txt"
 expect "shapes: 60 MiB input finds exactly the one shaped value on its line" 1 "$(cat "${work}/big-expected.txt")" "FAILED: 1 residual occurrence(s)" '!ipv6' '!uuid'
+ms redact "${words}" "${work}/big.txt" "${work}/big-out.txt"
+expect "redact shapes: 60 MiB input replaces exactly the one shaped value on its line" 0 "$(sed 's/^input 1: /replaced /' "${work}/big-expected.txt")" '!ipv6' '!uuid' '!198'
+tail_rc=0
+python3 -I - "${work}/big.txt" "${work}/big-out.txt" <<'PY' || tail_rc=$?
+import sys
 
-# 止まった値を語の一覧に印つきで足して redact をやり直すと、置き換わって scan が通る。
+a = open(sys.argv[1], "rb").read()
+b = open(sys.argv[2], "rb").read()
+tail_a = "last 198DOT51DOT100DOT7\n".replace("DOT", ".").encode()
+tail_b = b"last <ip>\n"
+ok = a.endswith(tail_a) and b.endswith(tail_b) and a[: -len(tail_a)] == b[: -len(tail_b)]
+sys.exit(0 if ok else 1)
+PY
+check "redact shapes: 60 MiB output differs from the input only at the shaped value" "${tail_rc}"
+
+# 形で拾える値を語の一覧に載せても、語の置き換えが先に働いて同じ印の流れで通る。
 python3 -I - "${work}/flow.txt" "${work}/flow-words.txt" <<'PY'
 import sys
 
@@ -801,10 +916,31 @@ PY
 ms scan "${work}/flow-words.txt" "${work}/flow.txt"
 expect "flow: scan stops while the value is not in the list" 1 "FAILED:"
 ms redact "${work}/flow-words.txt" "${work}/flow.txt" "${work}/flow-out.txt"
-expect "flow: redact with the value added replaces it" 0 "ok: replaced 2 occurrence(s)" '!note:' '!192'
+expect "flow: redact with the value added replaces it" 0 "ok: replaced 2 occurrence(s)" '!-shaped' '!192'
 check "flow: the value became the mark" "$([ "$(cat "${work}/flow-out.txt")" = "<example-machine> at <example-address>" ] && echo 0 || echo 1)"
 ms scan "${work}/flow-words.txt" "${work}/flow-out.txt"
 expect "flow: scan passes after the rerun" 0 "ok:"
+
+# 形で拾えない値（全角の点で区切った形など）は置き換わらず、scan も通る。語の一覧に印つきで足して
+# redact をやり直すと置き換わり、一覧を付けた scan が検出する。
+python3 -I - "${work}/flow2.txt" "${work}/flow2-words.txt" <<'PY'
+import sys
+
+v = "192FW0FW2FW7".replace("FW", "．")
+open(sys.argv[1], "w").write("example-host at %s\n" % v)
+open(sys.argv[2], "w").write("example-host\t<example-machine>\n%s\t<example-address>\n" % v)
+PY
+ms redact "${words}" "${work}/flow2.txt" "${work}/flow2-out0.txt"
+expect "flow: a value the shapes cannot catch is not replaced" 0 "ok: replaced 1 occurrence(s)" '!-shaped'
+ms scan "${words}" "${work}/flow2-out0.txt"
+expect "flow: scan also passes while that value is left in the output" 0 "ok:"
+ms scan "${work}/flow2-words.txt" "${work}/flow2-out0.txt"
+expect "flow: scan with the value in the list finds the leftover" 1 "input 1: 1 residual occurrence(s) on line(s) 1" '!192'
+ms redact "${work}/flow2-words.txt" "${work}/flow2.txt" "${work}/flow2-out.txt"
+expect "flow: redact with the value added replaces it" 0 "ok: replaced 2 occurrence(s)" '!-shaped' '!192'
+check "flow: the uncatchable value became its mark" "$([ "$(cat "${work}/flow2-out.txt")" = "<example-machine> at <example-address>" ] && echo 0 || echo 1)"
+ms scan "${work}/flow2-words.txt" "${work}/flow2-out.txt"
+expect "flow: scan passes after the rerun with the value in the list" 0 "ok:"
 
 # 長い 1 行（16 MiB）とコロン・ドットだらけの入力で、結果が正しい（後戻りで止まらない）。
 python3 -I - "${work}" <<'PY'
@@ -828,6 +964,30 @@ ms scan "${words}" "${work}/long-colon-a.txt"
 expect "perf: 16 MiB line of hex groups is stopped once, as one value" 1 "input 1: 1 ipv6-shaped value(s) on line(s) 1" "FAILED: 1 residual occurrence(s)"
 ms scan "${words}" "${work}/long-dots.txt"
 expect "perf: 16 MiB line of dotted numbers is stopped once per line" 1 "ipv4-shaped value(s) on line(s) 1" '!, 2'
+
+# redact も同じ入力で結果が正しく、後戻りで止まらない。拾わない形の長い行は入力と同じまま出る。
+for f in long-colons long-hex long-dotnum long-dash; do
+  ms redact "${words}" "${work}/${f}.txt" "${work}/${f}-out.txt"
+  expect "perf: redact of 16 MiB line ${f} replaces nothing" 0 "ok: replaced 0 occurrence(s)" '!-shaped'
+  check "perf: redact of 16 MiB line ${f} leaves it unchanged" "$(cmp -s "${work}/${f}.txt" "${work}/${f}-out.txt" && echo 0 || echo 1)"
+  rm -f "${work}/${f}-out.txt"
+done
+ms redact "${words}" "${work}/long-colon-a.txt" "${work}/long-colon-a-out.txt"
+expect "perf: redact of a 16 MiB line of hex groups replaces it once" 0 "replaced 1 ipv6-shaped value(s) on line(s) 1" '!ipv4' '!uuid'
+check "perf: the 16 MiB hex groups became one mark" "$([ "$(cat "${work}/long-colon-a-out.txt")" = "<ip>:" ] && echo 0 || echo 1)"
+ms redact "${words}" "${work}/long-dots.txt" "${work}/long-dots-out.txt"
+expect "perf: redact of a 16 MiB line of dotted numbers counts each replacement" 0 "replaced 2097152 ipv4-shaped value(s) on line(s) 1" '!, 2'
+dots_rc=0
+python3 -I - "${work}/long-dots-out.txt" <<'PY' || dots_rc=$?
+import sys
+
+n = 16 * 1024 * 1024
+sys.exit(0 if open(sys.argv[1]).read() == "<ip>." * (n // 8) + "\n" else 1)
+PY
+check "perf: the 16 MiB dotted numbers became marks, one per 8 characters" "${dots_rc}"
+ms scan "${words}" "${work}/long-dots-out.txt"
+expect "perf: scan passes on the redacted dotted numbers" 0 "ok:"
+rm -f "${work}/long-dots-out.txt" "${work}/big-out.txt"
 
 # 誤用
 ms redact "${words}" "${log}"
