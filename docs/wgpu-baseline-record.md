@@ -8,7 +8,7 @@
 
 ## 適用範囲
 
-- 対象: 比較基準の別 workspace（基盤の外。TASK-7 の 2/4 で置く）から動かす、比較用のすべての run
+- 対象: 比較基準の別 workspace（基盤の外。`baseline-wgpu/`。現状は [baseline-wgpu](baseline-wgpu.md)）から動かす、比較用のすべての run
 - 基盤の workspace（`crates/` の 4 crate）は wgpu に依存しない。根拠は `deny.toml` と [workspace-boundary](workspace-boundary.md)
 
 ## 版の記録の欄
