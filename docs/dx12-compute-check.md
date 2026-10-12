@@ -134,6 +134,26 @@ git grep -n -E '^[[:space:]]*pub(\([a-z]+\))? (fn|struct|enum|trait|type|const|s
 
 確かめた日付: 2026-10-12（base: `d8e06a1`、gitlink: `c1cb4c9`）
 
+### 6/8（Issue #3937）
+
+範囲は本書「後続の分担」の 6/8（オーナーへの確認）に従う。本リポで観測できる事実だけを記録する。伺いの本体は下の「オーナー判断待ち」の論点 1・2。
+
+| # | 確かめる項目 | 方法 | 現時点の結果 |
+| - | ------------ | ---- | ------------ |
+| 1 | 前段（1/8〜5/8）の状態 | Issue #3932〜#3936 の状態 | 1/8〜5/8 はいずれも CLOSED |
+| 2 | 範囲のポインタ（TASK-236）が gitlink の commit の `docs/spec/05-tasks.md` に在る | gitlink の commit の当該ファイルを `gh api` で読み取り、ID を検索する（取得物は残さない） | 在る |
+| 3 | Issue の範囲の指し方が一意に決まる | Issue #3937 の本文と gitlink の commit の当該タスク | 成り立たない（範囲は本書「後続の分担」に従う） |
+| 4 | 論点 1・2 が伺いの 5 項目（要約・選択肢と影響・推奨・止まるもの・回答の形）の形で在る | 本書「オーナー判断待ち」、[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) | 成り立つ |
+| 5 | 論点 1・2 への回答の記録 | spec リポ側を ID で検索（gitlink の commit と `main` の先端。取得物は残さない）、Issue #461・#3937 のコメント | 無い（回答待ち） |
+| 6 | 伺いの経路 | contract-shaping-escalation の「経路」 | 自動運転のため直接は伺っていない。本書と PR 本文の「オーナー判断待ち」に残した |
+| 7 | 見直しの提案（F9）で本リポから挙げたもの | 4/8 の記録、本書の「オーナー判断待ち」 | 無い（新しい論点は足していない） |
+| 8 | 本段で新しい論点を足していない・推奨案を確定していない | `git diff origin/main...HEAD` | 成り立つ |
+| 9 | 品質ゲート | `make check` | 通過（`make verify`・`make deny` は未実行。コード・設定の変更が無いため） |
+
+- 判定: 論点 1・2 は未回答。本書は案のまま。7/8（#3938）・8/8（#3939）のうち回答に依る部分は「保留」
+- 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）
+- 版の記録: 2026-10-12（base: `c0d94a2`、gitlink: `c1cb4c9`。spec リポの `main` の先端は 2026-10-12 時点で確かめた）
+
 ### 7/8（Issue #3938）
 
 範囲のポインタ: TASK-236 の成果物に対応する決定の記録（`docs/spec/05-tasks.md`、`docs/spec/04-behavior/build-profiles.md` の BUILD-18・BUILD-64）。本リポで観測できる事実だけを記録する。決定の記録と成果物の本体の正は private spec 側で、本書には置かない。
@@ -154,7 +174,6 @@ git grep -n -E '^[[:space:]]*pub(\([a-z]+\))? (fn|struct|enum|trait|type|const|s
 - 判定: 決定の記録は spec 側にまだ無く、本書は案のまま。回答に依る部分は「保留」で、8/8（#3939）へ引き継ぐ
 - 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）
 - 版の記録: 2026-10-12（base: `08b9c22`、gitlink: `c1cb4c9`）
-- 引き継ぎ: 6/8 の小節が先にマージされる場合は、5/8 と本節の間に入る
 
 ## オーナー判断待ち
 
