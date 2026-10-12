@@ -3,7 +3,7 @@ paths:
   - ".github/workflows/**"
 description: >
   GitHub Actions ワークフローを編集する際の方針。runner 方針（public は GitHub ホステッド）、必須チェックと
-  集約ジョブ、発火条件、ジョブ追加チェックリスト、キャッシュ方針（保存は main のみ・キー設計・容量）、
+  集約ジョブ、発火条件、ジョブ追加チェックリスト、既存ジョブへ検査を足すときの枠、キャッシュ方針（保存は main のみ・キー設計・容量）、
   所要時間の計測方法を規定する。
 ---
 
@@ -51,6 +51,14 @@ description: >
 7. ツールは版固定 + SHA256 検証で導入し、`permissions` は最小にする
 8. `timeout-minutes` を設定する
 9. キャッシュを使う場合は「キャッシュ方針」に従う（保存は main への push のみ。確認結果を PR 本文に書く）
+
+## 既存ジョブへ検査を足すとき（機材の要らないジョブの枠）
+
+- GitHub ホステッドの runner で完結する検査は、新しいジョブを作らず、要る道具を用意済みの既存ジョブへステップとして足す（check 名と `ci-complete` の `needs` を変えない。先例: `verify` の `make build-profiles`、`deny` の `make deps-check` ほか）
+- どのジョブに足すかの表と手順は [ci-device-free-jobs](../../docs/ci-device-free-jobs.md) に従う（表は複製しない）
+- 足すステップに `continue-on-error`・`|| true`・`if: always()` を付けない。ツール未導入・入力なしを成功扱いにしない。ジョブごと飛ばす条件を足すなら `ci-complete` で明示的に許容する
+- 検査スクリプトには合成 fixture の回帰テストを付け、同じジョブで流す
+- 新しいジョブ・runner のラベル・matrix が要るときは理由を PR 本文に書く。ruleset の更新はユーザー判断（「必須チェックと集約ジョブ」）
 
 ## キャッシュ方針
 

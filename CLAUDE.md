@@ -53,6 +53,7 @@ fandhe-silicon/
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
+├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の現状と前提・形の設計（TASK-112 の 1/4）
 ├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8）（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
@@ -126,7 +127,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [code-comment-style.md](.claude/rules/code-comment-style.md) | コメント規約（役割・呼び出し文脈・SAFETY） |
 | [out-of-scope-tracking.md](.claude/rules/out-of-scope-tracking.md) | スコープ外事項の Issue 追跡 |
 | [makefile.md](.claude/rules/makefile.md) | Makefile は薄い入口・ターゲット増減の同期点・scripts 規約（`Makefile`・`scripts/*.sh` 編集時のみ読み込み） |
-| [github-actions.md](.claude/rules/github-actions.md) | runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
+| [github-actions.md](.claude/rules/github-actions.md) | 既存ジョブへ検査を足すときの枠・runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 | [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
 | [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。区分の正は private spec） |
