@@ -32,7 +32,7 @@ backend-cuda = ["contract-core"]
 backend-dx12-compute = ["contract-core"]
 # GL（GLES）の背後実装の feature はここに足す（形は spec TASK-2581、骨格は TASK-2583）。
 # テスト・診断専用（本番ビルドに含めない）
-# test-support は core の同名 feature（検証用の道具）へ転送する（説明は docs/parity-tool.md の「現状の形」）。
+# test-support は core の同名 feature（検証用の道具）へ転送する（説明は docs/parity-tool.md の「所在」）。
 test-support = ["fandhe-silicon-core/test-support"]
 fault-injection = []
 artifact-inspection = ["backend-metal"]
