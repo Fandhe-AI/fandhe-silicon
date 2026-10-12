@@ -88,7 +88,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/vulkan-extraction-tool.md` | Vulkan の抽出の道具の現状と前提・論点の列挙（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
-| `docs/test-frame.md` | 共通の試験の枠（TASK-23）の現状と前提 |
+| `docs/test-frame.md` | 共通の試験の枠（TASK-23）の現状と前提・形の設計（範囲 (1)。決定の記録のポインタと、守る本リポの規約） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
