@@ -8,6 +8,9 @@ use super::decision::NotRunReason;
 use super::threshold::ThresholdId;
 use std::fmt;
 
+/// 判定保留の理由のトークン。閾値が未承認であることを表す（どの閾値かは `Label::Pending` の値）。
+pub const PENDING_REASON: &str = "threshold-unapproved";
+
 /// 判定不能の理由。値を作るのは試験の側で、`core` から device を取る経路は持たない。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndeterminateReason {
@@ -105,9 +108,10 @@ impl Label {
         self.kind().name()
     }
 
-    /// 理由のトークン。理由を持つ種類（未実施・判定不能）だけ `Some`。
+    /// 理由のトークン。理由を持つ種類（判定保留・未実施・判定不能）だけ `Some`。判定保留は常に `threshold-unapproved`。
     pub fn reason_name(&self) -> Option<&'static str> {
         match self {
+            Label::Pending(_) => Some(PENDING_REASON),
             Label::NotRun(r) => Some(r.name()),
             Label::Indeterminate(r) => Some(r.name()),
             _ => None,

@@ -32,7 +32,7 @@ pub use export::{
     judge_and_export, judge_and_export_with, record_file_name,
 };
 pub use identifier::{BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_ID_LEN, TestId};
-pub use label::{IndeterminateReason, Label, LabelKind};
+pub use label::{IndeterminateReason, Label, LabelKind, PENDING_REASON};
 pub use outcome::{
     MAX_BEHAVIORS, MAX_THRESHOLDS, Outcome, RunResult, Subject, SubjectError, Verdict, judge,
 };

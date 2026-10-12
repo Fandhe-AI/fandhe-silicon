@@ -15,15 +15,16 @@
 //! | `machine_combination` | 文字列 | 常に |
 //! | `machine` | 文字列 | 常に |
 //! | `label` | 文字列 | 常に |
-//! | `label_reason` | 文字列 | ラベルが理由のトークンを持つとき（未実施・判定不能） |
+//! | `label_reason` | 文字列 | ラベルが理由のトークンを持つとき（判定保留・未実施・判定不能） |
 //! | `body_kind` | 文字列（`contract-test`） | 常に |
-//! | `body` | オブジェクト（`{"test_id": …}`） | 常に |
+//! | `body` | オブジェクト（`{"test_id": …}`。判定保留のときは続けて `"threshold_id"`） | 常に |
 //!
 //! 部品の件数は、走らせた結果なら 1 件、走らせなかった結果なら宣言した組み合わせの数。
 //! spec TASK-23。
 
 use super::combination::MachineCombination;
 use super::identifier::TestId;
+use super::label::Label;
 use super::outcome::Outcome;
 
 /// 本体の種類の値。試験ごとの記録の本体は、すべてこの種類。
@@ -152,6 +153,11 @@ impl Outcome {
         let mut body = String::from("{");
         push_key(&mut body, "test_id");
         push_json_string(&mut body, self.id().as_str());
+        if let Label::Pending(t) = self.label() {
+            body.push(',');
+            push_key(&mut body, "threshold_id");
+            push_json_string(&mut body, t.as_str());
+        }
         body.push('}');
         fields.push(("body", body));
         RecordPart {

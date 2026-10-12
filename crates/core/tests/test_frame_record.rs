@@ -76,12 +76,34 @@ fn ng_part_is_one_with_the_combination_and_no_reason() {
 }
 
 #[test]
-fn pending_part_has_no_reason() {
+fn pending_part_has_the_fixed_reason_and_the_threshold_id_in_the_body() {
     let o = run(&["MEM-1"], &["t-999"], Some("metal-mac-mini"), matched());
     assert_eq!(
         only_json(&o),
-        r#"{"behavior_ids":["MEM-1"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"pending","body_kind":"contract-test","body":{"test_id":"record_case"}}"#
+        r#"{"behavior_ids":["MEM-1"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"pending","label_reason":"threshold-unapproved","body_kind":"contract-test","body":{"test_id":"record_case","threshold_id":"t-999"}}"#
     );
+}
+
+#[test]
+fn only_pending_parts_carry_a_threshold_id() {
+    let labels = [
+        run(&[], &[], Some("metal-mac-mini"), matched()),
+        run(&[], &[], Some("metal-mac-mini"), mismatched()),
+        run(&[], &[], None, matched()),
+        run(
+            &[],
+            &[],
+            Some("metal-mac-mini"),
+            RunResult::Indeterminate(IndeterminateReason::DeviceMismatch),
+        ),
+    ];
+    for o in labels {
+        for p in o.record_parts() {
+            assert!(!p.to_json().contains("threshold_id"));
+        }
+    }
+    let pending = run(&[], &["t-999"], Some("metal-mac-mini"), matched());
+    assert!(only_json(&pending).contains("threshold_id"));
 }
 
 #[test]

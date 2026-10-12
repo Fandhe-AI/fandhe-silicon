@@ -47,7 +47,7 @@ fn kind_tokens_are_distinct_and_well_formed() {
 #[test]
 fn reason_tokens_exist_only_for_kinds_with_a_reason() {
     for l in one_of_each() {
-        let has = matches!(l, Label::NotRun(_) | Label::Indeterminate(_));
+        let has = !matches!(l, Label::Ok | Label::Ng);
         assert_eq!(l.reason_name().is_some(), has, "{}", l.name());
     }
 }
@@ -116,6 +116,16 @@ fn label_kinds_are_five_distinct_tokens() {
 /// 理由のトークンは外へ出る綴りなので固定する（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」）。
 #[test]
 fn reason_tokens_are_fixed_spellings() {
+    assert_eq!(
+        fandhe_silicon_core::test_frame::PENDING_REASON,
+        "threshold-unapproved"
+    );
+    assert!(token_ok("threshold-unapproved"));
+    for l in one_of_each() {
+        if let Label::Pending(_) = l {
+            assert_eq!(l.reason_name(), Some("threshold-unapproved"));
+        }
+    }
     let not_run: Vec<&str> = NOT_RUN.iter().map(|r| r.name()).collect();
     assert_eq!(
         not_run,
