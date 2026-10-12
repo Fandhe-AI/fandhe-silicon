@@ -1,9 +1,9 @@
-//! SPIR-V からオペランドの宣言を取り出す検証用の道具を、別 crate から公開の入口だけで確かめる統合テスト（spec TASK-98 の 5/6）。
+//! SPIR-V からオペランドの宣言を取り出す検証用の道具を、別 crate から公開の入口だけで確かめる統合テスト（spec TASK-98）。
 //!
 //! 走るのは feature `backend-vulkan` と `test-support` の両方が有効な組だけ（`Cargo.toml` の `required-features`）。
 //! 入力はこのファイルの中で語の列として組み立てる。バイナリのファイル・外部の道具・GPU には依らない。
 //! 命令・装飾・storage class の番号は Khronos の公開の SPIR-V 仕様のもので、道具の内部の定数には依らず独立に持つ。
-//! 置き場・ゲートの説明は `docs/vulkan-operand-extraction.md` の「現状の形」と「公開テスト（5/6）」。
+//! 置き場・ゲートの説明は `docs/vulkan-operand-extraction.md`。
 //! spec との対応は `docs/spec/05-tasks.md` の TASK-98 のポインタのみ。
 
 #![cfg(not(target_arch = "wasm32"))]

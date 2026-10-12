@@ -32,7 +32,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 既存のテスト | `crates/core/tests/`: `parity_*.rs` の 5 本。`crates/contract/tests/`: `backend_*`・`common_*`・`test_support_*` ほか（`common/` を含む） | `ls crates/*/tests` |
 | CI | GPU・self-hosted のジョブは無い。表は複製せず [ci-job-split](./ci-job-split.md) を指す | 同文書 |
 | 試験の枠・結果のラベルの出力・集計に当たるコード・テスト | 0 件 | `git grep -n -i -e 試験の枠 -e test-frame -e harness -- crates scripts` |
-| 既存の文書の言及 | 枠への言及は「委ねる」「まだ無い」のポインタだけ（[parity-tool](./parity-tool.md)・[pixel-parity-tool](./pixel-parity-tool.md)・[parity-non-finite](./parity-non-finite.md)・[vulkan-extraction-tool](./vulkan-extraction-tool.md)） | `git grep -n "TASK-23" -- docs` |
+| 既存の文書の言及 | 枠への言及は「委ねる」「まだ無い」のポインタだけ（[parity-tool](./parity-tool.md)・[pixel-parity-tool](./pixel-parity-tool.md)・[parity-non-finite](./parity-non-finite.md)） | `git grep -n "TASK-23" -- docs` |
 
 ## 関連タスクの状態
 

@@ -1,4 +1,4 @@
-//! SPIR-V のモジュールから storage buffer のオペランドの宣言を取り出す検証用の道具（spec TASK-98 の 4/6）。
+//! SPIR-V のモジュールから storage buffer のオペランドの宣言を取り出す検証用の道具（spec TASK-98）。
 //!
 //! 検証用のテスト・測定が呼ぶ。製品の経路（契約の入口・能力の問合せ）からは呼ばない。
 //! feature `test-support` の裏にだけ公開され、標準ライブラリだけで書く（ファイル IO・外部コマンドの起動はしない）。
@@ -6,7 +6,7 @@
 //! 型の解決は固定の段数で行い、再帰しない。
 //! 取り出しの対象外の形は黙って落とさず [`SpirvExtractError::Unsupported`] で返す。
 //! push constant は対象に含めない。モジュール全体の変数が対象で、エントリポイントでの絞り込みはしない。
-//! 置き場・ゲートの説明は `docs/vulkan-operand-extraction.md` の「現状の形（4/6）」。
+//! 置き場・ゲートの説明は `docs/vulkan-operand-extraction.md`。
 //! spec との対応は `docs/spec/05-tasks.md` の TASK-98 のポインタのみ。
 //! 命令・装飾・storage class の番号は Khronos の公開の SPIR-V 仕様のものを使う。
 
