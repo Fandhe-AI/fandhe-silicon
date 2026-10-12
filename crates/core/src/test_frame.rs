@@ -1,6 +1,6 @@
-//! 契約の試験の共通の枠の入口（spec TASK-23。範囲は「試験ごとの宣言と、機材・許可が無いときに走らせないこと」「結果のラベルの決定」「試験ごとの記録の組み立て」「組み合わせごとの集計」）。
+//! 契約の試験の共通の枠の入口（spec TASK-23。範囲は「試験ごとの宣言と、機材・許可が無いときに走らせないこと」「結果のラベルの決定」「組み合わせごとの集計」）。
 //!
-//! feature `test-support` の裏にだけ公開される（置き場と範囲の説明は `docs/test-frame.md`）。
+//! feature `test-support` の裏にだけ公開される（置き場と範囲の説明は `docs/test-frame.md` の「置き場と有効になる条件」）。
 //! 製品の経路（`contract`・`exec`・`upper` の非テストのコード）からは参照しない。
 //! 環境変数から読んだ値はこのモジュールの外へ渡さない。実機の device を取って宣言と照合する経路と、
 //! 記録の書き出しと、複数の試験をまたぐ集計の経路は持たない。
@@ -8,7 +8,6 @@
 //! 試験の側の使い方: 試験の先頭で [`Declaration`] を作り、[`RunSetting::from_env`] で得た設定とともに
 //! [`decide`] へ渡す。[`Decision::NotRun`] なら、その理由を明示して試験を終える（暗黙に成功にしない）。
 //! 結果は [`Subject`] とともに [`judge`] へ渡して [`Outcome`] にする（ラベルは [`Label`]）。`Outcome` は `Termination` を実装しないので試験の戻り値にはできず、呼び出し側がラベルを明示的に扱う。
-//! `Outcome::to_record_json` は結果 1 件の記録（JSON の文字列）を返す（書き出しは呼び出し側）。
 //! 集めた `Outcome` は [`Summary`] で組み合わせごとのラベルの件数にでき、`Display` で表にできる。
 
 pub mod combination;
@@ -17,7 +16,6 @@ pub mod declaration;
 pub mod identifier;
 pub mod label;
 pub mod outcome;
-mod record;
 pub mod setting;
 pub mod summary;
 pub mod threshold;

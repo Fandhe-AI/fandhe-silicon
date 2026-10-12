@@ -114,17 +114,6 @@ impl Label {
         }
     }
 
-    /// 記録の理由の欄に出す値。理由を持つ種類（判定保留・未実施・判定不能）で `Some`。
-    ///
-    /// 判定保留は未承認の閾値の ID、未実施・判定不能は [`Label::reason_name`] と同じトークン。
-    /// OK・NG は `None`。
-    pub fn reason_token(&self) -> Option<&str> {
-        match self {
-            Label::Pending(id) => Some(id.as_str()),
-            other => other.reason_name(),
-        }
-    }
-
     /// 試験を失敗にするか。`Ng` のときだけ `true`。
     pub const fn fails_test(&self) -> bool {
         matches!(self, Label::Ng)
