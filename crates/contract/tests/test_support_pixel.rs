@@ -1,6 +1,6 @@
 //! contract の feature `test-support` だけで、core の画素の一致を確かめる道具に届くことの確認（spec TASK-26 の 5/6）。
 //! `make build-profiles` の `test-support` を含む各組で、背後実装の feature に依らず同じ結果になることも確かめる。
-//! 置き場・feature の説明は docs/pixel-parity-tool.md の「現状の形」。
+//! 置き場・feature の説明は docs/pixel-parity-tool.md の「所在」と「振る舞い」。
 
 use fandhe_silicon_core::parity::pixel::{
     CHANNELS_PER_PIXEL, PixelCompareError, PixelInputError, PixelView, T3, compare_pixels,
