@@ -1,6 +1,6 @@
 # Metal の実機での試験の実行手順（TASK-19）の現状と前提・実行手順
 
-TASK-19（親 Issue #76）について、着手時点（1/4・#77）の現状と前提、および実行手順（2/4・#78）と記録の書式（3/4・#79）を、本リポで公開済みの事実・手順・ポインタだけで記録する。
+TASK-19（親 Issue #76）について、着手時点（1/4・#77）の現状と前提、および実行手順（2/4・#78）・記録の書式（3/4・#79）・完了の条件の確かめ（4/4・#80）を、本リポで公開済みの事実・手順・ポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -137,7 +137,34 @@ cargo test -p fandhe-silicon-contract --features backend-metal
 
 ### 4/4（#80）への引き継ぎ
 
-#80 が本リポで観測できる事実で確かめる対象は、スクリプト・回帰テスト・CI のステップ・記入例の所在。実機で流した記録の実物は spec 側にある。
+#80 が本リポで観測できる事実で確かめる対象は、スクリプト・回帰テスト・CI のステップ・記入例の所在。確かめた結果は次の「完了の条件の確かめ（4/4）」に記録した。実機で流した記録の置き先は spec 側で、本リポでは確かめない。
+
+## 完了の条件の確かめ（4/4）
+
+本リポで観測できる事実だけで確かめた結果。コマンドは worktree のルートで実行した。条件の本文は転記しない（正は `docs/spec/05-tasks.md` の TASK-19。ポインタのみ）。
+
+| 確かめる項目 | 方法 | 結果 |
+| ------------ | ---- | ---- |
+| 手順書がある | 本書の「実行手順（2/4）」の節。`README.md`・`CLAUDE.md` に入口の行がある | 確かめた |
+| 手順書のコマンドが実機なしで走る | `cargo test --locked -p fandhe-silicon-contract --features backend-metal`（Linux のホスト） | 通過（失敗 0）。コンパイルと実機の要らない試験まで。実機での動作の証拠ではない |
+| 記録の形の検査があり、記入例が合格する | `scripts/session-record-check.sh docs/session-record.example.json` | 終了コード 0 |
+| 誤用を成功扱いにしない | 同スクリプトを引数なし・存在しないパスで実行 | どちらも終了コード 2 |
+| 回帰テストが通る | `make test-session-record-check` | passed 89・failed 0 |
+| `machine` の綴りがコードと揃う | 回帰テストの `sync:` のケース | 通過 |
+| 出力に入力の値を出さない・入力を変えない | 回帰テストの `secret:`・`invariant:` のケース | 通過 |
+| CI が回帰テストを呼ぶ | `.github/workflows/ci.yml` の `deny` ジョブのステップ。check 名・`ci-complete` の `needs` は不変 | 確かめた |
+| 入口の記述がそろっている | `Makefile`・`scripts/help.sh`・`scripts/doctor.sh`・`README.md`・`CLAUDE.md`・`.claude/rules/makefile.md`・`.claude/rules/github-actions.md` | すべてに言及がある |
+| 記録の実物を本リポに置いていない | `git ls-files '*.json'`・`ls -d records` | 記入例（ダミー値）だけ。`records/` は無い |
+| 製品のコード・依存・`unsafe` を変えていない | TASK-19 の 3 本のコミット（`c161543`・`5e4a129`・`7ea843c`）の変更ファイル、`make deps-check` | `crates/` の変更なし。終了コード 0 |
+| 実機の試験は CI に載っていない | `ci.yml` の `runs-on`（[ci-job-split](./ci-job-split.md)） | 実機・self-hosted のジョブなし |
+| `#[ignore]`・骨格の現状 | `grep -rn '#\[ignore' crates`・`wc -l crates/contract/src/backend_metal.rs` | 0 件・6 行（1/4 から変化なし） |
+| 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。PR の CI は未検証（PR 作成前） |
+| macOS（bash 3.2）での回帰テスト | CI は ubuntu の `deny` ジョブだけが呼ぶ | 未検証 |
+| 実機で流した回の記録 | 置き先と記録の正は spec 側 | 本リポでは確かめていない |
+| spec の完了の条件との照合 | 記録の正は private spec 側（TASK-19 の状態） | 本書では行っていない |
+
+- 判定: 本リポで観測できる範囲では、上の項目を確かめられた（未検証・本書で行っていない行を除く）。TASK-19 の完了は本書では宣言しない。完了の条件との対応づけの記録の正は private spec 側
+- 再実行の契機: `scripts/session-record-check.sh`・回帰テスト・記入例・`ci.yml` の `deny` ジョブ・`Machine::name` の変更、`docs/spec` の gitlink の更新、実機でしか確かめられない試験が入ったとき
 
 ## 後続の分担
 
@@ -145,9 +172,9 @@ cargo test -p fandhe-silicon-contract --features backend-metal
 | ----- | -- |
 | #78 | 2/4 手順書の作成（本書の実行手順） |
 | #79 | 3/4 記録の書式（形の検査・回帰テスト・記入例） |
-| #80 | 4/4 確かめ |
+| #80 | 4/4 確かめ（済。「完了の条件の確かめ（4/4）」に記録） |
 
-- 完了の条件の確かめは未実施。#80 が、本リポで観測できる事実により埋める（条件の本文は転記しない）。
+- spec の完了の条件との照合は本書では行っていない。
 - 手順のスクリプト（開発者ディレクトリの指定・試験の枠の設定・置き換えの道具）は #78〜#80 の範囲に明記が無い。記録の形の検査は 3/4 の範囲で入った。
 - 親 #76 の「進み具合を spec に記録する」は spec リポ側の作業。
 
@@ -158,6 +185,8 @@ cargo test -p fandhe-silicon-contract --features backend-metal
 2026-10-12（2/4。base: `origin/main` の `dcd2237`、gitlink: `a7de5c2`）。
 
 2026-10-12（3/4。base: `origin/main` の `0975b66`、gitlink: `a7de5c2`）。
+
+2026-10-12（4/4。base: `origin/main` の `065bd04`、gitlink: `a7de5c2`）。
 
 ## 関連
 
