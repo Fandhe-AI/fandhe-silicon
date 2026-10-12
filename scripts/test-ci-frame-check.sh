@@ -232,6 +232,12 @@ bad "F3: job without runs-on" 1 "F3" "job c" "no runs-on"
 sub "${BASE}" "${IN_F}" 's/\[ubuntu-latest, macos-latest\]/${{ fromJSON(x) }}/'
 bad "F3: matrix from an expression" 1 "F3" "job m"
 
+awk '{ print } /os: \[ubuntu-latest, macos-latest\]/ { print "        include:"; print "          - os: self-hosted" }' "${BASE}" >"${IN_F}"
+bad "F3: matrix include is rejected" 1 "F3" "job m" "not a literal list"
+
+awk '{ print } /os: \[ubuntu-latest, macos-latest\]/ { print "        exclude:"; print "          - os: macos-latest" }' "${BASE}" >"${IN_F}"
+bad "F3: matrix exclude is rejected" 1 "F3" "job m" "not a literal list"
+
 # ---- F4 ----
 
 ins "${BASE}" "${IN_F}" "echo a" "        continue-on-error: true"
@@ -239,6 +245,12 @@ bad "F4: step-level continue-on-error" 1 "F4" "continue-on-error key"
 
 ins "${BASE}" "${IN_F}" "name: a" "    continue-on-error: false"
 bad "F4: job-level continue-on-error with false" 1 "F4"
+
+ins "${BASE}" "${IN_F}" "name: a" "    'continue-on-error': true"
+bad "F4: single-quoted continue-on-error key" 1 "F4" "continue-on-error key"
+
+ins "${BASE}" "${IN_F}" "name: a" '    "continue-on-error": true'
+bad "F4: double-quoted continue-on-error key" 1 "F4" "continue-on-error key"
 
 # ---- F5 ----
 

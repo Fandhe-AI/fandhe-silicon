@@ -11,7 +11,8 @@
 #   F1 集約ジョブ ci-complete があり、ジョブ単位の if が always() である
 #   F2 ci-complete の needs が、ci-complete 以外の全ジョブ ID と過不足なく一致する
 #   F3 各ジョブの runs-on が許可ラベル（GitHub ホステッドのみ）か、リテラルの並びの matrix 参照である
-#   F4 continue-on-error のキーがどこにも無い（値は問わない）
+#      （matrix に include / exclude があれば読み切れないとして違反）
+#   F4 continue-on-error のキーがどこにも無い（値・引用符・フロー形式の中でも問わない）
 #   F5 コメント行以外に「|| true」「|| :」の綴りが無い
 #   F6 always() が F1 の 1 か所以外に現れない
 # 読めない形（タブのインデント・アンカー・マージキー・対応外の needs / runs-on / matrix の書き方・
@@ -83,7 +84,7 @@ for no, text in lines:
 
 # F4・F5・F6 と読めない形の検出は、ジョブの帰属によらず全行に当てる。
 F5_RE = re.compile(r"\|\|\s*(true|:)(?![\w-])")
-F4_RE = re.compile(r"^(-\s+)?continue-on-error\s*:")
+F4_RE = re.compile(r"(^|[\s{,-])[\"']?continue-on-error[\"']?\s*:")
 MERGE_RE = re.compile(r"^(-\s+)?<<\s*:")
 ANCHOR_RE = re.compile(r":\s+[&*][A-Za-z0-9_-]+\s*$")
 always_lines = []
@@ -197,6 +198,12 @@ def matrix_values(rows, key):
             break
     if start is None:
         return None
+    # include / exclude は軸の値を足し引きできるため、読み切れない形として拒否する（fail-closed）。
+    j = start + 1
+    while j < len(rows) and rows[j][1] > 6:
+        if re.match(r"^[\"']?(include|exclude)[\"']?\s*:", rows[j][2]) and rows[j][1] == 8:
+            return None
+        j += 1
     j = start + 1
     while j < len(rows) and rows[j][1] > 6:
         no, ind, t = rows[j]
