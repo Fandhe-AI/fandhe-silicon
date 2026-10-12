@@ -11,8 +11,9 @@
 # 「実物を検査した」と誤解させるため、直接実行だけにする。
 #
 # 検査するのは形（欄の集合・型・値の形）だけで、欄の定義はこのファイルの定数表が唯一の正。
-# 欄の意味と決定の所在は spec 側（TASK-19・TASK-28）。値の一覧を検査していない欄がある
-# （定数表で値の形だけを見る欄。resident_process_stopped・gui_login_state）。
+# 欄の意味と決定の所在は spec 側（TASK-19・TASK-28）。resident_process_stopped と
+# gui_login_state は、語の形を見たあとに、定数表の値の一覧に在る語だけを受ける
+# （一覧に無い語は違反。値の一覧は private spec 側の記録に従う。ポインタのみ）。
 # 入れない検査: 欄どうしの前後関係、run ごとの記録との突き合わせ、低電力モードの値による採否。
 #
 # 入力の値と表に無い欄の名前は出力に出さない。ファイルを作らず、ネットワークを使わない。
@@ -45,6 +46,12 @@ TIME_RE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([
 SCHEMA_VERSIONS = ("1",)
 # 綴りは crates/core/src/test_frame/combination.rs の Machine::name に揃える。
 MACHINES = ("mac-mini",)
+
+# 種別 word の欄ごとに許す語の一覧（欄を取り違えた語も違反にする）。
+WORD_VALUES = {
+    "resident_process_stopped": ("stopped", "not-stopped", "not-running"),
+    "gui_login_state": ("logged-in", "logged-out"),
+}
 
 # 欄名 -> 種別。種別: version / id / machine / time / posint / ids / bool / word
 FIELDS = {
@@ -180,6 +187,8 @@ def main():
             viol.append("error: field %s: missing" % name)
         elif not check(kind, data[name]):
             viol.append("error: field %s: invalid %s" % (name, kind))
+        elif kind == "word" and data[name] not in WORD_VALUES[name]:
+            viol.append("error: field %s: not in the value list" % name)
     extra = sum(1 for k in data if k not in FIELDS)
     if extra:
         viol.append("error: %d field(s) not in the table" % extra)

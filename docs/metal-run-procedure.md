@@ -69,14 +69,14 @@ macOS の上でだけ動く（それ以外は終了コード 2。JSON を出さ�
 
 ### 3. 回の記録の形の検査
 
-回ごとの記録は JSON 1 ファイル。欄の一覧と値の形の正は `scripts/session-record-check.sh` の定数表で、本書には複製しない（記入例は値がすべてダミー）。
+回ごとの記録は JSON 1 ファイル。欄の一覧・値の形・`resident_process_stopped` と `gui_login_state` の値の一覧の正は `scripts/session-record-check.sh` の定数表で、本書には複製しない（記入例は値がすべてダミー）。
 
 ```sh
 scripts/session-record-check.sh <記録のパス>
 ```
 
 - 終了コード 0 が合格、1 が違反、2 が誤用・前提の不足
-- 形（欄の集合・型・値の形）だけを見る。専有が成り立ったか、採るかどうかは見ない
+- 欄の集合・型・値の形を見る。`resident_process_stopped` と `gui_login_state` は、値の一覧に在る語だけを受ける（一覧に無い語は違反。値の一覧は private spec 側の記録に従う。`docs/spec/05-tasks.md` の TASK-19。ポインタのみ）。専有が成り立ったか、採るかどうかは見ない
 - 入力の値と、表に無い欄の名前は出力に出さない
 
 ### 4. `redact` / `scan`（置き換えと検索）
