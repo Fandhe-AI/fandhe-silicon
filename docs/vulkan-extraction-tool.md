@@ -45,7 +45,7 @@ spec の本文・判定のラベル・PoC の手順や結果は転記しない�
 | TASK-8 | #45 | CLOSED | 依存の追加は承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） |
 | TASK-9 | #50 | CLOSED | `unsafe` の個数が変わるときは [unsafe-policy](unsafe-policy.md) に従う |
 | TASK-24 | #100 | CLOSED | 検証用の道具の置き場の先例（[parity-tool](parity-tool.md)） |
-| TASK-23 | #91 | OPEN | 共通の試験の枠は本リポにまだ無い。あるものとして扱わない |
+| TASK-23 | #91 | OPEN | 共通の試験の枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。ラベルの出力と `parity` との接続はまだ無い |
 | TASK-99 | #388 | OPEN | 並びのタスク。分担の境界は 2/6 で扱う |
 | TASK-418 | #612 | OPEN | 分担の境界は 2/6 で扱う |
 | TASK-448 | #633 | OPEN | 分担の境界は 2/6 で扱う |

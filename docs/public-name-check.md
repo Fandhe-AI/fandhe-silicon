@@ -14,7 +14,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | ---- | ---- | -------- |
 | スクリプト | この検査のスクリプトは `scripts/` に無い | `ls scripts` |
 | 設定ファイル・CI | この検査の設定ファイル・CI のジョブ・Makefile のターゲットは無い | `grep -rn -i -E "name-check\|public-name" scripts .github Makefile lefthook.yml deny.toml` が何も返さない |
-| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/core/src/lib.rs` は `pub mod parity` のみ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
+| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/core/src/lib.rs` は `test-support` の裏の `pub mod parity` と `pub mod test_frame` のみ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
 
 ## 本リポでの反映の方針
 
