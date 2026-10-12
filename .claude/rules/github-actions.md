@@ -54,11 +54,11 @@ description: >
 
 ## 既存ジョブへ検査を足すとき（機材の要らないジョブの枠）
 
-- GitHub ホステッドの runner で完結する検査は、新しいジョブを作らず、要る道具を用意済みの既存ジョブへステップとして足す（check 名と `ci-complete` の `needs` を変えない。先例: `verify` の `make build-profiles`、`deny` の `make deps-check` ほか）
+- GitHub ホステッドの runner で完結する検査は、原則として新しいジョブを作らず、要る道具を用意済みの既存ジョブへステップとして足す（check 名と `ci-complete` の `needs` を変えない。先例: `verify` の `make build-profiles`、`deny` の `make deps-check` ほか）
 - どのジョブに足すかの表と手順は [ci-device-free-jobs](../../docs/ci-device-free-jobs.md) に従う（表は複製しない）
 - 足すステップに `continue-on-error`・`|| true`・`if: always()` を付けない。ツール未導入・入力なしを成功扱いにしない。ジョブごと飛ばす条件を足すなら `ci-complete` で明示的に許容する
 - 検査スクリプトには合成 fixture の回帰テストを付け、同じジョブで流す
-- 新しいジョブ・runner のラベル・matrix が要るときは理由を PR 本文に書く。ruleset の更新はユーザー判断（「必須チェックと集約ジョブ」）
+- 新しいジョブ・runner のラベル・matrix が要るときは、「ジョブ・ワークフローを追加するとき」の節（ジョブ追加チェックリスト）に従い、理由を PR 本文に書く。ruleset の更新はユーザー判断（「必須チェックと集約ジョブ」）
 
 ## キャッシュ方針
 

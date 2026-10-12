@@ -42,7 +42,7 @@ private spec の TASK-6（`docs/spec/05-tasks.md`。関連: AP-4・AC-2）を前
 
 ## 区分に迷うとき
 
-決定の記録から区分が一意に決まらないものは、自動運転では決めない。推奨案を既定として先行確定せず、[contract-shaping-escalation](./contract-shaping-escalation.md) の経路でオーナーに伺う（PR 本文に残す）。
+決定の記録から区分が一意に決まらないものは、自動運転では決めない。推奨案を既定として先行確定せず、[contract-shaping-escalation](./contract-shaping-escalation.md) の経路でオーナーに伺う（伺いの情報は作業の summary に残し、PR 本文には書かない）。
 
 ## 関連規約
 
