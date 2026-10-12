@@ -54,7 +54,7 @@ fandhe-silicon/
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の現状と前提・形の設計・現状の形（TASK-112 の 1/4・2/4）
-├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8・6/8）・テストの現状（7/8）（TASK-23）
+├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8・6/8）・テストの現状（7/8）・完了の条件の確かめ（8/8）（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）

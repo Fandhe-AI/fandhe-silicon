@@ -1,6 +1,6 @@
 # 共通の試験の枠（TASK-23）の現状・前提・形の設計・現状の形
 
-TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計、5/8（#96）で入れたコードの現状の形、6/8（#97）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計、5/8（#96）で入れたコードの現状の形、6/8（#97）で入れたコードの現状の形、7/8（#98）のテストの現状、8/8（#99）の完了の条件の確かめを、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -335,6 +335,37 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 - 完了の条件との照合は #99 が spec 側の記録に当てて行う。照合に使える本リポの事実は、本書の各段のテスト名の表にある
 - 本段のテストが固定するのは、プロセスの中での宣言・ラベル・集計・表の文字列まで。集計の数え方を spec 側の記録に当てる確認も #99 で行う（ポインタ: `docs/spec/05-tasks.md` の TASK-23）
 
+## 完了の条件の確かめ（8/8）
+
+8/8（#99）で、本リポで観測できる事実による確かめを記録する（ポインタ: `docs/spec/05-tasks.md` の TASK-23）。
+完了の条件との対応づけの記録の正は private spec 側で、条件の本文は転記しない。先行の節は書き換えない。
+結果は 2026-10-12 に GPU の実機なしで実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 背後実装の feature ごとの試験が、その背後実装の組み合わせだけを宣言して走る | `cargo test -p fandhe-silicon-contract --no-default-features --features "backend-<metal / vulkan / cuda>,test-support" --test test_support_test_frame` の 3 回 | 各回 7 件通過。`metal_test_declares_on_the_frame`・`vulkan_test_declares_on_the_frame`・`cuda_test_declares_on_the_frame` は対応する feature の回だけで実行。`--features test-support` だけの回は 6 件通過で、この 3 件を含まない |
+| A2 | 宣言から、設定の組み合わせのときだけ本体が走る。別 crate から `declaration!` が呼べる | `each_backend_declares_its_combinations_and_runs_only_there`・`declaration_macro_is_reachable_from_another_crate` | 通過 |
+| A3 | 設定が無いとき・不正なときは走らせず、理由つきの未実施になる | `test_frame_decide`・`unconfigured_run_counts_every_declared_row_as_not_run` | 通過（`test_frame_decide` は 17 件） |
+| B1 | ラベルが 5 種で、1 つの流れから全部出る。文字列は固定のトークンで英語の ASCII | `one_flow_yields_all_five_label_kinds`・`test_frame_label` | 通過（`test_frame_label` は 9 件） |
+| B2 | 失敗にするのは `Ng` だけ。閾値の承認の表は 1 か所で、公開側は空 | `test_frame_outcome`・`has_ng_agrees_with_fails_test_over_the_outcomes` | 通過（`test_frame_outcome` は 18 件） |
+| C1 | 集計が 7 行と 5 種の件数を常に持つ | `test_frame_summary` | 通過（15 件） |
+| C2 | 表の文字列が固定で、背後実装の feature の組に依らない | `test_frame_end_to_end`・`make build-profiles` | `test_frame_end_to_end` は 7 件通過。`make build-profiles` は終了コード 0 |
+| D1 | ラベルと集計の文字列の取り出し方と、書き出しの経路の有無 | `crates/core/src/test_frame*` と、枠のテストの `println!`・`eprintln!`・`print!`・`std::fs`・`std::io`・`File::`・`dbg!` を grep | 0 件。文字列は `Display` で得られる。ファイル・標準出力・標準エラーへ書く経路、機械可読の記録の組み立て、出力の先の受け口はコード上に無い（「現状の形（5/8）」「現状の形（6/8）」の「入れていないもの」のまま。ポインタ: `docs/spec/05-tasks.md` の TASK-23・TASK-27・TASK-28） |
+| E1 | `unsafe` を使っていない | `crates/core/src` を `unsafe` で検索 | `#![forbid(unsafe_code)]` の 1 行だけ |
+| E2 | 外部依存 0 のまま | `Cargo.lock` の `[[package]]` の数、`make deps-check` | 4 件（4 crate のみ）。`make deps-check` は終了コード 0 |
+| E3 | `test-support` が `default` に入らず、`test_frame` が feature の裏だけ | 各 `Cargo.toml` の `[features]`、`crates/core/src/lib.rs` | `core` の feature は `test-support` のみ（空）。`contract` の `default` に `test-support` は無い。`lib.rs` の `#[cfg(feature = "test-support")]` は 2 行 |
+| E4 | `core` に背後実装の feature での分岐が無い | `crates/core/src` を `cfg` で検索 | `test-support` の 2 行とコメントのみ |
+| E5 | 製品の経路から `test_frame` を参照していない | `crates/exec`・`crates/upper`・`crates/contract/src` を `test_frame` で検索 | 0 件 |
+| E6 | `parity` を変えていない | 1/8 の base（`3d2ef33`）から HEAD までの `crates/core/src/parity` 配下の履歴 | 0 件 |
+| E7 | make ターゲット・CI ジョブ・`build-profiles` の組・依存を足していない | TASK-23 の 4 本の取り込み（`0975b66`・`ca396fd`・`e51287e`・`f1cea76`）の変更ファイル | `Makefile`・`scripts/`・`.github/`・`deny.toml`・`deps-approved.toml`・`Cargo.lock` の変更は無い |
+| F | 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | すべて終了コード 0 |
+| G | CI（GitHub ホステッド）での結果 | PR の `gh pr checks` | 未検証（本節の作成時点では PR が無い） |
+
+- 判定: 本リポで観測できる範囲では、宣言・実行の可否・ラベルの決定・組み合わせごとの集計と表の文字列までを確かめた。書き出しの経路はコード上に無い。完了の条件との対応づけの記録の正は private spec 側（ポインタ: TASK-23）で、本書は TASK-23 の完了を宣言しない
+- 再実行の契機: `test_frame` の公開面・表の列や並びの変更、`MachineCombination` の列挙の変更、閾値の承認の表の変更、記録の組み立て・書き出しの経路が入る PR、`contract` 側の受け口が入る PR、`scripts/build-profiles.sh` の組の変更、gitlink の更新
+- 公開テストから到達させていない経路は「テストの現状（7/8）」のとおり
+- gitlink（`b06022e`）は、確かめた時点の private spec の main の先端と同じ
+
 ## 出力の先の記録の所在
 
 - 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
@@ -349,10 +380,10 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | #96 | 5/8 実装（済。本書の「現状の形（5/8）」） |
 | #97 | 6/8 実装（済。本書の「現状の形（6/8）」） |
 | #98 | 7/8 テスト（済。本書の「テストの現状（7/8）」） |
-| #99 | 8/8 確かめ |
+| #99 | 8/8 確かめ（済。本書の「完了の条件の確かめ（8/8）」） |
 
 - [parity-tool](./parity-tool.md) と [pixel-parity-tool](./pixel-parity-tool.md) の枠に関する記述は、置き場と範囲 (1) が入った段で現状に直した。接続の記述は、接続が入る PR で更新する。
-- 完了の条件の確かめは未実施。#99 で、本リポで観測できる事実により埋める（条件の本文は転記しない）。
+- 完了の条件の確かめは #99 で記録した（本書の「完了の条件の確かめ（8/8）」）。
 - 親 #91 の「進み具合を spec に記録する」は spec リポ側の作業。
 
 ## 確かめた日付
@@ -370,6 +401,8 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 2026-10-12（6/8。base: `origin/main` の `ca396fd`、gitlink: `a7de5c2`）。
 
 2026-10-12（7/8。base: `origin/main` の `44e86d1`、gitlink: `b06022e`）。
+
+2026-10-12（8/8。base: `origin/main` の `f1cea76`、gitlink: `b06022e`）。
 
 ## 関連
 
