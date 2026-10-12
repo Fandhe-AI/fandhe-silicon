@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -64,6 +64,9 @@ ci-frame-check: ## .github/workflows/ci.yml が CI の枠の事実（集約・�
 
 test-ci-frame-check: ## scripts/ci-frame-check.sh 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。直接: scripts/test-ci-frame-check.sh
 	@scripts/test-ci-frame-check.sh
+
+public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、rustdoc の JSON から数えて検査する（bash + python3 + cargo。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI は呼ばない）。直接: scripts/public-api-check.sh [--json <path>...]
+	@scripts/public-api-check.sh
 
 test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh
 	@scripts/hooks/test-hooks.sh
