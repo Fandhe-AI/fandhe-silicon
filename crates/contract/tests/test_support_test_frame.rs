@@ -80,6 +80,27 @@ fn summary_is_reachable_and_fixed_under_any_backend_feature_set() {
 }
 
 #[test]
+fn record_json_is_reachable_and_fixed_under_any_backend_feature_set() {
+    use fandhe_silicon_core::test_frame::{Subject, Verdict, judge};
+    let s = Subject::from_parts("record_reach", &["BUILD-54"], &[]).unwrap();
+    let d = Declaration::from_parts(&[MachineCombination::MetalMacMini], &[]).unwrap();
+    let st = RunSetting::from_lookup(|n| {
+        (n == COMBINATION_ENV).then(|| OsString::from("metal-mac-mini"))
+    });
+    let ng = judge(&s, &d, &st, |_| RunResult::Verdict(Verdict::Mismatch));
+    assert_eq!(
+        ng.to_record_json(),
+        r#"{"behavior_ids":["BUILD-54"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"ng"}"#
+    );
+    let unset = RunSetting::from_lookup(|_| None);
+    let nr = judge(&s, &d, &unset, |_| RunResult::Verdict(Verdict::Match));
+    assert_eq!(
+        nr.to_record_json(),
+        r#"{"behavior_ids":["BUILD-54"],"label":"not-run","label_reason":"not-configured"}"#
+    );
+}
+
+#[test]
 fn declaration_macro_is_reachable_from_another_crate() {
     let via_macro = fandhe_silicon_core::declaration!(
         [MachineCombination::VulkanAmd, MachineCombination::CudaNodeA,],
