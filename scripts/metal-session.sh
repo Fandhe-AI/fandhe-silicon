@@ -6,24 +6,29 @@
 #
 # 使い方:
 #   scripts/metal-session.sh probe
-#   scripts/metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--caffeinate] -- <command> [args...]
+#   scripts/metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
 #   scripts/metal-session.sh redact <words-file> <input> <output>
 #   scripts/metal-session.sh scan <words-file> <file>...
 # 終了コード: 0 成功 / 1 違反（置き換えの後に語が残る・入力が不適）/ 2 誤用・前提の不足。
 # `run` は起動したコマンドの終了コードをそのまま返す。
 #
-# probe: 専有の確かめに要る環境の集計値（低電力モード・電源・省電力の設定・熱・負荷の平均）を
-#   JSON で標準出力へ出す。macOS 以外では 2 で終わる。取れなかった値は null にし、
-#   `unavailable` にその名前を並べる（黙って既定値を入れない）。コマンドの出力は全文を流さず、
-#   正規表現で数値と決まった語だけを取り出す（ホスト名・ユーザー名・プロセス名・識別子は出力に出ない）。
+# probe: 環境の集計値を JSON で標準出力へ出す。キーは回の前後の環境の欄（utc・power_source・
+#   low_power_mode・thermal_warning・loadavg）と同じ名前と型。欄に入らない参考の値（スリープの
+#   分数）は `reference` の下にまとめる。macOS 以外では 2 で終わる。取れなかった値は null にして
+#   `unavailable` にその名前を並べ、JSON を出したうえで 1 で終わる（黙って既定値を入れない）。
+#   コマンドの出力は全文を流さず、正規表現で数値と決まった語だけを取り出す
+#   （ホスト名・ユーザー名・プロセス名・識別子は出力に出ない）。
 #   常駐プロセスと GUI のログインの状態は人が記入する欄で、触れない（`not_probed` に名前を出す）。
 # run: 試験の枠が読む環境変数 2 つと DEVELOPER_DIR を設定して、`--` 以降のコマンドを exec する。
 #   組み合わせの名前は既定を持たず必須。許可は --permissions で明示したときだけ設定し、
 #   呼び出し側の環境に同名の変数があっても引き継がない。DEVELOPER_DIR は --developer-dir か
 #   呼び出し側の環境の値（実在するディレクトリ）が要る。既定の開発者ディレクトリは切り替えない。
-#   スリープの抑止は --caffeinate を付けたときだけ（`caffeinate -i` の下で起動する）。
-# redact / scan: 持ち帰るテキストの置き換えと漏れの検索。語の一覧は機材の側に置き、リポの中は拒否する。
-#   語は固定の文字列（正規表現として解釈しない・大文字小文字を区別する）。出力とエラーに語を出さず、
+#   スリープの抑止は既定で `caffeinate -i` の下で起動する。外すのは --no-caffeinate を付けたときだけ
+#   （caffeinate が見つからず --no-caffeinate も無いときは起動せず 2）。
+# redact / scan: 持ち帰るテキストの置き換えと漏れの検索。語の一覧（1 行に「語 TAB 印」。印は
+#   `<` + [a-z0-9-]+ + `>`）は機材の側に置く。git の作業ツリーの中にある一覧と、作業ツリーの中への
+#   出力は拒否する（ハードリンクは検出しない）。語は固定の文字列（正規表現として解釈しない・
+#   大文字小文字を区別する・長い語を先に置き換える）。出力とエラーに語も印も出さず、
 #   件数と行番号だけを出す。置き換えは別のファイルへ書く（入力と既存のファイルを上書きしない）。
 #
 # 入れていないもの: 設定の変更・プロセスの停止（低電力モードの切り替え・常駐プロセスの停止は人の作業）、
@@ -43,7 +48,7 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   metal-session.sh probe
-  metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--caffeinate] -- <command> [args...]
+  metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
       example name: metal-mac-mini
   metal-session.sh redact <words-file> <input> <output>
   metal-session.sh scan <words-file> <file>...
@@ -75,11 +80,13 @@ cmd_probe() {
       rm -f "${PROBE_TMP:?}/${name}"
     fi
   }
+  cap utc date -u +%Y-%m-%dT%H:%M:%SZ
   cap pmset_g pmset -g
   cap pmset_batt pmset -g batt
   cap pmset_therm pmset -g therm
   cap loadavg sysctl -n vm.loadavg
   python3 -I - "${PROBE_TMP}" <<'PY'
+import datetime
 import json
 import os
 import re
@@ -107,22 +114,30 @@ out = {}
 unavailable = []
 
 
-def put(key, value):
-    out[key] = value
+def put(dst, key, value, label=None):
+    dst[key] = value
     if value is None:
-        unavailable.append(key)
+        unavailable.append(label or key)
 
 
-g = read("pmset_g")
-if g is None:
-    for k in ("low_power_mode", "sleep_minutes", "display_sleep_minutes", "disk_sleep_minutes"):
-        put(k, None)
-else:
-    m = re.search(r"^[ \t]*lowpowermode[ \t]+([01])\b", g, re.M)
-    put("low_power_mode", None if m is None else m.group(1) == "1")
-    put("sleep_minutes", first_int(g, "sleep"))
-    put("display_sleep_minutes", first_int(g, "displaysleep"))
-    put("disk_sleep_minutes", first_int(g, "disksleep"))
+TIME_RE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z")
+
+
+def valid_time(t):
+    if t is None:
+        return None
+    t = t.strip()
+    m = TIME_RE.fullmatch(t)
+    if m is None:
+        return None
+    try:
+        datetime.datetime(*[int(x) for x in m.groups()])
+    except ValueError:
+        return None
+    return t
+
+
+put(out, "utc", valid_time(read("utc")))
 
 b = read("pmset_batt")
 src = None
@@ -130,32 +145,47 @@ if b is not None:
     m = re.search(r"^Now drawing from '(AC Power|Battery Power|UPS Power)'", b, re.M)
     if m:
         src = {"AC Power": "ac", "Battery Power": "battery", "UPS Power": "ups"}[m.group(1)]
-put("power_source", src)
+put(out, "power_source", src)
+
+g = read("pmset_g")
+m = None if g is None else re.search(r"^[ \t]*lowpowermode[ \t]+([01])\b", g, re.M)
+put(out, "low_power_mode", None if m is None else m.group(1) == "1")
 
 t = read("pmset_therm")
 # 「警告の記録なし」の注記があるときだけ false。注記が無ければ言い切れないので null。
 if t is not None and re.search(r"^Note: No thermal warning level has been recorded", t, re.M):
-    put("thermal_warning_recorded", False)
+    put(out, "thermal_warning", False)
 else:
-    put("thermal_warning_recorded", None)
+    put(out, "thermal_warning", None)
 
 la = read("loadavg")
 num = r"([0-9]+(?:\.[0-9]+)?)"
 m = None if la is None else re.fullmatch(r"\s*\{?\s*" + num + r"\s+" + num + r"\s+" + num + r"\s*\}?\s*", la)
-put("load_average", None if m is None else [float(x) for x in m.groups()])
+put(out, "loadavg", None if m is None else [float(x) for x in m.groups()])
+
+# 回の記録の欄に入らない参考の値。
+ref = {}
+for k, key in (
+    ("sleep_minutes", "sleep"),
+    ("display_sleep_minutes", "displaysleep"),
+    ("disk_sleep_minutes", "disksleep"),
+):
+    put(ref, k, None if g is None else first_int(g, key), "reference." + k)
+out["reference"] = ref
 
 out["unavailable"] = unavailable
 out["not_probed"] = ["resident_process_stopped", "gui_login_state"]
 print(json.dumps(out, indent=2))
 if unavailable:
-    print("warning: %d value(s) unavailable" % len(unavailable), file=sys.stderr)
+    print("error: %d value(s) unavailable" % len(unavailable), file=sys.stderr)
+    sys.exit(1)
 PY
 }
 
 # ---- run ----
 
 cmd_run() {
-  local combination="" permissions="" have_perm=0 devdir="" caffeinate=0
+  local combination="" permissions="" have_perm=0 devdir="" caffeinate=1
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --combination)
@@ -174,8 +204,8 @@ cmd_run() {
         devdir="$2"
         shift 2
         ;;
-      --caffeinate)
-        caffeinate=1
+      --no-caffeinate)
+        caffeinate=0
         shift
         ;;
       --)
@@ -242,13 +272,14 @@ text_tool() {
 import os
 import re
 import stat
+import subprocess
 import sys
 
 MAX_WORDS_BYTES = 1024 * 1024
 MAX_INPUT_BYTES = 64 * 1024 * 1024
 MAX_WORDS = 10000
 MAX_LINES_SHOWN = 20
-MARK = "<redacted>"
+MARK_RE = re.compile(r"<[a-z0-9-]+>")
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -266,15 +297,56 @@ def reject(msg):
     sys.exit(1)
 
 
+def git_env():
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def in_git_tree(directory):
+    """directory が、どこかの git の作業ツリー（.git の中を含む）の中にあるか。
+
+    git が使えない・所有者の違いで失敗する場合でも見逃さないよう、祖先に .git があるかも見る。
+    """
+    real = os.path.realpath(directory)
+    for part in real.split(os.sep):
+        if part == ".git":
+            return True
+    d = real
+    while True:
+        if os.path.lexists(os.path.join(d, ".git")):
+            return True
+        up = os.path.dirname(d)
+        if up == d:
+            break
+        d = up
+    for args in (["--show-toplevel"], ["--is-inside-git-dir"]):
+        try:
+            r = subprocess.run(
+                ["git", "-C", real, "rev-parse"] + args,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=git_env(),
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            out = r.stdout.decode("utf-8", errors="replace").strip()
+            if args[0] == "--show-toplevel" or out == "true":
+                return True
+    return False
+
+
 def load_words(path, root):
+    """語の一覧（1 行に「語 TAB 印」）を読み、語 -> 印 の辞書を返す。"""
     try:
         st = os.stat(path)
     except OSError:
         misuse("words file not found or unreadable")
     rp = os.path.realpath(path)
     rr = os.path.realpath(root)
-    if rp == rr or rp.startswith(rr + os.sep):
-        misuse("words file must be outside the repository")
+    if rp == rr or rp.startswith(rr + os.sep) or in_git_tree(os.path.dirname(rp)):
+        misuse("words file must be outside any git work tree")
     if not stat.S_ISREG(st.st_mode):
         misuse("words file is not a regular file")
     if st.st_size > MAX_WORDS_BYTES:
@@ -285,25 +357,32 @@ def load_words(path, root):
         text = raw.decode("utf-8")
     except (OSError, UnicodeDecodeError):
         misuse("words file is unreadable or not UTF-8")
-    if text.startswith("\ufeff"):
+    if text.startswith("﻿"):
         misuse("words file has a BOM")
-    words = []
+    words = {}
     for line in text.split("\n"):
         if line.endswith("\r"):
             line = line[:-1]
         if line == "":
             continue
-        if line.strip() == "":
-            misuse("words file has a whitespace-only line")
-        if line not in words:
-            words.append(line)
+        if "\t" not in line:
+            misuse("words file has a line without a mark")
+        word, mark = line.split("\t", 1)
+        if word.strip() == "":
+            misuse("words file has an empty or whitespace-only word")
+        if MARK_RE.fullmatch(mark) is None:
+            misuse("words file has a malformed mark")
+        if word in words:
+            misuse("words file has a duplicate word")
+        words[word] = mark
     if not words:
         misuse("words file has no words")
     if len(words) > MAX_WORDS:
         misuse("words file has too many words")
     for w in words:
-        if w in MARK:
-            misuse("a word occurs in the replacement mark")
+        for m in set(words.values()):
+            if w in m:
+                misuse("a word occurs in a replacement mark")
     return words
 
 
@@ -339,29 +418,39 @@ def byte_pattern(words):
 
 
 def residual(pattern, data):
-    lines = []
+    """語の残りの件数と、先頭の行番号（上限まで）を返す。
+
+    行番号は前の一致の位置からの差分だけ数え、上限に達したら数えるのをやめて件数だけ数える。
+    """
     n = 0
+    lines = []
+    pos = 0
+    ln = 1
     for m in pattern.finditer(data):
         n += 1
-        ln = data.count(b"\n", 0, m.start()) + 1
-        if ln not in lines and len(lines) < MAX_LINES_SHOWN:
-            lines.append(ln)
+        if len(lines) < MAX_LINES_SHOWN:
+            ln += data.count(b"\n", pos, m.start())
+            pos = m.start()
+            if not lines or lines[-1] != ln:
+                lines.append(ln)
     return n, lines
 
 
 def cmd_redact(root, words_path, in_path, out_path):
     words = load_words(words_path, root)
     text = read_input(in_path, True)
-    if os.path.lexists(out_path):
-        misuse("output already exists")
     parent = os.path.dirname(os.path.abspath(out_path))
     if not os.path.isdir(parent):
         misuse("output directory does not exist")
+    if in_git_tree(parent):
+        misuse("output must be outside any git work tree")
+    if os.path.lexists(out_path):
+        misuse("output already exists")
     ordered = sorted(words, key=len, reverse=True)
     pat = re.compile("|".join(re.escape(w) for w in ordered))
-    result, count = pat.subn(MARK, text)
+    result, count = pat.subn(lambda m: words[m.group(0)], text)
     data = result.encode("utf-8")
-    left, lines = residual(byte_pattern(words), data)
+    left, _ = residual(byte_pattern(words), data)
     if left:
         reject("a listed word would remain after replacement (%d occurrence(s))" % left)
     try:

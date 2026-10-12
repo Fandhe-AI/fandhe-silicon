@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # metal-session.sh の回帰テスト（spec TASK-19・TASK-28 のポインタ）。
-# macOS のコマンド（uname・pmset・sysctl・caffeinate・xcode-select・cargo）は、一時ディレクトリに置く
+# macOS のコマンド（uname・date・pmset・sysctl・caffeinate・xcode-select・cargo）は、一時ディレクトリに置く
 # 偽のコマンドを PATH の先頭に入れて差し替えるので、Linux の CI で全部流れる。
 # 偽のデータは example と分かる形（ホスト名・ユーザー名・プロセス名に見える文字列は、出力に現れないことの確認用）。
-# 呼び出し元: `make test-metal-session`（直接実行も可。CI の `deny` ジョブと `test-hooks` ジョブ〔macOS を含む〕も呼ぶ）。
+# 呼び出し元: `make test-metal-session`（直接実行も可。CI の `deny` ジョブと `test-hooks` ジョブ〔macOS を含む〕も呼ぶ。
+# macOS では /bin/bash で直接実行する step もある。本体はこのテストを動かしている bash で起動する）。
 #
 # 判定は「終了コード + 標準出力・標準エラーの部分一致（先頭が ! の語は含まれないこと）」で行う。
 # 終了コードだけでは別の理由で落ちても気付けず、検査が素通りする退行（fail-open）を見逃すため。
@@ -18,6 +19,7 @@ source "${DIR}/lib.sh"
 reject_args "$(basename "$0")" "$@"
 
 require_cmd python3
+require_cmd git
 
 MS="${DIR}/metal-session.sh"
 SETTING_RS="${ROOT_DIR}/crates/core/src/test_frame/setting.rs"
@@ -48,6 +50,9 @@ export FAKE_FIX="${fix}"
 export FAKE_REC="${work}/child.txt"
 export FAKE_LOG="${work}/calls.log"
 mkfake uname 'echo "${FAKE_UNAME:-Darwin}"'
+mkfake date 'echo "date $*" >>"$FAKE_LOG"
+[ -z "${FAKE_DATE_FAIL:-}" ] || exit 1
+echo "${FAKE_DATE:-2000-01-01T00:00:00Z}"'
 mkfake pmset 'echo "pmset $*" >>"$FAKE_LOG"
 case "$*" in
   "-g") f=pmset_g ;;
@@ -93,7 +98,7 @@ fail() {
 # ms <引数...>: 本体を実行し rc・標準出力・標準エラーを控える。
 ms() {
   rc=0
-  "${MS}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  "${BASH}" "${MS}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 }
 
 # expect <名前> <期待コード> [語...]: 先頭が ! の語は標準出力・標準エラーのどちらにも無いこと。
@@ -180,60 +185,80 @@ write_probe_fixtures
 ms probe
 expect "probe: exits 0" 0 '!value(s) unavailable'
 pj "probe: values from fixed input" 'd == {
-  "low_power_mode": False, "sleep_minutes": 0, "display_sleep_minutes": 10,
-  "disk_sleep_minutes": 10, "power_source": "ac", "thermal_warning_recorded": False,
-  "load_average": [1.5, 2.25, 3.0], "unavailable": [],
+  "utc": "2000-01-01T00:00:00Z", "power_source": "ac", "low_power_mode": False,
+  "thermal_warning": False, "loadavg": [1.5, 2.25, 3.0],
+  "reference": {"sleep_minutes": 0, "display_sleep_minutes": 10, "disk_sleep_minutes": 10},
+  "unavailable": [],
   "not_probed": ["resident_process_stopped", "gui_login_state"]}'
 expect "probe: noise from commands not echoed" 0 '!example-host' '!example-user' '!example-daemon' '!example-serial' '!invalid'
 bad_calls=0
 while IFS= read -r line; do
   case "${line}" in
-    "pmset -g" | "pmset -g batt" | "pmset -g therm" | "sysctl -n vm.loadavg") ;;
+    "pmset -g" | "pmset -g batt" | "pmset -g therm" | "sysctl -n vm.loadavg" | "date -u +%Y-%m-%dT%H:%M:%SZ") ;;
     *) bad_calls=1 ;;
   esac
 done <"${FAKE_LOG}"
 check "probe: only read-only queries issued" "${bad_calls}"
 check "probe: never calls xcode-select" "$(grep -c '^xcode-select' "${FAKE_LOG}" | sed 's/^[1-9].*/1/')"
 
+FAKE_DATE="2024-02-29T23:59:59Z" ms probe
+pj "probe: time comes from date" 'd["utc"] == "2024-02-29T23:59:59Z"'
+
 sed 's/lowpowermode         0/lowpowermode         1/' "${fix}/pmset_g" >"${work}/g.tmp"
 mv "${work}/g.tmp" "${fix}/pmset_g"
 ms probe
+expect "probe: low power mode on exits 0" 0
 pj "probe: low power mode on" 'd["low_power_mode"] is True and d["unavailable"] == []'
 
 sed 's/lowpowermode         1/lowpowermode         2/' "${fix}/pmset_g" >"${work}/g.tmp"
 mv "${work}/g.tmp" "${fix}/pmset_g"
 ms probe
+expect "probe: out-of-range low power value exits 1" 1 "1 value(s) unavailable"
 pj "probe: out-of-range low power value is unavailable" 'd["low_power_mode"] is None and d["unavailable"] == ["low_power_mode"]'
 
 sed 's/lowpowermode         2/lowpowermode         0/' "${fix}/pmset_g" >"${work}/g.tmp"
 mv "${work}/g.tmp" "${fix}/pmset_g"
 echo "Now drawing from 'Battery Power'" >"${fix}/pmset_batt"
 ms probe
+expect "probe: battery power exits 0" 0
 pj "probe: battery power" 'd["power_source"] == "battery"'
 echo "Now drawing from 'Example Power'" >"${fix}/pmset_batt"
 ms probe
+expect "probe: unknown power source exits 1" 1
 pj "probe: unknown power source is unavailable" 'd["power_source"] is None and d["unavailable"] == ["power_source"]'
 
 echo "Note: something else example-host" >"${fix}/pmset_therm"
 ms probe
-pj "probe: therm without the none note is unavailable" 'd["thermal_warning_recorded"] is None and d["unavailable"] == ["power_source", "thermal_warning_recorded"]'
-expect "probe: warns on stderr when values are unavailable" 0 "warning: 2 value(s) unavailable" '!example-host'
+expect "probe: therm without the none note exits 1" 1 "2 value(s) unavailable" '!example-host'
+pj "probe: therm without the none note is unavailable" 'd["thermal_warning"] is None and d["unavailable"] == ["power_source", "thermal_warning"]'
 
 echo "{ 1.0 abc 3.0 }" >"${fix}/loadavg"
 ms probe
-pj "probe: malformed load average is unavailable" 'd["load_average"] is None and "load_average" in d["unavailable"]'
+expect "probe: malformed load average exits 1" 1
+pj "probe: malformed load average is unavailable" 'd["loadavg"] is None and "loadavg" in d["unavailable"]'
 echo "{ 1.0 2.0 }" >"${fix}/loadavg"
 ms probe
-pj "probe: short load average is unavailable" 'd["load_average"] is None'
+pj "probe: short load average is unavailable" 'd["loadavg"] is None'
 
 rm -f "${fix}/pmset_g"
 ms probe
-pj "probe: pmset failure marks its values unavailable" 'd["low_power_mode"] is None and d["sleep_minutes"] is None and d["display_sleep_minutes"] is None and d["disk_sleep_minutes"] is None'
+expect "probe: pmset failure exits 1" 1
+pj "probe: pmset failure marks its values unavailable" 'd["low_power_mode"] is None and d["reference"] == {"sleep_minutes": None, "display_sleep_minutes": None, "disk_sleep_minutes": None}'
+
+write_probe_fixtures
+FAKE_DATE="2000-13-01T00:00:00Z" ms probe
+expect "probe: impossible date exits 1" 1
+pj "probe: impossible date is unavailable" 'd["utc"] is None and d["unavailable"] == ["utc"]'
+FAKE_DATE="not-a-time example-host" ms probe
+expect "probe: malformed date exits 1 and is not echoed" 1 '!example-host' '!not-a-time'
+FAKE_DATE_FAIL=1 ms probe
+expect "probe: date failure exits 1" 1
+pj "probe: date failure is unavailable" 'd["utc"] is None and d["unavailable"] == ["utc"]'
 
 rm -f "${fix}"/*
-ms probe
-expect "probe: all commands failing still exits 0 with a warning" 0 "warning: 7 value(s) unavailable"
-pj "probe: all values null and listed" 'len(d["unavailable"]) == 7 and all(d[k] is None for k in d["unavailable"])'
+FAKE_DATE_FAIL=1 ms probe
+expect "probe: all commands failing exits 1" 1 "8 value(s) unavailable"
+pj "probe: all values null and listed" 'len(d["unavailable"]) == 8 and d["utc"] is None and d["power_source"] is None and d["loadavg"] is None and all(v is None for v in d["reference"].values())'
 
 write_probe_fixtures
 FAKE_UNAME=Linux ms probe
@@ -332,16 +357,33 @@ expect "run: odd arguments accepted" 0
 check "run: odd arguments arrive as single arguments" "$(printf 'COMB=metal-mac-mini\nPERM=UNSET\nDEV=%s\nARGC=7\nARG=a b\nARG=;\nARG=$(touch %s)\nARG=\nARG=*\nARG=--flag\nARG=it'"'"'s\n' "${devdir}" "${work}/pwned" | cmp -s - "${FAKE_REC}" && echo 0 || echo 1)"
 check "run: nothing was evaluated" "$([ ! -e "${work}/pwned" ] && echo 0 || echo 1)"
 
+# スリープの抑止は既定で入り、--no-caffeinate で外す。
 : >"${FAKE_LOG}"
 rm -f "${FAKE_REC}"
-ms run --combination metal-mac-mini --developer-dir "${devdir}" --caffeinate -- cargo test x
-expect "run: with caffeinate" 0
-check "run: caffeinate -i wraps the command" "$(grep -qx 'caffeinate -i cargo test x' "${FAKE_LOG}" && [ -e "${FAKE_REC}" ] && echo 0 || echo 1)"
+ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test x
+expect "run: runs under caffeinate by default" 0
+check "run: caffeinate -i wraps the command by default" "$(grep -qx 'caffeinate -i cargo test x' "${FAKE_LOG}" && [ -e "${FAKE_REC}" ] && echo 0 || echo 1)"
 : >"${FAKE_LOG}"
-ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test
-check "run: caffeinate unused without the option" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
-FAKE_CARGO_RC=9 ms run --combination metal-mac-mini --developer-dir "${devdir}" --caffeinate -- cargo test
+rm -f "${FAKE_REC}"
+ms run --combination metal-mac-mini --developer-dir "${devdir}" --no-caffeinate -- cargo test x
+expect "run: --no-caffeinate runs the command" 0
+check "run: caffeinate not called with --no-caffeinate" "$([ ! -s "${FAKE_LOG}" ] && [ -e "${FAKE_REC}" ] && echo 0 || echo 1)"
+ms run --combination metal-mac-mini --developer-dir "${devdir}" --caffeinate -- cargo test
+expect "run: the old --caffeinate option is misuse" 2 "usage:"
+FAKE_CARGO_RC=9 ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test
 expect "run: exit code propagates through caffeinate" 9
+# caffeinate が PATH に無い環境（dirname と偽の cargo だけを置いた PATH）。
+bin_nocaf="${work}/bin-nocaf"
+mkdir "${bin_nocaf}"
+ln -s "$(command -v dirname)" "${bin_nocaf}/dirname"
+cp "${bin}/cargo" "${bin_nocaf}/cargo"
+rm -f "${FAKE_REC}"
+PATH="${bin_nocaf}" ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test
+expect "run: missing caffeinate refuses to start" 2 "caffeinate not found"
+check "run: child not started without caffeinate" "$([ ! -e "${FAKE_REC}" ] && echo 0 || echo 1)"
+PATH="${bin_nocaf}" ms run --combination metal-mac-mini --developer-dir "${devdir}" --no-caffeinate -- cargo test
+expect "run: --no-caffeinate starts without caffeinate" 0
+check "run: child started without caffeinate" "$([ -e "${FAKE_REC}" ] && echo 0 || echo 1)"
 
 ms run --combination metal-mac-mini --developer-dir "${devdir}" -- no-such-command-example
 expect "run: command not found" 2 "command not found"
@@ -356,18 +398,19 @@ expect "run: unknown option" 2 "usage:"
 
 # ---- redact / scan ----
 
+# 語の一覧は「語 TAB 印」。印は作り物（実物の語彙は機材の側の一覧が持つ）。
 words="${work}/words.txt"
-printf 'example-host\nexample-user\na.b*c\n(x|y)\n' >"${words}"
+printf 'example-host\t<example-machine>\nexample-user\t<example-person>\na.b*c\t<example-path>\n(x|y)\t<example-pair>\n' >"${words}"
 log="${work}/log.txt"
 printf 'line1 example-host connected\naXbbc is not a.b*c\nuser=example-user (x|y) x y\nEXAMPLE-HOST stays\n' >"${log}"
 before="$(cksum <"${log}")"
 red="${work}/red.txt"
 
 ms redact "${words}" "${log}" "${red}"
-expect "redact: replaces words" 0 "ok: replaced 4 occurrence(s)" '!example-host' '!example-user' '!a.b*c' '!(x|y)'
-check "redact: output has the mark" "$(grep -qF '<redacted>' "${red}" && echo 0 || echo 1)"
+expect "redact: replaces words" 0 "ok: replaced 4 occurrence(s)" '!example-host' '!example-user' '!a.b*c' '!(x|y)' '!<example'
+check "redact: each word gets its own mark" "$(grep -qF 'line1 <example-machine> connected' "${red}" && grep -qF 'is not <example-path>' "${red}" && grep -qF 'user=<example-person> <example-pair> x y' "${red}" && echo 0 || echo 1)"
 check "redact: listed words are gone from output" "$(grep -qF -e 'example-host' -e 'example-user' -e 'a.b*c' -e '(x|y)' "${red}" && echo 1 || echo 0)"
-check "redact: words are fixed strings, not regexes" "$(grep -qF -e 'aXbbc' "${red}" && grep -qF 'user=<redacted> <redacted> x y' "${red}" && echo 0 || echo 1)"
+check "redact: words are fixed strings, not regexes" "$(grep -qF -e 'aXbbc' "${red}" && echo 0 || echo 1)"
 check "redact: matching is case sensitive" "$(grep -qF 'EXAMPLE-HOST stays' "${red}" && echo 0 || echo 1)"
 check "redact: input is not modified" "$([ "$(cksum <"${log}")" = "${before}" ] && echo 0 || echo 1)"
 check "redact: output mode is 600" "$(python3 -I -c 'import os, stat, sys
@@ -377,7 +420,7 @@ ms scan "${words}" "${red}"
 expect "scan: passes after redaction" 0 "ok: no listed word remains in 1 file(s)"
 
 ms scan "${words}" "${log}"
-expect "scan: finds remaining words" 1 "input 1: 4 residual occurrence(s) on line(s) 1, 2, 3" "FAILED: 4 residual occurrence(s)" '!example-host' '!example-user' '!a.b*c' '!(x|y)'
+expect "scan: finds remaining words" 1 "input 1: 4 residual occurrence(s) on line(s) 1, 2, 3" "FAILED: 4 residual occurrence(s)" '!example-host' '!example-user' '!a.b*c' '!(x|y)' '!<example'
 ms scan "${words}" "${red}" "${log}"
 expect "scan: reports the file index of the dirty one" 1 "input 2:" '!input 1:'
 printf 'aXbbc only\n' >"${work}/regexonly.txt"
@@ -390,9 +433,18 @@ printf 'bin\000ary example-user bytes\n' >"${work}/bin.dat"
 ms scan "${words}" "${work}/bin.dat"
 expect "scan: also searches binary files" 1 "input 1: 1 residual occurrence(s) on line(s) 1"
 
+# 件数と先頭の行番号は、多数の行に同じ語があっても正しい（行番号は上限まで）。
+python3 -I -c 'import sys
+open(sys.argv[1], "w").write("example-host\n" * 5000)
+open(sys.argv[2], "w").write("example-host example-host\nplain\n" * 25)' "${work}/many.txt" "${work}/many2.txt"
+ms scan "${words}" "${work}/many.txt"
+expect "scan: many matching lines" 1 "input 1: 5000 residual occurrence(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20" "FAILED: 5000 residual occurrence(s)" '!, 21'
+ms scan "${words}" "${work}/many2.txt"
+expect "scan: several matches per line counted once per line" 1 "input 1: 50 residual occurrence(s) on line(s) 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39" '!, 41'
+
 ms redact "${words}" "${log}" "${red}"
 expect "redact: existing output is not overwritten" 2 "output already exists"
-check "redact: existing output kept" "$(grep -qF 'user=<redacted>' "${red}" && echo 0 || echo 1)"
+check "redact: existing output kept" "$(grep -qF 'user=<example-person>' "${red}" && echo 0 || echo 1)"
 ms redact "${words}" "${log}" "${log}"
 expect "redact: output equal to input is refused" 2 "output already exists"
 check "redact: input kept when output equals input" "$([ "$(cksum <"${log}")" = "${before}" ] && echo 0 || echo 1)"
@@ -403,26 +455,27 @@ check "redact: symlink target not created" "$([ ! -e "${work}/dangling-target" ]
 ms redact "${words}" "${log}" "${work}/no-such-dir/out.txt"
 expect "redact: output directory must exist" 2 "output directory does not exist"
 
-printf 'ab\nabc\n' >"${work}/w-overlap.txt"
+printf 'ab\t<m-a>\nabc\t<m-b>\n' >"${work}/w-overlap.txt"
 printf 'abcd\n' >"${work}/in-overlap.txt"
 ms redact "${work}/w-overlap.txt" "${work}/in-overlap.txt" "${work}/out-overlap.txt"
-check "redact: longest word wins" "$([ "$(cat "${work}/out-overlap.txt")" = "<redacted>d" ] && echo 0 || echo 1)"
+check "redact: longest word wins" "$([ "$(cat "${work}/out-overlap.txt")" = "<m-b>d" ] && echo 0 || echo 1)"
 
-printf 'b\n>c\n' >"${work}/w-edge.txt"
+printf 'b\t<m-x>\n>c\t<m-y>\n' >"${work}/w-edge.txt"
 printf 'bc\n' >"${work}/in-edge.txt"
 ms redact "${work}/w-edge.txt" "${work}/in-edge.txt" "${work}/out-edge.txt"
-expect "redact: a word formed at the mark boundary is refused" 1 "would remain" '!>c'
+expect "redact: a word formed at the mark boundary is refused" 1 "would remain" '!>c' '!<m-'
 check "redact: no output when a word would remain" "$([ ! -e "${work}/out-edge.txt" ] && echo 0 || echo 1)"
 
-printf 'example-host\r\nexample-user\r\n' >"${work}/w-crlf.txt"
+printf 'example-host\t<example-machine>\r\nexample-user\t<example-person>\r\n' >"${work}/w-crlf.txt"
 ms redact "${work}/w-crlf.txt" "${log}" "${work}/out-crlf.txt"
 expect "redact: CRLF word list" 0 "ok: replaced 2 occurrence(s)"
 
-printf 'example-host\n\n\nexample-user\n\n' >"${work}/w-blank.txt"
+printf 'example-host\t<example-machine>\n\n\nexample-user\t<example-machine>\n\n' >"${work}/w-blank.txt"
 ms redact "${work}/w-blank.txt" "${log}" "${work}/out-blank.txt"
-expect "redact: blank lines in the list are skipped" 0 "ok: replaced 2 occurrence(s)"
+expect "redact: blank lines in the list are skipped, marks may repeat" 0 "ok: replaced 2 occurrence(s)"
+check "redact: two words with the same mark" "$(grep -qF 'user=<example-machine>' "${work}/out-blank.txt" && echo 0 || echo 1)"
 
-# 語の一覧の拒否
+# 語の一覧の形の拒否
 : >"${work}/w-empty.txt"
 ms redact "${work}/w-empty.txt" "${log}" "${work}/o1.txt"
 expect "words: empty list refused" 2 "no words"
@@ -432,32 +485,96 @@ expect "words: newline-only list refused" 2 "no words"
 ms scan "${work}/w-empty.txt" "${log}"
 expect "words: empty list refused by scan" 2 "no words"
 check "words: refused list leaves no output" "$([ ! -e "${work}/o1.txt" ] && [ ! -e "${work}/o2.txt" ] && echo 0 || echo 1)"
-printf 'example-host\n  \n' >"${work}/w-ws.txt"
+printf 'example-host\n' >"${work}/w-nomark.txt"
+ms scan "${work}/w-nomark.txt" "${log}"
+expect "words: line without a mark refused by scan" 2 "without a mark" '!example-host'
+ms redact "${work}/w-nomark.txt" "${log}" "${work}/o7.txt"
+expect "words: line without a mark refused by redact" 2 "without a mark" '!example-host'
+check "words: no default mark is used" "$([ ! -e "${work}/o7.txt" ] && echo 0 || echo 1)"
+printf 'example-host\t<example-machine>\nexample-user\n' >"${work}/w-nomark2.txt"
+ms scan "${work}/w-nomark2.txt" "${log}"
+expect "words: one line without a mark refuses the whole list" 2 "without a mark"
+for m in 'x' '<>' '<A>' '<a b>' '<a_b>' '<a>x' ' <a>' '<a>	<b>' '<a.b>'; do
+  printf 'example-host\t%s\n' "${m}" >"${work}/w-badmark.txt"
+  ms scan "${work}/w-badmark.txt" "${log}"
+  expect "words: malformed mark '${m}'" 2 "malformed mark" '!example-host'
+done
+printf '\t<a>\n' >"${work}/w-noword.txt"
+ms scan "${work}/w-noword.txt" "${log}"
+expect "words: empty word refused" 2 "empty or whitespace-only word"
+printf '  \t<a>\n' >"${work}/w-ws.txt"
 ms scan "${work}/w-ws.txt" "${log}"
-expect "words: whitespace-only line refused" 2 "whitespace-only"
-printf 'red\n' >"${work}/w-mark.txt"
+expect "words: whitespace-only word refused" 2 "empty or whitespace-only word"
+printf 'example-host\t<example-machine>\nexample-host\t<example-machine>\n' >"${work}/w-dup1.txt"
+ms scan "${work}/w-dup1.txt" "${log}"
+expect "words: duplicate word with the same mark refused" 2 "duplicate word" '!example-host'
+printf 'example-host\t<example-machine>\nexample-host\t<example-other>\n' >"${work}/w-dup2.txt"
+ms scan "${work}/w-dup2.txt" "${log}"
+expect "words: duplicate word with another mark refused" 2 "duplicate word" '!example-host'
+printf 'example\t<example-machine>\n' >"${work}/w-mark.txt"
 ms scan "${work}/w-mark.txt" "${log}"
-expect "words: a word inside the mark refused" 2 "replacement mark" '!red'
+expect "words: a word inside a mark refused" 2 "replacement mark" '!example' '!<example'
+printf 'example-host\t<example-machine>\nm\t<a-b>\n' >"${work}/w-mark2.txt"
+ms redact "${work}/w-mark2.txt" "${log}" "${work}/o8.txt"
+expect "words: a word inside another word's mark refused" 2 "replacement mark"
+check "words: refused lists leave no output" "$([ ! -e "${work}/o8.txt" ] && echo 0 || echo 1)"
 ms scan "${work}/no-such-words.txt" "${log}"
 expect "words: missing file" 2 "not found"
 ms scan "${work}" "${log}"
 expect "words: directory" 2 "not a regular file"
-printf '\377\n' >"${work}/w-bad.txt"
+printf '\377\t<a>\n' >"${work}/w-bad.txt"
 ms scan "${work}/w-bad.txt" "${log}"
 expect "words: invalid UTF-8" 2 "not UTF-8"
-printf '\357\273\277example-host\n' >"${work}/w-bom.txt"
+printf '\357\273\277example-host\t<example-machine>\n' >"${work}/w-bom.txt"
 ms scan "${work}/w-bom.txt" "${log}"
 expect "words: BOM" 2 "BOM"
 sparse "${work}/w-big.txt" 1048577
 ms scan "${work}/w-big.txt" "${log}"
 expect "words: over size limit" 2 "too large"
 
-# リポの中の一覧は拒否する（既存のファイルを読むだけ。リポのファイルは変更しない）。
-ms scan "${ROOT_DIR}/README.md" "${log}"
-expect "words: file inside the repository refused" 2 "outside the repository"
-ln -s "${ROOT_DIR}/README.md" "${work}/w-link.txt"
+# git の作業ツリーの中の一覧と出力先の拒否。
+gitq() {
+  git -c user.name=example -c user.email=example -c commit.gpgsign=false "$@"
+}
+repo_a="${work}/repo-a"
+gitq init -q "${repo_a}"
+mkdir "${repo_a}/sub"
+for f in tracked untracked ignored; do
+  cp "${words}" "${repo_a}/${f}.txt"
+done
+cp "${words}" "${repo_a}/sub/nested.txt"
+printf 'ignored.txt\n' >"${repo_a}/.gitignore"
+gitq -C "${repo_a}" add tracked.txt .gitignore
+gitq -C "${repo_a}" commit -q -m example
+for f in tracked untracked ignored sub/nested; do
+  ms scan "${repo_a}/${f}.txt" "${log}"
+  expect "words: ${f} file inside a git work tree refused" 2 "outside any git work tree"
+done
+ln -s "${repo_a}/tracked.txt" "${work}/w-link.txt"
 ms scan "${work}/w-link.txt" "${log}"
-expect "words: symlink into the repository refused" 2 "outside the repository"
+expect "words: symlink into a git work tree refused" 2 "outside any git work tree"
+gitq -C "${repo_a}" worktree add -q "${work}/repo-wt" -b example-branch
+ms scan "${work}/repo-wt/tracked.txt" "${log}"
+expect "words: file in another worktree refused" 2 "outside any git work tree"
+cp "${words}" "${repo_a}/.git/words.txt"
+ms scan "${repo_a}/.git/words.txt" "${log}"
+expect "words: file inside the .git directory refused" 2 "outside any git work tree"
+mkdir "${work}/fake-repo"
+: >"${work}/fake-repo/.git"
+cp "${words}" "${work}/fake-repo/words.txt"
+ms scan "${work}/fake-repo/words.txt" "${log}"
+expect "words: ancestor with a .git entry refused even when git cannot tell" 2 "outside any git work tree"
+ms scan "${ROOT_DIR}/README.md" "${log}"
+expect "words: file inside this repository refused" 2 "outside any git work tree"
+ms redact "${words}" "${log}" "${repo_a}/out.txt"
+expect "redact: output inside a git work tree refused" 2 "output must be outside any git work tree"
+check "redact: nothing written inside the work tree" "$([ ! -e "${repo_a}/out.txt" ] && echo 0 || echo 1)"
+ms redact "${words}" "${log}" "${work}/repo-wt/out.txt"
+expect "redact: output inside another worktree refused" 2 "output must be outside any git work tree"
+ms redact "${words}" "${log}" "${work}/fake-repo/out.txt"
+expect "redact: output below a .git entry refused" 2 "output must be outside any git work tree"
+ms scan "${words}" "${red}"
+expect "words: file outside any work tree accepted" 0 "ok:"
 
 # 入力の拒否
 ms scan "${words}" "${work}/no-such-input.txt"

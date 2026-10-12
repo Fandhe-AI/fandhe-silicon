@@ -57,7 +57,7 @@ report_fail() {
 # run_check <引数...>: 検査を実行し rc・標準出力・標準エラーを控える。
 run_check() {
   rc=0
-  "${CHECK}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  "${BASH}" "${CHECK}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 }
 
 # judge <名前> <期待コード> <期待の標準出力> [部分一致...]: 先頭が ! の語は出力に含まれないこと。
