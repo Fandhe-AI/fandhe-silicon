@@ -2,7 +2,7 @@
 //!
 //! `outcome::judge` が決めた結果を表す。種類・理由とも列挙で、文字列の表現は英語の ASCII。
 //! 入力の値・自由な文は持たない。走らせなかった結果・判定保留・判定不能を成功にも失敗にも読み替えない。
-//! spec TASK-23 の 5/8。
+//! spec TASK-23 の 5/8・6/8（`LabelKind`）。
 
 use super::decision::NotRunReason;
 use super::threshold::ThresholdId;
@@ -36,6 +36,43 @@ impl fmt::Display for IndeterminateReason {
     }
 }
 
+/// ラベルの種類（理由・閾値の ID を持たない値）。集計の列の単位で、`Label::kind` で得る。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LabelKind {
+    /// 一致した。
+    Ok,
+    /// 一致しなかった。
+    Ng,
+    /// 判定保留。
+    Pending,
+    /// 走らせなかった。
+    NotRun,
+    /// 判定不能。
+    Indeterminate,
+}
+
+impl LabelKind {
+    /// 全ての種類。順は ok・ng・pending・not-run・indeterminate で、重複は無い。
+    pub const ALL: [LabelKind; 5] = [
+        LabelKind::Ok,
+        LabelKind::Ng,
+        LabelKind::Pending,
+        LabelKind::NotRun,
+        LabelKind::Indeterminate,
+    ];
+
+    /// 種類のトークン（`[a-z0-9-]`。5 種で重複なし）。
+    pub const fn name(self) -> &'static str {
+        match self {
+            LabelKind::Ok => "ok",
+            LabelKind::Ng => "ng",
+            LabelKind::Pending => "pending",
+            LabelKind::NotRun => "not-run",
+            LabelKind::Indeterminate => "indeterminate",
+        }
+    }
+}
+
 /// 結果のラベル。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Label {
@@ -52,15 +89,20 @@ pub enum Label {
 }
 
 impl Label {
+    /// 種類（理由・閾値の ID を除いた値）。
+    pub const fn kind(&self) -> LabelKind {
+        match self {
+            Label::Ok => LabelKind::Ok,
+            Label::Ng => LabelKind::Ng,
+            Label::Pending(_) => LabelKind::Pending,
+            Label::NotRun(_) => LabelKind::NotRun,
+            Label::Indeterminate(_) => LabelKind::Indeterminate,
+        }
+    }
+
     /// 種類のトークン（`[a-z0-9-]`。5 種で重複なし）。
     pub const fn name(&self) -> &'static str {
-        match self {
-            Label::Ok => "ok",
-            Label::Ng => "ng",
-            Label::Pending(_) => "pending",
-            Label::NotRun(_) => "not-run",
-            Label::Indeterminate(_) => "indeterminate",
-        }
+        self.kind().name()
     }
 
     /// 理由のトークン。理由を持つ種類（未実施・判定不能）だけ `Some`。
