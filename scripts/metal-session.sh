@@ -35,7 +35,9 @@
 #   加えて、この 3 種の形が残っていても 1 で終わる（種類ごとの件数と行番号だけを出し、値は出さない。
 #   検出を切るオプションは無い）。`redact` は形で拾った値を置き換えない（置き換え後の印を持たないため）。
 #   形が残っているときは件数を標準エラーへ注記するだけで、確かめは `scan` が受け持つ。
-#   形は安全側に広く拾うので、版の番号のような 4 つ組の数字も IPv4 として止まる（止まった行を人が確かめる）。
+#   形は取りこぼすより止まりすぎる側に倒す。前後が何であっても 0〜255 の 1〜3 桁の数が 4 つドットで
+#   つながっていれば IPv4 として止まる（版の番号の 4 つ組・5 つ組も止まる。止まった行は人が確かめる）。
+#   止まった値は、語の一覧に印つきで足して `redact` をやり直せば置き換わり、`scan` が通る。
 #
 # 入れていないもの: 設定の変更・プロセスの停止（低電力モードの切り替え・常駐プロセスの停止は人の作業）、
 #   `xcode-select` の呼び出し、ネットワーク、プロセスの一覧の取得。
@@ -290,16 +292,18 @@ MARK_RE = re.compile(r"<[A-Za-z0-9-]+>")
 # ---- 形で拾う値（値を前もって知らないもの）----
 # scan が語の一覧に加えて探す 3 種。バイト列に当てる（バイナリも対象）。誤検出は安全側に倒す:
 # 止まりすぎる側は人が行を確かめ、取りこぼす側は漏れになるため。
-_OCT = rb"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
-# 数字や「数字.」に隣り合う四つ組は、より長い数字列の一部とみなして拾わない（5 つ組の版の番号など）。
-IPV4_RE = re.compile(rb"(?<![0-9])(?<![0-9]\.)(?:" + _OCT + rb"\.){3}" + _OCT + rb"(?![0-9])(?!\.[0-9])")
-UUID_RE = re.compile(
-    rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f])"
-)
-# IPv6 は、コロンを含む 16 進数とコロンだけの区間を候補にして valid_ipv6 で形を確かめる。語の途中から
-# 始まる区間（`std::string` の `d::` など）と、語に続く区間は候補にしない。長さは最長の表記（45）程度まで。
-IPV6_CAND_RE = re.compile(rb"(?<![A-Za-z0-9_:])[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:]{0,44}(?![A-Za-z0-9_:])")
+# IPv4: 前後が何であっても（英数字・ドット・4 桁以上の数字の一部でも）、0〜255 の 1〜3 桁の数
+# （先頭ゼロつきを含む）が 4 つドットでつながっていれば拾う。境界を持たないので後戻りは起きない。
+_OCT = rb"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})"
+IPV4_RE = re.compile(rb"(?:" + _OCT + rb"\.){3}" + _OCT)
+# UUID: ハイフンつきの 8-4-4-4-12 の並びが含まれていれば拾う（前後に 16 進数字や 0x が付いていても）。
+# ハイフンなしの 32 桁は、コミットのハッシュや SHA-256 と区別できないので拾わない。
+UUID_RE = re.compile(rb"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+# IPv6: 16 進数とコロンだけの最大の区間（コロンを含むもの）を候補にし、形を valid_ipv6 で確かめる。
+# 区間の始まりだけに先読みを置くので、長い区間でも後戻りは 1 回で済む。
+IPV6_CAND_RE = re.compile(rb"(?<![0-9A-Fa-f:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
 _HEXGROUP_RE = re.compile(rb"[0-9A-Fa-f]{1,4}")
+_WORD_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
 
 
 def valid_ipv6(cand):
@@ -320,10 +324,32 @@ def valid_ipv6(cand):
     return len(groups) == 8 and all(_HEXGROUP_RE.fullmatch(g) for g in groups)
 
 
-# (種類名, 正規表現, 一致を絞る関数)。種類名は出力に出す（値は出さない）。
+def ipv6_match(data, m):
+    """候補の一致が IPv6 として止める対象か。
+
+    区間の先頭の単独のコロン（`addr:` の直後）と末尾の単独のコロン（ログの区切り）は外して確かめる。
+    形が合っても、前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。
+    片側だけが語の文字（`IPv6:` の直後、`std::{` の直前）なら拾う（止まりすぎる側）。
+    """
+    cand = m.group(0)
+    s, e = m.span()
+    if cand.startswith(b":") and not cand.startswith(b"::"):
+        cand = cand[1:]
+        s += 1
+    if cand.endswith(b":") and not cand.endswith(b"::"):
+        cand = cand[:-1]
+        e -= 1
+    if not valid_ipv6(cand):
+        return False
+    before = s > 0 and data[s - 1] in _WORD_BYTES
+    after = e < len(data) and data[e] in _WORD_BYTES
+    return not (before and after)
+
+
+# (種類名, 正規表現, 一致を絞る関数(data, 一致))。種類名は出力に出す（値は出さない）。
 SHAPES = (
     ("ipv4", IPV4_RE, None),
-    ("ipv6", IPV6_CAND_RE, valid_ipv6),
+    ("ipv6", IPV6_CAND_RE, ipv6_match),
     ("uuid", UUID_RE, None),
 )
 
@@ -418,8 +444,9 @@ def load_words(path, root):
             misuse("words file has an empty or whitespace-only word")
         if MARK_RE.fullmatch(mark) is None:
             misuse("words file has a malformed mark")
-        if any(residual(pat, mark.encode("ascii"), ok)[0] for _, pat, ok in SHAPES):
-            # 印そのものが形に当たると、置き換え後の scan が必ず止まる。
+        if UUID_RE.search(mark.encode("ascii")):
+            # 印の文字種にドットもコロンも無いので、印が当たりうる形は UUID だけ。
+            # 当たると置き換え後の scan が必ず止まる。
             misuse("words file has a mark with the shape of an IP address or UUID")
         if word in words:
             misuse("words file has a duplicate word")
@@ -469,7 +496,7 @@ def byte_pattern(words):
 def residual(pattern, data, accept=None):
     """一致の残りの件数と、先頭の行番号（上限まで）を返す。
 
-    accept があれば、それが真を返す一致だけを数える（IPv6 の候補の絞り込み）。
+    accept(data, 一致) があれば、それが真を返す一致だけを数える（IPv6 の候補の絞り込み）。
     行番号は前の一致の位置からの差分だけ数え、上限に達したら数えるのをやめて件数だけ数える。
     """
     n = 0
@@ -477,7 +504,7 @@ def residual(pattern, data, accept=None):
     pos = 0
     ln = 1
     for m in pattern.finditer(data):
-        if accept is not None and not accept(m.group(0)):
+        if accept is not None and not accept(data, m):
             continue
         n += 1
         if len(lines) < MAX_LINES_SHOWN:

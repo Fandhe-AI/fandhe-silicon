@@ -616,62 +616,82 @@ expect "marks: a mark shaped like a UUID is refused" 2 "mark with the shape" '!e
 
 # ---- 形で拾う値（IPv4・IPv6・UUID）----
 
-# 値は文書用の予約済みの範囲と作り物の UUID。リテラルを避けるため、DOT と COL を実行時に置き換える。
+# 値は文書用の予約済みの範囲と作り物の UUID。リテラルを避けるため、DOT と COL と FW（全角の点）を
+# 実行時に置き換える。表の「拾う」行は種類ごとの行番号が出力に出ること、「拾わない」行は止まらないことを固定する。
 shapes="${work}/shapes.txt"
-python3 -I - "${shapes}" <<'PY'
+passfile="${work}/passes.txt"
+exp="${work}/shapes-expected.txt"
+python3 -I - "${shapes}" "${passfile}" "${exp}" <<'PY'
 import sys
 
-lines = [
-    "peer 192DOT0DOT2DOT7 up",  # 1 ipv4
-    "peer 198DOT51DOT100DOT9COL8080 up",  # 2 ipv4（ポート付き）
-    "see 203DOT0DOT113DOT5.",  # 3 ipv4（文末）
-    "version 1DOT2DOT3DOT4",  # 4 ipv4（版の番号。安全側で止まる）
-    "build 1DOT2DOT3DOT4DOT5",  # 5 なし（5 つ組）
-    "addr 256DOT1DOT1DOT1",  # 6 なし（範囲外）
-    "t 12COL34COL56",  # 7 なし（時刻）
-    "mac 00COL11COL22COL33COL44COL55",  # 8 なし（6 組の MAC）
-    "path stdCOLCOLstring",  # 9 なし（語の途中の ::）
-    "path FooCOLCOLBar",  # 10 なし
-    "addr 2001COLdb8COLCOL1",  # 11 ipv6
-    "addr 2001COLdb8COL0COL0COL0COL0COL0COL1",  # 12 ipv6（8 組）
-    "lo COLCOL1",  # 13 ipv6
-    "[2001COLdb8COLCOL1]COL443",  # 14 ipv6（角括弧とポート）
-    "link fe80COLCOL1%en0",  # 15 ipv6（ゾーン付き）
-    "eui 00COL11COL22COL33COL44COL55COL66COL77",  # 16 ipv6（2 桁 8 組の EUI-64 は形が合うので止まる）
-    "id aCOLCOLb",  # 17 ipv6（16 進数だけの識別子は止まる）
-    "bad 1COLCOL2COLCOL3",  # 18 なし（:: が 2 つ）
-    "bad COLCOLCOL",  # 19 なし
-    "just COLCOL",  # 20 なし
-    "gpu 00000000-0000-4000-8000-0000000000ab",  # 21 uuid
-    "GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",  # 22 uuid（大文字・接頭辞付き）
-    "no 00000000-0000-4000-8000-0000000000abc",  # 23 なし（末尾が 13 桁）
-    "no 000000000-0000-4000-8000-0000000000ab",  # 24 なし（先頭が 9 桁）
-    "no 00000000-0000-4000-8000",  # 25 なし
-    "plain text only",  # 26 なし
+HIT = [
+    ("ipv4", "peer 192DOT0DOT2DOT7 up"),
+    ("ipv4", "peer 198DOT51DOT100DOT9COL8080 up"),
+    ("ipv4", "see 203DOT0DOT113DOT5."),
+    ("ipv4", "version 1DOT2DOT3DOT4"),
+    ("ipv4", "build 1DOT2DOT3DOT4DOT5"),
+    ("ipv4", "port by dot 192DOT0DOT2DOT7DOT8080"),
+    ("ipv4", "glued x1DOT192DOT0DOT2DOT7"),
+    ("ipv4", "zero padded 010DOT000DOT002DOT007"),
+    ("ipv4", "over range 256DOT1DOT1DOT1"),
+    ("ipv4", "long digits 1234DOT5DOT6DOT7"),
+    ("ipv6", "addr 2001COLdb8COLCOL1"),
+    ("ipv6", "addr 2001COLdb8COL0COL0COL0COL0COL0COL1"),
+    ("ipv6", "lo COLCOL1"),
+    ("ipv6", "[2001COLdb8COLCOL1]COL443"),
+    ("ipv6", "link fe80COLCOL1%en0"),
+    ("ipv6", "eui 00COL11COL22COL33COL44COL55COL66COL77"),
+    ("ipv6", "id aCOLCOLb"),
+    ("ipv6", "addrCOL2001COLdb8COLCOL1"),
+    ("ipv6", "IPv6COL2001COLdb8COLCOL1"),
+    ("ipv6", "peer 2001COLdb8COLCOL1COL refused"),
+    ("ipv6", "peer COL 2001COLdb8COLCOL1COL"),
+    ("ipv6", "use stdCOLCOL{fmt}"),
+    ("uuid", "gpu 00000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"),
+    ("uuid", "hex 0x00000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "tail 00000000-0000-4000-8000-0000000000ab0"),
+    ("uuid", "head 000000000-0000-4000-8000-0000000000ab"),
+    ("uuid", "head x00000000-0000-4000-8000-0000000000ab"),
 ]
-text = "\n".join(lines) + "\n"
-open(sys.argv[1], "w").write(text.replace("DOT", ".").replace("COL", ":"))
-PY
-ms scan "${words}" "${shapes}"
-expect "shapes: each kind reports its own lines" 1 "input 1: 4 ipv4-shaped value(s) on line(s) 1, 2, 3, 4" "input 1: 7 ipv6-shaped value(s) on line(s) 11, 12, 13, 14, 15, 16, 17" "input 1: 2 uuid-shaped value(s) on line(s) 21, 22" "FAILED: 13 residual occurrence(s)" '!word' '!192' '!2001' '!fe80' '!0000'
-ms scan "${words}" "${shapes}" "${log}"
-expect "shapes: file index of the shaped file" 1 "input 2: 4 residual occurrence(s) on line(s) 1, 2, 3" '!input 2: 4 ipv4' "input 1: 4 ipv4-shaped"
-
-# 形が無ければ通る（誤検出しやすい見かけの行だけのファイル）。
-python3 -I - "${work}/lookalike.txt" <<'PY'
-import sys
-
-lines = [
+MISS = [
+    "three parts 1DOT2DOT3 and two 12DOT34",
+    "names aDOTbDOTcDOTd and 1DOTDOT2DOT3DOT4 and 1 DOT2DOT3DOT4",
+    "fullwidth 192FWFW0FW2FW7 and 2001FWdb8FWFW1",
     "t 12COL34COL56 and 23COL59COL59",
     "mac 00COL11COL22COL33COL44COL55",
-    "build 1DOT2DOT3DOT4DOT5 and 256DOT1DOT1DOT1 and 1DOT2DOT3",
-    "path stdCOLCOLstring FooCOLCOLBar key: value",
-    "sha 0123456789abcdef0123456789abcdef-0123",
+    "path stdCOLCOLfmtCOLCOLDisplay and FooCOLCOLBar",
+    "two compressions 1COLCOL2COLCOL3 and COLCOLCOL and COLCOL",
+    "keyCOL value and a COL b",
+    "sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "uuid without hyphens 0123456789abcdef0123456789abcdef",
+    "short uuid 00000000-0000-4000-8000 and 0000000-0000-4000-8000-0000000000ab",
+    "plain text only",
 ]
-open(sys.argv[1], "w").write(("\n".join(lines) + "\n").replace("DOT", ".").replace("COL", ":"))
+
+
+def fx(t):
+    return t.replace("DOT", ".").replace("COL", ":").replace("FW", "．")
+
+
+lines = [t for _, t in HIT] + MISS
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write(fx("\n".join(lines)) + "\n")
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    f.write(fx("\n".join(MISS)) + "\n")
+out = []
+for kind in ("ipv4", "ipv6", "uuid"):
+    ln = [i + 1 for i, (k, _) in enumerate(HIT) if k == kind]
+    out.append("input 1: %d %s-shaped value(s) on line(s) %s" % (len(ln), kind, ", ".join(map(str, ln))))
+out.append("FAILED: %d residual occurrence(s)" % len(HIT))
+open(sys.argv[3], "w").write("\n".join(out) + "\n")
 PY
-ms scan "${words}" "${work}/lookalike.txt"
-expect "shapes: look-alikes pass" 0 "ok: no listed word or IP address/UUID-shaped value remains in 1 file(s)"
+ms scan "${words}" "${shapes}"
+expect "shapes: each kind reports its own lines" 1 "$(sed -n 1p "${exp}")" "$(sed -n 2p "${exp}")" "$(sed -n 3p "${exp}")" "$(sed -n 4p "${exp}")" '!word' '!192' '!2001' '!fe80' '!0000'
+ms scan "${words}" "${shapes}" "${log}"
+expect "shapes: file index of the shaped file" 1 "input 2: 4 residual occurrence(s) on line(s) 1, 2, 3" '!input 2: 4 ipv4' "input 1: 10 ipv4-shaped"
+ms scan "${words}" "${passfile}"
+expect "shapes: look-alikes and unsupported spellings pass" 0 "ok: no listed word or IP address/UUID-shaped value remains in 1 file(s)"
 
 # 形の検出は語の一覧の検索と併せて数える。
 python3 -I - "${work}/mixed.txt" <<'PY'
@@ -705,6 +725,43 @@ ms scan "${words}" "${work}/ipmany.txt"
 expect "shapes: many shaped lines" 1 "input 1: 5000 ipv4-shaped value(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20" "FAILED: 5000 residual occurrence(s)" '!, 21'
 ms scan "${words}" "${work}/big.txt"
 expect "shapes: 60 MiB input finds the one shaped value on its line" 1 "input 1: 1 ipv4-shaped value(s) on line(s)" "FAILED: 1 residual occurrence(s)" '!ipv6' '!uuid'
+
+# 止まった値を語の一覧に印つきで足して redact をやり直すと、置き換わって scan が通る。
+python3 -I - "${work}/flow.txt" "${work}/flow-words.txt" <<'PY'
+import sys
+
+v = "192DOT0DOT2DOT7".replace("DOT", ".")
+open(sys.argv[1], "w").write("example-host at %s\n" % v)
+open(sys.argv[2], "w").write("example-host\t<example-machine>\n%s\t<example-address>\n" % v)
+PY
+ms scan "${work}/flow-words.txt" "${work}/flow.txt"
+expect "flow: scan stops while the value is not in the list" 1 "FAILED:"
+ms redact "${work}/flow-words.txt" "${work}/flow.txt" "${work}/flow-out.txt"
+expect "flow: redact with the value added replaces it" 0 "ok: replaced 2 occurrence(s)" '!note:' '!192'
+check "flow: the value became the mark" "$([ "$(cat "${work}/flow-out.txt")" = "<example-machine> at <example-address>" ] && echo 0 || echo 1)"
+ms scan "${work}/flow-words.txt" "${work}/flow-out.txt"
+expect "flow: scan passes after the rerun" 0 "ok:"
+
+# 長い 1 行（16 MiB）とコロン・ドットだらけの入力で、結果が正しい（後戻りで止まらない）。
+python3 -I - "${work}" <<'PY'
+import os
+import sys
+
+d = sys.argv[1]
+n = 16 * 1024 * 1024
+open(os.path.join(d, "long-colon-a.txt"), "w").write("a:" * (n // 2) + "\n")
+open(os.path.join(d, "long-colons.txt"), "w").write(":" * n + "\n")
+open(os.path.join(d, "long-hex.txt"), "w").write("a" * n + "\n")
+open(os.path.join(d, "long-dots.txt"), "w").write("1." * (n // 2) + "\n")
+open(os.path.join(d, "long-dotnum.txt"), "w").write("9" * n + "." * 3 + "\n")
+open(os.path.join(d, "long-dash.txt"), "w").write("0000000-" * (n // 8) + "\n")
+PY
+for f in long-colon-a long-colons long-hex long-dotnum long-dash; do
+  ms scan "${words}" "${work}/${f}.txt"
+  expect "perf: 16 MiB line ${f} is not shaped" 0 "ok:"
+done
+ms scan "${words}" "${work}/long-dots.txt"
+expect "perf: 16 MiB line of dotted numbers is stopped once per line" 1 "ipv4-shaped value(s) on line(s) 1" '!, 2'
 
 # 誤用
 ms redact "${words}" "${log}"
