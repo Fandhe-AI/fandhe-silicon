@@ -3,7 +3,7 @@
 TASK-236（親 Issue #461）の点検の記録について、置き場・書き手・本リポへの映し方の方針を、本リポで公開済みの事実とポインタだけで記録する。
 本書は案で、オーナーの確認は済んでいない。
 spec の本文・点検の対象の名前・候補・結果・件数は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
-現状と前提の節は 1/8（Issue #3932）が追記する。
+着手時点の現状と前提は「着手時点の本リポの事実」「関連タスクの状態」の節に記録する（1/8、Issue #3932）。
 
 ## 記録の所在
 
@@ -22,6 +22,32 @@ spec の本文・点検の対象の名前・候補・結果・件数は転記し
 | spec の取り込み | `docs/spec` は gitlink（`update = none`）。CI は取得しない | `.gitmodules`、`git ls-tree HEAD docs/spec` |
 
 - 確かめた日付: 2026-10-12（base: `3e78751`、gitlink: `c1cb4c9`）
+
+## 着手時点の本リポの事実
+
+確かめた日付: 2026-10-12（base: `460ef21`、gitlink: `c1cb4c9`）。上の「方針が前提にする本リポの事実」を補う。本範囲では点検そのものを行わない。上記のポインタが gitlink の指す commit に見出しとして在るかは確かめていない（未検証）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| DX12 の compute の feature | `fandhe-silicon-contract` に `backend-dx12-compute` があり、`contract-core` を有効にするだけ。`default` には入っていない。コメントに受け持つタスクのポインタ（TASK-222）がある | `crates/contract/Cargo.toml` の `[features]` |
+| DX12 のモジュール | `crates/contract/src/lib.rs` に DX12 のモジュール宣言は無く、`crates/contract/src/` に DX12 のファイルも無い | `crates/contract/src/lib.rs`、`ls crates/contract/src` |
+| build-profiles の組 | `backend-dx12-compute` を含む組は `NATIVE_SETS`・`WASM_SETS` に無い。`make verify` は `--all-features` なので feature 自体は有効になる | `scripts/build-profiles.sh`、`scripts/verify.sh` |
+| 製品の公開面 | 製品 crate の公開面はほぼ空で、点検の対象になる操作・型は本リポに無い | 各 crate の `src/lib.rs` |
+| 領域ごとの契約の文書 | `docs/contract/` には書式・手順書だけがあり、領域ごとの文書は無い | `ls docs/contract` |
+| `docs/spec` | gitlink で `update = none`。既定の clone では空で、`ci.yml` も取得しない | `.gitmodules`、`git ls-tree HEAD docs/spec`、`.github/workflows/ci.yml` |
+| 外部依存 | 0 件。追加は承認制 | `cargo metadata --format-version 1 --all-features --locked`、[dependency-policy](../.claude/rules/dependency-policy.md) |
+| 外部の一次資料の調べ方 | Direct3D の調査は reference-researcher が `windows-graphics-media` スキルで受け持つ | `.claude/agents/research/reference-researcher.md`、`skills-lock.json` |
+| 持ち込みと spec の扱い | PoC の記録は本リポへ写さない。`docs/spec` 配下は書き換えない | [poc-carry-over](../.claude/rules/poc-carry-over.md)・[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) |
+
+## 関連タスクの状態
+
+`crates/contract/Cargo.toml` のコメントが指すタスクに限る。spec 内の依存の関係は書き起こさない。
+
+| 対象 | Issue | 状態（2026-10-12 時点） |
+| ---- | ----- | ------------------------ |
+| TASK-236（親） | #461 | OPEN |
+| TASK-222 | #1145 | OPEN |
+| TASK-234 | #1154 | OPEN |
 
 ## 本リポへの反映の方針（2/8）
 
