@@ -25,6 +25,8 @@ cat <<'EOF'
   inventory-trace-check scripts/inventory-trace-check.sh  一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。行単位は直接実行で --item-rows。--list で対応の一覧を標準出力へ。要 docs/spec の取得。CI では実行しない）
   test-inventory-trace-check scripts/test-inventory-trace-check.sh  inventory-trace-check 自体の回帰テスト（合成 fixture。bash + python3。docs/spec の取得は不要）
   test-session-record-check scripts/test-session-record-check.sh  session-record-check 自体の回帰テスト（合成 fixture。bash + python3）。検査本体は make ターゲットなし: scripts/session-record-check.sh <path>
+  ci-frame-check  scripts/ci-frame-check.sh      ci.yml が CI の枠の事実（集約・実行場所・失敗の扱い）を保っているかの検査（bash + python3。--workflow <path> で入力を差し替え可）
+  test-ci-frame-check scripts/test-ci-frame-check.sh  ci-frame-check 自体の回帰テスト（合成 fixture。bash + python3）
   test-hooks      scripts/hooks/test-hooks.sh    フックスクリプト自体の回帰テスト（bash + git のみ）
 
 Git hooks（lefthook.yml から呼ばれる。直接実行も可）:
