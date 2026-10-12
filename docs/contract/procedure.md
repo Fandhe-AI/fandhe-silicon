@@ -19,7 +19,7 @@
 
 ## 決定の記録の書式
 
-記録は private spec 側に置く。必須項目は次のとおり。記入用の雛形は [TEMPLATE](TEMPLATE.md)。
+記録は private spec 側に置く。必須項目は次のとおり。本リポ（`docs/contract/`）に置く分（公開してよい欄だけ）の雛形は [TEMPLATE](TEMPLATE.md) で、下の表の全部の欄を持つ雛形ではない。
 
 | 項目 | 内容 |
 | ---- | ---- |
