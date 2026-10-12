@@ -36,6 +36,19 @@ impl NotRunReason {
     }
 }
 
+impl NotRunReason {
+    /// 理由のトークン（`[a-z0-9-]`）。結果のラベルが理由として出す。
+    pub const fn name(self) -> &'static str {
+        match self {
+            NotRunReason::NotConfigured => "not-configured",
+            NotRunReason::InvalidCombinationSetting => "invalid-combination-setting",
+            NotRunReason::InvalidPermissionSetting => "invalid-permission-setting",
+            NotRunReason::CombinationNotDeclared => "combination-not-declared",
+            NotRunReason::PermissionMissing => "permission-missing",
+        }
+    }
+}
+
 impl fmt::Display for NotRunReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
