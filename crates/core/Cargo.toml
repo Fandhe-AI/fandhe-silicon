@@ -55,6 +55,10 @@ name = "test_frame_outcome"
 required-features = ["test-support"]
 
 [[test]]
+name = "test_frame_record"
+required-features = ["test-support"]
+
+[[test]]
 name = "test_frame_summary"
 required-features = ["test-support"]
 
