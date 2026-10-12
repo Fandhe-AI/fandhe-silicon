@@ -108,6 +108,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [jq](https://jqlang.org/) | 依存の版指定の検査（`make deps-check` / `make test-deps-check`） | 任意 |
 | [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh` は 3.8 以上で動く） | 任意 |
+| [Python](https://www.python.org/) 3.8 以上 | `make verify` が試験の枠の記録から集計の表を作る（`scripts/record-summary.sh`。標準ライブラリだけ）。`make doctor` は無いとき・3.8 未満のときに失敗として知らせる | ✓ |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
