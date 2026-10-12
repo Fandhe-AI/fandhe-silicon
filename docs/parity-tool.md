@@ -125,7 +125,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 | 関連 | Issue | 状態 | 引き継ぎ |
 | ---- | ----- | ---- | -------- |
-| TASK-23 | #91 | 未完了（並行） | 共通の試験の枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。範囲 (2) のうち、結果のラベルの決定と `parity` の比較型から判定への写像も本リポにある（`parity` は変えていない）。記録の出力と集計はまだ無い |
+| TASK-23 | #91 | 未完了（並行） | 共通の試験の枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。範囲 (2) のうち、結果のラベルの決定と `parity` の比較型から判定への写像も本リポにある（`parity` は変えていない）。組み合わせごとの集計も本リポにある。記録の出力はまだ無い |
 | TASK-25 | #109 | Issue はクローズ済み | TASK-24 を前提に引く下流。足した規則は [parity-non-finite](parity-non-finite.md) |
 | TASK-53 | #196 | 未完了（Issue は OPEN） | 適用の範囲の判断はこのタスクに委ね、TASK-24 の側で広げも狭めもしない。コード側の見る場所は `T1`・getter・`threshold_is_readable` |
 | TASK-6 | #35 | 済（クローズ） | 決定の記録は spec リポの main にある（本リポの submodule の固定 SHA はこの記録より前）。持ち込みは [poc-carry-over](../.claude/rules/poc-carry-over.md) と [workspace-boundary](workspace-boundary.md) に従う |

@@ -1,6 +1,6 @@
 # 共通の試験の枠（TASK-23）の現状・前提・形の設計・現状の形
 
-TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計、5/8（#96）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計、5/8（#96）で入れたコードの現状の形、6/8（#97）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -249,6 +249,55 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 - 集計は `Outcome` の getter の上に乗せる。形は決定の記録に従い、一意に決まらない点は推奨案で確定せず伺う
 - 公開アイテムを足したら、本書の現状の形・`README.md`・`CLAUDE.md`・crate 冒頭の `//!` を同じ PR で直す
 
+## 現状の形（6/8）
+
+本節はコードと公開テストから観測できる事実だけを書く。範囲は `docs/spec/05-tasks.md` の TASK-23 の内容の (3) のうち、出力の先に依らない部分。
+追加分も feature `test-support` の裏にだけ公開される。
+
+### 置き場
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| モジュール | `crates/core/src/test_frame/summary.rs` を追加。`label.rs` には `LabelKind` と `Label::kind()` を足し、`Label::name()` は `kind().name()` を返す | 同ディレクトリ |
+| テスト | `crates/core/tests/test_frame_summary.rs`（`[[test]]` に `required-features = ["test-support"]`）。`test_frame_label.rs` に `LabelKind` のテストを追記。`crates/contract/tests/test_support_test_frame.rs` に到達性のテストを追記 | 各 `Cargo.toml` |
+| `parity`・依存 | 差分なし。外部依存は 0 のまま | `git diff origin/main -- crates/core/src/parity deps-approved.toml Cargo.lock` |
+
+### 公開アイテムと観測できる振る舞い
+
+| アイテム | 観測できる振る舞い | 確かめ方（テスト名） |
+| -------- | ------------------ | -------------------- |
+| `LabelKind` | ラベルの種類 5 つ（理由・閾値の ID を持たない）。`ALL` の順は ok・ng・pending・not-run・indeterminate。トークンは `Label::name()` と同じ | `label_kinds_are_five_distinct_tokens`・`kind_matches_name_for_every_label` |
+| `Summary`・`LabelCounts` | `Outcome` の getter だけを入力に、`MachineCombination::ALL` の 7 行と全体の件数を数える。行は、走らせた組み合わせにそのラベルの種類を 1 件、宣言したが走らせていない組み合わせに `not-run` を 1 件、宣言していない組み合わせは数えない。全体は `Outcome` 1 件につき 1 件。5 種の件数を常に持つ | `empty_summary_has_seven_rows_of_zero`・`ran_outcomes_count_under_the_combination_they_ran_on`・`not_run_outcomes_count_under_every_declared_combination`・`declared_but_not_run_combinations_count_as_not_run`・`undeclared_combinations_are_not_counted`・`row_total_equals_outcomes_declaring_the_combination`・`totals_count_each_outcome_once_by_its_label` |
+| 順序・足し方 | 結果は `Outcome` の順に依らない。`record` を繰り返した結果は `from_outcomes` と一致する | `result_does_not_depend_on_order_and_record_agrees_with_from_outcomes` |
+| `has_ng` | `Ng` が 1 件でもあるときだけ `true`（`Label::fails_test` の集計版） | `has_ng_is_true_only_when_an_outcome_is_ng` |
+| 表（`Display`） | Markdown の表。固定の見出しと区切り、`MachineCombination::ALL` の順の 7 行。セルは固定のトークンと 10 進の数だけで、試験の ID・ビヘイビアの ID・環境の値は出ない。英語の ASCII | `table_has_fixed_header_and_seven_rows_in_all_order`・`table_shows_counts_and_keeps_non_ok_columns`・`table_is_ascii_and_has_no_identifiers` |
+| `SummaryError` | 件数のあふれは `CountOverflow`（`checked_add`。飽和も panic もしない。失敗した `record` は集計を変えない）。表示は英語の ASCII で入力の値を含まない | `summary_error_is_ascii` |
+| contract からの到達 | `contract` の `test-support` だけで届き、背後実装の feature に依らず同じ件数 | `summary_is_reachable_and_fixed_under_any_backend_feature_set` |
+
+### 入れていないもの
+
+- 機械可読の記録の組み立て、ファイル・標準出力・標準エラーへの書き出し、出力の先の指定の受け口
+- 複数の試験（別プロセスを含む）の結果を 1 つの `Summary` に集める経路、複数の run をまたぐ集計
+- 未実施・判定不能の理由ごとの内訳、同じ試験の ID の重複の検出
+- `Outcome` への `Termination` の実装（5/8 の扱いのまま）
+- 実機の device を取って宣言と照合する経路、`contract` 側の受け口
+- 外部依存、`unsafe`、新しい feature・make ターゲット・CI ジョブ・`build-profiles` の組
+
+### 公開テストから到達させていない経路
+
+- `CountOverflow` に至る経路（`usize::MAX` 件の入力が要るため作れない）
+- `LabelCounts::total` の飽和の経路（同上）
+
+### 実装で決めた点
+
+- 複数の組み合わせを宣言した試験が 1 つで走ったとき、走らなかった宣言の行に `not-run` を 1 件ずつ積む
+- 表の列の並び（`LabelKind::ALL` の順）、`has_ng` の導入
+
+### 7/8（#98）への引き継ぎ
+
+- 集計のテストは公開テストで固定済み。7/8 では不足する経路の洗い出しと追加をする
+- 出力の先と形が決まるまで、記録の組み立て・書き出しと複数の試験をまたぐ集計の経路は入らない（spec 側の判断待ち。ポインタ: `docs/spec/05-tasks.md` の TASK-28・TASK-27）
+
 ## 出力の先の記録の所在
 
 - 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
@@ -261,7 +310,7 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | #94 | 3/8 実装（済。本書の「現状の形（3/8）」） |
 | #95 | 4/8 形の設計（済。本書の「形の設計（4/8）」） |
 | #96 | 5/8 実装（済。本書の「現状の形（5/8）」） |
-| #97 | 6/8 実装 |
+| #97 | 6/8 実装（済。本書の「現状の形（6/8）」） |
 | #98 | 7/8 テスト |
 | #99 | 8/8 確かめ |
 
@@ -280,6 +329,8 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 2026-10-12（4/8。base: `origin/main` の `0975b66`、gitlink: `a7de5c2`）。
 
 2026-10-12（5/8。base: `origin/main` の `065bd04`、gitlink: `a7de5c2`）。
+
+2026-10-12（6/8。base: `origin/main` の `ca396fd`、gitlink: `a7de5c2`）。
 
 ## 関連
 
