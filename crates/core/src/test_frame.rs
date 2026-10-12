@@ -7,7 +7,7 @@
 //!
 //! 試験の側の使い方: 試験の先頭で [`Declaration`] を作り、[`RunSetting::from_env`] で得た設定とともに
 //! [`decide`] へ渡す。[`Decision::NotRun`] なら、その理由を明示して試験を終える（暗黙に成功にしない）。
-//! 結果は [`Subject`] とともに [`judge`] へ渡して [`Outcome`] にする（ラベルは [`Label`]）。`Outcome` は試験の戻り値にできる。
+//! 結果は [`Subject`] とともに [`judge`] へ渡して [`Outcome`] にする（ラベルは [`Label`]）。`Outcome` は `Termination` を実装しないので試験の戻り値にはできず、呼び出し側がラベルを明示的に扱う。
 
 pub mod combination;
 pub mod decision;
