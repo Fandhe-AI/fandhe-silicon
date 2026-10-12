@@ -86,8 +86,10 @@ def scan(doc, features):
         raise Misuse("rustdoc json: includes_private must be false")
     index, paths, ext = doc["index"], doc["paths"], doc["external_crates"]
     root_item = index.get(str(doc["root"]))
+    if not isinstance(root_item, dict) or not isinstance(root_item.get("inner"), dict):
+        raise Misuse("rustdoc json: 'root' does not point to a valid item in 'index'")
     crate = "-"
-    if isinstance(root_item, dict) and isinstance(root_item.get("name"), str):
+    if isinstance(root_item.get("name"), str):
         crate = root_item["name"]
     fv = doc.get("format_version", "-")
 
@@ -104,9 +106,11 @@ def scan(doc, features):
             own = not isinstance(p, dict) or p.get("crate_id") == 0
         if not own or item.get("visibility") not in ("public", "default"):
             continue
+        if not isinstance(item.get("inner"), dict):
+            raise Misuse("rustdoc json: public item without a valid 'inner'")
         public_items += 1
         found = []
-        collect_ids(item.get("inner"), found)
+        collect_ids(item["inner"], found)
         for rid, kind in found:
             p = paths.get(str(rid))
             if not isinstance(p, dict):
