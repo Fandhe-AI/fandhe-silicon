@@ -510,8 +510,13 @@ fn resolve_variable(
     let pointee_def = lookup(types, *pointee)?;
 
     if var.storage_class == STORAGE_CLASS_UNIFORM {
-        if matches!(pointee_def, TypeDef::Struct { .. })
-            && decos.get(pointee).is_some_and(|d| d.buffer_block)
+        // 旧形式の storage buffer は、struct 直接でも（runtime）配列の要素でも対象外として返す。
+        let block_id = match pointee_def {
+            TypeDef::Array { elem, .. } | TypeDef::RuntimeArray { elem } => elem,
+            _ => pointee,
+        };
+        if matches!(types.get(block_id), Some(TypeDef::Struct { .. }))
+            && decos.get(block_id).is_some_and(|d| d.buffer_block)
         {
             return Err(unsupported(UnsupportedShape::LegacyBufferBlock));
         }
@@ -585,11 +590,12 @@ fn resolve_variable(
             let constant = constants
                 .get(&len_id)
                 .ok_or(unsupported(UnsupportedShape::LengthNotConstant))?;
-            // 結果型は整数型で、値は 1 語、正の値だけを長さとして受理する。
-            let TypeDef::Int { signed, .. } = lookup(types, constant.type_id)? else {
+            // 結果型は 32 ビットの整数型で、値は 1 語、正の値だけを長さとして受理する。
+            // 32 ビット以外は語数・符号の解釈が変わるため受理しない。
+            let TypeDef::Int { bits, signed } = lookup(types, constant.type_id)? else {
                 return Err(unsupported(UnsupportedShape::LengthNotConstant));
             };
-            if constant.value_words != 1 {
+            if *bits != 32 || constant.value_words != 1 {
                 return Err(unsupported(UnsupportedShape::LengthNotConstant));
             }
             let positive = if *signed {
@@ -862,6 +868,61 @@ mod tests {
             extract_storage_buffer_operands(&module(&buffer_insts(false, 0, 0, 0))),
             unsupported(UnsupportedShape::InvalidLength)
         );
+    }
+
+    #[test]
+    fn length_constant_must_be_32_bit() {
+        // 64 ビット整数型の定数は、1 語でも長さとして受理しない。
+        for signed in [0, 1] {
+            let mut insts = buffer_insts(false, 16, 0, 0);
+            replace_inst(
+                &mut insts,
+                OP_TYPE_INT,
+                &[6, 32, 0],
+                inst(OP_TYPE_INT, &[6, 64, signed]),
+            );
+            assert_eq!(
+                extract_storage_buffer_operands(&module(&insts)),
+                unsupported(UnsupportedShape::LengthNotConstant)
+            );
+        }
+    }
+
+    /// 旧形式（`Uniform` + `BufferBlock`）の変数。id: 1=f32 2=配列 3=struct 4=pointer 5=変数。
+    fn legacy_insts(pointee_array: Option<bool>) -> Vec<Vec<u32>> {
+        let mut insts = vec![
+            inst(OP_DECORATE, &[3, DECORATION_BUFFER_BLOCK]),
+            inst(OP_TYPE_FLOAT, &[1, 32]),
+            inst(OP_TYPE_RUNTIME_ARRAY, &[2, 1]),
+            inst(OP_TYPE_STRUCT, &[3, 2]),
+        ];
+        let pointee = match pointee_array {
+            None => 3,
+            Some(runtime) => {
+                insts.push(inst(OP_TYPE_INT, &[6, 32, 0]));
+                insts.push(inst(OP_CONSTANT, &[6, 7, 2]));
+                insts.push(if runtime {
+                    inst(OP_TYPE_RUNTIME_ARRAY, &[8, 3])
+                } else {
+                    inst(OP_TYPE_ARRAY, &[8, 3, 7])
+                });
+                8
+            }
+        };
+        insts.push(inst(OP_TYPE_POINTER, &[4, STORAGE_CLASS_UNIFORM, pointee]));
+        insts.push(inst(OP_VARIABLE, &[4, 5, STORAGE_CLASS_UNIFORM]));
+        insts
+    }
+
+    #[test]
+    fn legacy_buffer_block_is_rejected_including_arrays() {
+        for shape in [None, Some(false), Some(true)] {
+            assert_eq!(
+                extract_storage_buffer_operands(&module(&legacy_insts(shape))),
+                unsupported(UnsupportedShape::LegacyBufferBlock),
+                "{shape:?}"
+            );
+        }
     }
 
     #[test]
