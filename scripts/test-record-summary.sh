@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# record-summary.sh の回帰テスト（spec TASK-23 のポインタ）。
+# record-summary.sh と、verify.sh の「試験の記録から集計を出す」部分の回帰テスト（spec TASK-23 のポインタ）。
 # 一時ディレクトリの合成の部品（ダミー値）で、終了コード・標準出力の完全一致・標準エラーの文言・違反の件数・
-# 入力の値の秘匿・入力を変更しないことを確かめる。
+# 入力の値の秘匿・入力を変更しないことを確かめる。verify.sh の関数は source して、偽の cargo で確かめる。
 # 呼び出し元: `make test-record-summary`（直接実行も可。CI の `deny` ジョブと、macOS の `test-hooks` ジョブ〔標準の bash 3.2〕が呼ぶ）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致 + FAILED の件数」で行う。終了コードだけでは
@@ -18,6 +18,7 @@ reject_args "$(basename "$0")" "$@"
 require_cmd python3
 
 TOOL="${DIR}/record-summary.sh"
+VERIFY="${DIR}/verify.sh"
 COMBINATION_SRC="${ROOT_DIR}/crates/core/src/test_frame/combination.rs"
 LABEL_SRC="${ROOT_DIR}/crates/core/src/test_frame/label.rs"
 DECISION_SRC="${ROOT_DIR}/crates/core/src/test_frame/decision.rs"
@@ -514,6 +515,130 @@ if [ -n "${rust_header}" ] && [ "$(sed -n 1p "${OUT_F}")" = "${rust_header}" ] &
 else
   echo "FAIL: sync: table header and rule lines match the Rust expected table" >&2
   failed=$((failed + 1))
+fi
+
+# ---- verify.sh の記録の扱い（偽の cargo） ----
+
+BIN="${work}/bin"
+mkdir "${BIN}"
+cat >"${BIN}/cargo" <<'FAKE'
+#!/usr/bin/env bash
+# 偽の cargo: 引数と、渡された書き出し先を控え、FAKE_MODE に応じて部品を書く。
+echo "$*" >>"${FAKE_ARGS_LOG}"
+if [ "${FANDHE_SILICON_TEST_RECORD_DIR+set}" = set ]; then
+  printf '%s\n' "${FANDHE_SILICON_TEST_RECORD_DIR}" >>"${FAKE_DIR_LOG}"
+else
+  echo UNSET >>"${FAKE_DIR_LOG}"
+  exit "${FAKE_EXIT:-0}"
+fi
+d="${FANDHE_SILICON_TEST_RECORD_DIR}"
+case "${FAKE_MODE:-write}" in
+  write)
+    printf '%s\n' '{"behavior_ids":["BUILD-54"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"not-run","label_reason":"not-configured","body_kind":"contract-test","body":{"test_id":"fake_a"}}' >"${d}/fake_a.metal-mac-mini.json"
+    printf '%s\n' '{"behavior_ids":[],"machine_combination":"cuda-node-a","machine":"node-a","label":"ng","body_kind":"contract-test","body":{"test_id":"fake_b"}}' >"${d}/fake_b.cuda-node-a.json"
+    ;;
+  nothing) ;;
+  malformed) echo 'not json' >"${d}/bad.json" ;;
+esac
+exit "${FAKE_EXIT:-0}"
+FAKE
+chmod +x "${BIN}/cargo"
+
+FV_OUT="${work}/fv-stdout.txt"
+FV_ERR="${work}/fv-stderr.txt"
+FAKE_ARGS_LOG="${work}/fake-args.log"
+FAKE_DIR_LOG="${work}/fake-dir.log"
+# run_verify <KEY=VALUE...>: verify.sh を source して関数を偽の cargo で動かす（サブシェル。env -i で呼び出し側の環境を持ち込まない）。
+run_verify() {
+  : >"${FAKE_ARGS_LOG}"
+  : >"${FAKE_DIR_LOG}"
+  rc=0
+  # shellcheck disable=SC2016 # bash -c の本文は子のシェルが展開する（$1 は source する verify.sh のパス）
+  env -i HOME="${HOME:-/}" PATH="${BIN}:${PATH}" TMPDIR="${work}" \
+    FAKE_ARGS_LOG="${FAKE_ARGS_LOG}" FAKE_DIR_LOG="${FAKE_DIR_LOG}" "$@" \
+    "${BASH}" -c 'set -euo pipefail; source "$1"; run_cargo_test_with_record_summary' _ "${VERIFY}" \
+    >"${FV_OUT}" 2>"${FV_ERR}" </dev/null || rc=$?
+}
+
+fv_fail() {
+  failed=$((failed + 1))
+  echo "FAIL: $1" >&2
+  sed 's/^/    /' "${FV_ERR}" >&2 || true
+}
+
+leftover_dirs() { find "${work}" -maxdepth 1 -name 'fandhe-silicon-test-records.*' | grep -c . || true; }
+# 偽の cargo が呼ばれた回数と、渡された書き出し先の行数。
+dir_log_lines() { wc -l <"${FAKE_DIR_LOG}" | tr -d ' '; }
+
+# 環境変数が無いとき: 新しい一時ディレクトリを渡し、表を出し、ディレクトリを消す。cargo test は 1 回だけ。
+run_verify FAKE_MODE=write
+first_dir="$(cat "${FAKE_DIR_LOG}")"
+name="verify: unset env gives cargo one fresh directory, prints the table, and removes the directory"
+if [ "${rc}" -eq 0 ] && [ "$(cat "${FAKE_ARGS_LOG}")" = "test --workspace --all-features" ] \
+  && [ "$(dir_log_lines)" = 1 ] && [ "${first_dir#"${work}"/fandhe-silicon-test-records.}" != "${first_dir}" ] \
+  && [ ! -e "${first_dir}" ] && [ "$(leftover_dirs)" = 0 ] \
+  && [ "$(sed -n 3p "${FV_OUT}")" = "| metal-mac-mini | 0 | 0 | 0 | 1 | 0 |" ] \
+  && [ "$(sed -n 9p "${FV_OUT}")" = "| cuda-node-a | 0 | 1 | 0 | 0 | 0 |" ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+
+run_verify FAKE_MODE=write
+second_dir="$(cat "${FAKE_DIR_LOG}")"
+name="verify: a second run uses a different directory"
+if [ "${rc}" -eq 0 ] && [ "${first_dir}" != "${second_dir}" ]; then report_ok "${name}"; else fv_fail "${name}"; fi
+
+# 試験が失敗しても、その終了コードを返し、ディレクトリを消し、出せる集計は出す。
+run_verify FAKE_MODE=write FAKE_EXIT=101
+name="verify: a failing cargo test keeps its exit code, still prints the table and removes the directory"
+if [ "${rc}" -eq 101 ] && [ "$(grep -c '^| combination |' "${FV_OUT}")" = 1 ] && [ "$(leftover_dirs)" = 0 ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+
+# 試験が失敗して部品が無い・壊れているときも、試験の終了コードが勝つ。
+run_verify FAKE_MODE=nothing FAKE_EXIT=101
+name="verify: a failing cargo test with no records returns the test exit code"
+if [ "${rc}" -eq 101 ] && [ "$(leftover_dirs)" = 0 ]; then report_ok "${name}"; else fv_fail "${name}"; fi
+run_verify FAKE_MODE=malformed FAKE_EXIT=3
+name="verify: a failing cargo test with a malformed record returns the test exit code"
+if [ "${rc}" -eq 3 ] && [ "$(leftover_dirs)" = 0 ]; then report_ok "${name}"; else fv_fail "${name}"; fi
+
+# 試験が通っても、部品が 0 件・形の違反なら失敗にする（表は出さない）。
+run_verify FAKE_MODE=nothing
+name="verify: passing tests that wrote no records fail"
+if [ "${rc}" -eq 1 ] && [ ! -s "${FV_OUT}" ] && [ "$(leftover_dirs)" = 0 ]; then report_ok "${name}"; else fv_fail "${name}"; fi
+run_verify FAKE_MODE=malformed
+name="verify: passing tests that wrote a malformed record fail"
+if [ "${rc}" -eq 1 ] && [ ! -s "${FV_OUT}" ] && [ "$(leftover_dirs)" = 0 ]; then report_ok "${name}"; else fv_fail "${name}"; fi
+
+# 呼び出し側の環境に既に在るとき: 上書きせず、そのまま渡し、集計も片づけもしない。
+preset="${work}/preset"
+mkdir "${preset}"
+echo keep >"${preset}/keep.txt"
+run_verify FAKE_MODE=write FANDHE_SILICON_TEST_RECORD_DIR="${preset}"
+name="verify: a preset directory is passed through, kept, and not summarized"
+if [ "${rc}" -eq 0 ] && [ "$(cat "${FAKE_DIR_LOG}")" = "${preset}" ] && [ -f "${preset}/keep.txt" ] \
+  && [ -f "${preset}/fake_a.metal-mac-mini.json" ] && [ ! -s "${FV_OUT}" ] && [ "$(leftover_dirs)" = 0 ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+run_verify FAKE_MODE=write FAKE_EXIT=101 FANDHE_SILICON_TEST_RECORD_DIR="${preset}2"
+name="verify: a preset value is passed through as is, and the test exit code is kept"
+if [ "${rc}" -eq 101 ] && [ "$(cat "${FAKE_DIR_LOG}")" = "${preset}2" ] && [ ! -s "${FV_OUT}" ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+run_verify FAKE_MODE=nothing FANDHE_SILICON_TEST_RECORD_DIR=
+name="verify: an empty preset value counts as set and is passed through unchanged"
+if [ "${rc}" -eq 0 ] && [ "$(dir_log_lines)" = 1 ] && [ "$(cat "${FAKE_DIR_LOG}")" = "" ] && [ ! -s "${FV_OUT}" ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
 fi
 
 echo "passed: ${passed}, failed: ${failed}"

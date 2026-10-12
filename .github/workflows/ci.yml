@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -98,6 +98,7 @@ jobs:
   # （lefthook は PATH 上の bash で起動する）でも検証する。
   # 実機（macOS）の上で直接実行する手順のスクリプト（回ごとの記録の形の検査・Metal の実機の回の手順）の回帰テストも、
   # 同じ理由でここで流す（check 名は増えない）。macOS では標準の bash 3.2 を明示した step でも流す。
+  # 開発者が macOS で流す `make verify`（scripts/verify.sh）の記録の扱いと集計の道具の回帰テストも、macOS の標準の bash 3.2 で流す。
   # python3 と git は runner 同梱のものを使う（導入しない）。
   test-hooks:
     name: "hook script tests (${{ matrix.os }})"
@@ -136,9 +137,15 @@ jobs:
           /bin/bash scripts/test-session-record-check.sh
           /bin/bash scripts/test-metal-session.sh
 
+      - name: record summary tests with macOS system bash 3.2
+        if: runner.os == 'macOS'
+        run: /bin/bash scripts/test-record-summary.sh
+
   # Rust の品質ゲート。ローカルの `make verify`（scripts/verify.sh: fmt --check / clippy
   # -D warnings / test）をそのまま実行し、チェック内容の定義を scripts/ に一本化する。
   # toolchain は rust-toolchain.toml を単一真実源とし、ホステッド runner 同梱の rustup で導入する。
+  # `make verify` は試験の枠の記録を一時ディレクトリへ書かせ、試験の後に集計の表をこのジョブのログへ出して一時ディレクトリを消す
+  # （記録のファイルは残さず、artifact にも PR の Summary にも出さない。「未実施」は失敗にならない）。
   verify:
     name: "make verify (fmt + clippy + test)"
     runs-on: ubuntu-latest
@@ -169,6 +176,7 @@ jobs:
   # 一覧と項目の対応の検査の回帰テスト（`make test-inventory-trace-check`。合成 fixture だけで submodule 不要）も同様に追加実行する。
   # 回ごとの記録の形の検査の回帰テスト（`make test-session-record-check`。合成 fixture だけ）も同様に追加実行する。
   # Metal の実機の回の手順のスクリプトの回帰テスト（`make test-metal-session`。macOS のコマンドは偽のコマンドで差し替える）も同様に追加実行する。
+  # 試験の枠の記録から集計を出す道具と `make verify` の記録の扱いの回帰テスト（`make test-record-summary`。合成の部品と偽の cargo）も同様に追加実行する。
   # CI の枠の検査（`make ci-frame-check`。本ファイルを入力にする）とその回帰テスト（`make test-ci-frame-check`。合成 fixture だけ）も同様に追加実行する。
   # 実物の入力の検査（`make inventory-trace-check`）はここでは走らせない（入力が private 側にあるため、本リポの CI には組み込まない）。
   # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
@@ -234,6 +242,9 @@ jobs:
 
       - name: make test-session-record-check
         run: make test-session-record-check
+
+      - name: make test-record-summary
+        run: make test-record-summary
 
       - name: make ci-frame-check
         run: make ci-frame-check
