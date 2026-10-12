@@ -352,7 +352,7 @@ fn a_write_failure_is_returned_as_an_error_not_swallowed() {
 }
 
 #[test]
-fn a_hundred_concurrent_writes_neither_collide_nor_go_missing() {
+fn a_hundred_concurrent_writes_of_different_tests_neither_collide_nor_go_missing() {
     let t = TempDir::new("concurrent");
     let dir = t.path().to_path_buf();
     let handles: Vec<_> = (0..100)
@@ -374,5 +374,144 @@ fn a_hundred_concurrent_writes_neither_collide_nor_go_missing() {
         assert!(names.contains(&n));
         let c = fs::read_to_string(t.path().join(&n)).unwrap();
         assert!(c.contains(&format!("\"test_id\":\"concurrent_{i}\"")));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_directory_with_a_trailing_separator_or_dot_is_rejected() {
+    let t = TempDir::new("symtrail");
+    let real = t.path().join("real");
+    fs::create_dir(&real).unwrap();
+    let link = t.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let o = outcome("export_case", None);
+    for suffix in ["/", "/.", "//", "/./."] {
+        let mut v = link.as_os_str().to_owned();
+        v.push(suffix);
+        let r = export_from_lookup(|n| (n == RECORD_DIR_ENV).then(|| v.clone()), &o);
+        assert_eq!(r, Err(ExportError::DirectoryIsSymlink), "{suffix}");
+    }
+    assert!(fs::read_dir(&real).unwrap().next().is_none());
+}
+
+#[test]
+fn trailing_separators_and_dots_on_a_real_directory_are_accepted() {
+    let t = TempDir::new("trail-ok");
+    let mut v = t.path().as_os_str().to_owned();
+    v.push("/./");
+    let o = outcome("export_case", Some("metal-mac-mini"));
+    let r = export_from_lookup(|n| (n == RECORD_DIR_ENV).then(|| v.clone()), &o);
+    assert_eq!(r.unwrap(), ["export_case.metal-mac-mini.json"]);
+}
+
+#[test]
+fn parent_components_are_rejected() {
+    let t = TempDir::new("parent");
+    let sub = t.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    let o = outcome("export_case", None);
+    let up = sub.join("..");
+    assert_eq!(
+        export_from_lookup(lookup_dir(&up), &o),
+        Err(ExportError::ParentComponent)
+    );
+    let mid = sub.join("..").join("sub");
+    assert_eq!(
+        export_from_lookup(lookup_dir(&mid), &o),
+        Err(ExportError::ParentComponent)
+    );
+    assert!(t.names() == ["sub"]);
+    assert!(fs::read_dir(&sub).unwrap().next().is_none());
+}
+
+#[test]
+fn concurrent_writes_of_the_same_outcome_succeed_exactly_once() {
+    for round in 0..20 {
+        let t = TempDir::new(&format!("same-{round}"));
+        let dir = t.path().to_path_buf();
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let o = outcome("same_case", None);
+                    export_parts(&dir, &o.record_parts())
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        for r in results.iter().filter(|r| r.is_err()) {
+            assert_eq!(r, &Err(ExportError::AlreadyExists));
+        }
+        assert_eq!(
+            t.names(),
+            [
+                "same_case.cuda-node-b.json",
+                "same_case.metal-mac-mini.json"
+            ]
+        );
+        for n in t.names() {
+            let c = fs::read_to_string(t.path().join(n)).unwrap();
+            assert!(c.contains("\"test_id\":\"same_case\""));
+            assert!(c.ends_with("}\n"));
+        }
+    }
+}
+
+#[test]
+fn concurrent_writes_in_different_declared_orders_never_remove_the_others_files() {
+    let metal_first = Declaration::from_parts(
+        &[
+            MachineCombination::MetalMacMini,
+            MachineCombination::CudaNodeB,
+        ],
+        &[],
+    )
+    .unwrap();
+    let cuda_first = Declaration::from_parts(
+        &[
+            MachineCombination::CudaNodeB,
+            MachineCombination::MetalMacMini,
+        ],
+        &[],
+    )
+    .unwrap();
+    for round in 0..200 {
+        let t = TempDir::new(&format!("order-{round}"));
+        let dir = t.path().to_path_buf();
+        let handles: Vec<_> = [metal_first.clone(), cuda_first.clone()]
+            .into_iter()
+            .map(|d| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let o = judge(
+                        &Subject::from_parts("order_case", &[], &[]).unwrap(),
+                        &d,
+                        &run_setting(None),
+                        |_| RunResult::Verdict(Verdict::Match),
+                    );
+                    export_parts(&dir, &o.record_parts())
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let oks = results.iter().filter(|r| r.is_ok()).count();
+        for r in results.iter().filter(|r| r.is_err()) {
+            assert_eq!(r, &Err(ExportError::AlreadyExists));
+        }
+        // 両方が成功することはない。片方が成功したなら 2 件とも残り、両方が失敗したなら何も残らない。
+        assert!(oks <= 1);
+        if oks == 1 {
+            assert_eq!(
+                t.names(),
+                [
+                    "order_case.cuda-node-b.json",
+                    "order_case.metal-mac-mini.json"
+                ]
+            );
+        } else {
+            assert!(t.names().is_empty());
+        }
     }
 }

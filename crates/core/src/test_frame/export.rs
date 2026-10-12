@@ -8,7 +8,9 @@
 //! だから名前はディレクトリの外に出られず、別の (試験の ID, 組み合わせ) の対と衝突しない。
 //!
 //! 環境変数の値（パス）は信頼しない入力として扱う。ディレクトリは作らない（無ければ失敗）。
-//! 相対パス・無い・ディレクトリでない・シンボリックリンクのディレクトリは失敗にする。
+//! 相対パス・`..` の要素を含むパス・無い・ディレクトリでない・シンボリックリンクのディレクトリは失敗にする。
+//! 末尾の区切りと `.` の要素は、リンクかどうかを見る前に取り除く（`Path::components` による字句の正規化で、`canonicalize` は使わない）。
+//! 限界: 途中の要素のシンボリックリンクは辿る。検査と書き込みのあいだにディレクトリが差し替えられることは防がない。
 //! 既存のファイルは上書きしない（`create_new`。同名のシンボリックリンクがあっても辿らず、失敗にする）。
 //! 書き込みが途中で失敗したファイルは消し、1 回の呼び出しで先に作ったファイルも消す。
 //! エラーは種類だけで、パスを含めない。書き出しの失敗は `Err` で返り、ラベルを変えない。
@@ -25,7 +27,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::{ErrorKind, Write};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// 記録のファイルを置くディレクトリ（絶対パス）を渡す環境変数の名前。未設定なら何も書かない。
 pub const RECORD_DIR_ENV: &str = "FANDHE_SILICON_TEST_RECORD_DIR";
@@ -35,6 +37,8 @@ pub const RECORD_DIR_ENV: &str = "FANDHE_SILICON_TEST_RECORD_DIR";
 pub enum ExportError {
     /// ディレクトリの指定が絶対パスでない（空を含む）。
     NotAbsolute,
+    /// ディレクトリの指定に `..` の要素がある。
+    ParentComponent,
     /// ディレクトリが無い。
     DirectoryMissing,
     /// ディレクトリの指定がシンボリックリンク。
@@ -51,6 +55,9 @@ impl fmt::Display for ExportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExportError::NotAbsolute => f.write_str("record directory is not an absolute path"),
+            ExportError::ParentComponent => {
+                f.write_str("record directory has a parent directory component")
+            }
             ExportError::DirectoryMissing => f.write_str("record directory does not exist"),
             ExportError::DirectoryIsSymlink => f.write_str("record directory is a symbolic link"),
             ExportError::NotADirectory => f.write_str("record directory is not a directory"),
@@ -75,17 +82,23 @@ pub fn record_file_name(test_id: &TestId, combination: MachineCombination) -> St
     format!("{}.{}.json", test_id.as_str(), combination.name())
 }
 
-/// 書き出し先のディレクトリを検査する。末尾の要素はシンボリックリンクなら辿らずに失敗にする。
-fn check_dir(dir: &Path) -> Result<(), ExportError> {
+/// 書き出し先のディレクトリを検査し、正規化したパスを返す。末尾の要素はシンボリックリンクなら辿らずに失敗にする。
+///
+/// 末尾の区切りと `.` の要素は取り除いてから見るので、`link/`・`link/.` でもリンクとして拒否される。
+fn check_dir(dir: &Path) -> Result<PathBuf, ExportError> {
     if !dir.is_absolute() {
         return Err(ExportError::NotAbsolute);
     }
-    match fs::symlink_metadata(dir) {
+    if dir.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(ExportError::ParentComponent);
+    }
+    let dir: PathBuf = dir.components().collect();
+    match fs::symlink_metadata(&dir) {
         Err(e) if e.kind() == ErrorKind::NotFound => Err(ExportError::DirectoryMissing),
         Err(e) => Err(ExportError::Io(e.kind())),
         Ok(m) if m.file_type().is_symlink() => Err(ExportError::DirectoryIsSymlink),
         Ok(m) if !m.is_dir() => Err(ExportError::NotADirectory),
-        Ok(_) => Ok(()),
+        Ok(_) => Ok(dir),
     }
 }
 
@@ -109,7 +122,7 @@ fn write_new(path: &Path, content: &[u8]) -> Result<(), ExportError> {
 ///
 /// 途中で失敗したら、この呼び出しで作ったファイルを消してから `Err` を返す。既存のファイルには触れない。
 pub fn export_parts(dir: &Path, parts: &[RecordPart]) -> Result<Vec<String>, ExportError> {
-    check_dir(dir)?;
+    let dir = check_dir(dir)?;
     let mut created: Vec<String> = Vec::with_capacity(parts.len());
     for part in parts {
         let name = record_file_name(part.test_id(), part.combination());
