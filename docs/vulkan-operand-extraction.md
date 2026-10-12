@@ -175,8 +175,8 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
 | 1 | 前段（1/6〜5/6）の状態 | Issue と PR の状態の読み取り | #3530〜#3534 は CLOSED。PR #7036・#7037・#7041・#7043・#7050 は MERGED |
-| 2 | 範囲のポインタ（TASK-98）が submodule の参照先の commit と spec の `main` の先端にある | GitHub API の読み取り（取得物は scratchpad に置き削除） | どちらにも TASK-98 の見出しがある |
-| 3 | TASK-98 の進み具合・決定の記録が spec 側にあるか | 同上の取得物で TASK-98 の進み具合の記録を検索 | 見当たらない |
+| 2 | 範囲のポインタ（TASK-98） | 本書では spec の内容を確かめない | ポインタのみ。内容の照合は spec 側 |
+| 3 | TASK-98 の進み具合・決定の記録 | 本リポからは確かめない | spec 側の判断待ち（ポインタ: TASK-98） |
 | 4 | Q1〜Q6 への回答の記録 | #387・#3530〜#3535 のコメント | 無い（コメントは全て 0 件）。形は未承認の仮置きのまま |
 | 5 | 別 crate から公開の入口に届く | `tool_is_reachable_from_another_crate` | 通過 |
 | 6 | 取り出した宣言が、外で組んだ期待値と `==` で一致する | `extracted_operands_equal_expected_declarations`・`order_is_by_set_then_binding`・`scalar_kinds_and_element_bytes` | 通過 |
@@ -196,15 +196,15 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 | 20 | 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | いずれも終了コード 0 |
 | 21 | spec の完了の条件との照合 | 記録の正は private spec 側 | 本書では行っていない |
 
-- 判定: 本リポで確かめられる項目に問題は無い。ただし **TASK-98 の完了は本リポからは確かめられず、宣言しない**。spec 側に進み具合の記録が無く、Q1〜Q6 が未回答で、範囲の記述に spec 側の判断待ちがあるため。回答に依る部分は保留とする
+- 判定: 本リポで確かめられる項目に問題は無い。ただし **TASK-98 の完了は本リポからは確かめられず、宣言しない**。Q1〜Q6 が未回答で、spec 側の判断待ちがあるため。回答に依る部分は保留とする
 - Q1〜Q6 は判断待ちで、置き場・feature・入力の型・対象の範囲・エラーの形は未承認の仮置きのまま
 - 再実行の契機: Q1〜Q6 への回答、範囲の記述についての spec 側の判断、submodule の参照先の更新（`update-external.yml` の PR）、道具の置き場・feature の変更、`scripts/build-profiles.sh` の組の変更、取り込みの段（TASK-513 のポインタ）
-- 引き継ぎ（親 #387 へ）: 残るのは、Q1〜Q6 と範囲の記述への回答、spec 側の記録、本表の再実行、spec 側の進み具合の記録、親のクローズの判断の順。いずれも本リポの自動運転の対象外
+- 引き継ぎ（親 #387 へ）: 残るのは、Q1〜Q6 への回答、spec 側の判断、本表の再実行、親のクローズの判断の順。いずれも本リポの自動運転の対象外
 - 持ち越し（5/6 から）: `SpirvExtractError::SizeOverflow` の扱い、`BadMagic` の表示の扱いは本 Issue で決めない
 
 ## 確かめた日付
 
-2026-10-12（base: `d8e06a1`）。5/6 は 2026-10-12（base: `23c4e0b`）。6/6 は 2026-10-12（base: `678bd79`、submodule の参照先: `c1cb4c9`、読み取りで確認した spec の `main` の先端: `0621b49`）。
+2026-10-12（base: `d8e06a1`）。5/6 は 2026-10-12（base: `23c4e0b`）。6/6 は 2026-10-12（base: `678bd79`）。
 
 ## 関連
 
