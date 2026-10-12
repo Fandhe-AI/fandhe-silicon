@@ -3,6 +3,9 @@
 //! 試験の関数の末尾から呼ばれる。実行の可否（`decision::decide`）、本体の結果、閾値の承認の有無
 //! （`threshold::ThresholdId::is_approved`）から、ラベルを 1 つ決める純粋な関数で、入力以外の状態を読まない。
 //! `parity` の比べの結果は `From` で `Verdict` に写す（`parity` 側は変えない）。書き出しと集計は持たない。
+//! `Termination` は実装せず、試験の関数の戻り値には使えない
+//! （ラベルを記録・集計する経路ができるまで、走らせなかった結果が成功に見えるのを避けるため）。
+//! 失敗にするかは呼び出し側が `Label::fails_test` で明示的に決める。
 //! spec TASK-23 の 5/8。
 
 use super::combination::MachineCombination;
@@ -14,7 +17,6 @@ use super::setting::RunSetting;
 use super::threshold::{ThresholdId, ThresholdIdError};
 use crate::parity::{pixel, special_values, tolerance, topk};
 use std::fmt;
-use std::process::{ExitCode, Termination};
 
 /// 1 つの試験が持てるビヘイビア項目の ID の件数の上限。
 pub const MAX_BEHAVIORS: usize = 16;
@@ -208,19 +210,6 @@ impl Outcome {
     /// 結果のラベル。
     pub fn label(&self) -> &Label {
         &self.label
-    }
-}
-
-/// 試験の成否への写像。`Ng` のときだけ失敗で、ほかの 4 種は成功。
-/// 走らせなかった結果・判定保留・判定不能は失敗にも成功の確認にも読み替えず、ラベルに残る。
-/// `report()` は何も書き出さない。
-impl Termination for Outcome {
-    fn report(self) -> ExitCode {
-        if self.label.fails_test() {
-            ExitCode::FAILURE
-        } else {
-            ExitCode::SUCCESS
-        }
     }
 }
 

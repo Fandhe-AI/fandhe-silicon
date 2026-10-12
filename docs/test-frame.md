@@ -226,7 +226,7 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | `Subject` | 名前を受けて検査し、重複を取り除く。件数に上限がある | `subject_validates_and_deduplicates`・`subject_limits_counts`・`subject_errors_are_ascii_and_do_not_echo_input` |
 | `judge`・`judge_with_approval` | `judge` は公開側の表だけを見る（表は空なので、閾値を宣言した試験は判定保留になる）。`judge_with_approval` は承認の判定を試験の側から渡す。順（上から先に当たったもの）: 実行の可否が `NotRun` なら未実施（本体は呼ばない）→ 本体が判定不能なら判定不能 → 宣言の閾値に未承認があれば判定保留（宣言の順で最初の ID）→ 一致なら OK、不一致なら NG。入力以外の状態を読まない | `not_run_reasons_pass_through_and_the_body_is_not_called`・`indeterminate_wins_over_pending_and_verdicts`・`public_table_is_empty_so_any_declared_threshold_gives_pending`・`unapproved_threshold_gives_pending_with_the_first_one_in_declared_order`・`approved_thresholds_map_verdicts_to_ok_and_ng`・`only_declared_combinations_run_over_all_seven` |
 | `Outcome` | getter だけを公開し、`judge` 以外からは作れない。走らせた組み合わせは本体を呼んだときだけ `Some` | `outcome_getters_report_what_was_declared_and_run` |
-| 試験の成否 | `Termination` を実装。`Ng` のときだけ失敗で、ほかの 4 種は成功。`report()` は何も書き出さない。試験は `Outcome` を返せる | `termination_fails_only_for_ng`・`test_function_may_return_not_run_outcome`・`test_function_may_return_ok_outcome` |
+| 失敗にするかの判定 | `Termination` は実装しない（走らせなかった結果・判定保留・判定不能が出力も記録もなく成功に見えるのを避ける。ラベルを記録・集計する経路ができるまで、試験の関数の戻り値には使えない）。呼び出し側が `Label::fails_test`（`Ng` のときだけ `true`）で明示的に扱う | `fails_test_is_true_only_for_ng` |
 | `Verdict` と `parity` | `parity` の 5 つの比較型から `Verdict` への `From` を持つ（`is_match()` を読むだけ） | `from_match_maps_booleans`・`parity_comparisons_map_to_verdicts` |
 | contract からの到達 | `contract` の `test-support` だけで届き、背後実装の feature に依らず同じラベル | `judge_is_reachable_and_fixed_under_any_backend_feature_set` |
 

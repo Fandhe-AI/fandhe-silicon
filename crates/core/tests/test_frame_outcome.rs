@@ -1,4 +1,4 @@
-//! 結果の決め方（`judge`）・`Outcome`・試験の成否・`parity` の結果からの写像の振る舞いの確認（spec TASK-23 の 5/8）。
+//! 結果の決め方（`judge`）・`Outcome`・失敗にするかの判定・`parity` の結果からの写像の振る舞いの確認（spec TASK-23 の 5/8）。
 //! プロセスの環境と作業ツリーは書き換えず、設定は `RunSetting::from_lookup` へ渡す。
 //! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
 
@@ -8,12 +8,11 @@ use fandhe_silicon_core::parity::tolerance::{T1, compare_f32};
 use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
 use fandhe_silicon_core::test_frame::{
     COMBINATION_ENV, Declaration, IndeterminateReason, Label, MAX_BEHAVIORS, MAX_THRESHOLDS,
-    MachineCombination, NotRunReason, Outcome, PERMISSIONS_ENV, RunResult, RunSetting, Subject,
+    MachineCombination, NotRunReason, PERMISSIONS_ENV, RunResult, RunSetting, Subject,
     SubjectError, Verdict, judge, judge_with_approval,
 };
 use std::cell::Cell;
 use std::ffi::OsString;
-use std::process::{ExitCode, Termination};
 
 fn setting(comb: Option<&str>, perms: Option<&str>) -> RunSetting {
     let comb = comb.map(OsString::from);
@@ -55,10 +54,6 @@ fn matched() -> RunResult {
 
 fn mismatched() -> RunResult {
     RunResult::Verdict(Verdict::Mismatch)
-}
-
-fn exit_repr(o: Outcome) -> String {
-    format!("{:?}", o.report())
 }
 
 #[test]
@@ -217,11 +212,11 @@ fn only_declared_combinations_run_over_all_seven() {
     }
 }
 
+/// 失敗にするかは `fails_test` で呼び出し側が明示的に決める。`Ng` のときだけ失敗で、
+/// ほかの 4 種は失敗にも成功の確認にも読み替えない。
 #[test]
-fn termination_fails_only_for_ng() {
+fn fails_test_is_true_only_for_ng() {
     let st = setting(Some("metal-mac-mini"), None);
-    let fail = format!("{:?}", ExitCode::FAILURE);
-    let success = format!("{:?}", ExitCode::SUCCESS);
     let ok = judge(&subject(&[]), &decl(), &st, |_| matched());
     let ng = judge(&subject(&[]), &decl(), &st, |_| mismatched());
     let pending = judge(&subject(&["t-12"]), &decl(), &st, |_| matched());
@@ -229,31 +224,11 @@ fn termination_fails_only_for_ng() {
     let indet = judge(&subject(&[]), &decl(), &st, |_| {
         RunResult::Indeterminate(IndeterminateReason::MachineUnreachable)
     });
-    assert_eq!(exit_repr(ok), success);
-    assert_eq!(exit_repr(ng), fail);
-    assert_eq!(exit_repr(pending), success);
-    assert_eq!(exit_repr(not_run), success);
-    assert_eq!(exit_repr(indet), success);
-}
-
-/// 走らせない試験は、そのまま `Outcome` を返して通る（暗黙の成功ではなくラベルが残る）。
-#[test]
-fn test_function_may_return_not_run_outcome() -> Outcome {
-    let o = judge(&subject(&[]), &decl(), &setting(None, None), |_| matched());
-    assert_eq!(o.label().name(), "not-run");
-    o
-}
-
-#[test]
-fn test_function_may_return_ok_outcome() -> Outcome {
-    let o = judge(
-        &subject(&[]),
-        &decl(),
-        &setting(Some("metal-mac-mini"), None),
-        |_| matched(),
-    );
-    assert_eq!(o.label(), &Label::Ok);
-    o
+    assert!(!ok.label().fails_test());
+    assert!(ng.label().fails_test());
+    assert!(!pending.label().fails_test());
+    assert!(!not_run.label().fails_test());
+    assert!(!indet.label().fails_test());
 }
 
 #[test]
