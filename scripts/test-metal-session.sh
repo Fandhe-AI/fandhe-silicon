@@ -646,7 +646,16 @@ HIT = [
     ("ipv6", "IPv6COL2001COLdb8COLCOL1"),
     ("ipv6", "peer 2001COLdb8COLCOL1COL refused"),
     ("ipv6", "peer COL 2001COLdb8COLCOL1COL"),
-    ("ipv6", "use stdCOLCOL{fmt}"),
+    ("ipv6", "lo COLCOLa"),
+    ("ipv6", "lo COLCOLdead end"),
+    ("ipv6", "lo xCOLCOLdead end"),
+    ("ipv6", "lo 1COLCOL"),
+    ("ipv6", "lo COLCOL1ab"),
+    ("ipv6", "lo xCOLCOL1"),
+    ("ipv6", "lo COLCOLffffCOLc000COL201"),
+    ("ipv6", "lo fe80COLCOL1"),
+    ("ipv6", "lo 2001COLdb8COLCOL1COL"),
+    ("ipv6", "lo IPv6COL COLCOL1"),
     ("uuid", "gpu 00000000-0000-4000-8000-0000000000ab"),
     ("uuid", "GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"),
     ("uuid", "hex 0x00000000-0000-4000-8000-0000000000ab"),
@@ -667,6 +676,11 @@ MISS = [
     "uuid without hyphens 0123456789abcdef0123456789abcdef",
     "short uuid 00000000-0000-4000-8000 and 0000000-0000-4000-8000-0000000000ab",
     "plain text only",
+    "rust <T as Trait>::from and >::fmt and >::drop",
+    "rust <alloc::vec::Vec<T> as core::ops::drop::Drop>::drop",
+    "rust Foo::<T>::bar",
+    "rust use std::{fmt, io};",
+    "rust use alloc::{vec, string};",
 ]
 
 
@@ -682,7 +696,7 @@ with open(sys.argv[2], "w", encoding="utf-8") as f:
 out = []
 for kind in ("ipv4", "ipv6", "uuid"):
     ln = [i + 1 for i, (k, _) in enumerate(HIT) if k == kind]
-    out.append("input 1: %d %s-shaped value(s) on line(s) %s" % (len(ln), kind, ", ".join(map(str, ln))))
+    out.append("input 1: %d %s-shaped value(s) on line(s) %s" % (len(ln), kind, ", ".join(map(str, ln[:20]))))
 out.append("FAILED: %d residual occurrence(s)" % len(HIT))
 open(sys.argv[3], "w").write("\n".join(out) + "\n")
 PY

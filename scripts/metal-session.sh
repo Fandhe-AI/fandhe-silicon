@@ -304,6 +304,10 @@ UUID_RE = re.compile(rb"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 IPV6_CAND_RE = re.compile(rb"(?<![0-9A-Fa-f:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
 _HEXGROUP_RE = re.compile(rb"[0-9A-Fa-f]{1,4}")
 _WORD_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+# 16 進でない英字と下線。識別子の一部であることの目印（16 進の文字は区間に取り込まれるため含まない）。
+_IDENT_BYTES = frozenset(b"ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ_")
+_ALPHA_PRE_RE = re.compile(rb"([A-Fa-f]{1,4})::")
+_ALPHA_POST_RE = re.compile(rb"::([A-Fa-f]{1,4})")
 
 
 def valid_ipv6(cand):
@@ -329,7 +333,10 @@ def ipv6_match(data, m):
 
     区間の先頭の単独のコロン（`addr:` の直後）と末尾の単独のコロン（ログの区切り）は外して確かめる。
     形が合っても、前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。
-    片側だけが語の文字（`IPv6:` の直後、`std::{` の直前）なら拾う（止まりすぎる側）。
+    片側だけが語の文字なら拾う（`IPv6:` の直後など。止まりすぎる側）。
+    ただし Rust のパスの `::`（`>::drop`・`std::{`）は、`::` と英字だけの 1 組（a〜f、数字なし）の形で、
+    その組の外側に識別子の文字（g〜z・下線）が直接つながっているときに限り拾わない。
+    `::dead` のように識別子につながっていない形や、数字を含む組（`x::1`）は拾う。
     """
     cand = m.group(0)
     s, e = m.span()
@@ -343,6 +350,10 @@ def ipv6_match(data, m):
         return False
     before = s > 0 and data[s - 1] in _WORD_BYTES
     after = e < len(data) and data[e] in _WORD_BYTES
+    if _ALPHA_PRE_RE.fullmatch(cand) and s > 0 and data[s - 1] in _IDENT_BYTES:
+        return False
+    if _ALPHA_POST_RE.fullmatch(cand) and e < len(data) and data[e] in _IDENT_BYTES:
+        return False
     return not (before and after)
 
 
