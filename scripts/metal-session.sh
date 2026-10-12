@@ -328,15 +328,39 @@ def valid_ipv6(cand):
     return len(groups) == 8 and all(_HEXGROUP_RE.fullmatch(g) for g in groups)
 
 
+# 候補の中に、正しい形になりうる連続した一部があるか（ラベルの末尾の 16 進文字が 1 組として
+# 取り込まれて 9 組になった形などを逃さないため）。組の境目はコロンだけ。
+# (a) `::` の無い並び: 区切りが単独のコロンの 16 進の組が 8 つ連続している。
+_WINDOW8_RE = re.compile(rb"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f])")
+# (b)(c) `::` を含む並び: `::` のどちらかの側に正しい組が 1 つでも接していれば、前後を削って正しい形にできる。
+_WINDOW_DC_RE = re.compile(
+    rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{1,4}::|::[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f])"
+)
+
+
+def has_ipv6_window(cand):
+    return bool(_WINDOW8_RE.search(cand) or _WINDOW_DC_RE.search(cand))
+
+
+def is_alpha_path(cand):
+    """`::` と、数字を含まない 16 進の英字だけでできた並び（Rust のパス `a::b::c` の形）か。"""
+    if b"::" not in cand:
+        return False
+    rest = cand.replace(b"::", b"")
+    return rest != b"" and rest.strip(b"abcdefABCDEF") == b""
+
+
 def ipv6_match(data, m):
     """候補の一致が IPv6 として止める対象か。
 
     区間の先頭の単独のコロン（`addr:` の直後）と末尾の単独のコロン（ログの区切り）は外して確かめる。
-    形が合っても、前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。
-    片側だけが語の文字なら拾う（`IPv6:` の直後など。止まりすぎる側）。
-    ただし Rust のパスの `::`（`>::drop`・`std::{`）は、`::` と英字だけの 1 組（a〜f、数字なし）の形で、
-    その組の外側に識別子の文字（g〜z・下線）が直接つながっているときに限り拾わない。
-    `::dead` のように識別子につながっていない形や、数字を含む組（`x::1`）は拾う。
+    候補全体が正しい形のとき:
+    - 前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。片側だけなら拾う。
+    - Rust のパスの `::`（`>::drop`・`std::{`）は、`::` と英字だけの 1 組（a〜f、数字なし）の形で、
+      その組の外側に識別子の文字（g〜z・下線）が直接つながっているときに限り拾わない。
+    候補全体が正しい形でないとき（ラベルの末尾の 16 進文字が付いて 9 組になった形、`::` が 2 つ以上
+    の並びなど）も、その中に正しい形になる連続した一部があれば拾う（止まりすぎる側）。ただし
+    英字だけの並び（`a::b::c`）は、前後のどちらかが識別子の文字か、両方が語の文字なら拾わない。
     """
     cand = m.group(0)
     s, e = m.span()
@@ -346,10 +370,16 @@ def ipv6_match(data, m):
     if cand.endswith(b":") and not cand.endswith(b"::"):
         cand = cand[:-1]
         e -= 1
-    if not valid_ipv6(cand):
-        return False
     before = s > 0 and data[s - 1] in _WORD_BYTES
     after = e < len(data) and data[e] in _WORD_BYTES
+    if not valid_ipv6(cand):
+        if not has_ipv6_window(cand):
+            return False
+        if is_alpha_path(cand):
+            ident = (s > 0 and data[s - 1] in _IDENT_BYTES) or (e < len(data) and data[e] in _IDENT_BYTES)
+            if ident or (before and after):
+                return False
+        return True
     if _ALPHA_PRE_RE.fullmatch(cand) and s > 0 and data[s - 1] in _IDENT_BYTES:
         return False
     if _ALPHA_POST_RE.fullmatch(cand) and e < len(data) and data[e] in _IDENT_BYTES:

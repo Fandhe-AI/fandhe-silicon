@@ -670,7 +670,7 @@ MISS = [
     "t 12COL34COL56 and 23COL59COL59",
     "mac 00COL11COL22COL33COL44COL55",
     "path stdCOLCOLfmtCOLCOLDisplay and FooCOLCOLBar",
-    "two compressions 1COLCOL2COLCOL3 and COLCOLCOL and COLCOL",
+    "colons COLCOLCOL and COLCOL and a COL b",
     "keyCOL value and a COL b",
     "sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "uuid without hyphens 0123456789abcdef0123456789abcdef",
@@ -700,6 +700,54 @@ for kind in ("ipv4", "ipv6", "uuid"):
 out.append("FAILED: %d residual occurrence(s)" % len(HIT))
 open(sys.argv[3], "w").write("\n".join(out) + "\n")
 PY
+shapes2="${work}/shapes2.txt"
+passfile2="${work}/passes2.txt"
+exp2="${work}/shapes2-expected.txt"
+python3 -I - "${shapes2}" "${passfile2}" "${exp2}" <<'PY'
+import sys
+
+HIT = [
+    "label ends in hex: srcCOL2001COLdb8COL0COL0COL0COL0COL0COL1",
+    "label ends in hex: deviceCOL2001COLdb8COL0COL0COL0COL0COL0COL1",
+    "label with ::: srcCOL2001COLdb8COL1COL2COL3COL4COL5COLCOL1",
+    "label with ::: srcCOL2001COLdb8COL1COL2COL3COL4COLCOL1",
+    "nine groups aCOLbCOLcCOLdCOLeCOLfCOL1COL2COL3",
+    "nine two-digit groups 00COL11COL22COL33COL44COL55COL66COL77COL88",
+    "two compressions 1COLCOL2COLCOL3",
+    "unconnected path cafeCOLCOLbeefCOLCOLdead",
+    "peer=2001COLdb8COLCOL1COL refused",
+    "peer=2001COLdb8COL0COL0COL0COL0COL0COL1COL refused",
+    "peerCOL 2001COLdb8COLCOL1COL refused",
+]
+MISS = [
+    "seven groups 1COL2COL3COL4COL5COL6COL7",
+    "t 12COL34COL56 and mac 00COL11COL22COL33COL44COL55",
+    "core::fmt::Debug and std::fmt::Display and alloc::collections::btree::map::Entry",
+    "core::ops::deref::Deref and <T as core::fmt::Debug>::fmt and >::drop",
+    "rust xfade::bad::eg(x)",
+    "use std::{fmt, io}; Foo::<T>::bar",
+    "src: value and device: ok",
+]
+
+
+def fx(t):
+    return t.replace("COL", ":")
+
+
+with open(sys.argv[1], "w") as f:
+    f.write(fx("\n".join(HIT + MISS)) + "\n")
+with open(sys.argv[2], "w") as f:
+    f.write(fx("\n".join(MISS)) + "\n")
+ln = list(range(1, len(HIT) + 1))
+open(sys.argv[3], "w").write(
+    "input 1: %d ipv6-shaped value(s) on line(s) %s\nFAILED: %d residual occurrence(s)\n"
+    % (len(HIT), ", ".join(map(str, ln)), len(HIT))
+)
+PY
+ms scan "${words}" "${shapes2}"
+expect "shapes: hex-ending labels, nine groups and separator colons are stopped" 1 "$(sed -n 1p "${exp2}")" "$(sed -n 2p "${exp2}")" '!ipv4' '!uuid' '!2001'
+ms scan "${words}" "${passfile2}"
+expect "shapes: Rust paths, short groupings and labels pass" 0 "ok: no listed word"
 ms scan "${words}" "${shapes}"
 expect "shapes: each kind reports its own lines" 1 "$(sed -n 1p "${exp}")" "$(sed -n 2p "${exp}")" "$(sed -n 3p "${exp}")" "$(sed -n 4p "${exp}")" '!word' '!192' '!2001' '!fe80' '!0000'
 ms scan "${words}" "${shapes}" "${log}"
@@ -724,21 +772,23 @@ ms scan "${words}" "${work}/mixed-out.txt"
 expect "shapes: scan stops on redact output with a shape" 1 "input 1: 1 ipv4-shaped value(s) on line(s) 1" '!192'
 
 # 多数の行・大きな入力でも結果が正しい（行番号は上限まで。数え方は線形）。
-python3 -I - "${work}/ipmany.txt" "${work}/big.txt" <<'PY'
+python3 -I - "${work}/ipmany.txt" "${work}/big.txt" "${work}/big-expected.txt" <<'PY'
 import sys
 
 open(sys.argv[1], "w").write("x 198DOT51DOT100DOT1 y\n".replace("DOT", ".") * 5000)
-chunk = ("ts 12COL34COL56 mac 00COL11COL22COL33COL44COL55 v 1DOT2DOT3 std COLCOLx " + "ab" * 20 + "\n").replace("DOT", ".").replace("COL", ":")
+# 詰め物の各行は、形の検出が拾わない見かけだけの値（時刻・6 組の MAC・3 つ組の版・キーと値）で、
+# `::` を含まない。形の値は最後の 1 行の IPv4 だけで、行番号は詰め物の行数 + 1。
+chunk = ("ts 12COL34COL56 mac 00COL11COL22COL33COL44COL55 v 1DOT2DOT3 key: value " + "ab" * 20 + "\n").replace("DOT", ".").replace("COL", ":")
 n = (60 * 1024 * 1024) // len(chunk)
 with open(sys.argv[2], "w") as f:
     f.write(chunk * n)
-    f.write("aaaa:" * 1000 + "\n")
     f.write("last 198DOT51DOT100DOT7\n".replace("DOT", "."))
+open(sys.argv[3], "w").write("input 1: 1 ipv4-shaped value(s) on line(s) %d\n" % (n + 1))
 PY
 ms scan "${words}" "${work}/ipmany.txt"
 expect "shapes: many shaped lines" 1 "input 1: 5000 ipv4-shaped value(s) on line(s) 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20" "FAILED: 5000 residual occurrence(s)" '!, 21'
 ms scan "${words}" "${work}/big.txt"
-expect "shapes: 60 MiB input finds the one shaped value on its line" 1 "input 1: 1 ipv4-shaped value(s) on line(s)" "FAILED: 1 residual occurrence(s)" '!ipv6' '!uuid'
+expect "shapes: 60 MiB input finds exactly the one shaped value on its line" 1 "$(cat "${work}/big-expected.txt")" "FAILED: 1 residual occurrence(s)" '!ipv6' '!uuid'
 
 # 止まった値を語の一覧に印つきで足して redact をやり直すと、置き換わって scan が通る。
 python3 -I - "${work}/flow.txt" "${work}/flow-words.txt" <<'PY'
@@ -770,10 +820,12 @@ open(os.path.join(d, "long-dots.txt"), "w").write("1." * (n // 2) + "\n")
 open(os.path.join(d, "long-dotnum.txt"), "w").write("9" * n + "." * 3 + "\n")
 open(os.path.join(d, "long-dash.txt"), "w").write("0000000-" * (n // 8) + "\n")
 PY
-for f in long-colon-a long-colons long-hex long-dotnum long-dash; do
+for f in long-colons long-hex long-dotnum long-dash; do
   ms scan "${words}" "${work}/${f}.txt"
   expect "perf: 16 MiB line ${f} is not shaped" 0 "ok:"
 done
+ms scan "${words}" "${work}/long-colon-a.txt"
+expect "perf: 16 MiB line of hex groups is stopped once, as one value" 1 "input 1: 1 ipv6-shaped value(s) on line(s) 1" "FAILED: 1 residual occurrence(s)"
 ms scan "${words}" "${work}/long-dots.txt"
 expect "perf: 16 MiB line of dotted numbers is stopped once per line" 1 "ipv4-shaped value(s) on line(s) 1" '!, 2'
 
