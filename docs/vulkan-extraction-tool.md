@@ -28,15 +28,11 @@ spec の本文・判定のラベル・PoC の手順や結果は転記しない�
 
 ## 範囲の記述の確かめ（1/6）
 
-`docs/spec/05-tasks.md` の TASK-98 の「内容」と「完了の条件」を、次の資料と照合した（ポインタのみ）。
+`docs/spec/05-tasks.md` の TASK-98 の範囲の記述について、spec 側の判断待ちがある（ポインタのみ。内容は転記しない）。
 
-- `docs/spec/05-tasks.md` の TASK-448・TASK-513・TASK-418
-- `docs/spec/03-poc/kernel-artifacts-and-parity/README.md` の成功基準ごとの比較表と、段階 2 の記録
-- `docs/spec/05-tasks-task-6-carry-over.md` の PoC-8 の行
-
-結果: TASK-98 の「内容」が取り出す対象に挙げる量と、TASK-448・TASK-513 が取り出せる範囲として述べる量の間で、範囲が一意に読めない点がある。
-どちらにも寄せない。**spec 側の判断待ち**（[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)）。
-該当の論点は 2/6（#3531）・3/6（#3532）で止まりうる。本書の他の節の事実の記録は、この判断に依らない。
+- 対象: `docs/spec/05-tasks.md` の TASK-98・TASK-448・TASK-513
+- 扱い: どちらにも寄せない。**spec 側の判断待ち**（[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)）
+- 止まりうる段: 2/6（#3531）・3/6（#3532）。本書の他の節の事実の記録は、この判断に依らない
 
 ## 関連タスクの状態と引き継ぎ
 
