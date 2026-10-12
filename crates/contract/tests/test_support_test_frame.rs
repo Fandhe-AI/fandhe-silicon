@@ -2,13 +2,13 @@
 //! `make build-profiles` の `test-support` を含む各組で、背後実装の feature に依らず同じ結果になることも確かめる。
 //! 別 crate からのマクロ・端から端の表・背後実装の feature ごとの宣言も確かめる。
 //! 置き場・feature の説明は docs/test-frame.md の「置き場と有効になる条件」。
-//! 背後実装の feature ごとの試験は、結果の決定のあとに記録の部品を書き出す入口（`judge_and_export`）を通す。
+//! 背後実装の feature ごとの試験は、走らせない経路でだけ記録の部品を書き出す（走らせる経路では device に触れないので書かない）。
 //! 環境変数 `FANDHE_SILICON_TEST_RECORD_DIR` が未設定なら何も書かず、設定されていれば（`make verify` が渡す）、
 //! 機材の無い環境では宣言した組み合わせごとの「未実施」の部品が書かれる。
 
 use fandhe_silicon_core::test_frame::{
-    Backend, COMBINATION_ENV, Decision, Declaration, MachineCombination, NotRunReason, RunResult,
-    RunSetting, decide,
+    Backend, COMBINATION_ENV, Decision, Declaration, ExportError, MachineCombination, NotRunReason,
+    Outcome, RECORD_DIR_ENV, RunResult, RunSetting, Subject, decide, judge_and_export_with,
 };
 use std::ffi::OsString;
 
@@ -169,29 +169,52 @@ const METAL_EXPORT_ID: &str = "contract_metal_declaration";
 const VULKAN_EXPORT_ID: &str = "contract_vulkan_declaration";
 const CUDA_EXPORT_ID: &str = "contract_cuda_declaration";
 
-/// 背後実装の feature を持つ組でだけ使う補助。その背後実装の組み合わせだけを宣言して、書き出しつきの入口を 1 回通す。
+/// 背後実装の組み合わせだけを宣言し、走らせない経路のときだけ記録の部品を書き出す。
 ///
-/// 実行の組み合わせはプロセスの環境から決まる。機材の無い環境では宣言した組み合わせごとの「未実施」になり、
-/// 宣言した組み合わせで走ったときは、本体が渡された組み合わせの背後実装を確かめて結果を返す。
-/// 書き出しの失敗は握りつぶさず試験の失敗にし、NG も試験の失敗にする（未実施・判定保留は失敗にしない）。
-#[cfg(any(
-    feature = "backend-metal",
-    feature = "backend-vulkan",
-    feature = "backend-cuda"
-))]
-fn declares_and_exports(test_id: &str, backend: Backend) {
-    use fandhe_silicon_core::test_frame::{Subject, Verdict, judge_and_export};
+/// この試験は device に触れないので、枠が「走らせる」と決めた組み合わせ（機材の組み合わせの指定が宣言に当たる）では
+/// 何も書かず `Ok(None)` を返す。走らせない経路では、宣言した組み合わせごとの「未実施」の部品を 1 件ずつ書き出す。
+/// 書き出し先は `lookup` から、組み合わせの指定は `setting` から得る（環境を書き換えずに確かめられる）。
+/// 書き出しの失敗は `Err` で返す。
+fn export_when_not_run<L>(
+    lookup: L,
+    test_id: &str,
+    backend: Backend,
+    setting: &RunSetting,
+) -> Result<Option<Outcome>, ExportError>
+where
+    L: Fn(&str) -> Option<OsString>,
+{
     let s = Subject::from_parts(test_id, &["BUILD-54"], &[]).unwrap();
     let cs: Vec<MachineCombination> = MachineCombination::ALL
         .into_iter()
         .filter(|c| c.backend() == backend)
         .collect();
     let d = Declaration::from_parts(&cs, &[]).unwrap();
-    let outcome = judge_and_export(&s, &d, &RunSetting::from_env(), |c| {
-        RunResult::Verdict(Verdict::from_match(c.backend() == backend))
+    if let Decision::Run(_) = decide(&d, setting) {
+        return Ok(None);
+    }
+    // 走らせない経路なので本体は呼ばれない。呼ばれたら、結果を作らず試験を落とす。
+    judge_and_export_with(lookup, &s, &d, setting, |_| {
+        unreachable!("the body must not run when the frame decided not to run")
     })
+    .map(Some)
+}
+
+/// 背後実装の feature を持つ組でだけ使う補助。プロセスの環境で `export_when_not_run` を呼ぶ。
+/// 書き出しの失敗は握りつぶさず試験の失敗にする。
+#[cfg(any(
+    feature = "backend-metal",
+    feature = "backend-vulkan",
+    feature = "backend-cuda"
+))]
+fn declares_and_exports(test_id: &str, backend: Backend) {
+    export_when_not_run(
+        |n| std::env::var_os(n),
+        test_id,
+        backend,
+        &RunSetting::from_env(),
+    )
     .expect("exporting the record parts must succeed");
-    assert!(!outcome.label().fails_test());
 }
 
 #[cfg(feature = "backend-metal")]
@@ -246,4 +269,85 @@ fn record_parts_are_reachable_and_fixed_under_any_backend_feature_set() {
         parts[1].to_json(),
         r#"{"behavior_ids":["BUILD-54"],"machine_combination":"cuda-node-a","machine":"node-a","label":"not-run","label_reason":"not-configured","body_kind":"contract-test","body":{"test_id":"record_reach"}}"#
     );
+}
+
+/// 書き出しの確認用の一時ディレクトリを作る（試験ごとに別の名前。既にあれば作り直す）。
+fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!(
+        "fandhe-silicon-contract-export-{}-{tag}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&p);
+    std::fs::create_dir(&p).unwrap();
+    p
+}
+
+fn file_count(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir).unwrap().count()
+}
+
+fn backend_tag(b: Backend) -> &'static str {
+    match b {
+        Backend::Metal => "metal",
+        Backend::Vulkan => "vulkan",
+        Backend::Cuda => "cuda",
+    }
+}
+
+#[test]
+fn a_run_path_writes_no_record_and_a_not_run_path_writes_one_per_declared_combination() {
+    for backend in [Backend::Metal, Backend::Vulkan, Backend::Cuda] {
+        let declared = MachineCombination::ALL
+            .into_iter()
+            .filter(|c| c.backend() == backend)
+            .count();
+        // 組み合わせの指定が無い場合と、全ての組み合わせの指定。
+        let mut settings: Vec<Option<MachineCombination>> = vec![None];
+        settings.extend(MachineCombination::ALL.into_iter().map(Some));
+        for (i, chosen) in settings.into_iter().enumerate() {
+            let dir = temp_dir(&format!("{}-{i}", backend_tag(backend)));
+            let dir_value = OsString::from(dir.as_os_str());
+            let st = RunSetting::from_lookup(|n| {
+                chosen.and_then(|c| (n == COMBINATION_ENV).then(|| OsString::from(c.name())))
+            });
+            let out = export_when_not_run(
+                |n| (n == RECORD_DIR_ENV).then(|| dir_value.clone()),
+                "export_path_check",
+                backend,
+                &st,
+            )
+            .unwrap();
+            let runs = chosen.is_some_and(|c| c.backend() == backend);
+            if runs {
+                assert!(out.is_none());
+                assert_eq!(file_count(&dir), 0);
+            } else {
+                assert!(out.is_some());
+                assert_eq!(file_count(&dir), declared);
+            }
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn an_unset_record_directory_is_not_an_error_on_the_not_run_path() {
+    let st = RunSetting::from_lookup(|_| None);
+    let out = export_when_not_run(|_| None, "export_path_unset", Backend::Vulkan, &st).unwrap();
+    assert!(out.is_some());
+}
+
+#[test]
+fn an_export_failure_on_the_not_run_path_is_returned() {
+    let dir = temp_dir("failure");
+    let dir_value = OsString::from(dir.as_os_str());
+    let st = RunSetting::from_lookup(|_| None);
+    let lookup = |n: &str| (n == RECORD_DIR_ENV).then(|| dir_value.clone());
+    assert!(export_when_not_run(lookup, "export_path_twice", Backend::Cuda, &st).is_ok());
+    // 同じ試験の ID と組み合わせの部品は上書きされず、2 回目は失敗として返る。
+    assert_eq!(
+        export_when_not_run(lookup, "export_path_twice", Backend::Cuda, &st).unwrap_err(),
+        ExportError::AlreadyExists
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
