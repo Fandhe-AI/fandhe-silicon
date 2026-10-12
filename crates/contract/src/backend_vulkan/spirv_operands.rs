@@ -433,6 +433,13 @@ fn resolve_variable(
     constants: &BTreeMap<u32, (u32, usize)>,
 ) -> Result<Option<ExtractedOperand>, SpirvExtractError> {
     let unsupported = |shape| SpirvExtractError::Unsupported { id: var.id, shape };
+    // Uniform / StorageBuffer 以外（UniformConstant の画像・サンプラ等、`TypeDef` に入れない型を
+    // 指す変数を含む）は、型を引く前に対象外として返す。
+    if var.storage_class != STORAGE_CLASS_UNIFORM
+        && var.storage_class != STORAGE_CLASS_STORAGE_BUFFER
+    {
+        return Ok(None);
+    }
     let TypeDef::Pointer { pointee } = lookup(types, var.ptr_type)? else {
         return Err(SpirvExtractError::WrongKind { id: var.ptr_type });
     };
@@ -444,9 +451,6 @@ fn resolve_variable(
         {
             return Err(unsupported(UnsupportedShape::LegacyBufferBlock));
         }
-        return Ok(None);
-    }
-    if var.storage_class != STORAGE_CLASS_STORAGE_BUFFER {
         return Ok(None);
     }
 
@@ -663,5 +667,17 @@ mod tests {
             extract_storage_buffer_operands(&module(&insts)),
             Err(SpirvExtractError::DuplicateBinding { set: 0, binding: 0 })
         );
+    }
+
+    #[test]
+    fn image_variable_in_uniform_constant_is_skipped() {
+        // id: 20=OpTypeImage 21=pointer(UniformConstant) 22=変数。画像は `TypeDef` に入らない型。
+        let mut insts = buffer_insts(true, 0, 0, 0);
+        insts.push(inst(25, &[20, 1, 1, 1, 0, 0, 2, 0, 0]));
+        insts.push(inst(OP_TYPE_POINTER, &[21, 0, 20]));
+        insts.push(inst(OP_VARIABLE, &[21, 22, 0]));
+        let got = extract_storage_buffer_operands(&module(&insts)).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].set, 0);
     }
 }
