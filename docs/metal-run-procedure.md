@@ -131,9 +131,7 @@ cargo test -p fandhe-silicon-contract --features backend-metal
 
 版の値・ID の形・時刻の形・`machine` の受ける値は、コードの定数が示す。綴りは実装で決めたもので、`machine` は `crates/core/src/test_frame/combination.rs` の `Machine::name` と揃える（回帰テストの `sync:` のケース）。
 
-### 保留
-
-値の一覧を検査していない 2 欄は spec 側の判断待ち。決まるまで値の一覧を固定しない。
+値の一覧を検査していない欄がある（検査の定数表で、値の形だけを見る欄）。所在は `docs/spec/05-tasks.md` の TASK-19・TASK-28（ポインタのみ）。
 
 ### 4/4（#80）への引き継ぎ
 
