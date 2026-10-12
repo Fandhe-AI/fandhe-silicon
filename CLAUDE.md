@@ -56,7 +56,7 @@ fandhe-silicon/
 ├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
-├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提（TASK-19）
+├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順（TASK-19）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）

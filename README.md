@@ -90,7 +90,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/test-frame.md` | 共通の試験の枠（TASK-23）の現状と前提・形の設計（範囲 (1)。決定の記録のポインタと、守る本リポの規約） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
-| `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）の現状と前提 |
+| `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）の現状と前提・実行手順 |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
