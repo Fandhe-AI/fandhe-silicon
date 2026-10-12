@@ -50,6 +50,7 @@ fandhe-silicon/
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の現状と前提（TASK-16）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と反映の方針（TASK-43）
+├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の現状と前提・方針（案）（TASK-98）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
