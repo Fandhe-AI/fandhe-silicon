@@ -21,14 +21,14 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 
 ## コマンドの並び
 
-1 回の回で、スクリプトを使う部分は次の順になる。`probe` は回の前と後の 2 回流す。
+1 回の回で、スクリプトを使う部分は次の順になる。`probe` は回の前と後の 2 回流す。`<作業ツリーの外のディレクトリ>` は、値を含む記録を置く場所で、本リポの作業ツリーの外を指す。
 
 ```sh
-scripts/metal-session.sh probe > before.json
+scripts/metal-session.sh probe > <作業ツリーの外のディレクトリ>/before.json
 scripts/metal-session.sh run --combination metal-mac-mini \
   --developer-dir <Xcode の Developer ディレクトリ> \
   -- cargo test -p fandhe-silicon-contract --features backend-metal
-scripts/metal-session.sh probe > after.json
+scripts/metal-session.sh probe > <作業ツリーの外のディレクトリ>/after.json
 scripts/session-record-check.sh <回の記録のパス>
 scripts/metal-session.sh redact <語の一覧> <ログ> <置き換え後のログ>
 scripts/metal-session.sh scan <語の一覧> <置き換え後のログ>
