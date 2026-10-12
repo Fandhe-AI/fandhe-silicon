@@ -242,6 +242,47 @@ fn max_count_and_max_length_permissions_are_runnable() {
     );
 }
 
+// ---- 7/8: 許可の値の境界・引く名前（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+
+#[test]
+fn permission_count_and_length_boundaries_in_the_setting() {
+    let d = decl(&[]);
+    let run = Decision::Run(MachineCombination::MetalMacMini);
+    let invalid = not_run(NotRunReason::InvalidPermissionSetting);
+    let at = |perms: &str| decide(&d, &setting(s("metal-mac-mini"), s(perms)));
+
+    let sixteen: Vec<String> = (0..16).map(|i| format!("p{i}")).collect();
+    assert_eq!(at(&sixteen.join(",")), run);
+    let seventeen: Vec<String> = (0..17).map(|i| format!("p{i}")).collect();
+    assert_eq!(at(&seventeen.join(",")), invalid);
+
+    assert_eq!(at(&"a".repeat(64)), run);
+    assert_eq!(at(&"a".repeat(65)), invalid);
+}
+
+#[test]
+fn lookup_is_asked_only_for_the_two_fixed_names() {
+    use std::cell::RefCell;
+    let asked: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let _ = RunSetting::from_lookup(|name| {
+        asked.borrow_mut().push(name.to_string());
+        None
+    });
+    let mut got = asked.into_inner();
+    got.sort();
+    let mut want = vec![COMBINATION_ENV.to_string(), PERMISSIONS_ENV.to_string()];
+    want.sort();
+    assert_eq!(got, want);
+}
+
+#[test]
+fn unset_and_empty_permissions_give_equal_settings() {
+    assert_eq!(
+        setting(s("metal-mac-mini"), None),
+        setting(s("metal-mac-mini"), s(""))
+    );
+}
+
 #[test]
 fn from_env_does_not_panic() {
     // 環境は書き換えない。値は何であれ、可否が返る（Run か NotRun のどちらか）。

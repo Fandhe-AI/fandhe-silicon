@@ -262,6 +262,86 @@ fn table_is_ascii_and_has_no_identifiers() {
     }
 }
 
+/// 7/8: 5 種と 2 桁の件数を含む表の完全一致（表を変える PR が期待値を一緒に直す前提の固定。置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+#[test]
+fn table_with_every_kind_and_a_two_digit_count_is_fixed() {
+    use MachineCombination::*;
+    let one = |c: MachineCombination| decl(&[c], &[]);
+    let mut outcomes = Vec::new();
+    for _ in 0..12 {
+        outcomes.push(run(
+            &one(MetalMacMini),
+            Some("metal-mac-mini"),
+            None,
+            matched(),
+            &[],
+        ));
+    }
+    outcomes.push(run(
+        &one(VulkanNodeB),
+        Some("vulkan-node-b"),
+        None,
+        mismatched(),
+        &[],
+    ));
+    outcomes.push(run(
+        &one(VulkanNodeA),
+        Some("vulkan-node-a"),
+        None,
+        matched(),
+        &["t-2"],
+    ));
+    outcomes.push(run(&one(VulkanAmd), None, None, matched(), &[]));
+    outcomes.push(run(
+        &one(VulkanIntel),
+        Some("vulkan-intel"),
+        None,
+        RunResult::Indeterminate(IndeterminateReason::MachineUnreachable),
+        &[],
+    ));
+    let cuda = one(CudaNodeA);
+    outcomes.push(run(&cuda, Some("cuda-node-a"), None, matched(), &[]));
+    outcomes.push(run(&cuda, Some("cuda-node-a"), None, mismatched(), &[]));
+    assert_eq!(outcomes.len(), 18);
+
+    let s = Summary::from_outcomes(&outcomes).unwrap();
+    let expected = "\
+| combination | ok | ng | pending | not-run | indeterminate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| metal-mac-mini | 12 | 0 | 0 | 0 | 0 |
+| vulkan-node-b | 0 | 1 | 0 | 0 | 0 |
+| vulkan-node-a | 0 | 0 | 1 | 0 | 0 |
+| vulkan-amd | 0 | 0 | 0 | 1 | 0 |
+| vulkan-intel | 0 | 0 | 0 | 0 | 1 |
+| cuda-node-b | 0 | 0 | 0 | 0 | 0 |
+| cuda-node-a | 1 | 1 | 0 | 0 | 0 |";
+    let table = s.to_string();
+    assert_eq!(table, expected);
+    assert_eq!(table.lines().count(), 9);
+    assert!(!table.ends_with('\n'));
+    assert_eq!(LabelKind::ALL.map(|k| s.totals().get(k)), [13, 2, 1, 1, 1]);
+    for c in MachineCombination::ALL {
+        let row = s.combination(c);
+        assert_eq!(
+            row.total(),
+            LabelKind::ALL.iter().map(|k| row.get(*k)).sum()
+        );
+    }
+}
+
+#[test]
+fn outcomes_with_the_same_test_id_are_each_counted() {
+    let d = decl(&[MachineCombination::MetalMacMini], &[]);
+    let at = Some("metal-mac-mini");
+    let o = run(&d, at, None, matched(), &[]);
+    let s = Summary::from_outcomes(&[o.clone(), o]).unwrap();
+    assert_eq!(
+        counts(&s, MachineCombination::MetalMacMini),
+        [2, 0, 0, 0, 0]
+    );
+    assert_eq!(s.totals().total(), 2);
+}
+
 #[test]
 fn summary_error_is_ascii() {
     let e = SummaryError::CountOverflow;
