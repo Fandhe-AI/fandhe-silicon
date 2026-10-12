@@ -39,6 +39,10 @@ name = "test_frame_decide"
 required-features = ["test-support"]
 
 [[test]]
+name = "test_frame_export"
+required-features = ["test-support"]
+
+[[test]]
 name = "test_frame_end_to_end"
 required-features = ["test-support"]
 
@@ -52,6 +56,10 @@ required-features = ["test-support"]
 
 [[test]]
 name = "test_frame_outcome"
+required-features = ["test-support"]
+
+[[test]]
+name = "test_frame_record"
 required-features = ["test-support"]
 
 [[test]]

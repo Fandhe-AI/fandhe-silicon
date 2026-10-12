@@ -5,12 +5,13 @@
 
 ## 置き場と有効になる条件
 
-- 実装: `crates/core/src/test_frame.rs` と配下 9 ファイル（`combination`・`declaration`・`setting`・`decision`・`identifier`・`threshold`・`label`・`outcome`・`summary`）。`crates/core/src/lib.rs` の `#[cfg(feature = "test-support")] pub mod test_frame;` で公開する
+- 実装: `crates/core/src/test_frame.rs` と配下 11 ファイル（`combination`・`declaration`・`setting`・`decision`・`identifier`・`threshold`・`label`・`outcome`・`summary`・`record`・`export`）。`crates/core/src/lib.rs` の `#[cfg(feature = "test-support")] pub mod test_frame;` で公開する
 - 有効になる条件: `core` の feature `test-support`。`contract` の `test-support` が `core` へ転送する。どの crate の `default` にも入れていない。`test-support` なしのビルドには入らない（`cargo build -p fandhe-silicon-core` で枠はコンパイルされない）
 - 背後実装: `core` に背後実装の feature は無い。枠は名前を表すだけで、device には触れない
 - 依存の向き: `test_frame` が `parity` の比較型を読む（`From<&比較型> for Verdict`）。`parity` は `test_frame` に依存しない。製品の経路（`contract`・`exec`・`upper` の非テストのコード）は参照しない
-- 統合テスト: `crates/core/tests/test_frame_*.rs` の 7 本（`crates/core/Cargo.toml` の `[[test]]` で `required-features = ["test-support"]`）と `crates/contract/tests/test_support_test_frame.rs`。単体テストが `crates/core/src/test_frame/outcome.rs` にある
+- 統合テスト: `crates/core/tests/test_frame_*.rs` の 9 本（`crates/core/Cargo.toml` の `[[test]]` で `required-features = ["test-support"]`）と `crates/contract/tests/test_support_test_frame.rs`。単体テストが `crates/core/src/test_frame/outcome.rs`・`record.rs`（JSON の文字列のエスケープ）・`export.rs`（後始末の失敗）にある
 - `unsafe`・依存: 使わない（`#![forbid(unsafe_code)]`、外部依存 0）。個数テストの期待値は変えていない（[unsafe-policy](unsafe-policy.md)）
+- ファイルを触る場所: `std::fs` を使うのは `export.rs` だけ。枠は `println!`・`eprintln!` を使わない（標準出力・標準エラーに何も出さない）
 - 走る場所: `make verify`（`--all-features`）と、`scripts/build-profiles.sh` の `test-support` を含む組。GPU の実機は要らない
 
 ## 公開面
@@ -28,6 +29,9 @@
 | `Label`・`LabelKind`・`IndeterminateReason` | 5 種のラベルと理由 |
 | `APPROVED_THRESHOLDS` | 承認済みの閾値の ID の表（唯一の置き場） |
 | `Summary`・`LabelCounts`・`SummaryError` | 組み合わせごとのラベルの件数と、その表 |
+| `Outcome::record_parts`・`RecordPart`・`BODY_KIND` | 試験ごとの記録の部品（試験の結果の欄だけ） |
+| `RECORD_DIR_ENV`・`export_parts`・`export_from_lookup`・`export_from_env`・`record_file_name`・`ExportError` | 部品のファイルへの書き出し |
+| `judge_and_export`・`judge_and_export_with` | `judge` の後に部品を書き出す入口 |
 | 上限の定数 | `MAX_COMBINATIONS` 64・`MAX_PERMISSIONS` 16・`MAX_PERMISSION_LEN` 64・`MAX_TEST_ID_LEN` 128・`MAX_BEHAVIOR_ID_LEN` 32・`MAX_BEHAVIORS` 16・`MAX_THRESHOLDS` 16 |
 
 ## 振る舞い
@@ -68,7 +72,7 @@
 ### ラベルと理由
 
 - ラベルは OK・NG・判定保留・未実施・判定不能の 5 種。種類のトークンは `ok`・`ng`・`pending`・`not-run`・`indeterminate`（`LabelKind::ALL` の順）
-- 理由のトークンを持つのは未実施・判定不能（`Label::reason_name`）。OK・NG・判定保留では `None`
+- 理由のトークンを持つのは判定保留・未実施・判定不能（`Label::reason_name`）。OK・NG では `None`。判定保留の理由は常に `threshold-unapproved`（`PENDING_REASON`）で、どの閾値かは `Label::Pending` の値が持つ
 - 未実施の理由のトークン: `not-configured`・`invalid-combination-setting`・`invalid-permission-setting`・`combination-not-declared`・`permission-missing`。判定不能の理由のトークン: `device-mismatch`・`machine-unreachable`
 - 表示（`Display`）とトークンは英語の ASCII で、入力の値・自由な文を含まない
 
@@ -80,6 +84,33 @@
 - `has_ng` は NG が 1 件でもあるときだけ `true`
 - 件数のあふれは `SummaryError::CountOverflow`（`checked_add`。失敗した `record` は集計を変えない）
 - `Display` は Markdown の表。固定の見出しと区切り、`MachineCombination::ALL` の順の 7 行で、セルは固定のトークンと 10 進の数だけ。試験の ID・ビヘイビア項目の ID・理由・環境の値は出ない
+
+### 試験ごとの記録の部品
+
+- `Outcome::record_parts` は部品の列を返す。走らせた結果は走らせた組み合わせの 1 件、走らせなかった結果は宣言した組み合わせごとに 1 件（宣言の順）。どの部品も同じラベル・理由・ビヘイビア項目の ID・試験の ID を持つ
+- 部品 1 件の欄は次の順。条件を満たさない欄はキーごと出さない
+    1. `behavior_ids`: ビヘイビア項目の ID の配列（宣言の順・重複なし。無ければ空の配列）
+    2. `machine_combination`: 組み合わせの名前（例: `metal-mac-mini`）
+    3. `machine`: 機材の呼び名（例: `mac-mini`）
+    4. `label`: 5 種のラベルのトークン
+    5. `label_reason`: 判定保留・未実施・判定不能のときだけ、その理由のトークン。OK・NG では出さない
+    6. `body_kind`: 常に `contract-test`
+    7. `body`: `{"test_id": 試験の ID}`。判定保留のときだけ `test_id` の後に `"threshold_id"`（未承認だった閾値の ID）が続く。ほかのラベルではキーごと出さない
+- 部品は run の欄（形の版・run の ID・時刻・環境・経路の証拠・回への参照など）を持たない。受け取る側がそれらを足して 1 件の記録に組む
+- `RecordPart::fields` は (欄の名前, 値の JSON の文字列) の順序つきの列。値の文字列はそれ単体で閉じた JSON の値。`RecordPart::to_json` は同じ欄を 1 つの JSON オブジェクトにした 1 行の文字列（改行なし・ASCII のみ）で、二つは一致する
+- 文字列の値は 1 か所のエスケープを通る（引用符・バックスラッシュ・制御文字・ASCII でない文字。BMP の外の文字はサロゲート対）
+- 環境変数の値・許可の名前・自由な文は部品に入らない
+
+### 記録の部品の書き出し
+
+- 環境変数 `FANDHE_SILICON_TEST_RECORD_DIR`（`RECORD_DIR_ENV`）に絶対パスのディレクトリを渡すと、部品 1 件につき 1 ファイルをその直下に作る。未設定なら何も書かない（既定はファイルを作らない）
+- ファイル名は `<試験の ID>.<組み合わせの名前>.json`（`record_file_name`）。試験の ID は `[a-z0-9_-]`、組み合わせの名前は `[a-z0-9-]` だけなので、`.`・パスの区切りを含まず、対が違えば名前も違う。中身は部品の 1 行の JSON と改行 1 つ。ファイル名は試験の ID で始まり、Windows の予約のデバイス名に当たる ID のときの振る舞いは確かめていない
+- 同じ試験の部品を同じディレクトリへ 2 回書くと、2 回目は `AlreadyExists` で失敗する（`an_existing_file_is_never_overwritten`）
+- 既存のファイルは上書きしない（同名のシンボリックリンクがあっても辿らず `AlreadyExists`）。ディレクトリは作らない。`..` の要素を含むパスは拒否し、末尾の区切りと `.` の要素は取り除いてからリンクかどうかを見る（`link/`・`link/.` も拒否）。限界として、途中の要素のシンボリックリンクは辿り、検査と書き込みのあいだの差し替えは防がない。失敗は `ExportError` で返り、種類は次のとおり（パスは含まない）
+    - `NotAbsolute`（空・相対パス）・`ParentComponent`・`DirectoryMissing`・`DirectoryIsSymlink`・`NotADirectory`・`AlreadyExists`・`Io(ErrorKind)`・`CleanupFailed { cause, cleanup }`
+- 書き込みに失敗したファイルは消す。1 回の呼び出しの途中で失敗したら、その呼び出しで作ったファイルも消す（もとからあったファイルには触れない）。1 つ消せなくても残りは消し、消せないものがあれば `CleanupFailed` を返す（元の失敗の種類 `cause` と削除の失敗の種類 `cleanup` だけを持ち、パス・ファイル名・OS のメッセージは持たない。作ったファイルが残りうる）。すでに無いファイル（`NotFound`）は失敗に数えない
+- `export_parts` はディレクトリを引数で受ける。`export_from_lookup` は名前から値を引く関数で `RECORD_DIR_ENV` を引き、`export_from_env` はそれへ `std::env::var_os` を渡すだけ
+- `judge_and_export`（環境変数を使う）と `judge_and_export_with`（値を引く関数を受ける）は、`judge` と同じ順で結果を決めたあとに部品を書き出し、`Result<Outcome, ExportError>` を返す。書き出しの失敗は `Err` で返り、試験の側が失敗として扱う。書き出しの成否でラベルは変わらず、走らせない場合は本体を呼ばない
 
 ## 振る舞いとテストの対応
 
@@ -98,19 +129,24 @@
 | `Subject` の検査・重複の除去・上限、`Outcome` の getter、失敗にするのは NG だけ、`parity` の結果の写像 | `subject_validates_and_deduplicates`・`subject_limits_counts`・`count_limits_are_checked_before_identifier_names`・`subject_errors_are_ascii_and_do_not_echo_input`・`outcome_carries_the_subject_and_declaration_as_given`・`outcome_getters_report_what_was_declared_and_run`・`fails_test_is_true_only_for_ng`・`from_match_maps_booleans`・`parity_comparisons_map_to_verdicts`（`test_frame_outcome.rs`） |
 | ラベルの種類 5 つのトークン、理由のトークンの綴りと網羅、表示 | `kind_tokens_are_distinct_and_well_formed`・`label_kinds_are_five_distinct_tokens`・`kind_matches_name_for_every_label`・`reason_tokens_exist_only_for_kinds_with_a_reason`・`not_run_reason_tokens_cover_every_variant_without_duplicates`・`indeterminate_reason_tokens_cover_every_variant_without_duplicates`・`reason_tokens_are_fixed_spellings`・`only_ng_fails_the_test`・`display_is_ascii_english`（`test_frame_label.rs`） |
 | 集計の行・数え方・順序・`has_ng`・表の固定・あふれの表示 | `empty_summary_has_seven_rows_of_zero`・`ran_outcomes_count_under_the_combination_they_ran_on`・`not_run_outcomes_count_under_every_declared_combination`・`declared_but_not_run_combinations_count_as_not_run`・`undeclared_combinations_are_not_counted`・`row_total_equals_outcomes_declaring_the_combination`・`totals_count_each_outcome_once_by_its_label`・`outcomes_with_the_same_test_id_are_each_counted`・`has_ng_is_true_only_when_an_outcome_is_ng`・`result_does_not_depend_on_order_and_record_agrees_with_from_outcomes`・`table_has_fixed_header_and_seven_rows_in_all_order`・`table_shows_counts_and_keeps_non_ok_columns`・`table_is_ascii_and_has_no_identifiers`・`table_with_every_kind_and_a_two_digit_count_is_fixed`・`summary_error_is_ascii`（`test_frame_summary.rs`） |
+| 部品の形（5 種のラベル・走らせた結果と未実施の件数と組み合わせ・欄の順と 1 行の JSON の一致・環境変数の値と許可の名前が出ない）、エスケープ | `ok_part_is_one_with_the_combination_and_no_reason`・`ng_part_is_one_with_the_combination_and_no_reason`・`pending_part_has_the_fixed_reason_and_the_threshold_id_in_the_body`・`only_pending_parts_carry_a_threshold_id`・`indeterminate_part_has_the_reason`・`not_run_gives_one_part_per_declared_combination_in_declared_order`・`a_run_on_one_combination_gives_exactly_one_part_even_with_several_declared`・`not_run_for_an_undeclared_combination_uses_its_own_reason`・`behavior_ids_keep_declared_order_without_duplicates_and_may_be_empty`・`fields_are_an_ordered_list_that_agrees_with_the_one_line_json`・`every_label_kind_and_combination_gives_a_valid_shape`・`parts_do_not_show_environment_values_or_permission_names`（`test_frame_record.rs`）、`plain_ascii_is_only_quoted`・`quote_and_backslash_are_escaped`・`control_characters_use_short_or_u_escapes`・`non_ascii_is_escaped_and_astral_uses_surrogate_pairs`（`crates/core/src/test_frame/record.rs`） |
+| 書き出し（環境変数の名前・ファイル名と中身・未設定で書かない・上書きしない・途中の失敗の後始末・ディレクトリの検査・シンボリックリンク・エラーにパスが出ない・名前の衝突しなさ・別々の試験の ID での並行 100 件・同じ名前への並行・宣言の順が違う 2 つの並行・入口の挙動） | `environment_name_is_fixed`・`a_run_writes_one_file_with_the_expected_name_and_content`・`a_not_run_writes_one_file_per_declared_combination`・`an_unset_directory_writes_nothing`・`the_lookup_is_asked_only_for_the_directory_name`・`an_existing_file_is_never_overwritten`・`a_failure_part_way_removes_the_files_this_call_made_and_keeps_others`・`a_missing_directory_is_an_error_and_is_not_created`・`a_file_is_not_accepted_as_the_directory`・`relative_and_empty_paths_are_rejected`・`a_symbolic_link_directory_is_not_followed`・`a_symbolic_link_at_the_file_name_is_not_followed`・`errors_do_not_show_the_path`・`file_names_stay_inside_the_directory_and_do_not_collide`・`judge_and_export_writes_and_returns_the_same_outcome`・`judge_and_export_does_not_call_the_body_when_not_run_and_writes_every_declared_one`・`judge_and_export_writes_nothing_when_unset`・`a_write_failure_is_returned_as_an_error_not_swallowed`・`a_hundred_concurrent_writes_of_different_tests_neither_collide_nor_go_missing`・`concurrent_writes_of_the_same_outcome_succeed_exactly_once`・`concurrent_writes_in_different_declared_orders_never_remove_the_others_files`・`a_symbolic_link_directory_with_a_trailing_separator_or_dot_is_rejected`・`parent_components_are_rejected`（`test_frame_export.rs`。シンボリックリンクの 2 つは unix のみ） |
+| 後始末の削除が失敗したときの専用のエラー・残りの削除を続けること・`NotFound` を数えないこと・元の失敗の種類の保持・エラーにパスが出ないこと | `a_failed_cleanup_gives_the_dedicated_error_and_keeps_deleting_the_rest`・`a_successful_cleanup_returns_the_original_error`・`a_file_that_is_already_gone_is_not_a_cleanup_failure`・`an_already_exists_failure_keeps_its_kind_inside_the_cleanup_error`（`crates/core/src/test_frame/export.rs` の単体テスト。書き込みと削除の関数を差し替えて作る） |
 | 宣言 → 実行の可否 → ラベル → 集計 → 表の通し | `each_backend_declares_its_combinations_and_runs_only_there`・`one_flow_yields_all_five_label_kinds`・`unconfigured_run_counts_every_declared_row_as_not_run`・`run_on_one_combination_gives_the_fixed_table`・`seven_runs_give_one_ok_and_six_not_run_per_row`・`has_ng_agrees_with_fails_test_over_the_outcomes`・`flow_with_the_process_environment_never_yields_ng`（`test_frame_end_to_end.rs`） |
-| `contract` の `test-support` だけで届き、背後実装の feature に依らず同じ結果（可否・ラベル・集計・表・マクロ） | `contract_test_support_enables_core_test_frame`・`decisions_are_fixed_under_any_backend_feature_set`・`judge_is_reachable_and_fixed_under_any_backend_feature_set`・`summary_is_reachable_and_fixed_under_any_backend_feature_set`・`declaration_macro_is_reachable_from_another_crate`・`end_to_end_table_is_fixed_under_any_backend_feature_set`（`test_support_test_frame.rs`） |
+| `contract` の `test-support` だけで届き、背後実装の feature に依らず同じ結果（可否・ラベル・集計・表・マクロ・記録の部品） | `contract_test_support_enables_core_test_frame`・`decisions_are_fixed_under_any_backend_feature_set`・`judge_is_reachable_and_fixed_under_any_backend_feature_set`・`summary_is_reachable_and_fixed_under_any_backend_feature_set`・`declaration_macro_is_reachable_from_another_crate`・`end_to_end_table_is_fixed_under_any_backend_feature_set`・`record_parts_are_reachable_and_fixed_under_any_backend_feature_set`（`test_support_test_frame.rs`） |
 | 背後実装の feature ごとの試験が、その背後実装の組み合わせだけを宣言して走る（対応する feature があるときだけ） | `metal_test_declares_on_the_frame`・`vulkan_test_declares_on_the_frame`・`cuda_test_declares_on_the_frame`（`test_support_test_frame.rs`） |
 
-テストはプロセスの環境と作業ツリーを書き換えず、設定は `from_lookup` へ渡す。公開テストから到達させていない経路は次のとおり。
+テストはプロセスの環境と作業ツリーを書き換えず、設定は `from_lookup` へ渡す。書き出しのテストは `std::env::temp_dir()` の下に試験ごとの別の名前のディレクトリを作って消し、ディレクトリは引数か値を引く関数で渡す。公開テストから到達させていない経路は次のとおり。
 
 - `CountOverflow` に至る経路と `LabelCounts::total` の飽和の経路（`usize::MAX` 件の入力が要る）
-- `RunSetting::from_env` が読む実際の環境の値（呼び出しが落ちないことと、可否との整合だけを確かめている）
+- `RunSetting::from_env`・`export_from_env`・`judge_and_export` が読む実際の環境の値（`RunSetting::from_env` は呼び出しが落ちないことと可否との整合だけを確かめている。残りは値を引く関数を受ける版で確かめている）
+- 書き込み途中の入出力の失敗（ディスクの空きが無いなど）の後始末
 - feature が無いときに `test_frame` が見えないこと、`Outcome` を外から組み立てられないこと（コンパイル時の性質）
 
 ## 入れていないもの
 
-- 機械可読の記録（JSON）の組み立てと書き出し、出力の先を受ける環境変数・引数
+- run の欄（形の版・run の ID・時刻・環境・経路の証拠・回への参照など）と、部品に足して 1 件の記録に組む処理
+- 書き出したファイルを集めて集計を標準出力に出す道具
 - 複数の試験（別プロセスを含む）の結果を 1 つの `Summary` に集める経路、未実施・判定不能の理由ごとの内訳、同じ試験の ID の重複の検出
 - 実機の device を取って宣言と照合する経路（`core` から device は取れない。判定不能の値を作る経路は試験の側にある）
 - 承認の判定を試験の側から差し込む公開の口

@@ -173,3 +173,25 @@ fn vulkan_test_declares_on_the_frame() {
 fn cuda_test_declares_on_the_frame() {
     declares_and_runs_only_on(Backend::Cuda);
 }
+
+#[test]
+fn record_parts_are_reachable_and_fixed_under_any_backend_feature_set() {
+    use fandhe_silicon_core::test_frame::{Subject, Verdict, judge};
+    let s = Subject::from_parts("record_reach", &["BUILD-54"], &[]).unwrap();
+    let d = Declaration::from_parts(
+        &[
+            MachineCombination::MetalMacMini,
+            MachineCombination::CudaNodeA,
+        ],
+        &[],
+    )
+    .unwrap();
+    let unset = RunSetting::from_lookup(|_| None);
+    let o = judge(&s, &d, &unset, |_| RunResult::Verdict(Verdict::Match));
+    let parts = o.record_parts();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(
+        parts[1].to_json(),
+        r#"{"behavior_ids":["BUILD-54"],"machine_combination":"cuda-node-a","machine":"node-a","label":"not-run","label_reason":"not-configured","body_kind":"contract-test","body":{"test_id":"record_reach"}}"#
+    );
+}
