@@ -5,7 +5,7 @@
 # --list を付けると、合格のときだけ鍵と項目の対応の一覧を標準出力へ出す（保存はしない）。
 # 入力のポインタ: docs/spec/03-poc/wgpu-feature-inventory/inventory.csv（一覧）と
 # docs/spec/04-behavior/（項目ファイル群）。どちらも private の submodule の中にある。
-# 呼び出し元: `make inventory-trace-check`（手元だけの検査。CI は呼ばない。走らせる場所は未決）。
+# 呼び出し元: `make inventory-trace-check`（手元だけの検査。本リポの CI は呼ばない。入力が private 側にあるため）。
 #
 # 使い方:
 #   scripts/inventory-trace-check.sh [--csv PATH] [--items-dir DIR] [--key-column NAME]

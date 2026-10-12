@@ -1,7 +1,7 @@
 //! Top-k の CPU 参照と、T-2 の比べ方（spec TASK-24 の 5/8）。
 //!
 //! 検証用のテスト・測定から呼ばれ、背後実装が返した Top-k を CPU の参照とビット同一で比べる。
-//! feature `test-support` の裏にだけ公開される（置き場は未承認の仮置き。`docs/parity-tool.md` の Q1・Q3）。
+//! feature `test-support` の裏にだけ公開される（置き場の説明は `docs/parity-tool.md` の「現状の形」）。
 //! T-1 の許容誤差（[`super::tolerance`]）は通さない。
 //! spec との対応: `docs/spec/02-poc-plan.md` の T-2、PARITY-6（ポインタのみ）。
 

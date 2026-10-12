@@ -2,7 +2,7 @@
 //!
 //! `tests/backend_<名前>_unsafe_count.rs`（Metal / Vulkan / CUDA）が `mod common;` で取り込み、
 //! 期待値の表を渡して [`check_backend`] を呼ぶ。見本の文字列で道具そのものを確かめるテストは
-//! `tests/common_unsafe_count_samples.rs` にある。方針は `docs/unsafe-policy.md`（案）を参照。
+//! `tests/common_unsafe_count_samples.rs` にある。方針は `docs/unsafe-policy.md` を参照。
 //!
 //! 数え方: コメントと文字列リテラルを空白へ置き換えたあと、識別子の境界で切った `unsafe`
 //! キーワードを拾い、直後のトークンで種別に分ける。外部依存は持たず、標準ライブラリだけを使う。
