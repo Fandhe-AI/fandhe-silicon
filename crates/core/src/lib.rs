@@ -5,8 +5,12 @@
 //! チップ固有の型はここへ持ち込まない。
 //!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
-//! （`parity` モジュール）が公開される。製品の経路からは使わない。
+//! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否）が公開される。
+//! 製品の経路からは使わない。
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "test-support")]
 pub mod parity;
+
+#[cfg(feature = "test-support")]
+pub mod test_frame;
