@@ -86,7 +86,7 @@ scripts/metal-session.sh redact <語の一覧> <入力> <出力>
 scripts/metal-session.sh scan <語の一覧> <ファイル>...
 ```
 
-語の一覧は、1 行に「語 TAB 印」（UTF-8・BOM なし・1 MiB 以下）。印は `<` + `[a-z0-9-]+` + `>` の形だけを受ける。例（作り物）:
+語の一覧は、1 行に「語 TAB 印」（UTF-8・BOM なし・1 MiB 以下）。印は `<` + `[A-Za-z0-9-]+` + `>` の形だけを受ける（機材の別名に英大文字を含んでよい。空白・記号・山括弧の入れ子・空は拒否）。例（作り物）:
 
 ```text
 example-host<TAB><example-machine>
@@ -94,12 +94,14 @@ example-dir<TAB><example-place>
 ```
 
 - 一覧は git の作業ツリーの外に置く（中にあると拒否する。条件は下）。語と印の対応（どの語をどの印にするか）は一覧が持ち、スクリプトは既定の印を持たない
-- 拒否する一覧（終了コード 2）: 空・空行だけ、TAB の無い行（印なし）、形の違う印、空または空白だけの語、同じ語の重複（印が同じでも別でも）、印の中に語が含まれる（置き換えの後の検索が必ず残りを見つけるため）。空行は読み飛ばす
+- 拒否する一覧（終了コード 2）: 空・空行だけ、TAB の無い行（印なし）、形の違う印、IP アドレスや UUID の形をした印、空または空白だけの語、同じ語の重複（印が同じでも別でも）、印の中に語が含まれる（置き換えの後の検索が必ず残りを見つけるため）。空行は読み飛ばす
 - 一覧の実パスの親ディレクトリが git の作業ツリーの中（`.git` の中、別の worktree、別のリポジトリを含む）にあるとき、または祖先に `.git` があるときは、一覧も `redact` の出力先も拒否する（終了コード 2）。シンボリックリンクは実パスで判定する。ハードリンクは検出しない
 - 語は固定の文字列で、正規表現として解釈しない。大文字小文字を区別するので、表記の揺れは別々の語として並べる。重なる語は長い方を先に置き換える
 - `redact` は語を一覧の印に置き換えて、入力とは別の新しいファイル（権限 600）へ書く。出力が既に在る（リンクを含む）・出力の置き場が無いときは、何も書かずに終了コード 2 で終わる。置き換えの結果に語が残る場合（印との境目で語ができる場合）は、書かずに終了コード 1 で終わる。バイナリ・UTF-8 でない入力・通常ファイルでない入力・64 MiB を超える入力は終了コード 1
-- `scan` は 1 つ以上のファイルに語が残っていないことを確かめる。残っていれば終了コード 1。バイナリを含むファイルも対象にする
-- 標準出力・標準エラーに語も印も出ない。出すのは件数と、ファイルの順番と行番号（20 行まで）だけ
+- `scan` は 1 つ以上のファイルに、語の一覧の語と、下の「形で拾う値」が残っていないことを確かめる。残っていれば終了コード 1。バイナリを含むファイルも対象にする
+- 形で拾う値（前もって値を知らないもの）は、IPv4 アドレス・IPv6 アドレス・UUID の 3 種。`scan` は語の一覧の有無にかかわらず常にこの 3 種も探し、検出を切るオプションは無い。`redact` はこの 3 種を置き換えない（置き換え後の印を持たない）。残っていれば件数を標準エラーへ注記して終了コード 0 で終わるので、`scan` で必ず確かめる
+- 形は安全側に広く拾う。止まった行は人が確かめる（除外の指定は無い）。例: 版の番号のような 4 つ組の数字は IPv4 として止まる。5 つ組、各部が 255 を超えるもの、3 つ組は止まらない。IPv6 は `::` を含む表記（1〜7 組）と 8 組ちょうどの表記を拾い、時刻・6 組の MAC アドレス・語の途中の `::`（`std::string` など）は拾わない。2 桁 8 組の EUI-64 と、16 進数だけの識別子の `a::b` は IPv6 の形に合うので止まる
+- 標準出力・標準エラーに語も印も形で拾った値も出ない。出すのは件数と（形は種類ごとの件数）、ファイルの順番と行番号（20 行まで）だけ
 
 ## 振る舞いと回帰テスト
 
@@ -128,6 +130,10 @@ example-dir<TAB><example-place>
 | 置き換えの後に語が残るなら書かない | `redact: a word formed at the mark boundary is refused`・`scan: finds remaining words` |
 | 出力に語も印も出ない | `redact: replaces words`・`scan: finds remaining words` |
 | 件数と先頭の行番号が正しい | `scan: many matching lines`・`scan: several matches per line counted once per line` |
+| 印が英大文字を受け、形の違う印は拒否のまま | `marks: ...`・`words: malformed mark ...` |
+| IPv4・IPv6・UUID の形を種類ごとの件数と行番号で止める（値は出さない）。誤検出の範囲を固定する | `shapes: each kind reports its own lines`・`shapes: look-alikes pass`・`shapes: words and shapes are both reported` |
+| `redact` は形で拾う値を置き換えず、注記する | `shapes: redact leaves shapes and notes them without values`・`shapes: redact output keeps the shaped value`・`shapes: scan stops on redact output with a shape` |
+| 多数の行・大きな入力でも結果が正しい | `shapes: many shaped lines`・`shapes: 60 MiB input finds the one shaped value on its line` |
 | 一覧の形の拒否（印なし・形の違う印・重複・印に語が含まれる・空） | `words: ...` |
 | 作業ツリーの中の一覧と出力先の拒否 | `words: ... inside a git work tree refused`・`words: file in another worktree refused`・`words: file inside the .git directory refused`・`words: ancestor with a .git entry refused ...`・`redact: output inside ... refused` |
 | 入力の種類と大きさの拒否 | `input: ...` |
