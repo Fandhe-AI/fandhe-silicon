@@ -175,6 +175,32 @@ git grep -n -E '^[[:space:]]*pub(\([a-z]+\))? (fn|struct|enum|trait|type|const|s
 - 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）
 - 版の記録: 2026-10-12（base: `08b9c22`、gitlink: `c1cb4c9`）
 
+### 8/8（Issue #3939）
+
+範囲のポインタ: TASK-236 の完了の条件（`docs/spec/05-tasks.md`。対象の項目: `docs/spec/04-behavior/build-profiles.md` の BUILD-18・BUILD-64）。本リポで観測できる事実だけを記録する。完了の条件との対応づけ・点検の本体・結果・件数の正は private spec 側で、本書には置かない。
+
+| # | 確かめる項目 | 方法 | 現時点の結果 |
+| - | ------------ | ---- | ------------ |
+| 1 | 前段（1/8〜7/8）の状態 | Issue #3932〜#3938 と PR #7042 の状態 | 6/8（#3937）だけ OPEN（PR #7042 も OPEN）。ほかは CLOSED |
+| 2 | 範囲のポインタ（TASK-236）が gitlink の指す commit と spec の `main` の先端に在る | `gh api` の読み取り（取得物は削除） | 在る（どちらにも見出しが 1 件） |
+| 3 | BUILD-18・BUILD-64 が `docs/spec/04-behavior/build-profiles.md` に在る | 同上 | 在る（どちらの ref にも） |
+| 4 | TASK-236 の進み具合・決定の記録が spec 側に在る | 同上の取得物の TASK-236 の節を「状態」「決定」で検索 | 無い（どちらの ref にも） |
+| 5 | 論点 1・2 への回答の記録 | Issue #461・#3937 のコメント、spec 側 | 無い（回答待ち） |
+| 6 | 点検の記録の本体（spec 側）と、完了の条件との対応づけ | 本リポからは確かめない | 本リポからは確かめない（書き手と経路は論点 1 の判断待ち） |
+| 7 | 外部仕様（Direct3D 12）との突き合わせ（F8） | 本段では reference-researcher へ委譲していない | 未検証（理由: 結果の置き場が spec 側で、書き手が論点 1 の判断待ち） |
+| 8 | 前提にした本リポの事実の 2 つの表がいまも成り立つ | `ls docs/contract crates/contract/src`、`grep -rn -i dx12 crates scripts .github` | 成り立つ（再確認したのは DX12 の記述、背後実装のモジュール、`docs/contract` の中身） |
+| 9 | 点検の対象になる操作・型が製品 crate の公開面に在る | 5/8 の「公開面の一覧のコマンド」 | 無い（`pub mod` の 4 件だけ） |
+| 10 | `backend-dx12-compute` が中身の無い仮の置き場のまま | `crates/contract/Cargo.toml` | 成り立つ |
+| 11 | 関連タスクの状態 | Issue #461・#1145・#1154 | いずれも OPEN |
+| 12 | 本段で新しい論点を足していない・推奨案を確定していない | `git diff origin/main...HEAD` | 成り立つ |
+| 13 | feature・モジュール・テスト・領域ごとの契約の文書・make ターゲット・CI ジョブを足していない | `git diff --stat origin/main...HEAD`、`ls docs/contract crates/contract/src` | 成り立つ |
+| 14 | 品質ゲート | `make check` | 通過（`make verify`・`make deny` は未実行。コード・設定の変更なし） |
+
+- 判定: 本リポで確かめられる項目に問題は無い。ただし **TASK-236 の完了は本リポからは確かめられず、宣言しない**（spec 側に進み具合・決定の記録が無く、論点 1・2 が未回答で、6/8 も OPEN のため）。回答に依る部分は「保留」
+- 再実行の契機: オーナーの回答、gitlink の更新（`update-external.yml` の PR）、6/8 の小節のマージ
+- 版の記録: 2026-10-12（base: `508080b`、gitlink: `c1cb4c9`、spec の `main` の先端 `fef7100` も読み取りで確認）
+- 引き継ぎ（親 #461 へ）: 残るのは、論点 1・2 への回答 → spec 側の記録 → 本表の再実行 → spec 側の進み具合の記録 → 親のクローズの判断、の順。いずれも本リポの自動運転の対象外
+
 ## オーナー判断待ち
 
 論点 1: spec 側の点検の記録を、誰がどの経路で書くか（ポインタ: TASK-236、#461）
