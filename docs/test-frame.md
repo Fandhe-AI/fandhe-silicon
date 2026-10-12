@@ -154,14 +154,11 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 ## 4/8（#95）への引き継ぎ
 
 - 範囲 (2) が乗る型は `Decision`・`NotRunReason`（`crates/core/src/test_frame/decision.rs`）。`Declaration` はフィールドが非公開で、後続で変えられる
-- 実機の device と宣言の照合は未実装。`contract` 側の受け口も無い
-- 環境変数の名前（`COMBINATION_ENV`・`PERMISSIONS_ENV`）と許可の名前の形は、実装で決めた綴りである。TASK-19 の手順がこれを引く
-- 名前の検査（TASK-14・TASK-113）が `test-support` の裏の名前を対象にするかは未検証
+- 環境変数の名前（`COMBINATION_ENV`・`PERMISSIONS_ENV`）と許可の名前の形は、実装で決めた綴りである
 
 ## オーナー判断待ち
 
-- 3/8（#94）で、範囲 (1) の形について本リポ側から新たに伺う論点は見つかっていない
-- 範囲 (2) の出力の先に関わる伺いが spec 側で未回答である（ポインタ: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録）。3/8 は出力を持たないので止めていない。5/8（#96）の着手の前に要る
+- 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ）
 
 ## 後続の分担
 
