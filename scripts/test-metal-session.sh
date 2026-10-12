@@ -778,12 +778,12 @@ import sys
 CASES = [
     ("peer 192DOT0DOT2DOT7 up", "peer <ip> up"),
     ("peer 198DOT51DOT100DOT9COL8080 up", "peer <ip>:8080 up"),
-    ("version 1DOT2DOT3DOT4 build 1DOT2DOT3DOT4DOT5", "version <ip> build <ip>.5"),
-    ("port by dot 192DOT0DOT2DOT7DOT8080", "port by dot <ip>.8080"),
+    ("version 1DOT2DOT3DOT4 build 1DOT2DOT3DOT4DOT5", "version <ip> build <ip>"),
+    ("port by dot 192DOT0DOT2DOT7DOT8080", "port by dot <ip>"),
     ("zero padded 010DOT000DOT002DOT007", "zero padded <ip>"),
     ("addr 2001COLdb8COLCOL1", "addr <ip>"),
     ("[2001COLdb8COLCOL1]COL443", "[<ip>]:443"),
-    ("link fe80COLCOL1%en0", "link <ip>%en0"),
+    ("link fe80COLCOL1%en0", "link <ip>"),
     ("lo COLCOL1", "lo <ip>"),
     ("addrCOL2001COLdb8COLCOL1", "addr:<ip>"),
     ("peer 2001COLdb8COLCOL1COL refused", "peer <ip>: refused"),
@@ -791,13 +791,29 @@ CASES = [
     ("gpu 00000000-0000-4000-8000-0000000000ab", "gpu <uuid>"),
     ("GPU-AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE", "GPU-<uuid>"),
     ("hex 0x00000000-0000-4000-8000-0000000000ab", "hex 0x<uuid>"),
-    ("tail 00000000-0000-4000-8000-0000000000ab0", "tail <uuid>0"),
+    ("tail 00000000-0000-4000-8000-0000000000ab0", "tail <uuid>"),
     ("a 192DOT0DOT2DOT7 b 2001COLdb8COLCOL1 c 00000000-0000-4000-8000-0000000000ab", "a <ip> b <ip> c <uuid>"),
     ("192DOT0DOT2DOT7 192DOT0DOT2DOT8 192DOT0DOT2DOT9", "<ip> <ip> <ip>"),
     ("example-host at 192DOT0DOT2DOT7 and 00000000-0000-4000-8000-0000000000ab", "<example-machine> at <ip> and <uuid>"),
     ("mapped COLCOLffffCOL192DOT0DOT2DOT7 end", "mapped <ip> end"),
-    ("over range 256DOT1DOT1DOT1", "over range 2<ip>"),
+    ("over range 256DOT1DOT1DOT1", "over range <ip>"),
     ("label ends in hex IPv6COL2001COLdb8COLCOL1", "label ends in hex IPv<ip>"),
+    ("leading zero 0192DOT0DOT2DOT7 end", "leading zero <ip> end"),
+    ("glued x1DOT192DOT0DOT2DOT7 end", "glued x<ip> end"),
+    ("five parts 1DOT2DOT3DOT4DOT5DOT6 end", "five parts <ip> end"),
+    ("sentence ends 203DOT0DOT113DOT5.", "sentence ends <ip>."),
+    ("between words word192DOT0DOT2DOT7word", "between words word<ip>word"),
+    ("colon port stays 198DOT51DOT100DOT9COL8080", "colon port stays <ip>:8080"),
+    ("time 12COL34COL56 at 192DOT0DOT2DOT7 ok", "time 12COL34COL56 at <ip> ok"),
+    ("path stdCOLCOLfmt then 192DOT0DOT2DOT7", "path stdCOLCOLfmt then <ip>"),
+    ("head 000000000-0000-4000-8000-0000000000ab end", "head <uuid> end"),
+    ("tail 00000000-0000-4000-8000-0000000000abcdef end", "tail <uuid> end"),
+    ("joined 00000000-0000-4000-8000-0000000000ab-11111111-2222-4333-8444-555555555555 end", "joined <uuid> end"),
+    ("label GPU-00000000-0000-4000-8000-0000000000ab-", "label GPU-<uuid>-"),
+    ("zone fe80COLCOL1%25en0 up", "zone <ip> up"),
+    ("zone fe80COLCOL1%eth0.5-a up", "zone <ip> up"),
+    ("zone fe80COLCOL1%en0.", "zone <ip>."),
+    ("no zone name fe80COLCOL1% up", "no zone name <ip>% up"),
     ("label ends in hex srcCOL2001COLdb8COL0COL0COL0COL0COL0COL1", "label ends in hex sr<ip>"),
 ]
 
@@ -826,6 +842,14 @@ expect "redact shapes: a word inside the reserved uuid mark is refused" 2 "occur
 printf 'ip\t<example-word>\n' >"${work}/w-resv3.txt"
 ms scan "${work}/w-resv3.txt" "${log}"
 expect "redact shapes: a word inside the reserved ip mark is refused by scan" 2 "occurs in a replacement mark"
+# 一覧に書けない語（予約の印や一覧の印の中に現れる語）は、置き換えも検索もされない。
+for w in i p u d ip id ui uid uu uuid; do
+  printf '%s\t<example-word>\n' "${w}" >"${work}/w-resv4.txt"
+  ms redact "${work}/w-resv4.txt" "${log}" "${work}/out-resv4.txt"
+  expect "redact shapes: the word '${w}' cannot be listed (redact)" 2 "occurs in a replacement mark"
+  ms scan "${work}/w-resv4.txt" "${log}"
+  expect "redact shapes: the word '${w}' cannot be listed (scan)" 2 "occurs in a replacement mark"
+done
 check "redact shapes: no output for the refused list" "$([ ! -e "${work}/out-resv2.txt" ] && echo 0 || echo 1)"
 
 # 語の置き換えが先。形が語の一部と重なっても、残りの形だけが置き換わる。
@@ -869,6 +893,17 @@ PY
 ms redact "${words}" "${work}/in-reveal.txt" "${work}/out-reveal.txt"
 expect "redact shapes: a shape revealed by the replacement is refused" 1 "1 ipv6-shaped value(s) would remain on line(s) 1" "a shaped value would remain after replacement (1 occurrence(s))" "FAILED: 1 violation(s)" '!dead' '!<ip>'
 check "redact shapes: nothing is written for the refused case" "$([ ! -e "${work}/out-reveal.txt" ] && echo 0 || echo 1)"
+# 置き換えの後に別の形が現れて書けないときは、その並びを語の一覧に印つきで足してやり直すと通る。
+python3 -I - "${work}/w-reveal.txt" <<'PY'
+import sys
+
+open(sys.argv[1], "w").write("example-host\t<example-machine>\n1DOT7DOT2DOT2deadCOLCOL\t<example-sequence>\n".replace("DOT", ".").replace("COL", ":"))
+PY
+ms redact "${work}/w-reveal.txt" "${work}/in-reveal.txt" "${work}/out-reveal.txt"
+expect "redact shapes: adding the revealed sequence to the list lets the rerun pass" 0 "ok: replaced 1 occurrence(s)" '!would remain' '!dead'
+check "redact shapes: the added sequence became its mark" "$([ "$(cat "${work}/out-reveal.txt")" = "<example-sequence>" ] && echo 0 || echo 1)"
+ms scan "${work}/w-reveal.txt" "${work}/out-reveal.txt"
+expect "redact shapes: scan passes after the rerun with the sequence in the list" 0 "ok:"
 ms redact "${words}" "${work}/mixed.txt" "${work}/mixed-out.txt"
 expect "redact shapes: existing output is still not overwritten" 2 "output already exists"
 
@@ -976,15 +1011,15 @@ ms redact "${words}" "${work}/long-colon-a.txt" "${work}/long-colon-a-out.txt"
 expect "perf: redact of a 16 MiB line of hex groups replaces it once" 0 "replaced 1 ipv6-shaped value(s) on line(s) 1" '!ipv4' '!uuid'
 check "perf: the 16 MiB hex groups became one mark" "$([ "$(cat "${work}/long-colon-a-out.txt")" = "<ip>:" ] && echo 0 || echo 1)"
 ms redact "${words}" "${work}/long-dots.txt" "${work}/long-dots-out.txt"
-expect "perf: redact of a 16 MiB line of dotted numbers counts each replacement" 0 "replaced 2097152 ipv4-shaped value(s) on line(s) 1" '!, 2'
+expect "perf: redact of a 16 MiB line of dotted numbers replaces the whole run once" 0 "replaced 1 ipv4-shaped value(s) on line(s) 1" '!, 2'
 dots_rc=0
 python3 -I - "${work}/long-dots-out.txt" <<'PY' || dots_rc=$?
 import sys
 
 n = 16 * 1024 * 1024
-sys.exit(0 if open(sys.argv[1]).read() == "<ip>." * (n // 8) + "\n" else 1)
+sys.exit(0 if open(sys.argv[1]).read() == "<ip>.\n" else 1)
 PY
-check "perf: the 16 MiB dotted numbers became marks, one per 8 characters" "${dots_rc}"
+check "perf: the 16 MiB dotted numbers became one mark and the sentence dot" "${dots_rc}"
 ms scan "${words}" "${work}/long-dots-out.txt"
 expect "perf: scan passes on the redacted dotted numbers" 0 "ok:"
 rm -f "${work}/long-dots-out.txt" "${work}/big-out.txt"

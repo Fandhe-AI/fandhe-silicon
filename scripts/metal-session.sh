@@ -41,7 +41,8 @@
 #   形は取りこぼすより置き換えすぎる側に倒す。前後が何であっても 0〜255 の 1〜3 桁の数が 4 つドットで
 #   つながっていれば IPv4 として置き換わる（版の番号の 4 つ組・5 つ組も `<ip>` になる。出力の件数と
 #   行番号を、人が元のファイルと見比べて確かめる）。IPv6 の候補が前の文字を取り込んで切り分けが
-#   一意にできないときは候補の全体を置き換える。形で拾えない値と語の一覧の漏れは残りうるので、
+#   一意にできないときは候補の全体を置き換える。元の値の断片を残さないよう、置き換えの範囲は一致を含む
+#   数字とドットの並び（IPv4）・16 進数字とハイフンの並び（UUID）の全体と、IPv6 のゾーンまで伸ばす。形で拾えない値と語の一覧の漏れは残りうるので、
 #   `scan` で確かめ、止まった値を語の一覧に印つきで足して `redact` をやり直す。
 #
 # 入れていないもの: 設定の変更・プロセスの停止（低電力モードの切り替え・常駐プロセスの停止は人の作業）、
@@ -571,26 +572,73 @@ def residual(pattern, data, span_fn=None):
     return n, lines
 
 
-def merged_shape_spans(data):
-    """形で拾う全種類の範囲を、開始位置の順に [開始, 終了, 種類名] で返す。
+# 置き換えの範囲を伸ばすための文字種（検出の判定には使わない。伸ばすのは一致が成立した後だけ）。
+_DIGDOT = frozenset(b"0123456789.")
+_DIGDOT_RE = re.compile(rb"[0-9.]*")
+_HEXDASH = frozenset(b"0123456789ABCDEFabcdef-")
+_HEXDASH_RE = re.compile(rb"[0-9A-Fa-f-]*")
+_ZONE_RE = re.compile(rb"[A-Za-z0-9_.-]*")
 
-    scan と同じ判定（SHAPES）を使う。種類をまたいで重なる範囲（IPv6 の末尾に IPv4 が続く形など）は
-    1 つにまとめ、種類名は先に始まる方のもの。接するだけの範囲はまとめない。
+
+def run_spans(data, pat, members, tail_re, edge):
+    """一致を含む、members の文字だけの連続した並びの全体を範囲にして順に返す。
+
+    断片を残さないため、一致の前後に伸ばす。並びの端の edge（ドット・ハイフン）は、一致の外側にある
+    分は範囲に含めない（文の終わりのピリオドや `GPU-` のハイフンを巻き込まない）。すでに範囲に入った
+    並びの中の一致は読み飛ばす（長い並びでも走査は線形）。
     """
+    last = 0
+    for m in pat.finditer(data):
+        ms, me = m.span()
+        if ms < last:
+            continue
+        s = ms
+        while s > last and data[s - 1] in members:
+            s -= 1
+        while s < ms and data[s] == edge:
+            s += 1
+        e = tail_re.match(data, me).end()
+        last = e
+        while e > me and data[e - 1] == edge:
+            e -= 1
+        yield s, e
 
-    def gen(order, kind, pat, span_fn):
-        for m in pat.finditer(data):
-            if span_fn is None:
-                s, e = m.span()
-            else:
-                r = span_fn(data, m)
-                if r is None:
-                    continue
-                s, e = r
+
+def ipv6_spans(data):
+    """IPv6 の範囲。アドレスの直後の `%` とゾーンの名前（`%25` の形を含む）も範囲に含める。"""
+    for m in IPV6_CAND_RE.finditer(data):
+        r = ipv6_span(data, m)
+        if r is None:
+            continue
+        s, e = r
+        if e < len(data) and data[e] == 0x25:
+            ze = _ZONE_RE.match(data, e + 1).end()
+            while ze > e + 1 and data[ze - 1] in b".-":
+                ze -= 1
+            if ze > e + 1:
+                e = ze
+        yield s, e
+
+
+def merged_shape_spans(data):
+    """形で拾う全種類の置き換えの範囲を、開始位置の順に [開始, 終了, 種類名] で返す。
+
+    検出は scan と同じ判定（SHAPES）で、範囲だけを伸ばす（IPv4 は数字とドットの並び、UUID は 16 進数字と
+    ハイフンの並び、IPv6 はゾーンまで）。種類をまたいで重なる範囲（IPv6 の末尾に IPv4 が続く形など）や
+    伸ばして重なった範囲は 1 つにまとめ、種類名は先に始まる方のもの。接するだけの範囲はまとめない。
+    """
+    streams = (
+        run_spans(data, IPV4_RE, _DIGDOT, _DIGDOT_RE, 0x2E),
+        ipv6_spans(data),
+        run_spans(data, UUID_RE, _HEXDASH, _HEXDASH_RE, 0x2D),
+    )
+
+    def tag(order, kind, it):
+        for s, e in it:
             yield (s, order, e, kind)
 
     cur = None
-    for s, _, e, kind in heapq.merge(*[gen(i, k, p, f) for i, (k, p, f) in enumerate(SHAPES)]):
+    for s, _, e, kind in heapq.merge(*[tag(i, SHAPES[i][0], st) for i, st in enumerate(streams)]):
         if cur is not None and s < cur[1]:
             if e > cur[1]:
                 cur[1] = e

@@ -107,6 +107,13 @@ example-dir<TAB><example-place>
     | IPv4 | 前後が何であっても、0〜255 の 1〜3 桁の数（先頭ゼロつきを含む）が 4 つドットでつながっている部分。版の番号の 4 つ組・5 つ組の先頭の 4 つ組、ポートをドットで連結した形、英数字が直前に付く形、4 桁以上の数字の一部（4 桁の数の後ろ 3 桁から始まる 4 つ組）も置き換わる | 3 つ組以下、各部が英字、ドットが続けて 2 つ、ドットの前後に空白がある形、全角の点で区切った形 |
     | IPv6 | 16 進数とコロンだけの区間のうち、その中の連続した一部が IPv6 の形になるもの。`::` を含む 1〜7 組または 8 組ちょうどの表記、`::` の無い 8 組以上の並び（9 組を含む。16 進で終わるラベル〔`src:` など〕の直後のアドレスもここで止まる）、`::` のどちらかの側に正しい組が接する並び（`::` が 2 つ以上の並びを含む）。`addr:` や `IPv6:` の直後、末尾に区切りのコロンが付く形、ゾーン付き、角括弧とポート付き、2 桁 8 組の EUI-64、`a::b`、識別子につながっていない `::a`、数字を含む 1 組の `::1`・`x::1` も置き換わる。2 桁の組が 8 つ以上続く並び（フィンガープリントなど）も置き換わる | 時刻（`12:34:56`）、6 組の MAC アドレス、7 組以下で `::` の無い並び、前後の両方が語の文字に接する `::`（`std::fmt::Display` など）、Rust のパスの `::`（`::` と英字だけの 1 組〔a〜f〕の形で、その組の外側に g〜z・下線が直接つながるもの。`>::drop`・`<T as Trait>::from`・`Foo::<T>::bar`・`std::{fmt}`・`alloc::{vec}` など。英字だけで `::` が 2 つ以上の並びは、前後のどちらかが識別子の文字なら拾わない）、全角のコロン。限界: この線引きで、`::dead` のような英字だけの 1 組が識別子の文字に直接つながっているアドレスの形も置き換わらない |
     | UUID | ハイフンつきの 8-4-4-4-12 の並びが**含まれて**いれば置き換わる（その並びの前後に何が付いていても。先頭の組が 8 桁に満たない並びは置き換わらない） | ハイフンなしの 32 桁（コミットのハッシュや SHA-256 と区別できず、持ち帰るログのほとんどが止まるため）、桁数の足りない並び |
+- 置き換えの範囲は、検出した一致より広い。元の値の断片を印の隣に残さないため、一致が成立した後で次のように伸ばす（検出の判定は `scan` と同じで、伸ばすのは `redact` の置き換えだけ）:
+    - IPv4: 一致を含む、数字とドットの連続した並びの全体を 1 つの `<ip>` にする（直前に数字が付く形、5 つ組以上、英数字に続く形、ポートをドットで連結した形のポートも含む）。並びの端のドット（文の終わりのピリオドなど）は含めない。コロンで区切られたポートは残る
+    - UUID: 一致を含む、16 進数字とハイフンの連続した並びの全体を 1 つの `<uuid>` にする（前後に 16 進数字が付く形、UUID が連結した形を含む）。並びの端のハイフンと、`0x` の接頭辞は含めない
+    - IPv6: アドレスの直後の `%` に続くゾーンの名前（英数字・`_`・`.`・`-` の連続。`%25` の形を含む）も `<ip>` に含める。ゾーンの名前が無い `%` は残る
+    - 伸ばした範囲が隣の一致と重なるときは 1 つにまとめる。伸ばすのは数字・ドット、または 16 進数字・ハイフンの連続だけなので、時刻・Rust のパスの `::`・前後の普通の語は巻き込まない（回帰テスト `redact shapes: each form becomes its mark`・`redact shapes: output matches the expected text exactly`）
+- **語の一覧に書けない語**: 予約の印 `<ip>`・`<uuid>` や一覧の印の中に現れる語（`i`・`p`・`u`・`d`・`ip`・`id`・`ui`・`uid`・`uuid` など）は一覧に書けず（`redact`・`scan` とも終了コード 2）、したがって**置き換えも検索もされない**（回帰テスト `redact shapes: the word '...' cannot be listed (redact)`・`(scan)`）
+- 置き換えの後に別の形が現れて書けない（終了コード 1）ときは、標準エラーの行番号で元のファイルを見て、その並びを語の一覧に印つきで足してやり直す。語の置き換えが先に働くので通る（回帰テスト `redact shapes: a shape revealed by the replacement is refused`・`redact shapes: adding the revealed sequence to the list lets the rerun pass`）
 
 - **`redact` と `scan` が通っても、形で拾えない値は残りうる**（上の「拾わない」のほか、別の綴り・分割された値。ハイフンなしの 32 桁の UUID や全角の区切りは置き換わらない）。語の一覧に載せた語だけが確実に消える。`redact` のあとは必ず `scan` で確かめる
 - 形で拾えない値・語の一覧の漏れが `scan` や人の目で見つかったときは、その値を語の一覧に印つき（例: `<example-address>`）で足して `redact` をやり直す。値は固定の文字列として置き換わり、一覧を付けた `scan` が検出する（回帰テスト `flow: ...`）
@@ -145,8 +152,10 @@ example-dir<TAB><example-place>
 | 長い 1 行・コロンやドットだらけの入力でも結果が正しい | `perf: ...` |
 | `redact` が IPv4・IPv6 を `<ip>`、UUID を `<uuid>` に置き換え、種類ごとの件数と行番号だけを出す（語が先。重なる範囲は 1 つの印） | `redact shapes: each form becomes its mark`・`redact shapes: output matches the expected text exactly`・`redact shapes: words and a shape on one line`・`redact shapes: overlap with a word leaves the rest as text`・`redact shapes: every hit form is replaced and counted per kind` |
 | 置き換えの後の `scan` が通る。拾わない形は置き換わらない | `redact shapes: scan passes ...`・`redact shapes: look-alikes are not replaced ...`・`redact shapes: look-alike text is unchanged ...` |
+| 置き換えの範囲が一致を含む並びの全体（数字とドット、16 進とハイフン、ゾーン）で、断片が残らない。普通の語・時刻・コロン区切りのポートは残る | `redact shapes: output matches the expected text exactly` |
 | 置き換えの結果に形が残る（前後の文字が印に変わって現れる）なら書かずに 1 で終わる | `redact shapes: a shape revealed by the replacement is refused`・`redact shapes: nothing is written for the refused case` |
-| 予約の印を一覧の印にできる。予約の印の中に含まれる語の一覧は拒否する | `redact shapes: a list may use the reserved mark`・`redact shapes: a word inside the reserved ...` |
+| 予約の印を一覧の印にできる。予約の印の中に含まれる語の一覧は拒否する（置き換えも検索もされない） | `redact shapes: a list may use the reserved mark`・`redact shapes: the word '...' cannot be listed ...`・`redact shapes: a word inside the reserved ...` |
+| 書けなくなった並びを一覧に足してやり直すと通る | `redact shapes: adding the revealed sequence to the list lets the rerun pass`・`redact shapes: scan passes after the rerun ...` |
 | 多数の行・大きな入力でも結果が正しい（`scan` と `redact`） | `shapes: many shaped lines`・`shapes: 60 MiB input finds ...`・`redact shapes: 60 MiB ...`・`perf: redact ...` |
 | 一覧の形の拒否（印なし・形の違う印・重複・印に語が含まれる・空） | `words: ...` |
 | 作業ツリーの中の一覧と出力先の拒否 | `words: ... inside a git work tree refused`・`words: file in another worktree refused`・`words: file inside the .git directory refused`・`words: ancestor with a .git entry refused ...`・`redact: output inside ... refused` |
