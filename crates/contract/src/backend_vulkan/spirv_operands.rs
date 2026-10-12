@@ -12,7 +12,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 // SPIR-V 仕様のバイナリ形式（ヘッダー 5 語・命令の先頭の語は上位 16 ビットが語数、下位 16 ビットが opcode）。
@@ -32,11 +32,13 @@ const OP_TYPE_POINTER: u16 = 32;
 const OP_CONSTANT: u16 = 43;
 const OP_VARIABLE: u16 = 59;
 const OP_DECORATE: u16 = 71;
+const OP_MEMBER_DECORATE: u16 = 72;
 
 const DECORATION_BLOCK: u32 = 2;
 const DECORATION_BUFFER_BLOCK: u32 = 3;
 const DECORATION_ARRAY_STRIDE: u32 = 6;
 const DECORATION_BINDING: u32 = 33;
+const DECORATION_OFFSET: u32 = 35;
 const DECORATION_DESCRIPTOR_SET: u32 = 34;
 
 const STORAGE_CLASS_UNIFORM: u32 = 2;
@@ -110,6 +112,14 @@ pub enum UnsupportedShape {
     LengthNotConstant,
     /// `ArrayStride` が 0。
     ZeroStride,
+    /// 固定長の配列に `ArrayStride` が無い（長さを推測しない）。
+    MissingArrayStride,
+    /// `ArrayStride` が要素 1 個分のバイト数より小さい（要素が重なる）。
+    StrideSmallerThanElement,
+    /// block のメンバーの `Offset` が 0 でない（長さに offset を含めない）。
+    NonZeroMemberOffset,
+    /// 配列の長さが整数型の定数でない、または正でない。
+    InvalidLength,
     /// 上のどれでもない想定外の型。
     OtherType,
 }
@@ -258,6 +268,13 @@ struct Deco {
     array_stride: Option<u32>,
 }
 
+/// `OpConstant` の結果型と値。
+struct Constant {
+    type_id: u32,
+    value: u32,
+    value_words: usize,
+}
+
 struct Variable {
     id: u32,
     ptr_type: u32,
@@ -271,15 +288,24 @@ fn op(ops: &[u32], i: usize, offset: usize, opcode: u16) -> Result<u32, SpirvExt
         .ok_or(SpirvExtractError::MissingOperands { offset, opcode })
 }
 
+/// 型・定数・変数で共有する定義済み id の集合に登録する。種類をまたぐ重複も拒否する。
+fn claim(defined: &mut BTreeSet<u32>, id: u32) -> Result<(), SpirvExtractError> {
+    if defined.insert(id) {
+        Ok(())
+    } else {
+        Err(SpirvExtractError::DuplicateDefinition { id })
+    }
+}
+
 fn define(
+    defined: &mut BTreeSet<u32>,
     types: &mut BTreeMap<u32, TypeDef>,
     id: u32,
     def: TypeDef,
 ) -> Result<(), SpirvExtractError> {
-    match types.insert(id, def) {
-        Some(_) => Err(SpirvExtractError::DuplicateDefinition { id }),
-        None => Ok(()),
-    }
+    claim(defined, id)?;
+    types.insert(id, def);
+    Ok(())
 }
 
 fn set_once(slot: &mut Option<u32>, id: u32, value: u32) -> Result<(), SpirvExtractError> {
@@ -310,8 +336,12 @@ pub fn extract_storage_buffer_operands(
 
     let mut types: BTreeMap<u32, TypeDef> = BTreeMap::new();
     let mut decos: BTreeMap<u32, Deco> = BTreeMap::new();
-    // id -> (最初の語の値, 値の語数)。
-    let mut constants: BTreeMap<u32, (u32, usize)> = BTreeMap::new();
+    // id -> 定数の情報（結果型・最初の語の値・値の語数）。
+    let mut constants: BTreeMap<u32, Constant> = BTreeMap::new();
+    // 型・定数・変数が共有する定義済み id。
+    let mut defined: BTreeSet<u32> = BTreeSet::new();
+    // (struct の id, メンバー番号) -> Offset。
+    let mut member_offsets: BTreeMap<(u32, u32), u32> = BTreeMap::new();
     let mut variables: Vec<Variable> = Vec::new();
 
     let mut pos = HEADER_WORDS;
@@ -335,8 +365,9 @@ pub fn extract_storage_buffer_operands(
         let o = |i: usize| op(ops, i, pos, opcode);
 
         match opcode {
-            OP_TYPE_BOOL => define(&mut types, o(0)?, TypeDef::Bool)?,
+            OP_TYPE_BOOL => define(&mut defined, &mut types, o(0)?, TypeDef::Bool)?,
             OP_TYPE_INT => define(
+                &mut defined,
                 &mut types,
                 o(0)?,
                 TypeDef::Int {
@@ -344,11 +375,17 @@ pub fn extract_storage_buffer_operands(
                     signed: o(2)? != 0,
                 },
             )?,
-            OP_TYPE_FLOAT => define(&mut types, o(0)?, TypeDef::Float { bits: o(1)? })?,
+            OP_TYPE_FLOAT => define(
+                &mut defined,
+                &mut types,
+                o(0)?,
+                TypeDef::Float { bits: o(1)? },
+            )?,
             OP_TYPE_VECTOR | OP_TYPE_MATRIX => {
-                define(&mut types, o(0)?, TypeDef::VectorOrMatrix)?;
+                define(&mut defined, &mut types, o(0)?, TypeDef::VectorOrMatrix)?;
             }
             OP_TYPE_ARRAY => define(
+                &mut defined,
                 &mut types,
                 o(0)?,
                 TypeDef::Array {
@@ -357,32 +394,58 @@ pub fn extract_storage_buffer_operands(
                 },
             )?,
             OP_TYPE_RUNTIME_ARRAY => {
-                define(&mut types, o(0)?, TypeDef::RuntimeArray { elem: o(1)? })?;
+                define(
+                    &mut defined,
+                    &mut types,
+                    o(0)?,
+                    TypeDef::RuntimeArray { elem: o(1)? },
+                )?;
             }
             OP_TYPE_STRUCT => define(
+                &mut defined,
                 &mut types,
                 o(0)?,
                 TypeDef::Struct {
                     members: ops.get(1..).unwrap_or(&[]).to_vec(),
                 },
             )?,
-            OP_TYPE_POINTER => define(&mut types, o(0)?, TypeDef::Pointer { pointee: o(2)? })?,
+            OP_TYPE_POINTER => define(
+                &mut defined,
+                &mut types,
+                o(0)?,
+                TypeDef::Pointer { pointee: o(2)? },
+            )?,
             OP_CONSTANT => {
                 // 1 語の値だけを配列の長さに使う。2 語以上の値は語数を覚えて後で拒否する。
                 let id = o(1)?;
                 let value = o(2)?;
-                if constants
-                    .insert(id, (value, ops.len().saturating_sub(2)))
-                    .is_some()
-                {
-                    return Err(SpirvExtractError::DuplicateDefinition { id });
+                claim(&mut defined, id)?;
+                constants.insert(
+                    id,
+                    Constant {
+                        type_id: o(0)?,
+                        value,
+                        value_words: ops.len().saturating_sub(2),
+                    },
+                );
+            }
+            OP_VARIABLE => {
+                let id = o(1)?;
+                claim(&mut defined, id)?;
+                variables.push(Variable {
+                    id,
+                    ptr_type: o(0)?,
+                    storage_class: o(2)?,
+                });
+            }
+            OP_MEMBER_DECORATE => {
+                if o(2)? == DECORATION_OFFSET {
+                    let key = (o(0)?, o(1)?);
+                    if member_offsets.insert(key, o(3)?).is_some() {
+                        return Err(SpirvExtractError::DuplicateDefinition { id: key.0 });
+                    }
                 }
             }
-            OP_VARIABLE => variables.push(Variable {
-                id: o(1)?,
-                ptr_type: o(0)?,
-                storage_class: o(2)?,
-            }),
             OP_DECORATE => {
                 let target = o(0)?;
                 let kind = o(1)?;
@@ -403,7 +466,7 @@ pub fn extract_storage_buffer_operands(
 
     let mut out: Vec<ExtractedOperand> = Vec::new();
     for var in &variables {
-        if let Some(operand) = resolve_variable(var, &types, &decos, &constants)? {
+        if let Some(operand) = resolve_variable(var, &types, &decos, &constants, &member_offsets)? {
             out.push(operand);
         }
     }
@@ -430,7 +493,8 @@ fn resolve_variable(
     var: &Variable,
     types: &BTreeMap<u32, TypeDef>,
     decos: &BTreeMap<u32, Deco>,
-    constants: &BTreeMap<u32, (u32, usize)>,
+    constants: &BTreeMap<u32, Constant>,
+    member_offsets: &BTreeMap<(u32, u32), u32>,
 ) -> Result<Option<ExtractedOperand>, SpirvExtractError> {
     let unsupported = |shape| SpirvExtractError::Unsupported { id: var.id, shape };
     // Uniform / StorageBuffer 以外（UniformConstant の画像・サンプラ等、`TypeDef` に入れない型を
@@ -475,6 +539,12 @@ fn resolve_variable(
         return Err(unsupported(UnsupportedShape::BlockShape));
     };
     let member_id = *member_id;
+    if member_offsets
+        .get(&(*pointee, 0))
+        .is_some_and(|&offset| offset != 0)
+    {
+        return Err(unsupported(UnsupportedShape::NonZeroMemberOffset));
+    }
 
     let (elem_id, len_id) = match lookup(types, member_id)? {
         TypeDef::Array { elem, len_id } => (*elem, Some(*len_id)),
@@ -505,20 +575,35 @@ fn resolve_variable(
     if array_stride == Some(0) {
         return Err(unsupported(UnsupportedShape::ZeroStride));
     }
+    if array_stride.is_some_and(|stride| stride < element_bytes) {
+        return Err(unsupported(UnsupportedShape::StrideSmallerThanElement));
+    }
 
     let byte_length = match len_id {
         None => ByteLength::Unsized,
         Some(len_id) => {
-            let &(count, value_words) = constants
+            let constant = constants
                 .get(&len_id)
                 .ok_or(unsupported(UnsupportedShape::LengthNotConstant))?;
-            if value_words != 1 {
+            // 結果型は整数型で、値は 1 語、正の値だけを長さとして受理する。
+            let TypeDef::Int { signed, .. } = lookup(types, constant.type_id)? else {
+                return Err(unsupported(UnsupportedShape::LengthNotConstant));
+            };
+            if constant.value_words != 1 {
                 return Err(unsupported(UnsupportedShape::LengthNotConstant));
             }
-            let each = u64::from(array_stride.unwrap_or(element_bytes));
+            let positive = if *signed {
+                constant.value != 0 && constant.value >> 31 == 0
+            } else {
+                constant.value != 0
+            };
+            if !positive {
+                return Err(unsupported(UnsupportedShape::InvalidLength));
+            }
+            let stride = array_stride.ok_or(unsupported(UnsupportedShape::MissingArrayStride))?;
             ByteLength::Fixed(
-                u64::from(count)
-                    .checked_mul(each)
+                u64::from(constant.value)
+                    .checked_mul(u64::from(stride))
                     .ok_or(SpirvExtractError::SizeOverflow)?,
             )
         }
@@ -679,5 +764,128 @@ mod tests {
         let got = extract_storage_buffer_operands(&module(&insts)).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].set, 0);
+    }
+
+    fn unsupported(shape: UnsupportedShape) -> Result<Vec<ExtractedOperand>, SpirvExtractError> {
+        Err(SpirvExtractError::Unsupported { id: 5, shape })
+    }
+
+    /// `buffer_insts` の命令のうち、条件に合うものを置き換える。
+    fn replace_inst(insts: &mut [Vec<u32>], opcode: u16, ops: &[u32], new: Vec<u32>) {
+        let target = inst(opcode, ops);
+        let slot = insts.iter_mut().find(|i| **i == target).unwrap();
+        *slot = new;
+    }
+
+    #[test]
+    fn fixed_array_without_stride_is_rejected() {
+        let insts: Vec<Vec<u32>> = buffer_insts(false, 16, 0, 0)
+            .into_iter()
+            .filter(|i| i.get(2) != Some(&DECORATION_ARRAY_STRIDE))
+            .collect();
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            unsupported(UnsupportedShape::MissingArrayStride)
+        );
+    }
+
+    #[test]
+    fn stride_smaller_than_element_is_rejected() {
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        replace_inst(
+            &mut insts,
+            OP_DECORATE,
+            &[2, DECORATION_ARRAY_STRIDE, 4],
+            inst(OP_DECORATE, &[2, DECORATION_ARRAY_STRIDE, 2]),
+        );
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            unsupported(UnsupportedShape::StrideSmallerThanElement)
+        );
+    }
+
+    #[test]
+    fn nonzero_member_offset_is_rejected_and_zero_is_accepted() {
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        insts.push(inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 0]));
+        assert!(extract_storage_buffer_operands(&module(&insts)).is_ok());
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        insts.push(inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 16]));
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            unsupported(UnsupportedShape::NonZeroMemberOffset)
+        );
+    }
+
+    #[test]
+    fn length_constant_must_be_positive_integer() {
+        // 浮動小数点型（id 1）の定数。
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        replace_inst(
+            &mut insts,
+            OP_CONSTANT,
+            &[6, 7, 16],
+            inst(OP_CONSTANT, &[1, 7, 16]),
+        );
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            unsupported(UnsupportedShape::LengthNotConstant)
+        );
+        // 未定義の結果型。
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        replace_inst(
+            &mut insts,
+            OP_CONSTANT,
+            &[6, 7, 16],
+            inst(OP_CONSTANT, &[99, 7, 16]),
+        );
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::UnknownId { id: 99 })
+        );
+        // 符号付き 32 ビットの -1、および 0。
+        for value in [u32::MAX, 0] {
+            let mut insts = buffer_insts(false, value, 0, 0);
+            replace_inst(
+                &mut insts,
+                OP_TYPE_INT,
+                &[6, 32, 0],
+                inst(OP_TYPE_INT, &[6, 32, 1]),
+            );
+            assert_eq!(
+                extract_storage_buffer_operands(&module(&insts)),
+                unsupported(UnsupportedShape::InvalidLength)
+            );
+        }
+        // 符号なしの 0 も長さにならない。
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&buffer_insts(false, 0, 0, 0))),
+            unsupported(UnsupportedShape::InvalidLength)
+        );
+    }
+
+    #[test]
+    fn duplicate_id_across_kinds_is_rejected() {
+        // 変数 id（5）を型として再定義する。
+        let mut insts = buffer_insts(true, 0, 0, 0);
+        insts.push(inst(OP_TYPE_BOOL, &[5]));
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::DuplicateDefinition { id: 5 })
+        );
+        // 型 id（4）を変数として再利用する。
+        let mut insts = buffer_insts(true, 0, 0, 0);
+        insts.push(inst(OP_VARIABLE, &[4, 4, STORAGE_CLASS_STORAGE_BUFFER]));
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::DuplicateDefinition { id: 4 })
+        );
+        // 定数 id（7）を型として再利用する。
+        let mut insts = buffer_insts(true, 0, 0, 0);
+        insts.push(inst(OP_TYPE_BOOL, &[7]));
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::DuplicateDefinition { id: 7 })
+        );
     }
 }
