@@ -389,15 +389,27 @@ fn compare_counts_fails_when_only_kinds_differ() {
     assert!(err.contains("p.rs: block: expected 0, actual 1"), "{err}");
 }
 
-/// 実ファイルの実際の個数を期待値にした表。block だけ `delta` ずらせる。
-fn table_for(path: &'static str, source: &'static str, delta: usize) -> [ExpectedFile; 1] {
+/// 同じ背後実装の持ち場にある、ずらさない行（実ファイルの個数のまま）。
+const VULKAN_EXTRA: ExpectedFile = ExpectedFile {
+    path: "src/backend_vulkan/spirv_operands.rs",
+    source: include_str!("../src/backend_vulkan/spirv_operands.rs"),
+    expected: UnsafeCounts::ZERO,
+};
+
+/// 実ファイルの実際の個数を期待値にした表。先頭の行の block だけ `delta` ずらせる。
+/// Vulkan は持ち場に子モジュールの行もあるので、表に足す（足さないと「表に無い」で失敗する）。
+fn table_for(path: &'static str, source: &'static str, delta: usize) -> Vec<ExpectedFile> {
     let mut expected = count_unsafe(source);
     expected.block += delta;
-    [ExpectedFile {
+    let mut table = vec![ExpectedFile {
         path,
         source,
         expected,
-    }]
+    }];
+    if path == "src/backend_vulkan.rs" {
+        table.push(VULKAN_EXTRA);
+    }
+    table
 }
 
 #[test]

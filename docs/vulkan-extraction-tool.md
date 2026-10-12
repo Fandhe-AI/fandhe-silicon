@@ -4,8 +4,8 @@ TASK-98（親 Issue #387）について、着手時点（1/6、#3530）の現状
 spec の本文・判定のラベル・PoC の手順や結果は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-98 と、`docs/spec/03-poc/kernel-artifacts-and-parity/` の記録を参照する（ポインタのみ）。
-取り出しのコードと公開テストはまだ本リポに無いので、道具の振る舞いは書かない。後続の段は、該当の節へ追記する。
-方針（2/6）と形（3/6）は [vulkan-operand-extraction](vulkan-operand-extraction.md) に記録する。
+取り出しのコードの現状の形（4/6。未承認の仮置き）は [vulkan-operand-extraction](vulkan-operand-extraction.md) の「現状の形」に書く。本書は現状と前提だけを持つ。
+方針（2/6）と形（3/6）も同書に記録する。
 
 ## 前提タスクの状態
 
