@@ -5,7 +5,7 @@
 //! 不正な値は失敗にせず「不正」の状態として持ち、`decision::decide` が走らせない側に倒す。
 
 use super::combination::MachineCombination;
-use super::declaration::{MAX_PERMISSIONS, Permission};
+use super::declaration::{MAX_PERMISSION_LEN, MAX_PERMISSIONS, Permission};
 use std::ffi::OsString;
 
 /// 組み合わせの名前を渡す環境変数の名前。
@@ -15,8 +15,9 @@ pub const PERMISSIONS_ENV: &str = "FANDHE_SILICON_TEST_PERMISSIONS";
 
 /// 組み合わせの名前の値の長さの上限（バイト）。
 const MAX_COMBINATION_VALUE_LEN: usize = 64;
-/// 許可の値全体の長さの上限（バイト）。
-const MAX_PERMISSIONS_VALUE_LEN: usize = 1024;
+/// 許可の値全体の長さの上限（バイト）。最大長の許可を最大件数だけカンマ区切りで並べた長さ。
+const MAX_PERMISSIONS_VALUE_LEN: usize =
+    MAX_PERMISSIONS * MAX_PERMISSION_LEN + (MAX_PERMISSIONS - 1);
 
 /// 組み合わせの設定の状態。
 #[derive(Clone, Debug, PartialEq, Eq)]

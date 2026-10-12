@@ -231,6 +231,18 @@ fn environment_names_are_fixed_constants() {
 }
 
 #[test]
+fn max_count_and_max_length_permissions_are_runnable() {
+    let names: Vec<String> = (0..16).map(|i| format!("{i:0>64}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let joined = names.join(",");
+    assert_eq!(joined.len(), 16 * 64 + 15);
+    assert_eq!(
+        decide(&decl(&refs), &setting(s("metal-mac-mini"), s(&joined))),
+        Decision::Run(MachineCombination::MetalMacMini)
+    );
+}
+
+#[test]
 fn from_env_does_not_panic() {
     // 環境は書き換えない。値は何であれ、可否が返る（Run か NotRun のどちらか）。
     let _ = decide(&decl(&[]), &RunSetting::from_env());

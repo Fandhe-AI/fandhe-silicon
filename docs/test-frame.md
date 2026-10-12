@@ -156,9 +156,9 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 - 範囲 (2) が乗る型は `Decision`・`NotRunReason`（`crates/core/src/test_frame/decision.rs`）。`Declaration` はフィールドが非公開で、後続で変えられる
 - 環境変数の名前（`COMBINATION_ENV`・`PERMISSIONS_ENV`）と許可の名前の形は、実装で決めた綴りである
 
-## オーナー判断待ち
+## 出力の先の記録の所在
 
-- 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ）
+- 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
 
 ## 後続の分担
 
