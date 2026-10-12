@@ -26,10 +26,18 @@
 #   スリープの抑止は既定で `caffeinate -i` の下で起動する。外すのは --no-caffeinate を付けたときだけ
 #   （caffeinate が見つからず --no-caffeinate も無いときは起動せず 2）。
 # redact / scan: 持ち帰るテキストの置き換えと漏れの検索。語の一覧（1 行に「語 TAB 印」。印は
-#   `<` + [a-z0-9-]+ + `>`）は機材の側に置く。git の作業ツリーの中にある一覧と、作業ツリーの中への
-#   出力は拒否する（ハードリンクは検出しない）。語は固定の文字列（正規表現として解釈しない・
-#   大文字小文字を区別する・長い語を先に置き換える）。出力とエラーに語も印も出さず、
-#   件数と行番号だけを出す。置き換えは別のファイルへ書く（入力と既存のファイルを上書きしない）。
+#   `<` + [A-Za-z0-9-]+ + `>`。機材の別名に英大文字を含んでよい）は機材の側に置く。git の作業ツリーの
+#   中にある一覧と、作業ツリーの中への出力は拒否する（ハードリンクは検出しない）。語は固定の文字列
+#   （正規表現として解釈しない・大文字小文字を区別する・長い語を先に置き換える）。出力とエラーに
+#   語も印も出さず、件数と行番号だけを出す。置き換えは別のファイルへ書く（入力と既存のファイルを
+#   上書きしない）。
+#   値を前もって知らないものは「形」で拾う: IPv4 アドレス・IPv6 アドレス・UUID。`scan` は語の一覧に
+#   加えて、この 3 種の形が残っていても 1 で終わる（種類ごとの件数と行番号だけを出し、値は出さない。
+#   検出を切るオプションは無い）。`redact` は形で拾った値を置き換えない（置き換え後の印を持たないため）。
+#   形が残っているときは件数を標準エラーへ注記するだけで、確かめは `scan` が受け持つ。
+#   形は取りこぼすより止まりすぎる側に倒す。前後が何であっても 0〜255 の 1〜3 桁の数が 4 つドットで
+#   つながっていれば IPv4 として止まる（版の番号の 4 つ組・5 つ組も止まる。止まった行は人が確かめる）。
+#   止まった値は、語の一覧に印つきで足して `redact` をやり直せば置き換わり、`scan` が通る。
 #
 # 入れていないもの: 設定の変更・プロセスの停止（低電力モードの切り替え・常駐プロセスの停止は人の作業）、
 #   `xcode-select` の呼び出し、ネットワーク、プロセスの一覧の取得。
@@ -279,7 +287,112 @@ MAX_WORDS_BYTES = 1024 * 1024
 MAX_INPUT_BYTES = 64 * 1024 * 1024
 MAX_WORDS = 10000
 MAX_LINES_SHOWN = 20
-MARK_RE = re.compile(r"<[a-z0-9-]+>")
+MARK_RE = re.compile(r"<[A-Za-z0-9-]+>")
+
+# ---- 形で拾う値（値を前もって知らないもの）----
+# scan が語の一覧に加えて探す 3 種。バイト列に当てる（バイナリも対象）。誤検出は安全側に倒す:
+# 止まりすぎる側は人が行を確かめ、取りこぼす側は漏れになるため。
+# IPv4: 前後が何であっても（英数字・ドット・4 桁以上の数字の一部でも）、0〜255 の 1〜3 桁の数
+# （先頭ゼロつきを含む）が 4 つドットでつながっていれば拾う。境界を持たないので後戻りは起きない。
+_OCT = rb"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2})"
+IPV4_RE = re.compile(rb"(?:" + _OCT + rb"\.){3}" + _OCT)
+# UUID: ハイフンつきの 8-4-4-4-12 の並びが含まれていれば拾う（前後に 16 進数字や 0x が付いていても）。
+# ハイフンなしの 32 桁は、コミットのハッシュや SHA-256 と区別できないので拾わない。
+UUID_RE = re.compile(rb"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+# IPv6: 16 進数とコロンだけの最大の区間（コロンを含むもの）を候補にし、形を valid_ipv6 で確かめる。
+# 区間の始まりだけに先読みを置くので、長い区間でも後戻りは 1 回で済む。
+IPV6_CAND_RE = re.compile(rb"(?<![0-9A-Fa-f:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
+_HEXGROUP_RE = re.compile(rb"[0-9A-Fa-f]{1,4}")
+_WORD_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+# 16 進でない英字と下線。識別子の一部であることの目印（16 進の文字は区間に取り込まれるため含まない）。
+_IDENT_BYTES = frozenset(b"ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ_")
+_ALPHA_PRE_RE = re.compile(rb"([A-Fa-f]{1,4})::")
+_ALPHA_POST_RE = re.compile(rb"::([A-Fa-f]{1,4})")
+
+
+def valid_ipv6(cand):
+    """候補が IPv6 の文字列表記（`::` は高々 1 つ）か。
+
+    `::` を含まない形は 8 組ちょうどだけ（時刻 `12:34:56` や 6 組の MAC アドレスは拾わない。
+    2 桁 8 組の EUI-64 は形が合うので拾う）。`::` を含む形は 1〜7 組。
+    """
+    if b":::" in cand:
+        return False
+    if b"::" in cand:
+        if cand.count(b"::") != 1:
+            return False
+        head, tail = cand.split(b"::")
+        groups = (head.split(b":") if head else []) + (tail.split(b":") if tail else [])
+        return 1 <= len(groups) <= 7 and all(_HEXGROUP_RE.fullmatch(g) for g in groups)
+    groups = cand.split(b":")
+    return len(groups) == 8 and all(_HEXGROUP_RE.fullmatch(g) for g in groups)
+
+
+# 候補の中に、正しい形になりうる連続した一部があるか（ラベルの末尾の 16 進文字が 1 組として
+# 取り込まれて 9 組になった形などを逃さないため）。組の境目はコロンだけ。
+# (a) `::` の無い並び: 区切りが単独のコロンの 16 進の組が 8 つ連続している。
+_WINDOW8_RE = re.compile(rb"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f])")
+# (b)(c) `::` を含む並び: `::` のどちらかの側に正しい組が 1 つでも接していれば、前後を削って正しい形にできる。
+_WINDOW_DC_RE = re.compile(
+    rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{1,4}::|::[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f])"
+)
+
+
+def has_ipv6_window(cand):
+    return bool(_WINDOW8_RE.search(cand) or _WINDOW_DC_RE.search(cand))
+
+
+def is_alpha_path(cand):
+    """`::` と、数字を含まない 16 進の英字だけでできた並び（Rust のパス `a::b::c` の形）か。"""
+    if b"::" not in cand:
+        return False
+    rest = cand.replace(b"::", b"")
+    return rest != b"" and rest.strip(b"abcdefABCDEF") == b""
+
+
+def ipv6_match(data, m):
+    """候補の一致が IPv6 として止める対象か。
+
+    区間の先頭の単独のコロン（`addr:` の直後）と末尾の単独のコロン（ログの区切り）は外して確かめる。
+    候補全体が正しい形のとき:
+    - 前後の両方が語の文字（`std::fmt` の `d::f` など、パスの `::`）なら拾わない。片側だけなら拾う。
+    - Rust のパスの `::`（`>::drop`・`std::{`）は、`::` と英字だけの 1 組（a〜f、数字なし）の形で、
+      その組の外側に識別子の文字（g〜z・下線）が直接つながっているときに限り拾わない。
+    候補全体が正しい形でないとき（ラベルの末尾の 16 進文字が付いて 9 組になった形、`::` が 2 つ以上
+    の並びなど）も、その中に正しい形になる連続した一部があれば拾う（止まりすぎる側）。ただし
+    英字だけの並び（`a::b::c`）は、前後のどちらかが識別子の文字か、両方が語の文字なら拾わない。
+    """
+    cand = m.group(0)
+    s, e = m.span()
+    if cand.startswith(b":") and not cand.startswith(b"::"):
+        cand = cand[1:]
+        s += 1
+    if cand.endswith(b":") and not cand.endswith(b"::"):
+        cand = cand[:-1]
+        e -= 1
+    before = s > 0 and data[s - 1] in _WORD_BYTES
+    after = e < len(data) and data[e] in _WORD_BYTES
+    if not valid_ipv6(cand):
+        if not has_ipv6_window(cand):
+            return False
+        if is_alpha_path(cand):
+            ident = (s > 0 and data[s - 1] in _IDENT_BYTES) or (e < len(data) and data[e] in _IDENT_BYTES)
+            if ident or (before and after):
+                return False
+        return True
+    if _ALPHA_PRE_RE.fullmatch(cand) and s > 0 and data[s - 1] in _IDENT_BYTES:
+        return False
+    if _ALPHA_POST_RE.fullmatch(cand) and e < len(data) and data[e] in _IDENT_BYTES:
+        return False
+    return not (before and after)
+
+
+# (種類名, 正規表現, 一致を絞る関数(data, 一致))。種類名は出力に出す（値は出さない）。
+SHAPES = (
+    ("ipv4", IPV4_RE, None),
+    ("ipv6", IPV6_CAND_RE, ipv6_match),
+    ("uuid", UUID_RE, None),
+)
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -372,6 +485,10 @@ def load_words(path, root):
             misuse("words file has an empty or whitespace-only word")
         if MARK_RE.fullmatch(mark) is None:
             misuse("words file has a malformed mark")
+        if UUID_RE.search(mark.encode("ascii")):
+            # 印の文字種にドットもコロンも無いので、印が当たりうる形は UUID だけ。
+            # 当たると置き換え後の scan が必ず止まる。
+            misuse("words file has a mark with the shape of an IP address or UUID")
         if word in words:
             misuse("words file has a duplicate word")
         words[word] = mark
@@ -417,9 +534,10 @@ def byte_pattern(words):
     return re.compile(b"|".join(re.escape(w) for w in ws))
 
 
-def residual(pattern, data):
-    """語の残りの件数と、先頭の行番号（上限まで）を返す。
+def residual(pattern, data, accept=None):
+    """一致の残りの件数と、先頭の行番号（上限まで）を返す。
 
+    accept(data, 一致) があれば、それが真を返す一致だけを数える（IPv6 の候補の絞り込み）。
     行番号は前の一致の位置からの差分だけ数え、上限に達したら数えるのをやめて件数だけ数える。
     """
     n = 0
@@ -427,6 +545,8 @@ def residual(pattern, data):
     pos = 0
     ln = 1
     for m in pattern.finditer(data):
+        if accept is not None and not accept(data, m):
+            continue
         n += 1
         if len(lines) < MAX_LINES_SHOWN:
             ln += data.count(b"\n", pos, m.start())
@@ -467,13 +587,23 @@ def cmd_redact(root, words_path, in_path, out_path):
             pass
         misuse("cannot write output")
     print("ok: replaced %d occurrence(s)" % count)
+    # 形で拾う値は置き換えない。残っていれば、確かめの scan が止まることを先に知らせる。
+    kinds = [(k, residual(pat, data, ok)[0]) for k, pat, ok in SHAPES]
+    kinds = [(k, n) for k, n in kinds if n]
+    if kinds:
+        print(
+            "note: values of IP address or UUID shape are not replaced (%s); run scan on the output"
+            % ", ".join("%s: %d" % kn for kn in kinds),
+            file=sys.stderr,
+        )
 
 
 def cmd_scan(root, words_path, paths):
     pat = byte_pattern(load_words(words_path, root))
     total = 0
     for i, p in enumerate(paths, 1):
-        n, lines = residual(pat, read_input(p, False))
+        data = read_input(p, False)
+        n, lines = residual(pat, data)
         if n:
             total += n
             print(
@@ -481,10 +611,19 @@ def cmd_scan(root, words_path, paths):
                 % (i, n, ", ".join(str(x) for x in lines)),
                 file=sys.stderr,
             )
+        for kind, shape, ok in SHAPES:
+            n, lines = residual(shape, data, ok)
+            if n:
+                total += n
+                print(
+                    "error: input %d: %d %s-shaped value(s) on line(s) %s"
+                    % (i, n, kind, ", ".join(str(x) for x in lines)),
+                    file=sys.stderr,
+                )
     if total:
         print("FAILED: %d residual occurrence(s)" % total, file=sys.stderr)
         sys.exit(1)
-    print("ok: no listed word remains in %d file(s)" % len(paths))
+    print("ok: no listed word or IP address/UUID-shaped value remains in %d file(s)" % len(paths))
 
 
 def main():
