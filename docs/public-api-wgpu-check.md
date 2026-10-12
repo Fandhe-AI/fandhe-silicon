@@ -22,7 +22,7 @@
 | ---- | ---- | -------- |
 | workspace | `crates/` 配下の 4 crate。全 crate が `publish = false`（`publish.workspace = true`） | `cargo metadata`、`grep -n publish crates/*/Cargo.toml` |
 | 公開面 | `contract` は feature ゲート付きの `pub mod` 3 つ。`core` は `test-support` の裏の `pub mod` 2 つ。`exec`・`upper` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
-| この検査の実体 | スクリプト・make ターゲット・CI のステップは無い | `grep -rn -i -E "public-api\|api-check" scripts .github Makefile lefthook.yml deny.toml` が何も返さない |
+| この検査の実体（着手時点） | スクリプト・make ターゲット・CI のステップは無かった。#3391 で `scripts/public-api-check.sh` と `make public-api-check` を足した（CI のステップは無い） | 同スクリプトの先頭コメント、`Makefile` |
 | 既存の言及 | TASK-10 への言及は [public-name-check](public-name-check.md) の 2 行だけ | `git grep -n -w "TASK-10" -- docs .claude README.md CLAUDE.md crates scripts` |
 | 依存グラフ側の守り | `deny.toml` の `[bans] deny` と `make deny`（CI の `deny` ジョブ） | `deny.toml` |
 | 比較基準 | `baseline-wgpu/` はルートの `exclude` で切り離した別 workspace | ルートの `Cargo.toml`、[baseline-wgpu](baseline-wgpu.md) |

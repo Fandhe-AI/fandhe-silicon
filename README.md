@@ -107,7 +107,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
 | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [jq](https://jqlang.org/) | 依存の版指定の検査（`make deps-check` / `make test-deps-check`） | 任意 |
-| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh` は 3.8 以上で動く） | 任意 |
+| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh` は 3.8 以上で動く） | 任意 |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
@@ -154,6 +154,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
 | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | `inventory-trace-check` 自体の回帰テスト（合成 fixture で終了コード・標準出力・標準エラーの文言・違反の件数・鍵の秘匿・入力を変更しないことを検証。bash + python3。ネットワーク不要・`docs/spec` の取得は不要。CI の `deny` ジョブも実行する） |
 | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `.github/workflows/ci.yml` が CI の枠の事実（集約ジョブの網羅・実行場所・失敗の握りつぶしが無いこと）を保っているかの検査（bash + python3。ソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API（rustdoc の JSON）にある wgpu 系の crate への参照を数え、1 件でもあれば失敗する（bash + python3。JSON を作る段は `-Z unstable-options` を受ける toolchain が要り、`rust-toolchain.toml` の stable では終了コード 2。`--json <path>` で JSON を直接渡せる。CI は呼ばない） |
 | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-session-record-check` | `scripts/test-session-record-check.sh` | `session-record-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/session-record-check.sh <path>` を直接実行する |
 | `make test-metal-session` | `scripts/test-metal-session.sh` | `metal-session` 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替えるので Linux でも流れる。bash + python3 + git。ネットワーク不要）。本体はサブコマンド（`probe` / `run` / `redact` / `scan`）と引数が要るため make ターゲットを持たず、`scripts/metal-session.sh` を直接実行する。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）も実行する |

@@ -70,6 +70,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ターゲット | 理由（コード内の記述による） |
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
+| `public-api-check` | `rust-toolchain.toml` の toolchain では JSON を出せず終了コード 2 になる（`scripts/public-api-check.sh` の先頭コメント）。CI のジョブからは呼ばれていない |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
