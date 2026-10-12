@@ -1,33 +1,29 @@
 # `unsafe` の局所化・不変条件の書式・個数テストの枠の形
 
-`unsafe` を置ける場所、`// SAFETY:` に書く内容、背後実装ごとの `unsafe` の個数テストの枠の形、個数が変わるときの手順、完了の条件の確かめを記録する。
-ポインタ: TASK-9（`docs/spec/05-tasks.md`）・AP-8。
+`unsafe` を置ける場所、`// SAFETY:` に書く内容、背後実装ごとの `unsafe` の個数テストの枠の形、個数が変わるときの手順を記録する。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-9。ポインタのみ。関連: AP-8）。spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
-- 不変条件の書式・個数テストの枠の形・個数が変わるときの扱いは確定している。判断の記録の正は private spec 側（TASK-9 の状態。ポインタのみ）。残る論点は「オーナー判断待ち」の節に書く。
-- 形を選んだ理由・経緯・判断は private spec 側に置く。本リポにはポインタだけを書く。
-- 本書は本リポで公開済みのコード・lint 設定・規約と Rust の言語仕様から書く。spec の転記ではない。
-- 記入例は実在しないダミー。実在の FFI 呼び出しや個数の値は本書に書かない。
+記入例は実在しないダミー。実在の FFI 呼び出しや個数の値は本書に書かない（個数の正は各 `backend_<名前>_unsafe_count.rs` の表）。
 
-## 現状と前提
+## 所在
 
-| 項目 | 現状 |
-| ---- | ---- |
-| 前提 | TASK-4（骨格）・TASK-5 は完了済み（TASK-5 の親 Issue は closed） |
-| `unsafe` の禁止 | `crates/core`・`crates/exec`・`crates/upper` の `lib.rs` に `#![forbid(unsafe_code)]` |
-| 記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` で `unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` を deny |
-| 背後実装のモジュール | `crates/contract/src/backend_{metal,vulkan,cuda}.rs`。doc コメントだけの骨格で、コードとしての `unsafe` は無い（`//!` コメントの中に `unsafe` という語はある） |
-| `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） |
-| cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")`（`crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs`） |
-| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `crates/contract/tests/common_unsafe_count_samples.rs`。期待値は全背後実装・全種別で 0 |
-| 外部依存 | 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） |
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| `unsafe` の禁止 | `crates/core`・`crates/exec`・`crates/upper` の `lib.rs` に `#![forbid(unsafe_code)]` | 各 `src/lib.rs` |
+| 記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` で `unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` を deny | ルート `Cargo.toml` |
+| 背後実装のモジュール | `crates/contract/src/backend_{metal,vulkan,cuda}.rs`。Vulkan は `crates/contract/src/backend_vulkan/` に子モジュールを持つ | `ls crates/contract/src` |
+| `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） | `crates/contract/src/lib.rs` |
+| cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")` | `crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs` |
+| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `common_unsafe_count_samples.rs` と `common_scanner_regression.rs` | `ls crates/contract/tests` |
+| 外部依存 | 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） | `Cargo.lock` |
 
 ## `unsafe` を置ける場所
 
 - 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
-- `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する。上の層の検査は TASK-15・TASK-262 のポインタ
-- `contract` の中の守り（#52 で実装済み）
+- `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する
+- `contract` の中の守り
     - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend 以外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
-    - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルを検出する
+    - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend 以外のファイルの `unsafe` を検出する
 
 ## 不変条件の書式
 
@@ -61,34 +57,42 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 
 | 要素 | 形 |
 | ---- | -- |
-| 数える道具 | `crates/contract/tests/common/mod.rs` に純粋関数（ソース文字列から種別ごとの個数）と、期待値との照合（不一致で理由付きのエラー）を置く。外部依存 0・公開 API に出さない |
-| 前処理 | コメント（行コメント・doc コメント・入れ子のブロックコメント）と文字列リテラル（通常・raw）を除く。現在の骨格の `backend_*.rs` と `lib.rs` は `//!` コメントに `unsafe` の語を含むため、除かないと今の時点で 0 にならない |
-| 数え方 | 前処理のあと、識別子の境界で切った `unsafe` キーワードをすべて拾う。`unsafe_code` のような識別子の一部は拾わない。`pub unsafe fn`・`pub(crate) unsafe fn` は行頭でなくても拾う。種別はキーワードの後ろを見て決め、`extern` が続く場合は省略可能な ABI の文字列を読み飛ばして `fn` か `{` かで分ける |
-| 種別 | ブロック（`unsafe {`）/ `unsafe impl` / `unsafe fn`（`unsafe extern "…" fn` を含む）/ `unsafe extern` ブロック / その他（`unsafe trait`・`#[unsafe(...)]` など）。期待値はこの 5 種別を個別に持つ。全種別の合計が `unsafe` キーワードの総数に一致する（どの種別にも入らないものを作らない） |
-| 背後実装ごとのテスト | `crates/contract/tests/backend_<名前>_unsafe_count.rs` を背後実装ごとに 1 ファイル。対象のソースを `include_str!` で読み、ファイルごとの期待値と照合する |
-| 期待値の置き場 | テストファイルの中の表（ファイルの相対パスから種別ごとの個数）だけ。文書・README に数値を二重に持たない。現状の期待値は全背後実装・全種別で 0 |
-| 一覧に無いファイルの検出 | `env!("CARGO_MANIFEST_DIR")` から `src/` を走査し、(a) `backend_<名前>/` 配下に期待値の表に無い `.rs` がある (b) backend 以外のファイルに `unsafe` がある、のどちらでも失敗する |
-| cfg ゲート | 個数テストは feature・target でゲートしない。数える対象はソースの文字列でビルドの構成に依らず、どの feature の組でも走り、`common` の未使用コードの警告も出ない |
-| 走る場所 | `make verify` と `make build-profiles` の `cargo test`。GPU の実機は要らず、GitHub ホステッドの CI で走る。新しい make ターゲット・CI ジョブは足さない |
-| 背後実装を足すとき | 同じ形のテストファイルを 1 つ足し、`lib.rs` の mod 宣言に `#[allow(unsafe_code)]` を付ける（DX12・GL の置き場のポインタ: `crates/contract/Cargo.toml` のコメント） |
+| 数える道具 | `crates/contract/tests/common/mod.rs` に純粋関数（`strip_comments_and_literals`・`count_unsafe`）と、期待値との照合（`compare_counts`。不一致で理由付きのエラー）を置く。外部依存 0 |
+| 前処理 | コメント（行コメント・doc コメント・入れ子のブロックコメント）と文字列リテラル（通常・raw）を除く。文字リテラルとライフタイムを区別する |
+| 数え方 | 前処理のあと、識別子の境界で切った `unsafe` キーワードをすべて拾う。`unsafe_code` のような識別子の一部と raw 識別子 `r#unsafe` は拾わない。`pub unsafe fn`・`pub(crate) unsafe fn` は行頭でなくても拾う。種別はキーワードの後ろを見て決め、`extern` が続く場合は省略可能な ABI の文字列を読み飛ばして `fn` か `{` かで分ける。マクロ定義・呼び出しの中の `unsafe` もトークンとして数える |
+| 種別 | ブロック（`unsafe {`）/ `unsafe impl` / `unsafe fn`（`unsafe extern "…" fn` を含む）/ `unsafe extern` ブロック / その他（`unsafe trait`・`#[unsafe(...)]` など）。期待値はこの 5 種別を個別に持つ（`UnsafeCounts`）。全種別の合計が `unsafe` キーワードの総数に一致する |
+| 背後実装ごとのテスト | `crates/contract/tests/backend_<名前>_unsafe_count.rs` を背後実装ごとに 1 ファイル。対象のソースを `include_str!` で読み、ファイルごとの期待値と `check_backend` で照合する |
+| 期待値の置き場 | 各テストファイルの中の表 `EXPECTED`（ファイルの相対パスから種別ごとの個数）だけ。文書・README に数値を二重に持たない |
+| 登録点 | `common` の `BACKENDS`。登録した全背後実装のテストファイルの存在も検査する |
+| cfg ゲート | 個数テストは feature・target でゲートしない。数える対象はソースの文字列でビルドの構成に依らず、どの feature の組でも走る |
+| 走る場所 | `make verify` と `make build-profiles` の `cargo test`。GPU の実機は要らない |
+| 背後実装を足すとき | `BACKENDS` への登録、同じ形のテストファイルを 1 つ、`lib.rs` の mod 宣言に `#[allow(unsafe_code)]` |
 
-- #52 の実装で足した形: `BACKENDS`（登録点。登録した背後実装のテストファイルの存在も検査）、表の `path` と `include_str!` の中身の一致の検査、`src/` 配下のシンボリックリンクの拒否、文字リテラルとライフタイムの区別、raw 識別子 `r#unsafe` を数えないこと、検査の失敗を集めて 1 回で返すこと
-- `clippy::undocumented_unsafe_blocks` は `unsafe impl` も対象にする（rustc 1.99.0 / clippy 0.1.99 で確認）
-- 単純な文字列の一致だけで数えない理由: コメントや文字列の中の語、`forbid(unsafe_code)` のような識別子、edition 2024 で `unsafe` を伴う `extern` ブロックと属性を、取りこぼさず数えすぎないため
-- 「増減で失敗すること」は、道具に見本の文字列を与えるテストで確かめる。実物の `unsafe` をコミットせずに、増えた場合・減った場合の両方の失敗を示す（`scripts/test-deps-check.sh` と同じ考え方）
-- #53 の実装で `crates/contract/tests/common_unsafe_count_samples.rs` に足した見本（必須の場合）
-    - コメントの中の `unsafe {`
-    - 文字列リテラルの中の `unsafe {`
-    - `forbid(unsafe_code)` の識別子
-    - `unsafe extern` ブロックと `unsafe extern "C" fn` の区別
-    - `pub unsafe fn`
-    - `unsafe impl`
-    - 期待より 1 多い場合・1 少ない場合（`compare_counts` への見本。実ファイルでは `check_backend` が、期待値を 1 ずらした表で背後実装ごとに失敗すること）
+`check_backend` が行う検査: 登録済みの名前か／表の各行がその背後実装の持ち場か・重複が無いか／`include_str!` の中身が実ファイルと一致するか／個数の照合／持ち場の `.rs` が表に載っているか／backend 以外のファイルに `unsafe` が無いか／`src/` 配下にシンボリックリンクが無いか／登録済みの全背後実装にテストファイルがあるか。失敗は集めて 1 回で返す。
+
+## 振る舞いとテストの対応
+
+テストは `crates/contract/tests/` の関数。実物の `unsafe` をコミットせず、道具に見本の文字列を与えて増減の失敗を確かめる。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 各背後実装の実ファイルの個数が表どおり | `backend_metal_unsafe_count_matches_expected`・`backend_vulkan_unsafe_count_matches_expected`・`backend_cuda_unsafe_count_matches_expected`（各 `backend_<名前>_unsafe_count.rs`） |
+| コメントの中・文字列リテラルの中の `unsafe` を数えない。その後ろの実物は数える | `unsafe_inside_comments_is_not_counted`・`real_block_after_comment_is_still_counted`・`unsafe_inside_string_literals_is_not_counted`・`real_block_after_literal_is_still_counted` |
+| `unsafe` を含む識別子（`forbid(unsafe_code)` や `r#unsafe`）を数えない | `identifiers_containing_unsafe_are_not_counted` |
+| `unsafe extern` ブロックと `unsafe extern "C" fn` の区別 | `unsafe_extern_block_and_fn_are_distinguished` |
+| `pub unsafe fn`・`unsafe impl` の形を数える | `unsafe_fn_and_impl_forms_are_counted` |
+| ブロックの形・その他の種別を数える。種別ごとに数える | `block_forms_and_other_kinds_are_counted`・`mixed_kinds_are_counted_per_kind` |
+| 前処理が行数を保ち、コメントとリテラルの中身を除く | `strip_keeps_line_count_and_removes_comment_and_literal_bodies` |
+| 期待値と一致なら通り、実際が多い・少ない・種別だけが違うときは失敗 | `compare_counts_passes_when_equal`・`compare_counts_fails_when_actual_exceeds_expected`・`compare_counts_fails_when_actual_is_below_expected`・`compare_counts_fails_when_only_kinds_differ` |
+| 実ファイルの表を 1 ずらすと背後実装ごとに失敗する | `check_backend_fails_when_expected_is_off_by_one` |
+| 文字リテラルのエスケープ・結合文字を含む識別子で取りこぼさない | `escaped_quote_char_literal_does_not_hide_unsafe`・`escaped_quote_byte_literal_does_not_hide_unsafe`・`hex_and_unicode_escapes_are_skipped_whole`・`backslash_char_literal_is_skipped`・`identifier_with_combining_mark_is_not_the_keyword`（`common_scanner_regression.rs`） |
+| feature を有効にした背後実装のモジュールが見える | `backend_metal_module_is_visible`・`backend_vulkan_module_is_visible`・`backend_cuda_module_is_visible`（`backend_cfg_gate.rs`） |
+
+公開テストから到達させていない検査（コードにはある）: 表に無い `.rs` の検出、backend 以外のファイルの `unsafe` の検出、シンボリックリンクの拒否、表の重複・取り違えの検出、`BACKENDS` に無い名前の拒否。
 
 ## 個数が変わるときの扱い
 
-期待値の表（`crates/contract/tests/backend_<名前>_unsafe_count.rs` の `EXPECTED`）を変える PR の手順。
-承認の要否と記録の置き場は小節「承認」に書く。
+期待値の表（`crates/contract/tests/backend_<名前>_unsafe_count.rs` の `EXPECTED`）を変える PR の手順。承認の要否は小節「承認」に書く。
 
 ### 対象になる変更
 
@@ -102,7 +106,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 背後実装を足す | 登録したがテストファイルが無いと失敗 | `BACKENDS` への登録、テストファイル 1 つ、`lib.rs` の mod 宣言の `#[allow(unsafe_code)]` |
 | 数える道具（`tests/common/mod.rs`）の数え方を変える | 見本のテスト（`common_unsafe_count_samples.rs`）が失敗しうる | 見本を同じ PR で直す。表が変わるなら増減として扱う |
 
-- backend 以外のファイルに `unsafe` を置く変更は、この手順では通せない（`lib.rs` の `deny` でビルドが失敗する。範囲を広げる話は「オーナー判断待ち」の節の `allow` の範囲の論点）
+- backend 以外のファイルに `unsafe` を置く変更は、この手順では通せない（`lib.rs` の `deny` でビルドが失敗する）
 
 ### 手順
 
@@ -147,51 +151,17 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 - オーナーの明示の承認が要る変更: 個数の増加、背後実装の追加、数える道具の変更、`#[allow(unsafe_code)]` の範囲の変更。承認が出るまで自動でマージしない
 - レビュー（手順 7）で足りる変更: 個数の減少、個数 0 の行の追加
 - 記録は PR 本文の増減の表と PR 上の承認に置く。数値を別のファイルに二重に持たない
-- 検査の限界: 個数テストは表と実物の一致だけを見る。承認が本物かは判定できない。期待値のテストファイルに所有者レビューを必須にする設定はリポジトリ設定で、オーナー判断（本書では変えない）
+- 検査の限界: 個数テストは表と実物の一致だけを見る。承認が本物かは判定できない。期待値のテストファイルに所有者レビューを必須にする設定はリポジトリ設定で、本書では変えない
 - この規則を機械で守る仕組みは無い
 
-## オーナー判断待ち
+## 確かめ方
 
-推奨は確定ではなく、承認を得たものでもない。
+worktree のルートで実行する。
 
-| 論点 | 選択肢 | 推奨 | 止まるもの |
-| ---- | ------ | ---- | ---------- |
-| `#[allow(unsafe_code)]` を付けてよいモジュールの範囲（CPU の ISA 別の実装など、背後実装以外に広げるか） | (a) `backend_*` だけ (b) 専用のモジュールにも付け、同じ枠で数える | 現状は (a) のまま据え置き、必要になった時点で伺う | cpu-isa の実装（本 TASK の範囲外） |
-| 数える道具を `core`・`exec`・`upper` にも当てるか | (a) 当てない（`forbid` に任せる） (b) TASK-15・TASK-262 の側で使い回す | (a)。使い回しはそれぞれのタスクで決める | TASK-15・TASK-262 |
-
-## 後続の分担
-
-| 作業 | 担当 |
-| ---- | ---- |
-| `lib.rs` の `deny` / `allow` の指定、数える道具、背後実装ごとのテストファイルの実装、`unsafe impl` の確認 | #52（実装済み） |
-| 見本の文字列で増えた場合・減った場合の失敗を確かめるテスト（入口は `common` の `strip_comments_and_literals`・`count_unsafe`・`compare_counts`） | #53（実装済み） |
-| 個数が変わるときの承認の手順書 | #54（本書の「個数が変わるときの扱い」に記載済み） |
-| 完了の条件の確かめの記録 | #55（本書の「完了の条件の確かめ」に記録済み） |
-| `.claude/rules/coding-rust.md`・`AGENTS.md` から本書を参照する | 未実施 |
-
-## 完了の条件の確かめ
-
-本リポで観測できる事実による確かめの記録（ポインタ: TASK-9・AP-8）。
-spec の完了の条件との対応づけの記録の正は private spec 側（TASK-9 の状態。ポインタのみ）。条件の本文は転記しない。
-実物を変える確かめは、コミットしない一時コピーで行った（本リポに `unsafe` を足していない）。
-
-| 確かめる項目 | 方法 | 現時点の結果 |
-| ------------ | ---- | ------------ |
-| 背後実装ごとに個数テストがある | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `common` の `BACKENDS` の登録 | 3 背後実装とも有り |
-| 個数テストがどの feature の組でも走る | `make verify`、`make build-profiles` | 通過 |
-| 数える道具が増減を数え、食い違いで失敗する | `cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples` | 通過 |
-| 実物の `unsafe` を 1 つ足すと、その背後実装の個数テストが失敗する | 一時コピーで `src/backend_<名前>.rs` に足し、`cargo test -p fandhe-silicon-contract --test backend_<名前>_unsafe_count` | 3 背後実装とも失敗（`expected` と `actual` の食い違い）。戻すと通過 |
-| 期待値が実際と 1 ずれると失敗する | 一時コピーで表の `expected` を 1 ずらす | 3 背後実装とも失敗。戻すと通過 |
-| `backend_<名前>/` 配下の表に無い `.rs` で失敗する | 一時コピーで `.rs` を 1 つ足す | 3 背後実装とも失敗（`not listed in the expected table`） |
-| backend 以外に `unsafe` を書くとビルドが失敗する | 一時コピーで `src/lib.rs` に足し、`cargo build -p fandhe-silicon-contract` | 失敗（`deny(unsafe_code)`） |
-| `core`・`exec`・`upper` の `#![forbid(unsafe_code)]` | 各 `src/lib.rs` の宣言 | 3 crate とも有り |
-| 不変条件の記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` の deny 3 件。書式の中身は本書「不変条件の書式」 | 有り |
-| 個数が変わるときの手順 | 本書「個数が変わるときの扱い」 | 記載済み |
-| 品質ゲート | `make check`、`make deny` | 通過 |
-
-- 判定: 本リポで観測できる範囲では、背後実装ごとに個数テストが動き、増減で失敗することを確かめた。完了の条件との対応づけの記録の正は private spec 側（TASK-9 の状態。ポインタのみ）
-- 再実行の契機: 背後実装の追加、数える道具の変更、期待値を 0 から変える最初の PR
-- 確かめた日付: 2026-10-11（base: ad22662）
+- `cargo test -p fandhe-silicon-contract --test backend_metal_unsafe_count`（`vulkan`・`cuda` も同様）: 背後実装ごとの個数
+- `cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples --test common_scanner_regression`: 数える道具
+- `make verify`・`make build-profiles`: どの feature の組でも個数テストが走ること
+- `make check`・`make deny`: 整形・依存
 
 ## 関連
 
