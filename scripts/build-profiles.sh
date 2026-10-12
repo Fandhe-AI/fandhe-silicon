@@ -5,6 +5,9 @@
 # feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
 # 組の spec 対応は ID のポインタだけを添える（本文は転記しない）。
 # wasm32 の target が無い場合は skip せず失敗する（導入は rust-toolchain.toml / rustup の役割）。
+# 試験の枠の記録の書き出し先（FANDHE_SILICON_TEST_RECORD_DIR）は、呼び出し側の環境に在っても外す。ここは同じ試験を
+# feature の組ごとに何度も流すので、同じディレクトリへ同じ部品を 2 回書くと失敗する。
+# 記録と集計は verify.sh の `cargo test` の 1 回だけが扱う。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
@@ -13,6 +16,7 @@ source "${DIR}/lib.sh"
 reject_args "$(basename "$0")" "$@"
 require_cmd cargo
 require_cmd rustup
+unset FANDHE_SILICON_TEST_RECORD_DIR
 
 readonly PKG="fandhe-silicon-contract"
 readonly WASM_TARGET="wasm32-unknown-unknown"

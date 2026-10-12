@@ -17,7 +17,7 @@ cat <<'EOF'
   doctor          scripts/doctor.sh              開発環境を診断する（読み取りのみ。何も導入・修復しない）
   setup           scripts/setup.sh               Git hooks 有効化と .env 雛形の配置（再実行しても安全）
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
-  verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない）
+  verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
   build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査
   deps-check      scripts/deps-check.sh          依存の版指定が =x.y.z の完全固定で承認の記録と一致するかを検査する（cargo metadata + jq）
@@ -25,6 +25,7 @@ cat <<'EOF'
   inventory-trace-check scripts/inventory-trace-check.sh  一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。行単位は直接実行で --item-rows。--list で対応の一覧を標準出力へ。要 docs/spec の取得。CI では実行しない）
   test-inventory-trace-check scripts/test-inventory-trace-check.sh  inventory-trace-check 自体の回帰テスト（合成 fixture。bash + python3。docs/spec の取得は不要）
   test-session-record-check scripts/test-session-record-check.sh  session-record-check 自体の回帰テスト（合成 fixture。bash + python3）。検査本体は make ターゲットなし: scripts/session-record-check.sh <path>
+  test-record-summary scripts/test-record-summary.sh  record-summary と verify.sh の記録の扱いの回帰テスト（合成の部品と偽の cargo。bash + python3）。集計の本体は make ターゲットなし: scripts/record-summary.sh <部品のディレクトリ>
   ci-frame-check  scripts/ci-frame-check.sh      ci.yml が CI の枠の事実（集約・実行場所・失敗の扱い）を保っているかの検査（bash + python3。--workflow <path> で入力を差し替え可）
   test-ci-frame-check scripts/test-ci-frame-check.sh  ci-frame-check 自体の回帰テスト（合成 fixture。bash + python3）
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>
