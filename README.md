@@ -83,7 +83,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方 |
-| `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポへの反映の方針（TASK-43） |
+| `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |

@@ -49,7 +49,7 @@ fandhe-silicon/
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方（TASK-16）
-├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と反映の方針（TASK-43）
+├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と本リポの現状の事実（TASK-43）
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
