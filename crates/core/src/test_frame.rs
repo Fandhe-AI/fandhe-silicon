@@ -1,9 +1,9 @@
-//! 契約の試験の共通の枠の入口（spec TASK-23 の 3/8・5/8・6/8。範囲は「試験ごとの宣言と、機材・許可が無いときに走らせないこと」「結果のラベルの決定」「組み合わせごとの集計」）。
+//! 契約の試験の共通の枠の入口（spec TASK-23。範囲は「試験ごとの宣言と、機材・許可が無いときに走らせないこと」「結果のラベルの決定」「組み合わせごとの集計」）。
 //!
-//! feature `test-support` の裏にだけ公開される（置き場と範囲の説明は `docs/test-frame.md` の「現状の形」）。
+//! feature `test-support` の裏にだけ公開される（置き場と範囲の説明は `docs/test-frame.md` の「置き場と有効になる条件」）。
 //! 製品の経路（`contract`・`exec`・`upper` の非テストのコード）からは参照しない。
 //! 環境変数から読んだ値はこのモジュールの外へ渡さない。実機の device を取って宣言と照合する経路と、
-//! 記録の組み立て・書き出しと、複数の試験をまたぐ集計の経路は持たない（後続の段が扱う）。
+//! 記録の書き出しと、複数の試験をまたぐ集計の経路は持たない。
 //!
 //! 試験の側の使い方: 試験の先頭で [`Declaration`] を作り、[`RunSetting::from_env`] で得た設定とともに
 //! [`decide`] へ渡す。[`Decision::NotRun`] なら、その理由を明示して試験を終える（暗黙に成功にしない）。
@@ -27,7 +27,6 @@ pub use identifier::{BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_
 pub use label::{IndeterminateReason, Label, LabelKind};
 pub use outcome::{
     MAX_BEHAVIORS, MAX_THRESHOLDS, Outcome, RunResult, Subject, SubjectError, Verdict, judge,
-    judge_with_approval,
 };
 pub use setting::{COMBINATION_ENV, PERMISSIONS_ENV, RunSetting};
 pub use summary::{LabelCounts, Summary, SummaryError};

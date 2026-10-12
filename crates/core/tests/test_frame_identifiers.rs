@@ -1,5 +1,5 @@
-//! 試験が宣言する識別子と、閾値の ID・承認の有無の表の振る舞いの確認（spec TASK-23 の 5/8）。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
+//! 試験が宣言する識別子と、閾値の ID・承認の有無の表の振る舞いの確認（spec TASK-23）。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     APPROVED_THRESHOLDS, BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_ID_LEN, TestId,
@@ -92,7 +92,7 @@ fn threshold_id_accepts_only_the_canonical_spelling() {
     }
 }
 
-/// 7/8: 検査の順（長さが文字より先）と、エラーの表示が固定の文であること（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+/// 検査の順（長さが文字より先）と、エラーの表示が固定の文であること（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」）。
 #[test]
 fn length_is_checked_before_characters_and_errors_display_fixed_text() {
     assert_eq!(
@@ -115,13 +115,31 @@ fn length_is_checked_before_characters_and_errors_display_fixed_text() {
 }
 
 #[test]
-fn approval_table_is_empty_in_public_code() {
-    assert!(APPROVED_THRESHOLDS.is_empty());
+fn every_id_in_the_table_is_canonical_unique_and_approved() {
+    for (i, n) in APPROVED_THRESHOLDS.iter().enumerate() {
+        let id = ThresholdId::new(n).expect("table entries are in the canonical form");
+        assert!(id.is_approved(), "{n}");
+        assert!(!APPROVED_THRESHOLDS[..i].contains(n), "duplicate {n}");
+    }
+}
+
+/// 表の中身と期待の集合の完全な一致（順は問わない）。表に ID を足しても消しても落ちる。
+/// 期待の集合は表を変える PR が一緒に直す、ここ 1 か所だけに置く。
+#[test]
+fn the_table_equals_the_expected_set_exactly() {
+    let mut expected = vec![
+        "t-1", "t-2", "t-3", "t-5", "t-7", "t-8", "t-9", "t-10", "t-11", "t-15", "t-16", "t-17",
+    ];
+    let mut actual = APPROVED_THRESHOLDS.to_vec();
+    expected.sort_unstable();
+    actual.sort_unstable();
+    assert_eq!(actual, expected);
 }
 
 #[test]
-fn only_ids_in_the_table_are_approved() {
-    for n in ["t-1", "t-12", "t-13", "t-100", "t-999"] {
+fn ids_outside_the_table_are_not_approved() {
+    for n in ["t-100", "t-998", "t-999"] {
+        assert!(!APPROVED_THRESHOLDS.contains(&n), "{n}");
         assert!(!ThresholdId::new(n).unwrap().is_approved(), "{n}");
     }
 }

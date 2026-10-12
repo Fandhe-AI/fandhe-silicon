@@ -1,15 +1,15 @@
-//! 結果の決め方（`judge`）・`Outcome`・失敗にするかの判定・`parity` の結果からの写像の振る舞いの確認（spec TASK-23 の 5/8）。
+//! 結果の決め方（`judge`）・`Outcome`・失敗にするかの判定・`parity` の結果からの写像の振る舞いの確認（spec TASK-23）。
 //! プロセスの環境と作業ツリーは書き換えず、設定は `RunSetting::from_lookup` へ渡す。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::parity::pixel::{PixelView, T3, compare_pixels, compare_pixels_exact};
 use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
 use fandhe_silicon_core::parity::tolerance::{T1, compare_f32};
 use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
 use fandhe_silicon_core::test_frame::{
-    COMBINATION_ENV, Declaration, IndeterminateReason, Label, MAX_BEHAVIORS, MAX_THRESHOLDS,
-    MachineCombination, NotRunReason, PERMISSIONS_ENV, RunResult, RunSetting, Subject,
-    SubjectError, Verdict, judge, judge_with_approval,
+    APPROVED_THRESHOLDS, COMBINATION_ENV, Declaration, IndeterminateReason, Label, MAX_BEHAVIORS,
+    MAX_THRESHOLDS, MachineCombination, NotRunReason, PERMISSIONS_ENV, RunResult, RunSetting,
+    Subject, SubjectError, Verdict, judge,
 };
 use std::cell::Cell;
 use std::ffi::OsString;
@@ -43,9 +43,18 @@ fn subject(thresholds: &[&str]) -> Subject {
     Subject::from_parts("alloc_roundtrip", &["MEM-1"], thresholds).unwrap()
 }
 
-/// 承認の判定は試験の側から渡す（公開側の表は空）。
-fn approve(t: &fandhe_silicon_core::test_frame::ThresholdId) -> bool {
-    matches!(t.as_str(), "t-1" | "t-2")
+/// 承認済みの例として表の `i` 番目を引く（特定の ID の承認に頼らない）。
+fn approved(i: usize) -> &'static str {
+    APPROVED_THRESHOLDS[i]
+}
+
+/// 未承認の例。表に無いことをここで確かめる。
+fn unapproved(name: &'static str) -> &'static str {
+    assert!(
+        !APPROVED_THRESHOLDS.contains(&name),
+        "{name} is in the table"
+    );
+    name
 }
 
 fn matched() -> RunResult {
@@ -91,7 +100,7 @@ fn subject_limits_counts() {
     assert!(Subject::from_parts("t", &b[..MAX_BEHAVIORS], &t[..MAX_THRESHOLDS]).is_ok());
 }
 
-// ---- 7/8（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+// ---- （置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」） ----
 
 #[test]
 fn count_limits_are_checked_before_identifier_names() {
@@ -119,10 +128,15 @@ fn body_panic_propagates() {
 #[test]
 fn not_run_wins_over_pending_and_indeterminate() {
     let calls = Cell::new(0u32);
-    let o = judge(&subject(&["t-12"]), &decl(), &setting(None, None), |_| {
-        calls.set(calls.get() + 1);
-        RunResult::Indeterminate(IndeterminateReason::MachineUnreachable)
-    });
+    let o = judge(
+        &subject(&[unapproved("t-999")]),
+        &decl(),
+        &setting(None, None),
+        |_| {
+            calls.set(calls.get() + 1);
+            RunResult::Indeterminate(IndeterminateReason::MachineUnreachable)
+        },
+    );
     assert_eq!(o.label(), &Label::NotRun(NotRunReason::NotConfigured));
     assert_eq!(calls.get(), 0);
 }
@@ -141,22 +155,6 @@ fn outcome_carries_the_subject_and_declaration_as_given() {
         assert_eq!(o.id().as_str(), "carry");
         assert_eq!(ids(&o), ["B-2", "A-1"]);
         assert_eq!(o.declared_combinations(), decl().combinations());
-    }
-}
-
-#[test]
-fn judge_agrees_with_judge_with_approval_over_the_public_table() {
-    let st = setting(Some("metal-mac-mini"), None);
-    for th in [&[][..], &["t-1"][..]] {
-        let a = judge(&subject(th), &decl(), &st, |_| matched());
-        let b = judge_with_approval(
-            &subject(th),
-            &decl(),
-            &st,
-            fandhe_silicon_core::test_frame::ThresholdId::is_approved,
-            |_| matched(),
-        );
-        assert_eq!(a, b);
     }
 }
 
@@ -213,10 +211,10 @@ fn not_run_reasons_pass_through_and_the_body_is_not_called() {
 #[test]
 fn approved_thresholds_map_verdicts_to_ok_and_ng() {
     let st = setting(Some("metal-mac-mini"), None);
-    let s = subject(&["t-1", "t-2"]);
-    let ok = judge_with_approval(&s, &decl(), &st, approve, |_| matched());
+    let s = subject(&[approved(0), approved(1)]);
+    let ok = judge(&s, &decl(), &st, |_| matched());
     assert_eq!(ok.label(), &Label::Ok);
-    let ng = judge_with_approval(&s, &decl(), &st, approve, |_| mismatched());
+    let ng = judge(&s, &decl(), &st, |_| mismatched());
     assert_eq!(ng.label(), &Label::Ng);
     let none = judge(&subject(&[]), &decl(), &st, |_| matched());
     assert_eq!(none.label(), &Label::Ok);
@@ -225,27 +223,31 @@ fn approved_thresholds_map_verdicts_to_ok_and_ng() {
 #[test]
 fn unapproved_threshold_gives_pending_with_the_first_one_in_declared_order() {
     let st = setting(Some("metal-mac-mini"), None);
-    let s = subject(&["t-1", "t-13", "t-12"]);
+    let s = subject(&[approved(0), unapproved("t-998"), unapproved("t-999")]);
     for body in [matched(), mismatched()] {
-        let o = judge_with_approval(&s, &decl(), &st, approve, |_| body);
+        let o = judge(&s, &decl(), &st, |_| body);
         match o.label() {
-            Label::Pending(id) => assert_eq!(id.as_str(), "t-13"),
+            Label::Pending(id) => assert_eq!(id.as_str(), "t-998"),
             other => panic!("unexpected {other}"),
         }
     }
 }
 
 #[test]
-fn public_table_is_empty_so_any_declared_threshold_gives_pending() {
+fn a_declared_threshold_outside_the_table_gives_pending() {
     let st = setting(Some("metal-mac-mini"), None);
-    let o = judge(&subject(&["t-1"]), &decl(), &st, |_| matched());
+    let o = judge(&subject(&[unapproved("t-999")]), &decl(), &st, |_| {
+        matched()
+    });
     assert_eq!(o.label().name(), "pending");
+    let in_table = judge(&subject(&[approved(0)]), &decl(), &st, |_| matched());
+    assert_eq!(in_table.label(), &Label::Ok);
 }
 
 #[test]
 fn indeterminate_wins_over_pending_and_verdicts() {
     let st = setting(Some("metal-mac-mini"), None);
-    let s = subject(&["t-12"]);
+    let s = subject(&[unapproved("t-999")]);
     for r in [
         IndeterminateReason::DeviceMismatch,
         IndeterminateReason::MachineUnreachable,
@@ -288,7 +290,9 @@ fn fails_test_is_true_only_for_ng() {
     let st = setting(Some("metal-mac-mini"), None);
     let ok = judge(&subject(&[]), &decl(), &st, |_| matched());
     let ng = judge(&subject(&[]), &decl(), &st, |_| mismatched());
-    let pending = judge(&subject(&["t-12"]), &decl(), &st, |_| matched());
+    let pending = judge(&subject(&[unapproved("t-999")]), &decl(), &st, |_| {
+        matched()
+    });
     let not_run = judge(&subject(&[]), &decl(), &setting(None, None), |_| matched());
     let indet = judge(&subject(&[]), &decl(), &st, |_| {
         RunResult::Indeterminate(IndeterminateReason::MachineUnreachable)

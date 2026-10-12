@@ -2,7 +2,7 @@
 //!
 //! `outcome::judge` が決めた結果を表す。種類・理由とも列挙で、文字列の表現は英語の ASCII。
 //! 入力の値・自由な文は持たない。走らせなかった結果・判定保留・判定不能を成功にも失敗にも読み替えない。
-//! spec TASK-23 の 5/8・6/8（`LabelKind`）。
+//! spec TASK-23。
 
 use super::decision::NotRunReason;
 use super::threshold::ThresholdId;

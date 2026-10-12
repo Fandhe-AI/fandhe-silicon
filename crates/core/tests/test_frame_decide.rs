@@ -1,6 +1,6 @@
-//! 実行の設定の読み取りと、実行の可否（`decide`）の振る舞いの確認（spec TASK-23 の 3/8）。
+//! 実行の設定の読み取りと、実行の可否（`decide`）の振る舞いの確認（spec TASK-23）。
 //! プロセスの環境は書き換えず、値は `RunSetting::from_lookup` へ渡す。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形」。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     COMBINATION_ENV, Decision, Declaration, MachineCombination, NotRunReason, PERMISSIONS_ENV,
@@ -242,7 +242,7 @@ fn max_count_and_max_length_permissions_are_runnable() {
     );
 }
 
-// ---- 7/8: 許可の値の境界・引く名前（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+// ---- 許可の値の境界・引く名前（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」） ----
 
 #[test]
 fn permission_count_and_length_boundaries_in_the_setting() {
