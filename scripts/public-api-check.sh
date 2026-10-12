@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、
-# rustdoc の JSON から機械で数えて確かめる（spec TASK-10・BUILD-47 のポインタ。親 Issue #363 の 2/6）。
+# rustdoc の JSON から機械で数えて確かめる（spec TASK-10・BUILD-47 のポインタ。親 Issue #363 の 2/6・3/6）。
 # 呼び出し元: `make public-api-check`（直接実行も可）。CI のジョブからは呼ばれていない。
 # 回帰テストは `scripts/test-public-api-check.sh`（合成 JSON を --json で渡す。直接実行）。
 #
@@ -8,9 +8,15 @@
 #   scripts/public-api-check.sh                         workspace の lib crate の JSON を作って検査する
 #   scripts/public-api-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（cargo を呼ばない）
 # 終了コード: 0 参照が 0 件 / 1 参照が 1 件以上（違反） / 2 誤用・前提の不足・JSON を読み切れない（成功扱いにしない）
-# 標準出力: 組ごとの `scanned:` の行と、合格時の `ok:` の 1 行。標準エラー: `violation:`・`FAILED:`・`error:`。
+# 標準出力: 組ごとの `scanned:` の行（走査した公開アイテムの数）、全部の文書を検査し終えたとき（終了コード 0 と 1）だけ
+#   最後の `scanned:` の後に 1 回出す締めの `record:` の行、合格時の `ok:` の 1 行。標準エラー: `violation:`・`FAILED:`・`error:`。
+#   `record: commit=<rev> documents=<n> public_items_total=<n> wgpu_type_refs_total=<n> wgpu_other_refs_total=<n>`
+#   documents は検査した文書の数、*_total は `scanned:` の同名の値の合計。終了コード 2 では出さない（無ければ記録は不完全）。
+#   commit は JSON を作る経路では ROOT_DIR の HEAD のコミット（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
+#   件数は出すだけで合否に使わない（公開アイテムが 1 件以上、は除く）。記録は標準出力だけに残し、ファイルは作らない。
 #
 # JSON を作る段（rust-toolchain.toml の toolchain のまま動かす）:
+#   先に HEAD のコミットを取る（GIT_OPTIONAL_LOCKS=0。取れなければ終了コード 2。cargo を流す前に止める）。
 #   cargo metadata で workspace の lib crate を列挙し、crate ごとに 2 組（production / all-features）で
 #   `cargo rustdoc --lib -- -Z unstable-options --output-format json` を流す。
 #   production は contract だけ本番の feature 列を明示し、ほかは既定の feature。名前は crates/contract/Cargo.toml のもの。
@@ -38,7 +44,7 @@
 #   wgpu_other_refs は同じ外部アイテムを V4 と V6b の両方で数えることがある（合否には影響しない）。
 #   format_version の許可リストは持たない。形が読めなくなったら V1〜V7 が終了コード 2 にする。
 #
-# 検査しないもの: wasm32 の公開 API、依存グラフ（make deny の役割）、陽性対照、wgpu 系以外の名前。
+# 検査しないもの: 件数の増減（数は出すだけ）、wasm32 の公開 API、依存グラフ（make deny の役割）、陽性対照、wgpu 系以外の名前。
 # ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -194,6 +200,30 @@ def inspect(doc):
     return root["name"], fv, public, n_type, n_other, violations
 
 
+def _git(root, args):
+    """記録用に外部コマンドを引数の並びで起動し、成功時の標準出力（str）を返す。失敗は None。"""
+    env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
+    try:
+        done = subprocess.run(
+            ["git"] + args, cwd=root, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    return done.stdout.decode("utf-8", "replace")
+
+
+def source_commit(root):
+    """記録に載せる、作業ツリーの HEAD のコミット（変更が在れば -dirty）を返す。取れなければ Misuse。"""
+    rev = _git(root, ["rev-parse", "--verify", "HEAD^{commit}"])
+    sha = rev.strip() if rev is not None else ""
+    need(re.fullmatch(r"[0-9a-f]{40}([0-9a-f]{24})?", sha) is not None, "cannot resolve the source commit")
+    st = _git(root, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all"])
+    need(st is not None, "cannot resolve the source commit")
+    return sha + ("-dirty" if st.strip() else "")
+
+
 def build_docs(root):
     """workspace の lib crate ごとに 2 組の rustdoc JSON を作って (crate, 組, パス) を返す。"""
     env = dict(os.environ, RUSTC_BOOTSTRAP="1")
@@ -266,11 +296,14 @@ def main():
     parser.add_argument("--json", nargs="+", metavar="PATH")
     args = parser.parse_args(sys.argv[2:])
     if args.json is not None:
+        commit = "-"
         inputs = [("-", "-", p) for p in args.json]
     else:
+        commit = source_commit(root)
         inputs = build_docs(root)
 
     total = 0
+    sum_public = sum_type = sum_other = 0
     for _crate, label, path in inputs:
         name, fv, public, n_type, n_other, violations = inspect(load(path))
         print("scanned: crate=%s features=%s format_version=%d public_items=%d wgpu_type_refs=%d wgpu_other_refs=%d"
@@ -279,6 +312,11 @@ def main():
             print("violation: crate=%s features=%s item=%s kind=%s references=%s"
                   % (clean(name), label, item, kind, crate), file=sys.stderr)
         total += n_type + n_other
+        sum_public += public
+        sum_type += n_type
+        sum_other += n_other
+    print("record: commit=%s documents=%d public_items_total=%d wgpu_type_refs_total=%d wgpu_other_refs_total=%d"
+          % (commit, len(inputs), sum_public, sum_type, sum_other))
     if total:
         print("FAILED: %d reference(s)" % total, file=sys.stderr)
         return 1
