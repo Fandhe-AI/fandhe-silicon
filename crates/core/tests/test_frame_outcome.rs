@@ -9,7 +9,7 @@ use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
 use fandhe_silicon_core::test_frame::{
     COMBINATION_ENV, Declaration, IndeterminateReason, Label, MAX_BEHAVIORS, MAX_THRESHOLDS,
     MachineCombination, NotRunReason, PERMISSIONS_ENV, RunResult, RunSetting, Subject,
-    SubjectError, Verdict, judge, judge_with_approval,
+    SubjectError, Verdict, judge,
 };
 use std::cell::Cell;
 use std::ffi::OsString;
@@ -41,11 +41,6 @@ fn decl() -> Declaration {
 
 fn subject(thresholds: &[&str]) -> Subject {
     Subject::from_parts("alloc_roundtrip", &["MEM-1"], thresholds).unwrap()
-}
-
-/// 承認の判定は試験の側から渡す（公開側の表は空）。
-fn approve(t: &fandhe_silicon_core::test_frame::ThresholdId) -> bool {
-    matches!(t.as_str(), "t-1" | "t-2")
 }
 
 fn matched() -> RunResult {
@@ -145,22 +140,6 @@ fn outcome_carries_the_subject_and_declaration_as_given() {
 }
 
 #[test]
-fn judge_agrees_with_judge_with_approval_over_the_public_table() {
-    let st = setting(Some("metal-mac-mini"), None);
-    for th in [&[][..], &["t-1"][..]] {
-        let a = judge(&subject(th), &decl(), &st, |_| matched());
-        let b = judge_with_approval(
-            &subject(th),
-            &decl(),
-            &st,
-            fandhe_silicon_core::test_frame::ThresholdId::is_approved,
-            |_| matched(),
-        );
-        assert_eq!(a, b);
-    }
-}
-
-#[test]
 fn subject_errors_are_ascii_and_do_not_echo_input() {
     let e = Subject::from_parts("t", &["SECRET/x"], &[]).unwrap_err();
     assert!(e.to_string().is_ascii());
@@ -214,9 +193,9 @@ fn not_run_reasons_pass_through_and_the_body_is_not_called() {
 fn approved_thresholds_map_verdicts_to_ok_and_ng() {
     let st = setting(Some("metal-mac-mini"), None);
     let s = subject(&["t-1", "t-2"]);
-    let ok = judge_with_approval(&s, &decl(), &st, approve, |_| matched());
+    let ok = judge(&s, &decl(), &st, |_| matched());
     assert_eq!(ok.label(), &Label::Ok);
-    let ng = judge_with_approval(&s, &decl(), &st, approve, |_| mismatched());
+    let ng = judge(&s, &decl(), &st, |_| mismatched());
     assert_eq!(ng.label(), &Label::Ng);
     let none = judge(&subject(&[]), &decl(), &st, |_| matched());
     assert_eq!(none.label(), &Label::Ok);
@@ -225,21 +204,23 @@ fn approved_thresholds_map_verdicts_to_ok_and_ng() {
 #[test]
 fn unapproved_threshold_gives_pending_with_the_first_one_in_declared_order() {
     let st = setting(Some("metal-mac-mini"), None);
-    let s = subject(&["t-1", "t-13", "t-12"]);
+    let s = subject(&["t-1", "t-998", "t-999"]);
     for body in [matched(), mismatched()] {
-        let o = judge_with_approval(&s, &decl(), &st, approve, |_| body);
+        let o = judge(&s, &decl(), &st, |_| body);
         match o.label() {
-            Label::Pending(id) => assert_eq!(id.as_str(), "t-13"),
+            Label::Pending(id) => assert_eq!(id.as_str(), "t-998"),
             other => panic!("unexpected {other}"),
         }
     }
 }
 
 #[test]
-fn public_table_is_empty_so_any_declared_threshold_gives_pending() {
+fn a_declared_threshold_outside_the_table_gives_pending() {
     let st = setting(Some("metal-mac-mini"), None);
-    let o = judge(&subject(&["t-1"]), &decl(), &st, |_| matched());
+    let o = judge(&subject(&["t-999"]), &decl(), &st, |_| matched());
     assert_eq!(o.label().name(), "pending");
+    let in_table = judge(&subject(&["t-1"]), &decl(), &st, |_| matched());
+    assert_eq!(in_table.label(), &Label::Ok);
 }
 
 #[test]

@@ -5,7 +5,6 @@
 use fandhe_silicon_core::test_frame::{
     COMBINATION_ENV, Declaration, IndeterminateReason, LabelKind, MachineCombination, Outcome,
     PERMISSIONS_ENV, RunResult, RunSetting, Subject, Summary, SummaryError, Verdict, judge,
-    judge_with_approval,
 };
 use std::ffi::OsString;
 
@@ -38,11 +37,10 @@ fn run(
     result: RunResult,
     thresholds: &[&str],
 ) -> Outcome {
-    judge_with_approval(
+    judge(
         &subject("t_one", thresholds),
         d,
         &setting(comb, perms),
-        |t| t.as_str() == "t-1",
         |_| result,
     )
 }
@@ -89,7 +87,7 @@ fn ran_outcomes_count_under_the_combination_they_ran_on() {
     let outcomes = [
         run(&d, at, None, matched(), &[]),
         run(&d, at, None, mismatched(), &[]),
-        run(&d, at, None, matched(), &["t-2"]),
+        run(&d, at, None, matched(), &["t-999"]),
         run(
             &d,
             at,
@@ -193,7 +191,7 @@ fn has_ng_is_true_only_when_an_outcome_is_ng() {
     let fine = [
         run(&d, at, None, matched(), &[]),
         run(&d, None, None, matched(), &[]),
-        run(&d, at, None, matched(), &["t-2"]),
+        run(&d, at, None, matched(), &["t-999"]),
     ];
     assert!(!Summary::from_outcomes(&fine).unwrap().has_ng());
     let bad = [run(&d, at, None, mismatched(), &[])];
@@ -289,7 +287,7 @@ fn table_with_every_kind_and_a_two_digit_count_is_fixed() {
         Some("vulkan-node-a"),
         None,
         matched(),
-        &["t-2"],
+        &["t-999"],
     ));
     outcomes.push(run(&one(VulkanAmd), None, None, matched(), &[]));
     outcomes.push(run(

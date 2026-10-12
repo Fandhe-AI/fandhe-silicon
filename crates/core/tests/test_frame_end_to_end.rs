@@ -98,7 +98,7 @@ fn one_flow_yields_all_five_label_kinds() {
     let at = setting(Some("vulkan-amd"));
     let ok = judge(&subject("f_ok", &[]), &d, &at, |_| parity_result(true));
     let ng = judge(&subject("f_ng", &[]), &d, &at, |_| parity_result(false));
-    let pending = judge(&subject("f_pending", &["t-1"]), &d, &at, |_| {
+    let pending = judge(&subject("f_pending", &["t-999"]), &d, &at, |_| {
         parity_result(true)
     });
     let not_run = judge(&subject("f_nr", &[]), &d, &setting(None), |_| {

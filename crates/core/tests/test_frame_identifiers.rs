@@ -115,13 +115,18 @@ fn length_is_checked_before_characters_and_errors_display_fixed_text() {
 }
 
 #[test]
-fn approval_table_is_empty_in_public_code() {
-    assert!(APPROVED_THRESHOLDS.is_empty());
+fn every_id_in_the_table_is_canonical_unique_and_approved() {
+    for (i, n) in APPROVED_THRESHOLDS.iter().enumerate() {
+        let id = ThresholdId::new(n).expect("table entries are in the canonical form");
+        assert!(id.is_approved(), "{n}");
+        assert!(!APPROVED_THRESHOLDS[..i].contains(n), "duplicate {n}");
+    }
 }
 
 #[test]
-fn only_ids_in_the_table_are_approved() {
-    for n in ["t-1", "t-12", "t-13", "t-100", "t-999"] {
+fn ids_outside_the_table_are_not_approved() {
+    for n in ["t-100", "t-998", "t-999"] {
+        assert!(!APPROVED_THRESHOLDS.contains(&n), "{n}");
         assert!(!ThresholdId::new(n).unwrap().is_approved(), "{n}");
     }
 }

@@ -2,11 +2,12 @@
 //!
 //! 試験の関数の末尾から呼ばれる。実行の可否（`decision::decide`）、本体の結果、閾値の承認の有無
 //! （`threshold::ThresholdId::is_approved`）から、ラベルを 1 つ決める純粋な関数で、入力以外の状態を読まない。
-//! `parity` の比べの結果は `From` で `Verdict` に写す（`parity` 側は変えない）。書き出しは持たない（組み合わせごとの集計は `summary` が `Outcome` の getter の上で行う）。
+//! `parity` の比べの結果は `From` で `Verdict` に写す（`parity` 側は変えない）。書き出しは持たない
+//! （組み合わせごとの集計は `summary` が、記録の組み立ては `record` が、`Outcome` の getter の上で行う）。
 //! `Termination` は実装せず、試験の関数の戻り値には使えない
-//! （ラベルを記録・集計する経路ができるまで、走らせなかった結果が成功に見えるのを避けるため）。
+//! （走らせなかった結果が、戻り値の上で成功に見えるのを避けるため）。
 //! 失敗にするかは呼び出し側が `Label::fails_test` で明示的に決める。
-//! spec TASK-23 の 5/8。
+//! spec TASK-23。
 
 use super::combination::MachineCombination;
 use super::decision::{Decision, decide};
@@ -239,11 +240,10 @@ where
     )
 }
 
-/// [`judge`] と同じ順で結果を決めるが、閾値の承認の有無を `is_approved` で試験の側から渡す。
+/// [`judge`] の本体。結果を決める順は `judge` の説明のとおりで、閾値の承認の有無だけを `is_approved` で受ける。
 ///
-/// `judge` は公開側の表（[`ThresholdId::is_approved`]）だけを見る。承認の根拠を持つ呼び出し側が、
-/// 自分の持つ承認の状態を注入するために使う。
-pub fn judge_with_approval<A, F>(
+/// 公開しない。承認の有無は表（[`ThresholdId::is_approved`]）の 1 か所が持つので、`judge` だけがこれを呼ぶ。
+fn judge_with_approval<A, F>(
     subject: &Subject,
     declaration: &Declaration,
     setting: &RunSetting,
@@ -279,5 +279,53 @@ where
         declared: declaration.combinations().to_vec(),
         ran_on,
         label,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_frame::setting::COMBINATION_ENV;
+    use std::ffi::OsString;
+
+    fn running_setting() -> RunSetting {
+        RunSetting::from_lookup(|n| {
+            (n == COMBINATION_ENV).then(|| OsString::from("metal-mac-mini"))
+        })
+    }
+
+    fn declaration() -> Declaration {
+        Declaration::from_parts(&[MachineCombination::MetalMacMini], &[]).unwrap()
+    }
+
+    /// 承認の判定を差し替えられるのはこの crate の中だけ。差し替えた判定が、宣言の順の最初の未承認を選ぶ。
+    #[test]
+    fn injected_approval_picks_the_first_unapproved_threshold_in_declared_order() {
+        let s = Subject::from_parts("inject", &[], &["t-1", "t-13", "t-12"]).unwrap();
+        let approve = |t: &ThresholdId| t.as_str() == "t-1";
+        for body in [Verdict::Match, Verdict::Mismatch] {
+            let o = judge_with_approval(&s, &declaration(), &running_setting(), approve, |_| {
+                RunResult::Verdict(body)
+            });
+            assert_eq!(
+                o.label(),
+                &Label::Pending(ThresholdId::new("t-13").unwrap())
+            );
+        }
+    }
+
+    /// 全て承認済みと判定されれば、比べの結果がそのまま OK・NG になる。
+    #[test]
+    fn injected_full_approval_maps_verdicts_to_ok_and_ng() {
+        let s = Subject::from_parts("inject", &[], &["t-12", "t-13"]).unwrap();
+        let all = |_: &ThresholdId| true;
+        let ok = judge_with_approval(&s, &declaration(), &running_setting(), all, |_| {
+            RunResult::Verdict(Verdict::Match)
+        });
+        let ng = judge_with_approval(&s, &declaration(), &running_setting(), all, |_| {
+            RunResult::Verdict(Verdict::Mismatch)
+        });
+        assert_eq!(ok.label(), &Label::Ok);
+        assert_eq!(ng.label(), &Label::Ng);
     }
 }
