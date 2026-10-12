@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# public-api-check.sh の回帰テスト（spec TASK-10 のポインタ。親 Issue #363 の 2/6）。
+# public-api-check.sh の回帰テスト（spec TASK-10 のポインタ。親 Issue #363 の 2/6・3/6）。
 # 一時ディレクトリの合成 rustdoc JSON（ダミーの名前）を --json で渡し、終了コード・標準出力・標準エラーの文言を
 # 確かめる。cargo を呼ばず、リポジトリのファイルを変更せず、ネットワークを使わない。
 # 呼び出し元: 直接実行（make ターゲットと CI のステップは持たない）。
@@ -76,6 +76,12 @@ cases["ok_ext_nonwgpu"] = with_fn(rp(10))
 cases["ok_index_ext_nonwgpu"] = with_fn(rp(20), {"30": item(30, "q", {"struct": {}}, crate_id=1)})
 cases["ok_use_null"] = with_fn({"use": {"source": "x", "name": "x", "id": None}})
 cases["ok_seq_internal"] = with_fn({"struct": {"kind": {"plain": {"fields": [1]}}}})
+cases["count_visibility"] = with_fn(rp(20), {
+    "2": item(2, "imp", {"impl": {}}, vis="default"),
+    "3": item(3, "hidden", {"struct": {}}, vis="crate"),
+    "4": item(4, "scoped", {"struct": {}}, vis={"restricted": {"parent": 0, "path": "::dummy"}}),
+    "5": item(5, "ext", {"struct": {}}, crate_id=1),
+})
 cases["ok_tuple_null"] = with_fn({"struct": {"kind": {"tuple": [None, 1]}}})
 for tag, nm in (("my_wgpu", "my_wgpu"), ("nagano", "nagano")):
     d = with_fn(rp(10))
@@ -199,7 +205,7 @@ good() {
   local c="$1"
   shift
   run_check --json "${work}/${c}.json"
-  judge "${c}" 0 "o:ok: 1 public API document(s)" "o:scanned: " "o:wgpu_type_refs=0 wgpu_other_refs=0" "!violation" "$@"
+  judge "${c}" 0 "o:ok: 1 public API document(s)" "o:scanned: " "o:wgpu_type_refs=0 wgpu_other_refs=0" "o:record: commit=- documents=1 " "o:wgpu_type_refs_total=0 wgpu_other_refs_total=0" "!violation" "$@"
 }
 
 # viol <ケース名> [語...]: 違反（終了コード 1・FAILED の行）。
@@ -207,7 +213,7 @@ viol() {
   local c="$1"
   shift
   run_check --json "${work}/${c}.json"
-  judge "${c}" 1 "e:violation: " "e:FAILED: " "!ok: " "$@"
+  judge "${c}" 1 "e:violation: " "e:FAILED: " "o:record: commit=- documents=1 " "!ok: " "$@"
 }
 
 # misuse <ケース名> [語...]: 誤用（終了コード 2・error の行・成功の行なし）。
@@ -215,12 +221,14 @@ misuse() {
   local c="$1"
   shift
   run_check --json "${work}/${c}.json"
-  judge "${c}" 2 "e:error: " "!ok: " "!FAILED" "$@"
+  judge "${c}" 2 "e:error: " "!ok: " "!FAILED" "!record: " "$@"
 }
 
 # ---- 合格 ----
 
 good ok_noref "o:public_items=1 "
+# 公開アイテムは root・public・default だけを数える（crate・restricted・外部 crate のアイテムは数えない）
+good count_visibility "o:public_items=3 " "o:public_items_total=3 "
 good ok_paths_internal
 good ok_index_internal
 good ok_ext_nonwgpu
@@ -246,9 +254,26 @@ viol bad_seq_wgpu "e:kind=other"
 # 2 本渡して片方だけ違反（scanned が 2 行・全体は違反）
 run_check --json "${work}/ok_noref.json" "${work}/bad_type.json"
 if [ "$(grep -c '^scanned: ' "${OUT_F}")" = "2" ]; then
-  judge "two_files_one_bad" 1 "e:FAILED: 1 reference(s)" "!ok: "
+  judge "two_files_one_bad" 1 "e:FAILED: 1 reference(s)" "!ok: " \
+    "o:record: commit=- documents=2 public_items_total=3 wgpu_type_refs_total=1 wgpu_other_refs_total=0"
 else
   report_fail "two_files_one_bad" "expected 2 scanned lines"
+fi
+# 終了コード 1 では record が最後の行で、1 回だけ出る
+if [ "$(tail -n 1 "${OUT_F}" | cut -c1-8)" = "record: " ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "1" ]; then
+  report_ok "record_last_on_violation"
+else
+  report_fail "record_last_on_violation" "record line must be the last stdout line, once"
+fi
+
+# 2 本の合計（record は scanned の同名の値の合計。record → ok の順）
+run_check --json "${work}/ok_noref.json" "${work}/count_visibility.json"
+judge "two_files_totals" 0 "o:record: commit=- documents=2 public_items_total=4 wgpu_type_refs_total=0 wgpu_other_refs_total=0"
+if [ "$(tail -n 2 "${OUT_F}" | head -n 1 | cut -c1-8)" = "record: " ] \
+  && [ "$(tail -n 1 "${OUT_F}" | cut -c1-4)" = "ok: " ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "1" ]; then
+  report_ok "record_before_ok"
+else
+  report_fail "record_before_ok" "last two stdout lines must be record then ok"
 fi
 
 # ---- 誤用（終了コード 2）----
@@ -273,15 +298,19 @@ misuse err_no_index
 misuse notjson
 
 run_check --json "${work}/no-such-file.json"
-judge "missing_path" 2 "e:error: " "!ok: "
+judge "missing_path" 2 "e:error: " "!ok: " "!record: "
 run_check --bogus
-judge "unknown_arg" 2 "!ok: "
+judge "unknown_arg" 2 "!ok: " "!record: "
 run_check --json
-judge "json_without_path" 2 "!ok: "
+judge "json_without_path" 2 "!ok: " "!record: "
 
-# 2 本のうち 1 本が読めなければ、先に合格した分があっても全体は 2
+# 2 本のうち 1 本が読めなければ、先に合格した分があっても全体は 2（途中の scanned は出るが record は出ない）
 run_check --json "${work}/ok_noref.json" "${work}/notjson.json"
-judge "second_unreadable" 2 "e:error: " "!ok: "
+if [ "$(grep -c '^scanned: ' "${OUT_F}")" = "1" ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "0" ]; then
+  judge "second_unreadable" 2 "e:error: " "!ok: " "!record: "
+else
+  report_fail "second_unreadable" "expected 1 scanned line and 0 record lines"
+fi
 
 # ---- 組ごとの JSON を取り違えないこと（偽の cargo / rustdoc を PATH の先頭に置く）----
 # 偽の cargo は、--all-features の有無で別の合成 JSON を {lib}.json へ書く。片方の組にだけ禁止参照が
@@ -307,21 +336,59 @@ esac
 exit 1
 FAKE
 printf '#!/usr/bin/env bash\nexit 0\n' >"${fakebin}/rustdoc"
-chmod +x "${fakebin}/cargo" "${fakebin}/rustdoc"
+# 偽のコミット解決コマンド。FAKE_GIT の値で出力と終了コードを切り替える（既定 clean）。
+cat >"${fakebin}/git" <<'FAKE'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    rev-parse)
+      case "${FAKE_GIT}" in
+        fail-rev) exit 1 ;;
+        garbage) echo "/fake/host/path not-a-commit"; exit 0 ;;
+      esac
+      echo "0123456789abcdef0123456789abcdef01234567"
+      exit 0 ;;
+    status)
+      case "${FAKE_GIT}" in
+        fail-status) exit 1 ;;
+        dirty) echo " M crates/dummy.rs" ;;
+      esac
+      exit 0 ;;
+  esac
+done
+exit 1
+FAKE
+chmod +x "${fakebin}/cargo" "${fakebin}/rustdoc" "${fakebin}/git"
 
-# run_fake <production の JSON> <all-features の JSON>: 偽の cargo で JSON を作る経路を流す。
+# run_fake <production の JSON> <all-features の JSON> [コミット解決の挙動]: 偽の cargo で JSON を作る経路を流す。
 run_fake() {
   rc=0
-  PATH="${fakebin}:${PATH}" FAKE_TARGET="${work}/faketarget" FAKE_PROD="$1" FAKE_ALL="$2" \
+  PATH="${fakebin}:${PATH}" FAKE_TARGET="${work}/faketarget" FAKE_PROD="$1" FAKE_ALL="$2" FAKE_GIT="${3:-clean}" \
     "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 }
 
+fake_sha="0123456789abcdef0123456789abcdef01234567"
 run_fake "${work}/bad_type.json" "${work}/ok_noref.json"
-judge "build_prod_only_bad" 1 "e:features=production" "e:FAILED: 1 reference(s)" "o:features=production" "o:features=all-features" "!ok: "
+judge "build_prod_only_bad" 1 "e:features=production" "e:FAILED: 1 reference(s)" "o:features=production" "o:features=all-features" "!ok: " \
+  "o:record: commit=${fake_sha} documents=2 " "o:wgpu_type_refs_total=1 "
 run_fake "${work}/ok_noref.json" "${work}/bad_type.json"
-judge "build_all_only_bad" 1 "e:features=all-features" "e:FAILED: 1 reference(s)" "!ok: "
+judge "build_all_only_bad" 1 "e:features=all-features" "e:FAILED: 1 reference(s)" "!ok: " "o:record: commit=${fake_sha} documents=2 "
 run_fake "${work}/ok_noref.json" "${work}/ok_noref.json"
-judge "build_both_ok" 0 "o:ok: 2 public API document(s)" "!violation"
+judge "build_both_ok" 0 "o:ok: 2 public API document(s)" "!violation" "o:record: commit=${fake_sha} documents=2 "
+# 組ごとの件数が対応し、合計に足されること
+run_fake "${work}/count_visibility.json" "${work}/ok_noref.json"
+judge "build_counts_per_set" 0 \
+  "o:scanned: crate=dummy features=production format_version=61 public_items=3 " \
+  "o:scanned: crate=dummy features=all-features format_version=61 public_items=1 " \
+  "o:public_items_total=4 "
+# 変更が在れば -dirty が付く
+run_fake "${work}/ok_noref.json" "${work}/ok_noref.json" dirty
+judge "build_dirty" 0 "o:record: commit=${fake_sha}-dirty documents=2 "
+# コミットが取れなければビルドの前に終了コード 2 で止まる
+for mode in fail-rev fail-status garbage; do
+  run_fake "${work}/ok_noref.json" "${work}/ok_noref.json" "${mode}"
+  judge "commit_${mode}" 2 "e:error: cannot resolve the source commit" "!record: " "!ok: " "!scanned: " "!/fake/host/path"
+done
 
 echo "passed: ${passed}, failed: ${failed}"
 [ "${failed}" -eq 0 ]
