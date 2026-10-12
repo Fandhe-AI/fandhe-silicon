@@ -298,6 +298,43 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 - 集計のテストは公開テストで固定済み。7/8 では不足する経路の洗い出しと追加をする
 - 記録の組み立て・書き出しと複数の試験をまたぐ集計の経路は、現在コード上に存在しない（ポインタ: `docs/spec/05-tasks.md` の TASK-28・TASK-27）
 
+## テストの現状（7/8）
+
+本節はコードと公開テストから観測できる事実だけを書く。先行の節（3/8・5/8・6/8）は書き換えず、本節で述べ直す。
+`crates/*/src` は変えていない。テストの入力はテストの中で組み、既存のテストの期待値は変えていない。環境変数は書き換えない。
+
+### 追加したテスト
+
+| ファイル | 観測できる振る舞い | 確かめ方（テスト名） |
+| -------- | ------------------ | -------------------- |
+| `crates/core/tests/test_frame_end_to_end.rs`（新規。`[[test]]` に `required-features = ["test-support"]`） | 背後実装ごとの宣言から、設定の組み合わせのときだけ本体が走る。1 つの流れから 5 種のラベルが出る。設定なしでは 7 行すべてが `not-run` 1 件。1 つの組み合わせで走らせた結果の表は完全一致。7 通りの設定で流すと各行が `ok` 1・`not-run` 6。`has_ng` は `fails_test` の集計と一致。`parity` の比較結果は `Verdict` へ写して渡す | `each_backend_declares_its_combinations_and_runs_only_there`・`one_flow_yields_all_five_label_kinds`・`unconfigured_run_counts_every_declared_row_as_not_run`・`run_on_one_combination_gives_the_fixed_table`・`seven_runs_give_one_ok_and_six_not_run_per_row`・`has_ng_agrees_with_fails_test_over_the_outcomes`・`flow_with_the_process_environment_never_yields_ng` |
+| `test_frame_types.rs`（追記） | 組み合わせと機材の名前の綴り、7 値の背後実装・機材の対応、上限ちょうどの受理と 1 つ超えの拒否、許可の件数が名前の検査より先に当たる、マクロの複数要素・末尾のカンマ | `combination_and_machine_names_are_fixed_spellings`・`every_combination_has_a_fixed_backend_and_machine`・`combination_name_ends_with_its_machine_name`・`declaration_accepts_exact_limits_and_rejects_one_more`・`count_limit_is_checked_before_permission_names`・`macro_accepts_several_items_and_trailing_commas` |
+| `test_frame_decide.rs`（追記） | 許可の値の件数（16 / 17）と要素の長さ（64 / 65 バイト）の境界、設定が引く名前は 2 つだけ、未設定と空文字の許可は等しい | `permission_count_and_length_boundaries_in_the_setting`・`lookup_is_asked_only_for_the_two_fixed_names`・`unset_and_empty_permissions_give_equal_settings` |
+| `test_frame_label.rs`（追記） | 未実施の 5 つと判定不能の 2 つの理由のトークンの綴り | `reason_tokens_are_fixed_spellings` |
+| `test_frame_outcome.rs`（追記） | 本体の panic が `judge` の外へ伝わる、未実施は判定保留・判定不能より先に当たり本体を呼ばない、`Outcome` が試験と宣言の中身を持つ、件数の検査が ID の検査より先、`judge` と公開側の表を渡した `judge_with_approval` は同じ結果 | `body_panic_propagates`・`not_run_wins_over_pending_and_indeterminate`・`outcome_carries_the_subject_and_declaration_as_given`・`count_limits_are_checked_before_identifier_names`・`judge_agrees_with_judge_with_approval_over_the_public_table` |
+| `test_frame_summary.rs`（追記） | 5 種と 2 桁の件数を含む表の完全一致、同じ試験の ID の `Outcome` は 1 件ずつ数えられる | `table_with_every_kind_and_a_two_digit_count_is_fixed`・`outcomes_with_the_same_test_id_are_each_counted` |
+| `test_frame_identifiers.rs`（追記） | 長さの検査が文字の検査より先、エラーの表示は固定の文 | `length_is_checked_before_characters_and_errors_display_fixed_text` |
+| `crates/contract/tests/test_support_test_frame.rs`（追記） | 別 crate から `declaration!` が呼べる、端から端の表が背後実装の feature に依らず同じ、背後実装の feature ごとの試験がその背後実装の組み合わせだけを宣言して走る | `declaration_macro_is_reachable_from_another_crate`・`end_to_end_table_is_fixed_under_any_backend_feature_set`・`metal_test_declares_on_the_frame`・`vulkan_test_declares_on_the_frame`・`cuda_test_declares_on_the_frame`（後の 3 件は各 `backend-*` feature があるときだけ） |
+
+5/8 の節が「公開テストから到達させていない経路」に挙げた本体の panic は、本段で `body_panic_propagates` により到達させた。
+
+### 公開テストから到達させていないまま残る経路
+
+- `CountOverflow` に至る経路・`LabelCounts::total` の飽和の経路（`usize::MAX` 件の入力が要る）
+- `RunSetting::from_env` が読む実際の環境の値（環境を書き換えない。呼び出しが落ちないことと、可否との整合だけを確かめる）
+- feature が無いときに `test_frame` が見えないこと、`Outcome` を外から組み立てられないこと（コンパイル時の性質）
+
+### 7/8（#98）で決めた点
+
+- `build-profiles` の組・feature・make ターゲット・CI ジョブは増やしていない。contract 側は既存のファイルへの追記で、`crates/core/Cargo.toml` に `[[test]]` を 1 件足した
+- 表の完全一致は意図した固定。表の列・並びを変える PR が、期待値を一緒に直す
+- 記録の組み立て・書き出し、複数の試験をまたぐ集計、device の照合の経路、`Termination` の実装はコード上に無いまま（ポインタ: `docs/spec/05-tasks.md` の TASK-27・TASK-28）
+
+### 8/8（#99）への引き継ぎ
+
+- 完了の条件との照合は #99 が spec 側の記録に当てて行う。照合に使える本リポの事実は、本書の各段のテスト名の表にある
+- 本段のテストが固定するのは、プロセスの中での宣言・ラベル・集計・表の文字列まで。集計の数え方を spec 側の記録に当てる確認も #99 で行う（ポインタ: `docs/spec/05-tasks.md` の TASK-23）
+
 ## 出力の先の記録の所在
 
 - 範囲 (2) の出力の先: `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録（ポインタのみ。本書には書かない）
@@ -311,7 +348,7 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | #95 | 4/8 形の設計（済。本書の「形の設計（4/8）」） |
 | #96 | 5/8 実装（済。本書の「現状の形（5/8）」） |
 | #97 | 6/8 実装（済。本書の「現状の形（6/8）」） |
-| #98 | 7/8 テスト |
+| #98 | 7/8 テスト（済。本書の「テストの現状（7/8）」） |
 | #99 | 8/8 確かめ |
 
 - [parity-tool](./parity-tool.md) と [pixel-parity-tool](./pixel-parity-tool.md) の枠に関する記述は、置き場と範囲 (1) が入った段で現状に直した。接続の記述は、接続が入る PR で更新する。
@@ -331,6 +368,8 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 2026-10-12（5/8。base: `origin/main` の `065bd04`、gitlink: `a7de5c2`）。
 
 2026-10-12（6/8。base: `origin/main` の `ca396fd`、gitlink: `a7de5c2`）。
+
+2026-10-12（7/8。base: `origin/main` の `44e86d1`、gitlink: `b06022e`）。
 
 ## 関連
 

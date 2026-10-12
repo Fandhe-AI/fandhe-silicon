@@ -92,6 +92,28 @@ fn threshold_id_accepts_only_the_canonical_spelling() {
     }
 }
 
+/// 7/8: 検査の順（長さが文字より先）と、エラーの表示が固定の文であること（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+#[test]
+fn length_is_checked_before_characters_and_errors_display_fixed_text() {
+    assert_eq!(
+        TestId::new(&"A".repeat(MAX_TEST_ID_LEN + 1)),
+        Err(IdentifierError::TooLong)
+    );
+    assert_eq!(
+        BehaviorId::new(&"a".repeat(MAX_BEHAVIOR_ID_LEN + 1)),
+        Err(IdentifierError::TooLong)
+    );
+    for e in [
+        IdentifierError::Empty,
+        IdentifierError::TooLong,
+        IdentifierError::InvalidChar,
+    ] {
+        assert_eq!(e.to_string(), e.as_str());
+    }
+    let t = ThresholdIdError::Invalid;
+    assert_eq!(t.to_string(), t.as_str());
+}
+
 #[test]
 fn approval_table_is_empty_in_public_code() {
     assert!(APPROVED_THRESHOLDS.is_empty());
