@@ -82,7 +82,7 @@ cases["count_visibility"] = with_fn(rp(20), {
     "4": item(4, "scoped", {"struct": {}}, vis={"restricted": {"parent": 0, "path": "::dummy"}}),
     "5": item(5, "ext", {"struct": {}}, crate_id=1),
 })
-cases["ok_tuple_null"] =with_fn({"struct": {"kind": {"tuple": [None, 1]}}})
+cases["ok_tuple_null"] = with_fn({"struct": {"kind": {"tuple": [None, 1]}}})
 for tag, nm in (("my_wgpu", "my_wgpu"), ("nagano", "nagano")):
     d = with_fn(rp(10))
     d["external_crates"]["1"]["name"] = nm
@@ -270,7 +270,7 @@ fi
 run_check --json "${work}/ok_noref.json" "${work}/count_visibility.json"
 judge "two_files_totals" 0 "o:record: commit=- documents=2 public_items_total=4 wgpu_type_refs_total=0 wgpu_other_refs_total=0"
 if [ "$(tail -n 2 "${OUT_F}" | head -n 1 | cut -c1-8)" = "record: " ] \
-  && [ "$(tail -n 1 "${OUT_F}" | cut -c1-4)" = "ok: " ] &&[ "$(grep -c '^record: ' "${OUT_F}")" = "1" ]; then
+  && [ "$(tail -n 1 "${OUT_F}" | cut -c1-4)" = "ok: " ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "1" ]; then
   report_ok "record_before_ok"
 else
   report_fail "record_before_ok" "last two stdout lines must be record then ok"
