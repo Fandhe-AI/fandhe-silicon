@@ -21,7 +21,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 - 記録の書式の定義（型・欄）と、それを出す道具・形の検査は、受け持つタスクの PR で公開テストとともに入れる（ポインタ: TASK-27。関連: TASK-19・TASK-23）
 - 書式の中身は、その PR のコードとテストが示す
-- 回ごとの記録の形は [metal-run-procedure](metal-run-procedure.md) の「記録の書式（3/4）」を指す
+- 回ごとの記録の形は [metal-run-procedure](metal-run-procedure.md) の「3. 回の記録を作って形を確かめる」の節を指す
 
 ## 関連
 

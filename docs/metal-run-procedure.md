@@ -1,191 +1,156 @@
-# Metal の実機での試験の実行手順（TASK-19）の現状と前提・実行手順
+# Metal の実機での試験の実行手順（TASK-19）
 
-TASK-19（親 Issue #76）について、着手時点（1/4・#77）の現状と前提、および実行手順（2/4・#78）・記録の書式（3/4・#79）・完了の条件の確かめ（4/4・#80）を、本リポで公開済みの事実・手順・ポインタだけで記録する。
+Metal の実機（Mac mini）の上で試験を流す回の手順と、手順を助けるスクリプトの振る舞いを案内する。
+書くのは、本リポのスクリプトと回帰テストが示す振る舞いと、決定の所在のポインタだけ。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
-## 記録の所在
+## 所在
 
 | 項目 | 所在 |
 | ---- | ---- |
-| タスクの中身と決定の記録 | private spec 側（`docs/spec/05-tasks.md` の TASK-19 と、そこから辿る決定の記録）。本リポには決定の内容・理由・経緯を置かない |
-| 本リポの `docs/spec` の gitlink | `a7de5c2`（`update = none`。3/4 の base で `git ls-tree` により確認。1/4 の時点は `0621b49`） |
-| gitlink の更新 | `update-external.yml` の PR 経由。本作業では進めない |
+| タスクの中身と決定の記録 | private spec 側（`docs/spec/05-tasks.md` の TASK-19・TASK-28）。本リポには決定の内容・理由・経緯を置かない |
+| 手順を助けるスクリプト | `scripts/metal-session.sh`（`probe` / `run` / `redact` / `scan`）。回帰テストは `scripts/test-metal-session.sh`（`make test-metal-session`） |
+| 回ごとの記録の形の検査 | `scripts/session-record-check.sh`。回帰テストは `scripts/test-session-record-check.sh`（`make test-session-record-check`）。記入例は [session-record.example.json](./session-record.example.json) |
+| 実機の試験の CI での扱い | [ci-job-split](./ci-job-split.md) |
 | 完了の条件との対応づけの記録 | spec 側が正。本リポからは書き換えない |
 
-## 前提タスクの状態
-
-| 前提 | 状態 | 根拠 |
-| ---- | ---- | ---- |
-| TASK-18（CI の分け方） | 済 | Issue #72 が CLOSED、PR #7048 がマージ済み。現状は [ci-job-split](./ci-job-split.md)。決定の内容は書かない（正は spec 側） |
-
-## 着手時点の本リポの事実
-
-| 項目 | 事実 | 確かめ方 |
-| ---- | ---- | -------- |
-| Metal の背後実装 | `crates/contract/src/backend_metal.rs` は骨格のみ（6 行）。feature `backend-metal` の裏。`artifact-inspection` が `backend-metal` を要求する | `wc -l crates/contract/src/backend_metal.rs`、`crates/contract/Cargo.toml` |
-| 外部依存 | workspace の member 4・パッケージ 4（外部依存 0） | `cargo metadata --format-version 1 --all-features --locked` の集計 |
-| `backend-metal` を含む feature の組 | `scripts/build-profiles.sh` に 4 か所 | `grep -n backend-metal scripts/build-profiles.sh` |
-| CI | GPU・self-hosted のジョブは無い。`macos-latest` は `test-hooks` の matrix だけ。表は複製せず [ci-job-split](./ci-job-split.md) を指す | `.github/workflows/ci.yml` の `runs-on` |
-| 実機が要るテストの分離 | `#[ignore]` は 0 件 | `grep -rn '#\[ignore' crates` |
-| 実行手順・記録の書式を扱うスクリプト | 1/4 の時点では無かった。3/4 で記録の形の検査が入った（「記録の書式（3/4）」の節） | `ls scripts scripts/hooks` |
-| 記録の置き場 | `records/` ディレクトリは無い | `ls -d records` |
-| 既にある書式の文書 | [wgpu-baseline-record](./wgpu-baseline-record.md)・[measurement-record](./measurement-record.md)（TASK-19 の書式は 0 件） | `ls docs` |
-| 既存の文書の言及 | [ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[test-frame](./test-frame.md) に ID のポインタがある | `git grep -n "TASK-19" -- docs README.md CLAUDE.md` |
-
-## 関連タスクの状態
-
-状態は 2026-10-12 時点の `gh issue view` による。向きや関係の説明は書かない。
-
-| 関連 | Issue | 状態 |
-| ---- | ----- | ---- |
-| TASK-18 | #72 | CLOSED |
-| TASK-20 | #81 | OPEN |
-| TASK-21 | #86 | OPEN |
-| TASK-23 | #91 | OPEN |
-| TASK-27 | #121 | OPEN |
-| TASK-28 | #130 | CLOSED |
-| TASK-110 | #391 | OPEN |
-| TASK-112 | #393 | OPEN |
-| TASK-2943 | #396 | OPEN |
-
-## 後続で扱う論点
-
-名前だけを挙げる。推奨案・答えは本書に書かない。
-
-- 手順を助けるスクリプトの要否と `scripts/`・`Makefile` の規約
-- CI との関係
-- 確かめの方法
-
-決定の記録は spec 側にあり、後続はそれに従う。
-
-## 実行手順（2/4）
-
-実機の上で試験を流すセッションが読む手順の入口。決定の所在は private spec 側（`docs/spec/05-tasks.md` の TASK-18・TASK-19・TASK-28 と、そこから辿る決定の記録）。
-本リポのコードと公開テストで裏付けられていない具体（集計値・取得コマンド・採る時点・持ち帰りの手順・書かないものの一覧など）は、実装と公開テストの PR まで本書に書かない。実行のときは spec 側の決定の記録に従う。
-
-### 適用範囲と前提
-
-- 対象は Metal の実機（Mac mini）で流す試験。実機の試験は CI に載っていない（事実は [ci-job-split](./ci-job-split.md)）
-- 本書は手で流す手順の枠。対応するスクリプトが本リポに入った PR で、該当の手順をそのスクリプトの呼び出しに置き換える
-- 記録の形は「記録の書式（3/4）」の節が指すスクリプトと回帰テストが示す。本書は欄を列挙しない
-
-### 役割
+## 役割
 
 実機に届く端末で開いたセッションが流す。自動実装のホストからは実機へ接続しない。
 
 | 作業 | 担当 |
 | ---- | ---- |
-| 専有の許可、時間帯の決定、回のあいだ止めるものを止める | オーナー |
+| 専有の許可、時間帯の決定、回のあいだ止めるものを止める、低電力モードの切り替え | オーナー |
 | 導入・設定の変更・管理者権限の操作 | オーナー（本手順に含まない） |
-| 準備・専有の確かめ・実行・記録・持ち帰り | セッション |
+| 値の取得・試験の実行・記録の作成と検査・置き換えと検索・持ち帰り | セッション |
 
-### 着手前の確認
+`metal-session.sh` は設定を変えず、プロセスを止めず、`xcode-select` を呼ばない。読む・起動する・別のファイルへ書く、だけを行う。
+
+## 手順
+
+### 1. 回の前
 
 1. 専有の許可と時間帯を、回のたびにオーナーへ確かめる
-2. 流す対象の commit を決め、worktree が clean であること
-3. 確かめの結果の置き先は spec 側（形の検査は「記録の書式（3/4）」の節）
-
-どれかが満たせないときは始めない。専有の確かめの方法と、準備・実行の規則・持ち帰りは、spec 側の決定の記録（TASK-19・TASK-28）に従う。
-
-### 実行のコマンド
-
-本リポで今確かめられる範囲だけを挙げる。
+2. 流す対象の commit を決め、worktree が clean であることを確かめる
+3. オーナーが止めるものを止めたことを確かめる。常駐プロセスと GUI のログインの状態は、スクリプトが取らない人の記入欄（下の `not_probed`）
+4. 環境の値を取る
 
 ```sh
-cargo test -p fandhe-silicon-contract --features backend-metal
+scripts/metal-session.sh probe > probe.json
 ```
 
-- 現状の `backend_metal.rs` は骨格のみで、実機でしか確かめられない動作の試験はまだ無い。実機での動作の証拠は、そうした試験が入った PR で手順に足す
-- feature の組は `scripts/build-profiles.sh` を指す
-- 試験の枠が読む設定は、枠の実装の PR のコードとテストが示す（TASK-23・[test-frame](./test-frame.md)）
-- コンパイルの成功を、実機での動作の証拠にしない
+`probe` は macOS の上でだけ動く（それ以外は終了コード 2。JSON を出さない）。読むだけのコマンドを 4 つ呼び、必要な数値と決まった語だけを正規表現で取り出して JSON にする。
+コマンドの出力は全文を流さないので、ホスト名・ユーザー名・プロセス名・識別子は出力に現れない。
+
+| キー | 型 | 取り出し元 |
+| ---- | -- | ---------- |
+| `low_power_mode` | 真偽 | `pmset -g` の `lowpowermode`（0 / 1 のときだけ） |
+| `sleep_minutes` | 整数 | `pmset -g` の `sleep` |
+| `display_sleep_minutes` | 整数 | `pmset -g` の `displaysleep` |
+| `disk_sleep_minutes` | 整数 | `pmset -g` の `disksleep` |
+| `power_source` | `ac` / `battery` / `ups` | `pmset -g batt` の先頭の `Now drawing from` の行 |
+| `thermal_warning_recorded` | 偽 | `pmset -g therm` に「警告の記録なし」の注記があるときだけ偽。注記が無ければ言い切れないので null |
+| `load_average` | 数 3 つ | `sysctl -n vm.loadavg` |
+| `unavailable` | 文字列の配列 | 取れなかった値のキー名 |
+| `not_probed` | 文字列の配列 | 取らない欄（`resident_process_stopped`・`gui_login_state`）。人が記入する |
+
+取れなかった値は null にして `unavailable` に名前を並べ、標準エラーに `warning: N value(s) unavailable` を出す（終了コードは 0）。既定値で埋めない。
+`low_power_mode` は回ごとの記録の同名の欄と同じ型（真偽）。
+
+### 2. 流す
+
+```sh
+scripts/metal-session.sh run --combination metal-mac-mini \
+  --developer-dir <Xcode の Developer ディレクトリ> \
+  -- cargo test -p fandhe-silicon-contract --features backend-metal
+```
+
+| 引数 | 意味 |
+| ---- | ---- |
+| `--combination <name>` | 必須。環境変数 `FANDHE_SILICON_TEST_MACHINE_COMBINATION` に渡す。既定値を持たず、呼び出し側の環境の同名の変数も読まない。文字種は `[a-z0-9-]`・64 バイト以下 |
+| `--permissions <csv>` | 付けたときだけ環境変数 `FANDHE_SILICON_TEST_PERMISSIONS` を設定する。付けないときは、呼び出し側の環境に同名の変数があっても取り除く。名前は `[a-z0-9-]`（64 バイト以下・16 個まで）をカンマで区切る。空は拒否 |
+| `--developer-dir <dir>` | `DEVELOPER_DIR` に渡す。省略時は呼び出し側の環境の `DEVELOPER_DIR`。どちらも無い・絶対パスでない・実在するディレクトリでないときは起動しない。既定の開発者ディレクトリは切り替えない |
+| `--caffeinate` | 付けたときだけ `caffeinate -i` の下で起動する |
+| `--` 以降 | 起動するコマンドと引数。配列のまま `exec` する（連結も `eval` もしない）。終了コードは起動したコマンドのもの |
+
+- 環境変数の名前と受ける値は `crates/core/src/test_frame/setting.rs` が定める。試験の枠は `FANDHE_SILICON_TEST_MACHINE_COMBINATION` が未設定のとき「未実施」を返し、`FANDHE_SILICON_TEST_PERMISSIONS` が未設定のとき許可は 0 件として扱う（公開テスト: `crates/core/tests/test_frame_decide.rs` の `unset_combination_is_not_configured`・`unset_and_empty_permissions_mean_none_granted`）。試験の枠の現状は [test-frame](./test-frame.md)
+- 組み合わせの名前が枠の知らない値のときは、`run` は通しても枠が走らせない側に倒す。名前の正は `crates/core/src/test_frame/combination.rs`
+- feature の組は `scripts/build-profiles.sh` を指す。コンパイルの成功を、実機での動作の証拠にしない
 - 受け取った文字列をコマンドに連結しない。値は引用する
 
-### 記録と持ち帰り
+### 3. 回の記録を作って形を確かめる
 
-- 回ごとの記録は、持ち帰る前に `scripts/session-record-check.sh <path>` で形を確かめる（終了コード 0 が合格）。欄は本書に書かず、検査のコードが示す。決定の所在は TASK-28 の決定の記録から辿る先
+回ごとの記録は JSON 1 ファイル。欄の一覧と値の形の正は `scripts/session-record-check.sh` の定数表で、本書には複製しない（記入例は値がすべてダミー）。
+
+```sh
+scripts/session-record-check.sh <記録のパス>
+```
+
+- 終了コード 0 が合格、1 が違反、2 が誤用・前提の不足
+- 形（欄の集合・型・値の形）だけを見る。専有が成り立ったか、採るかどうかは見ない
+- 入力の値と、表に無い欄の名前は出力に出さない
+
+### 4. 持ち帰る前の置き換えと検索
+
+持ち帰るテキスト（ログなど）は、機材の側で置き換えてから持ち出す。
+
+```sh
+scripts/metal-session.sh redact <語の一覧> <入力> <出力>
+scripts/metal-session.sh scan <語の一覧> <ファイル>...
+```
+
+- 語の一覧は機材の側に置き、git に入れない。1 行に 1 語（UTF-8・BOM なし・1 MiB 以下）。空行は読み飛ばす。リポジトリの中のファイル（リンク先を含む）は拒否する
+- 一覧が空・空行だけ、空白だけの行がある、語が置き換えの印に含まれる、のいずれかも拒否する（終了コード 2）
+- 語は固定の文字列で、正規表現として解釈しない。大文字小文字を区別するので、表記の揺れは別々の語として並べる。重なる語は長い方を先に置き換える
+- `redact` は印 `<redacted>` に置き換えて、入力とは別の新しいファイル（権限 600）へ書く。出力が既に在る（リンクを含む）・出力の置き場が無いときは何も書かずに終了コード 2 で終わる。置き換えの結果に語が残る場合（印との境目で語ができる場合）は、書かずに終了コード 1 で終わる。バイナリ・UTF-8 でない入力・通常ファイルでない入力・64 MiB を超える入力は終了コード 1
+- `scan` は 1 つ以上のファイルに語が残っていないことを確かめる。残っていれば終了コード 1。バイナリを含むファイルも対象にする
+- 標準出力・標準エラーに語は出ない。出すのは件数と、ファイルの順番と行番号（20 行まで）だけ
+
+### 5. 戻し方
+
 - 値を含む記録は spec リポ側への PR で戻す。本リポの Issue・PR には「流した事実」と「記録の正は spec 側」のポインタだけを書く
 - バイナリは git に入れない
 - 実ホスト名・アドレス・資格情報などの秘密情報は書かない（[security](../.claude/rules/security.md)）
 
-## 記録の書式（3/4）
+## 振る舞いと回帰テスト
 
-回ごとの記録（専有の確かめと時間帯の調整の記録）の形は、本リポのスクリプトと回帰テストが示す。欄の一覧は本書に複製しない（正は `scripts/session-record-check.sh` の定数表）。欄の意味と決定の所在は spec 側（ポインタ: TASK-19・TASK-28）。
+`make test-metal-session` のケース名の接頭辞と、`make test-session-record-check` のケース名の接頭辞で示す。
 
-### 現状の形
+| 振る舞い | 確かめるケース |
+| -------- | -------------- |
+| `probe` が決まった入力から決まった JSON を出す | `probe: values from fixed input` |
+| コマンドが混ぜた余計な文字列を出力に出さない | `probe: noise from commands not echoed` |
+| 取れない値・範囲外の値を null と一覧で示す | `probe: ... unavailable`・`probe: all values null and listed` |
+| 読むだけのコマンドしか呼ばない | `probe: only read-only queries issued`・`probe: never calls xcode-select` |
+| macOS 以外では 0 を返さない | `probe: non-macOS fails` |
+| `run` が環境変数と `DEVELOPER_DIR` を子に渡す | `run: env reaches child`・`run: env developer dir reaches child` |
+| 組み合わせの既定を持たない | `run: no default combination even if the caller's env has one` |
+| 許可は明示したときだけ渡す | `run: caller's permissions not passed on`・`run: permissions passed when given` |
+| `DEVELOPER_DIR` が実在しないときは起動しない | `run: missing developer dir`・`run: developer dir required`・`run: child not started ...` |
+| `xcode-select` を呼ばない | `run: never calls xcode-select` |
+| 終了コードの伝播 | `run: child exit code propagates`・`run: exit code propagates through caffeinate` |
+| 空白・`;`・`$()` を含む引数が 1 つの引数のまま渡る | `run: odd arguments arrive as single arguments`・`run: nothing was evaluated` |
+| 不正な値・引数を拒否する | `run: bad combination ...`・`run: bad permissions ...`・`run: unknown option` |
+| `redact` が置き換え、入力を変えない | `redact: replaces words`・`redact: input is not modified` |
+| 既存の出力を上書きしない | `redact: existing output is not overwritten`・`redact: output symlink is refused` |
+| 語が固定の文字列として扱われる | `redact: words are fixed strings, not regexes`・`scan: regex characters in words are literal` |
+| 置き換えの後に語が残るなら書かない | `redact: a word formed at the mark boundary is refused`・`scan: finds remaining words` |
+| 出力に語が出ない | `redact: replaces words`・`scan: finds remaining words` |
+| 空の一覧・リポジトリの中の一覧の拒否 | `words: empty list refused`・`words: file inside the repository refused`・`words: symlink into the repository refused` |
+| 入力の種類と大きさの拒否 | `input: ...` |
+| 環境変数の名前と組み合わせの名前が Rust 側と揃う | `sync: ...` |
+| 回ごとの記録の形の検査 | `scripts/test-session-record-check.sh` の `set:`・`type:`・`form:`・`word:`・`input:`・`misuse:`・`secret:`・`sync:` |
 
-| 項目 | 事実 | 確かめ方 |
-| ---- | ---- | -------- |
-| 入口と実行環境 | `scripts/session-record-check.sh <path>`。make ターゲットは持たない（引数が要るため）。bash 3.2 互換・Python 3.8 以上の標準ライブラリだけ | スクリプトの先頭コメント |
-| 入力 | JSON 1 ファイル（通常ファイル・1 MiB 以下・BOM なしの UTF-8・トップレベルはオブジェクト） | 回帰テストの `input:` のケース |
-| 終了コード | 0 合格 / 1 違反 / 2 誤用・前提の不足（パスが無い場合を含む） | 回帰テストの `misuse:` のケース |
-| 欄の集合の検査 | 表にある欄がすべてあり、ほかの欄・重複した欄が無いこと | 回帰テストの `set:` のケース |
-| 値の形の検査 | 型・語の形・時刻の形・版・`machine` の受ける値 | 回帰テストの `type:`・`form:`・`word:` のケース |
-| 値の一覧を検査していない欄 | 2 欄は語の形だけを見る | 定数表の `word`、回帰テストの `word:` のケース |
-| 出力 | 入力の値と、表に無い欄の名前を出さない | 回帰テストの `secret:` のケース |
-| 記入例 | [session-record.example.json](./session-record.example.json)（値はすべてダミー）。回帰テストが合格を確かめる | `scripts/session-record-check.sh docs/session-record.example.json` |
-| 回帰テストと CI | `make test-session-record-check`。CI は既存の `deny` ジョブが呼ぶ（check 名は増えない） | `.github/workflows/ci.yml` |
-| 入れていないもの | 欄どうしの前後関係、run ごとの記録との突き合わせ、低電力モードの値による採否 | スクリプトの先頭コメント |
+## 確かめ方
 
-### 実装で決めた形
+```sh
+make test-metal-session
+make test-session-record-check
+scripts/session-record-check.sh docs/session-record.example.json
+```
 
-版の値・ID の形・時刻の形・`machine` の受ける値は、コードの定数が示す。綴りは実装で決めたもので、`machine` は `crates/core/src/test_frame/combination.rs` の `Machine::name` と揃える（回帰テストの `sync:` のケース）。
-
-値の一覧を検査していない欄がある（検査の定数表で、値の形だけを見る欄）。所在は `docs/spec/05-tasks.md` の TASK-19・TASK-28（ポインタのみ）。
-
-### 4/4（#80）への引き継ぎ
-
-#80 が本リポで観測できる事実で確かめる対象は、スクリプト・回帰テスト・CI のステップ・記入例の所在。確かめた結果は次の「完了の条件の確かめ（4/4）」に記録した。実機で流した記録の置き先は spec 側で、本リポでは確かめない。
-
-## 完了の条件の確かめ（4/4）
-
-本リポで観測できる事実だけで確かめた結果。コマンドは worktree のルートで実行した。条件の本文は転記しない（正は `docs/spec/05-tasks.md` の TASK-19。ポインタのみ）。
-
-| 確かめる項目 | 方法 | 結果 |
-| ------------ | ---- | ---- |
-| 手順書がある | 本書の「実行手順（2/4）」の節。`README.md`・`CLAUDE.md` に入口の行がある | 確かめた |
-| 手順書のコマンドが実機なしで走る | `cargo test --locked -p fandhe-silicon-contract --features backend-metal`（Linux のホスト） | 通過（失敗 0）。コンパイルと実機の要らない試験まで。実機での動作の証拠ではない |
-| 記録の形の検査があり、記入例が合格する | `scripts/session-record-check.sh docs/session-record.example.json` | 終了コード 0 |
-| 誤用を成功扱いにしない | 同スクリプトを引数なし・存在しないパスで実行 | どちらも終了コード 2 |
-| 回帰テストが通る | `make test-session-record-check` | passed 89・failed 0 |
-| `machine` の綴りがコードと揃う | 回帰テストの `sync:` のケース | 通過 |
-| 出力に入力の値を出さない・入力を変えない | 回帰テストの `secret:`・`invariant:` のケース | 通過 |
-| CI が回帰テストを呼ぶ | `.github/workflows/ci.yml` の `deny` ジョブのステップ。check 名・`ci-complete` の `needs` は不変 | 確かめた |
-| 入口の記述がそろっている | `Makefile`・`scripts/help.sh`・`scripts/doctor.sh`・`README.md`・`CLAUDE.md`・`.claude/rules/makefile.md`・`.claude/rules/github-actions.md` | すべてに言及がある |
-| 記録の実物を本リポに置いていない | `git ls-files '*.json'`・`ls -d records` | 記入例（ダミー値）だけ。`records/` は無い |
-| 製品のコード・依存・`unsafe` を変えていない | TASK-19 の 3 本のコミット（`c161543`・`5e4a129`・`7ea843c`）の変更ファイル、`make deps-check` | `crates/` の変更なし。終了コード 0 |
-| 実機の試験は CI に載っていない | `ci.yml` の `runs-on`（[ci-job-split](./ci-job-split.md)） | 実機・self-hosted のジョブなし |
-| `#[ignore]`・骨格の現状 | `grep -rn '#\[ignore' crates`・`wc -l crates/contract/src/backend_metal.rs` | 0 件・6 行（1/4 から変化なし） |
-| 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。PR の CI は未検証（PR 作成前） |
-| macOS（bash 3.2）での回帰テスト | CI は ubuntu の `deny` ジョブだけが呼ぶ | 未検証 |
-| 実機で流した回の記録 | 置き先と記録の正は spec 側 | 本リポでは確かめていない |
-| spec の完了の条件との照合 | 記録の正は private spec 側（TASK-19 の状態） | 本書では行っていない |
-
-- 判定: 本リポで観測できる範囲では、上の項目を確かめられた（未検証・本書で行っていない行を除く）。TASK-19 の完了は本書では宣言しない。完了の条件との対応づけの記録の正は private spec 側
-- 再実行の契機: `scripts/session-record-check.sh`・回帰テスト・記入例・`ci.yml` の `deny` ジョブ・`Machine::name` の変更、`docs/spec` の gitlink の更新、実機でしか確かめられない試験が入ったとき
-
-## 後続の分担
-
-| Issue | 段 |
-| ----- | -- |
-| #78 | 2/4 手順書の作成（本書の実行手順） |
-| #79 | 3/4 記録の書式（形の検査・回帰テスト・記入例） |
-| #80 | 4/4 確かめ（済。「完了の条件の確かめ（4/4）」に記録） |
-
-- spec の完了の条件との照合は本書では行っていない。
-- 手順のスクリプト（開発者ディレクトリの指定・試験の枠の設定・置き換えの道具）は #78〜#80 の範囲に明記が無い。記録の形の検査は 3/4 の範囲で入った。
-- 親 #76 の「進み具合を spec に記録する」は spec リポ側の作業。
-
-## 確かめた日付
-
-2026-10-12（1/4。base: `origin/main` の `bf2cf48`、gitlink: `0621b49`）。
-
-2026-10-12（2/4。base: `origin/main` の `dcd2237`、gitlink: `a7de5c2`）。
-
-2026-10-12（3/4。base: `origin/main` の `0975b66`、gitlink: `a7de5c2`）。
-
-2026-10-12（4/4。base: `origin/main` の `065bd04`、gitlink: `a7de5c2`）。
+`scripts/metal-session.sh` を変更したら `make test-metal-session` を通す。CI は `deny` ジョブと `test-hooks` ジョブ（macOS の bash 3.2 を含む）が呼ぶ（check 名は増えない。[ci-job-split](./ci-job-split.md)）。
 
 ## 関連
 
-[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[inventory-trace-check](./inventory-trace-check.md)・[wgpu-baseline-record](./wgpu-baseline-record.md)・[test-frame](./test-frame.md)・[baseline-wgpu](./baseline-wgpu.md)・[workspace-boundary](./workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[procedure](./contract/procedure.md)・[security](../.claude/rules/security.md)
+[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[test-frame](./test-frame.md)・[security](../.claude/rules/security.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
