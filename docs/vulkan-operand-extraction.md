@@ -1,6 +1,7 @@
 # Vulkan の成果物からオペランドの宣言を取り出す道具（TASK-98）の現状・前提・方針・形（案）
 
 TASK-98（親 Issue #387）について、現状と前提（1/6、#3530）・方針（2/6、#3531）・形（3/6、#3532）を、本リポで公開済みの事実とポインタだけで記録する。
+5/6（#3534）で、別 crate からの統合テストと境界のテストを足した（「公開テスト（5/6）」節）。
 spec の本文・PoC の方式と結果は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-98 と `docs/spec/03-poc/kernel-artifacts-and-parity/` を参照する（ポインタのみ）。
@@ -94,6 +95,8 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 
 回答の形: 「Q1〜Q6 とも推奨で」または「Qn は (x)」。
 
+5/6（#3534）は仮置きの形をテストで固定したが、形が決まったとは扱わない。
+
 ## 別案に決まったときに変わる箇所
 
 | 論点 | 別案 | 変わる箇所 |
@@ -119,7 +122,41 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 - 対象外の形は `SpirvExtractError::Unsupported` で返す（bool・vector・matrix・struct の要素、block の配列、`Uniform` + `BufferBlock`、メンバーの並びが違う block、8 の倍数でないビット幅、定数でない配列の長さ、`ArrayStride` が 0）。
 - 入力の拒否: ヘッダーに満たない・マジック違い・逆のバイト順のマジック・語数 0 の命令・残りを超える命令・オペランド不足・未定義の id・装飾の欠落・定義の重複・（set, binding）の重複・大きさの溢れ。panic しない。
 - `unsafe`: 0。`#![forbid(unsafe_code)]` を置き、`crates/contract/tests/backend_vulkan_unsafe_count.rs` の期待値の表に個数 0 の行を足した。
-- 走るテスト: 同じファイルの単体テスト（語の列をテストコードの中で組み立てる。バイナリ・外部の道具に依らない）。`make verify` と `make build-profiles` の `backend-vulkan,test-support` の組で走る。境界の網羅と統合テストは 5/6（#3534）。
+- 走るテスト: 同じファイルの単体テストと、`crates/contract/tests/backend_vulkan_spirv_operands.rs` の統合テスト（語の列をテストコードの中で組み立てる。バイナリ・外部の道具に依らない）。統合テストは `required-features = ["backend-vulkan", "test-support"]` で、`make verify`（全 feature）と `make build-profiles` の `backend-vulkan,test-support` の組・全 feature の組で走る。ほかの組では対象外になる。
+
+## 公開テスト（5/6。未承認の仮置き）
+
+別 crate（`tests/` 配下）から公開の入口だけで確かめる。入力はテストコードの中で組み立てた語の列で、命令・装飾・storage class の番号は SPIR-V の公開の仕様のものをテスト側で独立に持つ。仮置きの形をテストで固定したが、形が決まったとは扱わない。
+
+| 観測できる振る舞い | 確かめ方（`crates/contract/tests/backend_vulkan_spirv_operands.rs`） |
+| ------------------ | ------------------------------------------------------------------- |
+| 別 crate から入口に届き、ヘッダーだけのモジュールは空の列を返す | `tool_is_reachable_from_another_crate` |
+| 要素の型・固定長と runtime・stride の有無を混ぜた宣言が、外で組んだ期待値と `==` で一致する | `extracted_operands_equal_expected_declarations` |
+| 並びが（set, binding）の昇順になる | `order_is_by_set_then_binding` |
+| 道具が読まない命令や対象でない変数が混ざっても、storage buffer だけが返る | `compiler_like_module_yields_only_storage_buffers` |
+| 型を共有する変数もそれぞれ返る | `variables_sharing_types_are_each_extracted` |
+| 浮動小数点・整数の幅と符号が `ScalarKind` と要素のバイト数に写る | `scalar_kinds_and_element_bytes` |
+| runtime array は `Unsized` で、0 にならない | `runtime_array_is_unsized_never_zero` |
+| 固定長は長さ × stride。最大の長さと stride でも溢れず `Fixed` で返る | `fixed_length_is_count_times_stride`、`largest_length_and_stride_do_not_overflow` |
+| 長さの符号付き・符号なしの境界と 0 | `signed_length_boundaries` |
+| 長さが素の定数でない形は `LengthNotConstant`（長さの id が未定義でもこの形） | `length_that_is_not_a_plain_constant_is_rejected` |
+| stride の 0・要素より小さい・無いときの扱い | `stride_boundaries` |
+| 5 語に満たない入力は長さの検査が先に効く。マジック違いと逆のバイト順 | `inputs_shorter_than_header`、`magic_is_checked_after_length` |
+| 全部の接頭辞が panic せず分類される（命令の途中は位置・語数・残りが付く） | `every_prefix_is_classified_without_panic` |
+| 語数 0・残りを超える語数 | `zero_word_count_reports_its_offset`、`word_count_beyond_the_module` |
+| 道具が読む命令のオペランド不足が位置と opcode の付いたエラーになる。値の要らない装飾と知らない装飾は受理される | `too_few_operands_for_each_instruction_the_tool_reads` |
+| 各位置の語を差し替えた入力で panic せず、成功なら（set, binding）が狭義の昇順、失敗なら表示が空でない ASCII | `single_word_corruption_never_panics` |
+| 未定義の id・pointer でない型・set か binding の欠落 | `undefined_ids_are_reported`、`variable_type_that_is_not_a_pointer`、`missing_set_or_binding` |
+| 装飾・定義の重複、（set, binding）の重複、storage class の食い違い（両方向） | `duplicate_decorations_are_rejected`、`duplicate_binding_reports_set_and_binding`、`storage_class_mismatch_in_both_directions` |
+| `UnsupportedShape` の各 variant に外から届く（`non_exhaustive` のため網羅は機械で確かめられず、表は手で保つ） | `unsupported_element_shapes_are_reported`、`unsupported_block_shapes_are_reported`、`unsupported_other_types_are_reported`、`unsupported_legacy_buffer_block_is_reported`、`unsupported_length_and_stride_shapes_are_reported`、`decoration_groups_are_rejected_with_the_group_id` |
+| 対象でない storage class の変数（push constant を含む）と `Uniform` + `Block` はエラーにせず外れる | `non_storage_buffer_variables_are_skipped` |
+| エラーが `std::error::Error` で、表示が空でない ASCII の 1 行 | `errors_are_std_errors_with_ascii_display` |
+
+テストで固定した現状の事実（判断ではない）。
+
+- `SpirvExtractError::SizeOverflow` は公開の入口からは届かない（`u32` どうしの積は `u64` に収まる）。最大の積が `Fixed` で返ることは上の表で固定している。variant の扱いは本 Issue では決めない
+- `BadMagic` の表示は渡された先頭の語を含む
+- ビット幅は 8 の倍数なら上限なく受理する
 
 ## 後続の分担
 
@@ -127,12 +164,12 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 | -- | ----- | ------------ |
 | 3/6 形の設計 | #3532 | 本書の「形の設計」節（F1〜F14。Q1〜Q6 は未回答のため未承認の仮置きを含む） |
 | 4/6 実装 | #3533 | F1〜F10・F12 の実装。入力の検証を security-auditor がレビューする。回答が仮置きと違えば下の節に従って直す |
-| 5/6 テスト | #3534 | F13。D4・D5 の境界（切れた入力・不正な語数・決まらない量）を公開テストで固定する |
+| 5/6 テスト | #3534 | F13。D4・D5 の境界（切れた入力・不正な語数・決まらない量）を公開テストで固定する。結果: `crates/contract/tests/backend_vulkan_spirv_operands.rs`（済） |
 | 6/6 確かめ | #3535 | 本リポで観測できる事実による確かめの記録。完了の条件との対応づけの正は private spec 側 |
 
 ## 確かめた日付
 
-2026-10-12（base: `d8e06a1`）。
+2026-10-12（base: `d8e06a1`）。5/6 は 2026-10-12（base: `23c4e0b`）。
 
 ## 関連
 
