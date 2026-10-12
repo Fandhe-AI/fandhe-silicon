@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -49,6 +49,9 @@ inventory-trace-check: ## 一覧の鍵が項目ファイルに現れるかを検
 
 test-inventory-trace-check: ## scripts/inventory-trace-check.sh 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要・docs/spec の取得は不要）。直接: scripts/test-inventory-trace-check.sh
 	@scripts/test-inventory-trace-check.sh
+
+test-session-record-check: ## scripts/session-record-check.sh 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るので make ターゲットを持たない（直接: scripts/session-record-check.sh <path>）。直接: scripts/test-session-record-check.sh
+	@scripts/test-session-record-check.sh
 
 test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh
 	@scripts/hooks/test-hooks.sh
