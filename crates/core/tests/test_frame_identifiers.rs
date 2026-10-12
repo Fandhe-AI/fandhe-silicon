@@ -93,27 +93,13 @@ fn threshold_id_accepts_only_the_canonical_spelling() {
 }
 
 #[test]
-fn approval_table_content_is_fixed() {
-    assert_eq!(
-        APPROVED_THRESHOLDS,
-        [
-            "t-1", "t-2", "t-3", "t-4", "t-5", "t-6", "t-7", "t-8", "t-9", "t-10", "t-11", "t-15",
-            "t-16", "t-17"
-        ]
-    );
-    // 表の各 ID は正規の綴りで、重複しない。
-    for (i, n) in APPROVED_THRESHOLDS.iter().enumerate() {
-        assert!(ThresholdId::new(n).is_ok());
-        assert!(!APPROVED_THRESHOLDS[..i].contains(n));
-    }
+fn approval_table_is_empty_in_public_code() {
+    assert!(APPROVED_THRESHOLDS.is_empty());
 }
 
 #[test]
 fn only_ids_in_the_table_are_approved() {
-    for n in APPROVED_THRESHOLDS {
-        assert!(ThresholdId::new(n).unwrap().is_approved(), "{n}");
-    }
-    for n in ["t-12", "t-13", "t-14", "t-18", "t-100", "t-999"] {
+    for n in ["t-1", "t-12", "t-13", "t-100", "t-999"] {
         assert!(!ThresholdId::new(n).unwrap().is_approved(), "{n}");
     }
 }

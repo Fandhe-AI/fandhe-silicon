@@ -25,6 +25,7 @@ pub use identifier::{BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_
 pub use label::{IndeterminateReason, Label};
 pub use outcome::{
     MAX_BEHAVIORS, MAX_THRESHOLDS, Outcome, RunResult, Subject, SubjectError, Verdict, judge,
+    judge_with_approval,
 };
 pub use setting::{COMBINATION_ENV, PERMISSIONS_ENV, RunSetting};
 pub use threshold::{APPROVED_THRESHOLDS, ThresholdId, ThresholdIdError};

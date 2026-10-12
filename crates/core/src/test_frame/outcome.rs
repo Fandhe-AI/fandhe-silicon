@@ -241,6 +241,30 @@ pub fn judge<F>(
 where
     F: FnOnce(MachineCombination) -> RunResult,
 {
+    judge_with_approval(
+        subject,
+        declaration,
+        setting,
+        ThresholdId::is_approved,
+        body,
+    )
+}
+
+/// [`judge`] と同じ順で結果を決めるが、閾値の承認の有無を `is_approved` で試験の側から渡す。
+///
+/// `judge` は公開側の表（[`ThresholdId::is_approved`]）だけを見る。承認の根拠を持つ呼び出し側が、
+/// 自分の持つ承認の状態を注入するために使う。
+pub fn judge_with_approval<A, F>(
+    subject: &Subject,
+    declaration: &Declaration,
+    setting: &RunSetting,
+    is_approved: A,
+    body: F,
+) -> Outcome
+where
+    A: Fn(&ThresholdId) -> bool,
+    F: FnOnce(MachineCombination) -> RunResult,
+{
     let mut ran_on = None;
     let label = match decide(declaration, setting) {
         Decision::NotRun(r) => Label::NotRun(r),
@@ -248,14 +272,15 @@ where
             ran_on = Some(c);
             match body(c) {
                 RunResult::Indeterminate(r) => Label::Indeterminate(r),
-                RunResult::Verdict(v) => match subject.thresholds.iter().find(|t| !t.is_approved())
-                {
-                    Some(t) => Label::Pending(t.clone()),
-                    None => match v {
-                        Verdict::Match => Label::Ok,
-                        Verdict::Mismatch => Label::Ng,
-                    },
-                },
+                RunResult::Verdict(v) => {
+                    match subject.thresholds.iter().find(|t| !is_approved(t)) {
+                        Some(t) => Label::Pending(t.clone()),
+                        None => match v {
+                            Verdict::Match => Label::Ok,
+                            Verdict::Mismatch => Label::Ng,
+                        },
+                    }
+                }
             }
         }
     };

@@ -38,7 +38,7 @@ fn decisions_are_fixed_under_any_backend_feature_set() {
 #[test]
 fn judge_is_reachable_and_fixed_under_any_backend_feature_set() {
     use fandhe_silicon_core::test_frame::{Label, RunResult, Subject, Verdict, judge};
-    let s = Subject::from_parts("reach_check", &["BUILD-54"], &["t-1"]).unwrap();
+    let s = Subject::from_parts("reach_check", &["BUILD-54"], &[]).unwrap();
     let d = Declaration::from_parts(&[MachineCombination::MetalMacMini], &[]).unwrap();
     let st = RunSetting::from_lookup(|n| {
         (n == COMBINATION_ENV).then(|| OsString::from("metal-mac-mini"))

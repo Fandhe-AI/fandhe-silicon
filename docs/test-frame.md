@@ -221,10 +221,10 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 | アイテム | 観測できる振る舞い | 確かめ方（テスト名） |
 | -------- | ------------------ | -------------------- |
 | `TestId`・`BehaviorId` | 文字種と長さを限って検査し、外れは種類だけの `IdentifierError`（入力の値を含まない） | `test_id_accepts_valid_names`・`test_id_rejects_invalid_names`・`behavior_id_accepts_valid_names`・`behavior_id_rejects_invalid_names`・`identifier_errors_are_ascii_and_do_not_echo_input`・`length_limits_are_fixed` |
-| `ThresholdId` | 正規の綴りだけを受ける。`is_approved()` は承認の表（`APPROVED_THRESHOLDS`。1 か所の定数）に載る ID だけ `true` で、表に無い ID は `false` | `threshold_id_accepts_only_the_canonical_spelling`・`approval_table_content_is_fixed`・`only_ids_in_the_table_are_approved` |
+| `ThresholdId` | 正規の綴りだけを受ける。`is_approved()` は承認の表（`APPROVED_THRESHOLDS`。1 か所の定数）に載る ID だけ `true`。公開側の表は空で、どの ID も `false`（承認の状態は公開側に持たない） | `threshold_id_accepts_only_the_canonical_spelling`・`approval_table_is_empty_in_public_code`・`only_ids_in_the_table_are_approved` |
 | `Label`・`IndeterminateReason` | 5 種のラベル。種類と理由のトークンは `[a-z0-9-]` で重複なし。`fails_test()` は `Ng` のときだけ `true`。表示は英語の ASCII | `kind_tokens_are_distinct_and_well_formed`・`reason_tokens_exist_only_for_kinds_with_a_reason`・`not_run_reason_tokens_cover_every_variant_without_duplicates`・`indeterminate_reason_tokens_cover_every_variant_without_duplicates`・`only_ng_fails_the_test`・`display_is_ascii_english` |
 | `Subject` | 名前を受けて検査し、重複を取り除く。件数に上限がある | `subject_validates_and_deduplicates`・`subject_limits_counts`・`subject_errors_are_ascii_and_do_not_echo_input` |
-| `judge` | 順（上から先に当たったもの）: 実行の可否が `NotRun` なら未実施（本体は呼ばない）→ 本体が判定不能なら判定不能 → 宣言の閾値に未承認があれば判定保留（宣言の順で最初の ID）→ 一致なら OK、不一致なら NG。入力以外の状態を読まない | `not_run_reasons_pass_through_and_the_body_is_not_called`・`indeterminate_wins_over_pending_and_verdicts`・`unapproved_threshold_gives_pending_with_the_first_one_in_declared_order`・`approved_thresholds_map_verdicts_to_ok_and_ng`・`only_declared_combinations_run_over_all_seven` |
+| `judge`・`judge_with_approval` | `judge` は公開側の表だけを見る（表は空なので、閾値を宣言した試験は判定保留になる）。`judge_with_approval` は承認の判定を試験の側から渡す。順（上から先に当たったもの）: 実行の可否が `NotRun` なら未実施（本体は呼ばない）→ 本体が判定不能なら判定不能 → 宣言の閾値に未承認があれば判定保留（宣言の順で最初の ID）→ 一致なら OK、不一致なら NG。入力以外の状態を読まない | `not_run_reasons_pass_through_and_the_body_is_not_called`・`indeterminate_wins_over_pending_and_verdicts`・`public_table_is_empty_so_any_declared_threshold_gives_pending`・`unapproved_threshold_gives_pending_with_the_first_one_in_declared_order`・`approved_thresholds_map_verdicts_to_ok_and_ng`・`only_declared_combinations_run_over_all_seven` |
 | `Outcome` | getter だけを公開し、`judge` 以外からは作れない。走らせた組み合わせは本体を呼んだときだけ `Some` | `outcome_getters_report_what_was_declared_and_run` |
 | 試験の成否 | `Termination` を実装。`Ng` のときだけ失敗で、ほかの 4 種は成功。`report()` は何も書き出さない。試験は `Outcome` を返せる | `termination_fails_only_for_ng`・`test_function_may_return_not_run_outcome`・`test_function_may_return_ok_outcome` |
 | `Verdict` と `parity` | `parity` の 5 つの比較型から `Verdict` への `From` を持つ（`is_match()` を読むだけ） | `from_match_maps_booleans`・`parity_comparisons_map_to_verdicts` |
@@ -245,6 +245,7 @@ F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の
 
 ### 6/8（#97）への引き継ぎ
 
+- 未実施・判定保留・判定不能は終了コードが成功になる（`Ng` だけが失敗）。ラベルが残らない集計は成功を装うため、集計側で 5 種のラベルの件数を必ず拾い、`ok` 以外を見落とさない
 - 集計は `Outcome` の getter の上に乗せる。形は決定の記録に従い、一意に決まらない点は推奨案で確定せず伺う
 - 公開アイテムを足したら、本書の現状の形・`README.md`・`CLAUDE.md`・crate 冒頭の `//!` を同じ PR で直す
 

@@ -3,15 +3,15 @@
 //! 結果の決め方（`outcome::judge`）が、宣言された閾値に未承認があるかを調べるときに呼ぶ。
 //! 承認の有無は下の定数 [`APPROVED_THRESHOLDS`] の 1 か所だけが持ち、表に無い ID は未承認として扱う
 //! （fail-closed。判定保留に倒れる）。表の根拠の所在は `docs/spec/05-tasks.md` の TASK-53（ポインタ）。
-//! 表を変えるには、中身を固定した公開テストの変更が要る。spec TASK-23 の 5/8。
+//! 表の中身は公開テストで固定している（空）。spec TASK-23 の 5/8。
 
 use std::fmt;
 
 /// 承認済みの閾値の ID の表（唯一の置き場）。
-pub const APPROVED_THRESHOLDS: [&str; 14] = [
-    "t-1", "t-2", "t-3", "t-4", "t-5", "t-6", "t-7", "t-8", "t-9", "t-10", "t-11", "t-15", "t-16",
-    "t-17",
-];
+///
+/// 公開側のコードは承認の有無を持たず、表は空（どの ID も未承認で、判定保留に倒れる）。
+/// 承認を前提にする試験は、`outcome::judge_with_approval` へ承認の判定を試験の側から渡す。
+pub const APPROVED_THRESHOLDS: [&str; 0] = [];
 
 /// 閾値の ID の検査の失敗。入力の値は含めず、種類だけを表す。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
