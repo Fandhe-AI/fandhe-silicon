@@ -1,6 +1,6 @@
 # 共通の試験の枠（TASK-23）の現状・前提・形の設計・現状の形
 
-TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形を、本リポで公開済みの事実とポインタだけで記録する。
+TASK-23（親 Issue #91）について、着手時点（1/8・#92）の現状と前提、2/8（#93）の形の設計、3/8（#94）で入れたコードの現状の形、4/8（#95）の形の設計を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
@@ -8,7 +8,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 項目 | 所在 |
 | ---- | ---- |
 | タスクの中身と決定の記録 | private spec 側（`docs/spec/05-tasks.md` の TASK-23 と、そこから辿る決定の記録）。本リポには決定の内容・理由・経緯を置かない |
-| 本リポの `docs/spec` の gitlink | `a7de5c2`（`update = none`） |
+| 本リポの `docs/spec` の gitlink | `a7de5c2`（`update = none`。4/8 の着手時も、spec の main の先端と同じことを確かめた） |
 | gitlink と記録の前後 | 3/8 の着手時に、gitlink と spec の main の先端が同じことを確かめた（確かめ方: `git ls-tree HEAD docs/spec` と、読み取りで取得した spec の `git rev-parse HEAD`。取得物は本リポの worktree に置かず、作業の後に削除した）。後続の段も同じ方法で辿る |
 | gitlink の更新 | `update-external.yml` の PR 経由。本作業では進めない |
 | 完了の条件との対応づけの記録 | spec 側が正。本リポからは書き換えない |
@@ -151,10 +151,57 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 
 - `RunSetting::from_env` が読む実際の環境変数の値（プロセスの環境を書き換えないため。呼び出しが panic しないことだけを確かめている）
 
-## 4/8（#95）への引き継ぎ
+## 形の設計（4/8）
 
-- 範囲 (2) が乗る型は `Decision`・`NotRunReason`（`crates/core/src/test_frame/decision.rs`）。`Declaration` はフィールドが非公開で、後続で変えられる
-- 環境変数の名前（`COMBINATION_ENV`・`PERMISSIONS_ENV`）と許可の名前の形は、実装で決めた綴りである
+4/8（#95）の範囲は `docs/spec/05-tasks.md` の TASK-23 の内容の (2)。
+具体（名前・型・値・欄・出力の先）は 5/8（#96）のコードと公開テストが示し、本節には先に書かない。
+本節に書くのは、決定の記録のポインタ、範囲 (2) が乗る既存のコードの事実、どの形でも守る本リポの規約である。
+
+### 決定の記録に従う点（ポインタ）
+
+| 点 | 扱い |
+| -- | ---- |
+| 範囲 (2) の形 | `docs/spec/05-tasks.md` の TASK-23 と、そこから辿る決定の記録に従う。本書には内容を書かない |
+| 出力の先・記録の形 | `docs/spec/05-tasks.md` の TASK-28 と、そこから辿る決定の記録に従う（「出力の先の記録の所在」の節と [measurement-record](./measurement-record.md) も参照） |
+| 閾値の適用の範囲 | TASK-53（Issue #196）のポインタ。本節では決めない |
+| 範囲 (3)（集計） | 本節では決めない（6/8〈#97〉が扱う） |
+| 決定の記録から一意に決まらない点 | [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の経路で伺う。推奨案を既定として確定しない |
+
+### 範囲 (2) が乗る既存のコードの事実
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 実行の可否の型 | `Decision`・`NotRunReason` | `crates/core/src/test_frame/decision.rs` |
+| 宣言 | `Declaration` はフィールドが非公開で、後続で項目を足せる | `crates/core/src/test_frame/declaration.rs` |
+| 比べの結果 | `parity` の各比較型の `is_match()` で取れる。`parity` は `test_frame` に依存していない | `crates/core/src/parity/` |
+| device | `core` は device を取れず、`contract` 側の受け口はまだ無い | 「現状の形（3/8）」の「入れていないもの」 |
+| 直列化の依存 | `crates/` に外部依存は 0 | `cargo metadata --format-version 1 --all-features --locked` |
+
+### 範囲 (2) のどの形でも守る本リポの規約
+
+F1〜F14 は引き続き当てる（再掲しない）。範囲 (2) に固有の点を足す。
+
+| # | 点 | 守ること | 根拠 |
+| - | -- | -------- | ---- |
+| G1 | 結果・理由の型 | 列挙にし、文字列の表現は英語の ASCII。入力の値・自由な文を含めない | 3/8 の `NotRunReason` の先例、[security](../.claude/rules/security.md)、F10 |
+| G2 | 機械可読の出力 | 組み立ては標準ライブラリだけで書き、外部依存を足さない。文字列を出力へ入れるときのエスケープと長さの上限をコードで持ち、公開テストで固定する | F4、[dependency-policy](../.claude/rules/dependency-policy.md) |
+| G3 | 試験が宣言する識別子 | 信頼しない入力として検査する。文字の種類と長さを限り、外れは `Result` の `Err` にする。エラーは入力の値を写さない | `Permission` の先例、F9、F11 |
+| G4 | ファイルへの書き出し | 経路を持つ場合、出力の先は信頼しない入力として扱う。明示の指定が無いときは書き出さない。指定の値をコマンドやパスへ未検証で連結しない。上位ディレクトリへ抜ける指定は拒む。件数とバイト数に上限を持つ | F9、[security](../.claude/rules/security.md) |
+| G5 | 出力に含めない情報 | 実ホスト名・アドレス・ユーザー名・環境変数の値・絶対パス | F10 |
+| G6 | 結果の決め方 | 純粋な関数に寄せ、入力以外の状態を読まない。書き出しとは分ける。テストはプロセスの環境と作業ツリーを書き換えない | `decide`・`from_lookup` の先例 |
+| G7 | `parity` との関係 | 公開面・値・比べの規則を変えない。写像は `test_frame` の側に置き、`parity` を `test_frame` に依存させない | F7、[parity-tool](./parity-tool.md) の D6 |
+| G8 | 承認の有無などの表 | コードに持つ場合は 1 か所に置く。表を変える PR は根拠の所在をポインタで引く。得ていない承認を書かない | [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)、[dependency-policy](../.claude/rules/dependency-policy.md) の承認の記録の先例 |
+| G9 | 走らせなかった結果 | skip・ignore・アサーションの弱体化で CI を通さない。成功にも失敗にも読み替えない | F8、`decision.rs` のモジュール説明 |
+| G10 | device | `core` から device を取る経路を作らない。照合で生じる結果は型に持たせてよいが、作る経路は `contract` 側の受け口が入る段で足す | F3、F6 |
+| G11 | 追加物 | 新しい feature・make ターゲット・CI ジョブ・`build-profiles` の組を足さない。足す必要が出たら理由を PR 本文に書く | F12 |
+
+### 5/8（#96）への引き継ぎ
+
+- 出力の先に依らない作業: 結果・理由の型、`Decision`・`NotRunReason` からの写像、`parity` の結果からの写像、試験が宣言する識別子の受け口、承認の有無の表、それぞれの公開テスト
+- 出力の先・記録の形に依る作業: 記録の組み立てと書き出し。出力の先の所在は下の「出力の先の記録の所在」のポインタに従う
+- spec 側が「実装で決める」とする点は 5/8 がコードで決め、選んだ形を PR 本文に書く
+- 着手時に gitlink の版の spec と決定の記録を当て直す。一意に導けない点は推奨案で確定せず伺う
+- 公開アイテムを足したら、本書に「現状の形（5/8）」を足し、`README.md`・`CLAUDE.md`・crate 冒頭の `//!` を同じ PR で直す
 
 ## 出力の先の記録の所在
 
@@ -166,7 +213,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | ----- | -- |
 | #93 | 2/8 形の設計（本書の「形の設計（2/8）」） |
 | #94 | 3/8 実装（済。本書の「現状の形（3/8）」） |
-| #95 | 4/8 形の設計 |
+| #95 | 4/8 形の設計（済。本書の「形の設計（4/8）」） |
 | #96 | 5/8 実装 |
 | #97 | 6/8 実装 |
 | #98 | 7/8 テスト |
@@ -183,6 +230,8 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 2026-10-12（2/8。base: `origin/main` の `048db9d`、gitlink: `0621b49`）。
 
 2026-10-12（3/8。base: `origin/main` の `e671bc6`、gitlink: `a7de5c2`）。
+
+2026-10-12（4/8。base: `origin/main` の `0975b66`、gitlink: `a7de5c2`）。
 
 ## 関連
 
