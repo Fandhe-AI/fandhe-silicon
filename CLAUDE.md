@@ -53,7 +53,7 @@ fandhe-silicon/
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
-├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（TASK-23）
+├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8）（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順・記録の書式・完了の条件の確かめ（TASK-19）

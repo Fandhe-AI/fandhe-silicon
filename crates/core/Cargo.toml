@@ -39,6 +39,18 @@ name = "test_frame_decide"
 required-features = ["test-support"]
 
 [[test]]
+name = "test_frame_identifiers"
+required-features = ["test-support"]
+
+[[test]]
+name = "test_frame_label"
+required-features = ["test-support"]
+
+[[test]]
+name = "test_frame_outcome"
+required-features = ["test-support"]
+
+[[test]]
 name = "test_frame_types"
 required-features = ["test-support"]
 
