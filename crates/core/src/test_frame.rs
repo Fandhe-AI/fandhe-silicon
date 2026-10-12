@@ -9,11 +9,13 @@
 //! [`decide`] へ渡す。[`Decision::NotRun`] なら、その理由を明示して試験を終える（暗黙に成功にしない）。
 //! 結果は [`Subject`] とともに [`judge`] へ渡して [`Outcome`] にする（ラベルは [`Label`]）。`Outcome` は `Termination` を実装しないので試験の戻り値にはできず、呼び出し側がラベルを明示的に扱う。
 //! 集めた `Outcome` は [`Summary`] で組み合わせごとのラベルの件数にでき、`Display` で表にできる。
-//! 試験ごとの記録の部品は `Outcome::record_parts`（[`RecordPart`]）で得る。
+//! 試験ごとの記録の部品は `Outcome::record_parts`（[`RecordPart`]）で得る。[`judge_and_export`] は `judge` の後に、
+//! 環境変数 [`RECORD_DIR_ENV`] のディレクトリへ部品を書く（未設定なら何も書かない）。
 
 pub mod combination;
 pub mod decision;
 pub mod declaration;
+pub mod export;
 pub mod identifier;
 pub mod label;
 pub mod outcome;
@@ -25,6 +27,10 @@ pub mod threshold;
 pub use combination::{Backend, Machine, MachineCombination};
 pub use decision::{Decision, NotRunReason, decide};
 pub use declaration::{Declaration, DeclarationError, Permission, PermissionError};
+pub use export::{
+    ExportError, RECORD_DIR_ENV, export_from_env, export_from_lookup, export_parts,
+    judge_and_export, judge_and_export_with, record_file_name,
+};
 pub use identifier::{BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_ID_LEN, TestId};
 pub use label::{IndeterminateReason, Label, LabelKind};
 pub use outcome::{
