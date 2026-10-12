@@ -80,7 +80,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方 |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
-| `docs/parity-non-finite.md` | 有限でない値の規則の追加（TASK-25）の現状と前提、2/4 のコードの形、3/4 のテストの現状、4/4 の完了の条件の確かめ |
+| `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提 |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポへの反映の方針（TASK-43） |
