@@ -13,6 +13,7 @@
 - `unsafe`・依存: 使わない（`#![forbid(unsafe_code)]`、外部依存 0）。個数テストの期待値は変えていない（[unsafe-policy](unsafe-policy.md)）
 - ファイルを触る場所: `std::fs` を使うのは `export.rs` だけ。枠は `println!`・`eprintln!` を使わない（標準出力・標準エラーに何も出さない）
 - 走る場所: `make verify`（`--all-features`）と、`scripts/build-profiles.sh` の `test-support` を含む組。GPU の実機は要らない
+- 記録の集計: `scripts/record-summary.sh`（部品のディレクトリから表を出す道具）と、`scripts/verify.sh` の `cargo test` の 1 回の扱い。回帰テストは `scripts/test-record-summary.sh`（`make test-record-summary`）。下の「記録の集計の道具」
 
 ## 公開面
 
@@ -112,6 +113,29 @@
 - `export_parts` はディレクトリを引数で受ける。`export_from_lookup` は名前から値を引く関数で `RECORD_DIR_ENV` を引き、`export_from_env` はそれへ `std::env::var_os` を渡すだけ
 - `judge_and_export`（環境変数を使う）と `judge_and_export_with`（値を引く関数を受ける）は、`judge` と同じ順で結果を決めたあとに部品を書き出し、`Result<Outcome, ExportError>` を返す。書き出しの失敗は `Err` で返り、試験の側が失敗として扱う。書き出しの成否でラベルは変わらず、走らせない場合は本体を呼ばない
 
+### 記録の集計の道具
+
+`scripts/record-summary.sh <部品のディレクトリ>` は、部品のファイル（1 ファイルに 1 行の JSON オブジェクト）を読み、機材の組み合わせ 7 通り × ラベル 5 種の件数を Markdown の表にして標準出力に出す。`make` ターゲットは持たない（引数が要る）。実装は bash から `python3 -I -`（3.8 以上の標準ライブラリだけ）を呼ぶ形で、入力の値はシェルに触れない。
+
+- 表の形は `Summary` の `Display` と同じ（見出し、区切り、`MachineCombination::ALL` の順の 7 行、列は `LabelKind::ALL` の順）。道具は末尾に改行を足す。セルは 10 進の件数だけで、試験の ID・ファイル名・理由は出さない
+- 1 件の部品は、その組み合わせの行とラベルの列に 1 件を数える。`Summary` は 1 つの結果を、走らせた行に 1 件、宣言したが走らせていない行に未実施を 1 件数えるので、同じ結果の部品を数えた表と一致する
+- 終了コード: 0 は集計を出した（未実施・判定保留・NG・判定不能が何件あっても 0。NG で試験を失敗にするのは試験の側）、1 は違反または部品が 0 件（表は出さない）、2 は誤用・前提の不足（引数の数が 1 でない・`-` で始まる引数・ディレクトリが無い・ディレクトリでない〔シンボリックリンクを含む〕・python3 が無い）
+- 部品が 0 件のディレクトリは違反（`no-records`）にする。試験が何も書かなかったことを、全部 0 の表で成功に見せないため
+- 違反にするもの（どれも件数に数えず、黙って飛ばさない。1 つにつき 1 件の違反）: 通常ファイルでない項目（ディレクトリ・シンボリックリンクなど）、`.json` で終わらない名前、64 KiB を超えるファイル、UTF-8 でない内容、複数行、JSON でない内容、同じキーの重複、NaN などの定数、オブジェクトでない値、必須の欄（`behavior_ids`・`machine_combination`・`machine`・`label`・`body_kind`・`body`）の欠け、一覧に無い欄、未知の組み合わせ・ラベル・`body_kind`・理由、`machine` と `machine_combination` の食い違い、理由を持つラベルで `label_reason` が無い・持たないラベルで有る・別のラベルの理由、`body` の欄の不備（`test_id` の綴り、判定保留のときだけ `threshold_id`）、`behavior_ids` の綴り・重複、同じ（試験の ID, 組み合わせ）の重複
+- 違反の表示は `violation: <種類>` の行と `FAILED: <件数> violation(s)` で、種類だけを標準エラーに出す。試験の ID・ファイル名・未知の欄の名前は出さない
+- ファイルを作らず、入力を変更せず、ネットワークを使わない
+- 綴り（組み合わせ・機材・ラベル・理由・`body_kind`）は道具の定数表が持つ。回帰テストが `combination.rs`・`label.rs`・`decision.rs`・`record.rs` の綴りと、表の見出しの行（`test_support_test_frame.rs` の期待の表）と突き合わせる
+
+### `make verify` と集計
+
+- `scripts/verify.sh` の `cargo test --workspace --all-features`（1 回）だけ、`FANDHE_SILICON_TEST_RECORD_DIR` に新しい一時ディレクトリを向ける。試験のあとに `record-summary.sh` を流して表を標準出力に出し、一時ディレクトリを消す（`trap`。試験が失敗しても消す）。`make verify` を続けて流しても、ディレクトリは毎回新しい
+- 試験が失敗したときは、その終了コードをそのまま返す（出せる集計は出す）。試験が通ったのに部品が 0 件・形の違反のときは、`make verify` が失敗する
+- 呼び出し側の環境に `FANDHE_SILICON_TEST_RECORD_DIR` が既にあるとき（空文字を含む）は、上書きせずそのまま渡す。集計も片づけもしない
+- `scripts/build-profiles.sh` の `cargo test` には渡さない（同じ試験を組ごとに何度も流すため。同じディレクトリへ同じ部品を 2 回書くと失敗する）
+- CI の `verify` ジョブは `make verify` を呼ぶだけなので、表はジョブのログに出る。記録のファイルは残さず、artifact にも PR の Summary にも出さない。機材の無い環境では宣言した組み合わせごとの未実施の部品だけが書かれ、未実施は失敗にならない
+- 書き出しつきの入口を通す試験は、`crates/contract/tests/test_support_test_frame.rs` の背後実装ごとの 3 つ（Metal・Vulkan・CUDA の feature がある組でだけ走る）。試験の ID は背後実装ごとの定数（`contract_metal_declaration`・`contract_vulkan_declaration`・`contract_cuda_declaration`）で、その試験は宣言した背後実装の組み合わせだけを宣言して `judge_and_export` を 1 回通し、書き出しの失敗と NG を試験の失敗にする
+- 試験の ID は、書き出しつきの入口を使う試験の間で一意にする。部品のファイル名は試験の ID と組み合わせの名前で決まり、既存のファイルは上書きされないので、同じ ID を別の試験が使うと、同じディレクトリへの 2 回目の書き出しが `AlreadyExists` で失敗してその試験が落ちる（`make verify` は毎回新しいディレクトリを渡すので、そこで見つかる）。ソースを走査して重複を探す静的な検査は置いていない。ファイルの中の重複は `export_test_ids_are_distinct` が確かめる
+
 ## 振る舞いとテストの対応
 
 テストは `crates/core/tests/` の関数。別 crate からの到達は `crates/contract/tests/test_support_test_frame.rs`。
@@ -134,7 +158,14 @@
 | 後始末の削除が失敗したときの専用のエラー・残りの削除を続けること・`NotFound` を数えないこと・元の失敗の種類の保持・エラーにパスが出ないこと | `a_failed_cleanup_gives_the_dedicated_error_and_keeps_deleting_the_rest`・`a_successful_cleanup_returns_the_original_error`・`a_file_that_is_already_gone_is_not_a_cleanup_failure`・`an_already_exists_failure_keeps_its_kind_inside_the_cleanup_error`（`crates/core/src/test_frame/export.rs` の単体テスト。書き込みと削除の関数を差し替えて作る） |
 | 宣言 → 実行の可否 → ラベル → 集計 → 表の通し | `each_backend_declares_its_combinations_and_runs_only_there`・`one_flow_yields_all_five_label_kinds`・`unconfigured_run_counts_every_declared_row_as_not_run`・`run_on_one_combination_gives_the_fixed_table`・`seven_runs_give_one_ok_and_six_not_run_per_row`・`has_ng_agrees_with_fails_test_over_the_outcomes`・`flow_with_the_process_environment_never_yields_ng`（`test_frame_end_to_end.rs`） |
 | `contract` の `test-support` だけで届き、背後実装の feature に依らず同じ結果（可否・ラベル・集計・表・マクロ・記録の部品） | `contract_test_support_enables_core_test_frame`・`decisions_are_fixed_under_any_backend_feature_set`・`judge_is_reachable_and_fixed_under_any_backend_feature_set`・`summary_is_reachable_and_fixed_under_any_backend_feature_set`・`declaration_macro_is_reachable_from_another_crate`・`end_to_end_table_is_fixed_under_any_backend_feature_set`・`record_parts_are_reachable_and_fixed_under_any_backend_feature_set`（`test_support_test_frame.rs`） |
-| 背後実装の feature ごとの試験が、その背後実装の組み合わせだけを宣言して走る（対応する feature があるときだけ） | `metal_test_declares_on_the_frame`・`vulkan_test_declares_on_the_frame`・`cuda_test_declares_on_the_frame`（`test_support_test_frame.rs`） |
+| 背後実装の feature ごとの試験が、その背後実装の組み合わせだけを宣言して走り、書き出しつきの入口を通す（対応する feature があるときだけ）。書き出しつきの入口を使う試験の ID が互いに別 | `metal_test_declares_on_the_frame`・`vulkan_test_declares_on_the_frame`・`cuda_test_declares_on_the_frame`・`export_test_ids_are_distinct`（`test_support_test_frame.rs`） |
+| 記録の集計の道具（`scripts/test-record-summary.sh`。ケース名の接頭辞）: 混在した部品の表の完全一致・NG だけでも 0・機材なしの形・改行の有無 | `pass:` |
+| 部品が 0 件は違反で、全部 0 の表を出さない | `empty:` |
+| JSON の不備・必須の欄の欠け・一覧に無い欄・未知の値・機材の食い違い・理由の過不足・本体の欄の不備 | `json:`・`missing:`・`unknown:`・`value:`・`reason:`・`body:` |
+| 重複・通常ファイルでない項目・名前・大きさ・UTF-8・複数行・複数の違反の件数 | `duplicate:`・`entry:`・`multiple:` |
+| 違反の表示に入力の値が出ない・誤用の終了コード 2・入力を変えない | `secret:`・`misuse:`・`invariant:` |
+| Rust 側の綴り・表の行と列の順・表の見出しとの一致 | `sync:` |
+| `verify.sh` の記録の扱い（新しい一時ディレクトリ・表の出力と片づけ・試験の失敗の終了コード・部品が無い／壊れているときの失敗・環境変数が既にあるときは上書きしない） | `verify:`（偽の `cargo` を `PATH` に置いて関数を呼ぶ） |
 
 テストはプロセスの環境と作業ツリーを書き換えず、設定は `from_lookup` へ渡す。書き出しのテストは `std::env::temp_dir()` の下に試験ごとの別の名前のディレクトリを作って消し、ディレクトリは引数か値を引く関数で渡す。公開テストから到達させていない経路は次のとおり。
 
@@ -146,19 +177,21 @@
 ## 入れていないもの
 
 - run の欄（形の版・run の ID・時刻・環境・経路の証拠・回への参照など）と、部品に足して 1 件の記録に組む処理
-- 書き出したファイルを集めて集計を標準出力に出す道具
-- 複数の試験（別プロセスを含む）の結果を 1 つの `Summary` に集める経路、未実施・判定不能の理由ごとの内訳、同じ試験の ID の重複の検出
+- 集計の表を CI の artifact や PR の Summary に出す経路（`make verify` は標準出力にだけ出す）
+- 集計の表の理由ごとの内訳、試験の ID の重複をソースから探す静的な検査（重複は書き出しの `AlreadyExists` と、集計の道具の（試験の ID, 組み合わせ）の重複の検出で見つかる）
 - 実機の device を取って宣言と照合する経路（`core` から device は取れない。判定不能の値を作る経路は試験の側にある）
 - 承認の判定を試験の側から差し込む公開の口
 - 比べの関数が返す `Err`（長さの不一致など）からラベルへの写像
 - `Outcome` への `Termination` の実装
-- 外部依存、`unsafe`、枠のための feature・make ターゲット・CI ジョブ・`build-profiles` の組
+- 外部依存、`unsafe`、枠のための feature・CI ジョブ・`build-profiles` の組。make ターゲットは集計の道具の回帰テスト（`make test-record-summary`）だけ
 
 ## 確かめ方
 
 worktree のルートで実行する。
 
-- `make verify`: `--all-features` で fmt・clippy・test を流す（枠のテストを含む）
+- `make verify`: `--all-features` で fmt・clippy・test を流す（枠のテストを含む）。最後に集計の表が標準出力に出る
+- `make test-record-summary`: 集計の道具と `verify.sh` の記録の扱いの回帰テスト（末尾に `passed: <件数>, failed: <件数>`）
+- `scripts/record-summary.sh <ディレクトリ>`: 部品のディレクトリから表を出す。`FANDHE_SILICON_TEST_RECORD_DIR=<絶対パスの空のディレクトリ> cargo test -p fandhe-silicon-contract --all-features --test test_support_test_frame` で部品を書いてから流せる
 - `cargo test -p fandhe-silicon-core --features test-support`・`cargo test -p fandhe-silicon-contract --features test-support`: 枠のテスト
 - `cargo test -p fandhe-silicon-contract --no-default-features --features "backend-<metal / vulkan / cuda>,test-support" --test test_support_test_frame`: 背後実装の feature ごとの宣言のテスト
 - `cargo build -p fandhe-silicon-core`: feature なしで枠がコンパイルされないこと
