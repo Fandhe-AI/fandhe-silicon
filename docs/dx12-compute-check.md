@@ -110,6 +110,30 @@ spec の本文・点検の対象の名前・候補・結果・件数は転記し
 - 再実行の契機: gitlink の更新（`update-external.yml` の PR）、`crates/contract/Cargo.toml` のコメントのポインタの変更、製品 crate の公開面の追加
 - 版の記録: 2026-10-12（base: `d8e06a1`、gitlink: `c1cb4c9`）
 
+### 5/8（Issue #3936）
+
+範囲のポインタ: TASK-236 の内容の (2)、BUILD-64（`docs/spec/05-tasks.md`、`docs/spec/04-behavior/build-profiles.md`）。本リポで観測できる事実だけを記録する。点検の本体・結果・件数の正は private spec 側で、本書には置かない。
+
+| # | 確かめる項目 | 方法 | 現時点の結果 |
+| - | ------------ | ---- | ------------ |
+| 1 | 範囲のポインタが gitlink の指す commit に在る | 当該 2 ファイルを一時領域へ読み取りで取得し、ID の見出し・出現を数える（取得物は削除） | 在る |
+| 2 | 範囲 (2) の点検の対象になる操作・型が、製品 crate の公開面に在る | 下の「公開面の一覧のコマンド」 | 無い（`pub mod` の 4 件だけ） |
+| 3 | `backend-dx12-compute` が中身の無い仮の置き場のまま | `crates/contract/Cargo.toml` の `[features]`、`ls crates/contract/src`、`grep -rn -i dx12 crates scripts .github` | 成り立つ |
+| 4 | 「着手時点の本リポの事実」の表がいまも成り立つ | 同表の「確かめ方」の列 | 成り立つ（本範囲で再確認した行は 2・3 に挙げた公開面と DX12 の記述、`docs/contract` の中身） |
+| 5 | 範囲 (2) の点検の記録の本体（spec 側） | 本リポからは確かめない | 本リポからは確かめない（書き手と経路は「オーナー判断待ち」の論点 1） |
+| 6 | 外部仕様（Direct3D 12）との突き合わせ | 本リポからは確かめない | 未検証（理由: 結果の置き場が spec 側で、書き手が論点 1 の判断待ち。本範囲では reference-researcher へ委譲していない） |
+| 7 | 見直しの提案 | 本リポからは確かめない | 本リポ側から新たに挙げるものは無い（点検の本体が未実施のため） |
+| 8 | 事前に空の feature・モジュール・領域ごとの文書を足していない | `crates/contract/Cargo.toml`、`ls docs/contract` | 成り立つ |
+| 9 | 品質ゲート | `make check` | 通過（`make verify`・`make deny` は未実行。コード・設定の変更なし） |
+
+公開面の一覧のコマンド（`|` を含むので表の外に置く）:
+
+```bash
+git grep -n -E '^[[:space:]]*pub(\([a-z]+\))? (fn|struct|enum|trait|type|const|static|mod|use)' HEAD -- 'crates/*/src/*.rs' ':(exclude)crates/core/src/parity*'
+```
+
+確かめた日付: 2026-10-12（base: `d8e06a1`、gitlink: `c1cb4c9`）
+
 ## オーナー判断待ち
 
 論点 1: spec 側の点検の記録を、誰がどの経路で書くか（ポインタ: TASK-236、#461）
