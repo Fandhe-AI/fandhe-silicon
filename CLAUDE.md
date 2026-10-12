@@ -120,7 +120,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [delegation-impl.md](.claude/rules/delegation-impl.md) | 作成・編集フェーズの委譲マッピング・実装フロー |
 | [coding-rust.md](.claude/rules/coding-rust.md) | Rust 規約（設計・unsafe / FFI・エラー・テスト） |
 | [security.md](.claude/rules/security.md) | 秘密情報・メモリ安全性・OWASP Top 10 観点 |
-| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0）・公開 API の rustdoc に書いてよい振る舞いの範囲 |
+| [spec-confidentiality.md](.claude/rules/spec-confidentiality.md) | private spec の機密保持（P0）・private spec 側の状態を公開側に書かない・公開 API の rustdoc に書いてよい振る舞いの範囲 |
 | [dependency-policy.md](.claude/rules/dependency-policy.md) | 依存最小・wgpu 非依存・`=x.y.z` 固定・ユーザー承認制 |
 | [japanese-style.md](.claude/rules/japanese-style.md) | 日本語出力スタイル |
 | [conventional-commits.md](.claude/rules/conventional-commits.md) | Conventional Commits 規約（type / scope） |
@@ -129,7 +129,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [makefile.md](.claude/rules/makefile.md) | Makefile は薄い入口・ターゲット増減の同期点・scripts 規約（`Makefile`・`scripts/*.sh` 編集時のみ読み込み） |
 | [github-actions.md](.claude/rules/github-actions.md) | 既存ジョブへ検査を足すときの枠・runner 方針・必須チェック（ruleset 登録の 11 件）と集約ジョブ `ci-complete`・発火条件・ジョブ追加チェックリスト・キャッシュ方針（`.github/workflows/**` 編集時のみ読み込み） |
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
-| [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
+| [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方（伺いは summary に残す）・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
 | [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。区分の正は private spec） |
 
 ## Current Skills
