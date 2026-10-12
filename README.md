@@ -90,6 +90,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実（どのジョブに足すか・失敗の扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check` の規則とテストの対応・足す手順）（TASK-112） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実（TASK-23） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
+| `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の現状と前提（TASK-10。前提タスクの状態・本リポの事実・後続の分担） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
