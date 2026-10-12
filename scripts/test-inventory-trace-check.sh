@@ -334,7 +334,7 @@ run_check --list
 want="$(printf 'line\tkey\tfile\titem\n2\t"a\tb"\ta.md\t')"
 expect_out "--list quotes a key containing a tab" "${want}"
 
-# ---- --item-rows（項目の行まで絞る。未承認の仮置き） ----
+# ---- --item-rows（項目の行まで絞る） ----
 
 fx
 item a.md '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n'
