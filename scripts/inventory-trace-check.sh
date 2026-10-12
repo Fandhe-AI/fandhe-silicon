@@ -67,6 +67,11 @@ def err(msg):
     print("error: " + msg, file=sys.stderr)
 
 
+def note(msg):
+    """違反ではない注記を stderr へ出す。violations を増やさず終了コードに影響しない。"""
+    print("note: " + msg, file=sys.stderr)
+
+
 def occurs(text, key, alphabet):
     """未承認の仮置きの規則: 直前と直後の文字がどちらも鍵の文字集合に入らない出現があるか。
 
@@ -298,7 +303,7 @@ def run(args):
     if args.item_rows and args.item_id_column is not None and texts and tables == 0:
         raise Usage("--item-id-column matches no table header in the item files")
     if skipped:
-        err("%d table row(s) were not treated as items (column count mismatch or empty label)" % skipped)
+        note("%d table row(s) were not treated as items (column count mismatch or empty label)" % skipped)
     if args.item_rows and texts and not item_list:
         err("no item rows found in the item files")
         violations += 1

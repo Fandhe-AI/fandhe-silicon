@@ -355,7 +355,15 @@ fx
 item a.md '| id | text |\n| --- | --- |\n| ITEM-A | alpha | extra |\n'
 run_check --item-rows
 expect_violations "item rows: column mismatch row is not an item" 2 \
-  "1 table row(s) were not treated as items" "no item rows found"
+  "note: 1 table row(s) were not treated as items" "error: no item rows found" \
+  "!error: 1 table row(s)"
+
+# 読み飛ばしの注記は違反ではない（項目の行があり対応が取れていれば 0・接頭辞は note:）。
+fx
+item a.md '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n| X | y | extra |\n|  | z |\n'
+run_check --item-rows
+expect_ok "item rows: skipped-row note is not an error" \
+  "note: 2 table row(s) were not treated as items" "!error:"
 
 fx
 item a.md '| id | text |\n| --- | --- |\n| alpha | other |\n'
@@ -377,7 +385,7 @@ fx
 item a.md '| id | text |\n| --- | --- |\n|  | alpha |\n| X | alpha | extra |\n'
 run_check --item-rows
 expect_violations "item rows: only empty-label and mismatched rows" 2 \
-  "2 table row(s) were not treated as items" "no item rows found"
+  "note: 2 table row(s) were not treated as items" "error: no item rows found"
 
 bt='```'
 fx
