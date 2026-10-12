@@ -54,6 +54,7 @@ fandhe-silicon/
 ├── docs/vulkan-extraction-tool.md  # Vulkan の抽出の道具の現状と前提・論点の列挙（TASK-98）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
+├── docs/test-frame.md       # 共通の試験の枠の現状と前提（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
