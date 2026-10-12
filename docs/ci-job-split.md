@@ -15,9 +15,9 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | ジョブ ID | 表示名（check 名） | runner | 呼んでいるもの |
 | --------- | ------------------ | ------ | -------------- |
 | `check` | `make check (editorconfig-checker + shellcheck)` | `ubuntu-latest` | `make check` |
-| `test-hooks` | `hook script tests (<os>)`（`ubuntu-latest`・`macos-latest` の 2 件） | matrix の `ubuntu-latest`・`macos-latest` | `make test-hooks`、macOS の標準 bash 3.2 での `scripts/hooks/test-hooks.sh` |
+| `test-hooks` | `hook script tests (<os>)`（`ubuntu-latest`・`macos-latest` の 2 件） | matrix の `ubuntu-latest`・`macos-latest` | `make test-hooks`、macOS の標準 bash 3.2 での `scripts/hooks/test-hooks.sh`・`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`、`make test-session-record-check`、`make test-metal-session` |
 | `verify` | `make verify (fmt + clippy + test)` | `ubuntu-latest` | `make verify`、`make build-profiles` |
-| `deny` | `make deny (cargo-deny)` | `ubuntu-latest` | `make deny`、`make deps-check`、`make test-deps-check`、`make test-inventory-trace-check`、`make test-session-record-check` |
+| `deny` | `make deny (cargo-deny)` | `ubuntu-latest` | `make deny`、`make deps-check`、`make test-deps-check`、`make test-inventory-trace-check`、`make test-session-record-check`、`make test-metal-session` |
 | `pr-title` | `PR title (Conventional Commits)`（`pull_request` のみ） | `ubuntu-latest` | `scripts/hooks/commit-msg-check.sh` |
 | `ci-complete` | `ci-complete` | `ubuntu-latest` | 上の 5 ジョブの結果の検証（`needs` に 5 件） |
 
