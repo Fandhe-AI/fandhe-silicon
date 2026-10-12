@@ -1,7 +1,9 @@
-//! 結果のラベルと理由のトークンの振る舞いの確認（spec TASK-23 の 5/8）。
+//! 結果のラベルと理由のトークンの振る舞いの確認（spec TASK-23 の 5/8・6/8）。
 //! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
 
-use fandhe_silicon_core::test_frame::{IndeterminateReason, Label, NotRunReason, ThresholdId};
+use fandhe_silicon_core::test_frame::{
+    IndeterminateReason, Label, LabelKind, NotRunReason, ThresholdId,
+};
 
 const NOT_RUN: [NotRunReason; 5] = [
     NotRunReason::NotConfigured,
@@ -99,4 +101,26 @@ fn display_is_ascii_english() {
     for r in INDETERMINATE {
         assert!(r.to_string().is_ascii());
     }
+}
+
+#[test]
+fn label_kinds_are_five_distinct_tokens() {
+    let names: Vec<&str> = LabelKind::ALL.iter().map(|k| k.name()).collect();
+    assert_eq!(names, ["ok", "ng", "pending", "not-run", "indeterminate"]);
+    for (i, n) in names.iter().enumerate() {
+        assert!(token_ok(n));
+        assert!(!names[..i].contains(n));
+    }
+}
+
+#[test]
+fn kind_matches_name_for_every_label() {
+    let mut all = one_of_each();
+    all.extend(NOT_RUN.map(Label::NotRun));
+    all.extend(INDETERMINATE.map(Label::Indeterminate));
+    for l in all {
+        assert_eq!(l.kind().name(), l.name());
+    }
+    let kinds: Vec<LabelKind> = one_of_each().iter().map(Label::kind).collect();
+    assert_eq!(kinds, LabelKind::ALL);
 }
