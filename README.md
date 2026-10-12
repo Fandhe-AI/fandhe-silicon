@@ -84,6 +84,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提 |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポへの反映の方針（TASK-43） |
+| `docs/vulkan-extraction-tool.md` | Vulkan の抽出の道具の現状と前提・論点の列挙（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポへの反映の方針（案。TASK-236） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
