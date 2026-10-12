@@ -24,9 +24,17 @@ run_cargo_test_with_record_summary() {
     return
   fi
   (
-    dir="$(mktemp -d "${TMPDIR:-/tmp}/fandhe-silicon-test-records.XXXXXX")"
+    # 枠は絶対パスしか受けないので、TMPDIR が相対パスなら現在のディレクトリを前に付ける。
+    tmp_base="${TMPDIR:-/tmp}"
+    case "${tmp_base}" in
+      /*) ;;
+      *) tmp_base="$(pwd)/${tmp_base}" ;;
+    esac
+    dir="$(mktemp -d "${tmp_base}/fandhe-silicon-test-records.XXXXXX")"
     trap 'rm -rf "${dir:?}"' EXIT
-    trap 'exit 1' INT TERM HUP
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     test_rc=0
     env "FANDHE_SILICON_TEST_RECORD_DIR=${dir}" cargo test --workspace --all-features || test_rc=$?
     summary_rc=0

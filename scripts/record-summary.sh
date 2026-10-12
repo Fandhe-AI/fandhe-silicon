@@ -134,6 +134,14 @@ def read_entry(path):
     return b"".join(chunks), None
 
 
+def normalize(p):
+    """末尾の区切りと "." の要素を字句で取り除く（`link/`・`link/.` でもリンクの検査をすり抜けさせない）。"""
+    lead = "/" if p.startswith("/") else ""
+    parts = [c for c in p.split("/") if c not in ("", ".")]
+    r = lead + "/".join(parts)
+    return r if r else "."
+
+
 def is_str(v):
     return type(v) is str
 
@@ -232,7 +240,7 @@ def main():
     if len(argv) != 1 or argv[0].startswith("-"):
         print("usage: record-summary.sh <record directory>", file=sys.stderr)
         sys.exit(2)
-    path = argv[0]
+    path = normalize(argv[0])
     try:
         st = os.lstat(path)
     except OSError:

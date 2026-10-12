@@ -375,6 +375,18 @@ judge "misuse: a file instead of a directory" 2 "" "not a directory"
 ln -s "${D}" "${work}/link-to-records"
 run_tool "${work}/link-to-records"
 judge "misuse: a symbolic link to a directory" 2 "" "not a directory"
+run_tool "${work}/link-to-records/"
+judge "misuse: a symbolic link to a directory with a trailing separator" 2 "" "not a directory"
+run_tool "${work}/link-to-records/."
+judge "misuse: a symbolic link to a directory with a trailing dot" 2 "" "not a directory"
+run_tool "${work}/link-to-records//./"
+judge "misuse: a symbolic link to a directory with repeated separators and dots" 2 "" "not a directory"
+run_tool "${D}/"
+if [ "${rc}" -eq 0 ] && grep -qF '| metal-mac-mini | 1 |' "${OUT_F}"; then
+  report_ok "pass: a real directory with a trailing separator"
+else
+  report_fail "pass: a real directory with a trailing separator" "unexpected result"
+fi
 
 # ---- 入力を変更しない・ファイルを作らない ----
 
@@ -394,6 +406,9 @@ else
 fi
 
 # ---- 綴りの同期（Rust 側の綴りとの一致） ----
+
+# Rust 側の綴りと食い違ったとき、途中の失敗で全体が止まらず、FAIL の行と件数が出るようにする。
+set +e
 
 # Rust のソースから引用符付きの綴りを順に取り出す（片方向ではなく、表の行と列の順まで見る）。
 rust_names() {
@@ -517,6 +532,8 @@ else
   failed=$((failed + 1))
 fi
 
+set -e
+
 # ---- verify.sh の記録の扱い（偽の cargo） ----
 
 BIN="${work}/bin"
@@ -539,6 +556,9 @@ case "${FAKE_MODE:-write}" in
     ;;
   nothing) ;;
   malformed) echo 'not json' >"${d}/bad.json" ;;
+  term) kill -TERM "$PPID" ;;
+  int) kill -INT "$PPID" ;;
+  hup) kill -HUP "$PPID" ;;
 esac
 exit "${FAKE_EXIT:-0}"
 FAKE
@@ -553,6 +573,7 @@ run_verify() {
   : >"${FAKE_ARGS_LOG}"
   : >"${FAKE_DIR_LOG}"
   rc=0
+  cd "${work}"
   # shellcheck disable=SC2016 # bash -c の本文は子のシェルが展開する（$1 は source する verify.sh のパス）
   env -i HOME="${HOME:-/}" PATH="${BIN}:${PATH}" TMPDIR="${work}" \
     FAKE_ARGS_LOG="${FAKE_ARGS_LOG}" FAKE_DIR_LOG="${FAKE_DIR_LOG}" "$@" \
@@ -636,6 +657,56 @@ fi
 run_verify FAKE_MODE=nothing FANDHE_SILICON_TEST_RECORD_DIR=
 name="verify: an empty preset value counts as set and is passed through unchanged"
 if [ "${rc}" -eq 0 ] && [ "$(dir_log_lines)" = 1 ] && [ "$(cat "${FAKE_DIR_LOG}")" = "" ] && [ ! -s "${FV_OUT}" ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+
+# TMPDIR が相対パスでも、渡す書き出し先は絶対パスで、試験の後に消える。
+mkdir "${work}/reltmp"
+run_verify FAKE_MODE=write TMPDIR=reltmp
+rel_dir="$(cat "${FAKE_DIR_LOG}")"
+name="verify: a relative TMPDIR still gives cargo an absolute directory, which is removed afterwards"
+if [ "${rc}" -eq 0 ] && [ "${rel_dir#/}" != "${rel_dir}" ] && [ ! -e "${rel_dir}" ] \
+  && [ "$(grep -c '^| combination |' "${FV_OUT}")" = 1 ]; then
+  report_ok "${name}"
+else
+  fv_fail "${name}"
+fi
+
+# シグナルのときは慣習の終了コードで、ディレクトリを消す。
+for sig_case in "term 143" "int 130" "hup 129"; do
+  mode="${sig_case% *}"
+  want="${sig_case#* }"
+  run_verify FAKE_MODE="${mode}"
+  name="verify: ${mode} exits with ${want} and removes the directory"
+  if [ "${rc}" -eq "${want}" ] && [ "$(leftover_dirs)" = 0 ]; then
+    report_ok "${name}"
+  else
+    fv_fail "${name}"
+  fi
+done
+
+# ---- build-profiles.sh は呼び出し側の書き出し先を引き継がない（偽の cargo と rustup） ----
+
+BIN2="${work}/bin2"
+mkdir "${BIN2}"
+BP_LOG="${work}/bp.log"
+cat >"${BIN2}/cargo" <<'FAKE'
+#!/usr/bin/env bash
+if [ "${FANDHE_SILICON_TEST_RECORD_DIR+set}" = set ]; then echo SET >>"${BP_LOG}"; else echo UNSET >>"${BP_LOG}"; fi
+FAKE
+cat >"${BIN2}/rustup" <<'FAKE'
+#!/usr/bin/env bash
+echo wasm32-unknown-unknown
+FAKE
+chmod +x "${BIN2}/cargo" "${BIN2}/rustup"
+: >"${BP_LOG}"
+rc=0
+env BP_LOG="${BP_LOG}" FANDHE_SILICON_TEST_RECORD_DIR="${work}/inherited" PATH="${BIN2}:${PATH}" \
+  "${BASH}" "${DIR}/build-profiles.sh" >"${FV_OUT}" 2>"${FV_ERR}" </dev/null || rc=$?
+name="build-profiles: the caller's record directory is not passed to any cargo call"
+if [ "${rc}" -eq 0 ] && [ "$(grep -c UNSET "${BP_LOG}")" -gt 10 ] && ! grep -q '^SET$' "${BP_LOG}"; then
   report_ok "${name}"
 else
   fv_fail "${name}"
