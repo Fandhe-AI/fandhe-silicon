@@ -1,6 +1,6 @@
 //! contract の feature `test-support` だけで、core の有限でない値と符号付きの零を扱う比べ方に届くことの確認（spec TASK-25 の 3/4）。
 //! `make build-profiles` の `test-support` を含む各組で、背後実装の feature に依らず同じ結果になることも確かめる。
-//! 置き場・feature の説明は docs/parity-non-finite.md の「コードの現状の形」と docs/parity-tool.md の「現状の形」。
+//! 置き場・feature の説明は docs/parity-non-finite.md の「所在」と「振る舞い」、docs/parity-tool.md の「所在」。
 
 use fandhe_silicon_core::parity::special_values::{
     SpecialVerdict, compare_f32_with_special_values, judge_element_with_special_values,

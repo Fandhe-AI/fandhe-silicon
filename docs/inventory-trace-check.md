@@ -1,60 +1,31 @@
-# 一覧と項目の対応を確かめる検査（TASK-16）の現状と前提
+# 一覧と項目の対応を確かめる検査（TASK-16）の所在と現状の事実
 
-TASK-16（親 Issue #60）について、着手時点の現状と前提を、本リポで公開済みの事実とポインタだけで記録する。
-spec の本文・件数・列の内容・鍵・項目 ID の具体例は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+private spec 内の 2 つの資料（一覧の CSV と、項目のファイル群）の対応を機械で確かめる検査について、本リポのスクリプトと回帰テストから説明できる振る舞いを記録する。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-16。ポインタのみ）。spec の本文・件数・列の内容・鍵・項目 ID の具体例は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
-TASK-16 は、private spec 内の 2 つの資料の対応を機械で確かめる検査を組むタスクである。
-入力はポインタで示す。
-
-- 一覧: `docs/spec/03-poc/wgpu-feature-inventory/inventory.csv`
-- 項目: `docs/spec/04-behavior/` の項目ファイル群
-
-## 前提タスクの状態
-
-前提タスクの有無は `docs/spec/05-tasks.md` の TASK-16 を参照する（ポインタのみ）。
-完了の条件との対応づけの記録の正は private spec 側にある（TASK-16 の状態。ポインタのみ）。
-
-## 着手時点の事実
+## 所在
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 入力の所在 | 2 つとも private の submodule の中にある。本リポに写しは無い | 上記のポインタ |
-| submodule の状態 | `docs/spec` は gitlink で `update = none`。既定の clone では空。取得は README「仕様」の明示手順 | `.gitmodules`、`git ls-tree HEAD docs/spec` |
-| CI | `ci.yml` のどのジョブも submodule を取得しない。submodule を扱うのは `update-external.yml`（日次の追従 PR）だけ | `grep -n -i submodule .github/workflows/*.yml` |
-| 帰結 | いまの public CI と既定の clone では、入力が手元に無いので検査を実行できない | 上の 2 行から |
-| gitlink の追従 | 更新は `update-external.yml` の PR 経由だけ。本リポのブランチからは進めない | [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) |
-| 既存の検査の流儀 | 実体は `scripts/*.sh`、`Makefile` は 1 行呼び出し、`scripts/help.sh` を同期。`scripts/deps-check.sh` は bash + `jq` + `python3 -I`（標準ライブラリのみ）で fail-closed。回帰テストは `scripts/test-deps-check.sh`（一時ディレクトリの fixture）。CI の `deny` ジョブが呼ぶ | `scripts/`、`Makefile`、`.github/workflows/ci.yml` |
-| CI の決まり | ジョブを足すなら `ci-complete` の `needs` に足す。必須チェックの増減・改名は ruleset の更新（ユーザー判断事項）を伴う | [github-actions](../.claude/rules/github-actions.md) |
-| 依存 | 外部依存は 0。追加は承認制 | `cargo metadata --format-version 1 --all-features --locked` |
-| PoC の道具 | 持ち込まない。製品側の検査は新しく組む。入力は読むだけで書き換えない | TASK-6 の決定の記録（ポインタのみ）、[poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
+| 検査 | `scripts/inventory-trace-check.sh`（bash + `python3 -I`、標準ライブラリのみ）。入口は `make inventory-trace-check`。既定の入力のパスはスクリプトの中に定数として持つ | `scripts/inventory-trace-check.sh` |
+| 回帰テスト | `scripts/test-inventory-trace-check.sh`。入口は `make test-inventory-trace-check`。合成の fixture だけで動き、`docs/spec` の取得は要らない | `scripts/test-inventory-trace-check.sh` |
+| CI | `ci.yml` の `deny` ジョブが回帰テストを呼ぶ。検査の本体は呼ばない（入力が private の submodule の中にあり、CI は submodule を取得しない） | `.github/workflows/ci.yml` |
+| 入力 | 読むだけ。ファイルを作らず、ネットワークを使わない | `inputs are not modified and no files are created`（回帰テスト） |
+| 依存 | 外部依存を足していない | `Cargo.lock` |
+| スクリプトが持たない語 | 列名・鍵の形・項目の行の書式は定数として持たず、引数で受けるか入力から実行時に求める | `scripts/inventory-trace-check.sh` |
 
-## pinned commit での試行
-
-gitlink の指す commit の入力を一時ディレクトリへ取得し、使い捨てのスクリプトで突き合わせる試行をした。
-試行の結果は spec の構造・中身に触れるため、本書には書かない。対応の定義に関わる所見は、spec 側の判断待ちとして
-ユーザーへ報告する（[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)）。
-
-- CSV は引用符付きのセルを含みうるので、行分割や `cut` ではなく CSV パーサが要る（一般的な CSV の性質）
-
-CI では実行していない。取得物・生成物・スクリプトはコミットしていない（一時ファイルは削除済み）。
-
-## 検査のスクリプト（#62・#63・#64）
-
-入口は `make inventory-trace-check`（実体は `scripts/inventory-trace-check.sh`。bash + `python3 -I`、標準ライブラリのみ）。
-入力は読むだけで、ファイルを作らず、ネットワークを使わない。実物の入力の検査は本リポの CI に組み込まない（入力が private 側にあり、いまの CI は submodule を取得しない）。走らせる場所は private spec のリポジトリの側で、そちらの仕組みはまだ無い。手元では `make inventory-trace-check` で走らせられる。
-回帰テストの入口は `make test-inventory-trace-check`（実体は `scripts/test-inventory-trace-check.sh`）。合成の fixture だけで動き、`docs/spec` の取得は要らない。
-CI の `deny` ジョブがこのテストを呼ぶ（ジョブを増やさないので check 名・`ci-complete` の `needs`・ruleset は変わらない）。本リポの CI が回すのはこの回帰テストだけ。
+## 検査のスクリプト
 
 引数（直接実行で渡す。`make` 経由は既定のパス）:
 
 | 引数 | 既定 | 意味 |
 | ---- | ---- | ---- |
-| `--csv <path>` | 上記ポインタの一覧 | 先頭のレコードを見出しとして扱う |
-| `--items-dir <dir>` | 上記ポインタの項目のディレクトリ | 直下の `*.md` だけを読む（再帰しない） |
-| `--key-column <name>` | 先頭の列 | 鍵の列を見出しの名前で指す。名前はスクリプトに書かない |
-| `--exclude <basename>` | なし（繰り返し可） | 探索から外すファイル名。`README.md` は常に外す |
-| `--item-rows` | 無効 | 項目の行（表のデータ行）まで絞って判定する。未指定ならファイル単位で、既定の合否は変わらない |
-| `--item-id-column <name>` | 各表の先頭の列 | 項目の行のラベルの列を見出しの名前で指す。指定したときは、その名前の見出しがちょうど 1 つある表だけを項目の表として扱う。名前はスクリプトに書かない |
+| `--csv <path>` | スクリプトの定数の一覧のパス | 先頭のレコードを見出しとして扱う |
+| `--items-dir <dir>` | スクリプトの定数の項目のディレクトリ | 直下の `*.md` だけを読む（再帰しない） |
+| `--key-column <name>` | 先頭の列 | 鍵の列を見出しの名前で指す。ちょうど 1 つに一致しなければ誤用 |
+| `--exclude <basename>` | なし（繰り返し可） | 探索から外すファイル名。`README.md` は常に外す。ディレクトリ直下に無い名前・区切りを含む名前は誤用 |
+| `--item-rows` | 無効 | 項目の行（表のデータ行）まで絞って判定する。未指定ならファイル単位 |
+| `--item-id-column <name>` | 各表の先頭の列 | 項目の行のラベルの列を見出しの名前で指す。`--item-rows` と併用（単独は誤用）。指定したときは、その名前の見出しがちょうど 1 つある表だけを項目の表として扱う |
 | `--list` | 無効 | 合格のときだけ、対応の一覧を標準出力へ TSV で出す（下記）。ファイルは作らない |
 | `--show-keys` | 無効 | 違反の行に鍵の文字列も出す。出力は spec の内容なので、PR・Issue・CI のログ・コミットに貼らない |
 
@@ -62,109 +33,71 @@ CI の `deny` ジョブがこのテストを呼ぶ（ジョブを増やさない
 
 | コード | 意味 |
 | ------ | ---- |
-| 0 | 合格。既定（ファイル単位）では、すべての行の鍵が少なくとも 1 つの項目ファイルに現れた。項目の行への帰属まで確かめるのは直接実行で `--item-rows` を付けたときだけで、そのときは少なくとも 1 つの項目の行に現れた |
+| 0 | 合格。既定（ファイル単位）では、すべての行の鍵が少なくとも 1 つの項目ファイルに現れた。`--item-rows` のときは、少なくとも 1 つの項目の行に現れた |
 | 1 | 違反（fail-closed）。項目ファイルに現れない鍵（`--item-rows` のときは項目の行に現れない鍵）・項目の行が 0（`--item-rows` のとき）・鍵が空・鍵が重複・列の数の不一致・データの行が 0・探索対象が 0・CSV や項目ファイルを読めない |
-| 2 | 誤用・前提の不足（検査を終えていない）。未知の引数・入力が無い（既定の clone など）・CSV が 0 バイト・`python3` が無い・`--key-column`・`--exclude`・`--item-id-column` が解決できない・予期しない内部エラー |
+| 2 | 誤用・前提の不足（検査を終えていない）。未知の引数・省略形の引数・余分な位置引数・入力が無い・CSV が 0 バイト・`python3` が無い・`--key-column`・`--exclude`・`--item-id-column` が解決できない・予期しない内部エラー |
 
-前提の検査を先に行い、欠けていれば内容を読まずに 2 で終える。入力が無いときに 0 を返さない。
+前提の検査を先に行い、欠けていれば内容を読まずに 2 で終える。入力が無いときに 0 を返さない。違反の診断は件数つきで標準エラーに出し、鍵の文字列は `--show-keys` のときだけ出す。
 
-判定の規則（前向きだけ。「対応」の定義は spec 側の判断待ち）。既定はファイル単位で、#62 と合否が変わらない。項目の行まで絞る規則は `--item-rows` を付けたときだけ働く（opt-in）:
+判定の規則（前向きだけ）:
 
 1. CSV を `csv` モジュールで解析し、鍵の列の値を各行の鍵とする
-2. `--item-rows` のときの項目の行は、行頭（空白を除く）が `|` の markdown の表のデータ行 1 行。`\|` は区切りにしない。列の数が見出しと合わない行・ラベルが空の行は項目の行に数えない（違反にはせず、件数だけを標準エラーに出す）。コードフェンス（バッククォート・チルダ）の中の表は数えない。ラベルの列は `--item-id-column`（`--item-rows` と併用。単独は誤用で 2）で指し、既定は各表の先頭の列
+2. `--item-rows` のときの項目の行は、行頭（空白を除く）が `|` の markdown の表のデータ行 1 行。`\|` は区切りにしない。列の数が見出しと合わない行・ラベルが空の行は項目の行に数えない（違反にはせず、件数だけを標準エラーに出す）。コードフェンス（バッククォート・チルダ）の中の表は数えない。ラベルの列は `--item-id-column` で指し、既定は各表の先頭の列
 3. 鍵が「現れる」とは、（`--item-rows` のときは項目の行のラベル以外のセルに、既定では項目ファイルのどこかに）その文字列があり、直前と直後の文字がどちらも「全鍵に現れる文字の集合」に入らないこと（別の鍵の一部は数えない境界。正規表現は使わない）
-4. すべての鍵が現れれば合格（既定は項目ファイル単位。`--item-rows` のときは少なくとも 1 つの項目の行）。表の外の本文にだけ現れる鍵は、`--item-rows` のときだけ違反になる。既定では地の文やラベルのセルだけに現れる鍵でも合格する。1 つの鍵が複数の項目に現れる場合は、一覧にすべて出す
+4. すべての鍵が現れれば合格。表の外の本文にだけ現れる鍵は、`--item-rows` のときだけ違反になる。既定では地の文やラベルのセルだけに現れる鍵でも合格する。1 つの鍵が複数の項目に現れる場合は、一覧にすべて出す
 
-帰属の単位は `locate()`、現れるかの判定は `occurs()` に閉じ込めてあり、決まったらその関数だけを差し替える。
-`--item-rows` の規則は #62 より厳しい側に倒れる。既定の合否を変えないよう opt-in に限り、オーナー判断が出るまで確定扱いにしない（論点は PR 本文の「オーナー判断待ち」に残す）。
+帰属の単位は `locate()` と `locate_files()`、現れるかの判定は `occurs()` に閉じ込めてある。
 
-### 対応の一覧（#63）
+### 対応の一覧
 
 `--list` を付け、かつ合格のときだけ、標準出力へ TSV を出す（診断はすべて標準エラー）。違反・誤用のときは標準出力を空にする。
-列は `line`（CSV の行番号）・`key`・`file`（項目ファイル名）・`item`（ラベル。`--item-rows` のときだけ値が入り、既定は空）。鍵と項目の組ごとに 1 行で、並びは CSV の行順 → ファイル名順 → ファイル内の行順。
-一覧は spec の内容なので、PR・Issue・CI のログ・コミットに貼らない。成果物としての対応の一覧は本リポに置かない（置き場は private spec 側。手元の保存先は利用者がリダイレクトで決める）。
-表計算ソフトで開く場合は、セルが数式として解釈されうる点に注意する。
+列は `line`（CSV の行番号。引用符つきの複数行のセルを含む行は、そのレコードの最後の行）・`key`・`file`（項目ファイル名）・`item`（ラベル。`--item-rows` のときだけ値が入り、既定は空）。鍵と項目の組ごとに 1 行で、並びは CSV の行順 → ファイル名順 → ファイル内の行順。
+一覧は spec の内容なので、PR・Issue・CI のログ・コミットに貼らない。成果物としての対応の一覧は本リポに置かない。表計算ソフトで開く場合は、セルが数式として解釈されうる点に注意する。
 
-既知の限界:
+### 既知の限界
 
-- 前向きだけ。逆向きは未実装（spec 側の判断待ち）
-- `--item-rows` の項目の単位は行頭が `|` の表のデータ行だけ。列の数が合わない行にしか現れない鍵は帰属できず違反になる。ラベルは既定で先頭の列とみなす
-- 表の外の本文（地の文・箇条書き）にだけ現れる鍵は、`--item-rows` のときだけ違反になる（既定のファイル単位では合格する。`make inventory-trace-check` は引数を渡さないので既定のファイル単位で、行単位の確認は済まない）
-- 鍵の直後・直前に、鍵の文字集合に入る文字が句読点として続く書き方は「現れた」に数えない（厳しい側に倒れる）
+- 前向きだけ。逆向きの検査は持たない
+- `--item-rows` の項目の単位は行頭が `|` の表のデータ行だけ。列の数が合わない行にしか現れない鍵は帰属できず違反になる
+- 表の外の本文（地の文・箇条書き）にだけ現れる鍵は、`--item-rows` のときだけ違反になる。`make inventory-trace-check` は引数を渡さないので既定のファイル単位で、行単位の確認は済まない
+- 鍵の直後・直前に、鍵の文字集合に入る文字が句読点として続く書き方は「現れた」に数えない
 - CI では走らない。既定の clone では入力が無く、2 で終わる
-- 回帰テストは合成 fixture の範囲に限る。実物の入力での実行結果は本書に書かず、本 Issue では未検証
+- 回帰テストは合成 fixture の範囲に限る
 - 回帰テストのうち、読めない項目ディレクトリのケースは権限が効かない環境（root 実行など）では 2 で止まり、成功扱いにしない
 
-公開のスクリプトは spec 由来の語（列名・鍵の形・項目の行の書式）を定数で持たず、引数で受けるか入力から実行時に求める。一覧は実行時に標準出力へ出すだけで、コミットも保存もしない。
-走らせる場所・一覧の置き場・スクリプトが spec 由来の語を持たないことの 3 点の形は確定している。判断の記録の正は private spec 側（TASK-16 の状態。ポインタのみ）。
+## 振る舞いとテストの対応
 
-## 関連タスクの状態と引き継ぎ
+テストは `make test-inventory-trace-check` のケース名（`scripts/test-inventory-trace-check.sh`）。判定は終了コード + 標準出力 + 標準エラーの部分一致 + 違反の件数。
 
-事実のみを書く。向きは決めない。
-
-| 関連 | Issue | 状態 | 引き継ぎ |
-| ---- | ----- | ---- | -------- |
-| TASK-17 | #65 | 未完了 | 関連（ID のみ） |
-| TASK-31 | #147 | 未完了 | 関連（ID のみ） |
-| TASK-85 | #378 | 未完了 | 関連（ID のみ） |
-| TASK-103 | #2451 | 未完了 | 関連（ID のみ） |
-| TASK-147 | #1106 | 未完了 | 関連（ID のみ） |
-| TASK-1313 | #1015 | 未完了 | 関連（ID のみ） |
-| TASK-552・TASK-916・TASK-2384・TASK-1375 | - | - | 関連（ID のみ） |
-| TASK-6 | #35 | 済（クローズ） | PoC の道具を持ち込まないことのポインタ |
-
-## #62 以降へ引き継ぐ実装の前提
-
-- 実装は bash + `python3 -I`（標準ライブラリのみ）とし、依存は足さない
-- 実体は `scripts/` に置き、`Makefile` は 1 行呼び出し、`scripts/help.sh` を同期する。fail-closed とする
-- 回帰テストは合成の fixture（spec 由来でない値）で書く
-- CI にジョブを足す場合は `ci-complete` の `needs` に足す。必須チェックの変更は ruleset の更新が要るため、ユーザー判断事項として報告する
-- 入力は読むだけで書き換えない。spec 由来の出力を public のログ・コミットに残さない
-
-## オーナー判断待ちの論点
-
-`--item-rows` の規則は未承認の仮置き（「検査のスクリプト」の節）。
-
-## spec 側の判断待ち
-
-「対応」の定義は、本リポから決められない（spec 側の判断待ち）。ポインタのみ。
-
-- 前向きの判定規則（TASK-16）
-- 逆向きの判定規則（関連: TASK-552・TASK-1375）
-
-## 後続の分担
-
-後続は本書の該当節へ追記する。
-
-| 作業 | 担当 |
-| ---- | ---- |
-| 現状と前提の確認（本節群） | #61（1/4） |
-| 実装 | #62（2/4。検査のスクリプト。済）・#63（3/4。項目の単位への絞り込みと一覧の出力。済） |
-| テスト | #64（4/4。回帰テストの網羅・Make のターゲット化・完了の条件の確かめ。済） |
-
-## 完了の条件の確かめ
-
-本リポで観測できる事実と、その確かめ方だけを書く。
-spec の完了の条件との対応づけの記録の正は private spec 側にある（TASK-16 の状態。ポインタのみ）。条件の本文は転記しない。
-
-| 観測できる事実 | 確かめ方（`make test-inventory-trace-check` のケース） |
-| -------------- | ---------------------------------------------------- |
+| 振る舞い | ケース |
+| -------- | ------ |
 | 鍵がどの項目ファイルにも現れない行があると 1 で終わり、該当の CSV 行番号を標準エラーに出す | `default: absent key fails`・`one row of several is absent` |
-| すべての鍵が現れれば 0 で終わる | `default: key in an item file` |
+| すべての鍵が現れれば 0 で終わる。地の文・ラベルのセルに現れても既定では合格する | `default: key in an item file`・`default: key in prose passes`・`default: key in label cell passes` |
 | 入力が無い・読めない前提の不足は 0 を返さず 2 で終わる | `missing --csv path`・`missing --items-dir path`・`empty CSV file`・`python3 missing from PATH` |
-| 違反は件数つきで数え、鍵の空・重複・列の数の不一致・探索対象 0 も違反になる | `column mismatch, empty key and duplicate key`・`header-only CSV`・`only README.md to search` |
+| 誤用は 2 で終わる | `--item-id-column without --item-rows is misuse`・`unknown option`・`abbreviated option is rejected`・`extra positional argument`・`--key-column matches no header`・`--key-column matches two headers`・`--exclude names a missing file`・`--exclude with a path separator`・`--item-id-column matches two headers in a table`・`--item-id-column matches no table` |
+| 違反は件数つきで数え、鍵の空・重複・列の数の不一致・探索対象 0 も違反になる | `column mismatch, empty key and duplicate key`・`header-only CSV`・`only README.md to search`・`key only in README, non-md and subdirectory files` |
+| `--exclude` で外したファイルだけにある鍵は違反。外さなければ合格 | `key only in an excluded file`・`same key passes when the file is not excluded` |
+| 鍵の境界（別の鍵の接頭辞・接尾辞は数えない。鍵の文字集合の外の句読点は境界。ファイルの先頭・末尾） | `key only as a prefix of another key`・`key only as a suffix of another key`・`punctuation outside the key alphabet is a boundary`・`key at the very start and end of a file` |
 | 読めない入力（不正な UTF-8・引用符の崩れ・権限なし）は 1 で終わる | `invalid UTF-8 in the CSV`・`unterminated quote in the CSV`・`invalid UTF-8 in an item file`・`unreadable items directory exits 1` |
-| `--list` は合格のときだけ標準出力へ出し、違反・誤用では空にする | `--list order: CSV row, file name, line in file`・`--list prints nothing on violation`・`--list prints nothing on misuse` |
-| 診断に鍵の文字列は既定で出ない（`--show-keys` のときだけ出る） | `keys are hidden by default`・`--show-keys prints the key` |
+| BOM と CRLF を読める。鍵の列を名前で指せる | `BOM and CRLF with --key-column by name`・`BOM and CRLF with a non-first key column` |
+| `--item-rows`: 表の行に現れれば合格。地の文・ラベルのセルだけなら違反。`\|` はセルの中に残る | `item rows: key in a table row`・`item rows: key only in prose`・`item rows: key only in the label cell`・`item rows: escaped pipe stays in the cell` |
+| `--item-rows`: 列の数が合わない行・ラベルが空の行は項目に数えず、注記は違反にならない | `item rows: column mismatch row is not an item`・`item rows: skipped-row note is not an error`・`item rows: header and separator widths differ`・`item rows: only empty-label and mismatched rows`・`item rows: aligned separator row` |
+| `--item-rows`: コードフェンスの中の表は数えない | `item rows: key only in a backtick fence`・`item rows: key only in a tilde fence`・`item rows: shorter inner fence does not close`・`item rows: table after a closed fence still counts` |
+| `--item-rows`: `--item-id-column` で別の列をラベルにできる | `item rows: --item-id-column selects another column` |
+| `--list` は合格のときだけ標準出力へ出し、違反・誤用では空にする。並びと引用 | `--list order: CSV row, file name, line in file`・`default: --list has an empty item column`・`quoted multi-line cell: --list line is the record's last line`・`--list quotes a key containing a tab`・`no stdout without --list`・`--list prints nothing on violation`・`--list prints nothing on violation (file unit)`・`--list prints nothing on misuse` |
+| 診断に鍵の文字列は既定で出ない（`--show-keys` のときだけ出る） | `keys are hidden by default`・`--show-keys prints the key`・`item rows: keys are hidden by default` |
 | 入力を書き換えず、ファイルを作らない | `inputs are not modified and no files are created` |
-| 回帰テストが CI の `deny` ジョブで走る | `.github/workflows/ci.yml` の `make test-inventory-trace-check` ステップ |
 
-確かめていないこと（事実のみ）:
+回帰テストは、実物の入力での実行結果を持たない。
 
-- 実物の入力での実行結果。本リポの public な記録には書かない。本 Issue では未検証
-- 逆向きの検査。未実装で、spec 側の判断待ち
-- `--item-rows` の規則。未承認の仮置きで、既定の合否は変えていない
+## 確かめ方
 
-## 確かめた日付
+worktree のルートで実行する。
 
-2026-10-11（base: 28b3c56。#64 の追記）
+- `make test-inventory-trace-check`: 回帰テスト（合成 fixture。`docs/spec` の取得は要らない）
+- `make inventory-trace-check`: 実物の入力での検査（`docs/spec` の取得が要る。出力は spec の内容なので貼らない）
+- `make check`: editorconfig-checker と shellcheck
+- `make ci-frame-check`: CI の枠が保たれていること
+
+## 関連
+
+[workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)・[github-actions](../.claude/rules/github-actions.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)

@@ -8,7 +8,7 @@
 
 ## 適用範囲
 
-- 対象: 比較基準の別 workspace（基盤の外。TASK-7 の 2/4 で置く）から動かす、比較用のすべての run
+- 対象: 比較基準の別 workspace（基盤の外。`baseline-wgpu/`。現状は [baseline-wgpu](baseline-wgpu.md)）から動かす、比較用のすべての run
 - 基盤の workspace（`crates/` の 4 crate）は wgpu に依存しない。根拠は `deny.toml` と [workspace-boundary](workspace-boundary.md)
 
 ## 版の記録の欄
@@ -25,7 +25,7 @@
 | `wgpu_baseline.lockfile_sha256` | 必須 | 別 workspace の `Cargo.lock` の SHA-256 | run の時点のファイルから計算する |
 | `wgpu_baseline.basis` | 必須 | どの比較基準の版で測ったかの区分（M-6・AP-3 のポインタ） | run の設定から取る |
 
-- 区分の名前・数・意味は spec 側を正とし、本書には列挙しない（ポインタ: `docs/spec/05-tasks.md` の TASK-28）。値の定義は、記録を出す道具の PR でコードと公開テストとともに入れる（ポインタ: TASK-27）
+- 区分の名前・数・意味は spec 側を正とし、本書には列挙しない（ポインタ: `docs/spec/05-tasks.md` の TASK-28）。値の定義は本書に置かない（ポインタ: TASK-27）
 - 2 つの版が同じ値であっても `basis` は省略しない
 
 ## 記録の規則

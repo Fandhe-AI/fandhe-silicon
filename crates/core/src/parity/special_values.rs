@@ -2,7 +2,7 @@
 //!
 //! 背後実装の出力と CPU 参照を比べる側（検証用のテスト・測定）から呼ばれる。
 //! feature `test-support` の裏にだけ公開される。標準ライブラリだけで書き、確保はしない。
-//! 置き場・名前・形の説明は `docs/parity-non-finite.md` の「コードの現状の形」。
+//! 置き場・名前・形の説明は `docs/parity-non-finite.md` の「所在」と「振る舞い」。
 //! 既存の `tolerance` の関数・型は変えず、有限どうしの判定はそちらの `judge_element` へ委ねる。
 //! spec との対応は TASK-25、`04-behavior/backend-parity.md` の PARITY-2〜PARITY-5、
 //! `docs/spec/03-poc/kernel-artifacts-and-parity/conditions.md` の 14-3 のポインタのみ。
