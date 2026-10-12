@@ -42,7 +42,7 @@ fandhe-silicon/
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
 ├── docs/contract/            # 契約の明文のまとめと、形を決める作業の手順書（書式・更新の順は README）
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
-├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（案。理由・経緯は private spec）
+├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の現状と前提（TASK-7）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の現状と前提・形・コードの現状の形・閾値と範囲の扱い（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の現状と前提・形・入力の受け口と比べる関数・閾値の設定（TASK-26）
@@ -56,6 +56,7 @@ fandhe-silicon/
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/test-frame.md       # 共通の試験の枠の現状と前提（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
+├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/spec/                # private submodule（明示取得が必要）
 └── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
