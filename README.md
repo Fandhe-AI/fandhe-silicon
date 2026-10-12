@@ -76,7 +76,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.mcp.json` | Claude Code のプロジェクト共有 MCP サーバー定義（ベースは空） |
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い） |
-| `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式（案） |
+| `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の現状と前提 |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の現状と前提・形。コードの現状の形・閾値と範囲の扱い |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の現状と前提、形・入力の受け口と比べる関数・閾値の設定 |
@@ -90,6 +90,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
 | `docs/test-frame.md` | 共通の試験の枠（TASK-23）の現状と前提 |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
+| `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
