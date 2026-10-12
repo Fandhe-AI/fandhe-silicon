@@ -88,8 +88,8 @@ def bad_const(_):
 def is_id(v):
     return (
         type(v) is str
-        and 1 <= len(v.encode("utf-8")) <= 64
         and ID_RE.fullmatch(v) is not None
+        and 1 <= len(v) <= 64
     )
 
 

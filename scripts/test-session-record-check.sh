@@ -172,6 +172,10 @@ bad "form: id empty" "d['session'] = ''" 1 "field session: invalid id"
 bad "form: id 65 bytes" "d['session'] = 'a' * 65" 1 "field session: invalid id"
 bad "form: run_ids duplicate" "d['run_ids'] = ['example-a', 'example-a']" 1 "field run_ids: invalid ids"
 bad "form: run_ids bad element" "d['run_ids'] = ['Example']" 1 "field run_ids: invalid ids"
+# 孤立サロゲート（JSON の \ud800 エスケープ）は traceback ではなく欄ごとの違反になる
+bad "form: lone surrogate in run_ids" "d['run_ids'] = ['\ud800']" 1 "field run_ids: invalid ids" "!Traceback"
+bad "form: lone surrogate in session" "d['session'] = '\ud800'" 1 "field session: invalid id" "!Traceback"
+bad "form: lone surrogate in word" "d['gui_login_state'] = '\ud800'" 1 "field gui_login_state: invalid word" "!Traceback"
 bad "form: machine unknown" "d['machine'] = 'example-other'" 1 "field machine: invalid machine"
 
 for t in '2000-01-01T00:00:00' '2000-01-01T00:00:00+09:00' '2000-01-01T00:00:00.5Z' '2000-01-01' \
