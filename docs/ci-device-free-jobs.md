@@ -9,15 +9,15 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 項目 | 所在 |
 | ---- | ---- |
 | タスクの中身と決定の記録 | private spec 側（ポインタ: `docs/spec/05-tasks.md` の TASK-112・TASK-18）。本リポには決定の内容・理由・経緯を置かない |
-| 本リポの `docs/spec` の gitlink | `a7de5c2`（`update = none`。更新は `update-external.yml` の PR 経由で、本作業では進めない） |
+| 本リポの `docs/spec` の gitlink | 確かめ方: `git ls-tree HEAD docs/spec`（`update = none`。更新は `update-external.yml` の PR 経由で、本作業では進めない） |
 | 完了の条件との対応づけの記録 | spec 側が正。本リポからは書き換えない |
 
-## 前提タスクの状態
+## 前提タスク
 
-| 前提 | 状態 | 根拠 |
-| ---- | ---- | ---- |
-| TASK-4（workspace と crate の骨格） | 済 | PR #3 で追加済み |
-| TASK-18（CI の分け方） | 済 | Issue #72 が CLOSED、PR #7048 がマージ済み。現状は [ci-job-split](./ci-job-split.md) |
+| 前提 | 参照 |
+| ---- | ---- |
+| TASK-4（workspace と crate の骨格） | `docs/spec/05-tasks.md` のポインタ。進み具合は spec 側が正 |
+| TASK-18（CI の分け方） | 現状は [ci-job-split](./ci-job-split.md)。進み具合は spec 側が正 |
 
 ## 現状の形（2/4）
 
@@ -68,14 +68,14 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 
 ## 分担
 
-状態は 2026-10-12 時点の `gh issue view` による。
+| Issue | 段 |
+| ----- | -- |
+| #3565 | 1/4 |
+| #3566 | 2/4（本書） |
+| #3567 | 3/4 |
+| #3568 | 4/4 |
 
-| Issue | 段 | 状態 |
-| ----- | -- | ---- |
-| #3565 | 1/4 | OPEN |
-| #3566 | 2/4（本書） | OPEN |
-| #3567 | 3/4 | OPEN |
-| #3568 | 4/4 | OPEN |
+各 Issue の状態は書かない。確かめ方は `gh issue view <番号>`。
 
 ## 関連
 
