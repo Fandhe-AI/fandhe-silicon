@@ -163,3 +163,128 @@ fn error_messages_are_ascii_and_do_not_echo_input() {
         assert!(e.to_string().is_ascii());
     }
 }
+
+// ---- 7/8: 綴り・対応・境界・検査の順（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+
+#[test]
+fn combination_and_machine_names_are_fixed_spellings() {
+    let names: Vec<&str> = MachineCombination::ALL.iter().map(|c| c.name()).collect();
+    assert_eq!(
+        names,
+        [
+            "metal-mac-mini",
+            "vulkan-node-b",
+            "vulkan-node-a",
+            "vulkan-amd",
+            "vulkan-intel",
+            "cuda-node-b",
+            "cuda-node-a"
+        ]
+    );
+    let machines = [
+        (Machine::MacMini, "mac-mini"),
+        (Machine::NodeA, "node-a"),
+        (Machine::NodeB, "node-b"),
+        (Machine::Amd, "amd"),
+        (Machine::Intel, "intel"),
+    ];
+    for (i, (m, n)) in machines.iter().enumerate() {
+        assert_eq!(m.name(), *n);
+        assert!(
+            n.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        );
+        assert!(machines[..i].iter().all(|(_, o)| o != n));
+    }
+}
+
+#[test]
+fn every_combination_has_a_fixed_backend_and_machine() {
+    use MachineCombination::*;
+    let expected = [
+        (MetalMacMini, Backend::Metal, Machine::MacMini),
+        (VulkanNodeB, Backend::Vulkan, Machine::NodeB),
+        (VulkanNodeA, Backend::Vulkan, Machine::NodeA),
+        (VulkanAmd, Backend::Vulkan, Machine::Amd),
+        (VulkanIntel, Backend::Vulkan, Machine::Intel),
+        (CudaNodeB, Backend::Cuda, Machine::NodeB),
+        (CudaNodeA, Backend::Cuda, Machine::NodeA),
+    ];
+    assert_eq!(expected.map(|(c, _, _)| c), MachineCombination::ALL);
+    for (c, b, m) in expected {
+        assert_eq!(c.backend(), b);
+        assert_eq!(c.machine(), m);
+    }
+    let count = |b: Backend| expected.iter().filter(|(_, x, _)| *x == b).count();
+    assert_eq!(
+        [
+            count(Backend::Metal),
+            count(Backend::Vulkan),
+            count(Backend::Cuda)
+        ],
+        [1, 4, 2]
+    );
+    for (i, (_, b, m)) in expected.iter().enumerate() {
+        assert!(expected[..i].iter().all(|(_, b2, m2)| (b2, m2) != (b, m)));
+    }
+    for m in [
+        Machine::MacMini,
+        Machine::NodeA,
+        Machine::NodeB,
+        Machine::Amd,
+        Machine::Intel,
+    ] {
+        assert!(expected.iter().any(|(_, _, x)| *x == m));
+    }
+}
+
+#[test]
+fn combination_name_ends_with_its_machine_name() {
+    for c in MachineCombination::ALL {
+        assert!(c.name().ends_with(&format!("-{}", c.machine().name())));
+    }
+}
+
+#[test]
+fn declaration_accepts_exact_limits_and_rejects_one_more() {
+    let all = MachineCombination::ALL;
+    let many: Vec<MachineCombination> = (0..MAX_COMBINATIONS).map(|i| all[i % 7]).collect();
+    let d = Declaration::new(&many, &[]).unwrap();
+    assert_eq!(d.combinations().len(), 7);
+
+    let perms = |n: usize| -> Vec<Permission> {
+        (0..n)
+            .map(|i| Permission::new(&format!("p{i}")).unwrap())
+            .collect()
+    };
+    let d = Declaration::new(&all, &perms(MAX_PERMISSIONS)).unwrap();
+    assert_eq!(d.permissions().len(), MAX_PERMISSIONS);
+    assert_eq!(
+        Declaration::new(&all, &perms(MAX_PERMISSIONS + 1)),
+        Err(DeclarationError::TooManyPermissions)
+    );
+}
+
+#[test]
+fn count_limit_is_checked_before_permission_names() {
+    let mut names: Vec<String> = (0..MAX_PERMISSIONS).map(|i| format!("p{i}")).collect();
+    names.push("BAD NAME".to_string());
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    assert_eq!(
+        Declaration::from_parts(&[MachineCombination::MetalMacMini], &refs),
+        Err(DeclarationError::TooManyPermissions)
+    );
+}
+
+#[test]
+fn macro_accepts_several_items_and_trailing_commas() {
+    use MachineCombination::{CudaNodeA, VulkanAmd};
+    assert_eq!(
+        declaration!([VulkanAmd, CudaNodeA,], ["x", "y",]),
+        Declaration::from_parts(&[VulkanAmd, CudaNodeA], &["x", "y"])
+    );
+    assert_eq!(
+        declaration!([VulkanAmd,]),
+        Declaration::from_parts(&[VulkanAmd], &[])
+    );
+}

@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make ci-frame-check` / `make test-ci-frame-check` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -93,9 +93,12 @@ jobs:
         run: make check
 
   # フックスクリプト（scripts/hooks/*.sh）自体の回帰テスト（.claude/rules/git-hooks.md）。
-  # テストはフックに置かず CI で実行する。外部依存は bash + git のみで、ツールの導入は不要。
+  # テストはフックに置かず CI で実行する。フックのテストの外部依存は bash + git のみで、ツールの導入は不要。
   # 開発者の多くは macOS でフックを実行するため、BSD 系の挙動と macOS 標準の bash 3.2
   # （lefthook は PATH 上の bash で起動する）でも検証する。
+  # 実機（macOS）の上で直接実行する手順のスクリプト（回ごとの記録の形の検査・Metal の実機の回の手順）の回帰テストも、
+  # 同じ理由でここで流す（check 名は増えない）。macOS では標準の bash 3.2 を明示した step でも流す。
+  # python3 と git は runner 同梱のものを使う（導入しない）。
   test-hooks:
     name: "hook script tests (${{ matrix.os }})"
     strategy:
@@ -117,6 +120,21 @@ jobs:
       - name: test-hooks with macOS system bash 3.2
         if: runner.os == 'macOS'
         run: /bin/bash scripts/hooks/test-hooks.sh
+
+      - name: make test-session-record-check
+        run: make test-session-record-check
+
+      - name: make test-metal-session
+        run: make test-metal-session
+
+      # 上の 2 つの make は PATH 上の bash（runner に新しい bash があればそちら）で流れるので、
+      # macOS では標準の bash 3.2 を明示して直接実行する（テストは自分を動かしている bash で本体を起動する）
+      - name: session script tests with macOS system bash 3.2
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          /bin/bash scripts/test-session-record-check.sh
+          /bin/bash scripts/test-metal-session.sh
 
   # Rust の品質ゲート。ローカルの `make verify`（scripts/verify.sh: fmt --check / clippy
   # -D warnings / test）をそのまま実行し、チェック内容の定義を scripts/ に一本化する。
@@ -150,6 +168,7 @@ jobs:
   # その回帰テスト（`make test-deps-check`）もここで追加実行する（ジョブを増やさないため ci-complete の needs は不変）。
   # 一覧と項目の対応の検査の回帰テスト（`make test-inventory-trace-check`。合成 fixture だけで submodule 不要）も同様に追加実行する。
   # 回ごとの記録の形の検査の回帰テスト（`make test-session-record-check`。合成 fixture だけ）も同様に追加実行する。
+  # Metal の実機の回の手順のスクリプトの回帰テスト（`make test-metal-session`。macOS のコマンドは偽のコマンドで差し替える）も同様に追加実行する。
   # CI の枠の検査（`make ci-frame-check`。本ファイルを入力にする）とその回帰テスト（`make test-ci-frame-check`。合成 fixture だけ）も同様に追加実行する。
   # 実物の入力の検査（`make inventory-trace-check`）はここでは走らせない（入力が private 側にあるため、本リポの CI には組み込まない）。
   # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
@@ -212,6 +231,7 @@ jobs:
 
       - name: make test-inventory-trace-check
         run: make test-inventory-trace-check
+
       - name: make test-session-record-check
         run: make test-session-record-check
 
@@ -220,6 +240,9 @@ jobs:
 
       - name: make test-ci-frame-check
         run: make test-ci-frame-check
+
+      - name: make test-metal-session
+        run: make test-metal-session
 
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。

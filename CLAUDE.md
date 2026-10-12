@@ -54,13 +54,13 @@ fandhe-silicon/
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の現状と前提・形の設計・現状の形（TASK-112 の 1/4・2/4）
-├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8・6/8）（TASK-23）
+├── docs/test-frame.md       # 共通の試験の枠の現状と前提・形の設計・現状の形（3/8・5/8・6/8）・テストの現状（7/8）（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
-├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順の現状と前提・実行手順・記録の書式・完了の条件の確かめ（TASK-19）
+├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/spec/                # private submodule（明示取得が必要）
-└── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / session-record-check（make ターゲットなし）/ test-session-record-check / ci-frame-check / test-ci-frame-check / lib.sh
+└── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / session-record-check（make ターゲットなし）/ test-session-record-check / ci-frame-check / test-ci-frame-check / metal-session（make ターゲットなし）/ test-metal-session / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
 ```
 
@@ -175,7 +175,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する
-- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny + workspace の path が `crates/` の外を指さないことの検査）・`make deps-check`（依存の `=x.y.z` 完全固定と承認の記録との一致の検査。CI の `deny` ジョブが `make deny` に続けて呼ぶ）。`scripts/deps-check.sh` を変更したら `make test-deps-check`（回帰テスト）も通す。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ。`scripts/inventory-trace-check.sh` を変更したら `make test-inventory-trace-check`（合成 fixture の回帰テスト。CI の `deny` ジョブが呼ぶ）も通す。`make inventory-trace-check` は手元だけの検査で、`docs/spec` の取得が要り CI には組み込んでいない。`scripts/session-record-check.sh` を変更したら `make test-session-record-check`（合成 fixture の回帰テスト。CI の `deny` ジョブが呼ぶ）も通す。`scripts/ci-frame-check.sh` または `.github/workflows/ci.yml` を変更したら `make ci-frame-check` と `make test-ci-frame-check`（合成 fixture の回帰テスト）も通す（どちらも CI の `deny` ジョブが呼ぶ）。`scripts/hooks/` を変更したら `make test-hooks`（CI の `test-hooks` ジョブ）も通す
+- **品質ゲート**: `make check`（editorconfig-checker + shellcheck）・`make verify`（fmt --check / clippy -D warnings / test）・`make deny`（cargo-deny + workspace の path が `crates/` の外を指さないことの検査）・`make deps-check`（依存の `=x.y.z` 完全固定と承認の記録との一致の検査。CI の `deny` ジョブが `make deny` に続けて呼ぶ）。`scripts/deps-check.sh` を変更したら `make test-deps-check`（回帰テスト）も通す。CI の `check` / `verify` / `deny` ジョブも同じ `make` ターゲットを呼ぶ。`scripts/inventory-trace-check.sh` を変更したら `make test-inventory-trace-check`（合成 fixture の回帰テスト。CI の `deny` ジョブが呼ぶ）も通す。`make inventory-trace-check` は手元だけの検査で、`docs/spec` の取得が要り CI には組み込んでいない。`scripts/session-record-check.sh` を変更したら `make test-session-record-check`（合成 fixture の回帰テスト。CI の `deny` ジョブと `test-hooks` ジョブが呼ぶ）も通す。`scripts/metal-session.sh` を変更したら `make test-metal-session`（偽のコマンドで macOS のコマンドを差し替える回帰テスト。CI の `deny` ジョブと `test-hooks` ジョブが呼ぶ）も通す。`scripts/ci-frame-check.sh` または `.github/workflows/ci.yml` を変更したら `make ci-frame-check` と `make test-ci-frame-check`（合成 fixture の回帰テスト）も通す（どちらも CI の `deny` ジョブが呼ぶ）。`scripts/hooks/` を変更したら `make test-hooks`（CI の `test-hooks` ジョブ）も通す
 - **CI**: ジョブを追加したら `ci.yml` の `ci-complete` の `needs` に必ず追加する
 - **EditorConfig**: 生成・編集したファイルは editorconfig-checker を通す（pre-commit で staged を検査）。`*.rs` は 4 スペース、staged の `*.rs` は pre-commit で `rustfmt --check`
 - **セキュリティレビュー**: PR 作成前に OWASP Top 10・秘密情報・spec 漏えいを確認（[security](.claude/rules/security.md)）

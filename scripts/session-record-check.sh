@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 回ごとの記録（専有の確かめと時間帯の調整の記録。JSON 1 ファイル）の形を検査する
-# （spec TASK-19・TASK-28 のポインタ。親 Issue #76 の 3/4）。
+# （spec TASK-19・TASK-28 のポインタ）。
 # 呼び出し元: `docs/metal-run-procedure.md` の手順（記録を持ち帰る前の確認）と、
 # 回帰テスト `scripts/test-session-record-check.sh`。
 #

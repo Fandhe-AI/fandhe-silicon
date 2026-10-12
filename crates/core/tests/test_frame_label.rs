@@ -113,6 +113,24 @@ fn label_kinds_are_five_distinct_tokens() {
     }
 }
 
+/// 7/8: 理由のトークンは外へ出る綴りなので固定する（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+#[test]
+fn reason_tokens_are_fixed_spellings() {
+    let not_run: Vec<&str> = NOT_RUN.iter().map(|r| r.name()).collect();
+    assert_eq!(
+        not_run,
+        [
+            "not-configured",
+            "invalid-combination-setting",
+            "invalid-permission-setting",
+            "combination-not-declared",
+            "permission-missing"
+        ]
+    );
+    let indet: Vec<&str> = INDETERMINATE.iter().map(|r| r.name()).collect();
+    assert_eq!(indet, ["device-mismatch", "machine-unreachable"]);
+}
+
 #[test]
 fn kind_matches_name_for_every_label() {
     let mut all = one_of_each();

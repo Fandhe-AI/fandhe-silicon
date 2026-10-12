@@ -91,6 +91,75 @@ fn subject_limits_counts() {
     assert!(Subject::from_parts("t", &b[..MAX_BEHAVIORS], &t[..MAX_THRESHOLDS]).is_ok());
 }
 
+// ---- 7/8（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+
+#[test]
+fn count_limits_are_checked_before_identifier_names() {
+    let mut b: Vec<&str> = vec!["A"; MAX_BEHAVIORS];
+    b.push("bad id");
+    assert_eq!(
+        Subject::from_parts("t", &b, &[]),
+        Err(SubjectError::TooManyBehaviors)
+    );
+    let mut t: Vec<&str> = vec!["t-1"; MAX_THRESHOLDS];
+    t.push("bad id");
+    assert_eq!(
+        Subject::from_parts("t", &[], &t),
+        Err(SubjectError::TooManyThresholds)
+    );
+}
+
+#[test]
+#[should_panic(expected = "body-panic-marker")]
+fn body_panic_propagates() {
+    let st = setting(Some("metal-mac-mini"), None);
+    let _ = judge(&subject(&[]), &decl(), &st, |_| panic!("body-panic-marker"));
+}
+
+#[test]
+fn not_run_wins_over_pending_and_indeterminate() {
+    let calls = Cell::new(0u32);
+    let o = judge(&subject(&["t-12"]), &decl(), &setting(None, None), |_| {
+        calls.set(calls.get() + 1);
+        RunResult::Indeterminate(IndeterminateReason::MachineUnreachable)
+    });
+    assert_eq!(o.label(), &Label::NotRun(NotRunReason::NotConfigured));
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
+fn outcome_carries_the_subject_and_declaration_as_given() {
+    let s = Subject::from_parts("carry", &["B-2", "A-1", "B-2"], &[]).unwrap();
+    let ids = |o: &fandhe_silicon_core::test_frame::Outcome| -> Vec<String> {
+        o.behaviors()
+            .iter()
+            .map(|b| b.as_str().to_string())
+            .collect()
+    };
+    for comb in [None, Some("metal-mac-mini")] {
+        let o = judge(&s, &decl(), &setting(comb, None), |_| matched());
+        assert_eq!(o.id().as_str(), "carry");
+        assert_eq!(ids(&o), ["B-2", "A-1"]);
+        assert_eq!(o.declared_combinations(), decl().combinations());
+    }
+}
+
+#[test]
+fn judge_agrees_with_judge_with_approval_over_the_public_table() {
+    let st = setting(Some("metal-mac-mini"), None);
+    for th in [&[][..], &["t-1"][..]] {
+        let a = judge(&subject(th), &decl(), &st, |_| matched());
+        let b = judge_with_approval(
+            &subject(th),
+            &decl(),
+            &st,
+            fandhe_silicon_core::test_frame::ThresholdId::is_approved,
+            |_| matched(),
+        );
+        assert_eq!(a, b);
+    }
+}
+
 #[test]
 fn subject_errors_are_ascii_and_do_not_echo_input() {
     let e = Subject::from_parts("t", &["SECRET/x"], &[]).unwrap_err();

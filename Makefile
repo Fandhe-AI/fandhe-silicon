@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check ci-frame-check test-ci-frame-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session ci-frame-check test-ci-frame-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -52,6 +52,9 @@ test-inventory-trace-check: ## scripts/inventory-trace-check.sh 自体の回帰�
 
 test-session-record-check: ## scripts/session-record-check.sh 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るので make ターゲットを持たない（直接: scripts/session-record-check.sh <path>）。直接: scripts/test-session-record-check.sh
 	@scripts/test-session-record-check.sh
+
+test-metal-session: ## scripts/metal-session.sh 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替える。bash + python3 + git。ネットワーク不要・Linux でも流れる）。本体はサブコマンドと引数が要るので make ターゲットを持たない（直接: scripts/metal-session.sh <probe|run|redact|scan>）。直接: scripts/test-metal-session.sh
+	@scripts/test-metal-session.sh
 
 ci-frame-check: ## .github/workflows/ci.yml が CI の枠の事実（集約・実行場所・失敗の扱い）を保っているかを検査する（bash + python3。ソースは変更しない・ネットワーク不要）。直接: scripts/ci-frame-check.sh [--workflow <path>]
 	@scripts/ci-frame-check.sh
