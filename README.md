@@ -89,6 +89,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
+| `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
