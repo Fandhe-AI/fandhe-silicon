@@ -155,8 +155,8 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 
 テストで固定した現状の事実（判断ではない）。
 
-- `SpirvExtractError::SizeOverflow` は公開の入口からは届かない（`u32` どうしの積は `u64` に収まる）。最大の積が `Fixed` で返ることは上の表で固定している。variant の扱いは本 Issue では決めない
-- `BadMagic` の表示は渡された先頭の語を含む
+- 長さと stride の積は `u32` どうしで `u64` に収まるため、あふれのエラーは持たない。最大の積が `Fixed` で返ることは上の表で固定している
+- `BadMagic` は入力の語の値を持たず、表示にも出さない
 - ビット幅は 8 の倍数なら上限なく受理する
 
 ## 後続の分担
@@ -200,7 +200,7 @@ spec の本文・PoC の方式と結果は転記しない（[spec-confidentialit
 - Q1〜Q6 は判断待ちで、置き場・feature・入力の型・対象の範囲・エラーの形は未承認の仮置きのまま
 - 再実行の契機: Q1〜Q6 への回答、範囲の記述についての spec 側の判断、submodule の参照先の更新（`update-external.yml` の PR）、道具の置き場・feature の変更、`scripts/build-profiles.sh` の組の変更、取り込みの段（TASK-513 のポインタ）
 - 引き継ぎ（親 #387 へ）: 残るのは、Q1〜Q6 への回答、spec 側の判断、本表の再実行、親のクローズの判断の順。いずれも本リポの自動運転の対象外
-- 持ち越し（5/6 から）: `SpirvExtractError::SizeOverflow` の扱い、`BadMagic` の表示の扱いは本 Issue で決めない
+- 持ち越し（5/6 から）: `SizeOverflow` の扱いと `BadMagic` の表示の扱いは、後続の修正で決めた（上の「テストで固定した現状の事実」の通り）
 
 ## 確かめた日付
 
