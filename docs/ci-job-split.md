@@ -17,7 +17,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | `check` | `make check (editorconfig-checker + shellcheck)` | `ubuntu-latest` | `make check` |
 | `test-hooks` | `hook script tests (<os>)`（`ubuntu-latest`・`macos-latest` の 2 件） | matrix の `ubuntu-latest`・`macos-latest` | `make test-hooks`、macOS の標準 bash 3.2 での `scripts/hooks/test-hooks.sh` |
 | `verify` | `make verify (fmt + clippy + test)` | `ubuntu-latest` | `make verify`、`make build-profiles` |
-| `deny` | `make deny (cargo-deny)` | `ubuntu-latest` | `make deny`、`make deps-check`、`make test-deps-check`、`make test-inventory-trace-check`、`make test-session-record-check` |
+| `deny` | `make deny (cargo-deny)` | `ubuntu-latest` | `make deny`、`make deps-check`、`make test-deps-check`、`make test-inventory-trace-check`、`make test-session-record-check`、`make ci-frame-check`、`make test-ci-frame-check` |
 | `pr-title` | `PR title (Conventional Commits)`（`pull_request` のみ） | `ubuntu-latest` | `scripts/hooks/commit-msg-check.sh` |
 | `ci-complete` | `ci-complete` | `ubuntu-latest` | 上の 5 ジョブの結果の検証（`needs` に 5 件） |
 
