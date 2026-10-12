@@ -1,5 +1,5 @@
-//! 試験の枠の型（組み合わせ・許可・宣言・エラー）の振る舞いの確認（spec TASK-23 の 3/8）。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形」。
+//! 試験の枠の型（組み合わせ・許可・宣言・エラー）の振る舞いの確認（spec TASK-23）。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::declaration;
 use fandhe_silicon_core::test_frame::declaration::{
@@ -164,7 +164,7 @@ fn error_messages_are_ascii_and_do_not_echo_input() {
     }
 }
 
-// ---- 7/8: 綴り・対応・境界・検査の順（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+// ---- 綴り・対応・境界・検査の順（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」） ----
 
 #[test]
 fn combination_and_machine_names_are_fixed_spellings() {

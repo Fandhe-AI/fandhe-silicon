@@ -36,7 +36,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | 関連 | Issue | 状態 | 引き継ぎ |
 | ---- | ----- | ---- | -------- |
 | TASK-24 | #100 | CLOSED（sub-issue #101〜#108 は全てクローズ） | `parity` の置き場・feature は [parity-tool](parity-tool.md) の「現状の形」のとおり。TASK-26 の側で変えない |
-| TASK-23 | #91 | OPEN | 共通の試験の枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。画素の比較型から判定への写像は `test_frame` の側にある（`parity` は変えていない） |
+| TASK-23 | #91 | OPEN | 共通の試験の枠は本リポにある（[test-frame](./test-frame.md)）。画素の比較型から判定への写像は `test_frame` の側にある（`parity` は変えていない） |
 | TASK-53 | #196 | OPEN | 閾値を当てる範囲の判断はこのタスクに委ね、TASK-26 の側で広げも狭めもしない |
 | TASK-25 | #109 | Issue はクローズ済み | `parity` 配下に規則を足したタスク（[parity-non-finite](parity-non-finite.md)） |
 | TASK-27 | #121 | OPEN | 並びのタスク |
@@ -58,7 +58,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D5 | 大きさの計算と確保 | 幅・高さなどの積は `checked_*` で計算し、オーバーフローや確保の失敗は panic せずエラーで返す。エラーの表示は英語 | [security](../.claude/rules/security.md)、[coding-rust](../.claude/rules/coding-rust.md)、[japanese-style](../.claude/rules/japanese-style.md) |
 | D6 | 閾値の値の扱い | 本書に数値を持たない。値・規則の正は spec 側で、本リポの都合で変えない | `docs/spec/02-poc-plan.md` の T-3（ポインタのみ）、[parity-tool](parity-tool.md) の「値・規則を変える変更の扱い」 |
 | D7 | 適用の範囲 | 本書では記述しない | TASK-53（#196）に委ねる（ポインタのみ） |
-| D8 | TASK-23 の枠との接続 | 本書では記述しない。枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。画素の比較型から判定への写像は `test_frame` の側にあり、`parity` は変えていない（現状は同書の「現状の形（5/8）」） | TASK-23（#91）（ポインタのみ） |
+| D8 | TASK-23 の枠との接続 | 本書では記述しない。枠は本リポにある（[test-frame](./test-frame.md)）。画素の比較型から判定への写像は `test_frame` の側にあり、`parity` は変えていない（現状は同書の「振る舞い」） | TASK-23（#91）（ポインタのみ） |
 | D9 | 並行する TASK-25 との衝突の避け方 | 追加は新しいファイル 1 つと `pub mod` 1 行に留め、既存の `tolerance.rs`・`topk.rs`・`cpu_reference.rs` の公開アイテムを変えない | `crates/core/src/parity.rs` の冒頭コメント、TASK-25（#109）（ポインタのみ） |
 | D10 | 走る場所 | 既存の `parity` 配下に置いているので、`make verify` と `make build-profiles` の `test-support` を含む 4 組で走る。新しい make ターゲット・CI ジョブは足さない | `scripts/build-profiles.sh` の `NATIVE_SETS`、`scripts/verify.sh` |
 

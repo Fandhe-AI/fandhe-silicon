@@ -1,7 +1,7 @@
-//! contract の feature `test-support` だけで、core の試験の枠（宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）に届くことの確認（spec TASK-23 の 3/8・5/8・6/8）。
+//! contract の feature `test-support` だけで、core の試験の枠（宣言と実行の可否、結果のラベルの決定、試験ごとの記録の組み立て、組み合わせごとの集計）に届くことの確認（spec TASK-23）。
 //! `make build-profiles` の `test-support` を含む各組で、背後実装の feature に依らず同じ結果になることも確かめる。
-//! 別 crate からのマクロ・端から端の表・背後実装の feature ごとの宣言も確かめる（7/8）。
-//! 置き場・feature の説明は docs/test-frame.md の「現状の形」。
+//! 別 crate からのマクロ・端から端の表・背後実装の feature ごとの宣言も確かめる。
+//! 置き場・feature の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     Backend, COMBINATION_ENV, Decision, Declaration, MachineCombination, NotRunReason, RunResult,

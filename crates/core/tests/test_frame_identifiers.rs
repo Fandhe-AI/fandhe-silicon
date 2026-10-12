@@ -1,5 +1,5 @@
-//! 試験が宣言する識別子と、閾値の ID・承認の有無の表の振る舞いの確認（spec TASK-23 の 5/8）。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
+//! 試験が宣言する識別子と、閾値の ID・承認の有無の表の振る舞いの確認（spec TASK-23）。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     APPROVED_THRESHOLDS, BehaviorId, IdentifierError, MAX_BEHAVIOR_ID_LEN, MAX_TEST_ID_LEN, TestId,
@@ -92,7 +92,7 @@ fn threshold_id_accepts_only_the_canonical_spelling() {
     }
 }
 
-/// 7/8: 検査の順（長さが文字より先）と、エラーの表示が固定の文であること（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+/// 検査の順（長さが文字より先）と、エラーの表示が固定の文であること（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」）。
 #[test]
 fn length_is_checked_before_characters_and_errors_display_fixed_text() {
     assert_eq!(

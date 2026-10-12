@@ -1,6 +1,6 @@
-//! 組み合わせごとの集計（`Summary`）の振る舞いの確認（spec TASK-23 の 6/8）。
+//! 組み合わせごとの集計（`Summary`）の振る舞いの確認（spec TASK-23）。
 //! プロセスの環境と作業ツリーは書き換えず、設定は `RunSetting::from_lookup` へ渡す。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（6/8）」。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     COMBINATION_ENV, Declaration, IndeterminateReason, LabelKind, MachineCombination, Outcome,
@@ -260,7 +260,7 @@ fn table_is_ascii_and_has_no_identifiers() {
     }
 }
 
-/// 7/8: 5 種と 2 桁の件数を含む表の完全一致（表を変える PR が期待値を一緒に直す前提の固定。置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+/// 5 種と 2 桁の件数を含む表の完全一致（表を変える PR が期待値を一緒に直す前提の固定。置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」）。
 #[test]
 fn table_with_every_kind_and_a_two_digit_count_is_fixed() {
     use MachineCombination::*;

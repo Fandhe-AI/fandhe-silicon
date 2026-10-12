@@ -1,5 +1,5 @@
-//! 結果のラベルと理由のトークンの振る舞いの確認（spec TASK-23 の 5/8・6/8）。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
+//! 結果のラベルと理由のトークンの振る舞いの確認（spec TASK-23）。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::test_frame::{
     IndeterminateReason, Label, LabelKind, NotRunReason, ThresholdId,
@@ -113,7 +113,7 @@ fn label_kinds_are_five_distinct_tokens() {
     }
 }
 
-/// 7/8: 理由のトークンは外へ出る綴りなので固定する（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」）。
+/// 理由のトークンは外へ出る綴りなので固定する（置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」）。
 #[test]
 fn reason_tokens_are_fixed_spellings() {
     let not_run: Vec<&str> = NOT_RUN.iter().map(|r| r.name()).collect();

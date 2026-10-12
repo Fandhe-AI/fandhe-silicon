@@ -1,6 +1,6 @@
-//! 結果の決め方（`judge`）・`Outcome`・失敗にするかの判定・`parity` の結果からの写像の振る舞いの確認（spec TASK-23 の 5/8）。
+//! 結果の決め方（`judge`）・`Outcome`・失敗にするかの判定・`parity` の結果からの写像の振る舞いの確認（spec TASK-23）。
 //! プロセスの環境と作業ツリーは書き換えず、設定は `RunSetting::from_lookup` へ渡す。
-//! 置き場と範囲の説明は docs/test-frame.md の「現状の形（5/8）」。
+//! 置き場と範囲の説明は docs/test-frame.md の「置き場と有効になる条件」。
 
 use fandhe_silicon_core::parity::pixel::{PixelView, T3, compare_pixels, compare_pixels_exact};
 use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
@@ -86,7 +86,7 @@ fn subject_limits_counts() {
     assert!(Subject::from_parts("t", &b[..MAX_BEHAVIORS], &t[..MAX_THRESHOLDS]).is_ok());
 }
 
-// ---- 7/8（置き場と範囲は docs/test-frame.md の「テストの現状（7/8）」） ----
+// ---- （置き場と範囲は docs/test-frame.md の「振る舞いとテストの対応」） ----
 
 #[test]
 fn count_limits_are_checked_before_identifier_names() {

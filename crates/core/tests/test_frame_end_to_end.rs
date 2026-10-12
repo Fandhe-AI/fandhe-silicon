@@ -1,7 +1,7 @@
-//! 宣言 → 実行の可否 → ラベル → 集計 → 表を 1 本でつなぐ経路の確認（spec TASK-23 の 7/8）。
+//! 宣言 → 実行の可否 → ラベル → 集計 → 表を 1 本でつなぐ経路の確認（spec TASK-23）。
 //! 背後実装ごとの宣言を `MachineCombination::ALL` から作り、判定は `parity` の結果を `Verdict` へ写して渡す。
 //! プロセスの環境と作業ツリーは書き換えず、設定は `RunSetting::from_lookup` へ渡す。
-//! 置き場と範囲の説明は docs/test-frame.md の「テストの現状（7/8）」。
+//! 置き場と範囲の説明は docs/test-frame.md の「振る舞いとテストの対応」。
 
 use fandhe_silicon_core::parity::tolerance::{T1, compare_f32};
 use fandhe_silicon_core::test_frame::{

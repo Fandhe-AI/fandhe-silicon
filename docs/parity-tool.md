@@ -125,7 +125,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 
 | 関連 | Issue | 状態 | 引き継ぎ |
 | ---- | ----- | ---- | -------- |
-| TASK-23 | #91 | 未完了（並行） | 共通の試験の枠の置き場と範囲 (1) は本リポにある（[test-frame](./test-frame.md)）。範囲 (2) のうち、結果のラベルの決定と `parity` の比較型から判定への写像も本リポにある（`parity` は変えていない）。組み合わせごとの集計も本リポにある。記録の出力はまだ無い |
+| TASK-23 | #91 | 未完了（並行） | 共通の試験の枠は本リポにある（[test-frame](./test-frame.md)）。結果のラベルの決定と `parity` の比較型から判定への写像も本リポにある（`parity` は変えていない）。組み合わせごとの集計も本リポにある。試験ごとの記録（JSON の文字列）の組み立ても本リポにある（書き出しは無い） |
 | TASK-25 | #109 | Issue はクローズ済み | TASK-24 を前提に引く下流。足した規則は [parity-non-finite](parity-non-finite.md) |
 | TASK-53 | #196 | 未完了（Issue は OPEN） | 適用の範囲の判断はこのタスクに委ね、TASK-24 の側で広げも狭めもしない。コード側の見る場所は `T1`・getter・`threshold_is_readable` |
 | TASK-6 | #35 | 済（クローズ） | 決定の記録は spec リポの main にある（本リポの submodule の固定 SHA はこの記録より前）。持ち込みは [poc-carry-over](../.claude/rules/poc-carry-over.md) と [workspace-boundary](workspace-boundary.md) に従う |
@@ -144,7 +144,7 @@ spec の本文・閾値・比べ方は転記しない（[spec-confidentiality](.
 | D3 | 背後実装への非依存 | `parity` に `cfg(feature = "backend-*")` は無く、標準ライブラリだけで書く。`core` は `#![forbid(unsafe_code)]`・外部依存 0。GPU なしの CI で走る。contract からは feature の転送だけ | `crates/core/src/parity.rs`、`crates/contract/tests/test_support_forwarding.rs`、TASK-24（ポインタ） |
 | D4 | 閾値の設定 | `crates/core/src/parity/tolerance.rs` の rustdoc とテスト、本書「現状の形」を参照 | TASK-24 の完了の条件、`docs/spec/02-poc-plan.md` の T-1・T-2（ポインタのみ） |
 | D5 | 適用の範囲 | 本書では記述しない。TASK-53（#196）に委ねる。実装と公開テストが入る PR でコードから記述する | TASK-53（#196）（ポインタのみ） |
-| D6 | TASK-23 の枠との接続 | 本書では記述しない。比較型から判定への写像は `test_frame` の側にあり（`parity` は変えていない）、現状は [test-frame](./test-frame.md) の「現状の形（5/8）」 | TASK-23（#91）（ポインタのみ） |
+| D6 | TASK-23 の枠との接続 | 本書では記述しない。比較型から判定への写像は `test_frame` の側にあり（`parity` は変えていない）、現状は [test-frame](./test-frame.md) の「振る舞い」 | TASK-23（#91）（ポインタのみ） |
 | D7 | T-1 の要素の分類 | 4/8 では有限でない値を `NonFinite` として不一致に数えるだけ。それ以外の規則は TASK-25（#109）で扱う | TASK-25（#109）、PARITY-2〜PARITY-5（ポインタのみ） |
 | D8 | T-1 の比べの形 | `crates/core/src/parity/tolerance.rs` の rustdoc とテスト、本書「現状の形」を参照 | PARITY-1（ポインタのみ） |
 | D9 | T-2 の比べの形 | `crates/core/src/parity/topk.rs` の rustdoc とテスト、本書「現状の形」を参照 | PARITY-6、`docs/spec/02-poc-plan.md` の T-2（ポインタのみ） |
