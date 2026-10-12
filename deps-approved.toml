@@ -3,7 +3,7 @@
 # 記録は承認の代わりにならない。ユーザーの明示承認を得てから、依存の追加と同じ PR で書く
 # （手順と限界は .claude/rules/dependency-policy.md）。更新・削除でも記録を直す。
 #
-# 書式（案。オーナー確認待ち）: `[[approval]]` を 1 crate につき 1 件。キーはすべて必須で、未知のキーは違反。
+# 書式: `[[approval]]` を 1 crate につき 1 件。キーはすべて必須で、未知のキーは違反。
 #   name         = 依存の実 package 名（`package = ` で改名していても実名）
 #   version      = 承認した版指定。manifest と完全一致させる（`=x.y.z`）
 #   used_by      = その依存を宣言してよい workspace member 名の配列（空は不可）

@@ -5,16 +5,14 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-25 を参照する（ポインタのみ）。
 本書は現状の挙動だけを書き、あるべき規則との差は書かない。「着手時点の事実」は着手時点の記録として残し、書き換えない。
-後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記した。3/4（#112）ではテストを足した（「テストの現状（3/4）」）。4/4（#113）では本リポで観測できる事実による確かめを記録した（「完了の条件の確かめ」）。TASK-25 の完了は本書では宣言しない。
+後続（2/4 の #111、3/4 の #112、4/4 の #113）は、本書の該当節へ追記した。3/4（#112）ではテストを足した（「テストの現状（3/4）」）。4/4（#113）では本リポで観測できる事実による確かめを記録した（「完了の条件の確かめ」）。
+置き場・公開名・形は確定している。判断の記録と、完了の条件との対応づけの記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-25 の状態。ポインタのみ）。
 
 ## 前提タスクの状態
 
 | 前提 | Issue | 状態 | 根拠 |
 | ---- | ----- | ---- | ---- |
-| TASK-24 | #100 | CLOSED（sub-issue #101〜#108 は全てクローズ） | `gh issue view`。[parity-tool](parity-tool.md) は完了を宣言していない |
-
-- [parity-tool](parity-tool.md) の Q1〜Q11 は未回答。置き場・feature・形は未承認の仮置き
-- TASK-24 が確定するまで、TASK-25 の完了は宣言しない。TASK-24 を満たされたものとして扱わない
+| TASK-24 | #100 | CLOSED（sub-issue #101〜#108 は全てクローズ） | `gh issue view`。道具の形は [parity-tool](parity-tool.md) の「現状の形」のとおり |
 
 ## 着手時点の事実
 
@@ -40,28 +38,28 @@ spec の本文・値・比べ方は転記しない（[spec-confidentiality](../.
 
 | 関連 | Issue | 状態 | 引き継ぎ |
 | ---- | ----- | ---- | -------- |
-| TASK-24 | #100 | CLOSED（完了は宣言されていない） | `parity` の置き場・feature は未承認の仮置き。TASK-25 の側で確定扱いにしない |
+| TASK-24 | #100 | CLOSED | `parity` の置き場・feature は [parity-tool](parity-tool.md) の「現状の形」のとおり。TASK-25 の側で変えない |
 | TASK-23 | #91 | OPEN | 本書では触れない |
 | TASK-53 | #196 | OPEN | 本書では触れない |
 | TASK-26 | #114 | OPEN（実行時点） | `parity` 配下に新しいファイルを足しうる並行のタスク（[pixel-parity-tool](pixel-parity-tool.md) の D9）。`parity.rs` の `pub mod` の行で衝突しうる |
 | TASK-6 | #35 | CLOSED | 持ち込む・除くの区分は決定の記録（private spec）に従う。[poc-carry-over](../.claude/rules/poc-carry-over.md) を参照 |
 
-## コードの現状の形（2/4・未承認の仮置き）
+## コードの現状の形（2/4）
 
-本リポのコードと公開テストが示す事実のみ。確定扱いにしない。
+本リポのコードと公開テストが示す事実のみ。
 
 | 項目 | 現状 | 確かめ方 |
 | ---- | ---- | -------- |
 | 置き場 | `crates/core/src/parity/special_values.rs`。`parity.rs` に `pub mod special_values;` を 1 行足した。`test-support` の裏 | `crates/core/src/parity.rs` |
-| 公開名 | `SpecialVerdict`・`judge_element_with_special_values`・`compare_f32_with_special_values` と、集計の型（getter は `compared`・`exceeded`・`non_finite_mismatch`・`first_mismatch`・`is_match`） | `crates/core/src/parity/special_values.rs` |
-| 判定の区分 | `SpecialVerdict` は 5 区分（`BothNan`・`SameInfinity`・`NonFiniteMismatch`・`Within`・`Exceeded`） | 同上 |
+| 公開名 | `SpecialVerdict`・`judge_element_with_special_values`・`compare_f32_with_special_values` と、既存の `Comparison` とは別の集計の型 `SpecialComparison`（getter は `compared`・`exceeded`・`non_finite_mismatch`・`first_mismatch`・`is_match`） | `crates/core/src/parity/special_values.rs` |
+| 判定の区分 | `SpecialVerdict` は 5 区分（`BothNan`・`SameInfinity`・`NonFiniteMismatch`・`Within`・`Exceeded`）。既存の `ElementVerdict` とは別の型で、`ElementVerdict` は変えていない | 同上 |
 | 有限どうし | `judge_element` へ委ねる。既存の `judge_element`・`compare_f32` は変えていない | 同上、公開テスト（`crates/core/tests/parity_special_values.rs`） |
 | テスト | `core` の `[[test]]` 1 件（`parity_special_values`、`required-features = ["test-support"]`）。3/4 で `contract` の `[[test]]` 1 件（`test_support_special_values`、同 feature）を足した | 各 `Cargo.toml` |
 | 走る場所（3/4） | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む 4 組。`build-profiles` の組は増やしていない | `scripts/build-profiles.sh` |
 
-## テストの現状（3/4・未承認の仮置き）
+## テストの現状（3/4）
 
-本リポのコードと公開テストが示す事実のみ。`src` は変えていない。入力はテストの中でその場で組んだもので、既存の 12 件の期待値は変えていない。
+本リポのコードと公開テストが示す事実のみ。`src` は変えていない。入力はテストの中でその場で組んだもので（PoC の入力・記録は写していない。[poc-carry-over](../.claude/rules/poc-carry-over.md)）、既存の 12 件の期待値は変えていない。
 
 ### core（`crates/core/tests/parity_special_values.rs`）
 
@@ -92,42 +90,13 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 
 `exec`・`upper` への `test-support` の転送は足していない（使うコードが無い）。
 
-## オーナー判断待ち（未承認の仮置き）
-
-[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) に従い、推奨を既定として確定しない。回答があるまで、下の仮置きは確定扱いにしない。
-
-2/4 の PR（#7025）はマージ済みで、仮置きは未承認のまま main にある（マージ済みは履歴の事実であり、承認ではない）。下の判断への回答は本リポでは確認できていない。承認はまだ得ていない。3/4 の PR（#7028）もマージ済みで、同じく履歴の事実であり承認ではない。4/4（#113）の記録も未承認の仮置きの上にあり、承認は得ていない。本 PR（4/4）を含め、未承認の仮置きを含む後続の PR は、オーナーの判断が出るまでマージしない。あわせて、仮置きを確定扱いにしない。判断が出た後に、承認の記録と、実装・文書を整合させる。
-
-| 論点 | 仮置き | 選択肢（列挙のみ） | 止まるもの |
-| ---- | ------ | ------------------ | ---------- |
-| 1. 置き場 | `parity/special_values.rs` に新ファイル | `tolerance.rs` を変える／別の置き場 | TASK-25 の 3/4・4/4（#112・#113） |
-| 2. 公開名 | `special_values` 系の名前 | 別名にする | 同上 |
-| 3. 判定の区分 | 5 区分の別の型。`ElementVerdict` は変えない | `ElementVerdict` を細分化する（Q11 の経路） | 同上 |
-| 4. 既存の集計との関係 | `Comparison` と別の集計の型 | `Comparison` に項目を足す（Q5 の続き） | 同上 |
-| 5. 前提 | [parity-tool](parity-tool.md) の Q1・Q3・Q11 は未回答のまま着手 | 回答を待つ | TASK-24 の確定 |
-| 6. テストの入力の作り方（3/4） | 判定の区分ごとにその場で組んだ入力で固定する。PoC の入力は写さない | (a) 仮置きのまま、完了の条件との対応づけはオーナーが確かめる (b) PoC と同じ入力での確かめを、TASK-6 の決定の記録に沿う置き場・方法で別に行う | #113 での完了の条件との対応づけ、TASK-25 の完了の宣言 |
-| 7. CPU 参照に有限でない入力を渡す使い方（3/4） | 入力の源としてだけ使い、出力の要素ごとの種類は固定しない | (a) 仮置きのまま (b) 出力の種類も公開テストで固定する（TASK-24 の側の範囲に触れる） (c) CPU 参照を通さない | TASK-24 の CPU 参照の範囲（[parity-tool](parity-tool.md) の Q4） |
-
-## 形の論点（列挙のみ）
-
-推奨は書かない。回答は無く、確定扱いにしない。規則の足し方・判定の区分・命名は 2/4 で、新しいテストの置き方・入力の作り方・`build-profiles` の組は 3/4 で仮置きした（前節「コードの現状の形」「テストの現状（3/4）」）。
-
-- 規則の足し方の置き場: `parity/` に新しいファイルと `pub mod` 1 行か、`tolerance.rs` を変えるか
-- `judge_element` の区分の扱い: 既存の区分を細かく分けるか、別の関数・型を足すか。既存の公開テストの期待値が変わる場合は [parity-tool](parity-tool.md) の「値・規則を変える変更の扱い（案）」と Q11 に従う
-- `Comparison` の集計の項目（[parity-tool](parity-tool.md) の Q5 の続き）
-- 要素ごとの比べと Top-k の比べで、符号付きの零の現状の扱いが異なる点をどう扱うか
-- 新しいテストの置き方（`[[test]]` と `required-features`、`build-profiles` の組）
-- テストの入力の作り方（PoC の入力・記録は複製しない。[poc-carry-over](../.claude/rules/poc-carry-over.md)、TASK-6）
-- Q1・Q3・Q11 が未回答のまま #111 を進めるか
-- 並行する TASK-26 との衝突の避け方
-
 ## 後続の分担
 
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
-| 2/4 | #111 | 実装。済（未承認の仮置き） |
-| 3/4 | #112 | テスト。済（未承認の仮置き） |
-| 4/4 | #113 | 確かめ。済（「完了の条件の確かめ」に記録。未承認の仮置きの上） |
+| 2/4 | #111 | 実装。済 |
+| 3/4 | #112 | テスト。済 |
+| 4/4 | #113 | 確かめ。済（「完了の条件の確かめ」に記録） |
 
 #112 の判断:
 
@@ -138,7 +107,7 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 
 親 #109 の「進み具合を spec に記録する」は spec リポ側の作業で、本リポからは書き換えない。
 
-## 完了の条件の確かめ（4/4・未承認の仮置き）
+## 完了の条件の確かめ（4/4）
 
 本リポで観測できる事実だけを書く。コマンドは worktree のルートで実行した。spec の完了の条件の本文は転記しない（`docs/spec/05-tasks.md` の TASK-25 を参照。ポインタのみ）。
 
@@ -159,11 +128,10 @@ CPU 参照に有限でない入力を渡したときの出力の要素ごとの�
 | 列のエラーが外から到達できる | 同 4 組で `special_value_sequence_errors_are_reachable_from_outside_core` | 4 組とも通過 |
 | GPU の実機なしで走る | 上のテストを実機なしで実行 | 実機なしで通過。CI の結果は未検証（PR 作成前） |
 | 品質ゲート | `make check`・`make verify`・`make build-profiles`・`make deny`・`make deps-check` | 全て終了コード 0 |
-| spec の完了の条件との照合 | 論点 6 のとおり | 本段では行っていない（判断待ち） |
-| CPU 参照に有限でない入力を渡したときの出力の種類・前提の Q1・Q3・Q11・適用の範囲（TASK-53）・TASK-23 の枠との接続 | 論点 5・7 と [parity-tool](parity-tool.md) のまま | 該当なし（判断待ち。本段では触れない） |
+| spec の完了の条件との照合 | 記録の正は private spec 側（TASK-25 の状態。ポインタのみ） | 本書では行っていない |
+| CPU 参照に有限でない入力を渡したときの出力の種類・適用の範囲（TASK-53）・TASK-23 の枠との接続 | 「テストの現状（3/4）」と [parity-tool](parity-tool.md) のまま | 該当なし（出力の種類は固定していない。範囲と枠は TASK-53（#196）・TASK-23（#91）に委ねる。本段では触れない） |
 
-- 判定: 本リポで観測できる範囲では、上の項目を確かめられた。TASK-25 の完了は本書では宣言しない。論点 6・7 は未回答で、spec の完了の条件との照合は本段では行っていない
-- 論点 1〜7 は判断待ちで、置き場・公開名・形は未承認の仮置きのまま
-- 再実行の契機: 論点 1〜7 と Q1・Q3・Q11 への回答、`parity` の置き場・feature の変更、区分・比べの規則の変更、TASK-53（#196）の範囲の決定、TASK-23（#91）の枠の追加、`scripts/build-profiles.sh` の組の変更
+- 判定: 本リポで観測できる範囲では、上の項目を確かめられた。完了の条件との対応づけの記録の正は private spec 側（TASK-25 の状態）
+- 再実行の契機: `parity` の置き場・feature の変更、区分・比べの規則の変更、TASK-53（#196）の範囲の決定、TASK-23（#91）の枠の追加、`scripts/build-profiles.sh` の組の変更
 
 確かめた日付: 2026-10-11（base: ee6a825）

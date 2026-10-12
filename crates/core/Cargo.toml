@@ -10,7 +10,7 @@ repository.workspace = true
 publish.workspace = true
 
 # テスト・検証専用（本番ビルドに含めない。default にも入れない）。
-# 置き場と feature 名は未承認の仮置き（docs/parity-tool.md の Q1・Q3）。
+# 置き場と feature 名の説明は docs/parity-tool.md の「現状の形」。
 [features]
 test-support = []
 

@@ -2,12 +2,12 @@
 //!
 //! 背後実装の出力と参照を画素で比べる側（検証用のテスト・測定）から呼ばれる。
 //! feature `test-support` の裏にだけ公開される。標準ライブラリだけで書き、確保はしない。
-//! 置き場・feature 名・入力の形は未承認の仮置き（`docs/pixel-parity-tool.md` の Q1〜Q8・Q10）。
+//! 置き場・feature 名・入力の形の説明は `docs/pixel-parity-tool.md` の「現状の形」。
 //! spec との対応は `docs/spec/05-tasks.md` の TASK-26、`docs/spec/02-poc-plan.md` の T-3 のポインタのみ。
 
 use std::fmt;
 
-/// 1 画素あたりの要素数。要素型は `u8`（未承認の仮置き。`docs/pixel-parity-tool.md` の Q10）。
+/// 1 画素あたりの要素数。要素型は `u8`（入力の形の説明は `docs/pixel-parity-tool.md` の「現状の形」）。
 pub const CHANNELS_PER_PIXEL: usize = 4;
 
 /// 画像の入力の検査で返るエラー。

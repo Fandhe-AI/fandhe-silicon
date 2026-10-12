@@ -12,7 +12,7 @@ spec の本文・値は転記しない（[spec-confidentiality](../.claude/rules
 | TASK-4（workspace と crate の骨格） | 済 | `cargo metadata --format-version 1 --all-features` で member は 4 crate、外部パッケージは 0 件。`deny.toml` の `[bans] deny` で wgpu 系を拒否済み |
 | TASK-6（PoC から持ち込むもの・除くものの決定） | 済 | 対応する Issue #35 はクローズ済み。決定の記録の正は private spec（[workspace-boundary](workspace-boundary.md)） |
 
-- TASK-7 の完了の宣言は、オーナーの確認による（本書では宣言しない）
+- TASK-7 の完了の条件との対応づけの記録の正は private spec 側（TASK-7 の状態。ポインタのみ）
 - 製品 workspace に wgpu を入れない向きは、TASK-6 の決定に左右されない
 
 ## 製品 workspace を守る仕組み
@@ -66,15 +66,13 @@ wgpu adapters: 2 adapter(s)
 物理 GPU が無い環境でもアダプタが 0 件になるとは限らない。0 件のときは `0 adapter(s)` を出して正常終了する作りで、
 この 0 件の経路は実機では未確認。
 
-## オーナー判断待ちの論点
+## 残っている論点
 
-推奨案は確定しない。決まるまで後続の作業は仮置きで進めない。
+完了の条件との対応づけの記録の正は private spec 側（TASK-7 の状態。ポインタのみ）。本節には、それ以外に残っている論点と事実を書く。
 
 1. 置き場の最終確認: 本リポ内の `baseline-wgpu/` を置き場として smoke crate を置いた。別リポジトリや PoC の隔離 workspace への移行をオーナーが望む場合は再判断する
     - 別 workspace を `make deny`・`make verify` の範囲に含める検査と CI ジョブは未決
-    - 止まるもの: TASK-7 の完了の宣言
 2. wgpu の依存追加は、オーナーの明示承認（2026-10-11、#40。追加先は `baseline-wgpu/` に限る）を得て `=30.0.1` で追加済み（[dependency-policy](../.claude/rules/dependency-policy.md)）。以後の追加・更新は改めて承認を得る
-3. TASK-7 の完了の宣言（下の「完了の条件の確かめ」と spec の完了の条件との対応づけの確認）
 
 ## 後続の分担
 
@@ -83,12 +81,12 @@ wgpu adapters: 2 adapter(s)
 | 別 workspace の作成 | TASK-7 の 2/4 | 済 |
 | 版の記録の書式 | TASK-7 の 3/4 | 済（書式は案。[wgpu-baseline-record](wgpu-baseline-record.md)） |
 | wgpu の依存追加と版の記録 | TASK-7（本書の該当節） | 済 |
-| 完了の条件の確かめ | TASK-7 の 4/4 | 下の節に記録。完了の宣言はオーナーの確認による |
+| 完了の条件の確かめ | TASK-7 の 4/4 | 下の節に記録（対応づけの記録の正は private spec 側。TASK-7 の状態） |
 
 ## 完了の条件の確かめ
 
 本リポで観測できる事実による確かめの記録（ポインタ: TASK-7・AC-2・BUILD-50・D-18）。
-spec の完了の条件との対応づけはオーナーが確認する。条件の本文は転記しない。
+spec の完了の条件との対応づけの記録の正は private spec 側（TASK-7 の状態。ポインタのみ）。条件の本文は転記しない。
 
 | 確かめる項目 | 方法 | 現時点の結果 |
 | ------------ | ---- | ------------ |
@@ -99,6 +97,6 @@ spec の完了の条件との対応づけはオーナーが確認する。条件
 | 別 workspace から wgpu を使う bin がビルド・実行できる | `baseline-wgpu/` で `cargo build`・`cargo run` | 通過（ローカル実行。CI では未実行。出力は「ローカル実測」の節） |
 | 前提の TASK-6 が確定している | 対応する Issue の状態 | Issue #35 はクローズ済み |
 
-- 判定: 本リポで確かめられる項目は通過。**TASK-7 の完了は本書では宣言しない**（オーナーの確認による）
+- 判定: 本リポで確かめられる項目は通過。完了の条件との対応づけの記録の正は private spec 側（TASK-7 の状態。ポインタのみ）
 - 再実行の契機: 別 workspace の依存の追加・更新、置き場の変更のあと、同じ手順で表を更新する
 - 確かめた日付: 2026-10-11（base: 6d105dc）
