@@ -38,6 +38,10 @@ fault-injection = []
 artifact-inspection = ["backend-metal"]
 
 [[test]]
+name = "backend_vulkan_spirv_operands"
+required-features = ["backend-vulkan", "test-support"]
+
+[[test]]
 name = "test_support_forwarding"
 required-features = ["test-support"]
 
