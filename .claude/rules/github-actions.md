@@ -21,7 +21,7 @@ description: >
 
 - ruleset `main-protection` の required status checks（11 件）:
   - `ci.yml`: `ci-complete`・`make check (editorconfig-checker + shellcheck)`・`make verify (fmt + clippy + test)`・
-    `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` も含む。check 名は不変）・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`（`make test-hooks` に加えて `make test-session-record-check` / `make test-metal-session` も流し、macOS では `/bin/bash`〔標準の 3.2〕で直接実行する step もある。check 名は不変）
+    `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` も含む。check 名は不変）・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`（`make test-hooks` に加えて `make test-session-record-check` / `make test-metal-session` も流し、macOS では `/bin/bash`〔標準の 3.2〕で直接実行する step もある。check 名は不変）
   - `ai-review.yml`: `codex / preflight`・`codex / review`・`codex / post_feedback`
   - 外部 App: `Cursor Bugbot`（cursor App に束縛。それ以外は GitHub Actions の integration に束縛）
 - 個別ジョブまで登録するのは、implement-issue-tree の自動マージ前ゲート（G0）が PR 上の全 check を必須チェックに含めることを要求するため。

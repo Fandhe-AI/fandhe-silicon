@@ -48,6 +48,8 @@ description: >
 | `test-inventory-trace-check` | `scripts/inventory-trace-check.sh` の回帰テスト。合成 fixture と一時ディレクトリだけを使い、リポジトリのファイルを変更しない・ネットワーク不要・`docs/spec` の取得は不要。判定は終了コード + 標準出力 + 標準エラーの部分一致 + 違反の件数。python3 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ |
 | `test-session-record-check` | `scripts/session-record-check.sh` の回帰テスト。合成 fixture と一時ディレクトリだけを使い、リポジトリのファイルを変更しない・ネットワーク不要。python3 未導入は失敗（skip しない）。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）が呼ぶ。検査本体は引数（記録のパス）が要るため make ターゲットを持たない（漏れではない。直接実行する） |
 | `test-metal-session` | `scripts/metal-session.sh` の回帰テスト。macOS のコマンド（`uname`・`date`・`pmset`・`sysctl`・`caffeinate`・`xcode-select`）は一時ディレクトリの偽のコマンドを `PATH` の先頭に入れて差し替えるので Linux でも全部流れる。リポジトリのファイルを変更しない・ネットワーク不要。判定は終了コード + 出力の部分一致（先頭が `!` の語は含まれないこと）。python3・git 未導入は失敗（skip しない）。本体はテストを動かしている bash で起動する（macOS の CI は `/bin/bash` で直接も実行する）。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）が呼ぶ。本体はサブコマンドと引数が要るため make ターゲットを持たない（漏れではない。直接実行する） |
+| `ci-frame-check` | `.github/workflows/ci.yml`（`--workflow <path>` で差し替え可）が CI の枠の事実を保っているかの検査（集約ジョブの存在と `needs` の網羅・`runs-on` の許可ラベル・失敗の握りつぶしの綴りが無いこと・`always()` の場所）。入力は読むだけ・ネットワーク不要。終了コード 0 合格・1 違反・2 誤用または前提の不足。python3 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ |
+| `test-ci-frame-check` | `scripts/ci-frame-check.sh` の回帰テスト。合成 fixture と一時ディレクトリだけを使い、リポジトリのファイルを変更しない・ネットワーク不要。python3 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ |
 | `inventory-trace-check` | 一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。項目の行〔表のデータ行〕への帰属は直接実行で `--item-rows` を付けたときだけ。TASK-16 のポインタ。bash + python3）。`--list` で合格のときだけ対応の一覧を標準出力へ出す（保存しない）。入力は読むだけ・ネットワーク不要。終了コード 0 合格・1 違反・2 誤用または入力なし（`--item-id-column` が解決できない場合を含む）（入力が無ければ成功扱いにしない）。CI は呼ばない |
 | `test-hooks` | `scripts/hooks/` の回帰テスト（bash + git のみ） |
 | `doctor` | 診断のみ。何も導入しない |

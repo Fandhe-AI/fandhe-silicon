@@ -141,6 +141,8 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 上の検査の回帰テスト | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` |
 | 一覧と項目の対応の検査の回帰テスト（合成 fixture） | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` |
 | 回ごとの記録の形の検査の回帰テスト（合成 fixture） | `deny` | `make test-session-record-check` | `scripts/test-session-record-check.sh` |
+| `ci.yml` が枠の事実を保っているかの検査 | `deny` | `make ci-frame-check` | `scripts/ci-frame-check.sh` |
+| 上の検査の回帰テスト（合成 fixture） | `deny` | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` |
 | PR タイトルの形式 | `pr-title` | なし（直接呼ぶ） | `scripts/hooks/commit-msg-check.sh` |
 | 上のジョブの結果の集約 | `ci-complete` | なし | `ci.yml` に直接書かれた判定 |
 
@@ -160,6 +162,36 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 検査 | 現状 | 確かめ方 |
 | ---- | ---- | -------- |
 | 公開 API の検査に当たるスクリプト・make ターゲット | 0 件 | `ls scripts`、`grep -n PHONY Makefile`。受け持ちは別タスク（ポインタ: TASK-10・TASK-13・TASK-15・TASK-113。現状は [public-name-check](./public-name-check.md)） |
+
+## 現状の形（3/4）
+
+`ci.yml` 自身を入力にして枠の事実を確かめる検査 1 つと、その回帰テストを、既存の `deny` ジョブのステップとして実行する。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 検査の入口 | `make ci-frame-check`（実体: `scripts/ci-frame-check.sh`。`--workflow <path>` で入力を差し替えられる） |
+| 終了コード | 0 合格 / 1 違反 / 2 誤用・前提の不足（python3 が無い場合を含む。成功扱いにしない） |
+| 回帰テスト | `make test-ci-frame-check`（合成 fixture と実物の写しだけを使い、リポジトリのファイルを変更しない） |
+| 載せたジョブ | `deny`（ステップを 2 つ足しただけで、ジョブ ID・check 名・`needs`・`runs-on` は変えていない） |
+
+検査の規則（コードの記述による。定義は `scripts/ci-frame-check.sh` の先頭コメントが正）:
+
+| 規則 | 内容 |
+| ---- | ---- |
+| F1 | 集約ジョブ `ci-complete` があり、ジョブ単位の `if` が `always()` である |
+| F2 | `ci-complete` の `needs` が、それ以外の全ジョブ ID と過不足なく一致する |
+| F3 | 各ジョブの `runs-on` が許可ラベル（`ubuntu-latest`・`macos-latest`）か、リテラルの並びの matrix 参照である |
+| F4 | `continue-on-error` のキーがどこにも無い |
+| F5 | コメント行以外に `|| true`・`|| :` の綴りが無い |
+| F6 | `always()` が F1 の 1 か所以外に現れない |
+
+読めない形（タブのインデント・アンカー・対応外の書き方・ジョブ ID の重複・`jobs` の欠落）は違反にする。
+
+検査しないもの: `ci-complete` の判定式の中身、`ci.yml` 以外の workflow、ruleset の登録、ステップ単位の `if`、F5 の綴り以外の握りつぶし。
+
+確かめ方: `make ci-frame-check`、`make test-ci-frame-check`、`grep -n "run: make " .github/workflows/ci.yml`
+
+4/4（#3568）への引き継ぎ: `ci-complete` の判定式の回帰テストと、実際に失敗する CI の実行の観測の要否は、本段では扱っていない。
 
 ### 2/4 で変えたもの・変えなかったもの
 

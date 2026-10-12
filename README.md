@@ -106,7 +106,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
 | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [jq](https://jqlang.org/) | 依存の版指定の検査（`make deps-check` / `make test-deps-check`） | 任意 |
-| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` も使う。`make test-session-record-check`・`make test-metal-session` と `scripts/session-record-check.sh`・`scripts/metal-session.sh` は 3.8 以上で動く） | 任意 |
+| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh` は 3.8 以上で動く） | 任意 |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |
 | [ShellCheck](https://www.shellcheck.net/) | シェルスクリプトの lint | ✓ |
@@ -152,6 +152,8 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
 | `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
 | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | `inventory-trace-check` 自体の回帰テスト（合成 fixture で終了コード・標準出力・標準エラーの文言・違反の件数・鍵の秘匿・入力を変更しないことを検証。bash + python3。ネットワーク不要・`docs/spec` の取得は不要。CI の `deny` ジョブも実行する） |
+| `make ci-frame-check` | `scripts/ci-frame-check.sh` | `.github/workflows/ci.yml` が CI の枠の事実（集約ジョブの網羅・実行場所・失敗の握りつぶしが無いこと）を保っているかの検査（bash + python3。ソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-session-record-check` | `scripts/test-session-record-check.sh` | `session-record-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/session-record-check.sh <path>` を直接実行する |
 | `make test-metal-session` | `scripts/test-metal-session.sh` | `metal-session` 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替えるので Linux でも流れる。bash + python3 + git。ネットワーク不要）。本体はサブコマンド（`probe` / `run` / `redact` / `scan`）と引数が要るため make ターゲットを持たず、`scripts/metal-session.sh` を直接実行する。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）も実行する |
 | `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
@@ -175,7 +177,7 @@ hooks に引っかかった場合は原因を修正してから再コミット�
 
 開発速度を落とさないため、hooks には staged ファイル限定で一瞬で終わる検査と、コミット単位でしか意味がない検査
 （シークレット検知・コミットメッセージ）だけを置きます。clippy・test・cargo-deny など重い処理や CI と重複する検査は
-CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` を実行してください。
+CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` を実行してください。
 時間予算（pre-commit 合計 1 秒未満）と判断手順は `.claude/rules/git-hooks.md` に定義しています。
 
 フックスクリプト（`scripts/hooks/*.sh`）自体のテストもフックには置かず、CI の `test-hooks` ジョブ（`make test-hooks`）で
@@ -185,7 +187,7 @@ Linux・macOS（標準の bash 3.2 を含む）について実行します。`sc
 
 | ワークフロー | 内容 |
 |---|---|
-| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（`verify` は続けて `make build-profiles` を、`deny` は続けて `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` を実行する。jq・python3 は runner 同梱。toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`test-hooks`: フックスクリプト自体の回帰テスト（`make test-hooks`。ubuntu-latest・macos-latest。あわせて `make test-session-record-check` / `make test-metal-session` も流し、macOS では標準の bash 3.2 でも直接実行する）。`ci-complete`: 全ジョブ結果の集約 |
+| `ci.yml` | `check`: ローカル・hooks と同じ `make check` を実行する（editorconfig-checker / shellcheck はバージョン固定 + SHA256 検証で導入）。`verify` / `deny`: ローカルと同じ `make verify` / `make deny` を実行する（`verify` は続けて `make build-profiles` を、`deny` は続けて `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make ci-frame-check` / `make test-ci-frame-check` を実行する。jq・python3 は runner 同梱。toolchain は `rust-toolchain.toml`、cargo-deny はバージョン固定 + SHA256 検証で導入）。`pr-title`: PR タイトルを commit-msg フックと同じスクリプトで検証する（squash merge でコミット件名になるため）。`test-hooks`: フックスクリプト自体の回帰テスト（`make test-hooks`。ubuntu-latest・macos-latest。あわせて `make test-session-record-check` / `make test-metal-session` も流し、macOS では標準の bash 3.2 でも直接実行する）。`ci-complete`: 全ジョブ結果の集約 |
 | `ai-review.yml` | Fandhe-AI/actions の ai-review（codex）による PR 自動レビュー。Actions variable `CODEX_HOME_DIR` が未設定の間は skip される |
 | `update-external.yml` | エージェントスキル（`skills-lock.json`）と submodule（`.gitmodules`）の日次自動追従 PR。secrets は org の `SUBMODULE_PAT` を使う（`SKILLS_PAT` 未登録時は共通側が `SUBMODULE_PAT` へフォールバック）。作成する PR には `dependencies` / `automated` ラベルが付く |
 
