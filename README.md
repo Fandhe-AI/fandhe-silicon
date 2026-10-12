@@ -87,7 +87,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
-| `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の現状と前提・形の設計（どのジョブに足すか・失敗の扱い・足す手順）（TASK-112 の 1/4） |
+| `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の現状と前提・形の設計（どのジョブに足すか・失敗の扱い・足す手順）と、現状の形（検査 → ジョブ → make ターゲット → スクリプトの対応）（TASK-112 の 1/4・2/4） |
 | `docs/test-frame.md` | 共通の試験の枠（TASK-23）の現状と前提・形の設計（範囲 (1)・(2)。決定の記録のポインタと、守る本リポの規約）と現状の形（3/8・5/8） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |

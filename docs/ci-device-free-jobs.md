@@ -1,4 +1,4 @@
-# 機材の要らないジョブの枠（TASK-112）の現状・前提・形の設計
+# 機材の要らないジョブの枠（TASK-112）の現状・前提・形の設計・現状の形
 
 TASK-112（親 Issue #393）について、1/4（#3565）の現状と前提、形の設計を、本リポで公開済みの事実とポインタだけで記録する。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
@@ -126,12 +126,59 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | J2 | 規約に、実機が要る試験と CI の関係についての規範の文を足すか（ポインタ: `docs/spec/05-tasks.md` の TASK-18） | 無し（本段は足していない） |
 | J3 | 完了の条件の確かめに、回帰テストに加えて実際に失敗する CI の実行の観測が要るか | 4/4 |
 
+## 現状の形（2/4）
+
+`ci.yml` が呼ぶ検査の対応。ジョブはすべて GitHub ホステッドの runner で、実機・GPU を使うジョブは 0 件（確かめ方: `grep -n -E "runs-on|self-hosted" .github/workflows/ci.yml`、`grep -n -i gpu .github/workflows/ci.yml`）。
+
+| 検査 | ジョブ ID | 呼ぶ make ターゲット | 実体 |
+| ---- | --------- | -------------------- | ---- |
+| 整形・シェルの静的検査 | `check` | `make check` | `scripts/check.sh` |
+| フックの回帰テスト | `test-hooks` | `make test-hooks` | `scripts/hooks/test-hooks.sh` |
+| fmt・clippy・workspace の試験 | `verify` | `make verify` | `scripts/verify.sh` |
+| feature の組ごとの build・clippy・test と wasm32 の `cargo check` | `verify` | `make build-profiles` | `scripts/build-profiles.sh` |
+| 依存（ライセンス・ソース・禁止対象）と workspace の path の検査 | `deny` | `make deny` | `scripts/deny.sh` |
+| 依存の `=x.y.z` 固定と承認の記録の一致 | `deny` | `make deps-check` | `scripts/deps-check.sh` |
+| 上の検査の回帰テスト | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` |
+| 一覧と項目の対応の検査の回帰テスト（合成 fixture） | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` |
+| 回ごとの記録の形の検査の回帰テスト（合成 fixture） | `deny` | `make test-session-record-check` | `scripts/test-session-record-check.sh` |
+| PR タイトルの形式 | `pr-title` | なし（直接呼ぶ） | `scripts/hooks/commit-msg-check.sh` |
+| 上のジョブの結果の集約 | `ci-complete` | なし | `ci.yml` に直接書かれた判定 |
+
+確かめ方: `grep -n "run: make " .github/workflows/ci.yml`
+
+#### CI が呼ばない make ターゲット
+
+| ターゲット | 理由（コード内の記述による） |
+| ---------- | ---------------------------- |
+| `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
+| `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
+
+`scripts/session-record-check.sh` 本体は引数（検査する記録）が要るため make ターゲットを持たない（同スクリプトの先頭コメント）。
+
+#### まだ無いもの
+
+| 検査 | 現状 | 確かめ方 |
+| ---- | ---- | -------- |
+| 公開 API の検査に当たるスクリプト・make ターゲット | 0 件 | `ls scripts`、`grep -n PHONY Makefile`。受け持ちは別タスク（ポインタ: TASK-10・TASK-13・TASK-15・TASK-113。現状は [public-name-check](./public-name-check.md)） |
+
+### 2/4 で変えたもの・変えなかったもの
+
+- 変えたもの: 本書の追加と、文書の索引（`README.md`・`CLAUDE.md`）・[ci-job-split](./ci-job-split.md) からのリンク
+- 変えなかったもの: `.github/workflows/ci.yml`（ジョブ・check 名・`ci-complete` の `needs`）、`Makefile`、`scripts/`、`.claude/rules/github-actions.md`
+- 上の照合で、機材の要らない既存の make ターゲットで CI が呼んでいないものは、上の 2 件の除外を除き見つからなかった
+
+### 3/4・4/4 への引き継ぎ（2/4 時点）
+
+- 触る可能性のあるファイル: `.github/workflows/ci.yml`、本書、[ci-job-split](./ci-job-split.md)
+- 守る規約: [github-actions](../.claude/rules/github-actions.md)（check 名の増減・改名は ruleset の更新が要る。ジョブを足したら `ci-complete` の `needs` に足す）、[makefile](../.claude/rules/makefile.md)（中身のないターゲットを足さない）
+- 観測した事実: `ci-complete` の判定は `ci.yml` に直接書かれた式で、これ自体の回帰テストは無い
+
 ## 分担
 
 | Issue | 段 |
 | ----- | -- |
 | #3565 | 1/4 形の設計 |
-| #3566 | 2/4 実装 |
+| #3566 | 2/4 実装（現状の形の節） |
 | #3567 | 3/4 CI への組み込み |
 | #3568 | 4/4 確かめ |
 

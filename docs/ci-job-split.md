@@ -38,7 +38,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 ## 本リポでの反映の方針
 
 - 機材の要らないジョブを足す・変える作業は、それを受け持つタスクの PR で行う（ポインタ: TASK-112）
-    - 形の設計は [ci-device-free-jobs](ci-device-free-jobs.md)
+    - 形の設計と現状の形は [ci-device-free-jobs](ci-device-free-jobs.md)
 - ジョブを足すときの手順（`ci-complete` の `needs`・必須チェック）は [github-actions](../.claude/rules/github-actions.md) に従う
 
 ## 関連
