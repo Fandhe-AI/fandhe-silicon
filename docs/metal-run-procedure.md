@@ -17,7 +17,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | 完了の条件との対応づけの記録 | 記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-19。ポインタのみ） |
 
 `metal-session.sh` は設定を変えず、プロセスを止めず、`xcode-select` を呼ばない。読む・起動する・別のファイルへ書く、だけを行う。
-値を含む記録（環境の値・ログ）は本リポに置かない。バイナリは git に入れない。実ホスト名・アドレス・資格情報などの秘密情報は書かない（[security](../.claude/rules/security.md)）。
+値を含む記録（環境の値・ログ）は本リポに置かない。実ホスト名・アドレス・資格情報などの秘密情報は書かない（[security](../.claude/rules/security.md)）。
 
 ## コマンドの並び
 
@@ -64,9 +64,8 @@ macOS の上でだけ動く（それ以外は終了コード 2。JSON を出さ�
 | `--` 以降 | 起動するコマンドと引数。配列のまま `exec` する（連結も `eval` もしない）。終了コードは起動したコマンドのもの |
 
 - 環境変数の名前と受ける値は `crates/core/src/test_frame/setting.rs` が定める。試験の枠は `FANDHE_SILICON_TEST_MACHINE_COMBINATION` が未設定のとき「未実施」を返し、`FANDHE_SILICON_TEST_PERMISSIONS` が未設定のとき許可は 0 件として扱う（公開テスト: `crates/core/tests/test_frame_decide.rs` の `unset_combination_is_not_configured`・`unset_and_empty_permissions_mean_none_granted`）。試験の枠の現状は [test-frame](./test-frame.md)
-- 組み合わせの名前が枠の知らない値のときは、`run` は通しても枠が走らせない側に倒す。名前の正は `crates/core/src/test_frame/combination.rs`
-- feature の組は `scripts/build-profiles.sh` を指す。コンパイルの成功を、実機での動作の証拠にしない
-- 受け取った文字列をコマンドに連結しない。値は引用する
+- 組み合わせの名前の正は `crates/core/src/test_frame/combination.rs`
+- feature の組は `scripts/build-profiles.sh` を指す
 
 ### 3. 回の記録の形の検査
 
@@ -94,7 +93,7 @@ example-host<TAB><example-machine>
 example-dir<TAB><example-place>
 ```
 
-- 一覧は機材の側に置き、git に入れる場所に置かない。語と印の対応（どの語をどの印にするか）は一覧が持ち、スクリプトは既定の印を持たない
+- 一覧は git の作業ツリーの外に置く（中にあると拒否する。条件は下）。語と印の対応（どの語をどの印にするか）は一覧が持ち、スクリプトは既定の印を持たない
 - 拒否する一覧（終了コード 2）: 空・空行だけ、TAB の無い行（印なし）、形の違う印、空または空白だけの語、同じ語の重複（印が同じでも別でも）、印の中に語が含まれる（置き換えの後の検索が必ず残りを見つけるため）。空行は読み飛ばす
 - 一覧の実パスの親ディレクトリが git の作業ツリーの中（`.git` の中、別の worktree、別のリポジトリを含む）にあるとき、または祖先に `.git` があるときは、一覧も `redact` の出力先も拒否する（終了コード 2）。シンボリックリンクは実パスで判定する。ハードリンクは検出しない
 - 語は固定の文字列で、正規表現として解釈しない。大文字小文字を区別するので、表記の揺れは別々の語として並べる。重なる語は長い方を先に置き換える
