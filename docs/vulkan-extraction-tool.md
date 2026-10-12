@@ -5,6 +5,7 @@ spec の本文・判定のラベル・PoC の手順や結果は転記しない�
 
 タスクの中身は `docs/spec/05-tasks.md` の TASK-98 と、`docs/spec/03-poc/kernel-artifacts-and-parity/` の記録を参照する（ポインタのみ）。
 取り出しのコードと公開テストはまだ本リポに無いので、道具の振る舞いは書かない。後続の段は、該当の節へ追記する。
+方針（2/6）と形（3/6）は [vulkan-operand-extraction](vulkan-operand-extraction.md) に記録する。
 
 ## 前提タスクの状態
 
