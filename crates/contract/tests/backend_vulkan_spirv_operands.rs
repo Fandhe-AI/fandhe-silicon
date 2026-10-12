@@ -780,11 +780,11 @@ fn inputs_shorter_than_header() {
 fn magic_is_checked_after_length() {
     assert_eq!(
         extract_storage_buffer_operands(&[0xdead_beef, 0, 0, 0, 0]),
-        Err(SpirvExtractError::BadMagic { found: 0xdead_beef })
+        Err(SpirvExtractError::BadMagic)
     );
     assert_eq!(
         extract_storage_buffer_operands(&[0, 0, 0, 0, 0]),
-        Err(SpirvExtractError::BadMagic { found: 0 })
+        Err(SpirvExtractError::BadMagic)
     );
     assert_eq!(
         extract_storage_buffer_operands(&[MAGIC_REVERSED, 0, 0, 0, 0]),
@@ -1500,7 +1500,7 @@ fn errors_are_std_errors_with_ascii_display() {
     ];
     let mut errors = vec![
         SpirvExtractError::TooShort { words: 3 },
-        SpirvExtractError::BadMagic { found: 7 },
+        SpirvExtractError::BadMagic,
         SpirvExtractError::ByteOrderReversed,
         SpirvExtractError::ZeroWordCount { offset: 5 },
         SpirvExtractError::TruncatedInstruction {
@@ -1518,7 +1518,6 @@ fn errors_are_std_errors_with_ascii_display() {
         SpirvExtractError::MissingDecoration { id: 4 },
         SpirvExtractError::DuplicateDefinition { id: 4 },
         SpirvExtractError::DuplicateBinding { set: 1, binding: 2 },
-        SpirvExtractError::SizeOverflow,
     ];
     errors.extend(
         shapes

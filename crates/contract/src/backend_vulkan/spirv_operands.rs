@@ -140,11 +140,8 @@ pub enum SpirvExtractError {
         /// 渡された語数。
         words: usize,
     },
-    /// 先頭の語がマジックと違う。
-    BadMagic {
-        /// 渡された先頭の語。
-        found: u32,
-    },
+    /// 先頭の語がマジックと違う。入力の語の値は `Display` / `Debug` に出さないため持たない。
+    BadMagic,
     /// マジックのバイト順が逆（受け口は語の列なので、読み込み側でそろえる必要がある）。
     ByteOrderReversed,
     /// 命令の語数が 0。
@@ -207,8 +204,6 @@ pub enum SpirvExtractError {
         /// 対象外の理由。
         shape: UnsupportedShape,
     },
-    /// 大きさの計算が溢れた。
-    SizeOverflow,
 }
 
 impl fmt::Display for SpirvExtractError {
@@ -217,7 +212,7 @@ impl fmt::Display for SpirvExtractError {
             Self::TooShort { words } => {
                 write!(f, "module is shorter than the header (words={words})")
             }
-            Self::BadMagic { found } => write!(f, "bad magic number (found={found:#010x})"),
+            Self::BadMagic => write!(f, "module does not start with the SPIR-V magic number"),
             Self::ByteOrderReversed => write!(f, "magic number has reversed byte order"),
             Self::ZeroWordCount { offset } => {
                 write!(f, "instruction word count is zero (offset={offset})")
@@ -254,7 +249,6 @@ impl fmt::Display for SpirvExtractError {
             Self::Unsupported { id, shape } => {
                 write!(f, "unsupported operand shape (id={id}, shape={shape:?})")
             }
-            Self::SizeOverflow => write!(f, "size computation overflows"),
         }
     }
 }
@@ -346,7 +340,7 @@ pub fn extract_storage_buffer_operands(
         return Err(SpirvExtractError::ByteOrderReversed);
     }
     if magic != MAGIC {
-        return Err(SpirvExtractError::BadMagic { found: magic });
+        return Err(SpirvExtractError::BadMagic);
     }
 
     let mut types: BTreeMap<u32, TypeDef> = BTreeMap::new();
@@ -645,11 +639,8 @@ fn resolve_variable(
                 return Err(unsupported(UnsupportedShape::InvalidLength));
             }
             let stride = array_stride.ok_or(unsupported(UnsupportedShape::MissingArrayStride))?;
-            ByteLength::Fixed(
-                u64::from(constant.value)
-                    .checked_mul(u64::from(stride))
-                    .ok_or(SpirvExtractError::SizeOverflow)?,
-            )
+            // u32 どうしの積は最大 (2^32 - 1)^2 < 2^64 で、u64 であふれない。
+            ByteLength::Fixed(u64::from(constant.value) * u64::from(stride))
         }
     };
 
@@ -735,7 +726,7 @@ mod tests {
         bad[0] = 0xdead_beef;
         assert!(matches!(
             extract_storage_buffer_operands(&bad),
-            Err(SpirvExtractError::BadMagic { .. })
+            Err(SpirvExtractError::BadMagic)
         ));
         bad[0] = MAGIC_SWAPPED;
         assert_eq!(
