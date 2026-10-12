@@ -120,6 +120,8 @@ pub enum UnsupportedShape {
     StrideSmallerThanElement,
     /// block のメンバーの `Offset` が 0 でない（長さに offset を含めない）。
     NonZeroMemberOffset,
+    /// block のメンバーに `Offset` が無い（開始位置を推測しない）。
+    MissingMemberOffset,
     /// 配列の長さが整数型の定数でない、または正でない。
     InvalidLength,
     /// 装飾グループ（`OpDecorationGroup` / `OpGroupDecorate` / `OpGroupMemberDecorate`）を使っている。
@@ -169,6 +171,11 @@ pub enum SpirvExtractError {
     /// 参照先の id が無い。
     UnknownId {
         /// 参照した id。
+        id: u32,
+    },
+    /// pointer 型の storage class と変数の storage class が食い違う。
+    StorageClassMismatch {
+        /// 対象の変数の id。
         id: u32,
     },
     /// 参照先の id の種類が合わない。
@@ -231,6 +238,9 @@ impl fmt::Display for SpirvExtractError {
             Self::WrongKind { id } => {
                 write!(f, "id refers to an unexpected kind of definition (id={id})")
             }
+            Self::StorageClassMismatch { id } => {
+                write!(f, "pointer and variable storage classes differ (id={id})")
+            }
             Self::MissingDecoration { id } => write!(
                 f,
                 "binding or descriptor set decoration is missing (id={id})"
@@ -260,7 +270,7 @@ enum TypeDef {
     Array { elem: u32, len_id: u32 },
     RuntimeArray { elem: u32 },
     Struct { members: Vec<u32> },
-    Pointer { pointee: u32 },
+    Pointer { pointee: u32, storage_class: u32 },
 }
 
 /// id ごとの装飾。
@@ -387,6 +397,9 @@ pub fn extract_storage_buffer_operands(
                 TypeDef::Float { bits: o(1)? },
             )?,
             OP_TYPE_VECTOR | OP_TYPE_MATRIX => {
+                // 要素型（列型）と要素数（列数）を欠く命令は定義として登録しない。
+                o(1)?;
+                o(2)?;
                 define(&mut defined, &mut types, o(0)?, TypeDef::VectorOrMatrix)?;
             }
             OP_TYPE_ARRAY => define(
@@ -418,7 +431,10 @@ pub fn extract_storage_buffer_operands(
                 &mut defined,
                 &mut types,
                 o(0)?,
-                TypeDef::Pointer { pointee: o(2)? },
+                TypeDef::Pointer {
+                    pointee: o(2)?,
+                    storage_class: o(1)?,
+                },
             )?,
             OP_CONSTANT => {
                 // 1 語の値だけを配列の長さに使う。2 語以上の値は語数を覚えて後で拒否する。
@@ -515,9 +531,16 @@ fn resolve_variable(
     {
         return Ok(None);
     }
-    let TypeDef::Pointer { pointee } = lookup(types, var.ptr_type)? else {
+    let TypeDef::Pointer {
+        pointee,
+        storage_class,
+    } = lookup(types, var.ptr_type)?
+    else {
         return Err(SpirvExtractError::WrongKind { id: var.ptr_type });
     };
+    if *storage_class != var.storage_class {
+        return Err(SpirvExtractError::StorageClassMismatch { id: var.id });
+    }
     let pointee_def = lookup(types, *pointee)?;
 
     if var.storage_class == STORAGE_CLASS_UNIFORM {
@@ -541,10 +564,13 @@ fn resolve_variable(
 
     let members = match pointee_def {
         TypeDef::Struct { members } => members,
-        TypeDef::Array { elem, .. } | TypeDef::RuntimeArray { elem }
-            if matches!(types.get(elem), Some(TypeDef::Struct { .. })) =>
-        {
-            return Err(unsupported(UnsupportedShape::BlockArray));
+        TypeDef::Array { elem, .. } | TypeDef::RuntimeArray { elem } => {
+            // 未定義の要素 id は `UnknownId` にする（既知の非 struct と区別する）。
+            return Err(if matches!(lookup(types, *elem)?, TypeDef::Struct { .. }) {
+                unsupported(UnsupportedShape::BlockArray)
+            } else {
+                unsupported(UnsupportedShape::OtherType)
+            });
         }
         _ => return Err(unsupported(UnsupportedShape::OtherType)),
     };
@@ -555,11 +581,12 @@ fn resolve_variable(
         return Err(unsupported(UnsupportedShape::BlockShape));
     };
     let member_id = *member_id;
-    if member_offsets
-        .get(&(*pointee, 0))
-        .is_some_and(|&offset| offset != 0)
-    {
-        return Err(unsupported(UnsupportedShape::NonZeroMemberOffset));
+    match member_offsets.get(&(*pointee, 0)) {
+        None => return Err(unsupported(UnsupportedShape::MissingMemberOffset)),
+        Some(&offset) if offset != 0 => {
+            return Err(unsupported(UnsupportedShape::NonZeroMemberOffset));
+        }
+        Some(_) => {}
     }
 
     let (elem_id, len_id) = match lookup(types, member_id)? {
@@ -660,6 +687,7 @@ mod tests {
         vec![
             inst(OP_DECORATE, &[3, DECORATION_BLOCK]),
             inst(OP_DECORATE, &[2, DECORATION_ARRAY_STRIDE, 4]),
+            inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 0]),
             inst(OP_DECORATE, &[5, DECORATION_DESCRIPTOR_SET, set]),
             inst(OP_DECORATE, &[5, DECORATION_BINDING, binding]),
             inst(OP_TYPE_FLOAT, &[1, 32]),
@@ -731,6 +759,7 @@ mod tests {
     fn rejects_bool_element() {
         let m = module(&[
             inst(OP_DECORATE, &[3, DECORATION_BLOCK]),
+            inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 0]),
             inst(OP_DECORATE, &[5, DECORATION_DESCRIPTOR_SET, 0]),
             inst(OP_DECORATE, &[5, DECORATION_BINDING, 0]),
             inst(OP_TYPE_BOOL, &[1]),
@@ -823,14 +852,74 @@ mod tests {
 
     #[test]
     fn nonzero_member_offset_is_rejected_and_zero_is_accepted() {
-        let mut insts = buffer_insts(false, 16, 0, 0);
-        insts.push(inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 0]));
+        let insts = buffer_insts(false, 16, 0, 0);
         assert!(extract_storage_buffer_operands(&module(&insts)).is_ok());
         let mut insts = buffer_insts(false, 16, 0, 0);
-        insts.push(inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 16]));
+        replace_inst(
+            &mut insts,
+            OP_MEMBER_DECORATE,
+            &[3, 0, DECORATION_OFFSET, 0],
+            inst(OP_MEMBER_DECORATE, &[3, 0, DECORATION_OFFSET, 16]),
+        );
         assert_eq!(
             extract_storage_buffer_operands(&module(&insts)),
             unsupported(UnsupportedShape::NonZeroMemberOffset)
+        );
+    }
+
+    #[test]
+    fn missing_member_offset_is_rejected() {
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        insts.retain(|i| i[0] & 0xFFFF != u32::from(OP_MEMBER_DECORATE));
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            unsupported(UnsupportedShape::MissingMemberOffset)
+        );
+    }
+
+    #[test]
+    fn pointer_storage_class_must_match_variable() {
+        let mut insts = buffer_insts(false, 16, 0, 0);
+        replace_inst(
+            &mut insts,
+            OP_TYPE_POINTER,
+            &[4, STORAGE_CLASS_STORAGE_BUFFER, 3],
+            inst(OP_TYPE_POINTER, &[4, STORAGE_CLASS_UNIFORM, 3]),
+        );
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::StorageClassMismatch { id: 5 })
+        );
+    }
+
+    #[test]
+    fn vector_and_matrix_require_operands() {
+        for opcode in [OP_TYPE_VECTOR, OP_TYPE_MATRIX] {
+            for ops in [&[8u32][..], &[8, 1][..]] {
+                let mut insts = buffer_insts(false, 16, 0, 0);
+                insts.push(inst(opcode, ops));
+                assert!(matches!(
+                    extract_storage_buffer_operands(&module(&insts)),
+                    Err(SpirvExtractError::MissingOperands { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn undefined_array_element_of_buffer_variable_is_unknown_id() {
+        // 変数が指す型を、未定義の要素 id（99）を持つ runtime array にする。
+        let mut insts = buffer_insts(true, 0, 0, 0);
+        insts.push(inst(OP_TYPE_RUNTIME_ARRAY, &[8, 99]));
+        replace_inst(
+            &mut insts,
+            OP_TYPE_POINTER,
+            &[4, STORAGE_CLASS_STORAGE_BUFFER, 3],
+            inst(OP_TYPE_POINTER, &[4, STORAGE_CLASS_STORAGE_BUFFER, 8]),
+        );
+        assert_eq!(
+            extract_storage_buffer_operands(&module(&insts)),
+            Err(SpirvExtractError::UnknownId { id: 99 })
         );
     }
 
