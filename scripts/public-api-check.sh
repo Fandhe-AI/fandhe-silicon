@@ -7,6 +7,8 @@
 # 使い方:
 #   scripts/public-api-check.sh                         workspace の lib crate の JSON を作って検査する
 #   scripts/public-api-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（cargo を呼ばない）
+#   scripts/public-api-check.sh --emit-json <dir>        JSON を作って <dir>/{lib}.{組}.json へ写すだけで検査しない（`emitted:` の行。
+#                                                        scripts/public-name-check.sh が抽出を共有するための口。--json とは併用できない）
 # 終了コード: 0 参照が 0 件 / 1 参照が 1 件以上（違反） / 2 誤用・前提の不足・JSON を読み切れない（成功扱いにしない）
 # 標準出力: 組ごとの `scanned:` の行（走査した公開アイテムの数）、全部の文書を検査し終えたとき（終了コード 0 と 1）だけ
 #   最後の `scanned:` の後に 1 回出す締めの `record:` の行、合格時の `ok:` の 1 行。標準エラー: `violation:`・`FAILED:`・`error:`。
@@ -58,6 +60,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -294,7 +297,17 @@ def main():
     root = sys.argv[1]
     parser = argparse.ArgumentParser(prog="public-api-check.sh")
     parser.add_argument("--json", nargs="+", metavar="PATH")
+    parser.add_argument("--emit-json", metavar="DIR")
     args = parser.parse_args(sys.argv[2:])
+    if args.emit_json is not None:
+        need(args.json is None, "--emit-json cannot be combined with --json")
+        need(os.path.isdir(args.emit_json), "--emit-json directory does not exist")
+        for crate, label, path in build_docs(root):
+            fname = os.path.basename(path)
+            # 別の FS でも動くよう、移動ではなく複写にする。
+            shutil.copyfile(path, os.path.join(args.emit_json, fname))
+            print("emitted: crate=%s features=%s file=%s" % (clean(crate), label, clean(fname)))
+        return 0
     if args.json is not None:
         commit = "-"
         inputs = [("-", "-", p) for p in args.json]
