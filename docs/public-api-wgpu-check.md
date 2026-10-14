@@ -1,74 +1,91 @@
-# 公開 API に wgpu の型が無いことの検査（TASK-10）の現状と前提
+# 公開 API に wgpu の型が無いことの検査（TASK-10）の所在と現状の事実
 
-親 Issue #363（TASK-10）の 1/6（#3390）として、着手時点の本リポの現状と前提を確かめた記録。
-公開済みの事実とポインタだけを書き、spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+4 crate の公開 API に wgpu 系の型・経路が出ていないことを rustdoc の JSON から機械で確かめる検査について、本リポのスクリプトと回帰テストから説明できる振る舞いを記録する。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-10。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
-## 記録の所在
-
-- 正は private spec 側にある（ポインタ: `docs/spec/05-tasks.md` の TASK-10 と、そこから辿る決定の記録）
-- `docs/spec` の gitlink は `267f826`。更新は `update-external.yml` の PR 経由で、本作業では進めない
-- 完了の条件との対応づけの記録は spec 側が正で、本リポには置かない
-
-## 前提タスクの状態
-
-| 前提 | 状態 | 根拠（本リポ側で観測できるもの） |
-| ---- | ---- | -------------------------------- |
-| TASK-4 | 済 | `cargo metadata --format-version 1 --all-features --locked` で workspace member 4・パッケージ 4（外部依存 0） |
-| TASK-112 | 公開側は済 | #393 は CLOSED。[ci-device-free-jobs](ci-device-free-jobs.md) と `make ci-frame-check` が在る |
-
-## 着手時点の本リポの事実
+## 所在
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| workspace | `crates/` 配下の 4 crate。全 crate が `publish = false`（`publish.workspace = true`） | `cargo metadata`、`grep -n publish crates/*/Cargo.toml` |
-| 公開面 | `contract` は feature ゲート付きの `pub mod` 3 つ。`core` は `test-support` の裏の `pub mod` 2 つ。`exec`・`upper` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
-| この検査の実体 | `scripts/public-api-check.sh` と `make public-api-check`、回帰テストの `make test-public-api-check` が在る。CI の `deny` ジョブが検査と回帰テストを呼び、走査した公開アイテムの数（`scanned:` / `record:` の行）は標準出力とジョブのログに出る（書式は同スクリプトの先頭コメントと回帰テストが示す）。検査の中身は同スクリプトの先頭コメントと `scripts/test-public-api-check.sh` が示す | `grep -rn "public-api-check" scripts Makefile .github`、`grep -n "public-api-check" .github/workflows/ci.yml` |
-| 既存の言及 | TASK-10 への言及は [public-name-check](public-name-check.md) の 2 行だけ | `git grep -n -w "TASK-10" -- docs .claude README.md CLAUDE.md crates scripts` |
-| 依存グラフ側の守り | `deny.toml` の `[bans] deny` と `make deny`（CI の `deny` ジョブ） | `deny.toml` |
-| 比較基準 | `baseline-wgpu/` はルートの `exclude` で切り離した別 workspace | ルートの `Cargo.toml`、[baseline-wgpu](baseline-wgpu.md) |
-| feature の組 | `scripts/build-profiles.sh` の `NATIVE_SETS`・`WASM_SETS` | 同スクリプト |
-| toolchain | `rust-toolchain.toml` が単一の真実源 | 同ファイル |
-| CI のジョブ | 一覧は複製しない | [ci-device-free-jobs](ci-device-free-jobs.md)・[ci-job-split](ci-job-split.md) |
+| 検査 | `scripts/public-api-check.sh`（bash + `python3 -I`、標準ライブラリのみ）。入口は `make public-api-check` | `scripts/public-api-check.sh` |
+| 回帰テスト | `scripts/test-public-api-check.sh`。入口は `make test-public-api-check`。合成 JSON の節と、一時 workspace で実物の rustdoc JSON を作る節がある | `scripts/test-public-api-check.sh` |
+| CI | `ci.yml` の `deny` ジョブが検査と回帰テストの両方を呼ぶ。`scanned:` / `record:` の行はジョブのログに残る | `.github/workflows/ci.yml` |
+| 出力先 | `cargo metadata` の `target_directory` 配下の専用ディレクトリ。ソースを変更せず、ネットワークを使わない | `scripts/public-api-check.sh` の先頭コメント |
+| toolchain | `rust-toolchain.toml` のまま。`RUSTC_BOOTSTRAP` は検査の rustdoc 呼び出しとその事前確認の子プロセスにだけ渡す | 同スクリプトの先頭コメント |
+| 依存 | 外部依存を足していない | `Cargo.lock` |
 
-## 関連タスクの状態
+## 検査のスクリプト
 
-| 関連 | Issue | 状態 |
-| ---- | ----- | ---- |
-| TASK-7 | #40 | CLOSED |
-| TASK-14 | #56 | CLOSED |
-| TASK-112 | #393 | CLOSED |
-| TASK-11 | #364 | OPEN |
-| TASK-12 | #365 | OPEN |
-| TASK-13 | #366 | OPEN |
-| TASK-15 | #367 | OPEN |
-| TASK-22 | #368 | OPEN |
-| TASK-113 | #394 | OPEN |
-| TASK-1523 | #2969 | OPEN |
+使い方:
 
-## 後続で扱う論点
+| 呼び方 | 動作 |
+| ------ | ---- |
+| 引数なし | workspace の lib crate ごとに 2 組（production / all-features）の rustdoc JSON を作って検査する |
+| `--json <path>...` | 渡した JSON だけを検査する（cargo を呼ばない） |
 
-名詞だけを挙げる。答えはここに書かない。
+production の組で contract に渡す feature 列は、スクリプトの `CONTRACT_PRODUCTION` を正とする（本書には列挙しない）。
 
-- 載せるジョブ
-- 失敗の確かめ
+終了コード:
 
-## 後続の分担
+| コード | 意味 |
+| ------ | ---- |
+| 0 | wgpu 系の参照が 0 件 |
+| 1 | 参照が 1 件以上（違反） |
+| 2 | 誤用・前提の不足・JSON を読み切れない（成功扱いにしない） |
 
-検査の内容は、受け持つ段の PR のコードとテストが示す。
+出力:
 
-| Issue | 段 |
-| ----- | -- |
-| #3391 | 2/6 実装 |
-| #3392 | 3/6 実装 |
-| #3393 | 4/6 テスト |
-| #3394 | 5/6 CI への組み込み |
-| #3395 | 6/6 完了の条件の確かめ |
+- 標準出力: 組ごとの `scanned:`、全部の文書を検査し終えたとき（終了コード 0 と 1）だけ最後に 1 回出す `record:`、合格時の `ok:`
+- 標準エラー: `violation:`・`FAILED:`・`error:`
+- ホストの絶対パス・環境変数の値は出さない
 
-親 #363 の進み具合の spec への記録は spec 側の作業で、本リポからは書き換えない。
+数える段の規則はスクリプトの先頭コメントの V1〜V7 を正とする（本書には写さない）。件数は出すだけで合否に使わない。公開アイテムが 0 件のときは終了コード 2。
 
-## 確かめた日付
+### 検査しないもの
 
-2026-10-12。base は `main` の `c4704d8`、gitlink は `267f826`。
+- 件数の増減
+- wasm32 の公開 API
+- 依存グラフ（`make deny` の役割）
+- 陽性対照
+- wgpu 系以外の名前
+
+## 振る舞いとテストの対応
+
+テストは `make test-public-api-check` のケース名（`scripts/test-public-api-check.sh`）。判定は終了コード + 標準出力と標準エラーの部分一致。
+
+| 振る舞い | ケース |
+| -------- | ------ |
+| 参照が 0 件なら 0 で終わる。内部・wgpu 系でない外部の参照は数えない | `ok_noref`・`ok_paths_internal`・`ok_index_internal`・`ok_ext_nonwgpu`・`ok_index_ext_nonwgpu`・`ok_use_null`・`ok_seq_internal`・`ok_tuple_null` |
+| 名前の判定は区切りを見る（`my_wgpu`・`nagano` は当たらない） | `ok_name_my_wgpu`・`ok_name_nagano` |
+| 公開アイテムとして数えるのは公開と既定の可視性だけ | `count_visibility` |
+| 型の参照で 1 で終わる | `bad_type` |
+| trait・use・index・並びの参照で 1 で終わる | `bad_trait`・`bad_use`・`bad_index_crate`・`bad_unref_index`・`bad_seq_wgpu` |
+| wgpu 系の名前の各形で 1 で終わる | `bad_name_0` から `bad_name_5` |
+| 読めない・形の崩れた JSON、解決できない参照は 2 で終わる（成功扱いにしない） | `err_*` の各ケース・`notjson`・`missing_path`・`second_unreadable` |
+| 公開アイテムが 0 件なら 2 で終わる | `err_no_public` |
+| 誤用は 2 で終わる | `unknown_arg`・`json_without_path` |
+| 複数本を渡すと組ごとに `scanned:` を出し、片方が違反なら全体は 1 | `two_files_one_bad` |
+| `record:` は全部の文書を検査し終えたときだけ、最後の `scanned:` の後に 1 回出る。合計の値が合う | `record_last_on_violation`・`record_before_ok`・`two_files_totals` |
+| feature の組ごとに JSON を取り違えない（片方の組だけの違反を見逃さない） | `build_prod_only_bad`・`build_all_only_bad`・`build_both_ok`・`build_counts_per_set` |
+| コミットが取れなければ JSON を作る前に 2 で止まる。変更が在れば `-dirty` が付く | `commit_fail-rev`・`commit_fail-status`・`commit_garbage`・`build_dirty` |
+| 実物の rustdoc JSON で参照 0 件なら通る | `real_clean`・`real_plain_dep` |
+| 実物の rustdoc JSON で 1 件（feature の裏だけを含む）あれば落ちる | `real_type_leak_feature`・`real_type_leak_feature_production_clean`・`real_type_leak` |
+| 再エクスポートも落ちる | `real_reexport` |
+
+回帰テストは一時 workspace の合成 crate で落ちることを確かめる。製品の workspace に陽性対照は置かない（TASK-12 のポインタ）。
+
+## 確かめ方
+
+worktree のルートで実行する。
+
+| 確かめること | コマンド |
+| ------------ | -------- |
+| 4 crate × 2 組の `scanned:` の行と、`record:`・`ok:` の行が出る | `make public-api-check` |
+| 回帰テストが通る | `make test-public-api-check` |
+| CI のログに走査の行が残る | `deny` ジョブのログで `scanned:` / `record:` を探す（例: `gh run view <id> --log \| grep -E 'scanned: crate\|record: commit'`） |
+| 文書と編集ファイルの書式 | `make check` |
+
+件数（`public_items` の値）は変わるので本書には書かない。出る場所と見方だけを示す。
 
 ## 関連
 
