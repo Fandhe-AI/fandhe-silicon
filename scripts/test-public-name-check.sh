@@ -2,8 +2,12 @@
 # public-name-check.sh の回帰テスト（spec TASK-14・TASK-113 のポインタ。親 Issue #394）。
 # 一時ディレクトリに、ダミーの語の一覧と合成 rustdoc JSON・合成ソースを作って検査へ渡し、
 # 終了コード・標準出力・標準エラーの文言を確かめる。語の一覧は実物の public-name-check.conf ではなく
-# テスト用のダミーの語（zzname など）で、cargo を呼ばない（--json の経路）。
-# 呼び出し元: `make test-public-name-check`（直接実行も可）。前提: python3。
+# テスト用のダミーの語（zzname など）を使う。節は 2 つ:
+#   前半は --json の経路（合成 JSON・合成ソース。cargo を呼ばない）。実物の設定が書式どおり読めることと、
+#   設定の各語がそれぞれの照合で当たることも、設定から実行時に入力を作って確かめる（語はテストに書き写さない）。
+#   後半は一時 workspace に検査・public-api-check.sh・lib.sh を写し、実物の cargo rustdoc の JSON で既定の経路
+#   （JSON を作る段・commit の記録・終了コード 2 の経路）を通す。依存なし・ネットワーク不要・リポジトリを変更しない。
+# 呼び出し元: `make test-public-name-check`（直接実行も可）。前提: python3・cargo・git（無ければ失敗。skip しない）。
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う（終了コードだけでは別の理由の失敗を見逃す）。
 # 期待値を緩めない。食い違ったらテストでなく検査側の挙動として直す。
 # 途中で止めず、最後に件数を出す。bash 3.2 互換（mapfile・連想配列・空配列の "${arr[@]}" を使わない）。
@@ -14,6 +18,8 @@ source "${DIR}/lib.sh"
 reject_args "$(basename "$0")" "$@"
 
 require_cmd python3
+require_cmd cargo
+require_cmd git
 
 CHECK="${DIR}/public-name-check.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/test-public-name-check.XXXXXX")"
@@ -144,6 +150,7 @@ check() {
 }
 
 C="${work}/ok.conf"
+REAL_CONF="${DIR}/../public-name-check.conf"
 J() { echo "${work}/$1.json"; }
 
 # 終了コード 0
@@ -195,6 +202,56 @@ check "format_version が整数でない" 2 - "format_version is not an integer"
 check "crate_id が整数でない" 2 - "integer crate_id" --config "${C}" --json "$(J bad_crate_id)"
 check "root の crate_id が 0 でない" 2 - "malformed root item" --config "${C}" --json "$(J bad_root_crate)"
 check "公開アイテムが 0 件" 2 - "no public items found" --config "${C}" --json "$(J zero_public)"
+check "JSON 1 本だけが 0 件でも 2" 2 - "no public items found" --config "${C}" --json "$(J clean)" "$(J zero_public)"
+check "実物の設定が書式どおり読める" 0 "ok: 1 public API document(s)" - --config "${REAL_CONF}" --json "$(J clean)"
+printf '\377\376bad\n' >"${work}/bad_utf8.conf"
+check "UTF-8 でない設定" 2 - "cannot read the config file" --config "${work}/bad_utf8.conf" --json "$(J clean)"
+printf '\377\376bad\n' >"${work}/bad_utf8.rs"
+check "UTF-8 でないソース" 2 - "cannot read source input" --config "${C}" --json "$(J clean)" --source "${work}/bad_utf8.rs"
+check "ソースがディレクトリ" 2 - "cannot read source input" --config "${C}" --json "$(J clean)" --source "${work}"
+
+# 実物の設定の各語が、それぞれの照合で当たること。入力は設定から実行時に作る（語はここに書かない）。
+mkdir -p "${work}/gen"
+python3 -I - "${REAL_CONF}" "${work}/gen" <<'PY'
+import json
+import os
+import sys
+
+conf, out = sys.argv[1], sys.argv[2]
+sec = None
+words = {"names": [], "words": [], "calls": []}
+with open(conf, encoding="utf-8") as f:
+    for raw in f:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            sec = line[1:-1]
+        elif sec in words:
+            words[sec].append(line)
+for i, w in enumerate(words["names"]):
+    mod = {"id": 0, "crate_id": 0, "name": "dummy", "visibility": "public"}
+    mod["inner"] = {"module": {"is_crate": True, "items": [1]}}
+    st = {"id": 1, "crate_id": 0, "name": "Q_" + w.upper() + "_q", "visibility": "public"}
+    st["inner"] = {"struct": {}}
+    doc = {"root": 0, "format_version": 61, "includes_private": False, "external_crates": {}}
+    doc["paths"] = {}
+    doc["index"] = {"0": mod, "1": st}
+    with open(os.path.join(out, "n%d.json" % i), "w", encoding="utf-8") as g:
+        json.dump(doc, g)
+for i, w in enumerate(words["words"]):
+    with open(os.path.join(out, "w%d.rs" % i), "w", encoding="utf-8") as g:
+        g.write("let x = 1; // %s here\n" % w)
+for i, w in enumerate(words["calls"]):
+    with open(os.path.join(out, "c%d.rs" % i), "w", encoding="utf-8") as g:
+        g.write("let x = %s);\n" % w)
+PY
+for f in "${work}"/gen/n*.json; do
+    check "実物の [names] の語が当たる: $(basename "${f}")" 1 - "FAILED:" --config "${REAL_CONF}" --json "$(J clean)" "${f}"
+done
+for f in "${work}"/gen/w*.rs "${work}"/gen/c*.rs; do
+    check "実物の [words]・[calls] の語が当たる: $(basename "${f}")" 1 - "FAILED:" --config "${REAL_CONF}" --json "$(J clean)" --source "${f}"
+done
 check "ソースが無い" 2 - "cannot read source input" --config "${C}" --json "$(J clean)" --source "${work}/none.rs"
 # 2 のときは締めの行を出さない（成功扱いにしない）。直前の実行の標準出力を見る。
 if grep -q '^ok:' "${OUT_F}" || grep -q '^record:' "${OUT_F}"; then
@@ -202,6 +259,148 @@ if grep -q '^ok:' "${OUT_F}" || grep -q '^record:' "${OUT_F}"; then
     echo "FAIL: 終了コード 2 で ok/record を出した" >&2
 else
     passed=$((passed + 1))
+fi
+
+# ---- 実物の rustdoc の JSON（既定の経路）----
+# 一時 workspace に検査・public-api-check.sh・lib.sh を写して流す（先例: test-public-api-check.sh の実物の節）。
+# 依存なし。target は一時 workspace の中に出る（.gitignore で dirty にしない）。語の一覧は ws の外のダミーの語。
+rw="${work}/real"
+mkdir -p "${rw}/ws/crates/api/src" "${rw}/ws/scripts"
+cat >"${rw}/ws/Cargo.toml" <<'TOML'
+[workspace]
+members = ["crates/api"]
+resolver = "3"
+TOML
+cat >"${rw}/ws/crates/api/Cargo.toml" <<'TOML'
+[package]
+name = "api"
+version = "0.0.0"
+edition = "2024"
+
+[features]
+leak = []
+TOML
+printf 'target/\n' >"${rw}/ws/.gitignore"
+printf '[names]\nzzname\n[words]\nFoo\n[calls]\ncallit(\n' >"${rw}/name.conf"
+cp "${DIR}/public-name-check.sh" "${DIR}/public-api-check.sh" "${DIR}/lib.sh" "${rw}/ws/scripts/"
+chmod +x "${rw}/ws/scripts/public-name-check.sh" "${rw}/ws/scripts/public-api-check.sh"
+if [[ -f "${DIR}/../rust-toolchain.toml" ]]; then
+    cp "${DIR}/../rust-toolchain.toml" "${rw}/ws/rust-toolchain.toml"
+fi
+
+real_lib() { printf '%s\n' "$1" >"${rw}/ws/crates/api/src/lib.rs"; }
+# 開発者の全体設定とフックを効かせない git。
+real_git() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${rw}/ws" \
+        -c core.hooksPath=/dev/null -c user.name=test -c user.email=test@example.invalid "$@"
+}
+# judge_real <名前> <期待する終了コード> <標準出力に含む語|-> <標準エラーに含む語|->:
+# 直近の実行を終了コード・出力の部分一致で判定する。標準出力にホストの絶対パスが出ていないことも見る（標準エラーには cargo 自身の出力が混ざる）。
+judge_real() {
+    local name="$1" want="$2" want_out="$3" want_err="$4" ok=1
+    [[ "${rc}" -eq "${want}" ]] || ok=0
+    if [[ "${want_out}" != "-" ]] && ! grep -qF -- "${want_out}" "${OUT_F}"; then ok=0; fi
+    if [[ "${want_err}" != "-" ]] && ! grep -qF -- "${want_err}" "${ERR_F}"; then ok=0; fi
+    if grep -qF -- "${work}" "${OUT_F}"; then ok=0; fi
+    if [[ "${ok}" -eq 1 ]]; then
+        passed=$((passed + 1))
+    else
+        failed=$((failed + 1))
+        echo "FAIL: ${name} (rc=${rc}, want=${want}, out~${want_out}, err~${want_err})" >&2
+        sed 's/^/  out: /' "${OUT_F}" >&2
+        sed 's/^/  err: /' "${ERR_F}" >&2
+    fi
+}
+# real <名前> <期待する終了コード> <標準出力に含む語|-> <標準エラーに含む語|-> [追加の引数...]:
+# 写した検査を流して判定する。共有の target ディレクトリへ書かせない。
+real() {
+    local name="$1" want="$2" want_out="$3" want_err="$4"
+    shift 4
+    rc=0
+    (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR \
+        ./scripts/public-name-check.sh --config "${rw}/name.conf" "$@") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+    judge_real "${name}" "${want}" "${want_out}" "${want_err}"
+}
+# has_in <名前> <ファイル> <正規表現>: 直近の出力に正規表現が在ること。
+has_in() {
+    if grep -qE -- "$3" "$2"; then
+        passed=$((passed + 1))
+    else
+        failed=$((failed + 1))
+        echo "FAIL: $1 (missing: $3)" >&2
+    fi
+}
+# not_in <名前> <ファイル> <正規表現>: 直近の出力に正規表現が無いこと（失敗を成功扱いにしない）。
+not_in() {
+    if grep -qE -- "$3" "$2"; then
+        failed=$((failed + 1))
+        echo "FAIL: $1 (unexpected: $3)" >&2
+    else
+        passed=$((passed + 1))
+    fi
+}
+
+real_lib 'pub struct Own;'
+if (cd "${rw}/ws" && cargo generate-lockfile --offline) >/dev/null 2>"${ERR_F}" \
+    && real_git init -q >/dev/null 2>>"${ERR_F}" \
+    && real_git add -A >/dev/null 2>>"${ERR_F}" \
+    && real_git commit -q -m fixture >/dev/null 2>>"${ERR_F}"; then
+    real real_clean 0 "documents=2" -
+    has_in real_clean_commit "${OUT_F}" '^record: commit=[0-9a-f]{40}([0-9a-f]{24})? documents=2 '
+    has_in real_clean_ok "${OUT_F}" '^ok: 2 public API document\(s\)'
+    not_in real_clean_no_violation "${ERR_F}" 'violation'
+
+    real_lib 'pub struct Own;
+pub fn f() {}'
+    real real_dirty 0 "documents=2" -
+    has_in real_dirty_mark "${OUT_F}" '^record: commit=[0-9a-f]+-dirty documents=2 '
+
+    real_lib 'pub struct ZzNameThing;'
+    real real_name_hit 1 "name_hits_total=2" "features=production item=ZzNameThing word=zzname"
+    has_in real_name_hit_all "${ERR_F}" 'features=all-features item=ZzNameThing word=zzname'
+    has_in real_name_hit_failed "${ERR_F}" 'FAILED: 2 hit\(s\)'
+    not_in real_name_hit_no_ok "${OUT_F}" '^ok:'
+
+    real_lib '#[cfg(feature = "leak")]
+pub fn zz_name_only() {}'
+    real real_name_hit_feature 1 "scanned: crate=api features=production" "features=all-features item=zz_name_only word=zzname"
+    # production の組の行は 0 件のまま（組の取り違えで合格しない）
+    has_in real_name_hit_feature_production "${OUT_F}" '^scanned: crate=api features=production .*name_hits=0$'
+
+    real_lib 'mod m { pub struct ZzName; }
+pub use m::ZzName;'
+    real real_reexport 1 - "item=ZzName"
+
+    printf 'let x = 1; // Foo callit(2)\n' >"${rw}/src.rs"
+    real_lib 'pub struct Own;'
+    real real_source_with_emit 1 "sources=1" "FAILED:" --source "${rw}/src.rs"
+    has_in real_source_with_emit_docs "${OUT_F}" 'documents=2 '
+
+    real_lib 'this does not compile'
+    real real_build_fail 2 - "public-api-check.sh --emit-json failed"
+    not_in real_build_fail_no_closing "${OUT_F}" '^(ok|record):'
+
+    # 以降は public-api-check.sh を差し替える。元のスクリプトは各ケースの後に写し直す。
+    printf '#!/usr/bin/env bash\nexit 0\n' >"${rw}/ws/scripts/public-api-check.sh"
+    real real_no_emit 2 - "no JSON was emitted"
+    not_in real_no_emit_no_closing "${OUT_F}" '^(ok|record):'
+
+    printf '#!/usr/bin/env bash\nexit 1\n' >"${rw}/ws/scripts/public-api-check.sh"
+    real real_emit_exit1 2 - "public-api-check.sh --emit-json failed"
+    not_in real_emit_exit1_no_closing "${OUT_F}" '^(ok|record):'
+    cp "${DIR}/public-api-check.sh" "${rw}/ws/scripts/"
+
+    # コミットが取れなければビルドの前に止まる（lib.rs はコンパイルできない中身のまま）
+    mv "${rw}/ws/.git" "${rw}/ws-git-away"
+    real_lib 'this does not compile'
+    real real_no_commit 2 - "cannot resolve the source commit"
+    not_in real_no_commit_no_closing "${OUT_F}" '^(ok|record):'
+    not_in real_no_commit_before_build "${ERR_F}" 'emit-json failed'
+    mv "${rw}/ws-git-away" "${rw}/ws/.git"
+    # "cannot run public-api-check.sh" は bash 自体を起動できないときだけ出る。ここでは再現しない。
+else
+    failed=$((failed + 1))
+    echo "FAIL: real_fixture_setup (cannot prepare the temporary workspace)" >&2
 fi
 
 echo "test-public-name-check: passed=${passed} failed=${failed}"
