@@ -63,6 +63,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-metal-session` | `scripts/test-metal-session.sh` | 上記 `test-hooks` と同じ回帰テスト |
 | `deny` | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（走査した公開アイテムの数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-api-check` | `scripts/test-public-api-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
+| `deny` | `make public-name-check` | `scripts/public-name-check.sh` | 4 crate の公開アイテムの名前に語の一覧の語が出ていないことの検査（走査の件数が `scanned:` / `record:` の行としてログに残る） |
+| `deny` | `make test-public-name-check` | `scripts/test-public-name-check.sh` | 上の回帰テスト（ダミーの語の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make test-record-summary` | `scripts/test-record-summary.sh` | 試験の枠の記録から集計を出す道具と、`make verify` の記録の扱いの回帰テスト（合成の部品と偽の cargo） |
 
 - `test-hooks` の macOS だけで、`/bin/bash` による直接実行のステップ（`scripts/hooks/test-hooks.sh` と、`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`・`scripts/test-record-summary.sh`）がある

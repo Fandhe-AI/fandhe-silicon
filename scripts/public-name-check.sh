@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 製品の crate の公開アイテムの名前と、能力の問合せの決定表のソースに、語の一覧の語が出ていないことを数えて確かめる
-# （spec TASK-14・TASK-113 のポインタ。関連 TASK-10・TASK-142。親 Issue #394 の 2/4）。
-# 呼び出し元: `make public-name-check`（直接実行も可）。検査の枠（rustdoc の JSON を作る段）は
+# （spec TASK-14・TASK-113 のポインタ。関連 TASK-10・TASK-142。親 Issue #394 の 2/4・4/4）。
+# 呼び出し元: `make public-name-check`（直接実行も可。CI の `deny` ジョブも呼び、`scanned:` / `record:` の行がジョブのログに残る）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json` を呼んで共有し、抽出の実体をここに持たない。
 #
 # 使い方:
