@@ -305,6 +305,10 @@ run_check --json "${work}/no-such-file.json"
 judge "missing_path" 2 "e:error: " "!ok: " "!record: "
 run_check --bogus
 judge "unknown_arg" 2 "!ok: " "!record: "
+run_check --emit-json "${work}" --json "${work}/ok_noref.json"
+judge "emit_with_json" 2 "e:error: " "!emitted: " "!ok: "
+run_check --emit-json "${work}/no-such-dir"
+judge "emit_missing_dir" 2 "e:error: " "!emitted: " "!ok: "
 run_check --json
 judge "json_without_path" 2 "!ok: " "!record: "
 
@@ -466,6 +470,19 @@ if (cd "${rw}/ws" && cargo generate-lockfile --offline) >/dev/null 2>"${ERR_F}" 
 pub fn f() -> Vec<Own> { Vec::new() }'
   run_real
   judge "real_clean" 0 "o:ok: 2 public API document(s)" "o:wgpu_type_refs_total=0 wgpu_other_refs_total=0" "!violation"
+
+  # --emit-json: 検査せずに 2 組の JSON を写し、emitted の行だけを出す。
+  mkdir -p "${rw}/emit"
+  rc=0
+  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/public-api-check.sh --emit-json "${rw}/emit") \
+    >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  judge "real_emit_json" 0 "o:emitted: crate=api features=production file=api.production.json" \
+    "o:emitted: crate=api features=all-features file=api.all-features.json" "!scanned:" "!record:" "!ok: "
+  if [ -s "${rw}/emit/api.production.json" ] && [ -s "${rw}/emit/api.all-features.json" ]; then
+    report_ok "real_emit_json_files"
+  else
+    report_fail "real_emit_json_files" "emitted files are missing"
+  fi
 
   real_lib 'pub fn g() -> plain_dummy::Thing { plain_dummy::Thing }'
   run_real
