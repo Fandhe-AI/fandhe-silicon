@@ -67,6 +67,11 @@ d["index"]["2"] = item(2, "myZZNAME", {"function": {}})
 d["index"]["3"] = item(3, "reexport", {"use": {"name": "ZzName", "source": "x"}})
 put("name_hit_multi", d)
 
+# 非 glob の再公開は name と use.name が同じ局所名。1 件を 2 回数えない。
+d = base()
+d["index"]["2"] = item(2, "ZzName", {"use": {"name": "ZzName", "source": "x"}})
+put("name_use_same", d)
+
 # 非公開・他 crate のアイテムは数えない。
 d = base()
 d["index"]["2"] = item(2, "zzname_private", {"struct": {}}, vis="crate")
@@ -107,6 +112,8 @@ printf '[names]\nzzname\n[words]\nFoo\n' >"${work}/missing_calls.conf"
 printf '[names]\nzzname\n[words]\nFoo\n[calls]\n' >"${work}/empty_calls.conf"
 printf 'zzname\n[names]\nzzname\n' >"${work}/before_section.conf"
 printf '[names]\na1\n[words]\nFoo\n[calls]\nx(\n[bogus]\n' >"${work}/unknown_section.conf"
+printf '[names]\na1\n[words]\nFoo\n[CALLS]\nx(\n' >"${work}/upper_section.conf"
+printf '[names]\na1\n[words]\nFoo\n[calls]\nx(\n[calls_extra]\ny(\n' >"${work}/extra_section.conf"
 printf '[names]\na1\n[names]\nb1\n[words]\nFoo\n[calls]\nx(\n' >"${work}/dup_section.conf"
 printf '[names]\na1\na1\n[words]\nFoo\n[calls]\nx(\n' >"${work}/dup_word.conf"
 printf '[names]\n--\n[words]\nFoo\n[calls]\nx(\n' >"${work}/empty_norm.conf"
@@ -150,6 +157,7 @@ check "名前をつないだ文字列には当てない" 0 "name_hits=0" - --con
 check "名前の部分一致（記号・大小文字を無視）" 1 "name_hits=1" "item=Zz_Name_Thing word=zzname" --config "${C}" --json "$(J name_hit)"
 check "FAILED の行" 1 "name_hits_total=1" "FAILED: 1 hit(s)" --config "${C}" --json "$(J name_hit)"
 check "関数名と再公開の名前の両方" 1 "name_hits=2" "item=ZzName" --config "${C}" --json "$(J name_hit_multi)"
+check "name と use.name が同じ再公開は 1 回" 1 "name_hits_total=1" "FAILED: 1 hit(s)" --config "${C}" --json "$(J name_use_same)"
 check "複数 JSON の合計" 1 "documents=2 public_items_total=5 name_hits_total=1" - --config "${C}" --json "$(J clean)" "$(J name_hit)"
 
 # 単語・呼び出しの形（--source）
@@ -172,6 +180,8 @@ check "節の欠落" 2 - "missing config section" --config "${work}/missing_call
 check "節が空" 2 - "empty config section" --config "${work}/empty_calls.conf" --json "$(J clean)"
 check "最初の節の前の語" 2 - "word before the first config section" --config "${work}/before_section.conf" --json "$(J clean)"
 check "未知の節" 2 - "unknown config section" --config "${work}/unknown_section.conf" --json "$(J clean)"
+check "大文字の節名" 2 - "unknown config section" --config "${work}/upper_section.conf" --json "$(J clean)"
+check "接尾の付いた節名" 2 - "unknown config section" --config "${work}/extra_section.conf" --json "$(J clean)"
 check "節の重複" 2 - "duplicate config section" --config "${work}/dup_section.conf" --json "$(J clean)"
 check "語の重複" 2 - "duplicate word" --config "${work}/dup_word.conf" --json "$(J clean)"
 check "正規化すると空の語" 2 - "empty after normalization" --config "${work}/empty_norm.conf" --json "$(J clean)"

@@ -91,7 +91,7 @@ def load_config(path):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        m = re.fullmatch(r"\[([a-z]+)\]", line)
+        m = re.fullmatch(r"\[(.*)\]", line)
         if m:
             need(m.group(1) in SECTIONS, "unknown config section")
             need(m.group(1) not in conf, "duplicate config section")
@@ -162,6 +162,8 @@ def inspect(doc, words):
         use = inner.get("use")
         if isinstance(use, dict) and isinstance(use.get("name"), str):
             names.append(use["name"])
+        # 非 glob の再公開は name と use.name が同じ局所名になる。1 件の再公開を 2 回数えない。
+        names = list(dict.fromkeys(names))
         if names:
             named += 1
         for nm in names:
