@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -178,6 +178,8 @@ jobs:
   # Metal の実機の回の手順のスクリプトの回帰テスト（`make test-metal-session`。macOS のコマンドは偽のコマンドで差し替える）も同様に追加実行する。
   # 試験の枠の記録から集計を出す道具と `make verify` の記録の扱いの回帰テスト（`make test-record-summary`。合成の部品と偽の cargo）も同様に追加実行する。
   # CI の枠の検査（`make ci-frame-check`。本ファイルを入力にする）とその回帰テスト（`make test-ci-frame-check`。合成 fixture だけ）も同様に追加実行する。
+  # 公開 API の wgpu 系の参照の検査（`make public-api-check`。走査した公開アイテムの数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
+  # RUSTC_BOOTSTRAP はスクリプト内の rustdoc 呼び出しだけに限られ、ジョブの env には足さない。
   # 実物の入力の検査（`make inventory-trace-check`）はここでは走らせない（入力が private 側にあるため、本リポの CI には組み込まない）。
   # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
   # cargo-deny はバージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する（check ジョブと同方針）。
@@ -254,6 +256,12 @@ jobs:
 
       - name: make test-metal-session
         run: make test-metal-session
+
+      - name: make public-api-check
+        run: make public-api-check
+
+      - name: make test-public-api-check
+        run: make test-public-api-check
 
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。

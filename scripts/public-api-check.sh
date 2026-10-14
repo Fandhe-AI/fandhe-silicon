@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、
-# rustdoc の JSON から機械で数えて確かめる（spec TASK-10・BUILD-47 のポインタ。親 Issue #363 の 2/6・3/6）。
-# 呼び出し元: `make public-api-check`（直接実行も可）。CI のジョブからは呼ばれていない。
+# rustdoc の JSON から機械で数えて確かめる（spec TASK-10・BUILD-47 のポインタ。親 Issue #363 の 2/6・3/6・5/6）。
+# 呼び出し元: `make public-api-check`（直接実行も可）。CI の `deny` ジョブも呼ぶ（`scanned:` / `record:` の行がジョブのログに残る）。
 # 回帰テストは `make test-public-api-check`（`scripts/test-public-api-check.sh`。合成 JSON と実物の rustdoc の JSON を通す）。
 #
 # 使い方:
