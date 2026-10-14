@@ -1,11 +1,11 @@
-# 公開 API の名前の検査（TASK-14）の決定の記録の所在と本リポの現状
+# 公開 API の名前の検査（TASK-14・TASK-113）の決定の記録の所在と本リポの現状
 
-TASK-14 の決定の記録の所在と、本リポのコードで確かめられる現状を案内する。
+TASK-14・TASK-113 の決定の記録の所在と、本リポのコードで確かめられる現状を案内する。
 spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
 
-- 決定の記録の正は private spec 側にある（ポインタ: `docs/spec/05-tasks.md` の TASK-14。関連: TASK-113・TASK-10・TASK-112）
+- 決定の記録の正は private spec 側にある（ポインタ: `docs/spec/05-tasks.md` の TASK-14・TASK-113 と、そこから辿る決定の記録。関連: TASK-10・TASK-112）
 - 本リポには決定の記録・内容を置かない（[契約の文書の分担](contract/README.md)）
 
 ## 本リポの現状
@@ -20,6 +20,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 - 検査の実装・設定・CI への組み込みは、それを受け持つタスクの PR で、公開テスト（回帰テスト）とともに入れる（ポインタ: TASK-113。関連: TASK-10・TASK-112）
 - 検査の内容は、その PR のコードとテストが示す
+- 進め方の追跡は親 Issue #394 に従う
 
 ## 関連
 
