@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # public-api-check.sh の回帰テスト（spec TASK-10 のポインタ。親 Issue #363 の 2/6・3/6）。
 # 一時ディレクトリの合成 rustdoc JSON（ダミーの名前）を --json で渡し、終了コード・標準出力・標準エラーの文言を
-# 確かめる。cargo を呼ばず、リポジトリのファイルを変更せず、ネットワークを使わない。
-# 呼び出し元: 直接実行（make ターゲットと CI のステップは持たない）。
+# 確かめる。合成 JSON の節は cargo を呼ばない。
+# 末尾の「実物」の節は、実行時に一時ディレクトリへ作る wgpu 系の名前の合成 path crate（比較基準の baseline-wgpu/
+# ではない。陽性対照は TASK-12 のポインタ）の一時 workspace に検査を写し、実物の cargo rustdoc の JSON で
+# JSON を作る段を通す（#3393）。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない。
+# 呼び出し元: `make test-public-api-check`（直接実行も可。CI のステップは持たない）。
+# 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う。終了コードだけでは別の理由で落ちても
 # 気付けず、検査が素通りする退行（fail-open）を見逃すため。
@@ -389,6 +393,107 @@ for mode in fail-rev fail-status garbage; do
   run_fake "${work}/ok_noref.json" "${work}/ok_noref.json" "${mode}"
   judge "commit_${mode}" 2 "e:error: cannot resolve the source commit" "!record: " "!ok: " "!scanned: " "!/fake/host/path"
 done
+
+# ---- 実物の rustdoc の JSON で JSON を作る段（cargo metadata → 2 組の cargo rustdoc → 数える段）を通す ----
+# 一時 workspace に検査と lib.sh を写して流す。wgpu 系の名前の合成 path crate はここで作る
+# （比較基準の baseline-wgpu/ ではない。陽性対照は TASK-12 のポインタ）。マニフェストはリポジトリに置かない。
+# 依存は path だけなのでネットワークは使わない。target は一時 workspace の中に出る。
+require_cmd cargo
+require_cmd git
+
+rw="${work}/real"
+mkdir -p "${rw}/ext/wgpu-dummy/src" "${rw}/ext/plain-dummy/src" "${rw}/ws/crates/api/src" "${rw}/ws/scripts"
+cat >"${rw}/ext/wgpu-dummy/Cargo.toml" <<'TOML'
+[package]
+name = "wgpu-dummy"
+version = "0.0.0"
+edition = "2024"
+TOML
+printf 'pub struct Handle;\npub trait Tr {}\n' >"${rw}/ext/wgpu-dummy/src/lib.rs"
+cat >"${rw}/ext/plain-dummy/Cargo.toml" <<'TOML'
+[package]
+name = "plain-dummy"
+version = "0.0.0"
+edition = "2024"
+TOML
+printf 'pub struct Thing;\n' >"${rw}/ext/plain-dummy/src/lib.rs"
+cat >"${rw}/ws/Cargo.toml" <<'TOML'
+[workspace]
+members = ["crates/api"]
+resolver = "3"
+TOML
+cat >"${rw}/ws/crates/api/Cargo.toml" <<'TOML'
+[package]
+name = "api"
+version = "0.0.0"
+edition = "2024"
+
+[features]
+leak = []
+
+[dependencies]
+wgpu-dummy = { path = "../../../ext/wgpu-dummy" }
+plain-dummy = { path = "../../../ext/plain-dummy" }
+TOML
+cp "${DIR}/public-api-check.sh" "${DIR}/lib.sh" "${rw}/ws/scripts/"
+chmod +x "${rw}/ws/scripts/public-api-check.sh"
+if [ -f "${DIR}/../rust-toolchain.toml" ]; then
+  cp "${DIR}/../rust-toolchain.toml" "${rw}/ws/rust-toolchain.toml"
+fi
+
+# real_lib <lib.rs の中身>: api の公開面を差し替える。
+real_lib() {
+  printf '%s\n' "$1" >"${rw}/ws/crates/api/src/lib.rs"
+}
+# real_git: 開発者の全体設定とフックを効かせない git。
+real_git() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${rw}/ws" \
+    -c core.hooksPath=/dev/null -c user.name=test -c user.email=test@example.invalid "$@"
+}
+# run_real: 写した検査を引数なしで流す。共有の target ディレクトリへ書かせない。
+run_real() {
+  rc=0
+  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/public-api-check.sh) \
+    >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+}
+
+real_lib 'pub struct Own;'
+if (cd "${rw}/ws" && cargo generate-lockfile --offline) >/dev/null 2>"${ERR_F}" \
+  && real_git init -q >/dev/null 2>>"${ERR_F}" \
+  && real_git add -A >/dev/null 2>>"${ERR_F}" \
+  && real_git commit -q -m fixture >/dev/null 2>>"${ERR_F}"; then
+  real_lib 'pub struct Own;
+pub fn f() -> Vec<Own> { Vec::new() }'
+  run_real
+  judge "real_clean" 0 "o:ok: 2 public API document(s)" "o:wgpu_type_refs_total=0 wgpu_other_refs_total=0" "!violation"
+
+  real_lib 'pub fn g() -> plain_dummy::Thing { plain_dummy::Thing }'
+  run_real
+  judge "real_plain_dep" 0 "o:ok: 2 public API document(s)" "o:wgpu_type_refs_total=0 wgpu_other_refs_total=0" "!violation"
+
+  real_lib '#[cfg(feature = "leak")]
+pub fn leak() -> wgpu_dummy::Handle { wgpu_dummy::Handle }'
+  run_real
+  judge "real_type_leak_feature" 1 "e:features=all-features item=leak kind=type references=wgpu_dummy" \
+    "e:FAILED: 1 reference(s)" "o:scanned: crate=api features=production" "!ok: "
+  # production の組の行に参照 0 件が出ていること（all-features の行と取り違えて合格しない）
+  if grep '^scanned: crate=api features=production ' "${OUT_F}" | grep -qF "wgpu_type_refs=0 wgpu_other_refs=0"; then
+    report_ok "real_type_leak_feature_production_clean"
+  else
+    report_fail "real_type_leak_feature_production_clean" "production line must have zero refs"
+  fi
+
+  real_lib 'pub fn leak() -> wgpu_dummy::Handle { wgpu_dummy::Handle }'
+  run_real
+  judge "real_type_leak" 1 "e:features=production item=leak kind=type references=wgpu_dummy" \
+    "e:features=all-features item=leak kind=type references=wgpu_dummy" "e:FAILED: 2 reference(s)" "!ok: "
+
+  real_lib 'pub use wgpu_dummy::Tr;'
+  run_real
+  judge "real_reexport" 1 "e:kind=other references=wgpu_dummy" "!ok: "
+else
+  report_fail "real_fixture_setup" "cannot prepare the temporary workspace"
+fi
 
 echo "passed: ${passed}, failed: ${failed}"
 [ "${failed}" -eq 0 ]

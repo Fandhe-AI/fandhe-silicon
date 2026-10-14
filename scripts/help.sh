@@ -28,7 +28,7 @@ cat <<'EOF'
   test-record-summary scripts/test-record-summary.sh  record-summary と verify.sh の記録の扱いの回帰テスト（合成の部品と偽の cargo。bash + python3）。集計の本体は make ターゲットなし: scripts/record-summary.sh <部品のディレクトリ>
   ci-frame-check  scripts/ci-frame-check.sh      ci.yml が CI の枠の事実（集約・実行場所・失敗の扱い）を保っているかの検査（bash + python3。--workflow <path> で入力を差し替え可）
   test-ci-frame-check scripts/test-ci-frame-check.sh  ci-frame-check 自体の回帰テスト（合成 fixture。bash + python3）
-  public-api-check scripts/public-api-check.sh   4 crate の公開 API の wgpu 系の参照を rustdoc の JSON から数える検査。走査した公開アイテムの数を標準出力の scanned: と締めの record: に出す（bash + python3 + cargo。JSON を作る経路は git で HEAD のコミットを取り、取れなければ終了コード 2。--json <path>... で JSON を差し替え可。CI では実行しない）。回帰テストは make ターゲットなし: scripts/test-public-api-check.sh
+  public-api-check scripts/public-api-check.sh   4 crate の公開 API の wgpu 系の参照を rustdoc の JSON から数える検査。走査した公開アイテムの数を標準出力の scanned: と締めの record: に出す（bash + python3 + cargo。JSON を作る経路は git で HEAD のコミットを取り、取れなければ終了コード 2。--json <path>... で JSON を差し替え可。CI では実行しない）。回帰テストは make test-public-api-check
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>
   test-hooks      scripts/hooks/test-hooks.sh    フックスクリプト自体の回帰テスト（bash + git のみ）
 
