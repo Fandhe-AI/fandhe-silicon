@@ -71,7 +71,7 @@ public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の cra
 public-name-check: ## 製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことを、rustdoc の JSON から数えて検査する。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI にはまだ組み込んでいない）。直接: scripts/public-name-check.sh --config public-name-check.conf [--json <path>...] [--source <path>...]
 	@scripts/public-name-check.sh --config public-name-check.conf
 
-test-public-name-check: ## public-name-check の回帰テスト（ダミーの語の一覧と合成 JSON・合成ソース。bash + python3・cargo は呼ばない・ネットワーク不要・リポジトリのファイルは変更しない・CI にはまだ組み込んでいない）。直接: scripts/test-public-name-check.sh
+test-public-name-check: ## public-name-check の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI にはまだ組み込んでいない）。直接: scripts/test-public-name-check.sh
 	@scripts/test-public-name-check.sh
 
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
