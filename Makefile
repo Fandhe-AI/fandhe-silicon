@@ -65,10 +65,10 @@ ci-frame-check: ## .github/workflows/ci.yml が CI の枠の事実（集約・�
 test-ci-frame-check: ## scripts/ci-frame-check.sh 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。直接: scripts/test-ci-frame-check.sh
 	@scripts/test-ci-frame-check.sh
 
-public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、rustdoc の JSON から数えて検査し、走査した公開アイテムの数を標準出力に出す（bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI は呼ばない）。直接: scripts/public-api-check.sh [--json <path>...]
+public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、rustdoc の JSON から数えて検査し、走査した公開アイテムの数を標準出力に出す（bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/public-api-check.sh [--json <path>...]
 	@scripts/public-api-check.sh
 
-test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI は呼ばない）。直接: scripts/test-public-api-check.sh
+test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh
 
 test-hooks: ## scripts/hooks/ のフックスクリプト自体の回帰テスト（bash + git のみ）。直接: scripts/hooks/test-hooks.sh

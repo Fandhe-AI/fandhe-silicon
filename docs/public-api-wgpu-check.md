@@ -22,7 +22,7 @@
 | ---- | ---- | -------- |
 | workspace | `crates/` 配下の 4 crate。全 crate が `publish = false`（`publish.workspace = true`） | `cargo metadata`、`grep -n publish crates/*/Cargo.toml` |
 | 公開面 | `contract` は feature ゲート付きの `pub mod` 3 つ。`core` は `test-support` の裏の `pub mod` 2 つ。`exec`・`upper` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
-| この検査の実体 | `scripts/public-api-check.sh` と `make public-api-check`、回帰テストの `make test-public-api-check` が在る。CI のステップは無い。走査した公開アイテムの数は標準出力に出る（書式は同スクリプトの先頭コメントと回帰テストが示す）。検査の中身は同スクリプトの先頭コメントと `scripts/test-public-api-check.sh` が示す | `grep -rn "public-api-check" scripts Makefile .github` |
+| この検査の実体 | `scripts/public-api-check.sh` と `make public-api-check`、回帰テストの `make test-public-api-check` が在る。CI の `deny` ジョブが検査と回帰テストを呼び、走査した公開アイテムの数（`scanned:` / `record:` の行）は標準出力とジョブのログに出る（書式は同スクリプトの先頭コメントと回帰テストが示す）。検査の中身は同スクリプトの先頭コメントと `scripts/test-public-api-check.sh` が示す | `grep -rn "public-api-check" scripts Makefile .github`、`grep -n "public-api-check" .github/workflows/ci.yml` |
 | 既存の言及 | TASK-10 への言及は [public-name-check](public-name-check.md) の 2 行だけ | `git grep -n -w "TASK-10" -- docs .claude README.md CLAUDE.md crates scripts` |
 | 依存グラフ側の守り | `deny.toml` の `[bans] deny` と `make deny`（CI の `deny` ジョブ） | `deny.toml` |
 | 比較基準 | `baseline-wgpu/` はルートの `exclude` で切り離した別 workspace | ルートの `Cargo.toml`、[baseline-wgpu](baseline-wgpu.md) |

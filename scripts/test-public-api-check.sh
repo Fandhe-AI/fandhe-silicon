@@ -5,7 +5,7 @@
 # 末尾の「実物」の節は、実行時に一時ディレクトリへ作る wgpu 系の名前の合成 path crate（比較基準の baseline-wgpu/
 # ではない。陽性対照は TASK-12 のポインタ）の一時 workspace に検査を写し、実物の cargo rustdoc の JSON で
 # JSON を作る段を通す（#3393）。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない。
-# 呼び出し元: `make test-public-api-check`（直接実行も可。CI のステップは持たない）。
+# 呼び出し元: `make test-public-api-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う。終了コードだけでは別の理由で落ちても
