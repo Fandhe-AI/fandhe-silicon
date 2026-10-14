@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -70,6 +70,9 @@ public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の cra
 
 public-name-check: ## 製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことを、rustdoc の JSON から数えて検査する。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI にはまだ組み込んでいない）。直接: scripts/public-name-check.sh --config public-name-check.conf [--json <path>...] [--source <path>...]
 	@scripts/public-name-check.sh --config public-name-check.conf
+
+test-public-name-check: ## public-name-check の回帰テスト（ダミーの語の一覧と合成 JSON・合成ソース。bash + python3・cargo は呼ばない・ネットワーク不要・リポジトリのファイルは変更しない・CI にはまだ組み込んでいない）。直接: scripts/test-public-name-check.sh
+	@scripts/test-public-name-check.sh
 
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh
