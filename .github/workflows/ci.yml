@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make measure-verify` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make measure-verify` / `make wasm-verify` を呼ぶ。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
@@ -230,6 +230,10 @@ jobs:
       - name: make measure-verify
         # 測定専用の別 workspace（measure/）の fmt / clippy / test / 依存の検査。ジョブを増やさず deny ジョブで流す
         run: make measure-verify
+
+      - name: make wasm-verify
+        # wasm32 向けの別 workspace（wasm/）の fmt / clippy / test / wasm32 の build / 依存の検査。ジョブを増やさず deny ジョブで流す
+        run: make wasm-verify
 
       - name: Show jq / python3 versions
         # 判定はしない（版を記録に残すだけ。要件未達は deps-check.sh が終了コード 2 で失敗させる）
