@@ -248,6 +248,22 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 
 確かめ方は `make deny`（終了コード 0）。`baseline-wgpu/` にルートの `deny.toml` を当てると bans で落ちる。
 
+## 現状の形（10/11）
+
+run ごとの記録を読んで run 間の集計を標準出力に出すコマンド `across-runs` を足した（親 #121 の 10/11、#7148）。集計はファイルに書かない。
+
+使い方: `cargo run --manifest-path measure/Cargo.toml --bin across-runs -- <run の記録> [<run の記録> ...]`。渡したファイルだけを集計し、ディレクトリの走査はしない。判定に使えない run の除外は、先に `scripts/perf-record-check.sh --session <回> <run>...` で確かめ、使える run だけを渡す。
+
+| 公開アイテム | 振る舞い | 対応するテスト |
+| ------------ | -------- | -------------- |
+| `measure_perf::jsonread::parse` | 重複キー・`NaN` などの JSON に無い定数・末尾のゴミ・制御文字・不正なエスケープ・非 ASCII・8 MiB 超・深さ 64 超を拒否する。数は字句のまま持ち、`f64` を経由しない | `tests/across_runs_cmd.rs` の `a10_jsonread_is_strict` |
+| `measure_perf::runs::run_input` | 欄を白表で検証し、標本から中央値を再計算して記録の統計と突き合わせる。`not-run`・`indeterminate` の run は受けない | `a7_per_run_consistency`・`a8_rejects_unknown_tokens`・`a6_rejects_mixed_and_invalid_sets` |
+| `measure_perf::runs::aggregate` | 各 run の中央値の中央値・最小・最大・「最大 − 最小」・「最大 ÷ 最小」（千分の一単位で切り捨て。最小が 0 なら `null`）を 1/4 単位の整数で計算する。条件の欄が違う run の混在・`run_id` の重複・0 件は失敗。GPU は 1 件でも取得不能の run があれば `null`（その run を落とさない） | `a1`〜`a6`・`a3_matches_float_across_runs` |
+| `measure_perf::runs::render` | 1 行・ASCII・欄順固定の JSON。run の並びに依らず同じ出力。入力のパスや自由な文字列は出さない | `a9_output_is_deterministic_ascii_single_line` |
+| コマンド `across-runs` | 成功は 0、入力の違反は 1、誤用（引数なし・未知のオプション・読めない）は 2。標準エラーは固定の文言と引数の番号だけ | `p1`〜`p4` |
+
+確かめ方は `make measure-verify`。変動帯の 2 つの値のどちらで判定するかは本コマンドでは決めない。
+
 ## 本リポでの反映の方針
 
 - 道具の置き場・記録の欄・統計・検査は、受け持つ段の PR のコードと公開テストが示す（親 #121）

@@ -34,7 +34,7 @@ fandhe-silicon/
 │   ├── workflows/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
-├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
+├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs`）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity` と `test_frame`）
