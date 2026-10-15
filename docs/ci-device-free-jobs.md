@@ -7,7 +7,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 ## 枠の対象
 
 - GitHub ホステッドの runner の上で完結する検査。入力は本リポの追跡ファイルと合成 fixture で、ソースを変更しない
-- `ci.yml` の `runs-on` は `ubuntu-latest` と、`test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）だけ。self-hosted の指定は無い
+- `ci.yml` の `runs-on` は `ubuntu-latest` と、`test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`）だけ。self-hosted の指定は無い
 
 ## 分類（どのジョブに足すか）
 
@@ -19,6 +19,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `verify` | `rust-toolchain.toml` の toolchain | workspace のビルド・lint・試験、feature の組・target ごとの確かめ |
 | `deny` | toolchain、版固定の cargo-deny、runner 同梱の jq・python3 | 依存グラフ・manifest・`ci.yml` を読む検査、検査スクリプト自体の回帰テスト |
 | `test-hooks` | bash + git、runner 同梱の python3（ubuntu・macOS） | `scripts/hooks/` と、macOS の上で直接実行する手順のスクリプトの回帰テスト |
+| `wasm-macos` | toolchain、版固定・SHA256 検証済みの Node と wasm-bindgen の CLI（arm64）、runner 同梱の jq・python3 | wasm32 のビルド・glue 込みの量・Node での照合（実物の道具が要るもの） |
 | `pr-title` | `pull_request` のときだけ動く | PR の題の検査だけ |
 
 - 当てはまるジョブが無い（別の OS・別の toolchain・別の時間の上限が要る）ときだけ、新しいジョブを検討する
@@ -56,6 +57,9 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査 |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
+| `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
+| `wasm-macos` | `make wasm-size` | `scripts/wasm-size.sh` | glue 込みの量（gzip 後）を 8 組で測って閾値と比べる実物の測定 |
+| `wasm-macos` | `make wasm-node-check` | `scripts/wasm-node-check.sh` | wasm32 の `.wasm` を glue 越しに Node で呼び参照と照合する実物の実行 |
 | `deny` | `make test-wasm-size` | `scripts/test-wasm-size.sh` | glue 込みの量の測定の道具 `scripts/wasm-size.sh` の回帰テスト（合成の入力と偽のコマンド。wasm-bindgen の CLI は要らない） |
 | `deny` | `make test-wasm-node-check` | `scripts/test-wasm-node-check.sh` | Node での照合の土台（`scripts/wasm-node-check.sh`）の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果） |
 | `deny` | `make deps-check` | `scripts/deps-check.sh` | 依存の `=x.y.z` 固定と承認の記録の一致 |
@@ -74,6 +78,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-record-summary` | `scripts/test-record-summary.sh` | 試験の枠の記録から集計を出す道具と、`make verify` の記録の扱いの回帰テスト（合成の部品と偽の cargo） |
 
 - `test-hooks` の macOS だけで、`/bin/bash` による直接実行のステップ（`scripts/hooks/test-hooks.sh` と、`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`・`scripts/test-record-summary.sh`）がある
+- `wasm-macos` ジョブには、make ターゲットのほかに Node と wasm-bindgen の CLI の導入（版固定・SHA256 検証）と版の確認のステップがある
 - `deny` ジョブには、上の make ターゲットのほかに cargo-deny の導入・版の確認・jq / python3 の版の表示のステップがある（枠の検査ではないため表から外した）
 
 ### CI が呼ばない make ターゲット
@@ -81,8 +86,6 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ターゲット | 理由（コード内の記述による） |
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
-| `wasm-size` | wasm-bindgen の CLI が要り、`deny` ジョブにはそれが無い（`scripts/wasm-size.sh` の先頭コメント。後続のジョブ用） |
-| `wasm-node-check` | Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI への組み込みは後続の段（`scripts/wasm-node-check.sh` の先頭コメント） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。

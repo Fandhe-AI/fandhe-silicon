@@ -18,14 +18,15 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | `test-hooks` | `hook script tests (<os>)`（`ubuntu-latest`・`macos-latest` の 2 件） | matrix の `ubuntu-latest`・`macos-latest` | `make test-hooks`、macOS の標準 bash 3.2 での `scripts/hooks/test-hooks.sh`・`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`、`make test-session-record-check`、`make test-metal-session`、macOS の標準 bash 3.2 での `scripts/test-record-summary.sh` |
 | `verify` | `make verify (fmt + clippy + test)` | `ubuntu-latest` | `make verify`、`make build-profiles` |
 | `deny` | `make deny (cargo-deny)` | `ubuntu-latest` | `make deny`、`make measure-verify`、`make wasm-verify`、`make deps-check`、`make test-deps-check`、`make test-inventory-trace-check`、`make test-session-record-check`、`make test-perf-record-check`、`make test-metal-session`、`make test-record-summary`、`make ci-frame-check`、`make test-ci-frame-check`、`make public-api-check`、`make test-public-api-check`、`make public-name-check`、`make test-public-name-check`、`make test-public-api-diff`、`make test-wasm-size` |
+| `wasm-macos` | `wasm32 build + size + node (macos-latest)` | `macos-latest`（arm64） | `make wasm-verify`、`make wasm-size`、`make wasm-node-check`（版固定・SHA256 検証済みの Node と wasm-bindgen の CLI を導入。キャッシュなし） |
 | `pr-title` | `PR title (Conventional Commits)`（`pull_request` のみ） | `ubuntu-latest` | `scripts/hooks/commit-msg-check.sh` |
-| `ci-complete` | `ci-complete` | `ubuntu-latest` | 上の 5 ジョブの結果の検証（`needs` に 5 件） |
+| `ci-complete` | `ci-complete` | `ubuntu-latest` | 上の 6 ジョブの結果の検証（`needs` に 6 件） |
 
 確かめ方: `grep -n -E "^  [a-z-]+:|runs-on|make |needs" .github/workflows/ci.yml`
 
 | 事実 | 確かめ方 |
 | ---- | -------- |
-| `ci.yml` の `runs-on` は GitHub ホステッドの `ubuntu-latest` と、`test-hooks` の matrix の `macos-latest` だけ。self-hosted の指定は無い | `grep -n -E "runs-on|self-hosted" .github/workflows/ci.yml` |
+| `ci.yml` の `runs-on` は GitHub ホステッドの `ubuntu-latest` と、`test-hooks` の matrix と `wasm-macos` の `macos-latest` だけ。self-hosted の指定は無い | `grep -n -E "runs-on|self-hosted" .github/workflows/ci.yml` |
 | GPU・実機を要るジョブは `ci.yml` に無い | `grep -n -i gpu .github/workflows/ci.yml`（0 件） |
 | `ci-complete` は集約ジョブで、`needs` の結果が success でなければ失敗にする（`pr-title` は `pull_request` 以外でだけ skipped を許す） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
 | wasm32 のビルドの確かめは `verify` ジョブの `make build-profiles` が呼ぶ `scripts/build-profiles.sh` にある（`wasm32-unknown-unknown` に対する `cargo check`。target が無ければ skip せず失敗する） | `grep -n -E "WASM_TARGET|WASM_SETS" scripts/build-profiles.sh` |

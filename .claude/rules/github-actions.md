@@ -13,6 +13,7 @@ description: >
 
 - 本リポは **public**。runner は GitHub ホステッド（`ubuntu-latest`）を使う
 - 例外: `ci.yml` の `test-hooks` は macOS の BSD 系挙動と標準 bash 3.2 を検証するため `macos-latest` も matrix に含める
+- 例外: `ci.yml` の `wasm-macos` は、wasm32 のビルド・glue 込みの量・Node での照合を、版固定の Node と wasm-bindgen の CLI を入れた arm64 の `macos-latest` で流す（後続の段でネイティブの参照とも比べるため）。キャッシュは使わない
 - 例外: `ai-review.yml` の `codex / review` は組織の reusable workflow（`Fandhe-AI/actions`）が codex 専用 self-hosted runner で動かす。
   fork PR では reusable workflow 側が fail-closed で実行を拒否する。public で self-hosted を使うと fork PR 経由で任意コードが実行されるため、
   新たに self-hosted を追加しない（`preflight` / `post_feedback` は ubuntu-latest）
@@ -24,6 +25,7 @@ description: >
     `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` も含む。check 名は不変）・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`（`make test-hooks` に加えて `make test-session-record-check` / `make test-metal-session` も流し、macOS では `/bin/bash`〔標準の 3.2〕で直接実行する step もある。macOS では `scripts/test-record-summary.sh` も `/bin/bash` で直接実行する。check 名は不変）
   - `ai-review.yml`: `codex / preflight`・`codex / review`・`codex / post_feedback`
   - 外部 App: `Cursor Bugbot`（cursor App に束縛。それ以外は GitHub Actions の integration に束縛）
+- `wasm-macos`（check 名 `wasm32 build + size + node (macos-latest)`）は `ci-complete` の `needs` に入っている。ruleset への登録はリポジトリ設定の作業（ユーザー判断）で、上の件数は登録の事実に合わせて直す
 - 個別ジョブまで登録するのは、implement-issue-tree の自動マージ前ゲート（G0）が PR 上の全 check を必須チェックに含めることを要求するため。
   PR で生成される check を増やす・減らす・改名するときは、ruleset 側も同時に更新する（ユーザー判断事項。
   登録漏れは自動マージの停止、登録した check が生成されないと pending のままマージ不能になる）

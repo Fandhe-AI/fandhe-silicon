@@ -3,9 +3,10 @@
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
 # 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` を呼ぶ。
+# 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
-# runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks のみ macos-latest も）を使う。
+# runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks と wasm-macos のみ macos-latest も）を使う。
 name: CI
 
 on:
@@ -33,6 +34,14 @@ env:
   # cargo-deny（x86_64-unknown-linux-musl のリリース資産。実測とリリース API の digest の一致を確認: 2026-10-09）
   CARGO_DENY_VERSION: "0.20.2"
   CARGO_DENY_SHA256: "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
+  # wasm-macos ジョブの Node（darwin-arm64 の公式アーカイブ）と wasm-bindgen の CLI（aarch64-apple-darwin のリリース資産）。
+  # SHA256 は実際にダウンロードして実測し、Node は SHASUMS256.txt、CLI はリリース API の digest と一致することを確認した値（2026-10-15）。
+  # バンプ時は VERSION と SHA256 を同時に更新する。スクリプト側の宣言（scripts/wasm-node-check.sh の NODE_EXPECTED、
+  # wasm/crates/glue/Cargo.toml の版、scripts/wasm-size.sh の BINDGEN_VERSION）とずれると該当の make が終了コード 2 で失敗する。
+  NODE_VERSION: "24.13.0"
+  NODE_SHA256: "d595961e563fcae057d4a0fb992f175a54d97fcc4a14dc2d474d92ddeea3b9f8"
+  WASM_BINDGEN_CLI_VERSION: "0.2.128"
+  WASM_BINDGEN_CLI_SHA256: "67ba17f260977725c0b541b516dbb5153538140f079a900329fb6077661b47ab"
 
 jobs:
   check:
@@ -292,6 +301,78 @@ jobs:
         # glue 込みの量の測定の道具の回帰テスト（合成の入力と偽のコマンドだけ。wasm-bindgen の CLI は要らない）
         run: make test-wasm-size
 
+  # wasm32 のビルド・glue 込みの量の測定・Node での照合を、実物の道具（版固定の Node と wasm-bindgen の CLI）で流す。
+  # 後続の段でネイティブの参照（NEON を含む）とも比べられるよう arm64 の macos-latest を使う。
+  # `make wasm-verify` が依存を取得するので、`--offline` で動く `make wasm-size` / `make wasm-node-check` はその後に流す。
+  # キャッシュは使わない。jq・python3（3.11 以上）は runner 同梱のものを使う（欠落・古い版は deps-check.sh が失敗にする）。
+  wasm-macos:
+    name: "wasm32 build + size + node (macos-latest)"
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        # rust-toolchain.toml の targets に wasm32 があるので target もここで入る
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: Install pinned Node and wasm-bindgen CLI
+        # バージョン固定 + SHA256 検証済みのプリビルトバイナリを導入する。macOS には GNU の sha256sum が無いので shasum を使う。
+        # runner 同梱の node より pin 版を優先させるため、導入先を GITHUB_PATH へ追加する。
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = "arm64" ] || { echo "::error::runner is not arm64: $(uname -m)"; exit 1; }
+          bin_dir="${RUNNER_TEMP}/wasm-tools/bin"
+          work_dir="${RUNNER_TEMP}/wasm-tools/work"
+          mkdir -p "${bin_dir}" "${work_dir}"
+          cd "${work_dir}"
+
+          node_name="node-v${NODE_VERSION}-darwin-arm64"
+          curl -fsSLo "${node_name}.tar.gz" \
+            "https://nodejs.org/dist/v${NODE_VERSION}/${node_name}.tar.gz"
+          echo "${NODE_SHA256}  ${node_name}.tar.gz" | shasum -a 256 -c -
+          tar -xzf "${node_name}.tar.gz" "${node_name}/bin/node"
+          install -m 0755 "${node_name}/bin/node" "${bin_dir}/node"
+
+          wb_name="wasm-bindgen-${WASM_BINDGEN_CLI_VERSION}-aarch64-apple-darwin"
+          curl -fsSLo "${wb_name}.tar.gz" \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_CLI_VERSION}/${wb_name}.tar.gz"
+          echo "${WASM_BINDGEN_CLI_SHA256}  ${wb_name}.tar.gz" | shasum -a 256 -c -
+          tar -xzf "${wb_name}.tar.gz" "${wb_name}/wasm-bindgen"
+          install -m 0755 "${wb_name}/wasm-bindgen" "${bin_dir}/wasm-bindgen"
+
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+      - name: Show tool versions
+        # pin 版が PATH 上で優先されていることを確認する（不一致は失敗させる）
+        run: |
+          set -euo pipefail
+          actual_node="$(node --version)"
+          actual_wb="$(wasm-bindgen --version)"
+          echo "node: ${actual_node}"
+          echo "wasm-bindgen: ${actual_wb}"
+          jq --version
+          python3 --version
+          [ "${actual_node}" = "v${NODE_VERSION}" ] || { echo "::error::node ${actual_node} != v${NODE_VERSION}"; exit 1; }
+          [ "${actual_wb}" = "wasm-bindgen ${WASM_BINDGEN_CLI_VERSION}" ] || { echo "::error::${actual_wb} != wasm-bindgen ${WASM_BINDGEN_CLI_VERSION}"; exit 1; }
+
+      - name: make wasm-verify
+        run: make wasm-verify
+
+      - name: make wasm-size
+        run: make wasm-size
+
+      - name: make wasm-node-check
+        run: make wasm-node-check
+
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
   # PR タイトルは任意文字列のため、${{ }} を run へ直接展開せず env 経由でファイルへ書き出す
@@ -333,6 +414,7 @@ jobs:
       - verify
       - deny
       - test-hooks
+      - wasm-macos
       - pr-title
     steps:
       - name: 全ジョブ結果の検証

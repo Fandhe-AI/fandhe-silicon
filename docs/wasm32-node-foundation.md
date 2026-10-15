@@ -32,9 +32,9 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 別 workspace の依存の検査 | `scripts/deny.sh` が `measure/`・`baseline-wgpu/`・`wasm/` に cargo-deny をかけ、`baseline-wgpu/`・`wasm/` の deps-check も呼ぶ。`measure/` と `wasm/` の deps-check は、それぞれ `scripts/measure-verify.sh`・`scripts/wasm-verify.sh` も呼ぶ | `grep -n -e 'cargo deny' -e deps-check scripts/deny.sh scripts/measure-verify.sh scripts/wasm-verify.sh` |
 | deps-check の対象 | `scripts/deps-check.sh` は manifest のパスを引数で受け、その workspace ルート直下の `deps-approved.toml` と突き合わせる。`--allow-path-root <dir>` を付けたときだけ、`<dir>` 配下への path 依存を免除する（`wasm/` の検査だけが `crates/` を渡す） | `sed -n 1,20p scripts/deps-check.sh` |
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml` |
-| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
-| CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）。`ci-frame-check.sh` の許可ラベルも同じ 2 つ | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
-| CI の Node | `ci.yml` に Node の導入・実行は無い。wasm32 に触れるのは `make build-profiles`・`make wasm-verify`・`make test-wasm-size`・`make test-wasm-node-check` の 4 ステップ（`make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れ、実物の wasm32 のビルドも Node も呼ばない） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
+| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
+| CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`。arm64）。`ci-frame-check.sh` の許可ラベルは `ubuntu-latest`・`macos-latest` | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
+| CI の Node | `wasm-macos` ジョブが版固定・SHA256 検証済みの Node と wasm-bindgen の CLI を入れ、`make wasm-verify`・`make wasm-size`・`make wasm-node-check` を実物で流す。`deny` ジョブの `make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れる。`make build-profiles` は wasm32 の check（`verify` ジョブ） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
 ## 別 workspace `wasm/` の所在と検査の入口
 
@@ -66,7 +66,7 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 | 終了コード | 0 全部の組が `ok`、1 `ng` または `not-run` の組がある、2 誤用・前提の不足・読めない入力 | `sed -n 1,25p scripts/wasm-size.sh` |
 | ビルドする経路の前提 | `wasm-bindgen` の CLI が `0.2.128` と厳密に一致（`wasm/Cargo.lock` の版とも突き合わせる）、wasm32 の target、依存が手元にある（`make wasm-verify` で取得。ビルドは `--locked --offline`）。外れたら cargo を呼ぶ前に終了コード 2。CLI の入手は試みない | `scripts/test-wasm-size.sh` |
 | 子プロセスの環境 | `RUSTFLAGS` は渡さず、`CARGO_ENCODED_RUSTFLAGS` で命令の指定だけを渡す。命令ごとに target ディレクトリを分け、cargo の `target_directory` 直下の専用ディレクトリ（`glue-size`）に出す | `grep -n -e CARGO_ENCODED_RUSTFLAGS -e WORK_SUBDIR scripts/wasm-size.sh` |
-| CI | `deny` ジョブは `make test-wasm-size` だけを呼ぶ。`make wasm-size` は CLI が要るので呼ばない（後続のジョブ用） | `grep -n wasm-size .github/workflows/ci.yml` |
+| CI | `deny` ジョブは `make test-wasm-size`（偽のコマンド）を呼ぶ。実物の `make wasm-size` は CLI を入れた `wasm-macos` ジョブが呼ぶ | `grep -n wasm-size .github/workflows/ci.yml` |
 
 流し方:
 
@@ -95,10 +95,10 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI はまだ呼ばない | `sed -n 1,20p scripts/wasm-node-check.sh` |
+| 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI は `wasm-macos` ジョブが呼ぶ | `sed -n 1,20p scripts/wasm-node-check.sh` |
 | Node のスクリプト | `wasm/node/run-glue.cjs`。glue を呼んで f32 のビット列（8 桁の 16 進）を書き出すだけで、判定は持たない。`require` は `node:` の組み込みと引数の glue だけ。呼べる export は許可表の `roundtrip_f32` だけ。`package.json`・npm パッケージは無い | `grep -n require wasm/node/run-glue.cjs` |
 | 入力 | `wasm/node/cases.json`。`roundtrip_f32` の 3 行（空・有限値と `-0.0`・非有限値）。参照は `wasm/crates/glue/src/lib.rs` の単体テストが固定する振る舞いと同じ値。`reference` が無い・`null` の行は照合の相手が無い行 | `cat wasm/node/cases.json` |
-| 前提の版 | Node は `scripts/wasm-node-check.sh` 先頭の定数 `v24.13.0` と完全一致。wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と `wasm-bindgen --version` の完全一致（宣言点を増やさない）。無い・版違いは終了コード 2。CI へ Node を入れる段で版の宣言が二重になるので、その段で一致の確かめ方を決める | `grep -n NODE_EXPECTED scripts/wasm-node-check.sh` |
+| 前提の版 | Node は `scripts/wasm-node-check.sh` 先頭の定数 `v24.13.0` と完全一致。wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と `wasm-bindgen --version` の完全一致（宣言点を増やさない）。無い・版違いは終了コード 2。版の宣言は `ci.yml` の `env`（導入用）とスクリプト側（`NODE_EXPECTED` など）の二つ。一致は `wasm-macos` ジョブの中で二重に確かめる（導入した物と `env` を比べ、各 make が自分の定数と比べる）ので、ずれれば終了コード 2 で失敗する | `grep -n NODE_EXPECTED scripts/wasm-node-check.sh` |
 | 判定 | 参照があり長さも全要素のビット列も一致なら `match`、違えば（Node 側の呼び出しの失敗を含む）`mismatch`、参照が無ければ `not-run`（一致扱いにしない）。標準出力は `row: <id> <状態>` と `summary: rows=N match=N mismatch=N not-run=N` | `bash scripts/test-wasm-node-check.sh`（項目 5〜11） |
 | 終了コード | 0 は 1 行以上あり全行 `match` のときだけ。1 は `mismatch`・`not-run`・行が 0 件。2 は誤用・前提の不足・版違い・入力や結果の不正（未知の id・重複・欠け・形の不正）・Node の実行の失敗 | 同上 |
 | 入力の扱い | 入力の値はシェルに展開しない（`python3 -I` の固定のコードにパスだけを引数で渡す）。`id` は `[a-z0-9-]` の文字種、ビット列は 8 桁の小文字 16 進、`export` は許可表のみ。生成物は一時ディレクトリだけに出して終了時に消す | `bash scripts/test-wasm-node-check.sh`（項目 14・17） |
@@ -121,6 +121,18 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | 版の宣言点が増えていない | 20 |
 | npm パッケージが無く、`require` が組み込みと glue だけ | 21 |
 | `run-glue.cjs` がビット列（NaN・`-0.0`・±Inf）を保ち、許可表外の export を拒否する | 23 |
+
+## macOS arm64 のジョブ（TASK-22 の 5/6）
+
+`ci.yml` の `wasm-macos`（check 名 `wasm32 build + size + node (macos-latest)`）。中身は make ターゲットを呼ぶだけで、CI 独自の判定は持たない。
+
+| 項目 | 現状 | 確かめ方 |
+| ---- | ---- | -------- |
+| 流れる物 | `make wasm-verify`、`make wasm-size`、`make wasm-node-check` の順（先頭が依存を取得し、後の 2 つは `--offline` で動く） | `grep -n -A60 '^  wasm-macos:' .github/workflows/ci.yml` |
+| 道具の入れ方 | Node と wasm-bindgen の CLI を、版固定のうえ SHA256 を確かめてから入れる。版と SHA256 は `ci.yml` 先頭の `env`。入れたあとに版が宣言と一致しなければ失敗する。arm64 でなければ失敗する | `grep -n -E 'NODE_|WASM_BINDGEN_CLI_' .github/workflows/ci.yml` |
+| 作りの制約 | キャッシュを使わない。`continue-on-error` も `\|\| true` も無い。`permissions` は `contents: read`、checkout は `persist-credentials: false` | `grep -n -E 'continue-on-error|cache' .github/workflows/ci.yml`（0 件） |
+| 集約 | `ci-complete` の `needs` に入っている。ruleset への登録はリポジトリ設定の作業で、本書の範囲外 | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
+| 枠の検査 | `make ci-frame-check`・`make test-ci-frame-check` が通る | `make ci-frame-check` |
 
 ## 本リポでの反映の方針
 

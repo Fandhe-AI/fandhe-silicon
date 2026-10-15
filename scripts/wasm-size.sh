@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wasm-bindgen の glue を含めた成果物の量（gzip 後の合計）を、組ごとに測って閾値と比べる
 # （spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6）。
-# 呼び出し元: `make wasm-size`（手元と、後続の macOS のジョブ用。CI の `deny` ジョブは wasm-bindgen の CLI が無いので呼ばない）。
+# 呼び出し元: `make wasm-size`（手元と、CI の `wasm-macos` ジョブ。CI の `deny` ジョブは wasm-bindgen の CLI が無いので呼ばない）。
 # 回帰テストは `make test-wasm-size`（`scripts/test-wasm-size.sh`。合成の入力だけで流れ、CLI も Node もネットワークも要らない。CI の `deny` ジョブが呼ぶ）。
 #
 # 使い方:
