@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# perf-record-check.sh の回帰テスト（spec TASK-27・TASK-28 のポインタ）。
+# perf-record-check.sh の回帰テスト（spec TASK-27・TASK-28・TASK-2947 のポインタ）。
 # 一時ディレクトリの fixture（合成のダミー値）で、終了コード・標準出力・標準エラーの文言・
 # 入力の値の秘匿・入力を変更しないことを確かめる。cargo は呼ばない。
 # 呼び出し元: `make test-perf-record-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
@@ -156,6 +156,11 @@ sess() {
 
 NL=$'\n'
 
+# 回の記録と同じディレクトリに runs/<ID>.json を置いた並び（実在の検査の前提）。
+mkdir "${work}/runs"
+cp "${RUN_EX}" "${work}/runs/example-run-a.json"
+mut "${RUN_EX}" "${work}/runs/example-run-b.json" 'd["run_id"] = "example-run-b"'
+
 # ---- 形の検査: 合格 ----
 
 run_check "${RUN_EX}"
@@ -304,7 +309,8 @@ misuse "misuse: missing path" "${work}/missing.json"
 run_check "${work}"
 judge "input: directory" 1 "" "not a regular file"
 misuse "misuse: session path missing" --session "${work}/missing.json" "${RUN_EX}"
-run_check --session "${SESSION_EX}" "${work}/missing.json"
+mut "${SESSION_EX}" "${SES_F}" 'pass'
+run_check --session "${SES_F}" "${work}/missing.json"
 judge "misuse: run path missing in session mode" 2 "session: eligible"
 
 # ---- 秘匿 ----
@@ -315,10 +321,15 @@ bad "secret: id value not echoed" 'd["run_id"] = "SECRET-MARKER-ID"' "field run_
 
 # ---- 判定に使えるか（--session）----
 
-run_check --session "${SESSION_EX}" "${RUN_EX}"
+mut "${SESSION_EX}" "${SES_F}" 'pass'
+run_check --session "${SES_F}" "${RUN_EX}"
 judge "session: examples are eligible" 0 "session: eligible${NL}run 1: eligible"
-run_check --session "${SESSION_EX}"
+run_check --session "${SES_F}"
 judge "session: no runs" 0 "session: eligible"
+run_check --session "${SES_F}" "${work}/runs/example-run-a.json"
+judge "session: run record from runs dir" 0 "session: eligible${NL}run 1: eligible"
+run_check --session "${SESSION_EX}" "${RUN_EX}"
+judge "session: docs examples have no runs dir" 1 "session: excluded: run-record-missing${NL}run 1: excluded: session-excluded" "run_ids[1]: run record not found" "!example-run-a"
 
 sess "session: mismatch" 1 "session: eligible${NL}run 1: excluded: session-mismatch" 'pass' 'd["session_ref"] = "other-session"'
 sess "session: run without session" 1 "session: eligible${NL}run 1: excluded: no-session" 'pass' 'd["session_ref"] = "_none"'
@@ -357,6 +368,34 @@ run_check --session "${SES_F}" "${IN_F}" "${IN2_F}"
 judge "session: one of two excluded" 1 "session: eligible${NL}run 1: eligible${NL}run 2: excluded: power-not-ac"
 run_check --session "${SES_F}" "${IN_F}" "${work}/missing.json"
 judge "session: stops with 2 on missing run path" 2 "session: eligible${NL}run 1: eligible"
+
+# ---- 回の run_ids との突き合わせ（所属・実在。spec TASK-2947 のポインタ）----
+
+# 走査しないことの確かめ用: run_ids に無いファイルと、ディレクトリの entry。
+printf '%s' '{}' >"${work}/runs/unlisted.json"
+mkdir "${work}/runs/dir-entry.json"
+sess "session: run_id not in run_ids" 1 "session: eligible${NL}run 1: excluded: not-in-run-ids" 'pass' 'd["run_id"] = "orphan-run"'
+mut "${SESSION_EX}" "${SES_F}" 'd["run_ids"] = []'
+mut "${RUN_EX}" "${IN_F}" 'pass'
+run_check --session "${SES_F}"
+judge "session: empty run_ids and no run" 0 "session: eligible"
+run_check --session "${SES_F}" "${IN_F}"
+judge "session: empty run_ids with a run" 1 "session: eligible${NL}run 1: excluded: not-in-run-ids"
+sess "session: mismatch wins over not in run_ids" 1 "session: eligible${NL}run 1: excluded: session-mismatch" 'pass' 'd["session_ref"] = "other-session"; d["run_id"] = "orphan-run"'
+sess "session: not in run_ids wins over window" 1 "session: eligible${NL}run 1: excluded: not-in-run-ids" 'pass' 'd["run_id"] = "orphan-run"; d["started_utc"] = "2000-01-01T00:01:00Z"'
+sess "session: subset of runs is enough" 0 "session: eligible${NL}run 1: eligible" 'pass' 'pass'
+sess "session: missing run record" 1 "session: excluded: run-record-missing${NL}run 1: excluded: session-excluded" 'd["run_ids"] = ["example-run-a", "example-run-b", "secret-marker-id"]' 'pass' "run_ids[3]: run record not found" "!secret-marker-id"
+sess "session: low power wins over missing record" 1 "session: excluded: low-power-mode${NL}run 1: excluded: session-excluded" 'd["low_power_mode"] = True; d["run_ids"] = ["secret-marker-id"]' 'pass' "run_ids[1]: run record not found" "!secret-marker-id"
+sess "session: interrupted wins over missing record" 1 "session: excluded: interrupted${NL}run 1: excluded: session-excluded" 'd["interrupted"] = True; d["run_ids"] = ["secret-marker-id"]' 'pass' "run_ids[1]: run record not found"
+sess "session: extra file in runs is ignored" 0 "session: eligible${NL}run 1: eligible" 'pass' 'pass'
+sess "session: runs entry is a directory" 1 "session: excluded: run-record-missing${NL}run 1: excluded: session-excluded" 'd["run_ids"] = ["example-run-a", "dir-entry"]' 'pass' "run_ids[2]: run record not found"
+mut "${SESSION_EX}" "${SES_F}" 'pass'
+mut "${RUN_EX}" "${IN_F}" 'pass'
+mkdir "${work}/sub"
+rc=0
+(cd "${work}/sub" && "${BASH}" "${CHECK}" --session ../session.json ../run.json) >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "session: relative paths from another cwd" 0 "session: eligible${NL}run 1: eligible"
+rmdir "${work}/sub"
 
 # ---- 入力を変更しない ----
 
