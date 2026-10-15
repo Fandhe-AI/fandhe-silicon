@@ -71,10 +71,14 @@ if [ ! -f "${BASELINE_DENY}" ]; then
   exit 1
 fi
 
+# 注意: --config は cargo-deny 0.20.2 では check の前に置く上位オプション。
+# check の後ろへ移すと引数解析で拒否される（実測済み）ので並べ替えない。
 log "cargo deny (measure/) --locked check advisories bans licenses sources"
 cargo deny --manifest-path "${ROOT_DIR}/measure/Cargo.toml" --locked \
   --config "${ROOT_DIR}/deny.toml" check advisories bans licenses sources
 
+# 注意: --config は cargo-deny 0.20.2 では check の前に置く上位オプション。
+# check の後ろへ移すと引数解析で拒否される（実測済み）ので並べ替えない。
 log "cargo deny (baseline-wgpu/) --locked check advisories bans licenses sources"
 cargo deny --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --locked \
   --config "${BASELINE_DENY}" check advisories bans licenses sources
