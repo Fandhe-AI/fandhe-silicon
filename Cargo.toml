@@ -14,7 +14,8 @@ members = ["crates/core", "crates/contract", "crates/exec", "crates/upper"]
 # 比較基準の wgpu は基盤の外の別 workspace に置く（spec TASK-7 / BUILD-50 のポインタ）。
 # 基盤の依存グラフに入れないため、baseline-wgpu/ は member にせず切り離す。
 # 測定専用の別 workspace は measure/（spec TASK-6・TASK-27 のポインタ）。同じく製品の依存グラフに入れない。
-exclude = ["baseline-wgpu", "measure"]
+# wasm32 向けの glue の cdylib の別 workspace は wasm/（spec TASK-22 のポインタ）。同じく製品の依存グラフに入れない。
+exclude = ["baseline-wgpu", "measure", "wasm"]
 
 [workspace.package]
 # .claude/settings.json の PostToolUse（rustfmt）が行頭の `edition = "..."` を

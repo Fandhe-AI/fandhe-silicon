@@ -3,7 +3,11 @@
 # .claude/rules/dependency-policy.md）。cargo-deny の wildcards は `*` しか拒否しないため、
 # `^`・`~`・範囲・部分版（"1.2" や "=1.2"）のすり抜けを本スクリプトで機械的に検出する。
 # 呼び出し元: `make deps-check`（CI の `deny` ジョブも呼ぶ）。回帰テストは scripts/test-deps-check.sh（`make test-deps-check`）。
-# 使い方: scripts/deps-check.sh [path/to/Cargo.toml]（省略時はルートの Cargo.toml。fixture 検証用）
+# 使い方: scripts/deps-check.sh [--allow-path-root <dir>] [path/to/Cargo.toml]（省略時はルートの Cargo.toml。fixture 検証用）
+# --allow-path-root <dir>: 別 workspace が製品の crate（<dir> 配下）を path で参照するときだけ使う明示のオプション。
+#   path が <dir>/ で始まる path 依存を、版指定の検査と承認の記録の検査の両方で免除する（<dir> は実パスにして前方一致）。
+#   <dir> の外への path や、未固定・registry・外部ソースの依存は今まで通り違反にする。省略時の振る舞いは変えない。
+#   製品の crate 自身の外部依存は、ルートの `make deps-check` が見る。
 #
 # 判定は許可リスト方式: `=x.y.z`（pre-release / build metadata 付き完全一致を含む）と
 # workspace メンバーへの path 依存だけを許可し、未知の形は違反にする（fail-closed）。
@@ -18,9 +22,19 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
 source "${DIR}/lib.sh"
 
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [[ "$1" == -* ]]; }; then
-  echo "usage: $(basename "$0") [path/to/Cargo.toml]" >&2
+usage() {
+  echo "usage: $(basename "$0") [--allow-path-root <dir>] [path/to/Cargo.toml]" >&2
   exit 2
+}
+allow_root=""
+if [ "$#" -ge 1 ] && [ "$1" = "--allow-path-root" ]; then
+  [ "$#" -ge 2 ] || usage
+  [ -d "$2" ] || { echo "error: --allow-path-root directory not found: $2" >&2; exit 2; }
+  allow_root="$(cd "$2" && pwd -P)/"
+  shift 2
+fi
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [[ "$1" == -* ]]; }; then
+  usage
 fi
 manifest="${1:-${ROOT_DIR}/Cargo.toml}"
 if [ ! -f "${manifest}" ]; then
@@ -48,12 +62,13 @@ metadata="$(cargo metadata --format-version 1 --no-deps --offline --locked --man
 # 版指定の違反を 1 件 1 行で出す。crate 名・req は非信頼文字列として jq 内でのみ扱う。
 # path 依存は workspace メンバーの manifest ディレクトリと一致するものだけを免除する。
 # exclude 済みの crate や別 workspace への path 依存は（--no-deps で版指定も見えないため）違反にする。
-version_violations="$(jq -r '
+version_violations="$(jq -r --arg allow "${allow_root}" '
   .workspace_members as $members
   | [.packages[] | select(.id as $id | $members | index($id)) | .manifest_path | sub("/Cargo\\.toml$"; "")] as $dirs
   | .packages[] | .name as $pkg | .dependencies[]
   | . as $d
   | (if ($d.path != null) and ($dirs | index($d.path)) then empty
+      elif ($d.path != null) and ($allow != "") and (($d.path + "/") | startswith($allow)) then empty
       elif $d.path != null then "path dependency is not a workspace member"
       elif ($d.source // "" | startswith("git+")) then "git source"
       elif ($d.req | test("^=[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")) then empty
@@ -161,12 +176,13 @@ out()
 
 # 宣言した外部依存（member への path 依存を除く）が、記録の name・version・used_by と一致するかを見る。
 # 記録側が宣言されていない（使われていない）場合も違反にし、残った記録による後の無承認の再追加を防ぐ。
-approval_violations="$(jq -r --argjson ap "${approvals_json}" '
+approval_violations="$(jq -r --argjson ap "${approvals_json}" --arg allow "${allow_root}" '
   .workspace_members as $members
   | [.packages[] | select(.id as $id | $members | index($id)) | .manifest_path | sub("/Cargo\\.toml$"; "")] as $dirs
   | [.packages[] | select(.id as $id | $members | index($id)) | .name as $pkg
       | .dependencies[] | . as $dep
       | select((($dep.path != null) and ($dirs | index($dep.path))) | not)
+      | select((($dep.path != null) and ($allow != "") and (($dep.path + "/") | startswith($allow))) | not)
       | {pkg: $pkg, name: $dep.name, req: $dep.req}] as $decl
   | $ap.errors[],
     ($decl[] | . as $d
