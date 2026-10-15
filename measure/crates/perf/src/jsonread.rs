@@ -5,6 +5,7 @@
 //! 末尾のゴミ・制御文字・不正なエスケープ・非 ASCII を拒否し、入力の大きさと入れ子の深さに上限を置く。
 //! 数は字句のまま持ち、`f64` を経由しない。失敗の種類だけを返し、入力の値や位置は埋め込まない。
 
+use std::collections::HashSet;
 use std::fmt;
 
 /// 読み込める入力の上限（バイト）。
@@ -300,6 +301,8 @@ impl Parser<'_> {
     fn object(&mut self, depth: usize) -> Result<Value, ReadError> {
         self.eat(b'{')?;
         let mut members: Vec<(String, Value)> = Vec::new();
+        // 重複キーの検出を平均 O(1) にする（既存キーとの線形比較だと O(n^2) になるため）
+        let mut seen: HashSet<String> = HashSet::new();
         self.ws();
         if self.peek() == Some(b'}') {
             self.i += 1;
@@ -308,7 +311,7 @@ impl Parser<'_> {
         loop {
             self.ws();
             let key = self.string()?;
-            if members.iter().any(|(k, _)| *k == key) {
+            if !seen.insert(key.clone()) {
                 return Err(ReadError::DuplicateKey);
             }
             self.ws();

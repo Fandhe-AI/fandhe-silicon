@@ -256,6 +256,21 @@ fn a10_jsonread_is_strict() {
         Err(ReadError::DuplicateKey)
     );
     assert!(jsonread::parse(b" {\"a\":[1,2.5,\"\\ud83d\\ude00\",null,true]}\n").is_ok());
+    // キーが非常に多い object でも重複検出が線形時間で終わる（O(n^2) の退行を防ぐ）
+    let mut many = String::from("{");
+    for i in 0..100_000 {
+        if i > 0 {
+            many.push(',');
+        }
+        many.push_str(&format!("\"k{i}\":0"));
+    }
+    many.push('}');
+    assert!(jsonread::parse(many.as_bytes()).is_ok());
+    let dup = many.replacen("\"k99999\"", "\"k0\"", 1);
+    assert_eq!(
+        jsonread::parse(dup.as_bytes()),
+        Err(ReadError::DuplicateKey)
+    );
     let n = jsonread::parse(b"18446744073709551616").unwrap();
     assert_eq!(n.as_u64(), None);
 }
