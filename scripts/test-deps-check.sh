@@ -466,5 +466,56 @@ run_check
 expect_violations "F20 command substitution in record values" 1 'unused approval record:'
 if [ -e "${marker}" ]; then report_fail "F20 record value was executed by the shell" "marker file exists"; else report_ok "F20 no marker file created"; fi
 
+# ---- G. --allow-path-root（別 workspace から製品の crate への path だけを明示で免除する） ----
+
+# run_check_allow <root> [manifest]: --allow-path-root を付けて実行する。
+run_check_allow() {
+  local root="$1" manifest="${2:-${ws}/Cargo.toml}"
+  rc=0
+  (cd "${run_cwd}" && CARGO_HOME="${work}/home" "${DIR}/deps-check.sh" --allow-path-root "${root}" "${manifest}") > "${work}/stdout" 2> "${work}/stderr" || rc=$?
+}
+
+# mk_outside <dir名>: work 直下に path 依存先のダミー crate を作る（crate 名は <dir名>-crate）。
+mk_outside() {
+  mkdir -p "${work}/$1/src"
+  printf '[package]\nname = "%s-crate"\nversion = "0.0.0"\nedition = "2024"\n' "$1" > "${work}/$1/Cargo.toml"
+  : > "${work}/$1/src/lib.rs"
+}
+
+new_fixture; mk_outside outside
+add_dep core '[dependencies]' 'outside-crate = { path = "../../../outside" }'
+run_check_allow "${work}/outside"
+expect_ok "G1 path under the allowed root passes"
+
+run_check
+expect_violations "G2 same fixture without the option still fails" 2 \
+  'path dependency is not a workspace member: fixture-core -> outside-crate "*"'
+
+new_fixture; mk_outside outside; mk_outside sibling
+add_dep core '[dependencies]' 'sibling-crate = { path = "../../../sibling" }'
+run_check_allow "${work}/outside"
+expect_violations "G3 path outside the allowed root still fails" 2 \
+  'path dependency is not a workspace member: fixture-core -> sibling-crate "*"'
+
+new_fixture; mk_outside outside; mk_outside outside-x
+add_dep core '[dependencies]' 'outside-x-crate = { path = "../../../outside-x" }'
+run_check_allow "${work}/outside"
+expect_violations "G4 prefix-sharing directory is not exempted" 2 \
+  'path dependency is not a workspace member: fixture-core -> outside-x-crate "*"'
+
+new_fixture; mk_outside outside
+add_dep core '[dependencies]' 'outside-crate = { path = "../../../outside" }' 'example-ext = "^1.2"'
+run_check_allow "${work}/outside"
+expect_violations "G5 unpinned registry dependency still fails with the option" 2 \
+  'not pinned to =x.y.z' 'no approval record: fixture-core -> example-ext'
+
+new_fixture
+rc=0; (cd "${ws}" && CARGO_HOME="${work}/home" "${DIR}/deps-check.sh" --allow-path-root) > "${work}/stdout" 2> "${work}/stderr" || rc=$?
+expect_usage "G6a option without a value" "usage:"
+rc=0; (cd "${ws}" && CARGO_HOME="${work}/home" "${DIR}/deps-check.sh" --allow-path-root "${work}/nonexistent" "${ws}/Cargo.toml") > "${work}/stdout" 2> "${work}/stderr" || rc=$?
+expect_usage "G6b nonexistent root directory" "--allow-path-root directory not found"
+rc=0; (cd "${ws}" && CARGO_HOME="${work}/home" "${DIR}/deps-check.sh" --allow-path-root "${work}" --allow-path-root "${work}" "${ws}/Cargo.toml") > "${work}/stdout" 2> "${work}/stderr" || rc=$?
+expect_usage "G6c option given twice" "usage:"
+
 echo "# passed: ${passed}, failed: ${failed}"
 [ "${failed}" -eq 0 ]
