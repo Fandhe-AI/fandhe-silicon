@@ -115,6 +115,30 @@ worktree のルートで実行する。
 | 2 本の JSON での実行 | 前節の手順で作った 2 本を `scripts/public-api-diff.sh` に渡し、終了コードと行を見る |
 | 文書と編集ファイルの書式 | `make check` |
 
+## 完了の条件の確かめ（5/5）
+
+5/5（#70）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-17）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 差分の道具の回帰テスト | `make test-public-api-diff` | 終了コード 0・`passed=41 failed=0` |
+| A2 | 一覧の検査の回帰テスト（追随分の取り込みを含む） | `make test-inventory-trace-check` | 終了コード 0・`passed: 84, failed: 0` |
+| A3 | main の CI の `deny` ジョブ | main の CI（`35f4b1e` の push run）の `make deny (cargo-deny)` ジョブの step | `make test-public-api-diff`・`make test-inventory-trace-check` とも conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make ci-frame-check`・`make test-ci-frame-check` | すべて終了コード 0 |
+
+実物の入力で流す `make inventory-trace-check` は、`docs/spec` の取得が要るため、この表に含めない。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-17）。
+
+### 再実行の契機
+
+- `scripts/public-api-diff.sh`・`scripts/test-public-api-diff.sh`・`scripts/inventory-trace-check.sh`・`scripts/test-inventory-trace-check.sh` を変えたとき
+- CI の `deny` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `35f4b1e`、`docs/spec` の gitlink は `ebb315c`。
+
 ## 関連
 
 - [public-api-wgpu-check](public-api-wgpu-check.md)・[ci-device-free-jobs](ci-device-free-jobs.md)
