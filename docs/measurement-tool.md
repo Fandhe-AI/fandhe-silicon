@@ -39,7 +39,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 | 点 | 扱い |
 | -- | ---- |
-| 道具の形 | `docs/spec/05-tasks.md` の TASK-27 と、そこから辿る決定の記録（T27-Q1〜Q6）に従う。本書には内容を書かない |
+| 道具の形 | `docs/spec/05-tasks.md` の TASK-27 と、そこから辿る決定の記録に従う。本書には内容を書かない |
 | 記録の形と置き場 | TASK-28 のポインタ（[measurement-record](measurement-record.md)） |
 | 専有の確かめの手順 | TASK-19 のポインタ（[metal-run-procedure](metal-run-procedure.md)） |
 | 測定専用のコードの置き場 | TASK-6 のポインタ（[workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)） |
