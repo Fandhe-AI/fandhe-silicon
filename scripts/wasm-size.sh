@@ -118,6 +118,7 @@ def check_layout(root):
         raise Misuse("cannot read --from-dir")
     for e in entries:
         need(e in SETTINGS, "unexpected entry in --from-dir")
+        need(is_plain_dir(os.path.join(root, e)), "%s is not a directory" % e)
 
 
 def measure_all(root, overrides):
@@ -265,6 +266,10 @@ def main():
         return report(measure_all(out_root, failures))
     except Misuse as e:
         print("error: %s" % e, file=sys.stderr)
+        return 2
+    except OSError:
+        # ホストのパスを含む例外の文言は出さず、固定の文言にする。
+        print("error: filesystem or process operation failed", file=sys.stderr)
         return 2
 
 

@@ -46,8 +46,10 @@ def gz(b):
 
 
 def blob(seed, n):
-    return random.Random(seed).randbytes(n) if hasattr(random.Random, "randbytes") else bytes(
-        random.Random(seed).getrandbits(8) for _ in range(n))
+    rng = random.Random(seed)
+    if hasattr(rng, "randbytes"):
+        return rng.randbytes(n)
+    return bytes(rng.getrandbits(8) for _ in range(n))
 
 
 def put(base, setting, target, name, data):
@@ -123,6 +125,10 @@ os.remove(p)
 os.symlink(os.path.join(b, "release-scalar", "web", "wasm_glue_bg.wasm"), p)
 b = build("unknown_entry")
 os.makedirs(os.path.join(b, "debug-scalar"))
+b = build("setting_symlink")
+ext = os.path.join(os.path.dirname(b), "setting_symlink_ext")
+os.rename(os.path.join(b, "release-scalar"), ext)
+os.symlink(ext, os.path.join(b, "release-scalar"))
 b = build("dir_as_file")
 p = os.path.join(b, "release-scalar", "web", "wasm_glue.js")
 os.remove(p)
@@ -296,6 +302,8 @@ expect "extra-files" 0 "combo=release-scalar target=web label=ok gzip_bytes=${we
 # 7. 読めない入力 -> 2、record は出ない
 run_case --from-dir "${work}/symlink"
 expect "symlink" 2 "error: release-scalar/web/wasm_glue.js is not a regular file" "!record:" "!ok:"
+run_case --from-dir "${work}/setting_symlink"
+expect "setting-symlink" 2 "error: release-scalar is not a directory" "!record:" "!ok:"
 run_case --from-dir "${work}/dir_as_file"
 expect "dir-as-file" 2 "error:" "!record:"
 run_case --from-dir "${work}/unknown_entry"
