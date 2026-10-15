@@ -1,5 +1,5 @@
 //! 同じ測定を繰り返したときの記録の形と、読む側の検査（`scripts/perf-record-check.sh`）の公開テスト
-//! （TASK-27 のポインタ）。
+//! （TASK-27・TASK-2947 のポインタ。回の run_ids との突き合わせを含む）。
 //!
 //! 合成の標本と CPU だけのダミー測定を繰り返し、出た記録が決めた形で残ることを確かめる。
 //! ダミー測定の封筒は既存の試験用の機材と組み合わせの綴りだけを使い、`session_ref` は回に属さない
@@ -457,11 +457,28 @@ fn r4_checker_rejects_added_and_removed_fields() {
 #[test]
 fn r5_session_mode_uses_the_documented_examples() {
     let dir = work_dir("r5");
-    let session = repo_path("docs/session-record.example.json");
+    let docs_session = repo_path("docs/session-record.example.json");
     let example = repo_path("docs/run-record.example.json");
     assert_eq!(run_check(&[&example]), 0);
+    // 実在の検査は回の記録と同じディレクトリの runs/<ID>.json を見るので、記入例を並びの形に写す。
+    let session = dir.join("session.json");
+    std::fs::copy(&docs_session, &session).unwrap();
+    std::fs::create_dir_all(dir.join("runs")).unwrap();
+    let example_text = std::fs::read_to_string(&example).unwrap();
+    std::fs::write(dir.join("runs/example-run-a.json"), &example_text).unwrap();
+    std::fs::write(
+        dir.join("runs/example-run-b.json"),
+        example_text.replacen("example-run-a", "example-run-b", 1),
+    )
+    .unwrap();
     assert_eq!(run_check(&[Path::new("--session"), &session]), 0);
     assert_eq!(run_check(&[Path::new("--session"), &session, &example]), 0);
+    // 並びの無い記入例を直接渡すと、runs/ が無いので判定に使えない。
+    assert_eq!(run_check(&[Path::new("--session"), &docs_session]), 1);
+    assert_eq!(
+        run_check(&[Path::new("--session"), &docs_session, &example]),
+        1
+    );
     // 回に属さない run は判定に使えない（除外は成功扱いにしない）。
     let orphan = dir.join("orphan.json");
     let rec = make_record(

@@ -17,9 +17,14 @@
 # 組み合わせと環境の背後実装の整合。欄の定義はこのファイルの定数表が唯一の正で、
 # 書く側は measure/crates/perf の record・evidence・json。食い違いは repeat.rs が検出する。
 # 判定に使えるかの検査（--session）: 回の記録の形（session-record-check.sh）を先に通し、
-# 回の側の除外条件と run ごとの除外条件（回への参照・時間帯・電源・熱・検証レイヤー・取得不能）を見る。
+# 回の側の除外条件と run ごとの除外条件（回への参照・回の run_ids への所属・時間帯・電源・熱・
+# 検証レイヤー・取得不能）を見る（spec TASK-2947 のポインタ）。
+#   実在: run_ids の各 ID について、回の記録と同じディレクトリの `runs/<ID>.json` が通常のファイルとして
+#         あるかだけを見る（中身は読まない。ディレクトリの走査もしない）。無ければ回の側を除外する。
+#   所属: 渡した run の run_id が回の run_ids に載っていること。run_ids が空の回に run を渡すと失敗になる。
+#         渡した run の集合と run_ids の集合の一致は見ない（一部の run だけを渡しても検査できる）。
 # 入れない検査: 統計値の再計算、run 間の突き合わせ、ホスト情報の置き換えの有無、
-# 回の run_ids との突き合わせ、機材と組み合わせの対応。
+# 渡した run と run_ids の集合の一致、`runs/<ID>.json` の中身の検査、機材と組み合わせの対応。
 #
 # 入力の値と表に無い欄の名前は出力に出さない。ファイルを作らず、ネットワークを使わない。
 # 実行環境: 実機（macOS）でも流すので bash 3.2 互換・Python 3.8 以上の標準ライブラリだけ。
@@ -465,6 +470,8 @@ def exclusion(run, session):
         return "no-session"
     if ref != session["session"]:
         return "session-mismatch"
+    if run["run_id"] not in session["run_ids"]:
+        return "not-in-run-ids"
     if run["started_utc"] < session["started_utc"] or run["ended_utc"] > session["ended_utc"]:
         return "outside-session-window"
     env = run["environment"]
@@ -526,12 +533,32 @@ def main():
         sys.exit(r.returncode)
     session = load(args.session, "session record")
 
+    # 実在の検査。パスは回の記録の場所から決め（cwd に依存しない）、ID も番号でしか出力しない。
+    base = os.path.dirname(os.path.abspath(args.session))
+    missing = []
+    for n, rid in enumerate(session["run_ids"], 1):
+        if not is_id(rid):
+            raise Fatal(1, "error: session record has an invalid run id")
+        try:
+            found = stat.S_ISREG(os.stat(os.path.join(base, "runs", rid + ".json")).st_mode)
+        except OSError:
+            found = False
+        if not found:
+            missing.append(n)
+            print(
+                "error: run_ids[%d]: run record not found next to the session record" % n,
+                file=sys.stderr,
+            )
+
     bad = 0
     if session["low_power_mode"] is True:
         print("session: excluded: low-power-mode")
         bad += 1
     elif session["interrupted"] is True:
         print("session: excluded: interrupted")
+        bad += 1
+    elif missing:
+        print("session: excluded: run-record-missing")
         bad += 1
     else:
         print("session: eligible")
