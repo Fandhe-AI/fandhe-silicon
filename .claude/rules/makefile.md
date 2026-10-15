@@ -42,9 +42,10 @@ description: >
 | `check` | editorconfig-checker + shellcheck。ソースを変更しない。ツール未導入は成功扱いにせず失敗 |
 | `verify` | `cargo fmt --check` + clippy（`-D warnings`）+ test。ソースを変更しない（整形は別途 `cargo fmt --all`） |
 | `build-profiles` | feature の組ごとの build / clippy / test と wasm32 の check。ソースを変更しない。wasm32 の target 未導入は失敗（skip しない） |
-| `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6）+ `measure/`・`baseline-wgpu/` の cargo-deny（後者は `baseline-wgpu/deny.toml` を `--config` で明示）+ `baseline-wgpu/` の deps-check（TASK-27。jq が要る・ビルドはしない） |
+| `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6）+ `measure/`・`baseline-wgpu/`・`wasm/` の cargo-deny（`baseline-wgpu/` は `baseline-wgpu/deny.toml` を `--config` で明示。他はルートの `deny.toml`）+ `baseline-wgpu/`・`wasm/` の deps-check（TASK-27・TASK-22。`wasm/` は `--allow-path-root crates`。jq が要る・ビルドはしない） |
+| `wasm-verify` | wasm32 向けの別 workspace（`wasm/`）の `cargo fmt --check` + clippy（`-D warnings`。ホストと wasm32）+ test（ホスト）+ wasm32 の build（`--profile wasm-size`）と `.wasm` の存在確認 + `deps-check.sh --allow-path-root crates wasm/Cargo.toml`（TASK-22）。すべて `--locked`。ソースを変更しない・初回は依存の取得が要る。wasm32 の target 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ。回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため） |
 | `measure-verify` | 測定専用の別 workspace（`measure/`）の `cargo fmt --check` + clippy（`-D warnings`）+ test（`--locked`）+ `deps-check.sh measure/Cargo.toml`。ソースを変更しない・ネットワーク不要。ツール未導入は失敗。CI の `deny` ジョブが呼ぶ。回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため） |
-| `deps-check` | 依存の版指定が `=x.y.z` の完全固定かと承認の記録（`deps-approved.toml`）との一致の検査（cargo metadata + jq）。ソースを変更しない・ネットワーク不要。ツール未導入は失敗、違反は終了コード 1 |
+| `deps-check` | 依存の版指定が `=x.y.z` の完全固定かと承認の記録（`deps-approved.toml`）との一致の検査（cargo metadata + jq）。`--allow-path-root <dir>` を付けた直接実行だけ、`<dir>` 配下への path 依存を免除する（`wasm/` の検査用。make ターゲットは付けない）。ソースを変更しない・ネットワーク不要。ツール未導入は失敗、違反は終了コード 1 |
 | `test-deps-check` | `scripts/deps-check.sh` の回帰テスト。一時ディレクトリの fixture だけを使い、リポジトリのファイルを変更しない・ネットワーク不要。ツール未導入は失敗（skip しない） |
 | `test-inventory-trace-check` | `scripts/inventory-trace-check.sh` の回帰テスト。合成 fixture と一時ディレクトリだけを使い、リポジトリのファイルを変更しない・ネットワーク不要・`docs/spec` の取得は不要。判定は終了コード + 標準出力 + 標準エラーの部分一致 + 違反の件数。python3 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ |
 | `test-session-record-check` | `scripts/session-record-check.sh` の回帰テスト。合成 fixture と一時ディレクトリだけを使い、リポジトリのファイルを変更しない・ネットワーク不要。python3 未導入は失敗（skip しない）。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）が呼ぶ。検査本体は引数（記録のパス）が要るため make ターゲットを持たない（漏れではない。直接実行する） |

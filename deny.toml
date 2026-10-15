@@ -4,7 +4,7 @@
 # 追加はユーザー承認制。
 # 比較基準の wgpu は別 workspace（baseline-wgpu/）に置く。baseline-wgpu/ は wgpu を持つのが
 # 目的なので、`make deny` は wgpu 系の禁止を外した baseline-wgpu/deny.toml を `--config` で
-# 明示して監査する。measure/ には本設定をそのまま当てる（設定値は変えない）。
+# 明示して監査する。measure/ と wasm/ には本設定をそのまま当てる（設定値は変えない）。
 
 [graph]
 # backend-* 等の optional な依存も監査対象に含める（既定 feature だけを見ると漏れるため）
