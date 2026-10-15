@@ -165,6 +165,22 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 確かめ方は `make measure-verify`（3/8 と同じ）。
 
+## 現状の形（6/8）
+
+`measure-perf` に、2 つの値の比から「同等」「差がある」の区分を出す部品を足した（`ratio`。外部依存は増えない）。
+純粋な関数で、記録（`RunRecord` の JSON）は変えない。綴りと振る舞いは `src/ratio.rs`（単体テスト）と `tests/ratio.rs` が示す。
+後続の段の範囲は本節に書かない。
+
+| 公開アイテム | 振る舞い（対応するテスト） |
+| ------------ | -------------------------- |
+| `DIFF_RATIO_NUM`・`DIFF_RATIO_DEN`・`diff_ratio`・`diff_ratio_f64` | 閾値 1.3 を整数比 13 / 10 で持つ。`f64` は表示用で判定に使わない（`threshold_constants`） |
+| `RATIO_SCOPE_TASKS` | 適用範囲の TASK の ID の唯一の置き場。いまは空で、各要素は `RefId` の形に合う（`scope_entries_are_valid_ids`） |
+| `classify` | 分子 ÷ 分母が閾値以上なら `Differs`（ちょうど閾値も含む）、未満なら `Equivalent`。片側だけの比較（単体テストの `boundary_exactly_threshold_differs`・`just_below_and_above`・`one_sided`） |
+| `RatioClass` | 範囲外の ID は `Pending` で理由は `out-of-scope`。綴りは英小文字 ASCII で互いに異なる（`out_of_scope_is_pending`・`tokens`） |
+| 入力の検査 | 有限でない・負・分母 0・上限超え・1/4 刻みに乗らない値は範囲外でも `Err`（`invalid_inputs_err_even_out_of_scope`）。`RunStats`・`AcrossRuns` の中央値をそのまま渡せる（`accepts_real_medians`） |
+
+確かめ方は `make measure-verify`（3/8 と同じ）。
+
 ## 本リポでの反映の方針
 
 - 道具の置き場・記録の欄・統計・検査は、受け持つ段の PR のコードと公開テストが示す（親 #121）
