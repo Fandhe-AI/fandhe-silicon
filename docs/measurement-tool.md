@@ -11,8 +11,8 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
     - TASK-4: ルートの `Cargo.toml` の `members` と [workspace-boundary](workspace-boundary.md)
     - TASK-28: [measurement-record](measurement-record.md)
     - TASK-19: [metal-run-procedure](metal-run-procedure.md)
-- 本リポの `docs/spec` の gitlink は `0696aed`（`update = none`）。2/8 の着手時に、private spec 側の main の先端と同じことを確かめた
-    - 確かめ方: `git ls-tree origin/main docs/spec`、`gh api repos/Fandhe-AI/fandhe-silicon-spec/commits/main --jq .sha`
+- 本リポの `docs/spec` の gitlink は `0696aed`（`update = none`）
+    - 確かめ方: `git ls-tree origin/main docs/spec`
     - gitlink の更新は `update-external.yml` の PR 経由で、本作業では進めない
 
 ## 本リポの現状
@@ -44,7 +44,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 専有の確かめの手順 | TASK-19 のポインタ（[metal-run-procedure](metal-run-procedure.md)） |
 | 測定専用のコードの置き場 | TASK-6 のポインタ（[workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)） |
 | 試験の結果の部品との分担 | TASK-23 のポインタ（[test-frame](test-frame.md)） |
-| 範囲の外 | 実機での性能の測定は TASK-1354・TASK-1356、閾値の全体への適用は TASK-53 のポインタ。本節では扱わない |
+| 範囲の外 | TASK-1354・TASK-1356・TASK-53 のポインタ。本節では扱わない |
 | 決定の記録から一意に決まらない点 | [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の経路で伺う。推奨案を既定として確定しない |
 
 ### 道具が乗る既存のコード・検査の事実
@@ -69,10 +69,10 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | M2 | 依存 | 標準ライブラリだけで書く。依存が要る場合は承認の経路と `=x.y.z` 固定 | [dependency-policy](../.claude/rules/dependency-policy.md) |
 | M3 | unsafe | 道具のコードは `unsafe` を持たない | [coding-rust](../.claude/rules/coding-rust.md)、[unsafe-policy](unsafe-policy.md) |
 | M4 | エラー | ライブラリの部分は `Result` を返し panic しない。取得できない値を暗黙に埋めない | [coding-rust](../.claude/rules/coding-rust.md) |
-| M5 | 数値 | 時間・件数の計算は桁あふれを失敗にする。桁あふれしたまま記録に入れない | [security](../.claude/rules/security.md) |
-| M6 | 機械可読の出力 | 文字列のエスケープと長さの上限をコードで持ち、公開テストで固定する（`test_frame::record` の先例） | [test-frame](test-frame.md) |
-| M7 | 出力に含めない情報 | 実ホスト名・アドレス・ユーザー名・環境変数の値・絶対パス・秘密情報 | [security](../.claude/rules/security.md)、TASK-28 のポインタ |
-| M8 | 信頼しない入力 | 引数・記録のパス・記録の中身を信頼しない。上位ディレクトリへ抜ける指定を拒み、サイズと件数に上限を持つ。違反の表示に入力の値を写さない | [security](../.claude/rules/security.md)、`scripts/session-record-check.sh` |
+| M5 | 数値 | 既存の規約に従う（具体は実装と公開テストの PR で書く） | [security](../.claude/rules/security.md) |
+| M6 | 機械可読の出力 | 既存の先例に従う（具体は実装と公開テストの PR で書く） | [test-frame](test-frame.md) |
+| M7 | 出力に含めない情報 | 既存の規約と TASK-28 のポインタに従う（具体は実装と公開テストの PR で書く） | [security](../.claude/rules/security.md)、TASK-28 のポインタ |
+| M8 | 信頼しない入力 | 既存の規約と検査に従う（具体は実装と公開テストの PR で書く） | [security](../.claude/rules/security.md)、`scripts/session-record-check.sh` |
 | M9 | 検査は fail-closed | 形が合わない・前提が足りないときは成功扱いにしない。終了コードは既存の検査に揃える | 既存の `scripts/*-check.sh` |
 | M10 | 純粋な計算と I/O | 計算は純粋な関数に寄せ、書き出しと分ける。テストはプロセスの環境と作業ツリーを書き換えない | `test_frame` の先例 |
 | M11 | CI | ジョブと必須チェックを増やさず、既存のジョブに手順を足す。CI 用のツールは版固定・ハッシュで検証する | [github-actions](../.claude/rules/github-actions.md)、[ci-job-split](ci-job-split.md) |
@@ -81,7 +81,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 ### 3/8（#124）への引き継ぎ
 
 - 着手時に、gitlink の版の spec の TASK-27 とそこから辿る決定の記録を読み直す。一意に導けない点は推奨案で確定せず伺う
-- 決定の記録が道具の側で決めるとする点と、名前を決めていない点（置き場のディレクトリ名・crate 名を含む）は、3/8 がコードで決め、選んだ形を PR 本文に書く
+- 決定の記録のポインタに従い、置き場のディレクトリ名・crate 名などは 3/8 がコードで決め、選んだ形を PR 本文に書く
 - 置き場を足す段では、同じ PR で次を揃える
     - ルートの `Cargo.toml` の `exclude`
     - `docs/workspace-boundary.md`・`docs/baseline-wgpu.md` の関係の記述
@@ -112,5 +112,3 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 - [measurement-record](measurement-record.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
-
-確かめた日: 2026-10-15（2/8。base: `origin/main` の `2fc04b7`、gitlink: `0696aed`）
