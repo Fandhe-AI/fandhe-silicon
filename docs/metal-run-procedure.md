@@ -4,7 +4,7 @@ Metal の実機（Mac mini）の上で試験を流す回の手順を助けるス
 書くのは、本リポのスクリプトと回帰テストが示す振る舞いと、決定の所在のポインタだけ。
 spec の本文と決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
-回の前後に人が行うこと、記録の作り方と戻し方は、private spec 側の記録に従う（`docs/spec/05-tasks.md` の TASK-19・TASK-28。ポインタのみ）。本書は、本リポのスクリプトと検査の振る舞いだけを述べる。
+回の前後に人が行うこと、記録の作り方と戻し方は、private spec 側の記録に従う（`docs/spec/05-tasks.md` の TASK-19・TASK-28・TASK-2947。ポインタのみ）。本書は、本リポのスクリプトと検査の振る舞いだけを述べる。
 
 ## 所在
 
@@ -13,6 +13,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 | タスクの中身と決定の記録 | private spec 側（`docs/spec/05-tasks.md` の TASK-19・TASK-28）。本リポには決定の内容・理由・経緯を置かない |
 | 手順を助けるスクリプト | `scripts/metal-session.sh`（`probe` / `run` / `redact` / `scan`）。回帰テストは `scripts/test-metal-session.sh`（`make test-metal-session`） |
 | 回ごとの記録の形の検査 | `scripts/session-record-check.sh`。回帰テストは `scripts/test-session-record-check.sh`（`make test-session-record-check`）。記入例は [session-record.example.json](./session-record.example.json) |
+| 回と run の記録の突き合わせの検査 | `scripts/perf-record-check.sh --session`（make ターゲットは無い）。回帰テストは `scripts/test-perf-record-check.sh`（`make test-perf-record-check`）。記録の並び（`<dir>/session.json` と `<dir>/runs/<ID>.json`）は [measurement-tool](./measurement-tool.md) の該当の表を指す |
 | 実機の試験の CI での扱い | [ci-job-split](./ci-job-split.md) |
 | 完了の条件との対応づけの記録 | 記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-19。ポインタのみ） |
 
@@ -21,7 +22,7 @@ spec の本文と決定の内容は転記しない（[spec-confidentiality](../.
 
 ## コマンドの並び
 
-1 回の回で、スクリプトを使う部分は次の順になる。`probe` は回の前と後の 2 回流す。`<作業ツリーの外のディレクトリ>` は、値を含む記録を置く場所で、本リポの作業ツリーの外を指す。
+1 回の回で、スクリプトを使う部分は次の順になる。`probe` は回の前と後の 2 回流す。回の終わりに、回の記録の `run_ids` を埋めてから、2 つの検査（形と突き合わせ）に通す。`<作業ツリーの外のディレクトリ>` は、値を含む記録を置く場所で、本リポの作業ツリーの外を指す。
 
 ```sh
 scripts/metal-session.sh probe > <作業ツリーの外のディレクトリ>/before.json
@@ -30,6 +31,7 @@ scripts/metal-session.sh run --combination metal-mac-mini \
   -- cargo test -p fandhe-silicon-contract --features backend-metal
 scripts/metal-session.sh probe > <作業ツリーの外のディレクトリ>/after.json
 scripts/session-record-check.sh <回の記録のパス>
+scripts/perf-record-check.sh --session <回の記録のパス> [<run の記録のパス> ...]
 scripts/metal-session.sh redact <語の一覧> <ログ> <置き換え後のログ>
 scripts/metal-session.sh scan <語の一覧> <置き換え後のログ>
 ```
@@ -79,7 +81,26 @@ scripts/session-record-check.sh <記録のパス>
 - 欄の集合・型・値の形を見る。`resident_process_stopped` と `gui_login_state` は、値の一覧に在る語だけを受ける（一覧に無い語は違反。値の一覧は private spec 側の記録に従う。`docs/spec/05-tasks.md` の TASK-19。ポインタのみ）。専有が成り立ったか、採るかどうかは見ない
 - 入力の値と、表に無い欄の名前は出力に出さない
 
-### 4. `redact` / `scan`（置き換えと検索）
+### 4. `run_ids` を埋めて突き合わせる
+
+回の終わりに人が行うのは 1 手順で、回の記録と同じディレクトリの `runs/` にある run の記録のファイル名から `.json` を除いた ID を、回の記録の `run_ids` に書く。run の記録が無い回は `run_ids` を空の配列 `[]` のままにする。書いたあと、3 節の形の検査を通し、続けて突き合わせの検査を流す。
+
+```sh
+scripts/session-record-check.sh <回の記録のパス>
+scripts/perf-record-check.sh --session <回の記録のパス> [<run の記録のパス> ...]
+```
+
+- 終了コード 0 が合格（`session: eligible`）、1 が除外、2 が誤用・前提の不足
+- `run_ids` の ID のうち、回の記録の隣の `runs/<ID>.json` が通常のファイルとして無いものがあれば `session: excluded: run-record-missing` を出して 1 で終わる。標準エラーには `run_ids[N]` の番号だけを出し、ID の値は出さない。ファイルの中身は読まない
+- 渡した run の `run_id` が `run_ids` に無ければ、その run は `excluded: not-in-run-ids`（1）。`run_ids` が空の回に run を渡したときも同じ。`runs/` にあるのに `run_ids` へ書き忘れた run は、渡したときにここで落ちる
+- `run_ids` が空で run を渡さなければ合格
+- 一部の run だけを渡しても検査できる。渡した run の集合と `run_ids` の集合の一致は見ない
+- ディレクトリは走査しない。`runs/` にある、`run_ids` に載っていないファイルは無視する。パスは回の記録の場所から決まり、cwd に依らない
+- 低電力・中断による回の除外は、`run-record-missing` より先に出る
+- 記入例（[session-record.example.json](./session-record.example.json)）は隣に `runs/` を持たないので、直接渡すと `run-record-missing` になる。並びの作り方は [measurement-tool](./measurement-tool.md) を指す
+- 記録を持ち帰る前の確認として、値を含む記録は本リポに置かない（所在の節のとおり）
+
+### 5. `redact` / `scan`（置き換えと検索）
 
 ```sh
 scripts/metal-session.sh redact <語の一覧> <入力> <出力>
@@ -121,7 +142,7 @@ example-dir<TAB><example-place>
 
 ## 振る舞いと回帰テスト
 
-`make test-metal-session` のケース名の接頭辞と、`make test-session-record-check` のケース名の接頭辞で示す。
+`make test-metal-session` のケース名の接頭辞と、`make test-session-record-check`・`make test-perf-record-check` のケース名で示す。
 
 | 振る舞い | 確かめるケース |
 | -------- | -------------- |
@@ -161,6 +182,7 @@ example-dir<TAB><example-place>
 | 作業ツリーの中の一覧と出力先の拒否 | `words: ... inside a git work tree refused`・`words: file in another worktree refused`・`words: file inside the .git directory refused`・`words: ancestor with a .git entry refused ...`・`redact: output inside ... refused` |
 | 入力の種類と大きさの拒否 | `input: ...` |
 | 環境変数の名前と組み合わせの名前が Rust 側と揃う | `sync: ...` |
+| 回の `run_ids` と run の記録の突き合わせ（所属・実在・空の回） | `scripts/test-perf-record-check.sh` の `session: run_id not in run_ids`・`session: empty run_ids and no run`・`session: empty run_ids with a run`・`session: missing run record`・`session: subset of runs is enough`・`session: extra file in runs is ignored`・`session: runs entry is a directory`・`session: relative paths from another cwd` |
 | 回ごとの記録の形の検査 | `scripts/test-session-record-check.sh` の `set:`・`type:`・`form:`・`word:`・`input:`・`misuse:`・`secret:`・`sync:` |
 
 ## 確かめ方
@@ -168,12 +190,13 @@ example-dir<TAB><example-place>
 ```sh
 make test-metal-session
 make test-session-record-check
+make test-perf-record-check
 scripts/session-record-check.sh docs/session-record.example.json
 ```
 
-`scripts/metal-session.sh` を変更したら `make test-metal-session` を通す。回帰テストは、自分を動かしている bash でスクリプト本体を起動する。
+`scripts/metal-session.sh` を変更したら `make test-metal-session` を通す。`make test-perf-record-check` は CI の `deny` ジョブが呼ぶ。回帰テストは、自分を動かしている bash でスクリプト本体を起動する。
 CI は `deny` ジョブと `test-hooks` ジョブが呼ぶ。`test-hooks` ジョブの macOS では、`/bin/bash`（標準の 3.2）で `scripts/test-session-record-check.sh` と `scripts/test-metal-session.sh` を直接実行する step もある（check 名は増えない。[ci-job-split](./ci-job-split.md)）。
 
 ## 関連
 
-[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[test-frame](./test-frame.md)・[security](../.claude/rules/security.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+[ci-job-split](./ci-job-split.md)・[measurement-tool](./measurement-tool.md)・[measurement-record](./measurement-record.md)・[test-frame](./test-frame.md)・[security](../.claude/rules/security.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
