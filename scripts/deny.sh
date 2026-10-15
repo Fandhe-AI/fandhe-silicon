@@ -19,7 +19,8 @@ log "cargo deny --locked check advisories bans licenses sources"
 cargo deny --locked check advisories bans licenses sources
 
 # path 依存・workspace メンバーが ALLOWED_ROOT の外を指していないことを検査する。
-# 測定専用 crate の置き場（ポインタ: TASK-15・TASK-1354・TASK-1356）が決まったら、この 1 行を見直す。
+# 測定専用の別 workspace measure/（ポインタ: TASK-27）はルート Cargo.toml の exclude にあり、
+# ここで見る cargo tree --workspace に現れないので、ALLOWED_ROOT は crates/ のままでよい。
 ALLOWED_ROOT="${ROOT_DIR}/crates/"
 
 log "workspace path scope check (allowed: crates/)"
