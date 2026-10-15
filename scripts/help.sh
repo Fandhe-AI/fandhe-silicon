@@ -22,6 +22,7 @@ cat <<'EOF'
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）
+  wasm-size       scripts/wasm-size.sh           wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。CI の deny ジョブは呼ばない）。--from-dir <dir> なら生成済みの出力だけを測る
   deps-check      scripts/deps-check.sh          依存の版指定が =x.y.z の完全固定で承認の記録と一致するかを検査する（cargo metadata + jq）
   test-deps-check scripts/test-deps-check.sh     deps-check 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3）
   inventory-trace-check scripts/inventory-trace-check.sh  一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。行単位は直接実行で --item-rows。--list で対応の一覧を標準出力へ。要 docs/spec の取得。CI では実行しない）
@@ -34,6 +35,7 @@ cat <<'EOF'
   public-api-check scripts/public-api-check.sh   4 crate の公開 API の wgpu 系の参照を rustdoc の JSON から数える検査。走査した公開アイテムの数を標準出力の scanned: と締めの record: に出す（bash + python3 + cargo。JSON を作る経路は git で HEAD のコミットを取り、取れなければ終了コード 2。--json <path>... で JSON を差し替え可。CI の deny ジョブも実行する）。回帰テストは make test-public-api-check
   public-name-check scripts/public-name-check.sh   製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことの検査。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。--json <path>... で差し替え可。CI の deny ジョブも実行する）
   test-public-name-check scripts/test-public-name-check.sh  public-name-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。CI の deny ジョブも実行する）
+  test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>
   wasm-node-check scripts/wasm-node-check.sh     wasm32 の .wasm を glue 越しに Node で呼び参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI はまだ呼ばない。終了コード 0 全行一致・1 不一致か未実施・2 前提の不足か不正）

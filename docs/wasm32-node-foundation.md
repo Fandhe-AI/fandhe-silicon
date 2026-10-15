@@ -34,7 +34,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml` |
 | CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
 | CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）。`ci-frame-check.sh` の許可ラベルも同じ 2 つ | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
-| CI の Node | `ci.yml` に Node の導入は無い。wasm32 に触れるのは `make build-profiles`・`make wasm-verify` と、偽の node で差し替える回帰テスト `make test-wasm-node-check` の 3 ステップ（実物の Node は流さない） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
+| CI の Node | `ci.yml` に Node の導入・実行は無い。wasm32 に触れるのは `make build-profiles`・`make wasm-verify`・`make test-wasm-size`・`make test-wasm-node-check` の 4 ステップ（`make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れ、実物の wasm32 のビルドも Node も呼ばない） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
 ## 別 workspace `wasm/` の所在と検査の入口
 
@@ -51,6 +51,43 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 検査の入口 | `make wasm-verify`（`scripts/wasm-verify.sh`）。順に fmt --check、clippy（ホスト・wasm32）、test、wasm32 の build と `.wasm` の存在確認、deps-check（`--allow-path-root crates`）。target 未導入は失敗する | `sed -n 1,60p scripts/wasm-verify.sh` |
 | make deny での監査 | `scripts/deny.sh` が `wasm/` にルートの `deny.toml` をそのまま当て（wgpu 系・naga の禁止は残る）、deps-check も呼ぶ | `grep -n 'wasm/' scripts/deny.sh` |
 | CI | `deny` ジョブが `make wasm-verify` を呼ぶ。ジョブ・check 名は増えない | `grep -n -B1 -A2 wasm-verify .github/workflows/ci.yml` |
+
+## glue 込みの量の測定（`scripts/wasm-size.sh`）
+
+TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ: BUILD-42・T-12）。本リポにはコードとテストで示せる事実だけを置く。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | 本体 `scripts/wasm-size.sh`（`make wasm-size`）、回帰テスト `scripts/test-wasm-size.sh`（`make test-wasm-size`）。bash から `python3 -I -`（標準ライブラリだけ・3.8 以上）に値の扱いを任せる | `make help` |
+| 組 | profile（`release`・`wasm-size`）× 命令（`scalar`・`simd128`）× 出力先（`web`・`bundler`）の 8 組。置き方は `<dir>/<profile>-<命令>/<出力先>/` | `grep -n -e '^PROFILES' -e '^ISAS' -e '^TARGETS' scripts/wasm-size.sh` |
+| 数えるファイル | `web` は `wasm_glue.js`・`wasm_glue_bg.wasm`、`bundler` はそれに `wasm_glue_bg.js`。`.d.ts`・`package.json` などは数えない。ファイルごとに gzip（level 9・mtime 0）した長さを組ごとに合計する | `grep -n -A4 '^TARGETS' scripts/wasm-size.sh` |
+| 閾値 | `LIMIT_BYTES` の 1 か所だけで宣言する。合計が閾値以下なら `ok`、超えたら `ng`。引数・環境変数で変える口は無い | `grep -n LIMIT_BYTES scripts/wasm-size.sh` |
+| 未実施 | 組のディレクトリ・数えるファイルが無い、数えるファイルが空、ビルドまたは glue の生成の失敗は `not-run`（reason 付き）。0 バイトや合格にしない | `scripts/test-wasm-size.sh` |
+| 終了コード | 0 全部の組が `ok`、1 `ng` または `not-run` の組がある、2 誤用・前提の不足・読めない入力 | `sed -n 1,25p scripts/wasm-size.sh` |
+| ビルドする経路の前提 | `wasm-bindgen` の CLI が `0.2.128` と厳密に一致（`wasm/Cargo.lock` の版とも突き合わせる）、wasm32 の target、依存が手元にある（`make wasm-verify` で取得。ビルドは `--locked --offline`）。外れたら cargo を呼ぶ前に終了コード 2。CLI の入手は試みない | `scripts/test-wasm-size.sh` |
+| 子プロセスの環境 | `RUSTFLAGS` は渡さず、`CARGO_ENCODED_RUSTFLAGS` で命令の指定だけを渡す。命令ごとに target ディレクトリを分け、cargo の `target_directory` 直下の専用ディレクトリ（`glue-size`）に出す | `grep -n -e CARGO_ENCODED_RUSTFLAGS -e WORK_SUBDIR scripts/wasm-size.sh` |
+| CI | `deny` ジョブは `make test-wasm-size` だけを呼ぶ。`make wasm-size` は CLI が要るので呼ばない（後続のジョブ用） | `grep -n wasm-size .github/workflows/ci.yml` |
+
+流し方:
+
+- `make wasm-verify` で依存を取得したあと `make wasm-size`。CLI が無ければ終了コード 2 と `error:` が出る
+- 生成済みの出力だけを測るなら `scripts/wasm-size.sh --from-dir <dir>`（cargo も CLI も呼ばない）
+
+振る舞いと回帰テスト（`scripts/test-wasm-size.sh`。判定は終了コード + 出力の部分一致）の対応:
+
+| 振る舞い | テストのケース |
+| -------- | -------------- |
+| 8 組とも小さければ終了コード 0。`gzip_bytes` が Python で数えた値と一致 | `all-ok` |
+| 合計がちょうど閾値は `ok`、閾値 + 1 は `ng` | `boundary-eq`・`boundary-over` |
+| 1 組だけ超えたら終了コード 1 でその組だけ `ng` | `one-ng` |
+| 組のディレクトリ・数えるファイルの欠落、空のファイルは `not-run` で終了コード 1 | `missing-dir`・`missing-file`・`empty-file` |
+| `.d.ts`・`package.json` は量に入らない | `extra-files` |
+| シンボリックリンク・通常でないファイル・組の一覧にない項目は終了コード 2 | `symlink`・`dir-as-file`・`unknown-entry` |
+| 誤用（未知の引数・値の欠落・存在しない／ディレクトリでないパス） は終了コード 2 | `unknown-arg`・`from-dir-missing-value`・`no-such-dir`・`from-dir-is-file`・`from-dir-empty`・`positional` |
+| CLI 無し・版違い・読めない版・target 無しは終了コード 2 で cargo を呼ばない | `no-bindgen`・`bad-version`・`no-target` |
+| 偽のコマンドで 8 組を組み立て、profile・命令の指定が組ごとに正しく渡り、利用者の `RUSTFLAGS` は渡らない | `fake-all`・`fake-flags`・`fake-bindgen-calls` |
+| ある設定のビルドが失敗したら、その 2 組が `not-run`（`build-failed`）で終了コード 1 | `fake-build-failed` |
+| 出力に一時ディレクトリの絶対パスが出ない | 全ケース |
 
 ## Node での照合の土台
 
