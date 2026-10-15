@@ -277,6 +277,9 @@ jobs:
       - name: make test-public-name-check
         run: make test-public-name-check
 
+      - name: make test-public-api-diff
+        run: make test-public-api-diff
+
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
   # PR タイトルは任意文字列のため、${{ }} を run へ直接展開せず env 経由でファイルへ書き出す
