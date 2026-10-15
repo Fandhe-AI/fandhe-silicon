@@ -1,0 +1,22 @@
+{
+  "rows": [
+    {
+      "id": "roundtrip-empty",
+      "export": "roundtrip_f32",
+      "input": [],
+      "reference": []
+    },
+    {
+      "id": "roundtrip-finite",
+      "export": "roundtrip_f32",
+      "input": ["3f800000", "80000000", "7f7fffff"],
+      "reference": ["3f800000", "80000000", "7f7fffff"]
+    },
+    {
+      "id": "roundtrip-non-finite",
+      "export": "roundtrip_f32",
+      "input": ["7f800000", "ff800000", "7fc00000", "80000000"],
+      "reference": ["7f800000", "ff800000", "7fc00000", "80000000"]
+    }
+  ]
+}

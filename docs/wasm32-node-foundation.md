@@ -34,7 +34,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml` |
 | CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
 | CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）。`ci-frame-check.sh` の許可ラベルも同じ 2 つ | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
-| CI の Node | `ci.yml` に Node の導入・実行は無い。wasm32 に触れるのは `make build-profiles` と `make wasm-verify` の 2 ステップだけ | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
+| CI の Node | `ci.yml` に Node の導入は無い。wasm32 に触れるのは `make build-profiles`・`make wasm-verify` と、偽の node で差し替える回帰テスト `make test-wasm-node-check` の 3 ステップ（実物の Node は流さない） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
 ## 別 workspace `wasm/` の所在と検査の入口
 
@@ -51,6 +51,39 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 検査の入口 | `make wasm-verify`（`scripts/wasm-verify.sh`）。順に fmt --check、clippy（ホスト・wasm32）、test、wasm32 の build と `.wasm` の存在確認、deps-check（`--allow-path-root crates`）。target 未導入は失敗する | `sed -n 1,60p scripts/wasm-verify.sh` |
 | make deny での監査 | `scripts/deny.sh` が `wasm/` にルートの `deny.toml` をそのまま当て（wgpu 系・naga の禁止は残る）、deps-check も呼ぶ | `grep -n 'wasm/' scripts/deny.sh` |
 | CI | `deny` ジョブが `make wasm-verify` を呼ぶ。ジョブ・check 名は増えない | `grep -n -B1 -A2 wasm-verify .github/workflows/ci.yml` |
+
+## Node での照合の土台
+
+glue を Node で読み込み、最小の export を呼んで結果をネイティブの参照と照合し、行ごとに `match`・`mismatch`・`not-run` を出す枠。照合の中身（再現する行）はここに入れない。`crates/core` の `test_frame`（記録の部品・集計）や `parity`（許容誤差のある比べ方）とは役割を重ねない（比べるのはビット列の完全一致だけ）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI はまだ呼ばない | `sed -n 1,20p scripts/wasm-node-check.sh` |
+| Node のスクリプト | `wasm/node/run-glue.cjs`。glue を呼んで f32 のビット列（8 桁の 16 進）を書き出すだけで、判定は持たない。`require` は `node:` の組み込みと引数の glue だけ。呼べる export は許可表の `roundtrip_f32` だけ。`package.json`・npm パッケージは無い | `grep -n require wasm/node/run-glue.cjs` |
+| 入力 | `wasm/node/cases.json`。`roundtrip_f32` の 3 行（空・有限値と `-0.0`・非有限値）。参照は `wasm/crates/glue/src/lib.rs` の単体テストが固定する振る舞いと同じ値。`reference` が無い・`null` の行は照合の相手が無い行 | `cat wasm/node/cases.json` |
+| 前提の版 | Node は `scripts/wasm-node-check.sh` 先頭の定数 `v24.13.0` と完全一致。wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と `wasm-bindgen --version` の完全一致（宣言点を増やさない）。無い・版違いは終了コード 2。CI へ Node を入れる段で版の宣言が二重になるので、その段で一致の確かめ方を決める | `grep -n NODE_EXPECTED scripts/wasm-node-check.sh` |
+| 判定 | 参照があり長さも全要素のビット列も一致なら `match`、違えば（Node 側の呼び出しの失敗を含む）`mismatch`、参照が無ければ `not-run`（一致扱いにしない）。標準出力は `row: <id> <状態>` と `summary: rows=N match=N mismatch=N not-run=N` | `bash scripts/test-wasm-node-check.sh`（項目 5〜11） |
+| 終了コード | 0 は 1 行以上あり全行 `match` のときだけ。1 は `mismatch`・`not-run`・行が 0 件。2 は誤用・前提の不足・版違い・入力や結果の不正（未知の id・重複・欠け・形の不正）・Node の実行の失敗 | 同上 |
+| 入力の扱い | 入力の値はシェルに展開しない（`python3 -I` の固定のコードにパスだけを引数で渡す）。`id` は `[a-z0-9-]` の文字種、ビット列は 8 桁の小文字 16 進、`export` は許可表のみ。生成物は一時ディレクトリだけに出して終了時に消す | `bash scripts/test-wasm-node-check.sh`（項目 14・17） |
+| 回帰テスト | `make test-wasm-node-check`（`scripts/test-wasm-node-check.sh`）。偽の node・wasm-bindgen・cargo と合成の結果で判定の全経路を確かめる。`run-glue.cjs` は本物の node で偽の glue を読ませて確かめる。CI の `deny` ジョブが呼ぶ | `make test-wasm-node-check` |
+
+### 振る舞いとテストの対応
+
+| 振る舞い | 回帰テストの項目 |
+| -------- | ---------------- |
+| node が無い・版違い（前方一致や rc 付きを含む）は失敗で、Node の本体を起動しない | 1・2 |
+| wasm-bindgen が無い・版違いは失敗 | 3・4 |
+| 全行一致で 0 | 5・22 |
+| ビット列が 1 つでも違えば `mismatch`（`-0.0` と `+0.0`、NaN のペイロード違い、長さ違い、Node 側のエラーを含む） | 6〜8・11 |
+| 参照の無い行は `not-run` で、成功にしない | 9 |
+| 行が 0 件は成功にしない | 10 |
+| Node の失敗・結果の欠け・不正・未知の id・重複は 2 | 12・13 |
+| 入力の不正・誤用・存在しない `.wasm`・glue が生成されない場合は 2 | 14〜16 |
+| 入力の値をシェルに展開しない | 17 |
+| Node と CLI に渡す引数の形・既定の経路の cargo の呼び方 | 18・19・`cargo` で始まる項目 |
+| 版の宣言点が増えていない | 20 |
+| npm パッケージが無く、`require` が組み込みと glue だけ | 21 |
+| `run-glue.cjs` がビット列（NaN・`-0.0`・±Inf）を保ち、許可表外の export を拒否する | 23 |
 
 ## 本リポでの反映の方針
 
