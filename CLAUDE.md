@@ -56,6 +56,7 @@ fandhe-silicon/
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）
+├── docs/wasm32-node-foundation.md  # wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実（TASK-22）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
