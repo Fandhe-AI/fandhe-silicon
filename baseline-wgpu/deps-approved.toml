@@ -1,6 +1,6 @@
 # 別 workspace（baseline-wgpu/）の依存の承認の記録。書式と検査の仕組みはルートの deps-approved.toml の先頭と
-# scripts/deps-check.sh に従う。検査はルートの `make deps-check` の対象外で、本 workspace に対しては
-# `scripts/deps-check.sh baseline-wgpu/Cargo.toml` で手動実行する（記録は workspace ルート直下のこのファイルを読む）。
+# scripts/deps-check.sh に従う。ルートの `make deps-check` の対象外で、本 workspace に対しては
+# `make deny`（scripts/deny.sh）が `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼んで検査する（記録は workspace ルート直下のこのファイルを読む）。
 # ルート側の記録に入れない理由: ルートの workspace では未使用の記録が違反になり、wgpu をルートに混ぜる誤りも招くため。
 
 [[approval]]

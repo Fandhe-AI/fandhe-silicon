@@ -42,7 +42,7 @@ description: >
 | `check` | editorconfig-checker + shellcheck。ソースを変更しない。ツール未導入は成功扱いにせず失敗 |
 | `verify` | `cargo fmt --check` + clippy（`-D warnings`）+ test。ソースを変更しない（整形は別途 `cargo fmt --all`） |
 | `build-profiles` | feature の組ごとの build / clippy / test と wasm32 の check。ソースを変更しない。wasm32 の target 未導入は失敗（skip しない） |
-| `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6） |
+| `deny` | cargo-deny の検査 + workspace の path が `crates/` の外を指さないことの検査（TASK-6）+ `measure/`・`baseline-wgpu/` の cargo-deny（後者は `baseline-wgpu/deny.toml` を `--config` で明示）+ `baseline-wgpu/` の deps-check（TASK-27。jq が要る・ビルドはしない） |
 | `measure-verify` | 測定専用の別 workspace（`measure/`）の `cargo fmt --check` + clippy（`-D warnings`）+ test（`--locked`）+ `deps-check.sh measure/Cargo.toml`。ソースを変更しない・ネットワーク不要。ツール未導入は失敗。CI の `deny` ジョブが呼ぶ。回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため） |
 | `deps-check` | 依存の版指定が `=x.y.z` の完全固定かと承認の記録（`deps-approved.toml`）との一致の検査（cargo metadata + jq）。ソースを変更しない・ネットワーク不要。ツール未導入は失敗、違反は終了コード 1 |
 | `test-deps-check` | `scripts/deps-check.sh` の回帰テスト。一時ディレクトリの fixture だけを使い、リポジトリのファイルを変更しない・ネットワーク不要。ツール未導入は失敗（skip しない） |

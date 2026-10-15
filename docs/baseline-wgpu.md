@@ -11,6 +11,7 @@
 | wgpu 系・naga の禁止 | `deny.toml` の `[bans] deny` が `wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`・`naga` を拒否する | `deny.toml`、`make deny` |
 | 全 feature の監査 | `deny.toml` の `[graph] all-features = true`。target は指定しないので全 target が対象 | `deny.toml` |
 | 別 workspace の切り離し | ルートの `Cargo.toml` の `exclude = ["baseline-wgpu", "measure"]`（`baseline-wgpu` が本書の対象。`measure` は測定専用の別 workspace）。製品の workspace の member は `crates/` の 4 crate | ルート `Cargo.toml` |
+| 別 workspace の cargo-deny | `make deny` は `measure/` にルートの `deny.toml`、`baseline-wgpu/` に `baseline-wgpu/deny.toml` を `--config` で明示して `advisories bans licenses sources` をかける | `scripts/deny.sh` |
 | path の検査 | `make deny` は、workspace の依存グラフ（全 feature・全 target）の path が `crates/` の外を指していないことを検査する | `scripts/deny.sh` |
 | 製品の依存グラフ | パッケージ 4・wgpu 系 0 件 | `cargo metadata --format-version 1 --all-features --locked` |
 
@@ -25,8 +26,8 @@
 | 外部依存 | `wgpu = "=30.0.1"`（完全固定）のみ | `baseline-wgpu/crates/smoke/Cargo.toml` |
 | lints | `unsafe_code = "forbid"`・`missing_docs = "warn"` | `baseline-wgpu/Cargo.toml` |
 | smoke bin | `wgpu::Instance` で全 backend のアダプタを列挙し、名前・backend・device type を標準出力へ出す。アダプタが 0 件のときは `0 adapter(s)` を出して正常終了する | `baseline-wgpu/crates/smoke/src/main.rs` |
-| 検査の範囲 | `make deny`・`make verify`・`make check` はルートの workspace が対象で、本 workspace は範囲外。CI も本 workspace を扱わない | `deny.toml` の冒頭、`scripts/`、`.github/workflows/` |
-| 依存の承認の記録 | `baseline-wgpu/deps-approved.toml`（ルートの `deps-approved.toml` には入れない）。検査は手動で `scripts/deps-check.sh baseline-wgpu/Cargo.toml` | `baseline-wgpu/deps-approved.toml` |
+| 検査の範囲 | `make verify`・`make check` はルートの workspace が対象で、本 workspace は範囲外。`make deny` は本 workspace に cargo-deny（設定は `baseline-wgpu/deny.toml`。ルートの `deny.toml` と違うのは wgpu 系の禁止を外した点だけ）と依存の承認の記録の検査をかけ、CI の `deny` ジョブも流す。ビルド・実行は範囲外 | `baseline-wgpu/deny.toml`、`scripts/deny.sh` |
+| 依存の承認の記録 | `baseline-wgpu/deps-approved.toml`（ルートの `deps-approved.toml` には入れない）。検査は `make deny` が `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ | `baseline-wgpu/deps-approved.toml` |
 | 実行 | `cargo run --locked --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-smoke` | [baseline-wgpu/README.md](../baseline-wgpu/README.md) |
 
 依存の追加・更新には、改めてユーザー承認が要る（[dependency-policy](../.claude/rules/dependency-policy.md)）。

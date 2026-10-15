@@ -58,7 +58,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 環境の集計値 | `scripts/metal-session.sh probe` が JSON を標準出力へ出す（macOS だけ） | ファイル冒頭のコメント |
 | 部品の集計 | `scripts/record-summary.sh` | [test-frame](test-frame.md) |
 | path の検査 | `scripts/deny.sh` の `ALLOWED_ROOT` は `crates/`。測定専用の crate の置き場が決まったら見直す、とコメントにある | `scripts/deny.sh` |
-| 別 workspace の前例 | `baseline-wgpu/` はルートの `exclude`。依存の検査は手動で、`make`・CI の対象外 | [baseline-wgpu](baseline-wgpu.md) |
+| 別 workspace の前例 | `baseline-wgpu/` はルートの `exclude`。9/11 で `make deny` の対象に入った（下の「現状の形（9/11）」） | [baseline-wgpu](baseline-wgpu.md) |
 | CI の `deny` ジョブ | `make deny`、`make deps-check`、各回帰テストの順に呼ぶ | `.github/workflows/ci.yml` |
 | 外部依存 | 製品の workspace の承認の記録は 0 件 | `deps-approved.toml` |
 
@@ -232,6 +232,21 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `7c2057f`、`docs/spec` の gitlink は `0696aed`。
+
+## 現状の形（9/11）
+
+別 workspace の依存の検査を `make deny` に入れた（親 #121 の 9/11、#7147）。新しいジョブ・必須チェックは作らず、CI の `deny` ジョブが `make deny` を呼ぶ。
+
+| 点 | 事実 | 確かめ方 |
+| -- | ---- | -------- |
+| `measure/` の cargo-deny | ルートの `deny.toml` をそのまま `--config` で当てる（wgpu 系の禁止も効く） | `scripts/deny.sh` |
+| `baseline-wgpu/` の cargo-deny | `baseline-wgpu/deny.toml` を `--config` で明示して当てる。ルートの `deny.toml` との違いは `[bans] deny` を空にした点だけ | `baseline-wgpu/deny.toml` |
+| `baseline-wgpu/` の依存の承認の記録 | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を `make deny` が呼ぶ | `scripts/deny.sh` |
+| `measure/` の deps-check と build / test | 従来どおり `make measure-verify` | `scripts/measure-verify.sh` |
+| ビルド | `baseline-wgpu/` のビルド・実行は `make` にも CI にも入れない | `scripts/deny.sh` |
+| 失敗の扱い | 設定ファイルや `jq` が無いときは成功にせず失敗する | `scripts/deny.sh` |
+
+確かめ方は `make deny`（終了コード 0）。`baseline-wgpu/` にルートの `deny.toml` を当てると bans で落ちる。
 
 ## 本リポでの反映の方針
 

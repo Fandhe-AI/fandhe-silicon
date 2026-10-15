@@ -13,7 +13,7 @@
 ## 依存グラフから外すもの
 
 - `wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`・`naga` は `deny.toml` の `[bans] deny` で拒否する（D-18、AC-2 のポインタ）
-- 検出は `make deny` と CI の `deny` ジョブで行う
+- 検出は `make deny` と CI の `deny` ジョブで行う（別 workspace の `baseline-wgpu/` は wgpu を持つため、禁止を外した専用の設定で監査する）
 - 比較基準の wgpu は基盤の外の別 workspace に置く（TASK-7 のポインタ。所在と現状の事実は [baseline-wgpu](baseline-wgpu.md)）
 - 比較用の run に残す wgpu の版の記録の書式は [wgpu-baseline-record](wgpu-baseline-record.md) に示す
 

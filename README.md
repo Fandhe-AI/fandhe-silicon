@@ -58,11 +58,11 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | パス | 役割 |
 |---|---|
 | `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計・run ごとの記録の書き出しを置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は 0 件。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
-| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make` の対象外。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
+| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
 | `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |
-| `deny.toml` | cargo-deny の設定（アドバイザリ・ライセンス・取得元・wgpu 系の禁止） |
+| `deny.toml` | cargo-deny の設定（アドバイザリ・ライセンス・取得元・wgpu 系の禁止）。`baseline-wgpu/deny.toml` は wgpu 系の禁止だけを外した別 workspace 用 |
 | `deps-approved.toml` | 依存の承認の記録（`make deps-check` が宣言済みの外部依存と突き合わせる。書式は同ファイル先頭） |
 | `CLAUDE.md`・`.claude/agents/`・`.claude/rules/`・`.claude/settings.json` | Claude Code 用のリポジトリ案内・subagent 定義・規約・hooks |
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
@@ -152,7 +152,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make check` | `scripts/check.sh` | editorconfig-checker + shellcheck（ソースは変更しない） |
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない）。`cargo test` の 1 回だけ試験の枠の記録を新しい一時ディレクトリへ書かせ、試験の後に集計の表（機材の組み合わせ × ラベルの件数）を標準出力に出して一時ディレクトリを消す。呼び出し側の環境に `FANDHE_SILICON_TEST_RECORD_DIR` が既にあるときは上書きせず、集計も片づけもしない |
 | `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、wasm32 は check（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
-| `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 |
+| `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 + `measure/`・`baseline-wgpu/` の cargo-deny と `baseline-wgpu/` の依存の承認の記録の検査（jq が要る） |
 | `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定で、承認の記録（`deps-approved.toml`）と一致するかを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
 | `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
