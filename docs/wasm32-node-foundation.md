@@ -134,6 +134,33 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | 集約 | `ci-complete` の `needs` に入っている。ruleset の required status checks にも登録している（check 名 `wasm32 build + size + node (macos-latest)`） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
 | 枠の検査 | `make ci-frame-check`・`make test-ci-frame-check` が通る | `make ci-frame-check` |
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#3419）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-22）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 別 workspace の検査の入口（2/6） | `make wasm-verify` | 終了コード 0・glue の単体テストは `3 passed; 0 failed` |
+| A2 | glue 込みの量の測定の回帰テスト（3/6） | `make test-wasm-size` | 終了コード 0・`36 passed, 0 failed` |
+| A3 | Node での照合の土台の回帰テスト（4/6） | `make test-wasm-node-check` | 終了コード 0・`passed: 65, failed: 0` |
+| A4 | main の CI の `deny` ジョブ | main の CI（`c801677` の push run）の `make deny (cargo-deny)` ジョブの step | `make deny`・`make wasm-verify`・`make deps-check`・`make test-wasm-size`・`make test-wasm-node-check` とも conclusion は success |
+| A5 | main の CI の新しいジョブ（5/6） | 同じ run の `wasm32 build + size + node (macos-latest)` ジョブの step | `Install pinned Node and wasm-bindgen CLI`・`make wasm-verify`・`make wasm-size`・`make wasm-node-check` とも conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make ci-frame-check`・`make test-ci-frame-check` | すべて終了コード 0 |
+
+実物の `make wasm-size`・`make wasm-node-check` は、wasm-bindgen の CLI と版固定の Node が要るため手元の表に含めず、A5 の CI のジョブで確かめた。
+照合の中身は TASK-237・247・248・252・994〜997 の範囲で、この表に含めない（ID のポインタのみ）。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-22）。
+
+### 再実行の契機
+
+- `wasm/`・`scripts/wasm-verify.sh`・`scripts/wasm-size.sh`・`scripts/test-wasm-size.sh`・`scripts/wasm-node-check.sh`・`scripts/test-wasm-node-check.sh`・`wasm/node/` を変えたとき
+- CI の `deny` ジョブ・`wasm-macos` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `c801677`、`docs/spec` の gitlink は `3c83ea3`。
+
 ## 本リポでの反映の方針
 
 - 本書は現状の事実だけを置く。形の具体は、受け持つ段のコードと公開テストの PR で入れ、その PR で本書に節を足す
