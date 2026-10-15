@@ -26,6 +26,14 @@ GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
 NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
 USAGE="usage: $(basename "$0") [--wasm <path>] [--cases <path>]"
 
+# 相対パスは呼び出し元の cwd 基準で絶対パスにする（後でリポジトリルートへ cd しても同じファイルを指させる）。
+abspath() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "${PWD}" "$1" ;;
+  esac
+}
+
 # 入力の検査と判定（固定の文字列。入力のパスは引数で渡し、値はシェルに触れさせない）。
 # 引数: validate <cases> / judge <cases> <results>。終了コード 0 / 1（judge の不一致・未実施・行 0 件）/ 2（入力が不正）。
 read -r -d '' PY_CODE <<'PY' || true
@@ -159,12 +167,12 @@ main() {
     case "$1" in
       --wasm)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
-        wasm_arg="$2"
+        wasm_arg="$(abspath "$2")"
         shift 2
         ;;
       --cases)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
-        cases="$2"
+        cases="$(abspath "$2")"
         shift 2
         ;;
       *)

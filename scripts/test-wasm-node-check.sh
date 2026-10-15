@@ -323,6 +323,20 @@ rm -rf "${FAKE_TARGET}"
 FAKE_CARGO_NO_ARTIFACT=1 w --cases "${cases}"
 expect "cargo artifact missing" 2 "missing or empty wasm file"
 
+# 呼び出し元がルート以外でも、相対の --cases / --wasm は呼び出し元の cwd 基準で解決される
+res_ok
+rc=0
+: >"${FAKE_LOG}"
+(cd "${fix}" && "${BASH}" "${WNC}" --cases cases.json >"${OUT_F}" 2>"${ERR_F}" </dev/null) || rc=$?
+expect "24 relative --cases from non-root cwd (cargo path)" 0 "summary: rows=2 match=2"
+check "24 node receives the absolute cases path" "$(grep -E "^node ${NODE_SCRIPT} .*/wasm_glue\.js ${cases} " "${FAKE_LOG}" >/dev/null && echo 0 || echo 1)"
+rc=0
+: >"${FAKE_LOG}"
+(cd "${fix}" && "${BASH}" "${WNC}" --wasm wasm_glue.wasm --cases cases.json >"${OUT_F}" 2>"${ERR_F}" </dev/null) || rc=$?
+expect "24 relative --wasm and --cases from non-root cwd" 0 "summary: rows=2 match=2"
+check "24 wasm-bindgen receives the absolute wasm path" "$(grep -F "${dummy_wasm}" "${FAKE_LOG}" >/dev/null && echo 0 || echo 1)"
+rc=0
+
 # 20. 版の宣言点
 check "20 wasm-bindgen version read from Cargo.toml" "$([ -n "${WB_VER}" ] && ! grep -qF "${WB_VER}" "${WNC}" && echo 0 || echo 1)"
 check "20 node version constant form" "$(grep -qE '^NODE_EXPECTED="v[0-9]+\.[0-9]+\.[0-9]+"$' "${WNC}" && grep -qF 'NODE_EXPECTED="v24.13.0"' "${WNC}" && echo 0 || echo 1)"
