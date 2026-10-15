@@ -60,6 +60,8 @@ description: >
 | `test-public-name-check` | `scripts/public-name-check.sh` の回帰テスト。ダミーの語の一覧と合成 JSON・合成ソースを一時ディレクトリに作って渡し、一時 workspace の実物の rustdoc の JSON でも既定の経路を流す。リポジトリのファイルを変更しない・ネットワーク不要。判定は終了コード + 出力の部分一致。python3・cargo・git 未導入は失敗（skip しない）。CI の deny ジョブも実行する |
 | `test-public-api-diff` | `scripts/public-api-diff.sh`（同じ crate の 2 つの版の rustdoc の JSON から公開 API の差分を出す。TASK-17 のポインタ）の回帰テスト。合成 JSON だけを一時ディレクトリに作って渡し、リポジトリのファイルを変更しない・cargo もネットワークも不要。判定は終了コード + 出力の部分一致。python3 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ。本体は比べる JSON のパスが要るため make ターゲットを持たない（漏れではない。直接実行する。終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足または読み切れない JSON） |
 | `inventory-trace-check` | 一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。項目の行〔表のデータ行〕への帰属は直接実行で `--item-rows` を付けたときだけ。TASK-16 のポインタ。bash + python3）。`--list` で合格のときだけ対応の一覧を標準出力へ出す（保存しない）。入力は読むだけ・ネットワーク不要。終了コード 0 合格・1 違反・2 誤用または入力なし（`--item-id-column` が解決できない場合を含む）（入力が無ければ成功扱いにしない）。CI は呼ばない |
+| `wasm-node-check` | wasm32 の `.wasm` を wasm-bindgen の glue 越しに Node で呼び、結果をネイティブの参照と照合して行ごとに match / mismatch / not-run を出す土台（TASK-22）。Node は `v24.13.0`、wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と完全一致を要求し、無い・版違いは失敗。参照の無い行は一致にしない。終了コード 0 全行 match・1 mismatch か not-run か行 0 件・2 誤用・前提の不足・入力や結果が不正・Node の失敗。ネットワークは使わない・生成物は一時ディレクトリだけ。実物の実行で、CI はまだ呼ばない |
+| `test-wasm-node-check` | `scripts/wasm-node-check.sh` の回帰テスト。node・wasm-bindgen・cargo は一時ディレクトリの偽のコマンドを `PATH` の先頭に入れて差し替え、`run-glue.cjs` は本物の node で偽の glue を読ませる。リポジトリのファイルを変更しない・ネットワーク不要。判定は終了コード + 出力の部分一致（先頭が `!` の語は含まれないこと）。python3・node 未導入は失敗（skip しない）。CI の `deny` ジョブが呼ぶ |
 | `test-hooks` | `scripts/hooks/` の回帰テスト（bash + git のみ） |
 | `doctor` | 診断のみ。何も導入しない |
 | `setup` | Git hooks 有効化と `.env` 作成。再実行可（冪等） |

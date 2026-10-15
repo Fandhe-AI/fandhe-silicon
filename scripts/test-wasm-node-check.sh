@@ -1,0 +1,378 @@
+#!/usr/bin/env bash
+# wasm-node-check.sh の回帰テスト（spec TASK-22 のポインタ）。
+# node・wasm-bindgen・cargo は、一時ディレクトリに置く偽のコマンドを PATH の先頭に入れて差し替える。
+# 偽の node は合成の結果のファイルを書き出すので、判定（一致・不一致・未実施・版違い・結果の欠け）の
+# 全経路を機材なし・ネットワークなしで確かめられる。run-glue.cjs 自体は本物の node で偽の glue を読ませて確かめる。
+# 呼び出し元: `make test-wasm-node-check`（直接実行も可。CI の `deny` ジョブが呼ぶ）。
+#
+# 判定は「終了コード + 標準出力・標準エラーの部分一致（先頭が ! の語は含まれないこと）」で行う。
+# 期待値を緩めない。途中で止めず、最後に件数を出す。リポジトリのファイルは変更しない。
+# bash 3.2 互換（mapfile・連想配列・空配列の "${arr[@]}" を使わない）。
+# 偽のコマンドの本文と、展開させない合成の値（`$(...)` の形）を単引用符で書くため。
+# shellcheck disable=SC2016
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+source "${DIR}/lib.sh"
+reject_args "$(basename "$0")" "$@"
+
+require_cmd python3
+require_cmd git
+require_cmd node
+
+WNC="${DIR}/wasm-node-check.sh"
+NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
+CASES_REAL="${ROOT_DIR}/wasm/node/cases.json"
+GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
+REAL_NODE="$(command -v node)"
+WB_VER="$(sed -n 's/^wasm-bindgen = "=\([0-9][0-9.]*\)".*/\1/p' "${GLUE_MANIFEST}" | head -n 1)"
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/test-wasm-node-check.XXXXXX")"
+trap 'rm -rf "${work:?}"' EXIT
+OUT_F="${work}/stdout.txt"
+ERR_F="${work}/stderr.txt"
+bin="${work}/bin"
+fix="${work}/fix"
+mkdir -p "${bin}" "${fix}"
+passed=0
+failed=0
+rc=0
+
+unset FAKE_NODE_VERSION FAKE_NODE_RC FAKE_WB_VERSION FAKE_WB_NO_GLUE FAKE_CARGO_RC FAKE_CARGO_NO_ARTIFACT
+
+# ---- 偽のコマンド ----
+
+mkfake() {
+  printf '#!/bin/sh\n%s\n' "$2" >"${bin}/$1"
+  chmod +x "${bin}/$1"
+}
+
+export FAKE_LOG="${work}/calls.log"
+export FAKE_RESULTS="${fix}/results.jsonl"
+export FAKE_TARGET="${work}/target"
+mkfake node 'if [ "$1" = "--version" ]; then echo "${FAKE_NODE_VERSION:-v24.13.0}"; exit 0; fi
+echo "node $*" >>"$FAKE_LOG"
+[ -f "$FAKE_RESULTS" ] && cp "$FAKE_RESULTS" "$4"
+exit "${FAKE_NODE_RC:-0}"'
+mkfake wasm-bindgen 'if [ "$1" = "--version" ]; then echo "${FAKE_WB_VERSION:-wasm-bindgen '"${WB_VER}"'}"; exit 0; fi
+echo "wasm-bindgen $*" >>"$FAKE_LOG"
+[ -z "${FAKE_WB_NO_GLUE:-}" ] || exit 0
+out=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--out-dir" ] && out="$a"
+  prev="$a"
+  last="$a"
+done
+b="$(basename "$last" .wasm)"
+echo "// fake glue" >"$out/$b.js"'
+mkfake cargo 'echo "cargo $*" >>"$FAKE_LOG"
+case "$1" in
+  metadata) printf "{\"target_directory\":\"%s\"}\n" "$FAKE_TARGET" ;;
+  build)
+    [ -z "${FAKE_CARGO_NO_ARTIFACT:-}" ] || exit "${FAKE_CARGO_RC:-0}"
+    d="$FAKE_TARGET/wasm32-unknown-unknown/wasm-size"
+    mkdir -p "$d"
+    echo wasm >"$d/wasm_glue.wasm"
+    exit "${FAKE_CARGO_RC:-0}"
+    ;;
+esac'
+PATH="${bin}:${PATH}"
+export PATH
+
+# ---- 土台 ----
+
+pass() {
+  passed=$((passed + 1))
+  echo "ok: $1"
+}
+
+fail() {
+  failed=$((failed + 1))
+  echo "FAIL: $1: $2" >&2
+  echo "--- stderr ---" >&2
+  sed 's/^/    /' "${ERR_F}" >&2 || true
+}
+
+# w <引数...>: 本体を実行し rc・標準出力・標準エラーを控える。
+w() {
+  rc=0
+  : >"${FAKE_LOG}"
+  "${BASH}" "${WNC}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+}
+
+# expect <名前> <期待コード> [語...]: 先頭が ! の語は標準出力・標準エラーのどちらにも無いこと。
+expect() {
+  local name="$1" want="$2" s
+  shift 2
+  if [ "${rc}" -ne "${want}" ]; then
+    fail "${name}" "expected exit ${want}, got ${rc}"
+    return 0
+  fi
+  for s in "$@"; do
+    case "${s}" in
+      '!'*)
+        if grep -qF -e "${s#!}" "${ERR_F}" "${OUT_F}"; then
+          fail "${name}" "output must not contain: ${s#!}"
+          return 0
+        fi
+        ;;
+      *)
+        if ! grep -qF -e "${s}" "${ERR_F}" "${OUT_F}"; then
+          fail "${name}" "output lacks: ${s}"
+          return 0
+        fi
+        ;;
+    esac
+  done
+  pass "${name}"
+}
+
+# check <名前> <0 なら成功>: 静的な性質の確認。
+check() {
+  if [ "$2" = "0" ]; then pass "$1"; else fail "$1" "check failed"; fi
+}
+
+# 最小 PATH: 指定したコマンドだけを symlink した bin（コマンドが無い状況を作る）。
+mkbin() {
+  local d="$1" c p
+  shift
+  mkdir -p "${d}"
+  for c in "$@"; do
+    p="$(command -v "${c}")"
+    ln -sf "${p}" "${d}/${c}"
+  done
+}
+
+# ---- 入力の fixture ----
+
+dummy_wasm="${fix}/wasm_glue.wasm"
+echo wasm >"${dummy_wasm}"
+cases="${fix}/cases.json"
+cat >"${cases}" <<'EOF'
+{"rows": [
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference": ["3f800000"]},
+  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000", "7fc00000"], "reference": ["80000000", "7fc00000"]}
+]}
+EOF
+res_ok() {
+  printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000","7fc00000"]}' >"${FAKE_RESULTS}"
+}
+res_ok
+
+# ---- 前提 ----
+
+# 1. node が PATH に無い（python3・wasm-bindgen だけある最小 PATH）
+mkbin "${work}/nonode" python3 wasm-bindgen dirname basename sed head mktemp rm cat grep
+rc=0
+PATH="${work}/nonode" "${BASH}" "${WNC}" --wasm "${dummy_wasm}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "1 node missing" 2 "node"
+check "1 node body not started" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+
+# 2. node の版違い
+for v in v22.0.0 v24.13.0-rc.1 v24.13.1; do
+  FAKE_NODE_VERSION="${v}" w --wasm "${dummy_wasm}"
+  expect "2 node version ${v}" 2 "expected v24.13.0" "got ${v}" "!summary:"
+  check "2 node body not started (${v})" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+done
+
+# 3. wasm-bindgen が無い
+mkbin "${work}/nowb" python3 dirname basename sed head mktemp rm cat grep
+cp "${bin}/node" "${work}/nowb/node"
+rc=0
+PATH="${work}/nowb" "${BASH}" "${WNC}" --wasm "${dummy_wasm}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "3 wasm-bindgen missing" 2 "wasm-bindgen"
+
+# 4. wasm-bindgen の版違い
+FAKE_WB_VERSION="wasm-bindgen 0.2.127" w --wasm "${dummy_wasm}"
+expect "4 wasm-bindgen version" 2 "expected wasm-bindgen ${WB_VER}" "got wasm-bindgen 0.2.127" "!summary:"
+FAKE_WB_VERSION="wasm-bindgen ${WB_VER}-rc.1" w --wasm "${dummy_wasm}"
+expect "4 wasm-bindgen prerelease" 2 "version mismatch"
+
+# ---- 判定 ----
+
+# 5. 全行一致
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "5 all match" 0 "row: row-a match" "row: row-b match" "summary: rows=2 match=2 mismatch=0 not-run=0"
+
+# 6. 1 つだけビット列が違う
+printf '%s\n' '{"id":"row-a","output":["3f800001"]}' '{"id":"row-b","output":["80000000","7fc00000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "6 one bit differs" 1 "row: row-a mismatch" "row: row-b match" "mismatch=1" "!mismatch=0"
+
+# 7. -0.0 と +0.0、NaN のペイロード違いは不一致（ビット列の比較）
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["00000000","7fc00000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "7 signed zero differs" 1 "row: row-b mismatch" "index 0"
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000","7fc00001"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "7 NaN payload differs" 1 "row: row-b mismatch" "index 1"
+
+# 8. 長さの違う結果
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "8 length differs" 1 "row: row-b mismatch" "length expected 2 got 1"
+
+# 9. 参照の無い行は not-run（Node の結果があっても一致にしない）
+cat >"${fix}/noref.json" <<'EOF'
+{"rows": [
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference": ["3f800000"]},
+  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000"]},
+  {"id": "row-c", "export": "roundtrip_f32", "input": ["80000000"], "reference": null}
+]}
+EOF
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000"]}' '{"id":"row-c","output":["80000000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/noref.json"
+expect "9 no reference is not-run" 1 "row: row-a match" "row: row-b not-run" "row: row-c not-run" "match=1 mismatch=0 not-run=2"
+
+# 10. 行が 0 件
+echo '{"rows": []}' >"${fix}/empty.json"
+: >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/empty.json"
+expect "10 zero rows" 1 "rows=0" "no rows"
+
+# 11. 結果の error 行は不一致（参照のある行）
+printf '%s\n' '{"id":"row-a","error":"call failed"}' '{"id":"row-b","output":["80000000","7fc00000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "11 error row" 1 "row: row-a mismatch" "call error"
+
+# 12. Node が非 0 で終わる
+res_ok
+FAKE_NODE_RC=3 w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "12 node nonzero" 2 "node run failed" "!summary:"
+
+# 13. 結果のファイルが不正
+printf '%s\n' 'not json' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 broken results" 2 "!summary:"
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 missing row" 2 "lack a row" "!summary:"
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-z","output":[]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 unknown id" 2 "unknown or missing id"
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":[]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 repeated id" 2 "repeat an id"
+printf '%s\n' '{"id":"row-a","output":["zz"]}' '{"id":"row-b","output":[]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 bad bit pattern in results" 2 "invalid bit pattern"
+rm -f "${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "13 no results file" 2 "cannot read results"
+res_ok
+
+# 14. 入力が不正
+w --wasm "${dummy_wasm}" --cases "${fix}/does-not-exist.json"
+expect "14 unreadable cases" 2 "cannot read cases"
+echo '{"rows": [' >"${fix}/bad.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/bad.json"
+expect "14 broken JSON" 2 "cannot read cases"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[]},{"id":"a","export":"roundtrip_f32","input":[]}]}' >"${fix}/dup.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/dup.json"
+expect "14 duplicate id" 2 "duplicate row id"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":["3F800000"]}]}' >"${fix}/hex.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/hex.json"
+expect "14 bad bit pattern" 2 "invalid bit pattern"
+echo '{"rows": [{"id":"a","export":"mystery","input":[]}]}' >"${fix}/exp.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/exp.json"
+expect "14 unknown export" 2 "unknown export"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"extra":1}]}' >"${fix}/key.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/key.json"
+expect "14 unknown key" 2 "missing or unknown keys"
+check "14 node body not started on invalid cases" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+
+# 15. 誤用
+w --bogus
+expect "15 unknown argument" 2 "usage:"
+w --wasm
+expect "15 missing --wasm value" 2 "usage:"
+w --cases
+expect "15 missing --cases value" 2 "usage:"
+w --wasm "${fix}/no-such.wasm" --cases "${cases}"
+expect "15 missing wasm file" 2 "missing or empty wasm file"
+: >"${fix}/empty.wasm"
+w --wasm "${fix}/empty.wasm" --cases "${cases}"
+expect "15 empty wasm file" 2 "missing or empty wasm file"
+
+# 16. glue が生成されない
+FAKE_WB_NO_GLUE=1 w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "16 no glue" 2 "glue was not generated" "!summary:"
+
+# 17. シェルに展開されない合成の入力
+mkdir -p "${work}/inj"
+printf '%s\n' '{"rows": [{"id":"$(touch '"${work}"'/inj/pwned)","export":"roundtrip_f32","input":[]},{"id":"a;touch","export":"roundtrip_f32","input":[]}]}' >"${fix}/inj.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/inj.json"
+expect "17 injection-shaped id" 2 "invalid form"
+check "17 nothing executed" "$([ ! -e "${work}/inj/pwned" ] && [ ! -e "${work}/inj/touch" ] && echo 0 || echo 1)"
+
+# 18, 19. 偽の node・wasm-bindgen が受け取った引数
+res_ok
+w --wasm "${dummy_wasm}" --cases "${cases}"
+expect "18 node args" 0 "summary: rows=2 match=2"
+check "18 node receives script, glue, cases" "$(grep -E "^node ${NODE_SCRIPT} .*/wasm_glue\.js ${cases} " "${FAKE_LOG}" >/dev/null && echo 0 || echo 1)"
+check "19 wasm-bindgen --target nodejs" "$(grep -E '^wasm-bindgen .*--target nodejs ' "${FAKE_LOG}" >/dev/null && echo 0 || echo 1)"
+
+# 既定の経路（cargo を呼ぶ）
+w --cases "${cases}"
+expect "cargo path" 0 "summary: rows=2 match=2"
+check "cargo build uses wasm-size on wasm32" "$(grep -E '^cargo build .*--locked .*--target wasm32-unknown-unknown --profile wasm-size' "${FAKE_LOG}" >/dev/null && echo 0 || echo 1)"
+FAKE_CARGO_RC=7 w --cases "${cases}"
+expect "cargo build failure propagates" 7 "!summary:"
+rm -rf "${FAKE_TARGET}"
+FAKE_CARGO_NO_ARTIFACT=1 w --cases "${cases}"
+expect "cargo artifact missing" 2 "missing or empty wasm file"
+
+# 20. 版の宣言点
+check "20 wasm-bindgen version read from Cargo.toml" "$([ -n "${WB_VER}" ] && ! grep -qF "${WB_VER}" "${WNC}" && echo 0 || echo 1)"
+check "20 node version constant form" "$(grep -qE '^NODE_EXPECTED="v[0-9]+\.[0-9]+\.[0-9]+"$' "${WNC}" && grep -qF 'NODE_EXPECTED="v24.13.0"' "${WNC}" && echo 0 || echo 1)"
+
+# 21. 静的な性質（Node 標準だけ）
+bad_req="$(grep -oE '(require|import)[ (][^)]*' "${NODE_SCRIPT}" | grep -vE '^require\("node:[a-z/_]+"|^require\(gluePath$' || true)"
+check "21 run-glue requires only node: builtins and the glue" "$([ -z "${bad_req}" ] && echo 0 || echo 1)"
+check "21 no eval / child_process" "$(grep -qE 'eval\(|new Function|child_process' "${NODE_SCRIPT}" && echo 1 || echo 0)"
+check "21 no npm package files" "$(git -C "${ROOT_DIR}" ls-files -- wasm scripts package.json package-lock.json node_modules | grep -qE '(^|/)(package\.json|package-lock\.json|node_modules/)' && echo 1 || echo 0)"
+
+# 22. 同梱の入力（偽 node が参照どおりの結果を返すと 0）
+cat >"${FAKE_RESULTS}" <<'EOF'
+{"id":"roundtrip-empty","output":[]}
+{"id":"roundtrip-finite","output":["3f800000","80000000","7f7fffff"]}
+{"id":"roundtrip-non-finite","output":["7f800000","ff800000","7fc00000","80000000"]}
+EOF
+w --wasm "${dummy_wasm}"
+expect "22 bundled cases" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+check "22 every bundled row has a reference" "$(python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d["rows"] and all(isinstance(r.get("reference"), list) for r in d["rows"]) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+
+# 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）
+mkdir -p "${work}/glue"
+echo 'exports.roundtrip_f32 = (a) => a;' >"${work}/glue/id.js"
+echo 'exports.roundtrip_f32 = (a) => a.map((x) => x + 1);' >"${work}/glue/inc.js"
+echo 'exports.roundtrip_f32 = () => { throw new Error("boom"); };' >"${work}/glue/throw.js"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${CASES_REAL}" "${work}/glue/r1.jsonl" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue identity glue" 0
+if python3 -I -c 'import json,sys
+rows = {r["id"]: r for r in json.load(open(sys.argv[1]))["rows"]}
+out = [json.loads(l) for l in open(sys.argv[2])]
+sys.exit(0 if len(out) == len(rows) and all(o["output"] == rows[o["id"]]["reference"] for o in out) else 1)' "${CASES_REAL}" "${work}/glue/r1.jsonl"; then
+  pass "23 run-glue keeps bit patterns (NaN, -0.0, Inf)"
+else
+  fail "23 run-glue keeps bit patterns (NaN, -0.0, Inf)" "output differs from reference"
+fi
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/inc.js" "${CASES_REAL}" "${work}/glue/r2.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+check "23 run-glue reports a changed value" "$(grep -q '"id":"roundtrip-finite","output":\["3f800000"' "${work}/glue/r2.jsonl" && echo 1 || echo 0)"
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/throw.js" "${CASES_REAL}" "${work}/glue/r3.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+check "23 run-glue turns a throw into an error row" "$(grep -qc 'call failed' "${work}/glue/r3.jsonl" && echo 0 || echo 1)"
+echo '{"rows":[{"id":"a","export":"constructor","input":[]}]}' >"${fix}/ctor.json"
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${fix}/ctor.json" "${work}/glue/r4.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+check "23 run-glue rejects a non-listed export" "$(grep -q 'unknown export' "${work}/glue/r4.jsonl" && echo 0 || echo 1)"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue usage" 2 "usage:"
+
+echo "passed: ${passed}, failed: ${failed}"
+if [ "${failed}" -ne 0 ]; then
+  exit 1
+fi
