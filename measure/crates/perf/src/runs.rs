@@ -124,6 +124,20 @@ fn samples(v: &Value, key: &'static str) -> Result<Vec<Option<u64>>, AcrossError
         .collect()
 }
 
+/// 条件値の比較用に、object のキーを再帰的に並べ替えた写しを返す（キーの出現順だけの違いを同一条件として扱う）。
+fn canonical(v: &Value) -> Value {
+    match v {
+        Value::Object(kv) => {
+            let mut out: Vec<(String, Value)> =
+                kv.iter().map(|(k, x)| (k.clone(), canonical(x))).collect();
+            out.sort_by(|a, b| a.0.cmp(&b.0));
+            Value::Object(out)
+        }
+        Value::Array(a) => Value::Array(a.iter().map(canonical).collect()),
+        other => other.clone(),
+    }
+}
+
 /// 読み込んだ 1 件の記録を検証して、集計に要る欄を取り出す。
 pub fn run_input(rec: &Value) -> Result<RunInput, AcrossError> {
     if text(rec, "schema_version")? != SCHEMA_VERSION {
@@ -157,10 +171,10 @@ pub fn run_input(rec: &Value) -> Result<RunInput, AcrossError> {
     }
     let task_ids = ref_ids(rec, "task_ids")?;
     let behavior_ids = ref_ids(rec, "behavior_ids")?;
-    let wgpu_baseline = rec.get("wgpu_baseline").cloned();
+    let wgpu_baseline = rec.get("wgpu_baseline").map(canonical);
 
     let body = field(rec, "body")?;
-    let sample_counts = field(body, "sample_counts")?.clone();
+    let sample_counts = canonical(field(body, "sample_counts")?);
     let cpu = samples(field(field(body, "cpu_ns")?, "measured")?, "cpu_ns")?;
     let cpu: Vec<u64> = cpu
         .into_iter()

@@ -194,6 +194,26 @@ fn a6_rejects_mixed_and_invalid_sets() {
 }
 
 #[test]
+fn a6b_key_order_does_not_make_runs_heterogeneous() {
+    let base = rec("run-a", [1, 2, 3]);
+    let from = "\"cold\":1,\"warmup\":1,\"measured\":3";
+    assert!(base.contains(from));
+    let other = rec("run-b", [1, 2, 3]).replace(from, "\"measured\":3,\"warmup\":1,\"cold\":1");
+    assert!(agg(&[base.clone(), other]).is_ok());
+    let a = base.replacen(
+        "\"body\":",
+        "\"wgpu_baseline\":{\"x\":1,\"y\":2},\"body\":",
+        1,
+    );
+    let b = rec("run-b", [1, 2, 3]).replacen(
+        "\"body\":",
+        "\"wgpu_baseline\":{\"y\":2,\"x\":1},\"body\":",
+        1,
+    );
+    assert!(agg(&[a, b]).is_ok());
+}
+
+#[test]
 fn a7_per_run_consistency() {
     let bad = rec("run-a", [10, 20, 30]).replace("\"median\":20,", "\"median\":21,");
     assert_eq!(input(&bad), Err(AcrossError::Inconsistent("cpu_ns")));
