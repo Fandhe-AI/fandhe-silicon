@@ -126,7 +126,10 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | #126 | 5/8 実装 |
 | #127 | 6/8 実装 |
 | #128 | 7/8 テスト |
-| #129 | 8/8 確かめ（済。本書の「完了の条件の確かめ（8/8）」） |
+| #129 | 8/8 確かめ（本書の「完了の条件の確かめ（8/8）」） |
+| #7147 | 9/11 別 workspace の依存の検査 |
+| #7148 | 10/11 run 間の集計の出力 |
+| #7149 | 11/11 確かめの記録の見直し |
 
 ## 現状の形（4/8）
 
@@ -200,9 +203,8 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 
 ## 完了の条件の確かめ（8/8）
 
-8/8（#129）で、本リポで観測できる事実による確かめを記録する（ポインタ: `docs/spec/05-tasks.md` の TASK-27）。
-完了の条件との対応づけの記録の正は private spec 側で、条件の本文は転記しない。先行の節は書き換えない。
-結果は 2026-10-15 に GPU の実機なしで実行した値。件数は実測。
+8/8（#129）で記録し、11/11（#7149）で見直した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-27）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
 
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
@@ -210,28 +212,31 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | A2 | CPU だけのダミー測定を繰り返すと、run の ID 以外の条件の欄が一致し、値の欄が件数どおり | `r2_cpu_only_dummy_measurement_repeats_with_same_shape` | 通過 |
 | A3 | 書き出しの実物の各分岐が形の検査を通り、欄の増減・型違いは落ちる | `r3_checker_accepts_every_branch_of_real_output`・`r4_checker_rejects_added_and_removed_fields` | 通過 |
 | A4 | 記入例が書き出しの実物とバイト一致し、回の記入例と組で `--session` の検査を通る | `r5_session_mode_uses_the_documented_examples`・`r6_documented_example_is_the_exact_output` | 通過 |
-| A5 | 手元での 2 回の繰り返し | `make measure-verify` を 2 回実行 | 2 回とも終了コード 0・`cargo test` の通過 60 件（`repeat.rs` は 6 件） |
-| A6 | CI での繰り返し | main の CI（`7c2057f` の run）の `deny` ジョブ | `make measure-verify`・`make test-perf-record-check` の step とも success。本段の PR 自身の CI は作成時点で未検証 |
+| A5 | `make measure-verify` の 2 回の実行 | `make measure-verify` を 2 回実行 | 2 回とも終了コード 0・`cargo test` の通過 74 件（`repeat.rs` 6 件・`across_runs_cmd.rs` 14 件） |
+| A6 | main の CI の `deny` ジョブ | main の CI（`9511d96` の push run）の `make deny (cargo-deny)` ジョブの step | `make deny`・`make measure-verify`・`make test-perf-record-check` とも conclusion は success |
 | B1 | 記録を読む側の検査の回帰テスト | `make test-perf-record-check` | 終了コード 0 |
-| B2 | 記録の書き出しの部品のテスト | `measure/crates/perf/tests/` の `record.rs`（24 件）・`sample.rs`（5 件）・`stats.rs`（7 件）・`across.rs`（5 件）・`ratio.rs`（6 件） | 全件通過 |
+| B2 | 記録の書き出しの部品のテスト | `measure/crates/perf/tests/` の `record.rs`（24 件）・`sample.rs`（5 件）・`stats.rs`（7 件）・`across.rs`（5 件）・`ratio.rs`（6 件）・`repeat.rs`（6 件）・`across_runs_cmd.rs`（14 件） | 全件通過 |
 | C1 | 製品の workspace が変わっていない | `cargo metadata --format-version 1 --no-deps` の `workspace_members`、ルート `Cargo.toml` の `exclude` | 4 crate・`exclude` に `measure` |
 | C2 | 外部依存がない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[` の数、`measure/Cargo.lock` の `[[package]]` の数、`make deps-check` | 0 件・0 件・1 件（`measure-perf` 自身）・終了コード 0 |
 | C3 | `unsafe` を持たない | `measure/` 配下を `unsafe` で検索 | `measure/Cargo.toml` の lint 設定の行のみ（`forbid`・`deny`） |
 | C4 | 時間を測る型が製品側にない | `crates`・`baseline-wgpu` を `Instant`・`SystemTime`・`std::time` で検索 | 0 件 |
 | C5 | 製品の crate が測定の道具を参照しない | `crates/` を `measure` で検索 | 一致は `crates/core/tests` の関数名 2 件のみ（依存ではない） |
+| E1 | 別 workspace の依存の検査（9/11） | `make deny`。所在は `scripts/deny.sh`・`baseline-wgpu/deny.toml`。`deny.sh` の回帰テストは無く、確かめは `make deny` 自体 | 終了コード 0 |
+| E2 | `baseline-wgpu/` にルートの `deny.toml` を当てると bans で落ちる | `cargo deny --manifest-path baseline-wgpu/Cargo.toml --locked --config deny.toml check bans` | 終了コード 2 |
+| F1 | run 間の集計の出力のテスト（10/11） | `cargo test --manifest-path measure/Cargo.toml --locked --test across_runs_cmd`（所在は `measure/crates/perf/tests/across_runs_cmd.rs`） | 14 件通過 |
+| F2 | `across-runs` が記入例を読める | `cargo run --manifest-path measure/Cargo.toml --locked --bin across-runs -- docs/run-record.example.json` | 終了コード 0 |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make measure-verify`・`make test-perf-record-check`・`make ci-frame-check` | すべて終了コード 0 |
 
-### 判定
-
-本リポで観測できる範囲では、run ごとの記録の出力と、同じ測定の繰り返しで記録の形が保たれることを、公開テストと品質ゲートで確かめた。
-本書は TASK-27 の完了を宣言しない（記録の正は private spec 側）。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-27）。
 
 ### 再実行の契機
 
 - `measure-perf` の公開面、記録の欄、`scripts/perf-record-check.sh` の定数表、`docs/*.example.json`、CI の `deny` ジョブの手順を変えたとき
+- `scripts/deny.sh`・`baseline-wgpu/deny.toml` を変えたとき
+- `measure-perf` の `jsonread`・`runs`・`across-runs` の入出力を変えたとき
 - `docs/spec` の gitlink を進めたとき
 
-確かめた base は `7c2057f`、`docs/spec` の gitlink は `0696aed`。
+確かめた base は `9511d96`、`docs/spec` の gitlink は `0696aed`。
 
 ## 現状の形（9/11）
 
