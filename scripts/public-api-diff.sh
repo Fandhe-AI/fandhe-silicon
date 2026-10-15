@@ -2,7 +2,7 @@
 # 同じ crate の 2 つの版（比較基準の版と新しい版）について、rustdoc の JSON から公開 API の差分
 # （足された項目・消えた項目）を機械で出す（spec TASK-17 のポインタ。親 Issue #65 の 1/5）。
 # 呼び出し元: 手元の直接実行と、回帰テスト `scripts/test-public-api-diff.sh`（`make test-public-api-diff`。CI の `deny` ジョブも呼ぶ）。
-# make ターゲットは持たない: 比べる JSON のパスを引数で要るため。既定の入力を持たせると、
+# make ターゲットは持たない: 比べる JSON のパスを引数が要るため。既定の入力を持たせると、
 # 実物を検査したと誤解させる（scripts/perf-record-check.sh と同じ扱い）。JSON の作り方は別の葉（#68）が文書にする。
 #
 # 使い方:
