@@ -186,6 +186,31 @@ fn a6_rejects_mixed_and_invalid_sets() {
             "\"build_profile\":\"release\"",
             "\"build_profile\":\"dev\"",
         ),
+        (
+            "feature_set",
+            "\"feature_set\":[\"example-feature\"]",
+            "\"feature_set\":[\"other-feature\"]",
+        ),
+        (
+            "target_features",
+            "\"target_features\":[]",
+            "\"target_features\":[\"avx2\"]",
+        ),
+        (
+            "shader_compile_options",
+            "\"shader_compile_options\":[\"-example\"]",
+            "\"shader_compile_options\":[\"-other\"]",
+        ),
+        (
+            "repo_commit",
+            "\"repo_commit\":\"0000000000",
+            "\"repo_commit\":\"1111111111",
+        ),
+        (
+            "submission_count",
+            "\"submission_count\":5",
+            "\"submission_count\":6",
+        ),
     ];
     for (name, from, to) in cases {
         assert!(other.contains(from), "{name}");
