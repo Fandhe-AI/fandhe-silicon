@@ -25,6 +25,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 ## 関連
 
+- [measurement-tool](measurement-tool.md)
 - [wgpu-baseline-record](wgpu-baseline-record.md)
 - [baseline-wgpu](baseline-wgpu.md)
 - [parity-tool](parity-tool.md)
