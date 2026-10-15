@@ -5,6 +5,7 @@
 //! run ごとの統計を出す `stats`、run 間の集計を出す `across` を提供する。
 //! 記録の封筒と本体を検証つきで作り JSON に書き出す `record`（と部品の `json`）も持つ。
 //! 封筒の経路の証拠・環境・比較基準の版の欄は `evidence` が持つ。
+//! 2 つの値の比から「同等」「差がある」の区分を出す `ratio` も持つ（適用範囲の一覧に載る試験だけ）。
 //! 本 crate は device に触れない。GPU 時間は呼び手が測った値を受け取るだけである。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-27（ポインタのみ）。
@@ -12,6 +13,7 @@
 pub mod across;
 pub mod evidence;
 pub mod json;
+pub mod ratio;
 pub mod record;
 pub mod sample;
 pub mod stats;
@@ -32,6 +34,8 @@ pub enum PerfError {
     InvalidValue,
     /// 標本の数の指定が不正（計測の回数が 0 など）。
     InvalidCount,
+    /// 比の分母が 0。
+    ZeroDenominator,
 }
 
 impl fmt::Display for PerfError {
@@ -42,6 +46,7 @@ impl fmt::Display for PerfError {
             Self::ValueTooLarge => "value exceeds the exactly representable limit",
             Self::InvalidValue => "value is not finite or is negative",
             Self::InvalidCount => "invalid sample count",
+            Self::ZeroDenominator => "ratio denominator is zero",
         };
         f.write_str(msg)
     }
