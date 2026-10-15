@@ -11,7 +11,7 @@ main が直接ファイルを読むのは、委譲結果の確認や小さなピ
 | 対象パス・内容 | 委譲先 Agent | model |
 | -------------- | ------------ | ----- |
 | `crates/`（core / contract / exec / upper）のコード調査・構造把握・影響範囲 | explorer | sonnet |
-| `baseline-wgpu/`（比較基準の別 workspace）の構造把握 | explorer | sonnet |
+| `baseline-wgpu/`（比較基準の別 workspace）・`measure/`（測定専用の別 workspace）の構造把握 | explorer | sonnet |
 | `scripts/`・`Makefile`・`lefthook.yml`・`.github/workflows/` の構造把握 | explorer | sonnet |
 | `docs/spec/`（private submodule）のタスク・ビヘイビア参照 | explorer（ポインタ表記で報告） | sonnet |
 | Metal / Vulkan / CUDA / MSL / PTX 等の外部 API・仕様 | reference-researcher | sonnet |
