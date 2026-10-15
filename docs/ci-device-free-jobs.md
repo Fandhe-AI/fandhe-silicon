@@ -59,6 +59,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` | 上の回帰テスト |
 | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | 一覧と項目の対応の検査の回帰テスト（合成 fixture） |
 | `deny` | `make test-session-record-check` | `scripts/test-session-record-check.sh` | 上記 `test-hooks` と同じ回帰テスト |
+| `deny` | `make test-perf-record-check` | `scripts/test-perf-record-check.sh` | run ごとの記録の形の検査の回帰テスト（`test-hooks` では流さない） |
 | `deny` | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `ci.yml` が枠の事実を保っているかの検査 |
 | `deny` | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | 上の回帰テスト（合成 fixture） |
 | `deny` | `make test-metal-session` | `scripts/test-metal-session.sh` | 上記 `test-hooks` と同じ回帰テスト |
