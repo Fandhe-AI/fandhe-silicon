@@ -166,6 +166,26 @@ fn a6_rejects_mixed_and_invalid_sets() {
             "\"warmup\":1,\"measured\":3",
             "\"warmup\":2,\"measured\":3",
         ),
+        (
+            "dispatch_count",
+            "\"dispatch_count\":6",
+            "\"dispatch_count\":7",
+        ),
+        (
+            "input_sha256",
+            "\"input_sha256\":{\"example-item\":\"4444",
+            "\"input_sha256\":{\"example-item\":\"4445",
+        ),
+        (
+            "kernel_sha256",
+            "\"kernel_sha256\":{\"example-item\":\"1111",
+            "\"kernel_sha256\":{\"example-item\":\"1112",
+        ),
+        (
+            "build_profile",
+            "\"build_profile\":\"release\"",
+            "\"build_profile\":\"dev\"",
+        ),
     ];
     for (name, from, to) in cases {
         assert!(other.contains(from), "{name}");

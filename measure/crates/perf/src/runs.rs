@@ -1,7 +1,7 @@
 //! run ごとの記録（読み込み済みの JSON）から run 間の集計を出し、決定的な 1 行の JSON にする。
 //!
 //! コマンド `across-runs` から呼ばれる。記録は信頼しない入力として扱い、読む欄を白表で検証し、
-//! 標本から中央値を再計算して記録の統計と突き合わせる。条件の欄が違う run の混在、`run_id` の重複、
+//! 標本から中央値を再計算して記録の統計と突き合わせる。条件の欄（仕事量・入力・カーネル・ビルドのプロファイルを含む）が違う run の混在、`run_id` の重複、
 //! 測っていないラベル（`not-run`・`indeterminate`）の run は集計に入れず失敗にする。
 //! 集計は 1/4 単位の整数で行い（`f64` を経由しない）、変動帯は「最大 − 最小」と「最大 ÷ 最小」の両方を出す。
 //! どちらで判定するかは本モジュールでは決めない。純粋な関数だけで、時計・ファイル・環境に触れない。
@@ -62,6 +62,14 @@ pub struct RunInput {
     behavior_ids: Vec<String>,
     sample_counts: Value,
     wgpu_baseline: Option<Value>,
+    /// 仕事量（`body.dispatch_count`）。
+    dispatch_count: u64,
+    /// 入力のハッシュ表（`evidence.input_sha256`）。
+    input_sha256: Option<Value>,
+    /// カーネルのハッシュ表（`evidence.kernel_sha256`）。
+    kernel_sha256: Option<Value>,
+    /// ビルドのプロファイル（`environment.build_profile`）。
+    build_profile: Option<Value>,
     /// 計測の区間の CPU 時間の中央値（1/4 単位）。
     cpu_median: u64,
     /// 計測の区間の GPU 時間の中央値（1/4 単位）。取得不能の標本が含まれていれば `None`。
@@ -173,7 +181,23 @@ pub fn run_input(rec: &Value) -> Result<RunInput, AcrossError> {
     let behavior_ids = ref_ids(rec, "behavior_ids")?;
     let wgpu_baseline = rec.get("wgpu_baseline").map(canonical);
 
+    let input_sha256 = rec
+        .get("evidence")
+        .and_then(|e| e.get("input_sha256"))
+        .map(canonical);
+    let kernel_sha256 = rec
+        .get("evidence")
+        .and_then(|e| e.get("kernel_sha256"))
+        .map(canonical);
+    let build_profile = rec
+        .get("environment")
+        .and_then(|e| e.get("build_profile"))
+        .map(canonical);
+
     let body = field(rec, "body")?;
+    let dispatch_count = field(body, "dispatch_count")?
+        .as_u64()
+        .ok_or(AcrossError::Field("dispatch_count"))?;
     let sample_counts = canonical(field(body, "sample_counts")?);
     let cpu = samples(field(field(body, "cpu_ns")?, "measured")?, "cpu_ns")?;
     let cpu: Vec<u64> = cpu
@@ -232,6 +256,10 @@ pub fn run_input(rec: &Value) -> Result<RunInput, AcrossError> {
         behavior_ids,
         sample_counts,
         wgpu_baseline,
+        dispatch_count,
+        input_sha256,
+        kernel_sha256,
+        build_profile,
         cpu_median,
         gpu_median,
     })
@@ -331,6 +359,18 @@ pub fn aggregate(inputs: &[RunInput]) -> Result<AcrossOutput, AcrossError> {
         }
         if r.wgpu_baseline != first.wgpu_baseline {
             return Err(AcrossError::Heterogeneous("wgpu_baseline"));
+        }
+        if r.dispatch_count != first.dispatch_count {
+            return Err(AcrossError::Heterogeneous("dispatch_count"));
+        }
+        if r.input_sha256 != first.input_sha256 {
+            return Err(AcrossError::Heterogeneous("input_sha256"));
+        }
+        if r.kernel_sha256 != first.kernel_sha256 {
+            return Err(AcrossError::Heterogeneous("kernel_sha256"));
+        }
+        if r.build_profile != first.build_profile {
+            return Err(AcrossError::Heterogeneous("build_profile"));
         }
     }
     let cpu: Vec<u64> = inputs.iter().map(|r| r.cpu_median).collect();
