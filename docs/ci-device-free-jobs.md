@@ -57,6 +57,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
 | `deny` | `make test-wasm-size` | `scripts/test-wasm-size.sh` | glue 込みの量の測定の道具 `scripts/wasm-size.sh` の回帰テスト（合成の入力と偽のコマンド。wasm-bindgen の CLI は要らない） |
+| `deny` | `make test-wasm-node-check` | `scripts/test-wasm-node-check.sh` | Node での照合の土台（`scripts/wasm-node-check.sh`）の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果） |
 | `deny` | `make deps-check` | `scripts/deps-check.sh` | 依存の `=x.y.z` 固定と承認の記録の一致 |
 | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` | 上の回帰テスト |
 | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | 一覧と項目の対応の検査の回帰テスト（合成 fixture） |
@@ -81,6 +82,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
 | `wasm-size` | wasm-bindgen の CLI が要り、`deny` ジョブにはそれが無い（`scripts/wasm-size.sh` の先頭コメント。後続のジョブ用） |
+| `wasm-node-check` | Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI への組み込みは後続の段（`scripts/wasm-node-check.sh` の先頭コメント） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
