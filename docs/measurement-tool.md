@@ -195,7 +195,7 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | 公開アイテム | 振る舞い（対応するテスト） |
 | ------------ | -------------------------- |
 | `scripts/perf-record-check.sh <run>` | 欄の集合・型・値の形・配列の長さ・条件付きの欄・時刻順を検査し、終了コード 0 合格・1 違反・2 誤用。入力の値と表に無い欄の名前は出さない（`scripts/test-perf-record-check.sh` の `set:`・`type:`・`form:`・`len:`・`gpu:`・`order:`・`input:`・`misuse:`・`secret:`） |
-| `scripts/perf-record-check.sh --session <回> [<run> ...]` | 回の記録の形を先に通し、回の側と run ごとの除外（回への参照・時間帯・電源・熱・検証レイヤー・取得不能・重複）を見る。除外は終了コード 1（同じ `session:`・`input:` 系のケース） |
+| `scripts/perf-record-check.sh --session <回> [<run> ...]` | 回の記録の形を先に通し、回の側と run ごとの除外（回への参照・時間帯・電源・熱・検証レイヤー・取得不能・重複）を見る。回の `run_ids` の各 ID について、回の記録と同じディレクトリの `runs/<ID>.json` が通常のファイルとしてあることが要る（無ければ回を除外し終了コード 1。中身は読まない）。配置は `<dir>/session.json` と `<dir>/runs/<ID>.json`。記入例を直接渡す従来の使い方は通らない。除外は終了コード 1（同じ `session:`・`input:` 系のケース） |
 | `docs/run-record.example.json` | ダミーの記入例。書き出しの実物とバイト一致し、回の記入例と組で判定に使える（`tests/repeat.rs` の r6・r5） |
 | 繰り返しのテスト | 合成の標本は同じバイト列になり（r1）、CPU だけのダミー測定を繰り返しても run の ID 以外の条件の欄が一致して値の欄は件数どおり（r2）。実物の出力の各分岐が検査を通り（r3）、欄の増減・型違いは落ちる（r4） |
 
@@ -211,7 +211,7 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | A1 | 合成の標本の記録が繰り返しで同じバイト列になる | `tests/repeat.rs` の `r1_synthetic_samples_repeat_to_identical_bytes` | 通過 |
 | A2 | CPU だけのダミー測定を繰り返すと、run の ID 以外の条件の欄が一致し、値の欄が件数どおり | `r2_cpu_only_dummy_measurement_repeats_with_same_shape` | 通過 |
 | A3 | 書き出しの実物の各分岐が形の検査を通り、欄の増減・型違いは落ちる | `r3_checker_accepts_every_branch_of_real_output`・`r4_checker_rejects_added_and_removed_fields` | 通過 |
-| A4 | 記入例が書き出しの実物とバイト一致し、回の記入例と組で `--session` の検査を通る | `r5_session_mode_uses_the_documented_examples`・`r6_documented_example_is_the_exact_output` | 通過 |
+| A4 | 記入例が書き出しの実物とバイト一致し、回の記入例を上の配置（`session.json` の隣の `runs/example-run-a.json`・`runs/example-run-b.json` に run の記入例を写し、後者は `run_id` を置き換える）へコピーすると `--session` の検査を通る。並びの無い記入例を直接渡すと落ちる | `r5_session_mode_uses_the_documented_examples`・`r6_documented_example_is_the_exact_output` | 通過 |
 | A5 | `make measure-verify` の 2 回の実行 | `make measure-verify` を 2 回実行 | 2 回とも終了コード 0・`cargo test` の通過 74 件（`repeat.rs` 6 件・`across_runs_cmd.rs` 14 件） |
 | A6 | main の CI の `deny` ジョブ | main の CI（`9511d96` の push run）の `make deny (cargo-deny)` ジョブの step | `make deny`・`make measure-verify`・`make test-perf-record-check` とも conclusion は success |
 | B1 | 記録を読む側の検査の回帰テスト | `make test-perf-record-check` | 終了コード 0 |
