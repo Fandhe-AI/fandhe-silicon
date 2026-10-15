@@ -1,0 +1,23 @@
+# glue: wasm32 向けの cdylib。製品の crate（crates/contract）に path で依存し、
+# 量の測定と Node での照合（後続の作業）が載る土台になる。
+[package]
+name = "wasm-glue"
+version = "0.0.0"
+description = "wasm32 glue cdylib that links the fandhe-silicon contract crate"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# 既定の feature が将来変わっても組が変わらないよう明示する。backend-* は入れない。
+fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["contract-core", "cpu-isa", "cpu-ops"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.128"
+
+[lints]
+workspace = true

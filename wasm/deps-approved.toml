@@ -1,0 +1,12 @@
+# 別 workspace（wasm/）の依存の承認の記録。書式と検査の仕組みはルートの deps-approved.toml の先頭と
+# scripts/deps-check.sh に従う。検査は `make wasm-verify` と `make deny` が
+# `scripts/deps-check.sh --allow-path-root crates wasm/Cargo.toml` で行う。
+# 現在の記録は 1 件（承認の出所は approval_ref の先）。
+
+[[approval]]
+name = "wasm-bindgen"
+version = "=0.2.128"
+used_by = ["wasm-glue"]
+approved_on = "2026-10-15"
+approval_ref = "#368"
+purpose = "wasm32 向けの glue の cdylib。別 workspace の wasm/ でのみ使い、製品の workspace には入れない"
