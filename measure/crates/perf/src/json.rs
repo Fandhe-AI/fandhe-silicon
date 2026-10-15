@@ -72,3 +72,58 @@ pub fn push_opt_array(out: &mut String, values: impl IntoIterator<Item = Option<
     }
     out.push(']');
 }
+/// 真偽または `null`（取得不能）を `out` に足す。
+pub fn push_opt_bool(out: &mut String, v: Option<bool>) {
+    out.push_str(match v {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "null",
+    });
+}
+
+/// 文字列の配列を `out` に足す。各要素は [`push_string`] を通る。
+pub fn push_str_array<'a>(out: &mut String, values: impl IntoIterator<Item = &'a str>) {
+    out.push('[');
+    for (i, v) in values.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        push_string(out, v);
+    }
+    out.push(']');
+}
+
+/// 名前 → 文字列の表を `out` に足す。呼び手が渡す順（`BTreeMap` のキー順）のまま書く。
+pub fn push_str_map<'a>(out: &mut String, entries: impl IntoIterator<Item = (&'a str, &'a str)>) {
+    out.push('{');
+    for (i, (k, v)) in entries.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        push_string(out, k);
+        out.push(':');
+        push_string(out, v);
+    }
+    out.push('}');
+}
+
+/// 名前 → 真偽の表を `out` に足す。呼び手が渡す順のまま書く。
+pub fn push_bool_map<'a>(out: &mut String, entries: impl IntoIterator<Item = (&'a str, bool)>) {
+    out.push('{');
+    for (i, (k, v)) in entries.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        push_string(out, k);
+        out.push(':');
+        push_opt_bool(out, Some(v));
+    }
+    out.push('}');
+}
+
+/// 千分の一単位の整数を、固定 3 桁の小数の 10 進（例: `1.500`）で `out` に足す。
+///
+/// 浮動小数点を経由しないので、指数表記・NaN・無限大は出ない。
+pub fn push_milli(out: &mut String, milli: u64) {
+    let _ = write!(out, "{}.{:03}", milli / 1000, milli % 1000);
+}

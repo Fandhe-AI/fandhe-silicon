@@ -4,11 +4,13 @@
 //! 測定の腕（各背後実装を呼ぶコード）から使われ、標本を集める `sample`、
 //! run ごとの統計を出す `stats`、run 間の集計を出す `across` を提供する。
 //! 記録の封筒と本体を検証つきで作り JSON に書き出す `record`（と部品の `json`）も持つ。
+//! 封筒の経路の証拠・環境・比較基準の版の欄は `evidence` が持つ。
 //! 本 crate は device に触れない。GPU 時間は呼び手が測った値を受け取るだけである。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-27（ポインタのみ）。
 
 pub mod across;
+pub mod evidence;
 pub mod json;
 pub mod record;
 pub mod sample;

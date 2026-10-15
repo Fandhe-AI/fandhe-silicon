@@ -5,6 +5,7 @@ use measure_perf::PerfError;
 use measure_perf::json;
 use measure_perf::record::*;
 use measure_perf::sample::{PhaseSamples, SampleCounts, SubmissionSample};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 fn s(cpu: u64, gpu: Option<u64>) -> SubmissionSample {
@@ -42,6 +43,83 @@ fn envelope(label: Label, machine: Machine, combo: MachineCombination) -> Envelo
         started_utc: UtcTime::parse("2026-01-02T03:04:05Z").unwrap(),
         ended_utc: UtcTime::parse("2026-01-02T03:04:06Z").unwrap(),
         session_ref: SessionRef::NoSession,
+        evidence: evidence(),
+        environment: environment(combo.backend()),
+        wgpu_baseline: None,
+    }
+}
+
+fn name(s: &str) -> Name {
+    Name::parse(s).unwrap()
+}
+
+fn ver(s: &str) -> VersionText {
+    VersionText::parse(s).unwrap()
+}
+
+fn zeros(n: usize) -> String {
+    "0".repeat(n)
+}
+
+fn evidence() -> Evidence {
+    Evidence {
+        adapter_backend: Some(AdapterBackend::Metal),
+        adapter_name: Some(DeviceName::parse("Example GPU (0)").unwrap()),
+        kernel_sha256: Some(BTreeMap::from([
+            (name("k-b"), Sha256::parse(&zeros(64)).unwrap()),
+            (name("k-a"), Sha256::parse(&"1".repeat(64)).unwrap()),
+        ])),
+        artifact_sha256: None,
+        input_sha256: Some(BTreeMap::new()),
+        output_sha256: OutputHash::NoOutput,
+    }
+}
+
+fn snapshot(utc: &str) -> EnvSnapshot {
+    EnvSnapshot {
+        utc: Some(UtcTime::parse(utc).unwrap()),
+        power_source: Some(PowerSource::Ac),
+        low_power_mode: Some(false),
+        thermal_warning: None,
+        loadavg: Some(LoadAvg::parse("0.5 1 12.345").unwrap()),
+    }
+}
+
+fn backend_env(b: AdapterBackend) -> BackendEnv {
+    match b {
+        AdapterBackend::Metal => BackendEnv::Metal {
+            xcode_version: Some(ver("0.0")),
+            metal_toolchain: None,
+        },
+        AdapterBackend::Vulkan => BackendEnv::Vulkan {
+            driver_version: Some(ver("0.0.1")),
+            sdk_versions: Some(BTreeMap::from([(name("vulkan-sdk"), ver("0.0.2"))])),
+        },
+        AdapterBackend::Cuda => BackendEnv::Cuda {
+            driver_version: None,
+            sdk_versions: None,
+        },
+    }
+}
+
+fn environment(b: AdapterBackend) -> Environment {
+    Environment {
+        gpu: Some(DeviceName::parse("Example GPU").unwrap()),
+        cpu: None,
+        os_name: Some(OsName::Linux),
+        os_version: Some(ver("0.0.0")),
+        rustc_version: None,
+        repo_commit: Some(CommitSha::parse(&zeros(40)).unwrap()),
+        cargo_lock_sha256: None,
+        build_profile: Some(BuildProfile::Release),
+        feature_set: Some(vec![OptionToken::parse("backend-metal").unwrap()]),
+        target_features: None,
+        shader_compile_options: Some(vec![]),
+        library_versions: None,
+        validation_layers: Some(ValidationLayers::Disabled),
+        backend_env: backend_env(b),
+        before: snapshot("2026-01-02T03:04:05Z"),
+        after: EnvSnapshot::default(),
     }
 }
 
@@ -205,7 +283,13 @@ fn t7_gpu_unavailable_is_null() {
     assert!(j.contains("\"gpu_ns\":null}}"));
     assert!(j.contains("\"cpu_ns\":{\"median\":15,"));
     let j = record(Label::Ok, false).to_json().unwrap();
-    assert!(!j.contains("null"));
+    let body = &j[j.find("\"body\":").unwrap()..];
+    assert!(body.contains("\"processed_count\":null"));
+    assert!(
+        !body
+            .replace("\"processed_count\":null", "")
+            .contains("null")
+    );
 }
 
 #[test]
@@ -259,8 +343,23 @@ fn t9_exact_output_is_deterministic() {
         "\"machine_combination\":\"metal-mac-mini\",\"machine\":\"mac-mini\",\"label\":\"ok\",",
         "\"body_kind\":\"perf-samples\",\"started_utc\":\"2026-01-02T03:04:05Z\",",
         "\"ended_utc\":\"2026-01-02T03:04:06Z\",\"session_ref\":\"_none\",",
+        "\"evidence\":{\"adapter_backend\":\"metal\",\"adapter_name\":\"Example GPU (0)\",",
+        "\"kernel_sha256\":{\"k-a\":\"1111111111111111111111111111111111111111111111111111111111111111\",",
+        "\"k-b\":\"0000000000000000000000000000000000000000000000000000000000000000\"},",
+        "\"artifact_sha256\":null,\"input_sha256\":{},\"output_sha256\":\"_no-output\"},",
+        "\"environment\":{\"gpu\":\"Example GPU\",\"cpu\":\"_unavailable\",\"os_name\":\"linux\",",
+        "\"os_version\":\"0.0.0\",\"rustc_version\":\"_unavailable\",",
+        "\"repo_commit\":\"0000000000000000000000000000000000000000\",",
+        "\"cargo_lock_sha256\":\"_unavailable\",\"build_profile\":\"release\",",
+        "\"feature_set\":[\"backend-metal\"],\"target_features\":null,\"shader_compile_options\":[],",
+        "\"library_versions\":null,\"validation_layers\":\"disabled\",",
+        "\"xcode_version\":\"0.0\",\"metal_toolchain\":\"_unavailable\",",
+        "\"before\":{\"utc\":\"2026-01-02T03:04:05Z\",\"power_source\":\"ac\",\"low_power_mode\":false,",
+        "\"thermal_warning\":null,\"loadavg\":[0.500,1.000,12.345]},",
+        "\"after\":{\"utc\":\"_unavailable\",\"power_source\":\"_unavailable\",\"low_power_mode\":null,",
+        "\"thermal_warning\":null,\"loadavg\":null}},",
         "\"body\":{\"sample_counts\":{\"cold\":1,\"warmup\":0,\"measured\":2},",
-        "\"submission_count\":3,\"dispatch_count\":4,",
+        "\"submission_count\":3,\"dispatch_count\":4,\"processed_count\":null,\"instructions_found\":{},",
         "\"cpu_ns\":{\"cold\":[100],\"warmup\":[],\"measured\":[10,20]},",
         "\"gpu_ns\":{\"cold\":[90],\"warmup\":[],\"measured\":[5,6]},",
         "\"stats\":{\"cpu_ns\":{\"median\":15,\"q1\":10,\"q3\":20,\"p95\":20,\"min\":10,\"max\":20},",
@@ -349,6 +448,313 @@ fn t14_node_machines_use_same_shape() {
         let swap = mac
             .replace("metal-mac-mini", c.name())
             .replace("\"mac-mini\"", &format!("\"{}\"", m.name()));
-        assert_eq!(j, swap);
+        // 背後実装ごとの欄（validation_layers の後から before の前まで）は形が違うので除いて比べる。
+        let strip = |s: &str| {
+            let a = s.find("\"validation_layers\"").unwrap();
+            let b = s.find("\"before\"").unwrap();
+            format!("{}{}", &s[..a], &s[b..])
+        };
+        assert_eq!(strip(&j), strip(&swap));
     }
+}
+
+fn bad_all(f: impl Fn(&str) -> bool, bad: &[&str]) {
+    for b in bad {
+        assert!(!f(b), "{b:?}");
+    }
+}
+
+#[test]
+fn t15_value_types() {
+    assert!(Sha256::parse(&zeros(64)).is_ok());
+    let (z63, z65, upper, g) = (zeros(63), zeros(65), "A".repeat(64), "g".repeat(64));
+    bad_all(|s| Sha256::parse(s).is_ok(), &[&z63, &z65, &upper, &g, ""]);
+    assert!(CommitSha::parse(&zeros(40)).is_ok());
+    let (z64, f40) = (zeros(64), "F".repeat(40));
+    bad_all(|s| CommitSha::parse(s).is_ok(), &[&z64, &f40]);
+    assert!(SemVer::parse("0.0.0").is_ok());
+    assert!(SemVer::parse("10.2.30").is_ok());
+    bad_all(
+        |s| SemVer::parse(s).is_ok(),
+        &[
+            "1.2",
+            "1.2.3.4",
+            "01.2.3",
+            "1.2.x",
+            "",
+            "1..3",
+            "1.2.3\n",
+            "1234567890.0.0",
+        ],
+    );
+    for ok in ["0", "1.2", "1.2.3-rc.1+b5", "14.0.0"] {
+        assert!(VersionText::parse(ok).is_ok(), "{ok}");
+    }
+    let long = "1".repeat(65);
+    bad_all(
+        |s| VersionText::parse(s).is_ok(),
+        &["", "-1", "1 2", "1/2", "1\n", "v\u{3042}", &long],
+    );
+    for ok in ["a", "k-1_x.y", "A0"] {
+        assert!(Name::parse(ok).is_ok(), "{ok}");
+    }
+    let a65 = "a".repeat(65);
+    bad_all(
+        |s| Name::parse(s).is_ok(),
+        &["", "_a", "a/b", "a b", "a\"", "-a", &a65],
+    );
+    for ok in ["Apple M0", "GPU (rev 1), x-y+z"] {
+        assert!(DeviceName::parse(ok).is_ok(), "{ok}");
+    }
+    let a129 = "a".repeat(129);
+    bad_all(
+        |s| DeviceName::parse(s).is_ok(),
+        &[
+            "", " a", "a ", "a\nb", "a\u{0}", "\u{3042}", "_a", "a/b", "a\"b", "a\\b", &a129,
+        ],
+    );
+    assert!(OptionToken::parse("-O2").is_ok());
+    assert!(OptionToken::parse("target-cpu=native").is_ok());
+    bad_all(
+        |s| OptionToken::parse(s).is_ok(),
+        &[
+            "", "a b", "/usr/bin", "~x", "a\"", "a\\b", "a'b", "a\nb", "_x", &a129,
+        ],
+    );
+    assert!(GitRepository::parse("https://example.invalid/x.git").is_ok());
+    let userinfo = ["https://", "user", "@example.invalid/x.git"].concat();
+    bad_all(
+        |s| GitRepository::parse(s).is_ok(),
+        &[
+            "http://example.invalid/x",
+            "https://",
+            &userinfo,
+            "https://example.invalid/x?a=b",
+            "https://example.invalid/x#f",
+            "https://example.invalid/ x",
+            "git@example.invalid:x.git",
+        ],
+    );
+    assert_eq!(
+        LoadAvg::parse("0 1.5 02.250").unwrap().as_milli(),
+        [0, 1500, 2250]
+    );
+    bad_all(
+        |s| LoadAvg::parse(s).is_ok(),
+        &[
+            "",
+            "1 2",
+            "1 2 3 4",
+            "1 2 -3",
+            "1 2 NaN",
+            "1 2 inf",
+            "1e3 2 3",
+            "1. 2 3",
+            "1.2345 2 3",
+            "1  2 3",
+            "1234567 2 3",
+        ],
+    );
+}
+
+#[test]
+fn t16_reserved_words_are_never_valid_values() {
+    assert_ne!(UNAVAILABLE, NO_OUTPUT);
+    assert_ne!(UNAVAILABLE, NO_SESSION);
+    assert_ne!(NO_OUTPUT, NO_SESSION);
+    for w in [UNAVAILABLE, NO_OUTPUT] {
+        assert!(Sha256::parse(w).is_err());
+        assert!(CommitSha::parse(w).is_err());
+        assert!(SemVer::parse(w).is_err());
+        assert!(VersionText::parse(w).is_err());
+        assert!(Name::parse(w).is_err());
+        assert!(DeviceName::parse(w).is_err());
+        assert!(OptionToken::parse(w).is_err());
+        assert!(GitRepository::parse(w).is_err());
+        assert!(LoadAvg::parse(w).is_err());
+        assert!(Id::parse(w).is_err());
+        for e in AdapterBackend::ALL {
+            assert_ne!(e.name(), w);
+        }
+        for e in OsName::ALL {
+            assert_ne!(e.name(), w);
+        }
+        for e in PowerSource::ALL {
+            assert_ne!(e.name(), w);
+        }
+    }
+}
+
+fn json_of(e: Envelope) -> String {
+    RunRecord::new(e, Body::PerfSamples(body_with(false)))
+        .unwrap()
+        .to_json()
+        .unwrap()
+}
+
+fn metal_envelope() -> Envelope {
+    envelope(
+        Label::Ok,
+        Machine::MacMini,
+        MachineCombination::MetalMacMini,
+    )
+}
+
+#[test]
+fn t17_unavailable_is_spelled_by_field_type() {
+    let mut e = metal_envelope();
+    e.evidence = Evidence {
+        adapter_backend: None,
+        adapter_name: None,
+        kernel_sha256: None,
+        artifact_sha256: None,
+        input_sha256: None,
+        output_sha256: OutputHash::Unavailable,
+    };
+    e.environment.before = EnvSnapshot::default();
+    let j = json_of(e);
+    assert!(j.contains(concat!(
+        "\"evidence\":{\"adapter_backend\":\"_unavailable\",\"adapter_name\":\"_unavailable\",",
+        "\"kernel_sha256\":null,\"artifact_sha256\":null,\"input_sha256\":null,",
+        "\"output_sha256\":\"_unavailable\"}"
+    )));
+    assert!(j.contains(concat!(
+        "\"before\":{\"utc\":\"_unavailable\",\"power_source\":\"_unavailable\",",
+        "\"low_power_mode\":null,\"thermal_warning\":null,\"loadavg\":null}"
+    )));
+}
+
+#[test]
+fn t18_backend_specific_env_fields() {
+    let metal = json_of(metal_envelope());
+    assert!(metal.contains("\"xcode_version\"") && metal.contains("\"metal_toolchain\""));
+    assert!(!metal.contains("driver_version") && !metal.contains("sdk_versions"));
+    for c in [
+        MachineCombination::VulkanNodeB,
+        MachineCombination::CudaNodeA,
+    ] {
+        let j = json_of(envelope(Label::Ok, Machine::NodeB, c));
+        assert!(
+            j.contains("\"driver_version\"") && j.contains("\"sdk_versions\""),
+            "{}",
+            c.name()
+        );
+        assert!(!j.contains("xcode_version") && !j.contains("metal_toolchain"));
+    }
+    let mut e = metal_envelope();
+    e.environment.backend_env = backend_env(AdapterBackend::Vulkan);
+    assert_eq!(
+        RunRecord::new(e, Body::PerfSamples(body_with(false))).unwrap_err(),
+        RecordError::BackendMismatch
+    );
+    for c in MachineCombination::ALL {
+        let e = envelope(Label::Ok, Machine::MacMini, c);
+        assert!(RunRecord::new(e, Body::PerfSamples(body_with(false))).is_ok());
+    }
+}
+
+#[test]
+fn t19_wgpu_baseline_conditional_fields() {
+    let base = |source| WgpuBaseline {
+        version: Some(SemVer::parse("0.0.0").unwrap()),
+        source,
+        lockfile_sha256: None,
+        basis: Basis::parse("BASIS-0").unwrap(),
+    };
+    let mk = |w: Option<WgpuBaseline>| {
+        let mut e = metal_envelope();
+        e.wgpu_baseline = w;
+        json_of(e)
+    };
+    assert!(!mk(None).contains("wgpu_baseline"));
+    let c = mk(Some(base(BaselineSourceSpec::CratesIo)));
+    assert!(c.contains(concat!(
+        "\"wgpu_baseline\":{\"version\":\"0.0.0\",\"source\":\"crates-io\",",
+        "\"lockfile_sha256\":\"_unavailable\",\"basis\":\"BASIS-0\"}"
+    )));
+    assert!(!c.contains("git_"));
+    let g = mk(Some(base(BaselineSourceSpec::Git {
+        repository: Some(GitRepository::parse("https://example.invalid/w.git").unwrap()),
+        tag: Some(Name::parse("example-tag").unwrap()),
+        commit: None,
+    })));
+    assert!(g.contains(concat!(
+        "\"source\":\"git\",\"git_repository\":\"https://example.invalid/w.git\",",
+        "\"git_tag\":\"example-tag\",\"git_commit\":\"_unavailable\",\"lockfile_sha256\""
+    )));
+}
+
+#[test]
+fn t20_adapter_backend_is_not_aligned_and_spellings_match() {
+    let mut e = envelope(Label::Ok, Machine::NodeB, MachineCombination::CudaNodeB);
+    e.evidence.adapter_backend = Some(AdapterBackend::Metal);
+    let j = json_of(e);
+    assert!(j.contains("\"machine_combination\":\"cuda-node-b\""));
+    assert!(j.contains("\"adapter_backend\":\"metal\""));
+    let comb = core_src("combination.rs");
+    for c in MachineCombination::ALL {
+        assert!(c.name().starts_with(c.backend().name()), "{}", c.name());
+    }
+    for b in ["Metal", "Vulkan", "Cuda"] {
+        assert!(comb.contains(&format!("Backend::{b}")), "{b}");
+    }
+}
+
+#[test]
+fn t21_maps_are_ordered_deterministically() {
+    let mut e1 = metal_envelope();
+    e1.environment.library_versions = Some(BTreeMap::from([
+        (name("b"), ver("1")),
+        (name("a"), ver("2")),
+    ]));
+    let mut e2 = e1.clone();
+    let mut m = BTreeMap::new();
+    m.insert(name("a"), ver("2"));
+    m.insert(name("b"), ver("1"));
+    e2.environment.library_versions = Some(m);
+    let (j1, j2) = (json_of(e1), json_of(e2));
+    assert_eq!(j1, j2);
+    assert!(j1.contains("\"library_versions\":{\"a\":\"2\",\"b\":\"1\"}"));
+}
+
+#[test]
+fn t22_numbers_and_power_spellings() {
+    let mut e = metal_envelope();
+    e.environment.after = snapshot("2026-01-02T03:04:06Z");
+    e.environment.after.loadavg = Some(LoadAvg::parse("0 0 123456.999").unwrap());
+    let j = json_of(e);
+    assert!(j.contains("\"loadavg\":[0.000,0.000,123456.999]"));
+    assert!(!j.contains("NaN") && !j.contains("e+") && !j.contains("E+"));
+    let probe = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/metal-session.sh"),
+    )
+    .unwrap();
+    for p in PowerSource::ALL {
+        assert!(probe.contains(p.name()), "{}", p.name());
+    }
+    assert_eq!(
+        PowerSource::ALL.map(PowerSource::name),
+        ["ac", "battery", "ups"]
+    );
+}
+
+#[test]
+fn t23_body_processed_count_and_instructions() {
+    let body = body_with(false)
+        .with_processed_count(Some(7))
+        .with_instructions_found(BTreeMap::from([
+            (name("fma"), true),
+            (name("atomic"), false),
+        ]));
+    let j = RunRecord::new(metal_envelope(), Body::PerfSamples(body))
+        .unwrap()
+        .to_json()
+        .unwrap();
+    assert!(
+        j.contains("\"processed_count\":7,\"instructions_found\":{\"atomic\":false,\"fma\":true},")
+    );
+    assert_eq!(
+        body_with(false).with_processed_count(None),
+        body_with(false)
+    );
 }

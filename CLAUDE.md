@@ -60,7 +60,7 @@ fandhe-silicon/
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
-├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8・4/8）（TASK-27）
+├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜5/8）（TASK-27）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/spec/                # private submodule（明示取得が必要）

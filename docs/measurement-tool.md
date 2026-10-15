@@ -146,6 +146,25 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 確かめ方は `make measure-verify`（3/8 と同じ）。
 
+## 現状の形（5/8）
+
+`measure-perf` に、封筒の経路の証拠・環境・比較基準の版の欄と、本体の処理件数・命令の表を足した（`evidence`。外部依存は増えない）。
+値は白表の列挙と形を狭く検証した文字列・数だけを受け、綴りと形は `src/evidence.rs` と `tests/record.rs` が示す。
+文字列の欄の取得不能は予約語 `UNAVAILABLE`、型を持つ欄は `null`、出力なしは予約語 `NO_OUTPUT`。条件に当たらない欄はキーごと出さない。
+後続の段の範囲は本節に書かない。
+
+| 公開アイテム | 振る舞い（対応するテスト） |
+| ------------ | -------------------------- |
+| `Sha256`・`CommitSha`・`SemVer`・`VersionText`・`Name`・`DeviceName`・`OptionToken`・`GitRepository`・`LoadAvg` | 形に合わない値・制御文字・非 ASCII・長さ超えは `Err`（`tests/record.rs` の t15） |
+| `UNAVAILABLE`・`NO_OUTPUT` | どの値型の形にも一致せず、互いに・`NO_SESSION` とも異なる（t16）。欄の型ごとの書き分け（t17） |
+| `Environment`・`BackendEnv` | 背後実装ごとの欄だけが出る。組み合わせと食い違えば `Err`（t18） |
+| `WgpuBaseline`・`BaselineSourceSpec`・`Basis` | 比較用の run のときだけ出る。取得元ごとの欄は取得元が合うときだけ出る（t19） |
+| `Evidence`・`AdapterBackend` | `adapter_backend` は入力のまま出し、組み合わせに寄せない。綴りは `MachineCombination` と core のソースに揃える（t20） |
+| `EnvSnapshot`・`PowerSource`・`LoadAvg` | 表のキー順は決定的（t21）。負荷平均は固定桁の 10 進で、電源の綴りは `scripts/metal-session.sh` に揃える（t22） |
+| `PerfSamplesBody::with_processed_count`・`with_instructions_found` | 処理件数は値か `null`、命令の表はキー順で出る（t23） |
+
+確かめ方は `make measure-verify`（3/8 と同じ）。
+
 ## 本リポでの反映の方針
 
 - 道具の置き場・記録の欄・統計・検査は、受け持つ段の PR のコードと公開テストが示す（親 #121）
