@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 一覧と項目の対応の検査（spec TASK-16 のポインタ。親 Issue #60 の 2/4 と 3/4）。
+# 追随分の一覧を別の CSV として渡して基準版と合わせて検査する取り込みは、spec TASK-17 のポインタ（親 Issue #65 の 2/5）。
 # 既定は、一覧の各行の鍵が項目ファイルのどれかに現れるかを確かめる（前向きの検査。#62 と同じ合否）。
 # --item-rows を付けると、鍵が項目ファイルの表の行（項目の行）のどれかに現れるかまで絞る（opt-in）。
 # --list を付けると、合格のときだけ鍵と項目の対応の一覧を標準出力へ出す（保存はしない）。
@@ -10,7 +11,8 @@
 # 使い方:
 #   scripts/inventory-trace-check.sh [--csv PATH] [--items-dir DIR] [--key-column NAME]
 #                                    [--exclude BASENAME]... [--item-rows]
-#                                    [--item-id-column NAME] [--list] [--show-keys]
+#                                    [--item-id-column NAME] [--follow-csv PATH]
+#                                    [--list] [--show-keys]
 #   --csv           一覧の CSV（既定: 上のポインタのパス）。先頭のレコードを見出しとして扱う
 #   --items-dir     項目ファイルのディレクトリ（既定: 上のポインタのパス）。直下の *.md だけを読む
 #   --key-column    鍵の列の見出しの名前（既定: 先頭の列）。値はスクリプトに書かず実行時に受ける
@@ -19,7 +21,14 @@
 #                   既定の合否は変わらない
 #   --item-id-column 項目の行のラベルの列（--item-rows と併用。単独では誤用として 2）の見出しの名前（既定: 各表の先頭の列）。指定したときは、
 #                   その名前の見出しがちょうど 1 つある表だけを項目の表として扱う。値は実行時に受ける
+#   --follow-csv    追随分の一覧の CSV（1 回だけ。既定値は持たず、置き場は private spec 側の記録に従う）。
+#                   基準版と合わせて同じ規則で検査する。見出しのレコードは基準版と名前・数・順序まで
+#                   完全に一致すること（一致しなければ違反 1 件で、追随分のデータ行は検査しない）。
+#                   鍵の列の位置は基準版で解決したものをそのまま使う。鍵の重複は 2 ファイルを通して判定し
+#                   （上書き・マージはしない）、鍵の境界の文字集合は両ファイルの鍵の和集合にする。
+#                   追随分の行の診断は "at follow-up line N" と書き、基準版の "at line N" と区別する
 #   --list          合格のときだけ、対応の一覧を標準出力へ TSV で出す（列: line / key / file / item。
+#                   --follow-csv のときは先頭に csv 列（base / follow-up）を足し、基準版の行 → 追随分の行の順）。
 #                   item は --item-rows のときだけ値が入る（既定は空）。
 #                   並びは CSV の行順 → ファイル名順 → ファイル内の行順）。ファイルは作らない。
 #                   出力は spec の内容なので、PR・Issue・CI のログ・コミットに貼らない
@@ -30,7 +39,8 @@
 #   0  合格（既定: すべての行の鍵が、少なくとも 1 つの項目ファイルに現れた。--item-rows のとき: 少なくとも 1 つの項目の行に現れた）
 #   1  違反（項目ファイルに現れない鍵（--item-rows のときは項目の行に現れない鍵）／項目の行が 0（--item-rows のとき）／鍵が空／鍵が重複／列の数の不一致／データの行が 0／探索対象が 0／
 #      CSV や項目ファイルを読めない）
-#   2  誤用・前提の不足（検査を終えていない。入力が無い場合・--item-id-column が解決できない場合を含む。成功扱いにしない）
+#   2  誤用・前提の不足（検査を終えていない。入力が無い場合・--item-id-column が解決できない場合・
+#      --follow-csv が無い／0 バイト／2 回以上の場合を含む。成功扱いにしない）
 #
 # --item-rows の規則（任意の引数で、既定では使わない）: 行頭が | の markdown の表のデータ行 1 行を項目の行とし、
 # ラベルのセル以外のセルに鍵が現れれば帰属とする。列の数が見出しと合わない行・ラベルが空の行は
@@ -211,6 +221,19 @@ class Usage(Exception):
     pass
 
 
+def read_csv(path, what):
+    """CSV を (見出し, [(行番号, レコード)]) で返す。基準版と追随分で同じ読み方を共用する。
+
+    空なら Usage、復号・解析・権限の失敗は呼び出し側が 1 に落とす（例外をそのまま通す）。
+    """
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        reader = csv.reader(f, strict=True)
+        header = next(reader, None)
+        if header is None:
+            raise Usage("%s is empty" % what)
+        return header, [(reader.line_num, r) for r in reader]
+
+
 def run(args):
     # 前提の検査はすべて先に行い、欠けていれば内容を読まずに 2 で終える。
     if not os.path.isfile(args.csv):
@@ -223,28 +246,35 @@ def run(args):
             "items directory not found: %s (the private spec submodule may not be fetched; "
             "see README, section on the spec)" % args.items_dir
         )
+    if len(args.follow_csv) > 1:
+        raise Usage("--follow-csv must be given at most once")
+    follow = args.follow_csv[0] if args.follow_csv else None
+    if follow is not None and not os.path.isfile(follow):
+        raise Usage("follow-up CSV not found: %s" % follow)
     excluded = {"README.md"} | set(args.exclude)
     for name in args.exclude:
         if os.sep in name or not os.path.isfile(os.path.join(args.items_dir, name)):
             raise Usage("--exclude names a file that does not exist directly under the items directory")
 
     try:
-        with open(args.csv, encoding="utf-8-sig", newline="") as f:
-            reader = csv.reader(f, strict=True)
-            header = next(reader, None)
-            if header is None:
-                raise Usage("input CSV is empty")
-            if args.key_column is None:
-                col = 0
-            else:
-                hits = [i for i, h in enumerate(header) if h == args.key_column]
-                if len(hits) != 1:
-                    raise Usage("--key-column must match exactly one header name")
-                col = hits[0]
-            rows = [(reader.line_num, r) for r in reader]
+        header, rows = read_csv(args.csv, "input CSV")
     except (UnicodeDecodeError, csv.Error, OSError):
         err("cannot parse the input CSV")
         return 1
+    if args.key_column is None:
+        col = 0
+    else:
+        hits = [i for i, h in enumerate(header) if h == args.key_column]
+        if len(hits) != 1:
+            raise Usage("--key-column must match exactly one header name")
+        col = hits[0]
+    follow_rows = None
+    if follow is not None:
+        try:
+            follow_header, follow_rows = read_csv(follow, "follow-up CSV")
+        except (UnicodeDecodeError, csv.Error, OSError):
+            err("cannot parse the follow-up CSV")
+            return 1
 
     violations = 0
     entries = []
@@ -252,22 +282,37 @@ def run(args):
     if not rows:
         err("the input CSV has no data rows")
         violations += 1
-    for line, row in rows:
-        if len(row) != len(header):
-            err("column count differs from the header at line %d" % line)
+    # 診断の位置の表記: 基準版は "line N"、追随分は "follow-up line N"（基準版の表記を含まない）。
+    sources = [("", rows)]
+    if follow_rows is not None:
+        if follow_header != header:
+            # 列の位置がずれている恐れがあるため、追随分のデータ行は判定しない。
+            err("follow-up CSV header differs from the base CSV header")
             violations += 1
-            continue
-        key = row[col]
-        if key == "":
-            err("empty key at line %d" % line)
-            violations += 1
-            continue
-        if key in seen:
-            err("duplicate key at line %d (first seen at line %d)" % (line, seen[key]))
-            violations += 1
-            continue
-        seen[key] = line
-        entries.append((line, key))
+        else:
+            if not follow_rows:
+                err("the follow-up CSV has no data rows")
+                violations += 1
+            sources.append(("follow-up ", follow_rows))
+    for src, src_rows in sources:
+        for line, row in src_rows:
+            if len(row) != len(header):
+                err("column count differs from the header at %sline %d" % (src, line))
+                violations += 1
+                continue
+            key = row[col]
+            if key == "":
+                err("empty key at %sline %d" % (src, line))
+                violations += 1
+                continue
+            if key in seen:
+                psrc, pline = seen[key]
+                err("duplicate key at %sline %d (first seen at %sline %d)"
+                    % (src, line, psrc, pline))
+                violations += 1
+                continue
+            seen[key] = (src, line)
+            entries.append((src, line, key))
 
     # 列挙の失敗（権限なし等）も読み取りの失敗として 1 で終える（2 の誤用と区別する）。
     try:
@@ -308,23 +353,19 @@ def run(args):
         violations += 1
 
     alphabet = set()
-    for _, k in entries:
+    for _, _, k in entries:
         alphabet.update(k)
     if args.item_rows:
-        found = locate([k for _, k in entries], item_list, alphabet)
+        found = locate([k for _, _, k in entries], item_list, alphabet)
     else:
-        found = locate_files([k for _, k in entries], texts, alphabet)
-    for line, key in entries:
+        found = locate_files([k for _, _, k in entries], texts, alphabet)
+    for src, line, key in entries:
         if not found[key]:
-            if not args.item_rows:
-                if args.show_keys:
-                    err("no item file contains the key at line %d: %s" % (line, key))
-                else:
-                    err("no item file contains the key at line %d" % line)
-            elif args.show_keys:
-                err("no item row contains the key at line %d: %s" % (line, key))
+            what = "row" if args.item_rows else "file"
+            if args.show_keys:
+                err("no item %s contains the key at %sline %d: %s" % (what, src, line, key))
             else:
-                err("no item row contains the key at line %d" % line)
+                err("no item %s contains the key at %sline %d" % (what, src, line))
             violations += 1
 
     if violations:
@@ -336,10 +377,12 @@ def run(args):
         # 合格のときだけ書く。符号化・出力先の切断は呼び出し側で 2 に落ちる。
         sys.stdout.reconfigure(encoding="utf-8", newline="")
         w = csv.writer(sys.stdout, delimiter="\t", lineterminator="\n")
-        w.writerow(["line", "key", "file", "item"])
-        for line, key in entries:
+        with_csv = follow is not None
+        w.writerow((["csv"] if with_csv else []) + ["line", "key", "file", "item"])
+        for src, line, key in entries:
+            lead = [("follow-up" if src else "base")] if with_csv else []
             for n, _, label in sorted(found[key], key=lambda x: (x[0], x[1])):
-                w.writerow([line, key, n, label])
+                w.writerow(lead + [line, key, n, label])
         sys.stdout.flush()
     return 0
 
@@ -354,6 +397,7 @@ def main():
     parser.add_argument("--exclude", action="append", default=[])
     parser.add_argument("--item-rows", action="store_true")
     parser.add_argument("--item-id-column")
+    parser.add_argument("--follow-csv", action="append", default=[])
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--show-keys", action="store_true")
     args = parser.parse_args(sys.argv[1:])

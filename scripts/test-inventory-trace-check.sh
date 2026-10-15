@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # inventory-trace-check.sh の回帰テスト（spec TASK-16 のポインタ。親 Issue #60 の 4/4）。
+# 追随分の CSV（--follow-csv）の節は spec TASK-17 のポインタ（親 Issue #65 の 2/5）。
 # 一時ディレクトリの fixture（合成のダミー値）で、終了コード・標準出力・標準エラーの文言・
 # 違反の件数・鍵の秘匿・入力を変更しないことを確かめる。実物の一覧・項目は使わず、
 # `docs/spec` の取得も要らない。
@@ -31,7 +32,7 @@ rc=0
 # fx: ケースごとに fixture を作り直して順序依存を無くす（鍵 alpha を持つ一覧と、それを含む項目ファイル）。
 fx() {
   chmod 700 "${work}/items" 2>/dev/null || true
-  rm -rf "${work:?}/items" "${work:?}/inv.csv"
+  rm -rf "${work:?}/items" "${work:?}/inv.csv" "${work:?}/follow.csv"
   mkdir "${work}/items"
   printf 'key\nalpha\n' >"${work}/inv.csv"
   printf 'alpha\n' >"${work}/items/a.md"
@@ -469,6 +470,159 @@ run_check --item-rows
 expect_violations "item rows: keys are hidden by default" 1 \
   "no item row contains the key at line 2" "!zzkey"
 
+# ---- 追随分（--follow-csv） ----
+# 追随分のファイルは節の中で ${work}/follow.csv に作る（fx が消す）。値は合成のダミーだけ。
+
+# fol <printf の書式> [引数...]: 追随分の CSV を作る。
+fol() {
+  # shellcheck disable=SC2059 # 書式はテスト側の固定文字列
+  printf "$@" >"${work}/follow.csv"
+}
+FOL="--follow-csv ${work}/follow.csv"
+
+fx
+fol 'key\nbeta\n'
+item b.md 'beta\n'
+# shellcheck disable=SC2086 # FOL は固定の 2 語
+run_check ${FOL}
+expect_ok "follow-up: key only in the follow-up CSV passes" "ok: every row key was found"
+
+fx
+fol 'key\nbeta\n'
+item a.md '| id | text |\n| --- | --- |\n| ITEM-A | alpha |\n| ITEM-B | beta |\n'
+# shellcheck disable=SC2086
+run_check ${FOL} --item-rows
+expect_ok "follow-up: --item-rows key in a table row"
+
+fx
+printf '\357\273\277key,other\r\nalpha,beta\r\n' >"${work}/inv.csv"
+printf '\357\273\277key,other\r\ngamma,delta\r\n' >"${work}/follow.csv"
+item a.md 'alpha gamma\n'
+# shellcheck disable=SC2086
+run_check ${FOL} --key-column other
+expect_violations "follow-up: --key-column by name with BOM and CRLF" 2 \
+  "no item file contains the key at line 2" "no item file contains the key at follow-up line 2"
+item a.md 'beta delta\n'
+# shellcheck disable=SC2086
+run_check ${FOL} --key-column other
+expect_ok "follow-up: --key-column by name passes with BOM and CRLF"
+
+fx
+fol 'key\nzzkey\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: absent follow-up key fails" 1 \
+  "no item file contains the key at follow-up line 2" "!at line 2" "!zzkey"
+
+fx
+fol 'key\nalpha\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: key in both CSVs is a duplicate" 1 \
+  "duplicate key at follow-up line 2 (first seen at line 2)"
+
+fx
+fol 'key\nbeta\nbeta\n'
+item b.md 'beta\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: duplicate inside the follow-up CSV" 1 \
+  "duplicate key at follow-up line 3 (first seen at follow-up line 2)"
+
+fx
+fol 'id\nalpha\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: header name differs from the base" 1 \
+  "follow-up CSV header differs from the base CSV header"
+
+fx
+fol 'key,extra\nalpha2,x\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: header column count differs from the base" 1 \
+  "follow-up CSV header differs from the base CSV header" "!follow-up line"
+
+fx
+fol 'key\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: header-only CSV" 1 "the follow-up CSV has no data rows"
+
+fx
+printf 'key,other\nalpha,x\n' >"${work}/inv.csv"
+fol 'key,other\nbeta,y,z\n,w\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: column mismatch and empty key are labelled" 2 \
+  "column count differs from the header at follow-up line 2" "empty key at follow-up line 3"
+
+fx
+printf 'key\nabc\n' >"${work}/inv.csv"
+fol 'key\nabcd\n'
+item a.md 'abcd\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: boundary uses the keys of both CSVs" 1 \
+  "no item file contains the key at line 2" "!follow-up line"
+
+fx
+printf '\377\n' >"${work}/follow.csv"
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_unreadable "follow-up: invalid UTF-8 in the follow-up CSV" "cannot parse the follow-up CSV"
+
+fx
+fol 'key\n"alpha\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_unreadable "follow-up: unterminated quote in the follow-up CSV" "cannot parse the follow-up CSV"
+
+fx
+run_check --follow-csv "${work}/nope.csv"
+expect_usage "follow-up: missing --follow-csv path" "follow-up CSV not found"
+
+fx
+: >"${work}/follow.csv"
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_usage "follow-up: empty follow-up CSV file" "follow-up CSV is empty"
+
+fx
+fol 'key\nalpha\n'
+# shellcheck disable=SC2086
+run_check ${FOL} ${FOL}
+expect_usage "follow-up: --follow-csv given twice" "--follow-csv must be given at most once"
+
+fx
+fol 'key\nbeta\n'
+item b.md 'beta\n'
+# shellcheck disable=SC2086
+run_check ${FOL} --list
+want="$(printf 'csv\tline\tkey\tfile\titem\nbase\t2\talpha\ta.md\t\nfollow-up\t2\tbeta\tb.md\t')"
+expect_out "follow-up: --list adds the csv column" "${want}"
+
+fx
+fol 'key\nzzkey\n'
+# shellcheck disable=SC2086
+run_check ${FOL} --list
+expect_violations "follow-up: --list prints nothing on violation" 1
+
+fx
+fol 'key\nzzkey\n'
+# shellcheck disable=SC2086
+run_check ${FOL}
+expect_violations "follow-up: keys are hidden by default" 1 "!zzkey"
+# shellcheck disable=SC2086
+run_check ${FOL} --show-keys
+expect_violations "follow-up: --show-keys prints the key" 1 \
+  "no item file contains the key at follow-up line 2: zzkey"
+
+fx
+run_check
+expect_ok "follow-up: without the option the output is unchanged" \
+  "[inventory-trace-check.sh] ok: every row key was found in at least one item file"
+
 # ---- 入力を変更しない ----
 
 snapshot() {
@@ -490,6 +644,23 @@ if [ "${before}" = "${fx_after_violation}" ] && [ "${before_ok}" = "${after_ok}"
   report_ok "inputs are not modified and no files are created"
 else
   report_fail "inputs are not modified and no files are created" "file list or checksums changed"
+fi
+
+# 追随分を渡した実行（合格・違反）でも入力を変更せず、ファイルを作らない。
+printf 'key\nbeta\n' >"${work}/follow.csv"
+item c.md 'beta\n'
+before_follow="$(snapshot)"
+run_check --follow-csv "${work}/follow.csv" --list
+printf 'key\nzzkey\n' >"${work}/follow.csv"
+before_follow_bad="$(snapshot)"
+run_check --follow-csv "${work}/follow.csv" --item-rows --list
+after_follow_bad="$(snapshot)"
+printf 'key\nbeta\n' >"${work}/follow.csv"
+after_follow="$(snapshot)"
+if [ "${before_follow_bad}" = "${after_follow_bad}" ] && [ "${before_follow}" = "${after_follow}" ]; then
+  report_ok "follow-up: inputs are not modified and no files are created"
+else
+  report_fail "follow-up: inputs are not modified and no files are created" "file list or checksums changed"
 fi
 
 # ---- 読めない項目ディレクトリ ----
