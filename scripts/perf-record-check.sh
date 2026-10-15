@@ -44,6 +44,8 @@ import sys
 # 読み込む量の上限をここで決める（資源の枯渇を防ぐ）。
 MAX_BYTES = 8 * 1024 * 1024
 U64_MAX = (1 << 64) - 1
+# 中央値の上限。書き出し側（measure の stats の MAX_EXACT_NS）と同じ 1 << 52。
+MAX_EXACT_NS = 1 << 52
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -213,7 +215,12 @@ def is_opt_bool(v):
 
 
 def is_median(v):
-    return is_uint(v) or (type(v) is Dec and MEDIAN_RE.fullmatch(v) is not None)
+    if type(v) is int:
+        return 0 <= v <= MAX_EXACT_NS
+    if type(v) is Dec and MEDIAN_RE.fullmatch(v) is not None:
+        # 整数部で比べる（浮動小数にしない）。N.5 は N < 上限のときだけ上限以下。
+        return int(v.split(".")[0]) < MAX_EXACT_NS
+    return False
 
 
 def is_option(v):
@@ -464,6 +471,8 @@ def exclusion(run, session):
     for snap in (env["before"], env["after"]):
         if snap["power_source"] != "ac":
             return "power-not-ac"
+    if env["before"]["low_power_mode"] is True or env["after"]["low_power_mode"] is True:
+        return "low-power-mode"
     if env["before"]["thermal_warning"] is True or env["after"]["thermal_warning"] is True:
         return "thermal-warning"
     if env["validation_layers"] == "enabled":
