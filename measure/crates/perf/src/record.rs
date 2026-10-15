@@ -628,14 +628,57 @@ impl RunRecord {
 /// 記録を新しいファイルへ書く。既存のファイルは上書きせず `Err(Io(AlreadyExists))`。
 ///
 /// ディレクトリは作らない（呼び手の責務）。末尾に改行を 1 つ足す。
+/// 書き込みに失敗したときは、この呼び出しが作ったファイルを消して再試行できる状態に戻す。
 pub fn write_new(path: &Path, record: &RunRecord) -> Result<(), RecordError> {
     let json = record.to_json()?;
+    write_new_with(path, |f| {
+        f.write_all(json.as_bytes())
+            .and_then(|()| f.write_all(b"\n"))
+    })
+}
+
+/// `create_new` で作ったファイルへ `body` で書く。`body` が失敗したら作ったファイルを消す。
+///
+/// 既存ファイルを開けなかった（`AlreadyExists` 等）ときは何も作っていないので消さない。
+fn write_new_with(
+    path: &Path,
+    body: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), RecordError> {
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|e| RecordError::Io(e.kind()))?;
-    f.write_all(json.as_bytes())
-        .and_then(|()| f.write_all(b"\n"))
-        .map_err(|e| RecordError::Io(e.kind()))
+    body(&mut f).map_err(|e| {
+        drop(f);
+        // 部分ファイルを残すと再試行が AlreadyExists になるため、自分が作ったものを消す。
+        let _ = std::fs::remove_file(path);
+        RecordError::Io(e.kind())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_write_leaves_no_partial_file_and_allows_retry() {
+        let dir = std::env::temp_dir().join(format!("perf-wn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rec.json");
+        let err = write_new_with(&path, |f| {
+            f.write_all(b"partial")?;
+            Err(std::io::Error::other("boom"))
+        })
+        .unwrap_err();
+        assert_eq!(err, RecordError::Io(std::io::ErrorKind::Other));
+        assert!(!path.exists());
+        write_new_with(&path, |f| f.write_all(b"ok")).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"ok");
+        // 既存ファイルは失敗しても消さない。
+        let err = write_new_with(&path, |_| Ok(())).unwrap_err();
+        assert_eq!(err, RecordError::Io(std::io::ErrorKind::AlreadyExists));
+        assert!(path.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
