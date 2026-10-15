@@ -98,7 +98,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 測定専用の別 workspace `measure/`（ルート `Cargo.toml` の `exclude`。自身の `Cargo.lock` を持つ）に、共有 crate `measure-perf`（`measure/crates/perf/`・lib のみ・外部依存 0 件）を置いた。
 製品の crate は本 crate に依存せず、本 crate も製品の crate に依存しない。device には触れない。
-後続の段の範囲（記録の書き出し・欄・判定など）は本節に書かない。
+記録の書き出しは 4/8 の節に書く。後続の段の範囲（欄の追加・判定など）は本節に書かない。
 
 ### 公開アイテムと振る舞い
 
@@ -126,6 +126,25 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | #127 | 6/8 実装 |
 | #128 | 7/8 テスト |
 | #129 | 8/8 確かめ |
+
+## 現状の形（4/8）
+
+`measure-perf` に、run ごとの記録を書く側の部品を足した（`record`・`json`。外部依存は増えない）。
+封筒の芯と `perf-samples` の本体を検証つきで作り、決定的な JSON（1 行・ASCII だけ）にして、新しいファイルへ書く。
+時計は読まない。標本数・run 数・機材ごとの制限は持たず、node の機材の記録も同じ形で書ける。
+後続の段の範囲は本節に書かない。
+
+| 公開アイテム | 振る舞い（対応するテスト） |
+| ------------ | -------------------------- |
+| `UtcTime` | `YYYY-MM-DDTHH:MM:SSZ` の暦として正しい値だけを受ける。Unix 秒からの変換は純粋（`tests/record.rs` の t1） |
+| `Id`・`RefId`・`SessionRef`・`NO_SESSION` | ID は白表の形だけを受ける。回なしの予約語は回の ID の形に一致しない（t2・t3） |
+| `RunRecord`・`Envelope` | 開始が終了より後なら `Err`、同時刻は受ける（t4） |
+| `Machine`・`MachineCombination`・`Label`・`NotRunReason`・`IndeterminateReason` | 綴りは `crates/core` の `test_frame` のソースと突き合わせる。理由は理由を持つラベルのときだけ `label_reason` として出る（t5・t6） |
+| `PerfSamplesBody`・`Body` | GPU 時間の取得不能は要素ごとに `null`、計測の区間に 1 つでもあれば GPU の統計は `null`。数の食い違い・空・上限超えは `Err`（t7・t8・t8b・t12） |
+| `RunRecord::to_json`・`json` | 欄の順序は固定で同じ入力から同じバイト列。出力は ASCII だけ。中央値は整数か `.5` の 10 進（t9・t10・t11） |
+| `write_new` | 既存のファイルは上書きせず `Err`。ディレクトリは作らない（t13）。node の機材も同じ形（t14） |
+
+確かめ方は `make measure-verify`（3/8 と同じ）。
 
 ## 本リポでの反映の方針
 
