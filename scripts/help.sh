@@ -19,7 +19,7 @@ cat <<'EOF'
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
   verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
   build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）
-  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査
+  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 別 workspace（measure/・baseline-wgpu/）の cargo deny と baseline-wgpu/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   deps-check      scripts/deps-check.sh          依存の版指定が =x.y.z の完全固定で承認の記録と一致するかを検査する（cargo metadata + jq）
   test-deps-check scripts/test-deps-check.sh     deps-check 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3）
