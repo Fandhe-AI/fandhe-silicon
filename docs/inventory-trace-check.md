@@ -1,7 +1,7 @@
 # 一覧と項目の対応を確かめる検査（TASK-16）の所在と現状の事実
 
 private spec 内の 2 つの資料（一覧の CSV と、項目のファイル群）の対応を機械で確かめる検査について、本リポのスクリプトと回帰テストから説明できる振る舞いを記録する。
-追随分の一覧を別ファイルとして取り込む拡張は TASK-17 のポインタ（親 Issue #65 の 2/5）。
+追随分の一覧を別ファイルとして取り込む拡張と、その取り込みの手順（「追随分の取り込みの手順」の節）は TASK-17 のポインタ（親 Issue #65 の 2/5・4/5）。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-16・TASK-17。ポインタのみ）。spec の本文・件数・列の内容・鍵・項目 ID の具体例は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
@@ -75,6 +75,38 @@ private spec 内の 2 つの資料（一覧の CSV と、項目のファイル�
 - CI では走らない。既定の clone では入力が無く、2 で終わる
 - 回帰テストは合成 fixture の範囲に限る
 - 回帰テストのうち、読めない項目ディレクトリのケースは権限が効かない環境（root 実行など）では 2 で止まり、成功扱いにしない
+
+## 追随分の取り込みの手順（TASK-17）
+
+引数・終了コード・追随分の規則・対応の一覧は上の表を参照する。ここでは追随分を検査へ渡す順序だけを書く。書くのはスクリプトと回帰テストが示す振る舞いに限る。
+
+### 前提
+
+- 実物の入力での実行には `docs/spec` の取得が要る。取得していなければ 2 で終わる（上の終了コードの表）
+- 追随分のファイルの置き場、結果を受けた一覧・項目の側の更新、進み具合の記録は private spec 側の記録に従う（ポインタのみ）。本リポには書かない
+- 基準版の CSV と項目のディレクトリのパスは、スクリプトの定数のまま使う（省けば既定）
+
+### 渡し方
+
+1. `make inventory-trace-check` は引数を渡さないので、追随分は渡せない。worktree のルートで `scripts/inventory-trace-check.sh --follow-csv <追随分の CSV のパス>` を直接実行する（`<…>` は実際のパスに置き換える。文書やコミットには実在のパスを書かない）
+2. 先に `--follow-csv` なしで流し、基準版だけの合否を確かめる。次に `--follow-csv` を付けて流すと、2 回目の違反を追随分の側に絞りやすい。渡さないときの合否・出力が変わらないことは `follow-up: without the option the output is unchanged` が示す
+3. 基準版だけで流すときと同じ `--item-rows`・`--key-column` を併用できる（`follow-up: --item-rows key in a table row`・`follow-up: --key-column by name passes with BOM and CRLF`）
+4. `--follow-csv` は 1 回だけ。2 回指定は誤用で 2 になる（`follow-up: --follow-csv given twice`）
+
+### 終了コードの読み方
+
+- 2: 検査を終えていない。追随分のパスが無い・0 バイト・2 回指定、submodule が無いなど。直して流し直す。合否は出ていない（`follow-up: missing --follow-csv path`・`follow-up: empty follow-up CSV file`）
+- 1: 違反。次の「違反の見方」へ
+- 0: 合格。`--list` を付けたときだけ、このときに対応の一覧が出る
+
+### 違反の見方
+
+- 標準エラーの最後の `FAILED: N violation(s)` で件数を見る
+- 行の位置は `at follow-up line N` が追随分、`at line N` が基準版（`follow-up: column mismatch and empty key are labelled`）
+- 基準版と追随分にまたがる鍵の重複も違反で、上書き・マージはしない（`follow-up: key in both CSVs is a duplicate`）
+- `follow-up CSV header differs from the base CSV header` が出たときは、追随分のデータ行は検査されていない。ほかの違反が出ていなくても、追随分は確かめ終わっていない。見出しを直して流し直す（`follow-up: header name differs from the base`・`follow-up: header column count differs from the base`）
+- `the follow-up CSV has no data rows`（`follow-up: header-only CSV`）と `cannot parse the follow-up CSV`（`follow-up: invalid UTF-8 in the follow-up CSV`・`follow-up: unterminated quote in the follow-up CSV`）は、追随分そのものを直す
+- 鍵の文字列は既定で出ない（`follow-up: keys are hidden by default`）。手元で鍵を特定したいときだけ `--show-keys` を付ける（`follow-up: --show-keys prints the key`）。この出力と `--list` の出力は spec の内容なので、PR・Issue・CI のログ・コミットに貼らず、本リポにファイルとして残さない
 
 ## 振る舞いとテストの対応
 
