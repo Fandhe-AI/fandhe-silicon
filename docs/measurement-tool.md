@@ -11,7 +11,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
     - TASK-4: ルートの `Cargo.toml` の `members` と [workspace-boundary](workspace-boundary.md)
     - TASK-28: [measurement-record](measurement-record.md)
     - TASK-19: [metal-run-procedure](metal-run-procedure.md)
-- 本リポの `docs/spec` の gitlink は `0696aed`（`update = none`）
+- 本リポの `docs/spec` の gitlink は `f0ff0fe`（`update = none`）
     - 確かめ方: `git ls-tree origin/main docs/spec`
     - gitlink の更新は `update-external.yml` の PR 経由で、本作業では進めない
 
@@ -195,7 +195,7 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | 公開アイテム | 振る舞い（対応するテスト） |
 | ------------ | -------------------------- |
 | `scripts/perf-record-check.sh <run>` | 欄の集合・型・値の形・配列の長さ・条件付きの欄・時刻順を検査し、終了コード 0 合格・1 違反・2 誤用。入力の値と表に無い欄の名前は出さない（`scripts/test-perf-record-check.sh` の `set:`・`type:`・`form:`・`len:`・`gpu:`・`order:`・`input:`・`misuse:`・`secret:`） |
-| `scripts/perf-record-check.sh --session <回> [<run> ...]` | 回の記録の形を先に通し、回の側と run ごとの除外（回への参照・時間帯・電源・熱・検証レイヤー・取得不能・重複）を見る。回の `run_ids` の各 ID について、回の記録と同じディレクトリの `runs/<ID>.json` が通常のファイルとしてあることが要る（無ければ回を除外し終了コード 1。中身は読まない）。配置は `<dir>/session.json` と `<dir>/runs/<ID>.json`。記入例を直接渡す従来の使い方は通らない。除外は終了コード 1（同じ `session:`・`input:` 系のケース） |
+| `scripts/perf-record-check.sh --session <回> [<run> ...]` | 回の記録の形を先に通し、回の側と run ごとの除外（回への参照・時間帯・電源・熱・検証レイヤー・取得不能・重複）を見る。回の `run_ids` の各 ID について、回の記録と同じディレクトリの `runs/<ID>.json` が通常のファイルとしてあることが要る（無ければ回を除外し終了コード 1。中身は読まない）。渡した run の `run_id` が `run_ids` に無ければ run を除外する（詳細は「回の run_ids との突き合わせ（TASK-2947）」の節）。配置は `<dir>/session.json` と `<dir>/runs/<ID>.json`。記入例を直接渡す従来の使い方は通らない。除外は終了コード 1（同じ `session:`・`input:` 系のケース） |
 | `docs/run-record.example.json` | ダミーの記入例。書き出しの実物とバイト一致し、回の記入例と組で判定に使える（`tests/repeat.rs` の r6・r5） |
 | 繰り返しのテスト | 合成の標本は同じバイト列になり（r1）、CPU だけのダミー測定を繰り返しても run の ID 以外の条件の欄が一致して値の欄は件数どおり（r2）。実物の出力の各分岐が検査を通り（r3）、欄の増減・型違いは落ちる（r4） |
 
@@ -268,6 +268,41 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 | コマンド `across-runs` | 成功は 0、入力の違反は 1、誤用（引数なし・未知のオプション・読めない）は 2。標準エラーは固定の文言と引数の番号だけ | `p1`〜`p4` |
 
 確かめ方は `make measure-verify`。変動帯の 2 つの値のどちらで判定するかは本コマンドでは決めない。
+
+## 回の run_ids との突き合わせ（TASK-2947）
+
+回の記録の `run_ids` と run の記録の突き合わせを `--session` に足した（親 #7154）。完了の条件の正は private spec 側の記録に従う（ポインタ: `docs/spec/05-tasks.md` の TASK-2947）。
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/3 | #7155 | 検査と回帰テスト |
+| 2/3 | #7156 | 実機の手順書（[metal-run-procedure](metal-run-procedure.md) の「4. `run_ids` を埋めて突き合わせる」） |
+| 3/3 | #7157 | 完了の条件の確かめ（本節） |
+
+| 振る舞い | 対応するテスト |
+| -------- | -------------- |
+| 所属: 渡した run の `run_id` が `run_ids` に無ければ、その run は `excluded: not-in-run-ids` | `session: run_id not in run_ids` |
+| 実在: `run_ids` の各 ID について、回の記録の隣の `runs/<ID>.json` が通常のファイルとして無ければ、回が `excluded: run-record-missing`（終了コード 1）。ディレクトリの entry は無いものとして扱う | `session: missing run record`・`session: runs entry is a directory` |
+| 空の `run_ids`: run を渡さなければ合格、渡せば `not-in-run-ids` | `session: empty run_ids and no run`・`session: empty run_ids with a run` |
+| 一部の run だけを渡してもよい。集合の一致・中身・`runs/` の走査は見ない | `session: subset of runs is enough`・`session: extra file in runs is ignored` |
+| 優先順位: low-power と interrupted は missing より先。session-mismatch は not-in-run-ids より先。not-in-run-ids は時間帯より先 | `session: low power wins over missing record`・`session: interrupted wins over missing record`・`session: mismatch wins over not in run_ids`・`session: not in run_ids wins over window` |
+| 回の記録の場所から決めるので cwd に依らない | `session: relative paths from another cwd` |
+| 標準エラーは `run_ids[N]` の番号だけで、ID の値を出さない | `session: low power wins over missing record` の否定アサーション |
+| 記入例の配置 | `session: docs examples have no runs dir`・`session: run record from runs dir`・`r5_session_mode_uses_the_documented_examples` |
+
+### 完了の条件の確かめ（TASK-2947）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| G1 | 所属・実在・空の `run_ids` の回帰テスト | `make test-perf-record-check` | 終了コード 0・193 件通過 |
+| G2 | 記入例を並びに置いた組での `--session` | `make measure-verify`（`repeat.rs` の r5 を含む） | 終了コード 0・74 件通過（`repeat.rs` は 6 件） |
+| G3 | CI の `deny` ジョブで流れる | main の push run（`32cdcb2`）の `make deny (cargo-deny)` ジョブの `make measure-verify`・`make test-perf-record-check` の step | どちらも success |
+| G4 | 実機の手順書の 1 手順 | [metal-run-procedure](metal-run-procedure.md) の「4. `run_ids` を埋めて突き合わせる」と回帰テストの表の行 | 記載あり |
+| D | 品質ゲート | `make check`・`make test-perf-record-check`・`make measure-verify` | 終了コード 0 |
+
+実機の回の記録の確かめは private spec 側の記録に従う（ポインタのみ。TASK-2947）。
+
+確かめた base は `32cdcb2`、`docs/spec` の gitlink は `f0ff0fe`。
 
 ## 本リポでの反映の方針
 
