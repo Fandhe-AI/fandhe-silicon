@@ -150,7 +150,7 @@ misuse() {
 # ---- 合格 ----
 
 run_check
-judge "pass: real ci.yml (no arguments)" 0 "ok: ci workflow frame (6 jobs, rules F1-F6)"
+judge "pass: real ci.yml (no arguments)" 0 "ok: ci workflow frame (7 jobs, rules F1-F6)"
 
 pass "pass: synthetic base" "${BASE}"
 
