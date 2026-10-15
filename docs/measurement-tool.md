@@ -54,6 +54,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 試験の結果の部品 | `crates/core` の `test_frame::record` が `RecordPart` と `BODY_KIND` を持つ（`test-support` の裏）。run の欄を足して 1 件に組むのは受け取る側 | `crates/core/src/test_frame/record.rs` の `//!` |
 | 部品の書き出し | `test_frame::export` が `RECORD_DIR_ENV` で指定されたディレクトリへ書く（指定が無ければ書かない） | `crates/core/src/test_frame/export.rs` |
 | 回ごとの記録の形の検査 | `scripts/session-record-check.sh`。make ターゲットは無い | ファイル冒頭のコメント |
+| run ごとの記録の形の検査 | `scripts/perf-record-check.sh`。make ターゲットは無い（7/8） | ファイル冒頭のコメント |
 | 環境の集計値 | `scripts/metal-session.sh probe` が JSON を標準出力へ出す（macOS だけ） | ファイル冒頭のコメント |
 | 部品の集計 | `scripts/record-summary.sh` | [test-frame](test-frame.md) |
 | path の検査 | `scripts/deny.sh` の `ALLOWED_ROOT` は `crates/`。測定専用の crate の置き場が決まったら見直す、とコメントにある | `scripts/deny.sh` |
@@ -180,6 +181,22 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 入力の検査 | 有限でない・負・分母 0・上限超え・1/4 刻みに乗らない値は範囲外でも `Err`（`invalid_inputs_err_even_out_of_scope`）。`RunStats`・`AcrossRuns` の中央値をそのまま渡せる（`accepts_real_medians`） |
 
 確かめ方は `make measure-verify`（3/8 と同じ）。
+
+## 現状の形（7/8）
+
+run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` と、同じ測定を繰り返したときの記録の形を確かめるテストを足した。
+外部依存は増えない（Python は標準ライブラリだけ・Rust は std だけ）。make ターゲットは持たない（検査本体は引数が要る）。
+欄の定義はスクリプトの定数表が唯一の正で、書く側（`record`・`evidence`・`json`）との食い違いは `tests/repeat.rs` が検出する。
+後続の段の範囲は本節に書かない。
+
+| 公開アイテム | 振る舞い（対応するテスト） |
+| ------------ | -------------------------- |
+| `scripts/perf-record-check.sh <run>` | 欄の集合・型・値の形・配列の長さ・条件付きの欄・時刻順を検査し、終了コード 0 合格・1 違反・2 誤用。入力の値と表に無い欄の名前は出さない（`scripts/test-perf-record-check.sh` の `set:`・`type:`・`form:`・`len:`・`gpu:`・`order:`・`input:`・`misuse:`・`secret:`） |
+| `scripts/perf-record-check.sh --session <回> [<run> ...]` | 回の記録の形を先に通し、回の側と run ごとの除外（回への参照・時間帯・電源・熱・検証レイヤー・取得不能・重複）を見る。除外は終了コード 1（同じ `session:`・`input:` 系のケース） |
+| `docs/run-record.example.json` | ダミーの記入例。書き出しの実物とバイト一致し、回の記入例と組で判定に使える（`tests/repeat.rs` の r6・r5） |
+| 繰り返しのテスト | 合成の標本は同じバイト列になり（r1）、CPU だけのダミー測定を繰り返しても run の ID 以外の条件の欄が一致して値の欄は件数どおり（r2）。実物の出力の各分岐が検査を通り（r3）、欄の増減・型違いは落ちる（r4） |
+
+確かめ方は `make measure-verify`（`tests/repeat.rs` を含む）と `make test-perf-record-check`。
 
 ## 本リポでの反映の方針
 

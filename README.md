@@ -68,7 +68,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
-| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `deps-check` / `test-deps-check` / `inventory-trace-check` / `test-inventory-trace-check` / `session-record-check`（make ターゲットなし・直接実行）/ `test-session-record-check` / `record-summary`（make ターゲットなし・直接実行）/ `test-record-summary` / `metal-session`（make ターゲットなし・直接実行）/ `test-metal-session` / `hooks/test-hooks`）。Make なしでも直接実行できる |
+| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `deps-check` / `test-deps-check` / `inventory-trace-check` / `test-inventory-trace-check` / `session-record-check`（make ターゲットなし・直接実行）/ `test-session-record-check` / `perf-record-check`（make ターゲットなし・直接実行）/ `test-perf-record-check` / `record-summary`（make ターゲットなし・直接実行）/ `test-record-summary` / `metal-session`（make ターゲットなし・直接実行）/ `test-metal-session` / `hooks/test-hooks`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
 | `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg）。編集方針は `.claude/rules/git-hooks.md`（フックの時間予算と CI との役割分担） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
@@ -96,6 +96,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜6/8）（TASK-27） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
+| `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
 | `.gitmodules` | submodule 定義（`docs/spec` を `update = none` で登録） |
 | `LICENSE-MIT`・`LICENSE-APACHE` | ライセンス（前述の「ライセンス」） |
@@ -164,6 +165,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-public-api-check` | `scripts/test-public-api-check.sh` | `make public-api-check` の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-public-name-check` | `scripts/test-public-name-check.sh` | `make public-name-check` の回帰テスト（ダミーの語の合成 JSON・合成ソースと、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make test-session-record-check` | `scripts/test-session-record-check.sh` | `session-record-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/session-record-check.sh <path>` を直接実行する |
+| `make test-perf-record-check` | `scripts/test-perf-record-check.sh` | `perf-record-check` 自体の回帰テスト（合成 fixture。bash + python3。cargo・ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/perf-record-check.sh <path>` または `--session <回の記録> [<path>...]` を直接実行する |
 | `make test-record-summary` | `scripts/test-record-summary.sh` | `record-summary` と `verify.sh` の記録の扱いの回帰テスト（合成の部品と偽の cargo。bash + python3。ネットワーク不要）。集計の本体は引数（部品のディレクトリ）が要るため make ターゲットを持たず、`scripts/record-summary.sh <dir>` を直接実行する。CI の `deny` ジョブが実行し、`test-hooks` ジョブの macOS では標準の bash 3.2 でも直接実行する |
 | `make test-metal-session` | `scripts/test-metal-session.sh` | `metal-session` 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替えるので Linux でも流れる。bash + python3 + git。ネットワーク不要）。本体はサブコマンド（`probe` / `run` / `redact` / `scan`）と引数が要るため make ターゲットを持たず、`scripts/metal-session.sh` を直接実行する。CI の `deny` ジョブと `test-hooks` ジョブ（macOS を含む）も実行する |
 | `make test-hooks` | `scripts/hooks/test-hooks.sh` | フックスクリプト自体の回帰テスト（一時 git リポジトリで検出・許可ケースを検証。bash + git のみ） |
@@ -187,7 +189,7 @@ hooks に引っかかった場合は原因を修正してから再コミット�
 
 開発速度を落とさないため、hooks には staged ファイル限定で一瞬で終わる検査と、コミット単位でしか意味がない検査
 （シークレット検知・コミットメッセージ）だけを置きます。clippy・test・cargo-deny など重い処理や CI と重複する検査は
-CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` を実行してください。
+CI（`.github/workflows/ci.yml`）で行います。手元で CI 相当を確認する場合は `make check` / `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` を実行してください。
 時間予算（pre-commit 合計 1 秒未満）と判断手順は `.claude/rules/git-hooks.md` に定義しています。
 
 フックスクリプト（`scripts/hooks/*.sh`）自体のテストもフックには置かず、CI の `test-hooks` ジョブ（`make test-hooks`）で
