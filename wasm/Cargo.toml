@@ -24,7 +24,7 @@ missing_docs = "warn"
 undocumented_unsafe_blocks = "deny"
 missing_safety_doc = "deny"
 
-# 量の測定（後続の作業）に使う profile。release を土台に、サイズ寄りの設定にする。
+# 量の測定に使う profile。release を土台に、サイズ寄りの設定にする。
 [profile.wasm-size]
 inherits = "release"
 opt-level = "z"

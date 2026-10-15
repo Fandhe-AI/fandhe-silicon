@@ -1,5 +1,4 @@
-# glue: wasm32 向けの cdylib。製品の crate（crates/contract）に path で依存し、
-# 量の測定と Node での照合（後続の作業）が載る土台になる。
+# glue: wasm32 向けの cdylib。製品の crate（crates/contract）に path で依存する。
 [package]
 name = "wasm-glue"
 version = "0.0.0"

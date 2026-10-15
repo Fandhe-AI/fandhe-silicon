@@ -8,6 +8,7 @@
 - `members` は `crates/core`・`crates/contract`・`crates/exec`・`crates/upper` の 4 つ（正はルート `Cargo.toml`）
 - member の増減と、測定専用の crate・ハーネスの置き場は、private spec の TASK-1・TASK-6 の決定の記録に従う（`docs/spec/05-tasks.md`。本リポには内容を転記しない）
 - 測定専用の別 workspace `measure/` はルート `Cargo.toml` の `exclude` にあり、製品の member・依存グラフに入らない（TASK-6・TASK-27 のポインタ。所在と現状の事実は [measurement-tool](measurement-tool.md)）
+- wasm32 向けの別 workspace `wasm/` もルート `Cargo.toml` の `exclude` にあり、製品の member・依存グラフに入らない。依存の向きは `wasm/` → 製品（`crates/contract` への path）だけで、製品の crate が `wasm/` を参照すると `make deny` の path の検査が落ちる（TASK-22 のポインタ。所在と現状の事実は [wasm32-node-foundation](wasm32-node-foundation.md)）
 - これ以外の workspace のコードを、member や path 依存として加えない
 
 ## 依存グラフから外すもの

@@ -4,7 +4,6 @@
 //! （feature は `contract-core`・`cpu-isa`・`cpu-ops` のみ）に path で依存し、
 //! wasm32-unknown-unknown でビルドした `.wasm` の入口になる。
 //! 依存の向きは「本 crate → 製品」だけで、製品の crate は本 crate を知らない。
-//! 後続の量の測定と Node での照合は、ここで作る `.wasm` を対象にする。
 //!
 //! 手で書く unsafe は持たない。配列の受け渡しは wasm-bindgen の型の変換に任せる。
 
@@ -13,7 +12,7 @@ use fandhe_silicon_contract as _;
 
 /// 受け取った `f32` の列を、同じ値・同じ順序で新しい `Vec` に写して返す。
 ///
-/// Node 側から `Float32Array` を渡して往復を確かめる最小の口（後続の照合の土台）。
+/// JS 側から `Float32Array` を渡して往復を確かめられる最小の口。
 /// 値は変換せずビット列のまま写すので、`-0.0`・無限大・NaN もそのまま返る。
 /// wasm32 のときだけ wasm-bindgen の export になり、ホストでは通常の関数としてテストできる。
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
