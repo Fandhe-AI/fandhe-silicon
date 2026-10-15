@@ -3,7 +3,8 @@
 //! 封筒の芯（版・run の ID・時刻・機材・ラベル・回への参照）と、本体の種類（いまは `perf-samples`）を持つ。
 //! 測定の腕が標本を集めたあと、本モジュールで検証つきの記録にして JSON を出す。
 //! 欄の値は白表の列挙・検証済みの ID・時刻・数だけで、ホスト名・パス・自由な文を受ける口を持たない。
-//! 欄の取得不能は `null`（0 で埋めない）。道具側に標本数・run 数・機材ごとの制限は無い。
+//! 経路の証拠・環境・比較基準の版の欄と値型は `evidence` にあり、ここから再公開する。
+//! 欄の取得不能は、型を持つ欄は `null`、文字列の欄は予約語（0 で埋めない）。道具側に標本数・run 数・機材ごとの制限は無い。
 //! 時計は読まない（時刻は呼び手が [`UtcTime`] で渡す）。専有の確かめが後で引く手掛かりとして
 //! `session_ref` と開始・終了の時刻を載せる。
 //!
@@ -11,9 +12,11 @@
 //! 機材とラベルの綴りは `crates/core` の `test_frame` に揃える。
 
 use crate::PerfError;
+pub use crate::evidence::*;
 use crate::json;
 use crate::sample::{PhaseSamples, SampleCounts, SubmissionSample};
 use crate::stats::{RunStats, run_stats};
+use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -41,6 +44,10 @@ pub enum RecordError {
     Empty,
     /// 統計の失敗、または統計の値を正確に書けない。
     Perf(PerfError),
+    /// 値の形が合わない（入力は埋め込まない）。
+    InvalidValue,
+    /// 環境の背後実装の欄と、機材の組み合わせの背後実装が合わない。
+    BackendMismatch,
     /// ファイルの書き出しの失敗（既存のファイルがある場合を含む）。
     Io(std::io::ErrorKind),
 }
@@ -53,6 +60,10 @@ impl fmt::Display for RecordError {
             Self::TimeOrder => f.write_str("start time is after end time"),
             Self::CountMismatch => f.write_str("sample counts do not match the samples"),
             Self::Empty => f.write_str("empty samples"),
+            Self::InvalidValue => f.write_str("invalid value"),
+            Self::BackendMismatch => {
+                f.write_str("backend env does not match the machine combination")
+            }
             Self::Perf(e) => write!(f, "perf error: {e}"),
             Self::Io(k) => write!(f, "io error: {k}"),
         }
@@ -301,6 +312,17 @@ impl MachineCombination {
         Self::CudaNodeA,
     ];
 
+    /// 背後実装。
+    pub const fn backend(self) -> AdapterBackend {
+        match self {
+            Self::MetalMacMini => AdapterBackend::Metal,
+            Self::VulkanNodeB | Self::VulkanNodeA | Self::VulkanAmd | Self::VulkanIntel => {
+                AdapterBackend::Vulkan
+            }
+            Self::CudaNodeB | Self::CudaNodeA => AdapterBackend::Cuda,
+        }
+    }
+
     /// 記録に書く綴り。
     pub const fn name(self) -> &'static str {
         match self {
@@ -425,6 +447,8 @@ pub struct PerfSamplesBody {
     samples: PhaseSamples,
     submissions: u64,
     dispatches: u64,
+    processed_count: Option<u64>,
+    instructions_found: BTreeMap<Name, bool>,
     cpu_stats: RunStats,
     gpu_stats: Option<RunStats>,
 }
@@ -459,9 +483,23 @@ impl PerfSamplesBody {
             samples,
             submissions,
             dispatches,
+            processed_count: None,
+            instructions_found: BTreeMap::new(),
             cpu_stats,
             gpu_stats,
         })
+    }
+
+    /// 処理件数を足す（既定は取得不能で `null`）。
+    pub fn with_processed_count(mut self, n: Option<u64>) -> Self {
+        self.processed_count = n;
+        self
+    }
+
+    /// 生成コードの該当命令の表（名前 → 見つかったか）を足す（既定は空）。
+    pub fn with_instructions_found(mut self, m: BTreeMap<Name, bool>) -> Self {
+        self.instructions_found = m;
+        self
     }
 
     /// 本体を JSON にして `out` に足す。統計の値を正確に書けなければ `false`。
@@ -472,6 +510,16 @@ impl PerfSamplesBody {
             "{{\"sample_counts\":{{\"cold\":{},\"warmup\":{},\"measured\":{}}},\"submission_count\":{},\"dispatch_count\":{},",
             c.cold, c.warmup, c.measured, self.submissions, self.dispatches
         );
+        out.push_str("\"processed_count\":");
+        json::push_opt_u64(out, self.processed_count);
+        out.push_str(",\"instructions_found\":");
+        json::push_bool_map(
+            out,
+            self.instructions_found
+                .iter()
+                .map(|(k, v)| (k.as_str(), *v)),
+        );
+        out.push(',');
         type Pick = fn(&SubmissionSample) -> Option<u64>;
         let picks: [(&str, Pick); 2] = [("cpu_ns", |s| Some(s.cpu_ns)), ("gpu_ns", |s| s.gpu_ns)];
         for (key, pick) in picks {
@@ -553,6 +601,12 @@ pub struct Envelope {
     pub ended_utc: UtcTime,
     /// 回への参照。
     pub session_ref: SessionRef,
+    /// 経路の証拠。
+    pub evidence: Evidence,
+    /// 環境。
+    pub environment: Environment,
+    /// 比較基準の wgpu の版（比較用の run のときだけ `Some`。`None` ならキーごと出さない）。
+    pub wgpu_baseline: Option<WgpuBaseline>,
 }
 
 /// 検証済みの run ごとの記録。
@@ -580,9 +634,13 @@ fn push_ids(out: &mut String, key: &str, ids: &[RefId]) {
 
 impl RunRecord {
     /// 封筒と本体から作る。開始が終了より後なら [`RecordError::TimeOrder`]（同時刻は受ける）。
+    /// 環境の背後実装の欄が組み合わせの背後実装と合わなければ [`RecordError::BackendMismatch`]。
     pub fn new(envelope: Envelope, body: Body) -> Result<Self, RecordError> {
         if envelope.started_utc > envelope.ended_utc {
             return Err(RecordError::TimeOrder);
+        }
+        if envelope.environment.backend_env.backend() != envelope.machine_combination.backend() {
+            return Err(RecordError::BackendMismatch);
         }
         Ok(Self { envelope, body })
     }
@@ -612,6 +670,14 @@ impl RunRecord {
         push_str_field(&mut out, "started_utc", e.started_utc.as_str());
         push_str_field(&mut out, "ended_utc", e.ended_utc.as_str());
         push_str_field(&mut out, "session_ref", e.session_ref.as_str());
+        out.push_str(",\"evidence\":");
+        e.evidence.write_json(&mut out);
+        out.push_str(",\"environment\":");
+        e.environment.write_json(&mut out);
+        if let Some(w) = &e.wgpu_baseline {
+            out.push_str(",\"wgpu_baseline\":");
+            w.write_json(&mut out);
+        }
         out.push_str(",\"body\":");
         let ok = match &self.body {
             Body::PerfSamples(b) => b.write_json(&mut out),
