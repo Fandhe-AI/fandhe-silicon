@@ -20,12 +20,12 @@ description: >
 
 ## 必須チェックと集約ジョブ
 
-- ruleset `main-protection` の required status checks（11 件）:
+- ruleset `main-protection` の required status checks（12 件）:
   - `ci.yml`: `ci-complete`・`make check (editorconfig-checker + shellcheck)`・`make verify (fmt + clippy + test)`〔`make verify` は試験の枠の記録から集計の表をジョブのログに出す。artifact・PR の Summary には出さない〕・
-    `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` も含む。check 名は不変）・`PR title (Conventional Commits)`・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`（`make test-hooks` に加えて `make test-session-record-check` / `make test-metal-session` も流し、macOS では `/bin/bash`〔標準の 3.2〕で直接実行する step もある。macOS では `scripts/test-record-summary.sh` も `/bin/bash` で直接実行する。check 名は不変）
+    `make deny (cargo-deny)`（`make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` も含む。check 名は不変）・`PR title (Conventional Commits)`・`wasm32 build + size + node (macos-latest)`〔ジョブ `wasm-macos`〕・`hook script tests (ubuntu-latest)`・`hook script tests (macos-latest)`（`make test-hooks` に加えて `make test-session-record-check` / `make test-metal-session` も流し、macOS では `/bin/bash`〔標準の 3.2〕で直接実行する step もある。macOS では `scripts/test-record-summary.sh` も `/bin/bash` で直接実行する。check 名は不変）
   - `ai-review.yml`: `codex / preflight`・`codex / review`・`codex / post_feedback`
   - 外部 App: `Cursor Bugbot`（cursor App に束縛。それ以外は GitHub Actions の integration に束縛）
-- `wasm-macos`（check 名 `wasm32 build + size + node (macos-latest)`）は `ci-complete` の `needs` に入っている。ruleset への登録はリポジトリ設定の作業（ユーザー判断）で、上の件数は登録の事実に合わせて直す
+- `wasm-macos`（check 名 `wasm32 build + size + node (macos-latest)`）は `ci-complete` の `needs` に入っており、ruleset にも登録している
 - 個別ジョブまで登録するのは、implement-issue-tree の自動マージ前ゲート（G0）が PR 上の全 check を必須チェックに含めることを要求するため。
   PR で生成される check を増やす・減らす・改名するときは、ruleset 側も同時に更新する（ユーザー判断事項。
   登録漏れは自動マージの停止、登録した check が生成されないと pending のままマージ不能になる）

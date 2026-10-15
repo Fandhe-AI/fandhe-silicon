@@ -131,7 +131,7 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | 流れる物 | `make wasm-verify`、`make wasm-size`、`make wasm-node-check` の順（先頭が依存を取得し、後の 2 つは `--offline` で動く） | `grep -n -A60 '^  wasm-macos:' .github/workflows/ci.yml` |
 | 道具の入れ方 | Node と wasm-bindgen の CLI を、版固定のうえ SHA256 を確かめてから入れる。版と SHA256 は `ci.yml` 先頭の `env`。入れたあとに版が宣言と一致しなければ失敗する。arm64 でなければ失敗する | `grep -n -E 'NODE_|WASM_BINDGEN_CLI_' .github/workflows/ci.yml` |
 | 作りの制約 | キャッシュを使わない。`continue-on-error` も `\|\| true` も無い。`permissions` は `contents: read`、checkout は `persist-credentials: false` | `grep -n -E 'continue-on-error|cache' .github/workflows/ci.yml`（0 件） |
-| 集約 | `ci-complete` の `needs` に入っている。ruleset への登録はリポジトリ設定の作業で、本書の範囲外 | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
+| 集約 | `ci-complete` の `needs` に入っている。ruleset の required status checks にも登録している（check 名 `wasm32 build + size + node (macos-latest)`） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
 | 枠の検査 | `make ci-frame-check`・`make test-ci-frame-check` が通る | `make ci-frame-check` |
 
 ## 本リポでの反映の方針
