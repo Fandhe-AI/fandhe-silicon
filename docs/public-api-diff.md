@@ -74,9 +74,10 @@ RUSTC_BOOTSTRAP=1 cargo rustdoc --locked --manifest-path baseline-wgpu/Cargo.tom
 新しい版:
 
 1. `mktemp -d` で使い捨ての workspace を作る。`[workspace]` を持つ `Cargo.toml` 1 つと空の `src/lib.rs` で、依存は `wgpu = "=<新しい版>"`（feature は比較基準と同じ既定）
-2. 比較基準と同じ呼び出しを、`--manifest-path <使い捨ての workspace>/Cargo.toml` と別の一時ディレクトリ B で流す。出力は `<一時ディレクトリ B>/doc/wgpu.json`
-3. 新しい版の取得だけがネットワークを使う
-4. `git status` で、製品の workspace・`baseline-wgpu/`・どの `Cargo.lock` も変わっていないことを確かめる
+2. 使い捨ての workspace にはロックファイルが無く、`--locked` 付きの `cargo rustdoc` は生成を拒否される。先に `cargo generate-lockfile --manifest-path <使い捨ての workspace>/Cargo.toml` で作る（ロックファイルは使い捨ての workspace の中にだけできる）
+3. 比較基準と同じ呼び出し（`--locked` 付き）を、`--manifest-path <使い捨ての workspace>/Cargo.toml` と別の一時ディレクトリ B で流す。出力は `<一時ディレクトリ B>/doc/wgpu.json`
+4. 新しい版の取得（手順 2 のロックファイルの生成）だけがネットワークを使う
+5. `git status` で、製品の workspace・`baseline-wgpu/`・どの `Cargo.lock` も変わっていないことを確かめる
 
 比較基準の版の固定（`wgpu = "=30.0.1"`・`baseline-wgpu/Cargo.lock`）を変えるのは、依存の承認の流れ（[dependency-policy](../.claude/rules/dependency-policy.md)）を経るときだけで、この手順では変えない。
 新しい版の値は本書に書かない。使い終えた一時ディレクトリと使い捨ての workspace は消す。
