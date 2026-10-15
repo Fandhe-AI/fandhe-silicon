@@ -127,3 +127,16 @@ pub fn push_bool_map<'a>(out: &mut String, entries: impl IntoIterator<Item = (&'
 pub fn push_milli(out: &mut String, milli: u64) {
     let _ = write!(out, "{}.{:03}", milli / 1000, milli % 1000);
 }
+
+/// 1/4 刻みの非負の値（4 倍した整数）を、正確な 10 進（`N`・`N.25`・`N.5`・`N.75`）で `out` に足す。
+///
+/// 浮動小数点を経由しないので、指数表記・NaN・無限大は出ない。
+pub fn push_quarter(out: &mut String, quarter_units: u64) {
+    let _ = write!(out, "{}", quarter_units / 4);
+    match quarter_units % 4 {
+        1 => out.push_str(".25"),
+        2 => out.push_str(".5"),
+        3 => out.push_str(".75"),
+        _ => {}
+    }
+}

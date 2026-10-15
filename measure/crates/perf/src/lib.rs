@@ -6,6 +6,8 @@
 //! 記録の封筒と本体を検証つきで作り JSON に書き出す `record`（と部品の `json`）も持つ。
 //! 封筒の経路の証拠・環境・比較基準の版の欄は `evidence` が持つ。
 //! 2 つの値の比から「同等」「差がある」の区分を出す `ratio` も持つ（適用範囲の一覧に載る試験だけ）。
+//! run ごとの記録を厳格に読む `jsonread` と、読んだ記録から run 間の集計を出す `runs` を持ち、
+//! コマンド `across-runs`（標準出力に 1 行の JSON を出す。ファイルは作らない）がそれらを呼ぶ。
 //! 本 crate は device に触れない。GPU 時間は呼び手が測った値を受け取るだけである。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-27（ポインタのみ）。
@@ -13,8 +15,10 @@
 pub mod across;
 pub mod evidence;
 pub mod json;
+pub mod jsonread;
 pub mod ratio;
 pub mod record;
+pub mod runs;
 pub mod sample;
 pub mod stats;
 
