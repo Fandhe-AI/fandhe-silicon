@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wasm32 の .wasm を wasm-bindgen の glue 越しに Node で呼び、結果をネイティブの参照と照合する土台
 # （spec TASK-22 のポインタ）。行ごとに match（一致）・mismatch（不一致）・not-run（未実施）を出す。
-# 呼び出し元: `make wasm-node-check`（直接実行も可）。CI からはまだ呼ばない（回帰テストは
+# 呼び出し元: `make wasm-node-check`（直接実行も可）。CI では `wasm-macos` ジョブが呼ぶ（回帰テストは
 # `make test-wasm-node-check`＝scripts/test-wasm-node-check.sh。CI の deny ジョブが呼ぶ）。
 #
 # 使い方: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]

@@ -44,7 +44,7 @@ measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / c
 wasm-verify: ## wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）。直接: scripts/wasm-verify.sh
 	@scripts/wasm-verify.sh
 
-wasm-size: ## wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2・ネットワーク不要。手元と後続のジョブ用で CI の deny ジョブは呼ばない）。直接: scripts/wasm-size.sh [--from-dir <dir>]
+wasm-size: ## wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2・ネットワーク不要。手元と CI の wasm-macos ジョブ用で CI の deny ジョブは呼ばない）。直接: scripts/wasm-size.sh [--from-dir <dir>]
 	@scripts/wasm-size.sh
 
 deps-check: ## 依存の版指定が =x.y.z の完全固定で、承認の記録（deps-approved.toml）と一致するかを検査する（cargo metadata + jq。ソースは変更しない）。直接: scripts/deps-check.sh
@@ -68,7 +68,7 @@ test-perf-record-check: ## scripts/perf-record-check.sh 自体の回帰テスト
 test-metal-session: ## scripts/metal-session.sh 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替える。bash + python3 + git。ネットワーク不要・Linux でも流れる）。本体はサブコマンドと引数が要るので make ターゲットを持たない（直接: scripts/metal-session.sh <probe|run|redact|scan>）。直接: scripts/test-metal-session.sh
 	@scripts/test-metal-session.sh
 
-wasm-node-check: ## wasm32 の .wasm を wasm-bindgen の glue 越しに Node で呼び、結果を参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI はまだ呼ばない）。直接: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]
+wasm-node-check: ## wasm32 の .wasm を wasm-bindgen の glue 越しに Node で呼び、結果を参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ）。直接: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]
 	@scripts/wasm-node-check.sh
 
 test-wasm-node-check: ## scripts/wasm-node-check.sh 自体の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果。run-glue.cjs は本物の node で偽の glue を読ませる。bash + python3 + node。ネットワーク不要）。直接: scripts/test-wasm-node-check.sh
