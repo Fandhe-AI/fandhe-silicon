@@ -57,6 +57,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 
 | パス | 役割 |
 |---|---|
+| `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計を置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は 0 件。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
 | `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make` の対象外。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
@@ -92,7 +93,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14・TASK-113） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
-| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）（TASK-27） |
+| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8）（TASK-27） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
@@ -158,6 +159,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `.github/workflows/ci.yml` が CI の枠の事実（集約ジョブの網羅・実行場所・失敗の握りつぶしが無いこと）を保っているかの検査（bash + python3。ソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（rustdoc の JSON を数え、走査した公開アイテムの数を標準出力に出す。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make public-name-check` | `scripts/public-name-check.sh` | 製品の crate の公開アイテムの名前に語の一覧（`public-name-check.conf`）の語が出ていないことの検査（rustdoc の JSON を数え、`--source` でソースの単語・呼び出しの形も数える。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make test-public-api-check` | `scripts/test-public-api-check.sh` | `make public-api-check` の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-public-name-check` | `scripts/test-public-name-check.sh` | `make public-name-check` の回帰テスト（ダミーの語の合成 JSON・合成ソースと、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |

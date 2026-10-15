@@ -19,8 +19,8 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu`。外部依存の承認の記録は 0 件 | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
-| 性能を測る道具 | 時間を測る標準ライブラリの型の使用が `crates/`・`baseline-wgpu/` に無い | `grep -rn -e Instant -e SystemTime -e 'std::time' crates baseline-wgpu`（0 件） |
+| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu` と `measure`。外部依存の承認の記録は 0 件 | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
+| 性能を測る道具 | 時間を測る標準ライブラリの型の使用は `measure/` にだけあり、`crates/`・`baseline-wgpu/` には無い | `grep -rn -e Instant -e SystemTime -e 'std::time' crates baseline-wgpu`（0 件）、`grep -rln 'std::time' measure --include=*.rs` |
 
 既にある関連の部品（名前とリンクのみ）:
 
@@ -78,7 +78,11 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | M11 | CI | ジョブと必須チェックを増やさず、既存のジョブに手順を足す。CI 用のツールは版固定・ハッシュで検証する | [github-actions](../.claude/rules/github-actions.md)、[ci-job-split](ci-job-split.md) |
 | M12 | 測らなかった結果 | skip・ignore・アサーションの弱体化で CI を通さない。取得できなかった値を成功にも失敗にも読み替えない | [coding-rust](../.claude/rules/coding-rust.md) |
 
-### 3/8（#124）への引き継ぎ
+### 3/8（#124）で扱ったこと
+
+- 置き場のディレクトリ名・crate 名は 3/8 がコードで決めた。内容は下の「現状の形（3/8）」
+
+### 3/8（#124）への引き継ぎ（実施済みの点を含む）
 
 - 着手時に、gitlink の版の spec の TASK-27 とそこから辿る決定の記録を読み直す。一意に導けない点は推奨案で確定せず伺う
 - 決定の記録のポインタに従い、置き場のディレクトリ名・crate 名などは 3/8 がコードで決め、選んだ形を PR 本文に書く
@@ -89,6 +93,26 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
     - `README.md`・`CLAUDE.md` のツリー
     - 本書の「本リポの現状」の表
 - 公開アイテム・スクリプトを足したら、本書に「現状の形（N/8）」を足し、具体はその PR のコードとテストに合わせて書く
+
+## 現状の形（3/8）
+
+測定専用の別 workspace `measure/`（ルート `Cargo.toml` の `exclude`。自身の `Cargo.lock` を持つ）に、共有 crate `measure-perf`（`measure/crates/perf/`・lib のみ・外部依存 0 件）を置いた。
+製品の crate は本 crate に依存せず、本 crate も製品の crate に依存しない。device には触れない。
+後続の段の範囲（記録の書き出し・欄・判定など）は本節に書かない。
+
+### 公開アイテムと振る舞い
+
+| モジュール | 公開アイテム | 振る舞い（対応するテスト） |
+| ---------- | ------------ | -------------------------- |
+| `sample` | `collect`・`sample_once`・`SampleCounts`・`PhaseSamples`・`SubmissionSample`・`CollectError`・`duration_to_ns` | 指定した数だけ cold・warmup・計測の順に閉包を呼ぶ。GPU 時間は閉包が返した `Option<u64>` をそのまま持ち、取得不能を 0 にしない。計測の回数 0 は `Err`。閉包の失敗は `CollectError::Submit` で返す。`Duration` が `u64` の ns に収まらなければ `Err`（`tests/sample.rs`） |
+| `stats` | `run_stats`・`RunStats`・`MAX_EXACT_NS` | 入力（ns）を書き換えず昇順にして、中央値（偶数個は中央 2 つの平均）・Q1・Q3・p95（添字 `round(p × (n − 1))`・補間なし・端数 0.5 は 0 から遠い側へ丸める）・最小・最大を出す。空と上限超えは `Err`（`tests/stats.rs`） |
+| `across` | `across_runs`・`across_run_stats`・`AcrossRuns` | run ごとの中央値の中央値、最大 − 最小、最大 ÷ 最小を出す。最小が 0 のときの比は `None`（無限大・NaN を返さない）。空・有限でない値・負の値は `Err`（`tests/across.rs`） |
+| 共通 | `PerfError` | 失敗の種類を表す。ライブラリのコードは panic せず、`unsafe` を持たない（workspace の lint で forbid） |
+
+### 確かめ方
+
+- `make measure-verify`（`scripts/measure-verify.sh`）: `measure/` の fmt --check・clippy（-D warnings）・test・`deps-check.sh measure/Cargo.toml`。CI の `deny` ジョブも呼ぶ
+- 製品の workspace が変わっていないこと: `cargo metadata --format-version 1 --no-deps | jq -r '.workspace_members[]'`（4 crate）
 
 ### 段の表
 

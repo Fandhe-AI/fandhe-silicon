@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny measure-verify deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -37,6 +37,9 @@ build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の 
 
 deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
 	@scripts/deny.sh
+
+measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
+	@scripts/measure-verify.sh
 
 deps-check: ## 依存の版指定が =x.y.z の完全固定で、承認の記録（deps-approved.toml）と一致するかを検査する（cargo metadata + jq。ソースは変更しない）。直接: scripts/deps-check.sh
 	@scripts/deps-check.sh
