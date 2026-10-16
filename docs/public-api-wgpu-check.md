@@ -22,6 +22,7 @@
 | ------ | ---- |
 | 引数なし | workspace の lib crate ごとに 2 組（production / all-features）の rustdoc JSON を作って検査する |
 | `--json <path>...` | 渡した JSON だけを検査する（cargo を呼ばない） |
+| `--manifest-path <path>` | `<path>`（リポジトリ内の `Cargo.toml`）の workspace の lib crate に同じ検査を当てる（例: `baseline-wgpu/Cargo.toml`）。`--json`・`--emit-json` とは併用できない。`make public-api-check` が呼ぶのは製品の workspace だけ |
 
 production の組で contract に渡す feature 列は、スクリプトの `CONTRACT_PRODUCTION` を正とする（本書には列挙しない）。
 

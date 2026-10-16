@@ -3,16 +3,24 @@
 # wgpu プロジェクトの crate を「狭い定義」と「広い定義」の 2 通りで数えて確かめる
 # （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6・3/6・4/6）。
 # 呼び出し元: `make deny`（scripts/deny.sh）と `make dep-graph-wgpu-check`。直接実行も可。
-# 対象は製品の workspace（ROOT_DIR/Cargo.toml）だけ。baseline-wgpu/・measure/・wasm/ には当てない。
+# 既定の対象は製品の workspace（ROOT_DIR/Cargo.toml）。`--manifest-path` でリポジトリ内の別 workspace
+# （比較基準の baseline-wgpu/ など）を指定できる。`make deny` が呼ぶのは製品の workspace だけ。
 #
 # 使い方:
 #   scripts/dep-graph-wgpu-check.sh                                   cargo metadata と cargo tree を流して数える
 #   scripts/dep-graph-wgpu-check.sh --metadata-json <path> [--tree-text <path>]
 #                                                                     渡した入力だけを数える（cargo を呼ばない。
 #                                                                     --tree-text は --metadata-json と組でだけ受け付ける）
+#   scripts/dep-graph-wgpu-check.sh --manifest-path <ROOT_DIR 配下の Cargo.toml>
+#                                                                     別 workspace に cargo を流して数える（--metadata-json とは併用不可）
+#   --allow-metadata-superset                                         metadata と tree の一致の確認を「tree 側の crate がすべて metadata にある」へ
+#                                                                     緩める（optional な依存で metadata の方が大きい workspace 用）。
+#                                                                     受け付けるのは、製品の Cargo.toml 以外を指す --manifest-path か、
+#                                                                     --metadata-json と --tree-text の組のときだけ。数える集合は metadata 側のまま
 # 終了コード: 0 2 定義とも 0 件 / 1 どちらかの定義で 1 件以上（違反）
 #   2 誤用・前提の不足（python3・cargo・git が無い、cargo の失敗、コミットが取れない）・読めない入力・
-#     metadata と tree の不一致・数えた crate が 0 件（成功扱いにしない）
+#     metadata と tree の不一致（緩めても tree 側だけの crate があれば不一致）・数えた crate が 0 件（成功扱いにしない）・
+#     --manifest-path の値が不正（リポジトリ外・Cargo.toml でない）・--allow-metadata-superset を受け付けない経路での指定
 # 標準出力: `scanned:` の行（読んだ入力ごと）、数え終えたとき（終了コード 0 と 1）だけ `record:` の行、合格時の `ok:` の 1 行。
 #   `record: commit=<rev|-> crates_total=<n> workspace_members=<n> narrow_total=<n> wide_total=<n> no_repository=<n>`
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--metadata-json の経路では `-`。
@@ -156,6 +164,19 @@ def source_commit(root):
     return sha + ("-dirty" if st.strip() else "")
 
 
+def resolve_manifest(root, value):
+    """--manifest-path の値を実パスにして返す。root 配下の Cargo.toml（通常ファイル）以外は Misuse。"""
+    real_root = os.path.realpath(root)
+    path = os.path.realpath(value)
+    ok = (
+        os.path.basename(path) == "Cargo.toml"
+        and os.path.isfile(path)
+        and os.path.commonpath([real_root, path]) == real_root
+    )
+    need(ok, "--manifest-path must be a Cargo.toml inside the repository")
+    return path
+
+
 def run_cargo(root, cmd):
     """cargo を引数の並びで起動して標準出力を返す。失敗は Misuse（標準エラーは出さない）。"""
     env = dict(os.environ, CARGO_TERM_COLOR="never")
@@ -247,9 +268,24 @@ def main():
     ap.add_argument("root")
     ap.add_argument("--metadata-json")
     ap.add_argument("--tree-text")
+    ap.add_argument("--manifest-path")
+    ap.add_argument("--allow-metadata-superset", action="store_true")
     a = ap.parse_args()
     if a.tree_text is not None and a.metadata_json is None:
         raise Misuse("--tree-text requires --metadata-json")
+    extra = []
+    if a.manifest_path is not None:
+        need(a.metadata_json is None, "--manifest-path cannot be combined with --metadata-json")
+        resolved = resolve_manifest(a.root, a.manifest_path)
+        extra = ["--manifest-path", resolved]
+        # 製品の workspace を指すときは緩めを許さない（製品向けは常に厳密一致）。
+        is_product = resolved == os.path.join(os.path.realpath(a.root), "Cargo.toml")
+    else:
+        is_product = a.metadata_json is None
+    if a.allow_metadata_superset:
+        need(not is_product, "--allow-metadata-superset is not accepted for the product workspace")
+        has_tree = a.metadata_json is None or a.tree_text is not None
+        need(has_tree, "--allow-metadata-superset requires --tree-text with --metadata-json")
 
     tree_set = None
     if a.metadata_json is not None:
@@ -264,10 +300,10 @@ def main():
         commit = source_commit(a.root)
         run_cargo(a.root, ["cargo", "--version"])
         try:
-            md = json.loads(run_cargo(a.root, METADATA_CMD))
+            md = json.loads(run_cargo(a.root, METADATA_CMD + extra))
         except ValueError:
             raise Misuse("cargo metadata output is not JSON")
-        tree_set = parse_tree(run_cargo(a.root, TREE_CMD))
+        tree_set = parse_tree(run_cargo(a.root, TREE_CMD + extra))
 
     n_members, pkgs = reachable(md)
     need(pkgs, "no crates found in the dependency graph")
@@ -281,7 +317,10 @@ def main():
         cur["missing"] = cur["missing"] and is_missing(p.get("repository"))
         cur["repos"].append(p.get("repository"))
     if tree_set is not None:
-        need(set(uniq) == tree_set, "cargo metadata and cargo tree disagree on the crate set")
+        # 緩めるのは明示のオプションがあるときだけ。tree 側だけの crate は緩めても不一致。
+        # 緩めても空の tree は受け付けない（空集合はどんな集合の部分集合でもあり、素通りになるため）。
+        agree = (bool(tree_set) and tree_set <= set(uniq)) if a.allow_metadata_superset else set(uniq) == tree_set
+        need(agree, "cargo metadata and cargo tree disagree on the crate set")
 
     narrow = sorted(k for k, v in uniq.items() if v["narrow"])
     wide = sorted(k for k, v in uniq.items() if v["wide"])

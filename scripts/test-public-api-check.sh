@@ -312,6 +312,24 @@ judge "emit_missing_dir" 2 "e:error: " "!emitted: " "!ok: "
 run_check --json
 judge "json_without_path" 2 "!ok: " "!record: "
 
+# --manifest-path: ROOT_DIR 配下の Cargo.toml だけ。--json・--emit-json とは併用できない（誤用は cargo を呼ばず終了コード 2）
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --json "${work}/ok_noref.json"
+judge "manifest_with_json" 2 "e:--manifest-path cannot be combined with --json" "!scanned: " "!ok: " "!record: "
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --emit-json "${work}"
+judge "manifest_with_emit" 2 "e:--manifest-path cannot be combined with --emit-json" "!emitted: " "!ok: "
+run_check --manifest-path "${work}/ok_noref.json"
+judge "manifest_not_cargo_toml_outside" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
+mkdir -p "${work}/outside"
+printf '[workspace]\n' >"${work}/outside/Cargo.toml"
+run_check --manifest-path "${work}/outside/Cargo.toml"
+judge "manifest_outside_repo" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/no-such/Cargo.toml"
+judge "manifest_missing_file" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/deny.toml"
+judge "manifest_not_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
+run_check --manifest-path
+judge "manifest_without_value" 2 "!ok: " "!record: "
+
 # 2 本のうち 1 本が読めなければ、先に合格した分があっても全体は 2（途中の scanned は出るが record は出ない）
 run_check --json "${work}/ok_noref.json" "${work}/notjson.json"
 if [ "$(grep -c '^scanned: ' "${OUT_F}")" = "1" ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "0" ]; then
