@@ -3,7 +3,7 @@
 # （足された項目・消えた項目）を機械で出す（spec TASK-17 のポインタ。親 Issue #65 の 1/5）。
 # 呼び出し元: 手元の直接実行と、回帰テスト `scripts/test-public-api-diff.sh`（`make test-public-api-diff`。CI の `deny` ジョブも呼ぶ）。
 # make ターゲットは持たない: 比べる JSON のパスの引数が要るため。既定の入力を持たせると、
-# 実物を検査したと誤解させる（scripts/perf-record-check.sh と同じ扱い）。JSON の作り方は別の葉（#68）が文書にする。
+# 実物を検査したと誤解させる（scripts/perf-record-check.sh と同じ扱い）。JSON の作り方は docs/public-api-diff.md の「比べる 2 つの JSON の作り方」の節を参照。
 #
 # 使い方:
 #   scripts/public-api-diff.sh <比較基準の JSON> <新しい版の JSON>
