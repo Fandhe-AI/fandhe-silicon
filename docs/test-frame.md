@@ -8,7 +8,7 @@
 - 実装: `crates/core/src/test_frame.rs` と配下 11 ファイル（`combination`・`declaration`・`setting`・`decision`・`identifier`・`threshold`・`label`・`outcome`・`summary`・`record`・`export`）。`crates/core/src/lib.rs` の `#[cfg(feature = "test-support")] pub mod test_frame;` で公開する
 - 有効になる条件: `core` の feature `test-support`。`contract` の `test-support` が `core` へ転送する。どの crate の `default` にも入れていない。`test-support` なしのビルドには入らない（`cargo build -p fandhe-silicon-core` で枠はコンパイルされない）
 - 背後実装: `core` に背後実装の feature は無い。枠は名前を表すだけで、device には触れない
-- 依存の向き: `test_frame` が `parity` の比較型を読む（`From<&比較型> for Verdict`）。`parity` は `test_frame` に依存しない。製品の経路（`contract`・`exec`・`upper` の非テストのコード）は参照しない
+- 依存の向き: `test_frame` が `parity` の比較型を読む（`From<&比較型> for Verdict`）。`parity` は `test_frame` に依存しない。製品の経路（`contract`・`exec`・`upper` の非テストのコード）は参照しない。`rerun` が `test_frame` を読む（`test_frame` は `rerun` に依存しない）
 - 統合テスト: `crates/core/tests/test_frame_*.rs` の 9 本（`crates/core/Cargo.toml` の `[[test]]` で `required-features = ["test-support"]`）と `crates/contract/tests/test_support_test_frame.rs`。単体テストが `crates/core/src/test_frame/outcome.rs`・`record.rs`（JSON の文字列のエスケープ）・`export.rs`（後始末の失敗）にある
 - `unsafe`・依存: 使わない（`#![forbid(unsafe_code)]`、外部依存 0）。個数テストの期待値は変えていない（[unsafe-policy](unsafe-policy.md)）
 - ファイルを触る場所: `std::fs` を使うのは `export.rs` だけ。枠は `println!`・`eprintln!` を使わない（標準出力・標準エラーに何も出さない）

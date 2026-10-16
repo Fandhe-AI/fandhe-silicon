@@ -38,7 +38,7 @@ fandhe-silicon/
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity` と `test_frame`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity`・`test_frame`・`rerun`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）

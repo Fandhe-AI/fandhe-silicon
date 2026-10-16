@@ -18,9 +18,9 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `core` の試験用の部品の feature | `crates/core/src/lib.rs` で `parity` と `test_frame` が `#[cfg(feature = "test-support")]` の下にある。`crates/core/Cargo.toml` の `[features]` は `test-support = []` | `grep -n -e cfg -e 'pub mod' crates/core/src/lib.rs`、`grep -n -A2 '\[features\]' crates/core/Cargo.toml` |
-| 試験の枠と一致の道具のファイル | `crates/core/src/test_frame` は 11 ファイル、`crates/core/src/parity` は 5 ファイル | `ls crates/core/src/test_frame crates/core/src/parity` |
-| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本。どれも `required-features = ["test-support"]`（14 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
+| `core` の試験用の部品の feature | `crates/core/src/lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`crates/core/Cargo.toml` の `[features]` は `test-support = []` | `grep -n -e cfg -e 'pub mod' crates/core/src/lib.rs`、`grep -n -A2 '\[features\]' crates/core/Cargo.toml` |
+| 試験の枠と一致の道具のファイル | `crates/core/src/test_frame` は 11 ファイル、`crates/core/src/rerun` は 2 ファイル（入口は `rerun.rs`）、`crates/core/src/parity` は 5 ファイル | `ls crates/core/src/test_frame crates/core/src/parity` |
+| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_check` 1 本。どれも `required-features = ["test-support"]`（15 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
 | 記録の部品の書き出しと集計 | 書き出し先の環境変数は `RECORD_DIR_ENV`（`FANDHE_SILICON_TEST_RECORD_DIR`）。`scripts/verify.sh` が `cargo test` の 1 回にだけ一時ディレクトリを渡し、`scripts/record-summary.sh` で集計する | `grep -n RECORD_DIR_ENV crates/core/src/test_frame/export.rs`、`grep -n -e FANDHE_SILICON_TEST_RECORD_DIR -e record-summary scripts/verify.sh` |
 | 測定の道具 | `measure/crates/perf` に bin `across-runs` と統合テスト 7 本。`tests/repeat.rs` が書き出しの実物を `scripts/perf-record-check.sh` に通す | `ls measure/crates/perf/src/bin measure/crates/perf/tests`、`grep -n perf-record-check measure/crates/perf/tests/repeat.rs` |
 | 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
@@ -34,6 +34,16 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 測定の道具と run の記録: [measurement-tool](measurement-tool.md)・[measurement-record](measurement-record.md)
 - wasm32 と Node での照合の土台: [wasm32-node-foundation](wasm32-node-foundation.md)
 - 機材の要らない CI の枠: [ci-device-free-jobs](ci-device-free-jobs.md)
+
+## 照合の型の所在（TASK-29 の 2/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `crates/core/src/rerun.rs`（入口）と `rerun/check.rs`・`rerun/set.rs`。feature `test-support` の裏だけ。feature なしのビルドには入らない | `grep -n -B1 'pub mod rerun' crates/core/src/lib.rs`、`cargo build -p fandhe-silicon-core` |
+| 公開面 | trait `Check`（`subject`・`declaration`・`run`）、`CheckSet`・`CheckSetError`・`MAX_CHECKS` | `grep -n 'pub ' crates/core/src/rerun.rs crates/core/src/rerun/*.rs` |
+| 依存の向き | 結果・ラベル・識別子は `test_frame` の型をそのまま使う。`rerun` は `test_frame` を読み、`parity` は直接参照しない。製品の経路から参照しない | `grep -rn rerun crates/contract/src crates/exec/src crates/upper/src`（0 件）、`grep -rn parity crates/core/src/rerun*`（0 件） |
+| 副作用 | ファイル・環境変数・標準出力に触れない。`unsafe` なし・外部依存なし | `grep -rn -e 'std::fs' -e 'println!' -e 'env::var' -e unsafe crates/core/src/rerun*`（0 件） |
+| テスト | `crates/core/tests/rerun_check.rs`（値はダミー） | `cargo test -p fandhe-silicon-core --features test-support --test rerun_check` |
 
 ## 本リポでの反映の方針
 

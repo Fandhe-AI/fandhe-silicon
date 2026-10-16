@@ -5,7 +5,8 @@
 //! チップ固有の型はここへ持ち込まない。
 //!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
-//! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）が公開される。
+//! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
+//! 流し直しの照合 1 件の型（`rerun` モジュール）が公開される。
 //! 製品の経路からは使わない。
 #![forbid(unsafe_code)]
 
@@ -14,3 +15,6 @@ pub mod parity;
 
 #[cfg(feature = "test-support")]
 pub mod test_frame;
+
+#[cfg(feature = "test-support")]
+pub mod rerun;
