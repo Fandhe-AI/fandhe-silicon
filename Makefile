@@ -107,10 +107,10 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
 
-baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。両方が wgpu を検出すれば合格・どちらかが 0 件なら失敗・誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
+baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
 	@scripts/baseline-positive-control.sh
 
-test-baseline-positive-control: ## baseline-positive-control の回帰テスト（本体を一時ディレクトリへ写し、偽の検査 2 本で終了コードの写しを確かめる。bash のみ・cargo もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-baseline-positive-control.sh
+test-baseline-positive-control: ## baseline-positive-control の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる。python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-baseline-positive-control.sh
 	@scripts/test-baseline-positive-control.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh
