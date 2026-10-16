@@ -4,6 +4,8 @@
 //! 文字列のトークンとして受け、`test_frame` の 5 種のラベルへ写す純粋な変換だけを持つ。
 //! ファイル・環境変数・標準出力・子プロセス（Node）には触れず、入力の値はエラーにも `Display` にも入れない。
 //! 組み合わせは決めない（宣言は呼び出し側が渡す）。
+//! スクリプト側の行の状態 → ラベルの写しの表は `scripts/wasm-node-check.sh` の `row-labels` にあり、
+//! この型との食い違いは `tests/rerun_node_record.rs` が検出する。
 
 use super::check::Check;
 use crate::test_frame::{

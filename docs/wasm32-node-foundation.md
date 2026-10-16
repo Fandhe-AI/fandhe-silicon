@@ -95,7 +95,8 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI は `wasm-macos` ジョブが呼ぶ | `sed -n 1,20p scripts/wasm-node-check.sh` |
+| 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI は `wasm-macos` ジョブが呼ぶ | `sed -n 1,20p scripts/wasm-node-check.sh` |
+| 記録の書き出し | `--record-dir` と `--record-combination` を組で渡したときだけ、行の結果を試験の枠の記録の部品（`<行の id>.<組み合わせ>.json`）として `<dir>` へ書く。既定は無く、片方だけは誤用（終了コード 2）。書き出し先は既存のディレクトリ（絶対パス・`..` 無し・シンボリックリンクでない）で、`.wasm` のビルドより前に検査する。新しいファイルだけを作り（上書きしない・同名のリンクを辿らない）、失敗したらこの実行で作ったものを消して終了コード 2。選ばなければ標準出力と終了コードは変わらない。形と比較の説明は [rerun-frame](rerun-frame.md) | `bash scripts/test-wasm-node-check.sh`（項目 28〜36） |
 | Node のスクリプト | `wasm/node/run-glue.cjs`。glue を呼んで f32 のビット列（8 桁の 16 進）を書き出すだけで、判定は持たない。`require` は `node:` の組み込みと引数の glue だけ。呼べる export は許可表の `roundtrip_f32` だけ。`package.json`・npm パッケージは無い | `grep -n require wasm/node/run-glue.cjs` |
 | 入力 | `wasm/node/cases.json`。`roundtrip_f32` の 3 行（空・有限値と `-0.0`・非有限値）。参照は `wasm/crates/glue/src/lib.rs` の単体テストが固定する振る舞いと同じ値。各行は参照の出どころの欄 `reference_source` が必須で、値は `fixed`・`native-neon` の 2 つだけ（欠け・未知の値は入力の不正）。同梱の 3 行はどれも `fixed`。`reference` が無い・`null` の行は照合の相手が無い行 | `cat wasm/node/cases.json` |
 | 前提の版 | Node は `scripts/wasm-node-check.sh` 先頭の定数 `v24.13.0` と完全一致。wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と `wasm-bindgen --version` の完全一致（宣言点を増やさない）。無い・版違いは終了コード 2。版の宣言は `ci.yml` の `env`（導入用）とスクリプト側（`NODE_EXPECTED` など）の二つ。一致は `wasm-macos` ジョブの中で二重に確かめる（導入した物と `env` を比べ、各 make が自分の定数と比べる）ので、ずれれば終了コード 2 で失敗する | `grep -n NODE_EXPECTED scripts/wasm-node-check.sh` |
@@ -115,7 +116,13 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | 参照の無い行は `not-run (reference-missing)` で、成功にしない | 9・26 |
 | 出どころの欄の欠け・未知の値は 2 で、Node の本体を起動しない | 25 |
 | 作れない出どころ（`native-neon`）の行は参照の値があっても `not-run (reference-unavailable)`。出どころが先 | 26 |
-| 出どころ・理由の綴りが core のソースに在る | 27 |
+| 出どころ・理由・ラベルの綴りが core のソースに在る | 27 |
+| 記録の部品の書き出し（名前・中身・`record-summary.sh` の通過・7 つの組み合わせ） | 28・29 |
+| 書き出しを選ばないときの出力と終了コードは不変 | 30 |
+| 書いた部品を `rerun-compare.sh` にかけると、同じなら差なし、変われば分類が出る | 31 |
+| 書き出しの誤用・不正な書き出し先は 2 で、Node の本体を起動しない | 32・33 |
+| 上書きしない・リンクを辿らない・失敗したら作ったものを消す・失敗時は何も書かない | 34・35 |
+| `mismatch` の詳細を部品に入れない | 36 |
 | 行が 0 件は成功にしない | 10 |
 | Node の失敗・結果の欠け・不正・未知の id・重複は 2 | 12・13 |
 | 入力の不正・誤用・存在しない `.wasm`・glue が生成されない場合は 2 | 14〜16 |
