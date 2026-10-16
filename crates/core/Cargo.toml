@@ -80,3 +80,7 @@ required-features = ["test-support"]
 [[test]]
 name = "rerun_run"
 required-features = ["test-support"]
+
+[[test]]
+name = "rerun_round_trip"
+required-features = ["test-support"]

@@ -20,7 +20,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ---- | -------- |
 | `core` の試験用の部品の feature | `crates/core/src/lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`crates/core/Cargo.toml` の `[features]` は `test-support = []` | `grep -n -e cfg -e 'pub mod' crates/core/src/lib.rs`、`grep -n -A2 '\[features\]' crates/core/Cargo.toml` |
 | 試験の枠と一致の道具のファイル | `crates/core/src/test_frame` は 11 ファイル、`crates/core/src/rerun` は 3 ファイル（入口は `rerun.rs`）、`crates/core/src/parity` は 5 ファイル | `ls crates/core/src/test_frame crates/core/src/rerun crates/core/src/rerun.rs crates/core/src/parity` |
-| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_*` 2 本。どれも `required-features = ["test-support"]`（16 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
+| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_*` 3 本。どれも `required-features = ["test-support"]`（17 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
 | 記録の部品の書き出しと集計 | 書き出し先の環境変数は `RECORD_DIR_ENV`（`FANDHE_SILICON_TEST_RECORD_DIR`）。`scripts/verify.sh` が `cargo test` の 1 回にだけ一時ディレクトリを渡し、`scripts/record-summary.sh` で集計する | `grep -n RECORD_DIR_ENV crates/core/src/test_frame/export.rs`、`grep -n -e FANDHE_SILICON_TEST_RECORD_DIR -e record-summary scripts/verify.sh` |
 | 測定の道具 | `measure/crates/perf` に bin `across-runs` と統合テスト 7 本。`tests/repeat.rs` が書き出しの実物を `scripts/perf-record-check.sh` に通す | `ls measure/crates/perf/src/bin measure/crates/perf/tests`、`grep -n perf-record-check measure/crates/perf/tests/repeat.rs` |
 | 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh`・`scripts/rerun-compare.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary`・`make test-rerun-compare` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
@@ -69,6 +69,28 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 副作用 | 入力を読むだけ。ファイルを作らず、ネットワークを使わない | `make test-rerun-compare`（`creates_no_files`・`inputs_unchanged`） |
 | 依存 | bash + python3（3.8 以上の標準ライブラリだけ）。依存の追加なし | `git diff --stat origin/main -- Cargo.toml Cargo.lock deps-approved.toml` |
 | テスト | `scripts/test-rerun-compare.sh`（値はダミーの合成の部品。CI の `deny` ジョブが呼ぶ） | `make test-rerun-compare` |
+
+## 枠と道具の通しの公開テストの所在（TASK-29 の 6/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `crates/core/tests/rerun_round_trip.rs`。feature `test-support` の裏だけ | `grep -n -A2 rerun_round_trip crates/core/Cargo.toml` |
+| 通すもの | `run_and_export` が書いた部品を `scripts/rerun-compare.sh` に通す（中で `scripts/record-summary.sh` を通る）。期待の出力は完全一致の文字列で固定 | `cargo test -p fandhe-silicon-core --features test-support --test rerun_round_trip` |
+| 前提 | bash と python3。無ければ skip せず失敗にする | 同上 |
+| 書き込み先 | 試験ごとの一時ディレクトリだけ。終わると消す。`FANDHE_SILICON_TEST_RECORD_DIR` には書かない | `ls "${TMPDIR:-/tmp}" \| grep fandhe-rerun-round-trip`（0 件） |
+| CI | 既存の `verify` ジョブの `make verify` で流れる。機材・ネットワークは要らず、ジョブも make ターゲットも足していない | `make verify` |
+
+## 振る舞いとテストの対応
+
+テストは `crates/core/tests/rerun_round_trip.rs` の関数。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 同じ内容を 2 回書いて比べると差分なし（終了コード 0、件数は書いた部品の数） | `same_unconfigured_run_twice_has_no_differences` |
+| 枠が書くラベルの全種類（ok・ng・判定不能 2 種・判定保留・未実施）の部品が、形の検査と比較を通る | `every_label_kind_the_frame_writes_passes_the_tool` |
+| 結果の違いは分類の順・鍵の昇順で報告され、終了コード 1 | `changed_results_are_reported_in_the_fixed_order` |
+| 組み合わせの未設定と設定済みは、組み合わせごとに比べる | `unconfigured_then_configured_is_compared_per_combination` |
+| 空の新しい記録は差分なしではなく誤りとして終了コード 2 | `an_empty_new_record_is_an_error_not_no_difference` |
 
 ## 本リポでの反映の方針
 
