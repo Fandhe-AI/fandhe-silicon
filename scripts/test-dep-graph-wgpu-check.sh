@@ -406,6 +406,45 @@ judge "unknown_arg" 2 "!ok: " "!record: "
 run_check --metadata-json
 judge "metadata_without_value" 2 "!ok: " "!record: "
 
+# --allow-metadata-superset: 一致の確認を「tree 側の crate がすべて metadata にある」へ緩める（製品向けの経路では受け付けない）
+# metadata が tree より大きい入力は、オプションが無ければ不一致、あれば数え終える
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/tree_missing.tree"
+judge "superset_strict_disagree" 2 "e:cargo metadata and cargo tree disagree" "!ok: " "!record: "
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/tree_missing.tree" --allow-metadata-superset
+judge "superset_relaxed_ok" 0 "o:ok: " "o:record: commit=- crates_total=2 " "o:scanned: reading=tree crates=1" "!error:"
+run_check --metadata-json "${work}/bad_narrow_4.json" --tree-text "${work}/tree_missing.tree" --allow-metadata-superset
+judge "superset_relaxed_violation" 1 "e:definition=narrow crate=naga" "e:FAILED: " "o:record: commit=- " "!ok: "
+# tree 側だけの crate がある入力は、緩めても不一致
+for t in tree_extra tree_version tree_garbage tree_empty; do
+  run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/${t}.tree" --allow-metadata-superset
+  judge "superset_relaxed_${t}" 2 "e:error: " "!ok: " "!FAILED" "!record: "
+done
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/tree_extra.tree" --allow-metadata-superset
+judge "superset_relaxed_tree_only_crate" 2 "e:cargo metadata and cargo tree disagree"
+# 緩めを受け付けない経路（引数なし・--tree-text なし）は誤用
+run_check --allow-metadata-superset
+judge "superset_without_inputs" 2 "e:--allow-metadata-superset is not accepted for the product workspace" "!ok: " "!record: "
+run_check --metadata-json "${work}/ok_basic.json" --allow-metadata-superset
+judge "superset_without_tree" 2 "e:--allow-metadata-superset requires --tree-text" "!ok: " "!record: "
+
+# --manifest-path: ROOT_DIR 配下の Cargo.toml だけ。誤用は終了コード 2（cargo は呼ばない）
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --metadata-json "${work}/ok_basic.json"
+judge "manifest_with_metadata" 2 "e:--manifest-path cannot be combined with --metadata-json" "!ok: " "!record: "
+run_check --manifest-path "${work}/ok_basic.json" --allow-metadata-superset
+judge "manifest_outside_repo" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
+mkdir -p "${work}/outside"
+printf '[workspace]\n' >"${work}/outside/Cargo.toml"
+run_check --manifest-path "${work}/outside/Cargo.toml" --allow-metadata-superset
+judge "manifest_outside_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/no-such/Cargo.toml" --allow-metadata-superset
+judge "manifest_missing_file" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
+run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/deny.toml" --allow-metadata-superset
+judge "manifest_not_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
+run_check --manifest-path "${ROOT_DIR}/Cargo.toml" --allow-metadata-superset
+judge "manifest_product_no_relax" 2 "e:--allow-metadata-superset is not accepted for the product workspace" "!ok: " "!record: "
+run_check --manifest-path
+judge "manifest_without_value" 2 "!ok: " "!record: "
+
 # ---- ツール未導入（成功にせず終了コード 2）----
 # PATH を絞った環境で、検査を絶対パスの bash から起動する。絞った PATH に入れるのは必要なコマンドだけ。
 bash_bin="$(command -v bash)"
@@ -447,6 +486,9 @@ cat >"${fakebin}/cargo" <<'FAKE'
 if [ "${FAKE_CARGO_MODE:-ok}" = "fail" ]; then
   exit 1
 fi
+if [ -n "${FAKE_ARGS_LOG:-}" ]; then
+  echo "$*" >>"${FAKE_ARGS_LOG}"
+fi
 case "$1" in
   --version) echo "cargo 0.0.0 (fake)" ;;
   metadata)
@@ -487,6 +529,23 @@ run_fake() {
   PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE="$1" FAKE_GIT_MODE="$2" FAKE_MD="$3" FAKE_TREE="$4" \
     "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 }
+
+# --manifest-path は metadata と tree の両方の cargo の引数に渡る。--allow-metadata-superset で metadata ⊋ tree でも数え終える
+args_log="${work}/fake-args.log"
+rc=0
+PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok FAKE_ARGS_LOG="${args_log}" \
+  FAKE_MD="${work}/ok_basic.json" FAKE_TREE="${work}/tree_missing.tree" \
+  "${CHECK}" --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --allow-metadata-superset \
+  >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "fake_manifest_superset" 0 "o:ok: " "o:record: commit=0123456789abcdef0123456789abcdef01234567 crates_total=2 " "!error:"
+count_is "fake_manifest_metadata_arg" "${args_log}" "metadata --locked --format-version 1 --all-features --manifest-path " 1
+count_is "fake_manifest_tree_arg" "${args_log}" "tree --locked --workspace --all-features --target all -e normal,build,dev --prefix none --no-dedupe --manifest-path " 1
+rc=0
+PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok \
+  FAKE_MD="${work}/ok_basic.json" FAKE_TREE="${work}/tree_missing.tree" \
+  "${CHECK}" --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" \
+  >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "fake_manifest_strict_disagree" 2 "e:cargo metadata and cargo tree disagree" "!ok: " "!record: "
 
 run_fake ok ok "${work}/ok_basic.json" "${work}/ok_basic.tree"
 judge "fake_ok" 0 "o:record: commit=0123456789abcdef0123456789abcdef01234567 crates_total=2 " \

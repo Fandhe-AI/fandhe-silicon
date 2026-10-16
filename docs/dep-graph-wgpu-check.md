@@ -9,7 +9,7 @@
 | ---- | ---- | -------- |
 | 検査 | `scripts/dep-graph-wgpu-check.sh`（bash + `python3 -I`、標準ライブラリのみ） | `scripts/dep-graph-wgpu-check.sh` |
 | 呼び出し元 | `make dep-graph-wgpu-check`（単体）と `make deny`（`scripts/deny.sh`）。CI の `deny` ジョブは `make deny` の中で流し、回帰テストは `make test-dep-graph-wgpu-check` のステップで流す。違反も前提の不足も失敗にし、握りつぶさない | `grep -n dep-graph-wgpu-check scripts/deny.sh Makefile` |
-| 対象 | 製品の workspace（ルートの `Cargo.toml`）だけ。`baseline-wgpu/`・`measure/`・`wasm/` には当てない | 同スクリプトの先頭コメント |
+| 対象 | 既定は製品の workspace（ルートの `Cargo.toml`）。`--manifest-path` でリポジトリ内の別 workspace（例: `baseline-wgpu/Cargo.toml`）に当てられる。`make deny` が呼ぶのは製品の workspace だけ | 同スクリプトの先頭コメント |
 | 入力 | `cargo metadata` と `cargo tree`。または `--metadata-json` と `--tree-text` で渡した入力 | 同スクリプトの先頭コメント |
 | 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-dep-graph-wgpu-check` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
@@ -20,12 +20,14 @@
 | ------ | ---- | -------- |
 | 引数なし | cargo を流して数える | 直接実行 |
 | `--metadata-json <path> [--tree-text <path>]` | 渡した入力だけを数える（cargo を呼ばない）。`--tree-text` は `--metadata-json` と組でだけ受け付ける | 直接実行 |
+| `--manifest-path <path>` | `<path>`（リポジトリ内の `Cargo.toml`）の workspace に cargo を流して数える。`--metadata-json` とは併用できない | 直接実行 |
+| `--allow-metadata-superset` | metadata と tree の一致の確認を「tree 側の crate がすべて metadata にある」へ緩める（optional な依存で metadata の方が大きい workspace 向け）。製品の `Cargo.toml` を指す経路・引数なしの経路では受け付けない。tree 側だけの crate や空の tree は緩めても終了コード 2 | 直接実行 |
 
 | コード | 意味 | 確かめ方 |
 | ------ | ---- | -------- |
 | 0 | 2 つの定義とも 0 件 | 直接実行して `echo $?` |
 | 1 | どちらかの定義で 1 件以上（違反） | 同スクリプトの先頭コメント |
-| 2 | 誤用・前提の不足・読めない入力・metadata と tree の不一致・数えた crate が 0 件。`dep_kinds` が欠けた・空・未知の kind・形の崩れた入力もここ | 同スクリプトの先頭コメント |
+| 2 | 誤用・前提の不足・読めない入力・metadata と tree の不一致・数えた crate が 0 件・`--manifest-path` の値が不正（リポジトリ外・`Cargo.toml` でない）・`--allow-metadata-superset` を受け付けない経路での指定。`dep_kinds` が欠けた・空・未知の kind・形の崩れた入力もここ | 同スクリプトの先頭コメント |
 
 ## 出力の読み方
 
