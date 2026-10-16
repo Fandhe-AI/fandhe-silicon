@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 製品の workspace の依存グラフ（全 feature・全 target・通常 / ビルド時 / dev）に載る crate のうち、
 # wgpu プロジェクトの crate を「狭い定義」と「広い定義」の 2 通りで数えて確かめる
-# （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6）。
+# （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6・3/6）。
 # 呼び出し元: 直接実行。
 # 対象は製品の workspace（ROOT_DIR/Cargo.toml）だけ。baseline-wgpu/・measure/・wasm/ には当てない。
 #
@@ -14,18 +14,21 @@
 #   2 誤用・前提の不足（python3・cargo・git が無い、cargo の失敗、コミットが取れない）・読めない入力・
 #     metadata と tree の不一致・数えた crate が 0 件（成功扱いにしない）
 # 標準出力: `scanned:` の行（読んだ入力ごと）、数え終えたとき（終了コード 0 と 1）だけ `record:` の行、合格時の `ok:` の 1 行。
-#   `record: commit=<rev|-> crates_total=<n> workspace_members=<n> narrow_total=<n> wide_total=<n>`
+#   `record: commit=<rev|-> crates_total=<n> workspace_members=<n> narrow_total=<n> wide_total=<n> no_repository=<n>`
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--metadata-json の経路では `-`。
+#   repository が無い crate は 1 件ごとに `no-repository: crate=<name> version=<ver>`（`record:` の後。違反ではない）。
 # 標準エラー: `violation:`・`FAILED:`・`error:`。
 #
 # 数え方: 数えるのは一意の package（metadata の workspace_members から依存をたどって届くもの。
 #   dep_kinds の種類は問わない）。tree 側の (名前, 版) の集合と一致しなければ終了コード 2。
 #   2 つの定義はこのファイル先頭の定数 NARROW_NAMES・WIDE_REPOSITORY_PREFIX にまとめる。
 #   狭い定義は package 名の完全一致（小文字化と `_`→`-` の正規化のうえ）、
-#   広い定義は metadata の repository の接頭辞一致。repository が無い crate は広い定義に当たらない扱い。
-#   同じ (名前, 版) が複数あるときは、どれか 1 つでも当たれば当たりとする。
-# 検査しないもの: 広い定義の表記揺れ（大文字・git+・http・末尾 / ・.git）の吸収と repository 欠落の見える化、
-#   別 workspace、件数の増減。
+#   広い定義は metadata の repository を正規化（前後の空白除去・小文字化・先頭の `git+` と `http(s)://` の除去・
+#   末尾の `/` と `.git` の除去）したうえでの接頭辞一致。
+#   repository が無い（null か空）crate は広い定義に当たらない扱いで、総数には含め、件数と crate を標準出力に出す。
+#   同じ (名前, 版) が複数あるときは、広い定義はどれか 1 つでも当たれば当たり、repository の欠落は全部が欠けるときだけ欠落。
+# 検査しないもの: `www.` 付きのホスト、`git://`・`ssh://`・`git@github.com:` の形、github.com 以外のホスト、
+#   組織の URL そのもの（`github.com/gfx-rs` で終わるもの）、別 workspace、件数の増減。
 # ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,8 +51,12 @@ if sys.version_info < (3, 8):
 
 # 狭い定義: package 名（小文字化・`_`→`-` の正規化後）の完全一致。
 NARROW_NAMES = ("wgpu", "wgpu-core", "wgpu-hal", "wgpu-types", "naga")
-# 広い定義: metadata の repository がこの接頭辞で始まる crate（正規化は持たない素の startswith）。
-WIDE_REPOSITORY_PREFIX = "https://github.com/gfx-rs/"
+# 広い定義: metadata の repository を正規化した結果がこの接頭辞で始まる crate。
+WIDE_REPOSITORY_PREFIX = "github.com/gfx-rs/"
+# repository の正規化の規則（この順: 空白除去・小文字化・先頭の除去・scheme の除去・末尾の除去）。
+REPOSITORY_STRIP_PREFIXES = ("git+",)
+REPOSITORY_SCHEMES = ("https://", "http://")
+REPOSITORY_STRIP_SUFFIXES = ("/", ".git")
 
 METADATA_CMD = ["cargo", "metadata", "--locked", "--format-version", "1", "--all-features"]
 TREE_CMD = [
@@ -77,8 +84,33 @@ def is_narrow(name):
     return name.lower().replace("_", "-") in NARROW_NAMES
 
 
+def normalize_repository(repo):
+    """repository の書き方の揺れを吸収した形を返す（純粋な文字列操作だけ）。"""
+    r = repo.strip().lower()
+    for pre in REPOSITORY_STRIP_PREFIXES:
+        if r.startswith(pre):
+            r = r[len(pre):]
+            break
+    for pre in REPOSITORY_SCHEMES:
+        if r.startswith(pre):
+            r = r[len(pre):]
+            break
+    changed = True
+    while changed:
+        changed = False
+        for suf in REPOSITORY_STRIP_SUFFIXES:
+            if r.endswith(suf):
+                r = r[:-len(suf)]
+                changed = True
+    return r
+
+
 def is_wide(repo):
-    return isinstance(repo, str) and repo.startswith(WIDE_REPOSITORY_PREFIX)
+    return isinstance(repo, str) and normalize_repository(repo).startswith(WIDE_REPOSITORY_PREFIX)
+
+
+def is_missing(repo):
+    return repo is None or (isinstance(repo, str) and not repo.strip())
 
 
 def _git(root, args):
@@ -211,20 +243,25 @@ def main():
     uniq = {}
     for p in pkgs:
         key = (p["name"], p["version"])
-        cur = uniq.setdefault(key, {"narrow": False, "wide": False, "repos": []})
+        cur = uniq.setdefault(key, {"narrow": False, "wide": False, "missing": True, "repos": []})
         cur["narrow"] = cur["narrow"] or is_narrow(p["name"])
         cur["wide"] = cur["wide"] or is_wide(p.get("repository"))
+        cur["missing"] = cur["missing"] and is_missing(p.get("repository"))
         cur["repos"].append(p.get("repository"))
     if tree_set is not None:
         need(set(uniq) == tree_set, "cargo metadata and cargo tree disagree on the crate set")
 
     narrow = sorted(k for k, v in uniq.items() if v["narrow"])
     wide = sorted(k for k, v in uniq.items() if v["wide"])
-    print("scanned: reading=metadata crates=%d narrow=%d wide=%d" % (len(uniq), len(narrow), len(wide)))
+    missing = sorted(k for k, v in uniq.items() if v["missing"] and not v["wide"])
+    print("scanned: reading=metadata crates=%d narrow=%d wide=%d no_repository=%d"
+          % (len(uniq), len(narrow), len(wide), len(missing)))
     if tree_set is not None:
         print("scanned: reading=tree crates=%d" % len(tree_set))
-    print("record: commit=%s crates_total=%d workspace_members=%d narrow_total=%d wide_total=%d"
-          % (commit, len(uniq), n_members, len(narrow), len(wide)))
+    print("record: commit=%s crates_total=%d workspace_members=%d narrow_total=%d wide_total=%d no_repository=%d"
+          % (commit, len(uniq), n_members, len(narrow), len(wide), len(missing)))
+    for name, ver in missing:
+        print("no-repository: crate=%s version=%s" % (clean(name), clean(ver)))
     for label, hits in (("narrow", narrow), ("wide", wide)):
         for name, ver in hits:
             repos = [r for r in uniq[(name, ver)]["repos"] if isinstance(r, str)]
