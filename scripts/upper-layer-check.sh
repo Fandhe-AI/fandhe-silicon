@@ -4,6 +4,7 @@
 # この段で入れる検査は 2 つ。
 #   (1) unsafe の不在: crate root の `#![forbid(unsafe_code)]` の宣言と、crate ディレクトリ配下の
 #       すべての .rs（src/・tests/・benches/・examples/・build.rs を含む）での `unsafe` の出現 0 件。
+#       数え方は(2)と同じ識別子の分割で、コメント・文字列を除いた識別子トークンのうち `r#` の付かない `unsafe` だけ。
 #       forbid は lib の crate root にしか効かず、tests/ などは別の crate なのでコンパイラが止めない。その穴を埋める。
 #   (2) チップの crate の不在: 上の層の宣言された直接依存（通常・build・dev。全 target・全 feature）と、
 #       ソース中のチップの crate 名と一致する識別子トークンが 0 件。
@@ -50,7 +51,6 @@ import os
 import re
 import subprocess
 import sys
-import unicodedata
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -79,10 +79,6 @@ SKIP_DIRS = ("target",)
 
 # --offline で取得が要る場合は失敗（前提の不足）にする。--no-deps は workspace の package だけを読む（宣言は残る）。
 METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1", *FEATURE_ARGS]
-# 識別子の文字（Unicode の単語文字。Rust の識別子は Unicode を含む）。
-IDENT = r"\w"
-# raw identifier の接頭辞（`r#unsafe` はキーワードでなく識別子）。
-RAW = r"(?<!r#)"
 
 
 class Misuse(Exception):
@@ -148,17 +144,6 @@ def read_text(path):
             return f.read().decode("utf-8")
     except (OSError, UnicodeDecodeError):
         raise Misuse("cannot read input file")
-
-
-def fold_ident_chars(s):
-    """Rust の識別子継続文字（XID_Continue）のうち `\\w` に入らないもの（結合文字・連結用句読点）を `_` に置き換える。
-
-    同じ長さを保つので位置と行番号は変わらない。`fn unsafé() {}` のような有効な識別子を境界の判定で割らない。
-    """
-    return "".join(
-        "_" if (ord(c) > 127 and unicodedata.category(c) in ("Mn", "Mc", "Nd", "Pc")) else c
-        for c in s
-    )
 
 
 def strip_code(text):
@@ -311,17 +296,16 @@ def collect_sources(crate_dir):
 
 
 FORBID_RE = re.compile(r"#\s*!\s*\[\s*forbid\s*\(([^()]*)\)\s*\]")
-UNSAFE_RE = re.compile(r"(?<![%s])%sunsafe(?![%s])" % (IDENT, RAW, IDENT))
 
 
-def has_forbid(stripped):
+def has_forbid(plain):
     """crate root のトップレベル（丸・角・波括弧のどれの中でもない位置）の inner attribute だけを宣言として数える。
 
     マクロの入力（`m!(...)`・`macro_rules!` の本体）や mod の中の宣言は crate の属性ではないので数えない。
     """
     depth_at = {}
     depth = 0
-    for i, ch in enumerate(stripped):
+    for i, ch in enumerate(plain):
         if ch in "([{":
             depth += 1
         elif ch in ")]}":
@@ -330,7 +314,7 @@ def has_forbid(stripped):
         elif ch == "#":
             depth_at[i] = depth
     need(depth == 0, "unbalanced brackets in the crate root")
-    for m in FORBID_RE.finditer(stripped):
+    for m in FORBID_RE.finditer(plain):
         if depth_at.get(m.start()) != 0:
             continue
         if "unsafe_code" in [s.strip() for s in m.group(1).split(",")]:
@@ -339,9 +323,10 @@ def has_forbid(stripped):
 
 
 def ident_tokens(text):
-    """コメント・文字列を除いたソースから、Rust の識別子トークンを (位置, 名前) で返す。
+    """コメント・文字列を除いたソースから、Rust の識別子トークンを (位置, 名前, raw か) で返す。
 
-    識別子は XID_Start か `_` で始まり XID_Continue が続く並び。`r#name` は `name` として返す。
+    識別子は XID_Start か `_` で始まり XID_Continue が続く並び。`r#name` は `name` として返し、raw は True にする
+    （チップの名前の一致は raw でも数え、unsafe の一致は raw を数えない。呼び出し側が使い分ける）。
     数値リテラル（`1u8`・`0x1f`）は継続文字ごと 1 つの塊として読み飛ばし、接尾辞を識別子に数えない。
     `::`・`.`・`use` などの周りの文字は見ない（位置による判定をしない）。
     """
@@ -371,16 +356,25 @@ def ident_tokens(text):
             k = j + 2
             while k < n and cont(text[k]):
                 k += 1
-            yield j + 1, text[j + 1:k]
+            yield j + 1, text[j + 1:k], True
             i = k
             continue
-        yield i, text[i:j]
+        yield i, text[i:j], False
         i = j
+
+
+def unsafe_hits_in(stripped):
+    """キーワードの `unsafe` の位置を返す。`r#unsafe` は識別子なので数えない。
+
+    チップの名前の一致と同じ識別子の分割を使うので、`℘unsafe`・`unsafe·x` のように
+    識別子の一部に `unsafe` を含むだけのものは数えない。
+    """
+    return [pos for pos, tok, raw in ident_tokens(stripped) if tok == "unsafe" and not raw]
 
 
 def chip_path_hits(stripped, idents):
     """チップの crate の名前（識別子の形）と一致する識別子トークンの (位置, 名前) を、位置に関係なくすべて返す。"""
-    return [(pos, tok) for pos, tok in ident_tokens(stripped) if tok in idents]
+    return [(pos, tok) for pos, tok, _raw in ident_tokens(stripped) if tok in idents]
 
 
 def main():
@@ -428,15 +422,12 @@ def main():
     unsafe_hits, chip_hits = [], []
     for rel, full in sources:
         plain = strip_code(read_text(full))
-        stripped = fold_ident_chars(plain)
         if os.path.realpath(full) == os.path.realpath(crate_root):
             root_rel = rel
-            declared = has_forbid(stripped)
-        for m in UNSAFE_RE.finditer(stripped):
-            unsafe_hits.append((rel, line_of(stripped, m.start())))
-        # unsafe の判定は畳んだ文字列（stripped）で行う。\w の境界で単語を割らないため。
-        # 名前の一致は畳む前（plain）で行う。畳むと識別子の非 ASCII の部分が `_` になり、
-        # 元の名前と比べられなくなる。
+            declared = has_forbid(plain)
+        # unsafe もチップの名前も、コメント・文字列を除いた同じ文字列を同じ識別子の分割で数える。
+        for pos in unsafe_hits_in(plain):
+            unsafe_hits.append((rel, line_of(plain, pos)))
         for pos, tok in chip_path_hits(plain, CHIP_IDENTS):
             chip_hits.append((rel, line_of(plain, pos), CHIP_IDENTS[tok]))
     need(root_rel is not None, "the lib crate root is not among the scanned sources")

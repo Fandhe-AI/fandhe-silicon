@@ -73,6 +73,10 @@ run_case combining-ident-lead 0 "${FB}
 fn áunsafe() {}"
 run_case combining-decomposed 0 "${FB}
 fn unsafe$(printf '\xcc\x81')() {}"
+run_case other-id-start 0 "${FB}
+fn ℘unsafe() {}"
+run_case other-id-continue 0 "${FB}
+fn unsafe·x() {}"
 run_case return-abs-chip 1 "${FB}
 fn f() { return ::ash::foo(); }"
 run_case break-abs-chip 1 "${FB}
