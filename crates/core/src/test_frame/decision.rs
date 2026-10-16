@@ -21,6 +21,28 @@ pub enum NotRunReason {
     CombinationNotDeclared,
     /// 宣言が要る許可のうち、得ていないものがある。
     PermissionMissing,
+    /// 比べる参照の値が無い（本体が返す。比べていないので成功にも失敗にも読み替えない）。
+    ReferenceMissing,
+    /// 参照の出どころの値をこの環境では作れない（本体が返す）。
+    ReferenceUnavailable,
+}
+
+/// 本体が返せる「参照の欠け」の種類。[`NotRunReason`] のうち、設定ではなく本体が決めるものだけを表す。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferenceGap {
+    /// 参照の値が無い。
+    Missing,
+    /// 参照の出どころの値をこの環境では作れない。
+    Unavailable,
+}
+
+impl From<ReferenceGap> for NotRunReason {
+    fn from(g: ReferenceGap) -> Self {
+        match g {
+            ReferenceGap::Missing => NotRunReason::ReferenceMissing,
+            ReferenceGap::Unavailable => NotRunReason::ReferenceUnavailable,
+        }
+    }
 }
 
 impl NotRunReason {
@@ -32,6 +54,10 @@ impl NotRunReason {
             NotRunReason::InvalidPermissionSetting => "permission setting is invalid",
             NotRunReason::CombinationNotDeclared => "combination is not declared by the test",
             NotRunReason::PermissionMissing => "a required permission is not granted",
+            NotRunReason::ReferenceMissing => "the reference value is missing",
+            NotRunReason::ReferenceUnavailable => {
+                "the reference source cannot be produced in this environment"
+            }
         }
     }
 }
@@ -45,6 +71,8 @@ impl NotRunReason {
             NotRunReason::InvalidPermissionSetting => "invalid-permission-setting",
             NotRunReason::CombinationNotDeclared => "combination-not-declared",
             NotRunReason::PermissionMissing => "permission-missing",
+            NotRunReason::ReferenceMissing => "reference-missing",
+            NotRunReason::ReferenceUnavailable => "reference-unavailable",
         }
     }
 }

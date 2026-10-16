@@ -58,8 +58,9 @@
 - `judge(&Subject, &Declaration, &RunSetting, 本体)` は下の順で先に当たったものでラベルを決める。入力以外の状態を読まず、自分では panic しない。`Outcome` は `judge` 以外からは作れない
     1. 実行の可否が走らせない → 未実施（本体は呼ばない）
     2. 本体が判定不能を返した → 判定不能
-    3. 宣言した閾値に未承認がある → 判定保留（宣言の順で最初の未承認の ID）
-    4. 一致 → OK、不一致 → NG
+    3. 本体が参照の欠けを返した（`RunResult::NoReference`）→ 未実施（理由は `reference-missing`・`reference-unavailable`。閾値の承認は見ない）
+    4. 宣言した閾値に未承認がある → 判定保留（宣言の順で最初の未承認の ID）
+    5. 一致 → OK、不一致 → NG
 - 失敗にするのは `Label::fails_test` が `true` の NG だけ。`Outcome` は `Termination` を実装しないので、試験の関数の戻り値にはならない
 - `parity` の 5 つの比較型（`tolerance`・`topk`・`pixel` の 2 つ・`special_values`）から `Verdict` への `From` がある（`is_match()` を読むだけ）
 
@@ -74,7 +75,7 @@
 
 - ラベルは OK・NG・判定保留・未実施・判定不能の 5 種。種類のトークンは `ok`・`ng`・`pending`・`not-run`・`indeterminate`（`LabelKind::ALL` の順）
 - 理由のトークンを持つのは判定保留・未実施・判定不能（`Label::reason_name`）。OK・NG では `None`。判定保留の理由は常に `threshold-unapproved`（`PENDING_REASON`）で、どの閾値かは `Label::Pending` の値が持つ
-- 未実施の理由のトークン: `not-configured`・`invalid-combination-setting`・`invalid-permission-setting`・`combination-not-declared`・`permission-missing`。判定不能の理由のトークン: `device-mismatch`・`machine-unreachable`
+- 未実施の理由のトークン: `not-configured`・`invalid-combination-setting`・`invalid-permission-setting`・`combination-not-declared`・`permission-missing`・`reference-missing`・`reference-unavailable`（後ろの 2 つは本体が返す）。判定不能の理由のトークン: `device-mismatch`・`machine-unreachable`
 - 表示（`Display`）とトークンは英語の ASCII で、入力の値・自由な文を含まない
 
 ### 集計

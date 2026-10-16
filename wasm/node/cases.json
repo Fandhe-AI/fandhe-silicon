@@ -4,18 +4,21 @@
       "id": "roundtrip-empty",
       "export": "roundtrip_f32",
       "input": [],
+      "reference_source": "fixed",
       "reference": []
     },
     {
       "id": "roundtrip-finite",
       "export": "roundtrip_f32",
       "input": ["3f800000", "80000000", "7f7fffff"],
+      "reference_source": "fixed",
       "reference": ["3f800000", "80000000", "7f7fffff"]
     },
     {
       "id": "roundtrip-non-finite",
       "export": "roundtrip_f32",
       "input": ["7f800000", "ff800000", "7fc00000", "80000000"],
+      "reference_source": "fixed",
       "reference": ["7f800000", "ff800000", "7fc00000", "80000000"]
     }
   ]

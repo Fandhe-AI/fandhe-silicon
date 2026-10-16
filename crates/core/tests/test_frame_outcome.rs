@@ -305,6 +305,45 @@ fn fails_test_is_true_only_for_ng() {
 }
 
 #[test]
+fn missing_reference_gives_not_run_with_a_reason_and_skips_the_threshold_check() {
+    use fandhe_silicon_core::test_frame::{LabelKind, ReferenceGap, Summary};
+    let st = setting(Some("metal-mac-mini"), None);
+    let s = subject(&[unapproved("t-999")]);
+    for (gap, reason) in [
+        (ReferenceGap::Missing, NotRunReason::ReferenceMissing),
+        (
+            ReferenceGap::Unavailable,
+            NotRunReason::ReferenceUnavailable,
+        ),
+    ] {
+        let o = judge(&s, &decl(), &st, |_| RunResult::NoReference(gap));
+        assert_eq!(o.label(), &Label::NotRun(reason));
+        assert_eq!(o.ran_on(), Some(MachineCombination::MetalMacMini));
+        assert_eq!(o.label().reason_name(), Some(reason.name()));
+        assert!(!o.label().fails_test());
+        let sum = Summary::from_outcomes(&[o]).unwrap();
+        assert_eq!(sum.totals().get(LabelKind::NotRun), 1);
+    }
+    assert_eq!(NotRunReason::ReferenceMissing.name(), "reference-missing");
+    assert_eq!(
+        NotRunReason::ReferenceUnavailable.name(),
+        "reference-unavailable"
+    );
+}
+
+#[test]
+fn unset_setting_wins_over_a_reference_gap_and_the_body_is_not_called() {
+    use fandhe_silicon_core::test_frame::ReferenceGap;
+    let calls = Cell::new(0);
+    let o = judge(&subject(&[]), &decl(), &setting(None, None), |_| {
+        calls.set(calls.get() + 1);
+        RunResult::NoReference(ReferenceGap::Missing)
+    });
+    assert_eq!(o.label(), &Label::NotRun(NotRunReason::NotConfigured));
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
 fn from_match_maps_booleans() {
     assert_eq!(Verdict::from_match(true), Verdict::Match);
     assert_eq!(Verdict::from_match(false), Verdict::Mismatch);

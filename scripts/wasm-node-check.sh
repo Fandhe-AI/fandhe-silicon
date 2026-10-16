@@ -12,7 +12,11 @@
 #
 # 役割の分担: wasm/node/run-glue.cjs は glue を呼んで f32 のビット列を書き出すだけで、判定は持たない。
 # 判定は本スクリプトの python3（標準ライブラリだけ・-I）にあり、入力の値をシェルに展開しない。
-# 参照（reference）が無い行は一致扱いにせず not-run にする。ネットワークは使わない・npm パッケージは足さない。
+# 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON）で、
+# 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
+# `not-run (reference-unavailable)`、作れる出どころで参照（reference）が無い行は `not-run (reference-missing)` にする。
+# どちらも一致扱いにしない。出どころを先に見る。TASK-23 のラベルへの写しは crates/core/src/rerun/reference.rs（TASK-29）。
+# ネットワークは使わない・npm パッケージは足さない。
 # 生成物（glue・結果）は mktemp -d の一時ディレクトリにだけ出し、終了時に消す。
 # bash 3.2 互換（mapfile・連想配列・空配列の "${arr[@]}" を使わない）。
 set -euo pipefail
@@ -44,6 +48,10 @@ import sys
 HEX = re.compile(r"[0-9a-f]{8}\Z")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 EXPORTS = ("roundtrip_f32",)
+# 参照の出どころ（綴りは crates/core/src/rerun/reference.rs の ReferenceSource::name に揃える）。
+SOURCES = ("fixed", "native-neon")
+# この環境で参照を作れる出どころ（定数の 1 か所。ネイティブで作る経路は無いので fixed だけ）。引数・環境変数では変えない。
+PRODUCIBLE = ("fixed",)
 
 
 def die(msg):
@@ -71,7 +79,7 @@ def load_cases(path):
     seen = set()
     rows = []
     for r in d["rows"]:
-        if not isinstance(r, dict) or not {"id", "export", "input"} <= set(r) or not set(r) <= {"id", "export", "input", "reference"}:
+        if not isinstance(r, dict) or not {"id", "export", "input", "reference_source"} <= set(r) or not set(r) <= {"id", "export", "input", "reference_source", "reference"}:
             die("a row has missing or unknown keys")
         rid = r["id"]
         if not isinstance(rid, str) or not ID.match(rid):
@@ -82,10 +90,13 @@ def load_cases(path):
         if not isinstance(r["export"], str) or r["export"] not in EXPORTS:
             die("unknown export in row: " + rid)
         inp = hexlist(r["input"], "input")
+        src = r["reference_source"]
+        if not isinstance(src, str) or src not in SOURCES:
+            die("unknown reference_source in row: " + rid)
         ref = r.get("reference")
         if ref is not None:
             ref = hexlist(ref, "reference")
-        rows.append((rid, inp, ref))
+        rows.append((rid, inp, ref, src))
     return rows
 
 
@@ -123,11 +134,15 @@ def main():
         return 0
     res = load_results(sys.argv[3], {r[0] for r in rows})
     counts = {"match": 0, "mismatch": 0, "not-run": 0}
-    for rid, _inp, ref in rows:
+    for rid, _inp, ref, src in rows:
         kind, val = res[rid]
         detail = ""
-        if ref is None:
+        if src not in PRODUCIBLE:
             state = "not-run"
+            detail = "reference-unavailable"
+        elif ref is None:
+            state = "not-run"
+            detail = "reference-missing"
         elif kind == "error":
             state = "mismatch"
             detail = "call error"

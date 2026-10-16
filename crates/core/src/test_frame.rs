@@ -25,7 +25,7 @@ pub mod summary;
 pub mod threshold;
 
 pub use combination::{Backend, Machine, MachineCombination};
-pub use decision::{Decision, NotRunReason, decide};
+pub use decision::{Decision, NotRunReason, ReferenceGap, decide};
 pub use declaration::{Declaration, DeclarationError, Permission, PermissionError};
 pub use export::{
     ExportError, RECORD_DIR_ENV, export_from_env, export_from_lookup, export_parts,
