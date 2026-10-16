@@ -391,13 +391,23 @@ def chip_path_hits(stripped, ident):
     name = re.escape(ident)
     end = r"(?![%s])" % IDENT
     hits = set()
+    # `use` 文の中は use tree の解析（use_hits）だけに任せる（`use crate::{ash::T};` の `ash::` を独立に数えない）。
+    spans = []
+    for u in re.finditer(r"(?<![%s])%suse(?![%s])" % (IDENT, RAW, IDENT), stripped):
+        semi = stripped.find(";", u.end())
+        spans.append((u.end(), len(stripped) if semi < 0 else semi))
     for m in re.finditer(r"(?<![%s#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
+        if any(a <= m.start() < b for a, b in spans):
+            continue
         # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
         before = stripped[:m.start()].rstrip()
         # メソッド呼び出し（`x.ash::<u32>()`・`x . ash::<u32>()`）は crate のパスではない（`..` の範囲演算子は数える）。
         if before.endswith(".") and not before.endswith(".."):
             continue
         if before.endswith("::"):
+            # `<T as Trait>::ash::X` の関連型パスの途中は crate のパスではない。
+            if before[:-2].rstrip().endswith(">"):
+                continue
             prev = re.search(r"(%s+)\s*$" % IDENT, before[:-2])
             # 直前がキーワードなら、先頭の絶対パス（`return ::ash::f()`）なので数える。
             # 直前が `break 'label` / `&'a` のライフタイム・ラベルの識別子でも、その後の `::` は絶対パスの先頭。

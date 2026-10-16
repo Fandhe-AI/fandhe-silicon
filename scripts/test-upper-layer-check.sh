@@ -79,6 +79,10 @@ run_case break-abs-chip 1 "${FB}
 fn f() { loop { break ::ash::foo(); } }"
 run_case mid-path-not-chip 0 "${FB}
 fn f() { foo::ash::bar(); }"
+run_case use-group-local-not-chip 0 "${FB}
+use crate::{ash::Thing};"
+run_case assoc-type-path-not-chip 0 "${FB}
+fn f<T: Tr>() { let _ = <T as Tr>::ash::Thing::new(); }"
 run_case method-spaced 0 "${FB}
 fn f(x: X) { x . ash::<u32>(); }"
 run_case method-adjacent 0 "${FB}
