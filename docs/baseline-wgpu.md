@@ -10,7 +10,7 @@
 | ------ | ---- | -------- |
 | wgpu 系・naga の禁止 | `deny.toml` の `[bans] deny` が `wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`・`naga` を拒否する | `deny.toml`、`make deny` |
 | 全 feature の監査 | `deny.toml` の `[graph] all-features = true`。target は指定しないので全 target が対象 | `deny.toml` |
-| 別 workspace の切り離し | ルートの `Cargo.toml` の `exclude = ["baseline-wgpu", "measure"]`（`baseline-wgpu` が本書の対象。`measure` は測定専用の別 workspace）。製品の workspace の member は `crates/` の 4 crate | ルート `Cargo.toml` |
+| 別 workspace の切り離し | ルートの `Cargo.toml` の `exclude = ["baseline-wgpu", "measure", "wasm"]`（`baseline-wgpu` が本書の対象。`measure` は測定専用の別 workspace、`wasm` は wasm32 向けの別 workspace）。製品の workspace の member は `crates/` の 4 crate | ルート `Cargo.toml` |
 | 別 workspace の cargo-deny | `make deny` は `measure/` にルートの `deny.toml`、`baseline-wgpu/` に `baseline-wgpu/deny.toml` を `--config` で明示して `advisories bans licenses sources` をかける | `scripts/deny.sh` |
 | path の検査 | `make deny` は、workspace の依存グラフ（全 feature・全 target）の path が `crates/` の外を指していないことを検査する | `scripts/deny.sh` |
 | 製品の依存グラフ | パッケージ 4・wgpu 系 0 件 | `cargo metadata --format-version 1 --all-features --locked` |
