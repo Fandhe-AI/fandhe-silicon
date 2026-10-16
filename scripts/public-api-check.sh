@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 4 crate の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、
+# 製品の 4 crate（`--manifest-path` で指定した別 workspace の lib crate も可）の公開 API に wgpu 系（wgpu*・naga）の crate の型・経路が出ていないことを、
 # rustdoc の JSON から機械で数えて確かめる（spec TASK-10・BUILD-47 のポインタ。親 Issue #363 の 2/6・3/6・5/6）。
 # 呼び出し元: `make public-api-check`（直接実行も可）。CI の `deny` ジョブも呼ぶ（`scanned:` / `record:` の行がジョブのログに残る）。
 # 回帰テストは `make test-public-api-check`（`scripts/test-public-api-check.sh`。合成 JSON と実物の rustdoc の JSON を通す）。
@@ -9,6 +9,10 @@
 #   scripts/public-api-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（cargo を呼ばない）
 #   scripts/public-api-check.sh --emit-json <dir>        JSON を作って <dir>/{lib}.{組}.json へ写すだけで検査しない（`emitted:` の行。
 #                                                        scripts/public-name-check.sh が抽出を共有するための口。--json とは併用できない）
+#   scripts/public-api-check.sh --manifest-path <ROOT_DIR 配下の Cargo.toml>
+#                                                        別 workspace（比較基準の baseline-wgpu/ など）の lib crate に同じ検査を当てる。
+#                                                        --json・--emit-json とは併用できない。`make public-api-check` は製品の workspace だけ。
+#                                                        production の feature 列は contract の package 名で当たるため、別 workspace は既定の feature
 # 終了コード: 0 参照が 0 件 / 1 参照が 1 件以上（違反） / 2 誤用・前提の不足・JSON を読み切れない（成功扱いにしない）
 # 標準出力: 組ごとの `scanned:` の行（走査した公開アイテムの数）、全部の文書を検査し終えたとき（終了コード 0 と 1）だけ
 #   最後の `scanned:` の後に 1 回出す締めの `record:` の行、合格時の `ok:` の 1 行。標準エラー: `violation:`・`FAILED:`・`error:`。
@@ -227,8 +231,25 @@ def source_commit(root):
     return sha + ("-dirty" if st.strip() else "")
 
 
-def build_docs(root):
-    """workspace の lib crate ごとに 2 組の rustdoc JSON を作って (crate, 組, パス) を返す。"""
+def resolve_manifest(root, value):
+    """--manifest-path の値を実パスにして返す。root 配下の Cargo.toml（通常ファイル）以外は Misuse。"""
+    real_root = os.path.realpath(root)
+    path = os.path.realpath(value)
+    ok = (
+        os.path.basename(path) == "Cargo.toml"
+        and os.path.isfile(path)
+        and os.path.commonpath([real_root, path]) == real_root
+    )
+    need(ok, "--manifest-path must be a Cargo.toml inside the repository")
+    return path
+
+
+def build_docs(root, manifest=None):
+    """workspace の lib crate ごとに 2 組の rustdoc JSON を作って (crate, 組, パス) を返す。
+
+    manifest が在れば、その Cargo.toml の workspace を対象にする（cwd は root のまま）。
+    """
+    mpath = ["--manifest-path", manifest] if manifest else []
     env = dict(os.environ, RUSTC_BOOTSTRAP="1")
 
     def run(cmd, with_env=None, to_stderr=False):
@@ -241,7 +262,7 @@ def build_docs(root):
             raise Misuse("cannot run %s" % cmd[0])
 
     need(run(["cargo", "--version"]).returncode == 0, "cargo is not usable")
-    meta = run(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"])
+    meta = run(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"] + mpath)
     need(meta.returncode == 0, "cargo metadata failed")
     try:
         md = json.loads(meta.stdout)
@@ -274,6 +295,7 @@ def build_docs(root):
                 os.remove(path)
             cmd = ["cargo", "rustdoc", "--locked", "--target-dir", tdir, "-p", name]
             cmd += feats
+            cmd += mpath
             cmd += ["--lib", "--", "-Z", "unstable-options", "--output-format", "json"]
             done = run(cmd, with_env=env, to_stderr=True)
             need(done.returncode == 0, "cargo rustdoc failed for %s (%s)" % (clean(name), label))
@@ -298,7 +320,13 @@ def main():
     parser = argparse.ArgumentParser(prog="public-api-check.sh")
     parser.add_argument("--json", nargs="+", metavar="PATH")
     parser.add_argument("--emit-json", metavar="DIR")
+    parser.add_argument("--manifest-path", metavar="PATH")
     args = parser.parse_args(sys.argv[2:])
+    manifest = None
+    if args.manifest_path is not None:
+        need(args.json is None, "--manifest-path cannot be combined with --json")
+        need(args.emit_json is None, "--manifest-path cannot be combined with --emit-json")
+        manifest = resolve_manifest(root, args.manifest_path)
     if args.emit_json is not None:
         need(args.json is None, "--emit-json cannot be combined with --json")
         need(os.path.isdir(args.emit_json), "--emit-json directory does not exist")
@@ -313,7 +341,7 @@ def main():
         inputs = [("-", "-", p) for p in args.json]
     else:
         commit = source_commit(root)
-        inputs = build_docs(root)
+        inputs = build_docs(root, manifest)
 
     total = 0
     sum_public = sum_type = sum_other = 0

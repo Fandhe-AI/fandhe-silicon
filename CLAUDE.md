@@ -36,7 +36,7 @@ fandhe-silicon/
 │   └── settings.json         # SessionStart / PostToolUse hooks
 ├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs`）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
-├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin のみ）
+├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。`test-support` の裏に `parity`・`test_frame`・`rerun`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
