@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
@@ -75,6 +76,8 @@ METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--fo
 IDENT = r"\w"
 # raw identifier の接頭辞（`r#unsafe` はキーワードでなく識別子）。
 RAW = r"(?<!r#)"
+# crate 名の判定でだけ許す raw identifier の接頭辞（`r#ash` は `ash` と同じ crate を指す）。
+RAW_OPT = r"(?:r#)?"
 
 
 class Misuse(Exception):
@@ -140,6 +143,17 @@ def read_text(path):
             return f.read().decode("utf-8")
     except (OSError, UnicodeDecodeError):
         raise Misuse("cannot read input file")
+
+
+def fold_ident_chars(s):
+    """Rust の識別子継続文字（XID_Continue）のうち `\\w` に入らないもの（結合文字・連結用句読点）を `_` に置き換える。
+
+    同じ長さを保つので位置と行番号は変わらない。`fn unsafé() {}` のような有効な識別子を境界の判定で割らない。
+    """
+    return "".join(
+        "_" if (ord(c) > 127 and unicodedata.category(c) in ("Mn", "Mc", "Nd", "Pc")) else c
+        for c in s
+    )
 
 
 def strip_code(text):
@@ -319,7 +333,7 @@ def has_forbid(stripped):
     return False
 
 
-TOKEN_RE = re.compile(r"%s+|::|[{},;*#\[\]]" % IDENT)
+TOKEN_RE = re.compile(r"%s%s+|::|[{},;*#\[\]]" % (RAW_OPT, IDENT))
 
 
 def use_hits(stripped, name):
@@ -363,7 +377,7 @@ def use_hits(stripped, name):
                     stack.pop()
                 empty = False
             elif tok[0].isalnum() or tok[0] == "_":
-                if empty and tok == name:
+                if empty and (tok[2:] if tok.startswith("r#") else tok) == name:
                     hits.add(t.start())
                 empty = False
     return hits
@@ -374,14 +388,14 @@ def chip_path_hits(stripped, ident):
     name = re.escape(ident)
     end = r"(?![%s])" % IDENT
     hits = set()
-    for m in re.finditer(r"(?<![%s.])%s%s%s\s*::" % (IDENT, RAW, name, end), stripped):
+    for m in re.finditer(r"(?<![%s.#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
         # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
         before = stripped[:m.start()].rstrip()
         if before.endswith("::") and re.search(r"[%s]\s*$" % IDENT, before[:-2]):
             continue
         hits.add(m.start())
     hits.update(use_hits(stripped, name))
-    for m in re.finditer(r"(?<![%s])extern\s+crate\s+(%s)%s" % (IDENT, name, end), stripped):
+    for m in re.finditer(r"(?<![%s])extern\s+crate\s+%s(%s)%s" % (IDENT, RAW_OPT, name, end), stripped):
         hits.add(m.start(1))
     return hits
 
@@ -430,7 +444,7 @@ def main():
     declared = False
     unsafe_hits, chip_hits = [], []
     for rel, full in sources:
-        stripped = strip_code(read_text(full))
+        stripped = fold_ident_chars(strip_code(read_text(full)))
         if os.path.realpath(full) == os.path.realpath(crate_root):
             root_rel = rel
             declared = has_forbid(stripped)

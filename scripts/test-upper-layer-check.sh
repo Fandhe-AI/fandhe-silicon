@@ -59,6 +59,20 @@ run_case chip-grouped-attr-late 1 "${FB}
 use {#[cfg(x)] c, ash};"
 run_case attr-not-chip 0 "${FB}
 use std::{#[cfg(ash)] a, b};"
+run_case raw-chip-path 1 "${FB}
+fn f() { r#ash::x(); }"
+run_case raw-chip-use 1 "${FB}
+use r#ash::b;"
+run_case raw-chip-use-group 1 "${FB}
+use {r#ash};"
+run_case raw-chip-extern 1 "${FB}
+extern crate r#ash;"
+run_case combining-ident 0 "${FB}
+fn unsafé() {}"
+run_case combining-ident-lead 0 "${FB}
+fn áunsafe() {}"
+run_case combining-decomposed 0 "${FB}
+fn unsafe$(printf '\xcc\x81')() {}"
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]
