@@ -149,6 +149,39 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 - `make verify`（上の Rust の試験を `--all-features` で含む）
 - 製品の経路から参照しないこと: `grep -rn rerun crates/contract/src crates/exec/src crates/upper/src`（0 件）
 
+## 完了の条件の確かめ（8/8）
+
+8/8（#143）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-29）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 照合の型（2/8） | `cargo test -p fandhe-silicon-core --features test-support --test rerun_check` | 終了コード 0・`9 passed; 0 failed` |
+| A2 | 実行の口（3/8） | 同 `--test rerun_run` | 終了コード 0・`11 passed; 0 failed` |
+| A3 | Node での照合の写し（4/8） | 同 `--test rerun_reference`・`--test test_frame_outcome` | 終了コード 0・`7 passed; 0 failed`・`19 passed; 0 failed` |
+| A4 | 枠と道具の通しの公開テスト（6/8） | 同 `--test rerun_round_trip` | 終了コード 0・`5 passed; 0 failed` |
+| B1 | 前の記録と比べる道具の回帰テスト（5/8） | `make test-rerun-compare` | 終了コード 0・`passed=30 failed=0` |
+| B2 | 集計とスクリプト側の欠けの規則・綴りの一致（4/8） | `make test-record-summary`・`make test-wasm-node-check` | 終了コード 0・`passed: 92, failed: 0`・`passed: 80, failed: 0` |
+| C1 | 製品の経路から参照しない・副作用と `unsafe` が無い | `crates/contract/src`・`crates/exec/src`・`crates/upper/src` の `rerun` の grep と、`crates/core/src/rerun*` の `std::fs`・`println!`・`env::var`・`unsafe`・`process::Command` の grep | 0 件・0 件 |
+| C2 | 依存と workspace が変わっていない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[approval]]` の件数と、ルート `Cargo.toml` の members / exclude | 0 件・0 件・members は 4 crate・exclude は 3（`baseline-wgpu`・`measure`・`wasm`） |
+| E1 | main の CI の `verify` ジョブ | main の CI（`151141f` の push run）の `make verify (fmt + clippy + test)` ジョブの step | `make verify`・`make build-profiles` とも conclusion は success |
+| E2 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make deny`・`make deps-check`・`make test-record-summary`・`make test-wasm-node-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check`・`make test-rerun-compare` とも conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check` | すべて終了コード 0 |
+
+実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない。
+照合の中身は TASK-29 の範囲外で、この表に含めない。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-29）。
+
+### 再実行の契機
+
+- `crates/core/src/rerun*`・`crates/core/src/test_frame` の公開面、`crates/core/tests/rerun_*.rs`・`test_frame_outcome.rs` を変えたとき
+- `scripts/rerun-compare.sh`・`scripts/test-rerun-compare.sh`・`scripts/record-summary.sh`・`scripts/verify.sh`・`scripts/wasm-node-check.sh`・`wasm/node/` を変えたとき
+- CI の `verify`・`deny` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `151141f`、`docs/spec` の gitlink は `dc955fd`。
+
 ## 本リポでの反映の方針
 
 - 本書には本リポのコードと公開テストが示す事実だけを置く。テストの無い約束は書かない
