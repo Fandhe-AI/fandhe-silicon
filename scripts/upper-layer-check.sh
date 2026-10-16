@@ -71,8 +71,10 @@ SKIP_DIRS = ("target",)
 
 # --offline で取得が要る場合は失敗（前提の不足）にする。--no-deps は workspace の package だけを読む（宣言は残る）。
 METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1", *FEATURE_ARGS]
-IDENT = "A-Za-z0-9_"
-IDENT_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+# 識別子の文字（Unicode の単語文字。Rust の識別子は Unicode を含む）。
+IDENT = r"\w"
+# raw identifier の接頭辞（`r#unsafe` はキーワードでなく識別子）。
+RAW = r"(?<!r#)"
 
 
 class Misuse(Exception):
@@ -290,33 +292,68 @@ def collect_sources(crate_dir):
 
 
 FORBID_RE = re.compile(r"#\s*!\s*\[\s*forbid\s*\(([^()]*)\)\s*\]")
-UNSAFE_RE = re.compile(r"(?<![%s])unsafe(?![%s])" % (IDENT, IDENT))
+UNSAFE_RE = re.compile(r"(?<![%s])%sunsafe(?![%s])" % (IDENT, RAW, IDENT))
 
 
 def has_forbid(stripped):
-    """crate root（波括弧の外＝トップレベル）の inner attribute だけを宣言として数える。"""
+    """crate root のトップレベル（丸・角・波括弧のどれの中でもない位置）の inner attribute だけを宣言として数える。
+
+    マクロの入力（`m!(...)`・`macro_rules!` の本体）や mod の中の宣言は crate の属性ではないので数えない。
+    """
+    depth_at = {}
+    depth = 0
+    for i, ch in enumerate(stripped):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            need(depth >= 0, "unbalanced brackets in the crate root")
+        elif ch == "#":
+            depth_at[i] = depth
+    need(depth == 0, "unbalanced brackets in the crate root")
     for m in FORBID_RE.finditer(stripped):
-        before = stripped[:m.start()]
-        if before.count("{") != before.count("}"):
+        if depth_at.get(m.start()) != 0:
             continue
         if "unsafe_code" in [s.strip() for s in m.group(1).split(",")]:
             return True
     return False
 
 
-TOKEN_RE = re.compile(r"[%s]+|::|[{},;*]" % IDENT)
+TOKEN_RE = re.compile(r"%s+|::|[{},;*#\[\]]" % IDENT)
 
 
 def use_hits(stripped, name):
-    """`use` 文の use tree（グループ・別名を含む）で、先頭の区間が name の出現位置の集合を返す。"""
+    """`use` 文の use tree（グループ・別名を含む）で、先頭の区間が name の出現位置の集合を返す。
+
+    tree の中の属性（`#[...]`）は読み飛ばし、先頭の区間の判定に影響させない。
+    """
     hits = set()
-    for m in re.finditer(r"(?<![%s])use(?![%s])" % (IDENT, IDENT), stripped):
+    for m in re.finditer(r"(?<![%s])%suse(?![%s])" % (IDENT, RAW, IDENT), stripped):
         empty = True  # 現在の tree がまだ区間を消費していない（先頭に在る）
         stack = []
+        attr = 0  # 属性の角括弧の深さ（0 より大きい間は読み飛ばす）
+        pending = False  # 直前が `#`（次の `[` が属性の開始）
         for t in TOKEN_RE.finditer(stripped, m.end()):
             tok = t.group()
+            if attr:
+                if tok == "[":
+                    attr += 1
+                elif tok == "]":
+                    attr -= 1
+                continue
             if tok == ";":
                 break
+            if tok == "#":
+                pending = True
+                continue
+            if tok == "[":
+                if pending:
+                    attr = 1
+                pending = False
+                continue
+            pending = False
+            if tok == "]":
+                continue
             if tok == "{":
                 stack.append(empty)
             elif tok == ",":
@@ -325,7 +362,7 @@ def use_hits(stripped, name):
                 if stack:
                     stack.pop()
                 empty = False
-            elif tok[0] in IDENT_CHARS:
+            elif tok[0].isalnum() or tok[0] == "_":
                 if empty and tok == name:
                     hits.add(t.start())
                 empty = False
@@ -337,7 +374,7 @@ def chip_path_hits(stripped, ident):
     name = re.escape(ident)
     end = r"(?![%s])" % IDENT
     hits = set()
-    for m in re.finditer(r"(?<![%s.])%s%s\s*::" % (IDENT, name, end), stripped):
+    for m in re.finditer(r"(?<![%s.])%s%s%s\s*::" % (IDENT, RAW, name, end), stripped):
         # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
         before = stripped[:m.start()].rstrip()
         if before.endswith("::") and re.search(r"[%s]\s*$" % IDENT, before[:-2]):
