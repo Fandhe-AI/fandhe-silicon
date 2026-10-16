@@ -267,6 +267,16 @@ MEASURE_RAW='not json'
 run_case measure-not-json 2 "${FB}"
 MEASURE_RAW='{"workspace_members":[]}'
 run_case measure-no-packages 2 "${FB}"
+MEASURE_RAW='{"workspace_root":"/x","workspace_members":["missing"],"packages":[]}'
+run_case measure-member-missing 2 "${FB}"
+MEASURE_RAW='{"workspace_root":"/x","workspace_members":[],"packages":[{"id":"m","name":"m","dependencies":[],"features":{}}]}'
+run_case measure-members-empty 2 "${FB}"
+MEASURE_RAW='{"workspace_root":"/x","workspace_members":[""],"packages":[{"id":"","name":"m","dependencies":[],"features":{}}]}'
+run_case measure-member-empty-id 2 "${FB}"
+MEASURE_RAW='{"workspace_root":"/x","workspace_members":[1],"packages":[{"id":"m","name":"m","dependencies":[],"features":{}}]}'
+run_case measure-member-non-string 2 "${FB}"
+MEASURE_RAW='{"workspace_root":"/x","workspace_members":["m"],"packages":[{"id":"m","name":"m","dependencies":[],"features":{}},{"id":"m","name":"m2","dependencies":[],"features":{}}]}'
+run_case measure-package-duplicate 2 "${FB}"
 CONTRACT_PKG=""
 run_case product-no-contract 2 "${FB}"
 

@@ -346,7 +346,12 @@ def check_measure(mmd, contract):
     need(isinstance(mmd, dict), "measure metadata top level is not an object")
     pkgs, members = mmd.get("packages"), mmd.get("workspace_members")
     need(isinstance(pkgs, list), "measure metadata: missing or malformed 'packages'")
-    need(isinstance(members, list), "measure metadata: missing or malformed 'workspace_members'")
+    need(isinstance(members, list) and members, "measure metadata: missing or empty 'workspace_members'")
+    for m in members:
+        need(isinstance(m, str) and m, "measure metadata: malformed workspace member id")
+    ids = [p.get("id") for p in pkgs if isinstance(p, dict)]
+    for m in members:
+        need(ids.count(m) == 1, "measure metadata: a workspace member is not found exactly once in 'packages'")
     contract_dir = os.path.dirname(os.path.normpath(contract["manifest_path"]))
     contract_name = fold(contract["name"])
     n_members, dependents, bad = 0, 0, []
