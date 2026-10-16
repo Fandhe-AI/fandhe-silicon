@@ -172,7 +172,9 @@ def reachable(md):
             continue
         seen.add(i)
         need(i in by_id, "package id not found in packages")
-        stack.extend(nodes.get(i, []))
+        # 到達した package の resolve node が欠けていたら、依存なしと読まずに誤りとして止める。
+        need(i in nodes, "package id not found in resolve nodes")
+        stack.extend(nodes[i])
     return len(members), [by_id[i] for i in sorted(seen)]
 
 
