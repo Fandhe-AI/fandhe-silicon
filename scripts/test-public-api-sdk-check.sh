@@ -10,7 +10,7 @@
 #   4. 偽のコマンド（引数なしの既定の経路。偽の git・cargo と、JSON を作る段の差し替え、PATH を絞った環境）
 #   5. 実物: 実行時に一時ディレクトリへ作る合成 path crate の一時 workspace で、実物の rustdoc の JSON と
 #      実物の cargo metadata を通す。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない
-# 呼び出し元: `make test-public-api-sdk-check`（直接実行も可。CI はまだ呼ばない）。
+# 呼び出し元: `make test-public-api-sdk-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う。終了コードだけでは別の理由で落ちても

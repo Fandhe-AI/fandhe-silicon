@@ -8,10 +8,10 @@
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 検査 | `scripts/public-api-sdk-check.sh`（bash + `python3 -I`、標準ライブラリのみ）。検査の 2 側（rustdoc の JSON の参照の数え上げ・共通の crate の依存宣言）を 1 回で流す | `scripts/public-api-sdk-check.sh` |
-| 呼び出し元 | 直接実行。検査本体の make ターゲットは持たず、CI も呼んでいない | `grep -rn public-api-sdk-check Makefile .github` |
+| 呼び出し元 | `make public-api-sdk-check`（直接実行も可）。CI の `deny` ジョブが呼ぶ（`scanned:` / `record:` の行がジョブのログに残る） | `grep -n public-api-sdk .github/workflows/ci.yml` |
 | rustdoc の JSON | `scripts/public-api-check.sh --emit-json` で作る（抽出の実体を共有する） | 同スクリプトの先頭コメント |
 | 依存側の入力 | `cargo metadata --locked --offline --no-deps --format-version 1 --all-features` | 同スクリプトの `METADATA_CMD` |
-| 回帰テスト | `scripts/test-public-api-sdk-check.sh`（`make test-public-api-sdk-check`）。合成 rustdoc JSON・合成 metadata・偽のコマンド・PATH を絞った環境・一時 workspace の実物の出力で確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI はまだ呼んでいない | `make test-public-api-sdk-check` |
+| 回帰テスト | `scripts/test-public-api-sdk-check.sh`（`make test-public-api-sdk-check`）。合成 rustdoc JSON・合成 metadata・偽のコマンド・PATH を絞った環境・一時 workspace の実物の出力で確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI の `deny` ジョブも呼ぶ | `make test-public-api-sdk-check` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
