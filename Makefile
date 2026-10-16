@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny dep-graph-wgpu-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control dep-graph-wgpu-checkmeasure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -106,6 +106,12 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
+
+baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。両方が wgpu を検出すれば合格・どちらかが 0 件なら失敗・誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
+	@scripts/baseline-positive-control.sh
+
+test-baseline-positive-control: ## baseline-positive-control の回帰テスト（本体を一時ディレクトリへ写し、偽の検査 2 本で終了コードの写しを確かめる。bash のみ・cargo もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-baseline-positive-control.sh
+	@scripts/test-baseline-positive-control.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh
 	@scripts/test-wasm-size.sh
