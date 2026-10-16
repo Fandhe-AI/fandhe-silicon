@@ -137,5 +137,26 @@ fn f() { let _ = 1ash; }"
 run_case unicode-continue-not-chip 0 "${FB}
 fn ashé() {}"
 
+run_case raw-string-inner-quote-chip 1 "${FB}
+fn f() { r#\"a\"b\"#; ash::f(); }"
+run_case nested-block-comment-chip 1 "${FB}
+/* /* */ ash::f(); */ ash::g();"
+run_case lifetime-then-chip 1 "${FB}
+fn f<'a>(x: &'a u8) {}
+fn g() { ash::f(); }"
+run_case lifetime-name-chip 1 "${FB}
+fn f<'ash>() {}"
+run_case byte-string-escape-chip 1 "${FB}
+fn f() { let _ = b\"x\\\"y\"; ash::f(); }"
+run_case byte-raw-string-chip 1 "${FB}
+fn f() { let _ = br#\"x\"y\"#; ash::f(); }"
+run_case byte-quote-char-chip 1 "${FB}
+fn f() { let _ = b'\"'; ash::f(); }"
+run_case float-exponent-chip 1 "${FB}
+fn f() { 1e5; ash::x(); }"
+run_case hex-literal-chip 1 "${FB}
+fn f() { 0x1f; ash::x(); }"
+run_case raw-chip-extra-file 1 "${FB}" "fn f() { r#ash::x(); }"
+
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]

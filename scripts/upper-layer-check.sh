@@ -383,7 +383,6 @@ def chip_path_hits(stripped, idents):
     return [(pos, tok) for pos, tok in ident_tokens(stripped) if tok in idents]
 
 
-
 def main():
     ap = argparse.ArgumentParser(prog="upper-layer-check.sh", add_help=True)
     ap.add_argument("root")
@@ -435,7 +434,9 @@ def main():
             declared = has_forbid(stripped)
         for m in UNSAFE_RE.finditer(stripped):
             unsafe_hits.append((rel, line_of(stripped, m.start())))
-        # unsafe の判定は \w 向けに畳んだ文字列、名前の一致は畳む前の文字列（識別子の境界を壊さない）で行う。
+        # unsafe の判定は畳んだ文字列（stripped）で行う。\w の境界で単語を割らないため。
+        # 名前の一致は畳む前（plain）で行う。畳むと識別子の非 ASCII の部分が `_` になり、
+        # 元の名前と比べられなくなる。
         for pos, tok in chip_path_hits(plain, CHIP_IDENTS):
             chip_hits.append((rel, line_of(plain, pos), CHIP_IDENTS[tok]))
     need(root_rel is not None, "the lib crate root is not among the scanned sources")
