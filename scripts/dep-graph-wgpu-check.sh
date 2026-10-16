@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 製品の workspace の依存グラフ（全 feature・全 target・通常 / ビルド時 / dev）に載る crate のうち、
+# 製品の workspace の依存グラフに載る crate のうち、
 # wgpu プロジェクトの crate を「狭い定義」と「広い定義」の 2 通りで数えて確かめる
-# （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6・3/6）。
+# （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6・3/6・4/6）。
 # 呼び出し元: 直接実行。
 # 対象は製品の workspace（ROOT_DIR/Cargo.toml）だけ。baseline-wgpu/・measure/・wasm/ には当てない。
 #
@@ -19,12 +19,10 @@
 #   repository が無い crate は 1 件ごとに `no-repository: crate=<name> version=<ver>`（`record:` の後。違反ではない）。
 # 標準エラー: `violation:`・`FAILED:`・`error:`。
 #
-# 数え方: 数えるのは一意の package（metadata の workspace_members から依存をたどって届くもの。
-#   dep_kinds の種類は問わない）。tree 側の (名前, 版) の集合と一致しなければ終了コード 2。
-#   2 つの定義はこのファイル先頭の定数 NARROW_NAMES・WIDE_REPOSITORY_PREFIX にまとめる。
-#   狭い定義は package 名の完全一致（小文字化と `_`→`-` の正規化のうえ）、
-#   広い定義は metadata の repository を正規化（前後の空白除去・小文字化・先頭の `git+` と `http(s)://` の除去・
-#   末尾の `/` と `.git` の除去）したうえでの接頭辞一致。
+# 数え方: 数える依存の種類・target・feature、名前の一覧、広い定義の形は、Python 部の先頭の
+#   「数え方の定義」ブロックにだけ置く（値をここへ書き写さない）。変える手順と出力の読み方は docs/dep-graph-wgpu-check.md。
+#   数えるのは一意の package（metadata の workspace_members から、定義の依存の種類の辺をたどって届くもの）。
+#   tree 側の (名前, 版) の集合と一致しなければ終了コード 2。
 #   repository が無い（null か空）crate は広い定義に当たらない扱いで、総数には含め、件数と crate を標準出力に出す。
 #   同じ (名前, 版) が複数あるときは、広い定義はどれか 1 つでも当たれば当たり、repository の欠落は全部が欠けるときだけ欠落。
 # 検査しないもの: `www.` 付きのホスト、`git://`・`ssh://`・`git@github.com:` の形、github.com 以外のホスト、
@@ -49,19 +47,38 @@ if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
     sys.exit(2)
 
-# 狭い定義: package 名（小文字化・`_`→`-` の正規化後）の完全一致。
+# ==== 数え方の定義（数え方を変えるときはここだけを変える） ====
+# 何を数えるかの決定は private spec 側の記録に従う（TASK-82 のポインタのみ）。
+# 狭い定義の名前は deny.toml の [bans] deny と同じ PR で一緒に変える。手順は docs/dep-graph-wgpu-check.md。
+# コマンドの組み立て・走査・判定はこのブロックの値から作るので、値はこのブロックの外に書かない。
+
+# 数える依存の種類（cargo の dep_kinds の kind。通常の依存は normal）。
+DEP_KINDS = ("normal", "build", "dev")
+# 数える target（"all" か target triple）。
+TARGET = "all"
+# 数える feature の指定（cargo の引数）。
+FEATURE_ARGS = ("--all-features",)
+
+# 狭い定義: package 名の完全一致。比較は名前の折りたたみ（小文字化のあと NARROW_NAME_REPLACE を適用）の後。
 NARROW_NAMES = ("wgpu", "wgpu-core", "wgpu-hal", "wgpu-types", "naga")
+NARROW_NAME_REPLACE = (("_", "-"),)
+
 # 広い定義: metadata の repository を正規化した結果がこの接頭辞で始まる crate。
 WIDE_REPOSITORY_PREFIX = "github.com/gfx-rs/"
 # repository の正規化の規則（この順: 空白除去・小文字化・先頭の除去・scheme の除去・末尾の除去）。
 REPOSITORY_STRIP_PREFIXES = ("git+",)
 REPOSITORY_SCHEMES = ("https://", "http://")
 REPOSITORY_STRIP_SUFFIXES = ("/", ".git")
+# ==== 数え方の定義ここまで ====
 
-METADATA_CMD = ["cargo", "metadata", "--locked", "--format-version", "1", "--all-features"]
+# 定義から組み立てるコマンド（値はここに書かない）。target は metadata では --filter-platform に任せる。
+METADATA_CMD = (
+    ["cargo", "metadata", "--locked", "--format-version", "1", *FEATURE_ARGS]
+    + ([] if TARGET == "all" else ["--filter-platform", TARGET])
+)
 TREE_CMD = [
-    "cargo", "tree", "--locked", "--workspace", "--all-features", "--target", "all",
-    "-e", "normal,build,dev", "--prefix", "none", "--no-dedupe",
+    "cargo", "tree", "--locked", "--workspace", *FEATURE_ARGS, "--target", TARGET,
+    "-e", ",".join(DEP_KINDS), "--prefix", "none", "--no-dedupe",
 ]
 TREE_LINE = re.compile(r"^(\S+) v(\S+)( \(proc-macro\))?( \(.+\))?$")
 
@@ -81,7 +98,10 @@ def need(cond, msg):
 
 
 def is_narrow(name):
-    return name.lower().replace("_", "-") in NARROW_NAMES
+    folded = name.lower()
+    for old, new in NARROW_NAME_REPLACE:
+        folded = folded.replace(old, new)
+    return folded in NARROW_NAMES
 
 
 def normalize_repository(repo):
@@ -193,7 +213,19 @@ def reachable(md):
         ids = []
         for d in deps:
             need(isinstance(d, dict) and isinstance(d.get("pkg"), str), "malformed resolve dep")
-            ids.append(d["pkg"])
+            kinds = d.get("dep_kinds")
+            need(isinstance(kinds, list) and kinds, "malformed resolve dep kinds")
+            counted = False
+            for k in kinds:
+                need(isinstance(k, dict), "malformed resolve dep kinds")
+                kind = k.get("kind")
+                # cargo が出す kind は null（通常）・normal・build・dev だけ。それ以外は辺を捨てず誤りとして止める。
+                need(kind is None or kind in ("normal", "build", "dev"), "unknown resolve dep kind")
+                # kind が null は通常の依存。定義の依存の種類に入る辺だけをたどる。
+                if (kind or "normal") in DEP_KINDS:
+                    counted = True
+            if counted:
+                ids.append(d["pkg"])
         nodes[n["id"]] = ids
     for m in members:
         need(isinstance(m, str), "malformed workspace member")
