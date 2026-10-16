@@ -19,7 +19,7 @@ cat <<'EOF'
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
   verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
   build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）
-  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
+  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）
   wasm-size       scripts/wasm-size.sh           wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。CI は wasm-macos ジョブが呼び、deny ジョブは呼ばない）。--from-dir <dir> なら生成済みの出力だけを測る
@@ -33,7 +33,8 @@ cat <<'EOF'
   ci-frame-check  scripts/ci-frame-check.sh      ci.yml が CI の枠の事実（集約・実行場所・失敗の扱い）を保っているかの検査（bash + python3。--workflow <path> で入力を差し替え可）
   test-ci-frame-check scripts/test-ci-frame-check.sh  ci-frame-check 自体の回帰テスト（合成 fixture。bash + python3）
   public-api-check scripts/public-api-check.sh   4 crate の公開 API の wgpu 系の参照を rustdoc の JSON から数える検査。走査した公開アイテムの数を標準出力の scanned: と締めの record: に出す（bash + python3 + cargo。JSON を作る経路は git で HEAD のコミットを取り、取れなければ終了コード 2。--json <path>... で JSON を差し替え可。CI の deny ジョブも実行する）。回帰テストは make test-public-api-check
-  test-dep-graph-wgpu-check scripts/test-dep-graph-wgpu-check.sh  dep-graph-wgpu-check 自体の回帰テスト（合成 JSON・合成 tree と、一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI はまだ呼ばない）
+  dep-graph-wgpu-check scripts/dep-graph-wgpu-check.sh  製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数える検査。件数を標準出力の record: に出す（bash + python3 + cargo + git・ソースは変更しない・make deny も呼ぶ）
+  test-dep-graph-wgpu-check scripts/test-dep-graph-wgpu-check.sh  dep-graph-wgpu-check 自体の回帰テスト（合成 JSON・合成 tree と、一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
   public-name-check scripts/public-name-check.sh   製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことの検査。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。--json <path>... で差し替え可。CI の deny ジョブも実行する）
   test-public-name-check scripts/test-public-name-check.sh  public-name-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。CI の deny ジョブも実行する）
   test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）

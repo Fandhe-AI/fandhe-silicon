@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny dep-graph-wgpu-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -35,7 +35,7 @@ verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変�
 build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）。直接: scripts/build-profiles.sh
 	@scripts/build-profiles.sh
 
-deny: ## cargo deny check（advisories / bans / licenses / sources）。直接: scripts/deny.sh
+deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検査 + 依存グラフの wgpu 系の検査（dep-graph-wgpu-check。python3・git も要る）+ 別 workspace の監査。直接: scripts/deny.sh
 	@scripts/deny.sh
 
 measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
@@ -101,7 +101,10 @@ test-rerun-compare: ## rerun-compare の回帰テスト（合成の記録の部�
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh
 
-test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI はまだ呼ばない）。直接: scripts/test-dep-graph-wgpu-check.sh
+dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
+	@scripts/dep-graph-wgpu-check.sh
+
+test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh
