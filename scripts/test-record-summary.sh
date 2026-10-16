@@ -429,7 +429,7 @@ BODY_KIND_VALUE="$(rust_names "${RECORD_SRC}" 'BODY_KIND: &str = "([a-z0-9-]+)"'
 
 count_lines() { printf '%s\n' "$1" | grep -c . || true; }
 if [ "$(count_lines "${COMBOS}")" = 7 ] && [ "$(count_lines "${MACHINES}")" = 5 ] \
-  && [ "$(count_lines "${KINDS}")" = 5 ] && [ "$(count_lines "${NOT_RUN_REASONS}")" = 5 ] \
+  && [ "$(count_lines "${KINDS}")" = 5 ] && [ "$(count_lines "${NOT_RUN_REASONS}")" = 7 ] \
   && [ "$(count_lines "${INDETERMINATE_REASONS}")" = 2 ] && [ "${PENDING_REASON_VALUE}" = "threshold-unapproved" ] \
   && [ "${BODY_KIND_VALUE}" = "contract-test" ]; then
   report_ok "sync: the Rust sources still yield the expected number of spellings"

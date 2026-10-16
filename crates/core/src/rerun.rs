@@ -1,4 +1,4 @@
-//! 契約の版を変えた後の流し直しで使う、照合 1 件の型の入口（spec TASK-29。範囲は「照合 1 件の表し方」「照合の集まり」「流す口」）。
+//! 契約の版を変えた後の流し直しで使う、照合 1 件の型の入口（spec TASK-29。範囲は「照合 1 件の表し方」「照合の集まり」「流す口」「Node での照合の行の写し」）。
 //!
 //! feature `test-support` の裏にだけ公開される（置き場の説明は `docs/rerun-frame.md`）。
 //! 製品の経路（`contract`・`exec`・`upper` の非テストのコード）からは参照しない。
@@ -9,9 +9,11 @@
 //! [`run_checks`] で流すと `Outcome` が宣言の順に返り、[`run_and_export`] なら記録も書く。
 
 pub mod check;
+pub mod reference;
 pub mod run;
 pub mod set;
 
 pub use check::Check;
+pub use reference::{ReferenceSource, RowCheck, RowState, reference_gap};
 pub use run::{export_outcomes, run_and_export, run_checks};
 pub use set::{CheckSet, CheckSetError, MAX_CHECKS};

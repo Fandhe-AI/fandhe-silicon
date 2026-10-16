@@ -151,8 +151,8 @@ echo wasm >"${dummy_wasm}"
 cases="${fix}/cases.json"
 cat >"${cases}" <<'EOF'
 {"rows": [
-  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference": ["3f800000"]},
-  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000", "7fc00000"], "reference": ["80000000", "7fc00000"]}
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000", "7fc00000"], "reference_source": "fixed", "reference": ["80000000", "7fc00000"]}
 ]}
 EOF
 res_ok() {
@@ -216,14 +216,14 @@ expect "8 length differs" 1 "row: row-b mismatch" "length expected 2 got 1"
 # 9. 参照の無い行は not-run（Node の結果があっても一致にしない）
 cat >"${fix}/noref.json" <<'EOF'
 {"rows": [
-  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference": ["3f800000"]},
-  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000"]},
-  {"id": "row-c", "export": "roundtrip_f32", "input": ["80000000"], "reference": null}
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000"], "reference_source": "fixed"},
+  {"id": "row-c", "export": "roundtrip_f32", "input": ["80000000"], "reference_source": "fixed", "reference": null}
 ]}
 EOF
 printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000"]}' '{"id":"row-c","output":["80000000"]}' >"${FAKE_RESULTS}"
 w --wasm "${dummy_wasm}" --cases "${fix}/noref.json"
-expect "9 no reference is not-run" 1 "row: row-a match" "row: row-b not-run" "row: row-c not-run" "match=1 mismatch=0 not-run=2"
+expect "9 no reference is not-run" 1 "row: row-a match" "row: row-b not-run (reference-missing)" "row: row-c not-run (reference-missing)" "match=1 mismatch=0 not-run=2"
 
 # 10. 行が 0 件
 echo '{"rows": []}' >"${fix}/empty.json"
@@ -268,16 +268,16 @@ expect "14 unreadable cases" 2 "cannot read cases"
 echo '{"rows": [' >"${fix}/bad.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/bad.json"
 expect "14 broken JSON" 2 "cannot read cases"
-echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[]},{"id":"a","export":"roundtrip_f32","input":[]}]}' >"${fix}/dup.json"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"reference_source":"fixed"},{"id":"a","export":"roundtrip_f32","input":[],"reference_source":"fixed"}]}' >"${fix}/dup.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/dup.json"
 expect "14 duplicate id" 2 "duplicate row id"
-echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":["3F800000"]}]}' >"${fix}/hex.json"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":["3F800000"],"reference_source":"fixed"}]}' >"${fix}/hex.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/hex.json"
 expect "14 bad bit pattern" 2 "invalid bit pattern"
-echo '{"rows": [{"id":"a","export":"mystery","input":[]}]}' >"${fix}/exp.json"
+echo '{"rows": [{"id":"a","export":"mystery","input":[],"reference_source":"fixed"}]}' >"${fix}/exp.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/exp.json"
 expect "14 unknown export" 2 "unknown export"
-echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"extra":1}]}' >"${fix}/key.json"
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"reference_source":"fixed","extra":1}]}' >"${fix}/key.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/key.json"
 expect "14 unknown key" 2 "missing or unknown keys"
 check "14 node body not started on invalid cases" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
@@ -301,7 +301,7 @@ expect "16 no glue" 2 "glue was not generated" "!summary:"
 
 # 17. シェルに展開されない合成の入力
 mkdir -p "${work}/inj"
-printf '%s\n' '{"rows": [{"id":"$(touch '"${work}"'/inj/pwned)","export":"roundtrip_f32","input":[]},{"id":"a;touch","export":"roundtrip_f32","input":[]}]}' >"${fix}/inj.json"
+printf '%s\n' '{"rows": [{"id":"$(touch '"${work}"'/inj/pwned)","export":"roundtrip_f32","input":[],"reference_source":"fixed"},{"id":"a;touch","export":"roundtrip_f32","input":[],"reference_source":"fixed"}]}' >"${fix}/inj.json"
 w --wasm "${dummy_wasm}" --cases "${fix}/inj.json"
 expect "17 injection-shaped id" 2 "invalid form"
 check "17 nothing executed" "$([ ! -e "${work}/inj/pwned" ] && [ ! -e "${work}/inj/touch" ] && echo 0 || echo 1)"
@@ -355,9 +355,9 @@ cat >"${FAKE_RESULTS}" <<'EOF'
 EOF
 w --wasm "${dummy_wasm}"
 expect "22 bundled cases" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
-check "22 every bundled row has a reference" "$(python3 -I -c 'import json,sys
+check "22 every bundled row is fixed and has a reference" "$(python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
-sys.exit(0 if d["rows"] and all(isinstance(r.get("reference"), list) for r in d["rows"]) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+sys.exit(0 if d["rows"] and all(r.get("reference_source") == "fixed" and isinstance(r.get("reference"), list) for r in d["rows"]) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 
 # 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）
 mkdir -p "${work}/glue"
@@ -385,6 +385,60 @@ check "23 run-glue rejects a non-listed export" "$(grep -q 'unknown export' "${w
 rc=0
 "${REAL_NODE}" "${NODE_SCRIPT}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "23 run-glue usage" 2 "usage:"
+
+# 25. 参照の出どころ（TASK-29）。欠け・未知の値は入力の不正（Node の本体を起動しない）
+res_ok
+echo '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"reference":[]}]}' >"${fix}/nosrc.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/nosrc.json"
+expect "25 reference_source missing" 2 "missing or unknown keys" "!summary:"
+check "25 node body not started (missing source)" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+n25=0
+for bad in '"Fixed"' '"FIXED"' '"fixed "' '"neon"' '""' '1' 'null' '["fixed"]'; do
+  n25=$((n25 + 1))
+  printf '%s\n' '{"rows": [{"id":"a","export":"roundtrip_f32","input":[],"reference_source":'"${bad}"',"reference":[]}]}' >"${fix}/badsrc.json"
+  w --wasm "${dummy_wasm}" --cases "${fix}/badsrc.json"
+  expect "25 reference_source invalid (${n25})" 2 "unknown reference_source" "!summary:"
+done
+check "25 node body not started (invalid source)" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+
+# 26. native-neon の行は、Node の結果が参照と一致していても not-run (reference-unavailable)。参照が無くても出どころが先
+cat >"${fix}/neon.json" <<'EOF'
+{"rows": [
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "native-neon", "reference": ["3f800000"]},
+  {"id": "row-b", "export": "roundtrip_f32", "input": ["80000000"], "reference_source": "native-neon"},
+  {"id": "row-c", "export": "roundtrip_f32", "input": ["80000000"], "reference_source": "fixed"},
+  {"id": "row-d", "export": "roundtrip_f32", "input": ["80000000"], "reference_source": "fixed", "reference": ["80000000"]}
+]}
+EOF
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' '{"id":"row-b","output":["80000000"]}' '{"id":"row-c","output":["80000000"]}' '{"id":"row-d","output":["80000000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/neon.json"
+expect "26 mixed sources" 1 "row: row-a not-run (reference-unavailable)" "row: row-b not-run (reference-unavailable)" "row: row-c not-run (reference-missing)" "row: row-d match" "summary: rows=4 match=1 mismatch=0 not-run=3"
+cat >"${fix}/neon1.json" <<'EOF'
+{"rows": [
+  {"id": "row-a", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "native-neon", "reference": ["3f800000"]}
+]}
+EOF
+printf '%s\n' '{"id":"row-a","output":["3f800000"]}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/neon1.json"
+expect "26 native-neon only is never success" 1 "match=0 mismatch=0 not-run=1"
+printf '%s\n' '{"id":"row-a","error":"call failed"}' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/neon1.json"
+expect "26 unavailable source wins over a call error" 1 "row: row-a not-run (reference-unavailable)" "!mismatch (call error)"
+res_ok
+
+# 27. 綴りの一致: 出どころと理由のトークンが core のソースに在る（一方向。core 側の綴りが正）
+REF_SRC="${ROOT_DIR}/crates/core/src/rerun/reference.rs"
+DEC_SRC="${ROOT_DIR}/crates/core/src/test_frame/decision.rs"
+sp=0
+for t in fixed native-neon; do
+  grep -qF "=> \"${t}\"," "${REF_SRC}" || sp=1
+  grep -qF "\"${t}\"" "${WNC}" || sp=1
+done
+for t in reference-missing reference-unavailable; do
+  grep -qF "=> \"${t}\"," "${DEC_SRC}" || sp=1
+  grep -qF "${t}" "${WNC}" || sp=1
+done
+check "27 source and reason spellings exist in the core sources" "${sp}"
 
 echo "passed: ${passed}, failed: ${failed}"
 if [ "${failed}" -ne 0 ]; then

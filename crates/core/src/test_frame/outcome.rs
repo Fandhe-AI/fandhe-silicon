@@ -10,7 +10,7 @@
 //! spec TASK-23。
 
 use super::combination::MachineCombination;
-use super::decision::{Decision, decide};
+use super::decision::{Decision, ReferenceGap, decide};
 use super::declaration::Declaration;
 use super::identifier::{BehaviorId, IdentifierError, TestId};
 use super::label::{IndeterminateReason, Label};
@@ -81,6 +81,8 @@ pub enum RunResult {
     Verdict(Verdict),
     /// 判定できなかった。
     Indeterminate(IndeterminateReason),
+    /// 参照が無い・作れないので比べなかった。未実施（理由つき）になり、閾値の承認は見ない。
+    NoReference(ReferenceGap),
 }
 
 /// [`Subject::from_parts`] の失敗。入力の値は含めず、種類だけを表す。
@@ -218,8 +220,9 @@ impl Outcome {
 ///
 /// 1. 実行の可否が `NotRun` なら未実施（本体は呼ばない）
 /// 2. 本体が判定不能を返したら判定不能
-/// 3. 宣言した閾値に未承認があれば判定保留（宣言の順で最初の未承認の ID）
-/// 4. 一致なら OK、不一致なら NG
+/// 3. 本体が参照の欠けを返したら未実施（理由つき。閾値の承認は見ない）
+/// 4. 宣言した閾値に未承認があれば判定保留（宣言の順で最初の未承認の ID）
+/// 5. 一致なら OK、不一致なら NG
 ///
 /// 入力以外の状態を読まず、自分では panic しない。`body` の panic はそのまま伝わる。
 pub fn judge<F>(
@@ -261,6 +264,7 @@ where
             ran_on = Some(c);
             match body(c) {
                 RunResult::Indeterminate(r) => Label::Indeterminate(r),
+                RunResult::NoReference(g) => Label::NotRun(g.into()),
                 RunResult::Verdict(v) => {
                     match subject.thresholds.iter().find(|t| !is_approved(t)) {
                         Some(t) => Label::Pending(t.clone()),
