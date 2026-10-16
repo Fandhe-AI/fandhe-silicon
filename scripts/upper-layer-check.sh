@@ -333,6 +333,9 @@ def has_forbid(stripped):
     return False
 
 
+# 式・パターンの前に置かれ、直後の `::` を絶対パスの先頭にするキーワード。
+PATH_KEYWORDS = ("return", "break", "continue", "in", "as", "else", "if", "match", "while", "move", "yield", "await", "let", "mut", "ref", "box", "dyn", "impl", "where", "for", "loop", "unsafe", "async", "const", "static", "pub", "fn", "type", "use")
+
 TOKEN_RE = re.compile(r"%s%s+|::|[{},;*#\[\]]" % (RAW_OPT, IDENT))
 
 
@@ -391,8 +394,14 @@ def chip_path_hits(stripped, ident):
     for m in re.finditer(r"(?<![%s.#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
         # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
         before = stripped[:m.start()].rstrip()
-        if before.endswith("::") and re.search(r"[%s]\s*$" % IDENT, before[:-2]):
+        # 空白を挟んだメソッド呼び出し（`x . ash::<u32>()`）も crate のパスではない（`..` の範囲は除く）。
+        if before.endswith(".") and not before.endswith(".."):
             continue
+        if before.endswith("::"):
+            prev = re.search(r"(%s+)\s*$" % IDENT, before[:-2])
+            # 直前がキーワードなら、先頭の絶対パス（`return ::ash::f()`）なので数える。
+            if prev is not None and prev.group(1) not in PATH_KEYWORDS:
+                continue
         hits.add(m.start())
     hits.update(use_hits(stripped, name))
     for m in re.finditer(r"(?<![%s])extern\s+crate\s+%s(%s)%s" % (IDENT, RAW_OPT, name, end), stripped):

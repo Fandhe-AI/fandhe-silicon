@@ -73,6 +73,20 @@ run_case combining-ident-lead 0 "${FB}
 fn áunsafe() {}"
 run_case combining-decomposed 0 "${FB}
 fn unsafe$(printf '\xcc\x81')() {}"
+run_case return-abs-chip 1 "${FB}
+fn f() { return ::ash::foo(); }"
+run_case break-abs-chip 1 "${FB}
+fn f() { loop { break ::ash::foo(); } }"
+run_case mid-path-not-chip 0 "${FB}
+fn f() { foo::ash::bar(); }"
+run_case method-spaced 0 "${FB}
+fn f(x: X) { x . ash::<u32>(); }"
+run_case method-adjacent 0 "${FB}
+fn f(x: X) { x.ash::<u32>(); }"
+run_case method-newline 0 "${FB}
+fn f(x: X) { x
+    .
+    ash::<u32>(); }"
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]
