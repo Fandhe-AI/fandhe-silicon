@@ -39,7 +39,7 @@ cat <<'EOF'
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）
   test-rerun-compare scripts/test-rerun-compare.sh  rerun-compare 自体の回帰テスト（合成の記録の部品だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/rerun-compare.sh <前の記録のディレクトリ> <新しい記録のディレクトリ>（終了コード 0 差分なし・1 差分あり・2 誤用・前提の不足・読めない記録）
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>
-  wasm-node-check scripts/wasm-node-check.sh     wasm32 の .wasm を glue 越しに Node で呼び参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ。終了コード 0 全行一致・1 不一致か未実施・2 前提の不足か不正）
+  wasm-node-check scripts/wasm-node-check.sh     wasm32 の .wasm を glue 越しに Node で呼び参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ。--record-dir と --record-combination を組で渡したときだけ行の結果を記録の部品へ書く。終了コード 0 全行一致・1 不一致か未実施・2 前提の不足か不正）
   test-wasm-node-check scripts/test-wasm-node-check.sh  wasm-node-check 自体の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果。bash + python3 + node。CI の deny ジョブも実行する）
   test-hooks      scripts/hooks/test-hooks.sh    フックスクリプト自体の回帰テスト（bash + git のみ）
 

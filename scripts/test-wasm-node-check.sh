@@ -438,7 +438,224 @@ for t in reference-missing reference-unavailable; do
   grep -qF "=> \"${t}\"," "${DEC_SRC}" || sp=1
   grep -qF "${t}" "${WNC}" || sp=1
 done
+LBL_SRC="${ROOT_DIR}/crates/core/src/test_frame/label.rs"
+for t in ok ng not-run; do
+  grep -qF "=> \"${t}\"," "${LBL_SRC}" || sp=1
+  grep -qF "\"${t}\"" "${WNC}" || sp=1
+done
 check "27 source and reason spellings exist in the core sources" "${sp}"
+
+# ---- 部品の書き出し（TASK-29 の追加の葉。#7188） ----
+
+RS="${DIR}/record-summary.sh"
+RC="${DIR}/rerun-compare.sh"
+cat >"${fix}/rec.json" <<'JSON'
+{"rows": [
+  {"id": "rec-match", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+  {"id": "rec-mismatch", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+  {"id": "rec-missing", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed"},
+  {"id": "rec-unavail", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "native-neon", "reference": ["3f800000"]}
+]}
+JSON
+res_rec() {
+  printf '%s\n' '{"id":"rec-match","output":["3f800000"]}' "{\"id\":\"rec-mismatch\",\"output\":[\"$1\"]}" '{"id":"rec-missing","output":["3f800000"]}' '{"id":"rec-unavail","output":["3f800000"]}' >"${FAKE_RESULTS}"
+}
+res_rec 3f800001
+newdir() {
+  rm -rf "${work:?}/$1"
+  mkdir -p "${work}/$1"
+}
+nfiles() {
+  find "$1" -type f | wc -l | tr -d ' '
+}
+
+# 28. 書き出し: 名前・中身・record-summary の表
+newdir rec1
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec1" --record-combination metal-mac-mini
+expect "28 record written" 1 "row: rec-match match" "row: rec-mismatch mismatch (first difference at index 0)" "match=1 mismatch=1 not-run=2" "!${work}"
+cp "${OUT_F}" "${work}/out-with.txt"
+cat >"${work}/expect-rec-match.json" <<'JSON'
+{"behavior_ids":["BUILD-41"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"ok","body_kind":"contract-test","body":{"test_id":"rec-match"}}
+JSON
+cat >"${work}/expect-rec-mismatch.json" <<'JSON'
+{"behavior_ids":["BUILD-41"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"ng","body_kind":"contract-test","body":{"test_id":"rec-mismatch"}}
+JSON
+cat >"${work}/expect-rec-missing.json" <<'JSON'
+{"behavior_ids":["BUILD-41"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"not-run","label_reason":"reference-missing","body_kind":"contract-test","body":{"test_id":"rec-missing"}}
+JSON
+cat >"${work}/expect-rec-unavail.json" <<'JSON'
+{"behavior_ids":["BUILD-41"],"machine_combination":"metal-mac-mini","machine":"mac-mini","label":"not-run","label_reason":"reference-unavailable","body_kind":"contract-test","body":{"test_id":"rec-unavail"}}
+JSON
+okf=0
+for t in rec-match rec-mismatch rec-missing rec-unavail; do
+  cmp -s "${work}/expect-${t}.json" "${work}/rec1/${t}.metal-mac-mini.json" || okf=1
+done
+check "28 four parts with the exact bytes" "$([ "${okf}" = 0 ] && [ "$(nfiles "${work}/rec1")" = 4 ] && echo 0 || echo 1)"
+rc=0
+"${BASH}" "${RS}" "${work}/rec1" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "28 record-summary accepts the parts" 0 "| metal-mac-mini | 1 | 1 | 0 | 2 | 0 |"
+
+# 29. 7 つの組み合わせすべてで record-summary が通る（machine の写しの食い違いは machine-mismatch で落ちる）
+for c in metal-mac-mini vulkan-node-b vulkan-node-a vulkan-amd vulkan-intel cuda-node-b cuda-node-a; do
+  newdir rec29
+  w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec29" --record-combination "${c}"
+  rc29=${rc}
+  rc=0
+  "${BASH}" "${RS}" "${work}/rec29" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  expect "29 record every combination (${c})" 0 "| ${c} | 1 | 1 | 0 | 2 | 0 |"
+  [ "${rc29}" = 1 ] || fail "29 wasm-node-check exit (${c})" "expected 1, got ${rc29}"
+done
+
+# 30. 選ばないときの出力と終了コードは変わらない
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json"
+rc_without=${rc}
+cp "${OUT_F}" "${work}/out-without.txt"
+check "30 unselected output is byte-identical" "$(cmp -s "${work}/out-with.txt" "${work}/out-without.txt" && [ "${rc_without}" = 1 ] && echo 0 || echo 1)"
+before="$(find "${work}" -maxdepth 1 | wc -l | tr -d ' ')"
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json"
+check "30 unselected run leaves no files" "$([ "$(find "${work}" -maxdepth 1 | wc -l | tr -d ' ')" = "${before}" ] && echo 0 || echo 1)"
+
+# 31. rerun-compare: 同じなら差なし、変われば分類が出る
+newdir recA
+newdir recB
+res_rec 3f800001
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/recA" --record-combination metal-mac-mini
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/recB" --record-combination metal-mac-mini
+rc=0
+"${BASH}" "${RC}" "${work}/recA" "${work}/recB" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "31 rerun-compare same record" 0 "ok: no differences from the previous record"
+newdir recC
+res_rec 3f800000
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/recC" --record-combination metal-mac-mini
+rc=0
+"${BASH}" "${RC}" "${work}/recC" "${work}/recA" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "31 rerun-compare match to mismatch is regressed" 1 "regressed" "rec-mismatch" "regressed=1"
+rc=0
+"${BASH}" "${RC}" "${work}/recA" "${work}/recC" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "31 rerun-compare mismatch to match is improved" 1 "improved" "rec-mismatch" "improved=1"
+# not-run (reference-missing) → match は improved、理由だけの変化は changed
+cat >"${fix}/rec-b.json" <<'JSON'
+{"rows": [
+  {"id": "rec-x", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed"}
+]}
+JSON
+cat >"${fix}/rec-c.json" <<'JSON'
+{"rows": [
+  {"id": "rec-x", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]}
+]}
+JSON
+cat >"${fix}/rec-d.json" <<'JSON'
+{"rows": [
+  {"id": "rec-x", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "native-neon"}
+]}
+JSON
+printf '%s\n' '{"id":"rec-x","output":["3f800000"]}' >"${FAKE_RESULTS}"
+newdir recM
+newdir recK
+newdir recU
+w --wasm "${dummy_wasm}" --cases "${fix}/rec-b.json" --record-dir "${work}/recM" --record-combination metal-mac-mini
+w --wasm "${dummy_wasm}" --cases "${fix}/rec-c.json" --record-dir "${work}/recK" --record-combination metal-mac-mini
+w --wasm "${dummy_wasm}" --cases "${fix}/rec-d.json" --record-dir "${work}/recU" --record-combination metal-mac-mini
+rc=0
+"${BASH}" "${RC}" "${work}/recM" "${work}/recK" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "31 rerun-compare not-run to match is improved" 1 "improved" "rec-x"
+rc=0
+"${BASH}" "${RC}" "${work}/recM" "${work}/recU" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "31 rerun-compare reason-only change is changed" 1 "changed" "rec-x" "changed=1"
+
+# 32. 誤用: 片方だけ・値の欠け・未知の組み合わせは終了コード 2 で、Node の本体を起動しない
+res_rec 3f800001
+newdir rec32
+n32=0
+set_misuse() {
+  n32=$((n32 + 1))
+  w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" "$@"
+}
+set_misuse --record-dir "${work}/rec32"
+expect "32 --record-dir alone (${n32})" 2 "usage:" "!summary:"
+set_misuse --record-combination metal-mac-mini
+expect "32 --record-combination alone (${n32})" 2 "usage:" "!summary:"
+set_misuse --record-dir
+expect "32 --record-dir without value (${n32})" 2 "usage:"
+set_misuse --record-dir "${work}/rec32" --record-combination
+expect "32 --record-combination without value (${n32})" 2 "usage:"
+set_misuse --record-dir "" --record-combination metal-mac-mini
+expect "32 empty --record-dir (${n32})" 2 "usage:"
+for bad in Metal-mac-mini "" metal "metal-mac-mini " vulkan-mac-mini; do
+  set_misuse --record-dir "${work}/rec32" --record-combination "${bad}"
+  expect "32 unknown combination '${bad}'" 2 "unknown record combination" "!summary:"
+  check "32 node body not started ('${bad}')" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+done
+check "32 nothing written on misuse" "$([ "$(nfiles "${work}/rec32")" = 0 ] && echo 0 || echo 1)"
+
+# 33. 書き出し先が不正: 終了コード 2、Node を起動しない、引数のパスを出さない
+mkdir -p "${work}/dirs"
+: >"${work}/dirs/afile"
+ln -sfn "${work}/rec32" "${work}/dirs/link"
+bad_dir() {
+  w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "$1" --record-combination metal-mac-mini
+  expect "33 invalid record dir ($2)" 2 "error:" "!summary:" "!$1"
+  check "33 node body not started ($2)" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+}
+bad_dir "${work}/dirs/missing" "missing"
+bad_dir "${work}/dirs/afile" "file"
+bad_dir "${work}/dirs/link" "symlink"
+bad_dir "${work}/dirs/link/" "symlink with slash"
+bad_dir "${work}/dirs/link/." "symlink with dot"
+bad_dir "${work}/dirs/../rec32" "parent component"
+check "33 nothing written through the symlink" "$([ "$(nfiles "${work}/rec32")" = 0 ] && echo 0 || echo 1)"
+# 相対パスは呼び出し元の cwd 基準
+newdir rec33
+rc=0
+(cd "${work}" && "${BASH}" "${WNC}" --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir rec33 --record-combination metal-mac-mini >"${OUT_F}" 2>"${ERR_F}" </dev/null) || rc=$?
+expect "33 relative record dir resolves from the caller cwd" 1 "summary: rows=4"
+check "33 relative record dir got the parts" "$([ "$(nfiles "${work}/rec33")" = 4 ] && echo 0 || echo 1)"
+# 末尾の区切りと . は字句で落ちる（通常のディレクトリなら通る）
+newdir rec33b
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec33b/./" --record-combination metal-mac-mini
+expect "33 trailing slash and dot are accepted for a real directory" 1 "summary: rows=4"
+
+# 34. 上書きしない・後始末
+newdir rec34
+echo keep >"${work}/rec34/rec-mismatch.metal-mac-mini.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec34" --record-combination metal-mac-mini
+expect "34 existing file is not overwritten" 2 "error:" "!summary:" "!row:" "!${work}"
+check "34 existing content kept and nothing else left" "$([ "$(cat "${work}/rec34/rec-mismatch.metal-mac-mini.json")" = keep ] && [ "$(nfiles "${work}/rec34")" = 1 ] && echo 0 || echo 1)"
+newdir rec34b
+echo target >"${work}/rec34b-target"
+ln -s "${work}/rec34b-target" "${work}/rec34b/rec-missing.metal-mac-mini.json"
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec34b" --record-combination metal-mac-mini
+expect "34 symlink with the same name is not followed" 2 "error:" "!summary:"
+check "34 symlink target untouched and nothing else left" "$([ "$(cat "${work}/rec34b-target")" = target ] && [ "$(nfiles "${work}/rec34b")" = 0 ] && echo 0 || echo 1)"
+
+# 35. 失敗したときは何も書かない
+newdir rec35
+res_rec 3f800001
+FAKE_NODE_RC=3 w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec35" --record-combination metal-mac-mini
+expect "35 node failure" 2 "node run failed" "!summary:"
+printf '%s\n' 'not json' >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec35" --record-combination metal-mac-mini
+expect "35 broken results" 2 "!summary:"
+w --wasm "${dummy_wasm}" --cases "${fix}/does-not-exist.json" --record-dir "${work}/rec35" --record-combination metal-mac-mini
+expect "35 broken cases" 2 "cannot read cases"
+: >"${FAKE_RESULTS}"
+w --wasm "${dummy_wasm}" --cases "${fix}/empty.json" --record-dir "${work}/rec35" --record-combination metal-mac-mini
+expect "35 zero rows" 1 "rows=0" "no rows"
+check "35 nothing written on failure" "$([ "$(nfiles "${work}/rec35")" = 0 ] && echo 0 || echo 1)"
+
+# 36. mismatch の詳細は部品に入れない・ng に label_reason は付かない
+res_rec 3f800001
+newdir rec36
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec36" --record-combination metal-mac-mini
+leak="$(cat "${work}"/rec36/*.json | grep -cE 'call error|first difference|length expected' || true)"
+check "36 mismatch detail is not in the parts" "$([ "${leak}" = 0 ] && echo 0 || echo 1)"
+check "36 ng part has no label_reason" "$(grep -q 'label_reason' "${work}/rec36/rec-mismatch.metal-mac-mini.json" && echo 1 || echo 0)"
+printf '%s\n' '{"id":"rec-match","output":["3f800000"]}' '{"id":"rec-mismatch","error":"call failed"}' '{"id":"rec-missing","output":["3f800000"]}' '{"id":"rec-unavail","output":["3f800000"]}' >"${FAKE_RESULTS}"
+newdir rec36b
+w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec36b" --record-combination metal-mac-mini
+leak="$(cat "${work}"/rec36b/*.json | grep -cE 'call error|call failed' || true)"
+check "36 call error detail is not in the parts" "$([ "${leak}" = 0 ] && echo 0 || echo 1)"
+res_ok
 
 echo "passed: ${passed}, failed: ${failed}"
 if [ "${failed}" -ne 0 ]; then

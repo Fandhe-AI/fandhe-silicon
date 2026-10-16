@@ -20,7 +20,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ---- | -------- |
 | `core` の試験用の部品の feature | `crates/core/src/lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`crates/core/Cargo.toml` の `[features]` は `test-support = []` | `grep -n -e cfg -e 'pub mod' crates/core/src/lib.rs`、`grep -n -A2 '\[features\]' crates/core/Cargo.toml` |
 | 試験の枠と一致の道具のファイル | `crates/core/src/test_frame` は 11 ファイル、`crates/core/src/rerun` は 4 ファイル（入口は `rerun.rs`）、`crates/core/src/parity` は 5 ファイル | `ls crates/core/src/test_frame crates/core/src/rerun crates/core/src/rerun.rs crates/core/src/parity` |
-| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_*` 4 本。どれも `required-features = ["test-support"]`（18 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
+| `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_*` 5 本。どれも `required-features = ["test-support"]`（19 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
 | 記録の部品の書き出しと集計 | 書き出し先の環境変数は `RECORD_DIR_ENV`（`FANDHE_SILICON_TEST_RECORD_DIR`）。`scripts/verify.sh` が `cargo test` の 1 回にだけ一時ディレクトリを渡し、`scripts/record-summary.sh` で集計する | `grep -n RECORD_DIR_ENV crates/core/src/test_frame/export.rs`、`grep -n -e FANDHE_SILICON_TEST_RECORD_DIR -e record-summary scripts/verify.sh` |
 | 測定の道具 | `measure/crates/perf` に bin `across-runs` と統合テスト 7 本。`tests/repeat.rs` が書き出しの実物を `scripts/perf-record-check.sh` に通す | `ls measure/crates/perf/src/bin measure/crates/perf/tests`、`grep -n perf-record-check measure/crates/perf/tests/repeat.rs` |
 | 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh`・`scripts/rerun-compare.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary`・`make test-rerun-compare` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
@@ -75,6 +75,24 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | 綴りの一致 | スクリプトの出どころ・理由のトークンが core のソースに在ることを回帰テストが確かめる（一方向）。集計の `scripts/record-summary.sh` も新しい理由を受ける | `bash scripts/test-wasm-node-check.sh`（項目 27）、`make test-record-summary` |
 | テスト | `crates/core/tests/rerun_reference.rs`（値はダミー。宣言の組み合わせもダミーの扱い。書き出し先は一時ディレクトリ。機材・Node は要らず、`make verify` で流れる） | `cargo test -p fandhe-silicon-core --features test-support --test rerun_reference` |
 
+## Node での照合の結果の書き出し（TASK-29 の追加の葉。#7188）
+
+`scripts/wasm-node-check.sh` が出す行の結果を、前の記録と比べられる部品（`record-summary.sh`・`rerun-compare.sh` が読む形）として書き出す選択式の口。記録そのものは本リポに置かない。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `scripts/wasm-node-check.sh`（書き出しは判定と同じ python3 の中）。Rust 側のコードは変えない | `grep -n -e record-dir -e BEGIN scripts/wasm-node-check.sh` |
+| 口 | `--record-dir <dir>` と `--record-combination <name>` を必ず組で渡す。既定は無い。片方だけ・値の欠け・空の `<dir>` は終了コード 2。組み合わせは 7 つの名前の完全一致だけを受け、外れは終了コード 2 | `bash scripts/test-wasm-node-check.sh`（項目 32） |
+| 書き出し先 | 絶対パスにして、`..` の要素・存在しない・ディレクトリでない・シンボリックリンク（末尾の区切りと `.` を落としてから見る）を終了コード 2 にする。`.wasm` のビルドと Node の起動より前に検査する。ディレクトリは作らない。エラーに引数のパスを出さない | 同上（項目 33） |
+| 部品の形 | 新しい形は無い。ファイル名は `<行の id>.<組み合わせ>.json`、中身は `RecordPart::to_json` と同じ欄の順の 1 行と末尾の改行。`behavior_ids` は固定の 1 件、`body_kind` は `contract-test`、`body` は行の id だけ。`label_reason` は未実施のときだけ付く。`mismatch` の詳細（自由な文）は入れない | 同上（項目 28・36） |
+| 写し | `match`→`ok`、`mismatch`→`ng`、`not-run`＋`reference-missing`／`reference-unavailable`→`not-run`＋同じ理由。表はスクリプトの目印（`row-labels`・`combinations`）の間にだけ置く | `grep -n -e 'BEGIN row-labels' -e 'BEGIN combinations' scripts/wasm-node-check.sh` |
+| 写しの食い違い | 表を `RowState::from_tokens` → `run_result` → 枠のラベルと突き合わせ、全ての `RowState` が 1 回ずつ在ること、組み合わせの表が `MachineCombination::ALL` と順を含めて一致することを `make verify` の試験が確かめる。表と綴りが食い違うと落ちる | `cargo test -p fandhe-silicon-core --features test-support --test rerun_node_record` |
+| 書き方 | `O_CREAT\|O_EXCL\|O_NOFOLLOW` で新しく作り、上書きしない。同じ名前のシンボリックリンクも辿らない。失敗したらこの実行で作ったファイルを消して終了コード 2（`row:`・`summary:` は出さない）。入力や結果が不正・Node の失敗・行が 0 件のときは何も書かない | 同上（項目 34・35） |
+| 選ばないとき | 標準出力と終了コードは変わらない（選んだ場合も標準出力は同じで、書き出しの行は足さない） | 同上（項目 30） |
+| 前の記録との比較 | 書いた部品は `record-summary.sh` を通り、結果が変わると `rerun-compare.sh` が差を分類して出し、同じなら出さない | 同上（項目 28・29・31） |
+| 副作用 | 外部依存なし・`unsafe` なし。製品の経路から参照しない。CI の手順は変えない。実機の run は含めない | `grep -rn rerun crates/contract/src crates/exec/src crates/upper/src`（0 件） |
+| テスト | `crates/core/tests/rerun_node_record.rs`（スクリプトを読むだけ。起動も書き出しもしない）と `scripts/test-wasm-node-check.sh` の項目 28〜36 | `make verify`、`make test-wasm-node-check` |
+
 ## 前の記録と比べる道具の所在（TASK-29 の 5/8）
 
 | 項目 | 事実 | 確かめ方 |
@@ -126,13 +144,17 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | 結果の違いは分類の順・鍵の昇順で報告され、終了コード 1（6/8） | `changed_results_are_reported_in_the_fixed_order`（`rerun_round_trip.rs`） |
 | 組み合わせの未設定と設定済みは、組み合わせごとに比べる（6/8） | `unconfigured_then_configured_is_compared_per_combination`（`rerun_round_trip.rs`） |
 | 空の新しい記録は差分なしではなく誤りとして終了コード 2（6/8） | `an_empty_new_record_is_an_error_not_no_difference`（`rerun_round_trip.rs`） |
+| スクリプトの行の状態 → ラベルの表は `RowState` と一致し、全ての状態が 1 回ずつ在る。組み合わせ → 機材の表は `MachineCombination::ALL` と一致する。固定のビヘイビア ID は受け入れられる（追加の葉） | `script_row_labels_match_row_state`・`script_row_labels_cover_every_row_state`・`script_combinations_match_machine_combination`・`script_behavior_ids_are_valid`・`script_source_tokens_are_known`（`rerun_node_record.rs`） |
+| 書き出した部品の名前・中身・`record-summary.sh` の通過（7 つの組み合わせ）。選ばないときの出力は不変（追加の葉） | 項目 28〜30（`scripts/test-wasm-node-check.sh`） |
+| 書き出した部品を `rerun-compare.sh` にかけると、同じなら差なし、変われば `regressed`・`improved`・`changed` が出る（追加の葉） | 項目 31（同上） |
+| 誤用・不正な書き出し先・上書き禁止と後始末・失敗時に書かない・詳細を部品に入れない（追加の葉） | 項目 32〜36（同上） |
 
 公開テストから到達させていない経路:
 
 - `RunSetting::from_env` を通す経路（設定と書き出し先は呼び出し側が渡す形でだけ通している）
 - `RowState::run_result` を直接呼ぶ試験（`RowCheck` の `run` 経由でだけ通る）
 - `ExportError` の `ParentComponent`・`DirectoryIsSymlink`・`NotADirectory`・`Io` を `rerun` の口から出す試験（`rerun_run.rs` が通すのは `AlreadyExists`・`NotAbsolute`・`DirectoryMissing`）
-- Node を起動する経路（`rerun` のコードは子プロセスに触れない）
+- Node を起動する経路（`rerun` のコードは子プロセスに触れない。書き出しの端から端までは偽の node を使うスクリプトの回帰テストで通す）
 
 ## 入れていないもの
 
@@ -175,12 +197,24 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 
 ### 再実行の契機
 
-- `crates/core/src/rerun*`・`crates/core/src/test_frame` の公開面、`crates/core/tests/rerun_*.rs`・`test_frame_outcome.rs` を変えたとき
+- `crates/core/src/rerun*`・`crates/core/src/test_frame` の公開面、`crates/core/tests/rerun_*.rs`（`rerun_node_record.rs` を含む）・`test_frame_outcome.rs` を変えたとき
 - `scripts/rerun-compare.sh`・`scripts/test-rerun-compare.sh`・`scripts/record-summary.sh`・`scripts/verify.sh`・`scripts/wasm-node-check.sh`・`wasm/node/` を変えたとき
 - CI の `verify`・`deny` ジョブの手順を変えたとき
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `151141f`、`docs/spec` の gitlink は `dc955fd`。
+
+### 追加の葉（#7188）の確かめ
+
+上の表は 8/8 の記録で、書き換えない。Node での照合の結果の書き出しを足した時点の実測は次のとおり（base `05fd33a`。GPU の実機なし）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| F1 | 写しの食い違いを落とす試験 | `cargo test -p fandhe-silicon-core --features test-support --test rerun_node_record` | 終了コード 0・`5 passed; 0 failed` |
+| F2 | 書き出しの回帰テスト | `make test-wasm-node-check` | 終了コード 0・`passed: 141, failed: 0` |
+| F3 | 変えていない道具 | `make test-rerun-compare`・`make test-record-summary` | 終了コード 0・`passed=30 failed=0`・`passed: 92, failed: 0` |
+| F4 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make ci-frame-check` | すべて終了コード 0 |
+| F5 | 依存と CI の手順が変わっていない | `Cargo.lock`・`deps-approved.toml`・`.github/workflows/ci.yml` の base との差分 | 差分なし |
 
 ## 本リポでの反映の方針
 

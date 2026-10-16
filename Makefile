@@ -68,7 +68,7 @@ test-perf-record-check: ## scripts/perf-record-check.sh 自体の回帰テスト
 test-metal-session: ## scripts/metal-session.sh 自体の回帰テスト（macOS のコマンドは偽のコマンドで差し替える。bash + python3 + git。ネットワーク不要・Linux でも流れる）。本体はサブコマンドと引数が要るので make ターゲットを持たない（直接: scripts/metal-session.sh <probe|run|redact|scan>）。直接: scripts/test-metal-session.sh
 	@scripts/test-metal-session.sh
 
-wasm-node-check: ## wasm32 の .wasm を wasm-bindgen の glue 越しに Node で呼び、結果を参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ）。直接: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]
+wasm-node-check: ## wasm32 の .wasm を wasm-bindgen の glue 越しに Node で呼び、結果を参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ）。直接: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]（書き出しは選んだときだけ。選ばなければ出力と終了コードは不変）
 	@scripts/wasm-node-check.sh
 
 test-wasm-node-check: ## scripts/wasm-node-check.sh 自体の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果。run-glue.cjs は本物の node で偽の glue を読ませる。bash + python3 + node。ネットワーク不要）。直接: scripts/test-wasm-node-check.sh
