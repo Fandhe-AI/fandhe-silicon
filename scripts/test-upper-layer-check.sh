@@ -14,7 +14,7 @@
 # 検査が素通りする退行（fail-open）を見逃すため、違反のケースでは `ok:` が出ないことも確かめる。
 # 期待値を緩めない。現行の検査と食い違ったらテストでなく検査側の挙動として直す。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
-# 呼び出し元: 直接実行のみ（make ターゲットと CI への組み込みは後の段）。
+# 呼び出し元: `make test-upper-layer-check`、CI の `deny` ジョブ。
 # 途中で止めず、最後に件数を出す。bash 3.2 互換（mapfile・連想配列・空配列の "${arr[@]}" を使わない）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
