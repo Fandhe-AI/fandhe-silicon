@@ -13,6 +13,15 @@ mkdir -p "${TMP}/scripts" "${TMP}/baseline-wgpu"
 cp "${SRC_DIR}/baseline-positive-control.sh" "${SRC_DIR}/lib.sh" "${TMP}/scripts/"
 : > "${TMP}/baseline-wgpu/Cargo.toml"
 
+# 本体の前提ツール確認（require_cmd）を通すためのダミー。実物がある環境では実物を優先し（PATH の末尾に足す）、
+# 無い環境でも合成入力だけで回る。偽の検査が本物の cargo 等を呼ぶことはない。
+mkdir -p "${TMP}/stub-bin"
+for tool in python3 cargo git; do
+  printf '#!/bin/sh\nexit 0\n' > "${TMP}/stub-bin/${tool}"
+  chmod +x "${TMP}/stub-bin/${tool}"
+done
+export PATH="${PATH}:${TMP}/stub-bin"
+
 # 偽の検査: FAKE_<名前>_RC の終了コードで終わり、record: を出し、受け取った引数を記録する。
 for name in dep-graph-wgpu-check public-api-check; do
   var="FAKE_$(echo "${name}" | tr 'a-z-' 'A-Z_')_RC"
