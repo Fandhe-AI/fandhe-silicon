@@ -78,7 +78,7 @@ if sys.version_info < (3, 8):
 # 対象の crate の manifest（workspace_root からの相対）。公開名は未決のため package 名でなく位置で特定する。
 TARGET_MANIFEST_REL = "crates/upper/Cargo.toml"
 # (3) 上の層の直接依存に許してよい package 名（折りたたんだ形で完全一致）。
-ALLOWED_DEPS = ("fandhe-silicon-core", "fandhe-silicon-contract", "fandhe-silicon-exec")
+ALLOWED_DEPS = ("fandhe-silicon-core", "fandhe-silicon-exec")
 # 契約の crate の manifest（製品の workspace_root からの相対）。(4) で名前でなく位置で特定する。
 CONTRACT_MANIFEST_REL = "crates/contract/Cargo.toml"
 # 測定の workspace の manifest（製品の workspace_root からの相対）。

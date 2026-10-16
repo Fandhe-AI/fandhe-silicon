@@ -207,8 +207,15 @@ run_case raw-chip-extra-file 1 "${FB}" "fn f() { r#ash::x(); }"
 
 # ---- (3) 直接依存の許可リスト ----
 dep() { printf '{"name":"%s","kind":%s,"rename":%s}' "$1" "${2:-null}" "${3:-null}"; }
-UPPER_DEPS="[$(dep fandhe-silicon-core),$(dep fandhe-silicon-contract '"build"'),$(dep fandhe-silicon-exec '"dev"')]"
+UPPER_DEPS="[$(dep fandhe-silicon-core),$(dep fandhe-silicon-core '"build"'),$(dep fandhe-silicon-exec '"dev"')]"
 run_case allow-ok 0 "${FB}"
+UPPER_DEPS="[$(dep fandhe-silicon-contract)]"
+run_case allow-contract-normal 1 "${FB}"
+expect_text allow-contract-normal-msg err "violation: check=dep-allow crate=fandhe-silicon-contract kind=normal"
+UPPER_DEPS="[$(dep fandhe-silicon-contract '"dev"')]"
+run_case allow-contract-dev 1 "${FB}"
+UPPER_DEPS="[$(dep fandhe-silicon-contract '"build"')]"
+run_case allow-contract-build 1 "${FB}"
 UPPER_DEPS="[$(dep serde)]"
 run_case allow-extra-normal 1 "${FB}"
 expect_text allow-extra-normal-msg err "violation: check=dep-allow crate=serde kind=normal"
