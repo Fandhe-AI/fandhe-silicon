@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 上の層の crate（crates/upper）が、特別な裏口を持たないことを機械で確かめる検査
-# （spec TASK-15・BUILD-56・BUILD-57・D-33 のポインタ。親 Issue #367 の 1/4）。
-# この段で入れる検査は 2 つ。
+# （spec TASK-15・BUILD-56・BUILD-57・BUILD-58・D-33 のポインタ。親 Issue #367 の 1/4・2/4）。
+# 入れている検査は 4 つ（(1)(2) は 1/4、(3)(4) は 2/4）。
 #   (1) unsafe の不在: crate root の `#![forbid(unsafe_code)]` の宣言と、crate ディレクトリ配下の
 #       すべての .rs（src/・tests/・benches/・examples/・build.rs を含む）での `unsafe` の出現 0 件。
 #       数え方は(2)と同じ識別子の分割で、コメント・文字列を除いた識別子トークンのうち `r#` の付かない `unsafe` だけ。
@@ -14,27 +14,42 @@
 #       根拠: 2018 edition 以降は直接依存に無い crate の名前をソースから解決できないので、本来の守りは
 #       metadata の直接依存の検査で、ソース側の件数は重ねた守り。
 #       依存は resolve でなく宣言（metadata の dependencies）を見る。feature・target の解決に依らず宣言を全部拾うため。
-# 呼び出し元: 現時点では直接実行のみ（make ターゲットと CI への組み込みは後の段。Issue #3411 以降）。
+#   (3) 直接依存の許可リスト（BUILD-57 のポインタ）: 上の層の宣言された直接依存（(2) と同じ範囲）のうち、
+#       package 名（`package =` の改名は実体の名前）が許可の名前に無いものを違反にする。
+#       チップの crate は (2) の chip-dep と (3) の dep-allow の両方で報告される（独立した 2 つの検査なので二重報告は意図どおり）。
+#   (4) 測定のビルドで検証用 feature が有効でないこと（BUILD-58・TASK-6 のポインタ）: 製品の外の測定の workspace の
+#       member のうち契約の crate に依存するもの（通常・build・dev。path か名前で特定し、曖昧なら数える側に倒す）について、
+#       契約の crate で有効になる feature に禁止の feature が含まれないことを確かめる。resolve でなく宣言を読む
+#       （resolve の feature は workspace 全体で統一され package に帰属できないため）。有効な feature は、依存の宣言の
+#       features・default（uses_default_features のとき）・member 自身の [features] からの転送（`<キー>/<feat>`・`<キー>?/<feat>`。
+#       測定の検査は --all-features で流すので全 member の feature を有効とみなす）を、契約の crate の feature の表で閉包して求める。
+# 呼び出し元: 現時点では直接実行のみ（make ターゲットと CI への組み込みは後の段）。
 #
 # 使い方:
 #   scripts/upper-layer-check.sh                            cargo metadata を流して数える
-#   scripts/upper-layer-check.sh --metadata-json <path>     渡した metadata の JSON だけを読む（cargo・git を呼ばない。
-#                                                           ソースは JSON の manifest_path が指す crate ディレクトリから読む）
+#   scripts/upper-layer-check.sh --metadata-json <path> --measure-metadata-json <path>
+#                                                           渡した 2 つの metadata の JSON だけを読む（cargo・git を呼ばない。
+#                                                           ソースは JSON の manifest_path が指す crate ディレクトリから読む。
+#                                                           片方だけの指定は誤用。(4) を黙ってスキップしない）
 # 終了コード: 0 合格 / 1 違反あり
 #   2 誤用・前提の不足（python3・cargo・git が無い、cargo の失敗、metadata が JSON でない・形が崩れている、
 #     crates/upper が見つからない・読めない、.rs が 0 件、UTF-8 でない、閉じていないコメント・文字列、
-#     シンボリックリンク、想定外の例外）
+#     シンボリックリンク、契約の crate が製品の member にちょうど 1 件でない、測定の workspace の manifest が読めない・
+#     その metadata の cargo の失敗・形の崩れ、--metadata-json と --measure-metadata-json の片方だけの指定、想定外の例外）
 # 標準出力: `scanned:` の行（読んだ入力ごと）、数え終えたとき（終了コード 0 と 1）だけ `record:` の行、合格時の `ok:` の 1 行。
-#   `record: commit=<rev|-> rs_files=<n> direct_deps=<n> forbid=<yes|no> unsafe_total=<n> chip_deps=<n> chip_paths=<n>`
+#   `record: commit=<rev|-> rs_files=<n> direct_deps=<n> forbid=<yes|no> unsafe_total=<n> chip_deps=<n> chip_paths=<n> other_deps=<n> measure_pkgs=<n> measure_contract_pkgs=<n> measure_forbidden=<n>`
+#   other_deps は許可の名前に無い直接依存の数。measure_* は測定の workspace の member 数・契約に依存する member 数・禁止の feature の違反数。
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--metadata-json の経路では `-`。
-# 標準エラー: `violation: check=<forbid|unsafe|chip-dep|chip-path> ...`・`FAILED:`・`error:`。
+# 標準エラー: `violation: check=<forbid|unsafe|chip-dep|chip-path|dep-allow|measure-feature> ...`・`FAILED:`・`error:`。
 #   パスは crate ディレクトリからの相対パスだけを出す。
 #
 # 数え方: 対象の位置、チップの crate の名前、依存の種類、名前の折りたたみは、Python 部の先頭の
 #   「数え方の定義」ブロックにだけ置く（値をここへ書き写さない）。
 # 検査しないもの: マクロが生成するパス、`include!`・`#[path]` で crate ディレクトリの外から読むファイル、
 #   `target/` と隠しディレクトリ（`.` 始まり）、`package =` で改名した依存のソース側の別名（依存側は package 名で拾う）、
-#   bin target の root の forbid、`cfg_attr` で包んだ forbid、件数の増減。
+#   bin target の root の forbid、`cfg_attr` で包んだ forbid、件数の増減、
+#   測定の workspace の member でない path の crate を経由した間接の依存、resolve による feature の統一、
+#   `cfg` で絞った target 依存の除外（宣言は全部拾う）。
 # ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。ネットワークを使わない。
 # Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
@@ -62,6 +77,14 @@ if sys.version_info < (3, 8):
 
 # 対象の crate の manifest（workspace_root からの相対）。公開名は未決のため package 名でなく位置で特定する。
 TARGET_MANIFEST_REL = "crates/upper/Cargo.toml"
+# (3) 上の層の直接依存に許してよい package 名（折りたたんだ形で完全一致）。
+ALLOWED_DEPS = ("fandhe-silicon-core", "fandhe-silicon-exec")
+# 契約の crate の manifest（製品の workspace_root からの相対）。(4) で名前でなく位置で特定する。
+CONTRACT_MANIFEST_REL = "crates/contract/Cargo.toml"
+# 測定の workspace の manifest（製品の workspace_root からの相対）。
+MEASURE_MANIFEST_REL = "measure/Cargo.toml"
+# (4) 測定のビルドで契約の crate に対して有効になってはいけない feature。
+FORBIDDEN_FEATURES = ("fault-injection", "test-support")
 # 数える依存の種類（metadata の dependencies の kind。通常の依存は null）。
 DEP_KINDS = ("normal", "build", "dev")
 # チップの crate の package 名（折りたたんだ形で完全一致）。
@@ -79,6 +102,7 @@ SKIP_DIRS = ("target",)
 
 # --offline で取得が要る場合は失敗（前提の不足）にする。--no-deps は workspace の package だけを読む（宣言は残る）。
 METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1", *FEATURE_ARGS]
+MEASURE_METADATA_CMD = METADATA_CMD + ["--manifest-path", None]  # None は実行時に測定の manifest の位置で置き換える
 
 
 class Misuse(Exception):
@@ -271,6 +295,99 @@ def find_target(md):
     return crate_dir, libs[0], pkg
 
 
+def find_contract(md):
+    """製品の metadata から契約の crate の package を返す（workspace member にちょうど 1 件。位置で特定）。"""
+    want = os.path.normpath(os.path.join(md["workspace_root"], CONTRACT_MANIFEST_REL))
+    hits = [p for p in md["packages"]
+            if os.path.normpath(p["manifest_path"]) == want and p["id"] in md["workspace_members"]]
+    need(len(hits) == 1, "the contract crate is not found exactly once in the workspace members")
+    need(isinstance(hits[0].get("name"), str), "malformed contract package name")
+    feats = hits[0].get("features")
+    need(isinstance(feats, dict), "missing or malformed contract 'features'")
+    for v in feats.values():
+        need(isinstance(v, list) and all(isinstance(x, str) for x in v), "malformed contract feature table")
+    return hits[0]
+
+
+def enabled_features(dep, member_features, contract_features):
+    """測定の member の 1 件の契約への依存について、契約の crate で有効になる feature の集合を返す。"""
+    key = dep.get("rename") or dep["name"]
+    need(isinstance(key, str), "malformed dependency rename")
+    dep_feats = dep.get("features") or []
+    need(isinstance(dep_feats, list) and all(isinstance(x, str) for x in dep_feats), "malformed dependency features")
+    on = set(dep_feats)
+    if dep.get("uses_default_features", True):
+        on.add("default")
+    for values in member_features.values():
+        need(isinstance(values, list), "malformed member feature table")
+        for v in values:
+            need(isinstance(v, str), "malformed member feature table")
+            for prefix in (key + "/", key + "?/"):
+                if v.startswith(prefix):
+                    on.add(v[len(prefix):])
+    seen = set()
+    todo = list(on)
+    while todo:
+        f = todo.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        for v in contract_features.get(f, []):
+            if "/" not in v and not v.startswith("dep:"):
+                todo.append(v)
+    return seen
+
+
+def check_measure(mmd, contract):
+    """測定の workspace の member のうち契約の crate に依存するものの、禁止の feature の有効化を返す。
+
+    戻り値は (member 数, 契約に依存する member 数, [(package, 依存の種類, feature)])。
+    """
+    need(isinstance(mmd, dict), "measure metadata top level is not an object")
+    pkgs, members = mmd.get("packages"), mmd.get("workspace_members")
+    need(isinstance(pkgs, list), "measure metadata: missing or malformed 'packages'")
+    need(isinstance(members, list) and members, "measure metadata: missing or empty 'workspace_members'")
+    for m in members:
+        need(isinstance(m, str) and m, "measure metadata: malformed workspace member id")
+    ids = [p.get("id") for p in pkgs if isinstance(p, dict)]
+    for m in members:
+        need(ids.count(m) == 1, "measure metadata: a workspace member is not found exactly once in 'packages'")
+    contract_dir = os.path.dirname(os.path.normpath(contract["manifest_path"]))
+    contract_name = fold(contract["name"])
+    n_members, dependents, bad = 0, 0, []
+    for p in pkgs:
+        need(isinstance(p, dict) and isinstance(p.get("id"), str) and isinstance(p.get("name"), str),
+        "measure metadata: malformed package")
+        if p["id"] not in members:
+            continue
+        n_members += 1
+        deps = p.get("dependencies")
+        need(isinstance(deps, list), "measure metadata: missing or malformed 'dependencies'")
+        mfeat = p.get("features", {})
+        need(isinstance(mfeat, dict), "measure metadata: malformed package features")
+        hit = False
+        for d in deps:
+            need(isinstance(d, dict) and isinstance(d.get("name"), str), "measure metadata: malformed dependency")
+            kind = d.get("kind")
+            need(kind is None or kind in ("normal", "build", "dev"), "unknown dependency kind")
+            label = kind or "normal"
+            need(label in DEP_KINDS, "dependency kind outside the counted kinds")
+            path = d.get("path")
+            need(path is None or isinstance(path, str), "measure metadata: malformed dependency path")
+            # 位置か名前のどちらかが当たれば契約への依存とみなす（曖昧なら数える側）。
+            if not ((path and os.path.normpath(path) == contract_dir) or fold(d["name"]) == contract_name):
+                continue
+            hit = True
+            on = enabled_features(d, mfeat, contract["features"])
+            for f in FORBIDDEN_FEATURES:
+                if f in on:
+                    bad.append((p["name"], label, f))
+        if hit:
+            dependents += 1
+    bad.sort()
+    return n_members, dependents, bad
+
+
 def collect_sources(crate_dir):
     """crate ディレクトリ配下の .rs を (相対パス, 絶対パス) の並びで返す。リンクは追わず Misuse。"""
     found = []
@@ -381,27 +498,40 @@ def main():
     ap = argparse.ArgumentParser(prog="upper-layer-check.sh", add_help=True)
     ap.add_argument("root")
     ap.add_argument("--metadata-json")
+    ap.add_argument("--measure-metadata-json")
     a = ap.parse_args()
+
+    # 片方だけの指定は誤用（(4) を黙ってスキップしない）。
+    need((a.metadata_json is None) == (a.measure_metadata_json is None),
+        "--metadata-json and --measure-metadata-json must be given together")
 
     if a.metadata_json is not None:
         commit = "-"
         try:
             md = json.loads(read_text(a.metadata_json))
+            mmd = json.loads(read_text(a.measure_metadata_json))
         except ValueError:
             raise Misuse("metadata input is not JSON")
     else:
         commit = source_commit(a.root)
         run_cargo(a.root, ["cargo", "--version"])
+        mpath = os.path.join(a.root, MEASURE_MANIFEST_REL)
+        need(os.path.isfile(mpath) and not os.path.islink(mpath), "the measure workspace manifest is not readable")
+        mcmd = [mpath if c is None else c for c in MEASURE_METADATA_CMD]
         try:
             md = json.loads(run_cargo(a.root, METADATA_CMD))
+            mmd = json.loads(run_cargo(a.root, mcmd))
         except ValueError:
             raise Misuse("cargo metadata output is not JSON")
 
     crate_dir, crate_root, pkg = find_target(md)
+    contract = find_contract(md)
 
     deps = pkg.get("dependencies")
     need(isinstance(deps, list), "missing or malformed 'dependencies'")
     chip_deps = []
+    other_deps = []
+    allowed = set(ALLOWED_DEPS)
     for d in deps:
         need(isinstance(d, dict) and isinstance(d.get("name"), str), "malformed dependency")
         kind = d.get("kind")
@@ -410,8 +540,14 @@ def main():
         need(label in DEP_KINDS, "dependency kind outside the counted kinds")
         if fold(d["name"]) in CHIP_CRATES:
             chip_deps.append((fold(d["name"]), label))
+        if fold(d["name"]) not in allowed:
+            other_deps.append((fold(d["name"]), label))
     chip_deps.sort()
+    other_deps.sort()
     print("scanned: reading=metadata packages=%d target_deps=%d" % (len(md["packages"]), len(deps)))
+
+    n_mpkgs, n_mdep, mbad = check_measure(mmd, contract)
+    print("scanned: reading=measure-metadata packages=%d contract_dependents=%d" % (n_mpkgs, n_mdep))
 
     sources = collect_sources(crate_dir)
     need(sources, "no source files found in the upper-layer crate")
@@ -435,8 +571,10 @@ def main():
     chip_hits.sort()
 
     forbid = "yes" if declared else "no"
-    print("record: commit=%s rs_files=%d direct_deps=%d forbid=%s unsafe_total=%d chip_deps=%d chip_paths=%d"
-          % (commit, len(sources), len(deps), forbid, len(unsafe_hits), len(chip_deps), len(chip_hits)))
+    print("record: commit=%s rs_files=%d direct_deps=%d forbid=%s unsafe_total=%d chip_deps=%d chip_paths=%d "
+          "other_deps=%d measure_pkgs=%d measure_contract_pkgs=%d measure_forbidden=%d"
+          % (commit, len(sources), len(deps), forbid, len(unsafe_hits), len(chip_deps), len(chip_hits),
+            len(other_deps), n_mpkgs, n_mdep, len(mbad)))
     total = 0
     if not declared:
         total += 1
@@ -450,11 +588,19 @@ def main():
     for rel, line, name in chip_hits:
         total += 1
         print("violation: check=chip-path file=%s line=%d crate=%s" % (clean(rel), line, clean(name)), file=sys.stderr)
+    for name, kind in other_deps:
+        total += 1
+        print("violation: check=dep-allow crate=%s kind=%s" % (clean(name), kind), file=sys.stderr)
+    for name, kind, feat in mbad:
+        total += 1
+        print("violation: check=measure-feature package=%s kind=%s feature=%s"
+              % (clean(name), kind, clean(feat)), file=sys.stderr)
     if total:
         print("FAILED: %d violation(s)" % total, file=sys.stderr)
         return 1
     print("ok: %d .rs file(s) and %d direct dependenc(ies) checked, forbid(unsafe_code) declared, "
-          "unsafe=0 chip_deps=0 chip_paths=0" % (len(sources), len(deps)))
+          "unsafe=0 chip_deps=0 chip_paths=0 other_deps=0 measure_contract_dependents=%d forbidden_features=0"
+          % (len(sources), len(deps), n_mdep))
     return 0
 
 
