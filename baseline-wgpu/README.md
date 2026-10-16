@@ -11,6 +11,7 @@
 ## 現状
 
 - 外部依存は `wgpu`（`=30.0.1` の完全固定）のみ。承認の記録は本ディレクトリの `deps-approved.toml`
+- lib crate（`crates/public-api`、`baseline-wgpu-public-api`）は公開 API の戻り値に `wgpu::Backends` を出す。製品の公開 API の検査を `--manifest-path` で本 workspace に当てたときの入力で、製品からは呼ばれない
 - smoke bin（`crates/smoke`）は `wgpu::Instance` で全 backend のアダプタを列挙し、名前・backend・device type を出力する。アダプタが 0 件でも正常終了する
 - 依存の追加・更新はユーザー承認が要る（[dependency-policy](../.claude/rules/dependency-policy.md)）。CI には組み込んでいない
 - 版の記録は [docs/baseline-wgpu.md](../docs/baseline-wgpu.md) を参照

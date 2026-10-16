@@ -1,0 +1,16 @@
+# 比較基準の別 workspace の lib crate。公開 API に wgpu の型を出し、公開 API の検査が働くことを確かめる陽性対照の入力にする。
+# 外部依存は wgpu のみ（完全固定。承認の記録は baseline-wgpu/deps-approved.toml）。製品の workspace からは参照されない。
+[package]
+name = "baseline-wgpu-public-api"
+version = "0.0.0"
+description = "Library that exposes wgpu types in its public API, as input for the public API check on the baseline-wgpu workspace"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+wgpu = "=30.0.1"
+
+[lints]
+workspace = true
