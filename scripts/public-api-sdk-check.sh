@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
 # 製品の 4 crate の公開 API に、チップの SDK の crate（`objc2-metal`・`ash`・`cudarc`）の型・経路が出ていないことを、
-# rustdoc の JSON から機械で数えて確かめる。あわせて、公開 API から解決された外部 crate の一覧を出す
-# （spec TASK-13・BUILD-51 のポインタ。親 Issue #366 の 1/4）。
+# rustdoc の JSON から機械で数えて確かめる。あわせて、公開 API から解決された外部 crate の一覧を出す。
+# また、共通の crate（`crates/core`）が宣言する依存にチップの SDK の crate が無いことを、cargo metadata から確かめる
+# （spec TASK-13・BUILD-51・BUILD-54・U-30 の案 A のポインタ。親 Issue #366 の 1/4 と 2/4）。
 # 呼び出し元: 直接実行（make ターゲットと CI からは呼ばれていない）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json` を呼んで共有し、抽出の実体をここに持たない（`scripts/public-name-check.sh` と同じ形）。
 #
 # 使い方:
-#   scripts/public-api-sdk-check.sh                         workspace の lib crate の JSON を作って検査する
-#   scripts/public-api-sdk-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（cargo を呼ばない。組は `-`、commit は `-`）
-# 終了コード: 0 参照が 0 件 / 1 参照が 1 件以上（違反） / 2 誤用・前提の不足・JSON を読み切れない（成功扱いにしない）
+#   scripts/public-api-sdk-check.sh                         rustdoc の JSON を作り、cargo metadata も流して両方を検査する
+#   scripts/public-api-sdk-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（依存側は実行しない。cargo・git を呼ばない）
+#   scripts/public-api-sdk-check.sh --metadata-json <path>   渡した metadata だけを検査する（rustdoc 側は実行しない。cargo・git を呼ばない）
+#   両方を渡すと、渡した 2 つだけを検査する（cargo・git を呼ばない）。`--metadata-json` は 1 つだけ。
+#   実行しなかった側は `record:` の行で `-` と出し、部分の実行が全部の合格に読めないようにする。
+#   組と commit は、cargo・git を呼ばない経路では `-`。
+# 終了コード: 0 実行した側の参照・依存が 0 件 / 1 どちらかで 1 件以上（違反） / 2 誤用・前提の不足・入力を読み切れない（成功扱いにしない）
 #   2 になるもの: 引数の誤用、python3・cargo・git の不足、HEAD のコミットが取れない、JSON の形の不一致
-#   （public-api-check.sh の V1〜V7 と同じ形の検査）、公開アイテムが 0 件、JSON を作る段の失敗、想定外の例外。
+#   （public-api-check.sh の V1〜V7 と同じ形の検査）、公開アイテムが 0 件、JSON を作る段の失敗、
+#   metadata の形の崩れ（`packages`・`dependencies` の型、`kind` が null・build・dev 以外、`name` が文字列でない）、
+#   共通の crate が workspace_root からの `crates/core/Cargo.toml` でちょうど 1 件に定まらない、cargo metadata の失敗、想定外の例外。
 #   除外の印・除外の一覧・対象を外す口は持たない。
 #
 # 照合の規則:
-#   crate 名の `-` を `_` にそろえ、`objc2_metal`・`ash`・`cudarc` と完全一致したときだけ当てる（接頭辞には広げない）。
-#   数え方（V4〜V6b）は public-api-check.sh と同じ。親の鍵が resolved_path なら type、それ以外は other。どちらも違反。
+#   crate 名を小文字にし `-` を `_` にそろえて、`objc2_metal`・`ash`・`cudarc` と完全一致したときだけ当てる（接頭辞には広げない）。
+#   この 3 つの名前は Python 部先頭の「数え方の定義」の 1 か所にだけ持ち、rustdoc 側と依存側で共有する。
+#   rustdoc 側の数え方（V4〜V6b）は public-api-check.sh と同じ。親の鍵が resolved_path なら type、それ以外は other。どちらも違反。
 #   外部 crate の一覧は、公開 API から実際に解決された crate 名（自 crate を除く）の重複なしの昇順。
 #   `external_crates` の表そのものではない（公開 API から参照されない依存も入るため）。
+#   依存側は metadata の package の `dependencies[].name`（package 名）を、`[dependencies]`・`[build-dependencies]`・
+#   `[dev-dependencies]`（target 付きと optional を含む）のすべてについて数える。feature の解決には依らない。
 #
-# 標準出力: JSON ごとの `scanned:`、全部を検査し終えたとき（終了コード 0 と 1）だけ締めの `record:`、合格時の `ok:`。
+# 標準出力: rustdoc の JSON ごとの `scanned:`、依存側の `scanned:`、全部を検査し終えたとき（終了コード 0 と 1）だけ締めの `record:`、合格時の `ok:`。
 #   `scanned: crate=<name> features=<組> format_version=<n> public_items=<n> sdk_type_refs=<n> sdk_other_refs=<n> external_crates=<a,b | ->`
-#   `record: commit=<rev|-> documents=<n> public_items_total=<n> sdk_type_refs_total=<n> sdk_other_refs_total=<n>`
-#   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
-# 標準エラー: `violation: crate=<name> features=<組> item=<name> kind=<type|other> references=<crate>`・`FAILED:`・`error:`。
+#   `scanned: check=common-deps manifest=crates/core/Cargo.toml package=<name> declared_deps=<n> chip_deps=<n>`
+#   `record: commit=<rev|-> documents=<n|-> public_items_total=<n|-> sdk_type_refs_total=<n|-> sdk_other_refs_total=<n|-> common_declared_deps=<n|-> common_chip_deps=<n|->`
+#   commit は cargo・git を呼ぶ経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、それ以外では `-`。
+# 標準エラー: `violation: crate=<name> features=<組> item=<name> kind=<type|other> references=<crate>`、
+#   `violation: check=common-dep crate=<package> dependency=<name> kind=<normal|build|dev> target=<cfg|->`・`FAILED:`・`error:`。
 #
-# 検査しないもの: 共通の crate の `[dependencies]`、上記 3 つ以外の名前、件数の増減（数は出すだけ）、wasm32 の公開 API。
-# ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
+# 検査しないもの: 共通の crate 以外の crate の依存、推移的な依存（`Cargo.lock` にだけ出るもの）、`package =` で改名した依存の別名
+# （package 名で拾う）、上記 3 つ以外の名前、件数の増減（数は出すだけ）、wasm32 の公開 API。
+# ホストの絶対パス・環境変数の値は出力に出さない（パスは workspace_root からの相対だけ）。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
@@ -47,8 +60,15 @@ if sys.version_info < (3, 8):
     print("error: python 3.8 or later is required", file=sys.stderr)
     sys.exit(2)
 
-# 検査の対象にするチップの SDK の crate 名（`-` を `_` にそろえた形）。
+# ---- 数え方の定義（rustdoc 側と依存側で共有する唯一の場所。値をここの外へ書き写さない）----
+# 検査の対象にするチップの SDK の crate 名（小文字・`-` を `_` にそろえた形）。
 CHIP_SDK = frozenset({"objc2_metal", "ash", "cudarc"})
+# 共通の crate の manifest（workspace_root からの相対。公開名は未決なので package 名では探さない）。
+COMMON_MANIFEST_REL = "crates/core/Cargo.toml"
+# 数える依存の種類（metadata の kind。null は通常の依存）。宣言を全部拾う側に倒す。
+DEP_KINDS = {None: "normal", "build": "build", "dev": "dev"}
+# 依存側の metadata を取るコマンド（ネットワークを使わず、lock を書き換えない）。
+METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1", "--all-features"]
 
 
 class Misuse(Exception):
@@ -70,7 +90,7 @@ def is_int(v):
 
 
 def is_chip_sdk(name):
-    return name.replace("-", "_") in CHIP_SDK
+    return name.lower().replace("-", "_") in CHIP_SDK
 
 
 def crate_name(doc, cid):
@@ -231,6 +251,66 @@ def load_json(path):
         raise Misuse("cannot read JSON input")
 
 
+def inspect_metadata(meta):
+    """metadata を検査して (package 名, 宣言数, 違反の一覧) を返す。共通の crate がちょうど 1 件に定まらなければ Misuse。"""
+    need(isinstance(meta, dict), "metadata top level is not an object")
+    wroot = meta.get("workspace_root")
+    need(isinstance(wroot, str) and wroot != "", "missing or malformed 'workspace_root'")
+    pkgs = meta.get("packages")
+    need(isinstance(pkgs, list), "missing or malformed 'packages'")
+    want = os.path.normpath(os.path.join(wroot, COMMON_MANIFEST_REL))
+    found = []
+    for pkg in pkgs:
+        need(isinstance(pkg, dict), "malformed package entry")
+        mp = pkg.get("manifest_path")
+        if isinstance(mp, str) and os.path.normpath(mp) == want:
+            found.append(pkg)
+    need(len(found) == 1, "common crate not found exactly once")
+    pkg = found[0]
+    need(isinstance(pkg.get("name"), str), "malformed package name")
+    deps = pkg.get("dependencies")
+    need(isinstance(deps, list), "missing or malformed 'dependencies'")
+    violations = []
+    for dep in deps:
+        need(isinstance(dep, dict), "malformed dependency entry")
+        name = dep.get("name")
+        need(isinstance(name, str), "dependency name is not a string")
+        kind = dep.get("kind")
+        need(kind is None or (isinstance(kind, str) and kind in DEP_KINDS), "dependency kind outside the counted kinds")
+        target = dep.get("target")
+        need(target is None or isinstance(target, str), "malformed dependency target")
+        if is_chip_sdk(name):
+            violations.append((clean(name), DEP_KINDS[kind], clean(target) if target else "-"))
+    return clean(pkg["name"]), len(deps), violations
+
+
+def run_cargo_metadata(root):
+    """cargo metadata を argv のリストで起動して JSON を返す。失敗は Misuse（ホストの出力は載せない）。"""
+    env = dict(os.environ, CARGO_TERM_COLOR="never")
+    try:
+        done = subprocess.run(
+            METADATA_CMD, cwd=root, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        raise Misuse("cannot run cargo metadata")
+    need(done.returncode == 0, "cargo metadata failed")
+    try:
+        return json.loads(done.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise Misuse("cargo metadata output is not JSON")
+
+
+def run_deps(meta, total):
+    pkg, declared, violations = inspect_metadata(meta)
+    print("scanned: check=common-deps manifest=%s package=%s declared_deps=%d chip_deps=%d"
+          % (COMMON_MANIFEST_REL, pkg, declared, len(violations)))
+    for name, kind, target in violations:
+        print("violation: check=common-dep crate=%s dependency=%s kind=%s target=%s"
+              % (pkg, name, kind, target), file=sys.stderr)
+    total["declared"] = declared
+    total["chip_deps"] = len(violations)
+
+
 def run_docs(inputs, total):
     for _crate, label, path in inputs:
         name, fv, public, n_type, n_other, ext, violations = inspect(load_json(path))
@@ -248,28 +328,56 @@ def main():
     root = sys.argv[1]
     parser = argparse.ArgumentParser(prog="public-api-sdk-check.sh")
     parser.add_argument("--json", nargs="+", metavar="PATH")
+    parser.add_argument("--metadata-json", metavar="PATH", action="append")
     args = parser.parse_args(sys.argv[2:])
+    need(args.metadata_json is None or len(args.metadata_json) == 1, "--metadata-json takes exactly one path")
+    metadata_path = args.metadata_json[0] if args.metadata_json else None
 
-    total = {"public": 0, "type": 0, "other": 0}
-    if args.json is not None:
-        commit = "-"
-        inputs = [("-", "-", p) for p in args.json]
-        run_docs(inputs, total)
-        ndocs = len(inputs)
-    else:
-        commit = source_commit(root)
-        with tempfile.TemporaryDirectory() as tmp:
-            inputs = emit_docs(root, tmp)
+    # 既定は両側を実行。どちらかを渡したときは、渡したものだけを検査する（cargo・git を呼ばない）。
+    given = args.json is not None or args.metadata_json is not None
+    run_rustdoc = not given or args.json is not None
+    run_dependencies = not given or args.metadata_json is not None
+
+    total = {"public": 0, "type": 0, "other": 0, "declared": 0, "chip_deps": 0}
+    commit = "-" if given else source_commit(root)
+    ndocs = 0
+    if run_rustdoc:
+        if args.json is not None:
+            inputs = [("-", "-", p) for p in args.json]
             run_docs(inputs, total)
-        ndocs = len(inputs)
+            ndocs = len(inputs)
+        else:
+            with tempfile.TemporaryDirectory() as tmp:
+                inputs = emit_docs(root, tmp)
+                run_docs(inputs, total)
+            ndocs = len(inputs)
+    if run_dependencies:
+        meta = load_json(metadata_path) if metadata_path is not None else run_cargo_metadata(root)
+        run_deps(meta, total)
 
-    print("record: commit=%s documents=%d public_items_total=%d sdk_type_refs_total=%d sdk_other_refs_total=%d"
-          % (commit, ndocs, total["public"], total["type"], total["other"]))
-    refs = total["type"] + total["other"]
+    def num(v, ran):
+        return str(v) if ran else "-"
+
+    fields = [
+        ("commit", commit),
+        ("documents", num(ndocs, run_rustdoc)),
+        ("public_items_total", num(total["public"], run_rustdoc)),
+        ("sdk_type_refs_total", num(total["type"], run_rustdoc)),
+        ("sdk_other_refs_total", num(total["other"], run_rustdoc)),
+        ("common_declared_deps", num(total["declared"], run_dependencies)),
+        ("common_chip_deps", num(total["chip_deps"], run_dependencies)),
+    ]
+    print("record: " + " ".join("%s=%s" % kv for kv in fields))
+    refs = total["type"] + total["other"] + total["chip_deps"]
     if refs:
         print("FAILED: %d reference(s)" % refs, file=sys.stderr)
         return 1
-    print("ok: %d public API document(s) checked, no chip SDK references" % ndocs)
+    parts = []
+    if run_rustdoc:
+        parts.append("%d public API document(s) checked" % ndocs)
+    if run_dependencies:
+        parts.append("common crate dependencies checked")
+    print("ok: %s, no chip SDK references" % ", ".join(parts))
     return 0
 
 
