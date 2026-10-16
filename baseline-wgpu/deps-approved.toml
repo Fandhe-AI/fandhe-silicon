@@ -7,6 +7,6 @@
 name = "wgpu"
 version = "=30.0.1"
 used_by = ["baseline-wgpu-public-api", "baseline-wgpu-smoke"]
-approved_on = "2026-10-10"
+approved_on = "2026-10-16"
 approval_ref = "#3402"
 purpose = "比較基準の wgpu。基盤の外の別 workspace でのみ使い、製品の workspace には入れない"
