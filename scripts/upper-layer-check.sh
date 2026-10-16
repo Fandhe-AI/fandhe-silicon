@@ -69,8 +69,10 @@ SOURCE_EXT = ".rs"
 SKIP_DIRS = ("target",)
 # ==== 数え方の定義ここまで ====
 
-METADATA_CMD = ["cargo", "metadata", "--locked", "--format-version", "1", *FEATURE_ARGS]
+# --offline で取得が要る場合は失敗（前提の不足）にする。--no-deps は workspace の package だけを読む（宣言は残る）。
+METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1", *FEATURE_ARGS]
 IDENT = "A-Za-z0-9_"
+IDENT_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
 
 
 class Misuse(Exception):
@@ -266,7 +268,10 @@ def find_target(md):
 def collect_sources(crate_dir):
     """crate ディレクトリ配下の .rs を (相対パス, 絶対パス) の並びで返す。リンクは追わず Misuse。"""
     found = []
-    for cur, dirs, files in os.walk(crate_dir, followlinks=False):
+    def walk_failed(err):
+        raise Misuse("cannot read a directory in the crate")
+
+    for cur, dirs, files in os.walk(crate_dir, followlinks=False, onerror=walk_failed):
         keep = []
         for d in sorted(dirs):
             if d.startswith(".") or d in SKIP_DIRS:
@@ -289,10 +294,42 @@ UNSAFE_RE = re.compile(r"(?<![%s])unsafe(?![%s])" % (IDENT, IDENT))
 
 
 def has_forbid(stripped):
+    """crate root（波括弧の外＝トップレベル）の inner attribute だけを宣言として数える。"""
     for m in FORBID_RE.finditer(stripped):
+        before = stripped[:m.start()]
+        if before.count("{") != before.count("}"):
+            continue
         if "unsafe_code" in [s.strip() for s in m.group(1).split(",")]:
             return True
     return False
+
+
+TOKEN_RE = re.compile(r"[%s]+|::|[{},;*]" % IDENT)
+
+
+def use_hits(stripped, name):
+    """`use` 文の use tree（グループ・別名を含む）で、先頭の区間が name の出現位置の集合を返す。"""
+    hits = set()
+    for m in re.finditer(r"(?<![%s])use(?![%s])" % (IDENT, IDENT), stripped):
+        empty = True  # 現在の tree がまだ区間を消費していない（先頭に在る）
+        stack = []
+        for t in TOKEN_RE.finditer(stripped, m.end()):
+            tok = t.group()
+            if tok == ";":
+                break
+            if tok == "{":
+                stack.append(empty)
+            elif tok == ",":
+                empty = stack[-1] if stack else False
+            elif tok == "}":
+                if stack:
+                    stack.pop()
+                empty = False
+            elif tok[0] in IDENT_CHARS:
+                if empty and tok == name:
+                    hits.add(t.start())
+                empty = False
+    return hits
 
 
 def chip_path_hits(stripped, ident):
@@ -306,8 +343,7 @@ def chip_path_hits(stripped, ident):
         if before.endswith("::") and re.search(r"[%s]\s*$" % IDENT, before[:-2]):
             continue
         hits.add(m.start())
-    for m in re.finditer(r"(?<![%s])use\s+(?:::\s*)?(%s)%s" % (IDENT, name, end), stripped):
-        hits.add(m.start(1))
+    hits.update(use_hits(stripped, name))
     for m in re.finditer(r"(?<![%s])extern\s+crate\s+(%s)%s" % (IDENT, name, end), stripped):
         hits.add(m.start(1))
     return hits
