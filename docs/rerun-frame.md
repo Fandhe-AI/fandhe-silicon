@@ -23,7 +23,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | `core` の統合テスト | `crates/core/tests` に `parity_*` 5 本・`test_frame_*` 9 本・`rerun_*` 2 本。どれも `required-features = ["test-support"]`（16 件） | `ls crates/core/tests`、`grep -c required-features crates/core/Cargo.toml` |
 | 記録の部品の書き出しと集計 | 書き出し先の環境変数は `RECORD_DIR_ENV`（`FANDHE_SILICON_TEST_RECORD_DIR`）。`scripts/verify.sh` が `cargo test` の 1 回にだけ一時ディレクトリを渡し、`scripts/record-summary.sh` で集計する | `grep -n RECORD_DIR_ENV crates/core/src/test_frame/export.rs`、`grep -n -e FANDHE_SILICON_TEST_RECORD_DIR -e record-summary scripts/verify.sh` |
 | 測定の道具 | `measure/crates/perf` に bin `across-runs` と統合テスト 7 本。`tests/repeat.rs` が書き出しの実物を `scripts/perf-record-check.sh` に通す | `ls measure/crates/perf/src/bin measure/crates/perf/tests`、`grep -n perf-record-check measure/crates/perf/tests/repeat.rs` |
-| 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
+| 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh`・`scripts/rerun-compare.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary`・`make test-rerun-compare` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
 | 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu`・`measure`・`wasm` | `grep -n -e members -e exclude Cargo.toml` |
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml` |
 | CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z0-9-]+:$' .github/workflows/ci.yml` |
@@ -56,6 +56,19 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 環境 | 設定（`RunSetting`）と書き出し先は呼び出し側が渡す。環境から作る経路は公開テストで通していない | `grep -rn 'env::var' crates/core/src/rerun*`（0 件） |
 | 依存の向き | 製品の経路から参照しない。`test_frame` の `judge`・`export_parts` を使う。`unsafe` なし・外部依存なし | `grep -rn rerun crates/contract/src crates/exec/src crates/upper/src`（0 件） |
 | テスト | `crates/core/tests/rerun_run.rs`（値はダミー。書き出し先は試験ごとの一時ディレクトリ。機材は要らず、`make verify` で流れる） | `cargo test -p fandhe-silicon-core --features test-support --test rerun_run` |
+
+## 前の記録と比べる道具の所在（TASK-29 の 5/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 置き場 | `scripts/rerun-compare.sh`（本体）と `scripts/test-rerun-compare.sh`（回帰テスト）。本体は make ターゲットを持たず、入口は回帰テストの `make test-rerun-compare` だけ | `ls scripts/rerun-compare.sh scripts/test-rerun-compare.sh`、`grep -n rerun-compare Makefile` |
+| 入力 | 前の記録と新しい記録の部品のディレクトリを 1 つずつ（引数はちょうど 2 つ。既定の入力なし）。部品は `scripts/record-summary.sh` が読むのと同じ形。`measure-perf` の run ごとの記録は扱わない | `sed -n 1,50p scripts/rerun-compare.sh` |
+| 形の検査 | 各ディレクトリをまず `scripts/record-summary.sh` に通す（定数表を本道具に写さない）。0 以外なら本道具は終了コード 2。通ったあと比べるのに要る欄だけを読み直し、想定と違えば 2 | `make test-rerun-compare`（`malformed_in_new_only`・`empty_dir` ほか） |
+| 比べ方 | 鍵は (試験の ID, 組み合わせ)、値は (ラベル, 理由)。理由だけの違いも差。分類は `regressed`・`improved`・`changed`・`removed`・`added` で、見出しであって合否の判定ではない | `make test-rerun-compare`（`reason_changed`・`mixed`・`order_deterministic`） |
+| 出力と終了コード | 標準出力は分類の順・鍵の昇順の行と `summary:` の行。出すのは試験の ID・組み合わせ・ラベル・理由と件数だけ。終了コード 0 差分なし・1 差分あり・2 誤用・前提の不足・読めない記録 | `make test-rerun-compare`（`identical`・`regressed`・`args_*`） |
+| 副作用 | 入力を読むだけ。ファイルを作らず、ネットワークを使わない | `make test-rerun-compare`（`creates_no_files`・`inputs_unchanged`） |
+| 依存 | bash + python3（3.8 以上の標準ライブラリだけ）。依存の追加なし | `git diff --stat origin/main -- Cargo.toml Cargo.lock deps-approved.toml` |
+| テスト | `scripts/test-rerun-compare.sh`（値はダミーの合成の部品。CI の `deny` ジョブが呼ぶ） | `make test-rerun-compare` |
 
 ## 本リポでの反映の方針
 

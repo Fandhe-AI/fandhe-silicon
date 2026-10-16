@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-public-api-diff wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -94,6 +94,9 @@ test-public-name-check: ## public-name-check の回帰テスト（ダミーの�
 
 test-public-api-diff: ## public-api-diff の回帰テスト（合成 JSON だけ。bash + python3・cargo もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。本体は比べる JSON の引数が要るため make ターゲットを持たない。直接: scripts/test-public-api-diff.sh / scripts/public-api-diff.sh <基準> <新>
 	@scripts/test-public-api-diff.sh
+
+test-rerun-compare: ## rerun-compare の回帰テスト（合成の記録の部品だけ。bash + python3・cargo もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。本体は比べる記録のディレクトリの引数が要るため make ターゲットを持たない。直接: scripts/test-rerun-compare.sh / scripts/rerun-compare.sh <前の記録> <新しい記録>
+	@scripts/test-rerun-compare.sh
 
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh

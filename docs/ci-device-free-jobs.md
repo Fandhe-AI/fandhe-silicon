@@ -75,6 +75,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make public-name-check` | `scripts/public-name-check.sh` | 4 crate の公開アイテムの名前に語の一覧の語が出ていないことの検査（走査の件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-name-check` | `scripts/test-public-name-check.sh` | 上の回帰テスト（ダミーの語の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make test-public-api-diff` | `scripts/test-public-api-diff.sh` | 公開 API の差分の道具 `scripts/public-api-diff.sh` の回帰テスト（合成 JSON だけ） |
+| `deny` | `make test-rerun-compare` | `scripts/test-rerun-compare.sh` | 前の記録と比べる道具 `scripts/rerun-compare.sh` の回帰テスト（合成の記録の部品だけ） |
 | `deny` | `make test-record-summary` | `scripts/test-record-summary.sh` | 試験の枠の記録から集計を出す道具と、`make verify` の記録の扱いの回帰テスト（合成の部品と偽の cargo） |
 
 - `test-hooks` の macOS だけで、`/bin/bash` による直接実行のステップ（`scripts/hooks/test-hooks.sh` と、`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`・`scripts/test-record-summary.sh`）がある
@@ -88,7 +89,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
-`scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
+`scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
 ## `ci-frame-check`（`scripts/ci-frame-check.sh`）
 
