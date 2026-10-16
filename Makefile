@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -100,6 +100,9 @@ test-rerun-compare: ## rerun-compare の回帰テスト（合成の記録の部�
 
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh
+
+test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI はまだ呼ばない）。直接: scripts/test-dep-graph-wgpu-check.sh
+	@scripts/test-dep-graph-wgpu-check.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh
 	@scripts/test-wasm-size.sh
