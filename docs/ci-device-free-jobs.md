@@ -54,7 +54,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `test-hooks` | `make test-metal-session` | `scripts/test-metal-session.sh` | Metal の実機の回の手順のスクリプトの回帰テスト |
 | `verify` | `make verify` | `scripts/verify.sh` | fmt・clippy・workspace の試験。試験の枠の記録から集計の表をジョブのログに出す（[test-frame](./test-frame.md)） |
 | `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check |
-| `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査 |
+| `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
 | `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
@@ -74,6 +74,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-api-check` | `scripts/test-public-api-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make public-name-check` | `scripts/public-name-check.sh` | 4 crate の公開アイテムの名前に語の一覧の語が出ていないことの検査（走査の件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-name-check` | `scripts/test-public-name-check.sh` | 上の回帰テスト（ダミーの語の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON） |
+| `deny` | `make test-dep-graph-wgpu-check` | `scripts/test-dep-graph-wgpu-check.sh` | 依存グラフの wgpu 系 crate の検査（`make deny` の中で流れる）の回帰テスト（合成 JSON・合成 tree と一時 workspace の実物の cargo metadata / cargo tree） |
 | `deny` | `make test-public-api-diff` | `scripts/test-public-api-diff.sh` | 公開 API の差分の道具 `scripts/public-api-diff.sh` の回帰テスト（合成 JSON だけ） |
 | `deny` | `make test-rerun-compare` | `scripts/test-rerun-compare.sh` | 前の記録と比べる道具 `scripts/rerun-compare.sh` の回帰テスト（合成の記録の部品だけ） |
 | `deny` | `make test-record-summary` | `scripts/test-record-summary.sh` | 試験の枠の記録から集計を出す道具と、`make verify` の記録の扱いの回帰テスト（合成の部品と偽の cargo） |
@@ -87,6 +88,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ターゲット | 理由（コード内の記述による） |
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
+| `dep-graph-wgpu-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。

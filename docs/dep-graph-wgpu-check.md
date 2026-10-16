@@ -8,6 +8,7 @@
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 検査 | `scripts/dep-graph-wgpu-check.sh`（bash + `python3 -I`、標準ライブラリのみ） | `scripts/dep-graph-wgpu-check.sh` |
+| 呼び出し元 | `make dep-graph-wgpu-check`（単体）と `make deny`（`scripts/deny.sh`）。CI の `deny` ジョブは `make deny` の中で流し、回帰テストは `make test-dep-graph-wgpu-check` のステップで流す。違反も前提の不足も失敗にし、握りつぶさない | `grep -n dep-graph-wgpu-check scripts/deny.sh Makefile` |
 | 対象 | 製品の workspace（ルートの `Cargo.toml`）だけ。`baseline-wgpu/`・`measure/`・`wasm/` には当てない | 同スクリプトの先頭コメント |
 | 入力 | `cargo metadata` と `cargo tree`。または `--metadata-json` と `--tree-text` で渡した入力 | 同スクリプトの先頭コメント |
 | 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-dep-graph-wgpu-check` |
@@ -64,6 +65,7 @@
 | 名前の一覧を変えるときは、`deny.toml` の `[bans] deny` も同じ PR で変える | 両方から名前を取り出して比べる |
 | 製品の workspace で直接実行し、終了コード 2 にならない（metadata と tree が食い違わない）ことと `record:` の件数を見る | `scripts/dep-graph-wgpu-check.sh` |
 | 回帰テストを通す。判定を弱めるとテストが失敗することを、検査の写しで確かめる | `make test-dep-graph-wgpu-check` |
+| `make deny` のログに `dep-graph-wgpu-check` の行と `record:` が出ることを見る | `make deny` |
 | 品質ゲートを通す | `make check`・`make verify`・`make deny` |
 
 ## 検査しないもの

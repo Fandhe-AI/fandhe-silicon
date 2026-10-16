@@ -3,6 +3,8 @@
 # CI の deny ジョブも本スクリプトを呼ぶ（チェック内容の定義はここにのみ置く）。
 # 追加の守り: workspace の依存グラフ（全 feature・全 target）の path が crates/ の外を指さないことを検査する
 # （基盤に足場を残さない向き。ポインタ: TASK-6・AP-4・AC-2）。段階 (1) の最終の判定（TASK-83）ではない。
+# 製品の workspace の依存グラフの wgpu 系 crate の検査（ポインタ: TASK-11）も `dep-graph-wgpu-check.sh` で呼ぶ
+# （終了コード 1・2 はそのまま `make deny` の失敗にする。python3・git が要る）。
 # 別 workspace も監査する（ポインタ: TASK-27）。measure/ にはルートの deny.toml をそのまま当て、
 # baseline-wgpu/ には wgpu 系の禁止だけを外した baseline-wgpu/deny.toml を --config で明示して当てる
 # （明示しないと cargo-deny は上の階層のルートの deny.toml を拾って bans で落ちる）。あわせて
@@ -11,7 +13,7 @@
 # wasm32 向けの別 workspace wasm/（ポインタ: TASK-22）にもルートの deny.toml をそのまま当て（wgpu 系・naga の禁止は残る）、
 # deps-check.sh を --allow-path-root crates で呼ぶ（製品の crate への path だけを免除する）。
 # 製品の crate が wasm/ を path で参照すると、上の path の検査（crates/ の外）で落ちる。ビルドと test は `make wasm-verify` 側にある。
-# 呼び出し元: `make deny`。cargo-deny・jq が無い場合は未検査で成功にせず失敗させる。
+# 呼び出し元: `make deny`。cargo-deny・jq・python3・git が無い場合は未検査で成功にせず失敗させる。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
@@ -21,6 +23,8 @@ reject_args "$(basename "$0")" "$@"
 require_cmd cargo
 require_cmd cargo-deny
 require_cmd jq
+require_cmd python3
+require_cmd git
 
 cd "${ROOT_DIR}"
 
@@ -66,6 +70,12 @@ done <<<"${tree_out}"
 if [ "${violations}" -ne 0 ]; then
   exit 1
 fi
+
+# 製品の workspace の依存グラフに wgpu 系 crate が無いことの検査（ポインタ: TASK-11）。
+# cargo-deny が依存を取得した後なので、中の cargo metadata / cargo tree（--locked）はネットワークを要しない。
+# 違反（1）も誤用・前提の不足（2）も握りつぶさず、set -e でそのまま失敗にする。
+log "dep-graph-wgpu-check (product workspace)"
+"${DIR}/dep-graph-wgpu-check.sh"
 
 # 別 workspace の依存の監査（ポインタ: TASK-27）。いずれか 1 つでも失敗したら非 0 で終える。
 BASELINE_DENY="${ROOT_DIR}/baseline-wgpu/deny.toml"

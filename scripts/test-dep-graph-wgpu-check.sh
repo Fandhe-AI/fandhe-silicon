@@ -7,7 +7,7 @@
 # ではない。比較基準への陽性対照は別 TASK のポインタ）に検査を写し、実物の cargo metadata / cargo tree の出力で
 # 通す。狭い定義の名前・広い定義の repository をそれぞれ 1 件置くと失敗になること（検査が働いている証拠）も
 # ここで確かめる。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない。
-# 呼び出し元: `make test-dep-graph-wgpu-check`（直接実行も可。CI はまだ呼ばない）。
+# 呼び出し元: `make test-dep-graph-wgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う。終了コードだけでは別の理由で落ちても

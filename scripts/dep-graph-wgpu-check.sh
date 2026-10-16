@@ -2,7 +2,7 @@
 # 製品の workspace の依存グラフに載る crate のうち、
 # wgpu プロジェクトの crate を「狭い定義」と「広い定義」の 2 通りで数えて確かめる
 # （spec TASK-11・BUILD-48・T-14 のポインタ。親 Issue #364 の 2/6・3/6・4/6）。
-# 呼び出し元: 直接実行。
+# 呼び出し元: `make deny`（scripts/deny.sh）と `make dep-graph-wgpu-check`。直接実行も可。
 # 対象は製品の workspace（ROOT_DIR/Cargo.toml）だけ。baseline-wgpu/・measure/・wasm/ には当てない。
 #
 # 使い方:
