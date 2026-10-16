@@ -6,7 +6,12 @@
 #       すべての .rs（src/・tests/・benches/・examples/・build.rs を含む）での `unsafe` の出現 0 件。
 #       forbid は lib の crate root にしか効かず、tests/ などは別の crate なのでコンパイラが止めない。その穴を埋める。
 #   (2) チップの crate の不在: 上の層の宣言された直接依存（通常・build・dev。全 target・全 feature）と、
-#       ソース中の `use`・パスに、チップの crate が 0 件。
+#       ソース中のチップの crate 名と一致する識別子トークンが 0 件。
+#       ソース側の契約: コメント・文字列を除いたテキストを Rust の識別子（XID_Start/XID_Continue と `_`、`r#` は外す）に
+#       分け、名前（`-` は `_`）と一致するものを位置に関係なくすべて数える（`::`・use 文・`.`・キーワードの判定はしない）。
+#       曖昧なものは数える側に倒す。ローカルの同名のモジュール・関数・メソッド・フィールドも数える（意図した過検出）。
+#       根拠: 2018 edition 以降は直接依存に無い crate の名前をソースから解決できないので、本来の守りは
+#       metadata の直接依存の検査で、ソース側の件数は重ねた守り。
 #       依存は resolve でなく宣言（metadata の dependencies）を見る。feature・target の解決に依らず宣言を全部拾うため。
 # 呼び出し元: 現時点では直接実行のみ（make ターゲットと CI への組み込みは後の段。Issue #3411 以降）。
 #
@@ -65,6 +70,8 @@ CHIP_CRATES = ("objc2", "objc2-foundation", "objc2-metal", "objc2-core-foundatio
 NAME_REPLACE = (("_", "-"),)
 # 数える feature の指定（cargo の引数）。target は絞らない（全 target）。
 FEATURE_ARGS = ("--all-features",)
+# ソース側で比べる識別子の形（`-` を `_` にしたもの）から crate 名への対応。
+CHIP_IDENTS = {c.replace("-", "_"): c for c in CHIP_CRATES}
 # 走査するソースの拡張子と、走査しないディレクトリ名（`.` 始まりも走査しない）。
 SOURCE_EXT = ".rs"
 SKIP_DIRS = ("target",)
@@ -76,8 +83,6 @@ METADATA_CMD = ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--fo
 IDENT = r"\w"
 # raw identifier の接頭辞（`r#unsafe` はキーワードでなく識別子）。
 RAW = r"(?<!r#)"
-# crate 名の判定でだけ許す raw identifier の接頭辞（`r#ash` は `ash` と同じ crate を指す）。
-RAW_OPT = r"(?:r#)?"
 
 
 class Misuse(Exception):
@@ -333,92 +338,50 @@ def has_forbid(stripped):
     return False
 
 
-# 式・パターンの前に置かれ、直後の `::` を絶対パスの先頭にするキーワード。
-PATH_KEYWORDS = ("return", "break", "continue", "in", "as", "else", "if", "match", "while", "move", "yield", "await", "let", "mut", "ref", "box", "dyn", "impl", "where", "for", "loop", "unsafe", "async", "const", "static", "pub", "fn", "type", "use")
+def ident_tokens(text):
+    """コメント・文字列を除いたソースから、Rust の識別子トークンを (位置, 名前) で返す。
 
-TOKEN_RE = re.compile(r"%s%s+|::|[{},;*#\[\]]" % (RAW_OPT, IDENT))
-
-
-def use_hits(stripped, name):
-    """`use` 文の use tree（グループ・別名を含む）で、先頭の区間が name の出現位置の集合を返す。
-
-    tree の中の属性（`#[...]`）は読み飛ばし、先頭の区間の判定に影響させない。
+    識別子は XID_Start か `_` で始まり XID_Continue が続く並び。`r#name` は `name` として返す。
+    数値リテラル（`1u8`・`0x1f`）は継続文字ごと 1 つの塊として読み飛ばし、接尾辞を識別子に数えない。
+    `::`・`.`・`use` などの周りの文字は見ない（位置による判定をしない）。
     """
-    hits = set()
-    for m in re.finditer(r"(?<![%s])%suse(?![%s])" % (IDENT, RAW, IDENT), stripped):
-        empty = True  # 現在の tree がまだ区間を消費していない（先頭に在る）
-        stack = []
-        attr = 0  # 属性の角括弧の深さ（0 より大きい間は読み飛ばす）
-        pending = False  # 直前が `#`（次の `[` が属性の開始）
-        for t in TOKEN_RE.finditer(stripped, m.end()):
-            tok = t.group()
-            if attr:
-                if tok == "[":
-                    attr += 1
-                elif tok == "]":
-                    attr -= 1
-                continue
-            if tok == ";":
-                break
-            if tok == "#":
-                pending = True
-                continue
-            if tok == "[":
-                if pending:
-                    attr = 1
-                pending = False
-                continue
-            pending = False
-            if tok == "]":
-                continue
-            if tok == "{":
-                stack.append(empty)
-            elif tok == ",":
-                empty = stack[-1] if stack else False
-            elif tok == "}":
-                if stack:
-                    stack.pop()
-                empty = False
-            elif tok[0].isalnum() or tok[0] == "_":
-                if empty and (tok[2:] if tok.startswith("r#") else tok) == name:
-                    hits.add(t.start())
-                empty = False
-    return hits
+    def start(c):
+        return c == "_" or c.isidentifier()
+
+    def cont(c):
+        return c == "_" or ("a" + c).isidentifier()
+
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        if c.isdigit():
+            j = i + 1
+            while j < n and cont(text[j]):
+                j += 1
+            i = j
+            continue
+        if not start(c):
+            i += 1
+            continue
+        j = i + 1
+        while j < n and cont(text[j]):
+            j += 1
+        if text[i:j] == "r" and text[j:j + 1] == "#" and j + 1 < n and start(text[j + 1]):
+            k = j + 2
+            while k < n and cont(text[k]):
+                k += 1
+            yield j + 1, text[j + 1:k]
+            i = k
+            continue
+        yield i, text[i:j]
+        i = j
 
 
-def chip_path_hits(stripped, ident):
-    """チップの crate の名前（識別子の形）の出現位置の集合を返す。"""
-    name = re.escape(ident)
-    end = r"(?![%s])" % IDENT
-    hits = set()
-    # `use` 文の中は use tree の解析（use_hits）だけに任せる（`use crate::{ash::T};` の `ash::` を独立に数えない）。
-    spans = []
-    for u in re.finditer(r"(?<![%s])%suse(?![%s])" % (IDENT, RAW, IDENT), stripped):
-        semi = stripped.find(";", u.end())
-        spans.append((u.end(), len(stripped) if semi < 0 else semi))
-    for m in re.finditer(r"(?<![%s#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
-        if any(a <= m.start() < b for a, b in spans):
-            continue
-        # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
-        before = stripped[:m.start()].rstrip()
-        # メソッド呼び出し（`x.ash::<u32>()`・`x . ash::<u32>()`）は crate のパスではない（`..` の範囲演算子は数える）。
-        if before.endswith(".") and not before.endswith(".."):
-            continue
-        if before.endswith("::"):
-            # `<T as Trait>::ash::X` の関連型パスの途中は crate のパスではない。
-            if before[:-2].rstrip().endswith(">"):
-                continue
-            prev = re.search(r"(%s+)\s*$" % IDENT, before[:-2])
-            # 直前がキーワードなら、先頭の絶対パス（`return ::ash::f()`）なので数える。
-            # 直前が `break 'label` / `&'a` のライフタイム・ラベルの識別子でも、その後の `::` は絶対パスの先頭。
-            labeled = prev is not None and before[:-2][:prev.start(1)].endswith("'")
-            if prev is not None and prev.group(1) not in PATH_KEYWORDS and not labeled:
-                continue
-        hits.add(m.start())
-    hits.update(use_hits(stripped, name))
-    for m in re.finditer(r"(?<![%s])extern\s+crate\s+%s(%s)%s" % (IDENT, RAW_OPT, name, end), stripped):
-        hits.add(m.start(1))
-    return hits
+def chip_path_hits(stripped, idents):
+    """チップの crate の名前（識別子の形）と一致する識別子トークンの (位置, 名前) を、位置に関係なくすべて返す。"""
+    return [(pos, tok) for pos, tok in ident_tokens(stripped) if tok in idents]
+
 
 
 def main():
@@ -465,15 +428,16 @@ def main():
     declared = False
     unsafe_hits, chip_hits = [], []
     for rel, full in sources:
-        stripped = fold_ident_chars(strip_code(read_text(full)))
+        plain = strip_code(read_text(full))
+        stripped = fold_ident_chars(plain)
         if os.path.realpath(full) == os.path.realpath(crate_root):
             root_rel = rel
             declared = has_forbid(stripped)
         for m in UNSAFE_RE.finditer(stripped):
             unsafe_hits.append((rel, line_of(stripped, m.start())))
-        for chip in CHIP_CRATES:
-            for pos in chip_path_hits(stripped, chip.replace("-", "_")):
-                chip_hits.append((rel, line_of(stripped, pos), chip))
+        # unsafe の判定は \w 向けに畳んだ文字列、名前の一致は畳む前の文字列（識別子の境界を壊さない）で行う。
+        for pos, tok in chip_path_hits(plain, CHIP_IDENTS):
+            chip_hits.append((rel, line_of(plain, pos), CHIP_IDENTS[tok]))
     need(root_rel is not None, "the lib crate root is not among the scanned sources")
     unsafe_hits.sort()
     chip_hits.sort()

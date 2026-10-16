@@ -57,7 +57,7 @@ run_case chip-grouped-attr 1 "${FB}
 use {#[cfg(all(a, b))] ash::b, c};"
 run_case chip-grouped-attr-late 1 "${FB}
 use {#[cfg(x)] c, ash};"
-run_case attr-not-chip 0 "${FB}
+run_case attr-chip 1 "${FB}
 use std::{#[cfg(ash)] a, b};"
 run_case raw-chip-path 1 "${FB}
 fn f() { r#ash::x(); }"
@@ -77,17 +77,17 @@ run_case return-abs-chip 1 "${FB}
 fn f() { return ::ash::foo(); }"
 run_case break-abs-chip 1 "${FB}
 fn f() { loop { break ::ash::foo(); } }"
-run_case mid-path-not-chip 0 "${FB}
+run_case mid-path-chip 1 "${FB}
 fn f() { foo::ash::bar(); }"
-run_case use-group-local-not-chip 0 "${FB}
+run_case use-group-local-chip 1 "${FB}
 use crate::{ash::Thing};"
-run_case assoc-type-path-not-chip 0 "${FB}
+run_case assoc-type-path-chip 1 "${FB}
 fn f<T: Tr>() { let _ = <T as Tr>::ash::Thing::new(); }"
-run_case method-spaced 0 "${FB}
+run_case method-spaced-chip 1 "${FB}
 fn f(x: X) { x . ash::<u32>(); }"
-run_case method-adjacent 0 "${FB}
+run_case method-adjacent-chip 1 "${FB}
 fn f(x: X) { x.ash::<u32>(); }"
-run_case method-newline 0 "${FB}
+run_case method-newline-chip 1 "${FB}
 fn f(x: X) { x
     .
     ash::<u32>(); }"
@@ -97,8 +97,45 @@ run_case range-open-chip 1 "${FB}
 fn f() { let _ = ..ash::LIMIT; }"
 run_case break-label-abs-chip 1 "${FB}
 fn f() { 'done: loop { break 'done ::ash::foo(); } }"
-run_case mid-path-label-not-chip 0 "${FB}
+run_case mid-path-label-chip 1 "${FB}
 fn f() { foo::bar::ash::baz(); }"
+
+run_case gt-abs-chip 1 "${FB}
+fn f(x: u32) { if x > ::ash::LIMIT {} }"
+# shellcheck disable=SC2016
+run_case macro-use-var-chip 1 "${FB}
+macro_rules! m { (\$use:ident) => {} }
+fn f() { ash::g(); }"
+run_case return-abs-chip2 1 "${FB}
+fn f() { return ::ash::f(); }"
+run_case break-label-spaced-chip 1 "${FB}
+fn f() { 'l: loop { break 'l ::ash::f(); } }"
+run_case range-chip 1 "${FB}
+fn f() { let _ = 0..ash::X; }"
+run_case closure-abs-chip 1 "${FB}
+fn f() { let _ = |x: u32| ::ash::f(); }"
+run_case raw-use-chip 1 "${FB}
+use r#ash::Device;"
+run_case use-braced-alias-chip 1 "${FB}
+use {ash as vk};"
+run_case underscore-chip 1 "${FB}
+fn f() { objc2_metal::g(); }"
+run_case underscore-use-chip 1 "${FB}
+use objc2_foundation::NSString;"
+run_case chip-in-extra-file 1 "${FB}" "fn f() { cudarc::g(); }"
+run_case comment-not-chip 0 "${FB}
+// ash::f() and /* cudarc */
+/* ash */ fn f() {}"
+run_case string-not-chip 0 "${FB}
+fn f() { let _ = \"ash::f\"; let _ = r#\"cudarc\"#; }"
+run_case partial-not-chip 0 "${FB}
+fn ashes() { let _ = cash::x; let _ = ash_tray; let _ = objc2_metalx; }"
+run_case prefix-objc2-not-metal 1 "${FB}
+fn f() { objc2::g(); }"
+run_case number-suffix-not-chip 0 "${FB}
+fn f() { let _ = 1ash; }"
+run_case unicode-continue-not-chip 0 "${FB}
+fn ashé() {}"
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]
