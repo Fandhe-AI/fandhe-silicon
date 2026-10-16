@@ -87,6 +87,14 @@ run_case method-newline 0 "${FB}
 fn f(x: X) { x
     .
     ash::<u32>(); }"
+run_case range-lhs-chip 1 "${FB}
+fn f() { let _ = 0..ash::LIMIT; }"
+run_case range-open-chip 1 "${FB}
+fn f() { let _ = ..ash::LIMIT; }"
+run_case break-label-abs-chip 1 "${FB}
+fn f() { 'done: loop { break 'done ::ash::foo(); } }"
+run_case mid-path-label-not-chip 0 "${FB}
+fn f() { foo::bar::ash::baz(); }"
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]

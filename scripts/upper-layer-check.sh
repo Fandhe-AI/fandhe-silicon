@@ -391,16 +391,18 @@ def chip_path_hits(stripped, ident):
     name = re.escape(ident)
     end = r"(?![%s])" % IDENT
     hits = set()
-    for m in re.finditer(r"(?<![%s.#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
+    for m in re.finditer(r"(?<![%s#])%s%s%s\s*::" % (IDENT, RAW_OPT, name, end), stripped):
         # `foo::name::` のように別のパスの途中に出るものは数えない（先頭の `::name::` は数える）。
         before = stripped[:m.start()].rstrip()
-        # 空白を挟んだメソッド呼び出し（`x . ash::<u32>()`）も crate のパスではない（`..` の範囲は除く）。
+        # メソッド呼び出し（`x.ash::<u32>()`・`x . ash::<u32>()`）は crate のパスではない（`..` の範囲演算子は数える）。
         if before.endswith(".") and not before.endswith(".."):
             continue
         if before.endswith("::"):
             prev = re.search(r"(%s+)\s*$" % IDENT, before[:-2])
             # 直前がキーワードなら、先頭の絶対パス（`return ::ash::f()`）なので数える。
-            if prev is not None and prev.group(1) not in PATH_KEYWORDS:
+            # 直前が `break 'label` / `&'a` のライフタイム・ラベルの識別子でも、その後の `::` は絶対パスの先頭。
+            labeled = prev is not None and before[:-2][:prev.start(1)].endswith("'")
+            if prev is not None and prev.group(1) not in PATH_KEYWORDS and not labeled:
                 continue
         hits.add(m.start())
     hits.update(use_hits(stripped, name))
