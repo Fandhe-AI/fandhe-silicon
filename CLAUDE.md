@@ -47,6 +47,7 @@ fandhe-silicon/
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方（TASK-7）
+├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
@@ -70,7 +71,7 @@ fandhe-silicon/
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
 ├── docs/spec/                # private submodule（明示取得が必要）
-└── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / measure-verify / wasm-verify / wasm-size / test-wasm-size / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / session-record-check（make ターゲットなし）/ test-session-record-check / perf-record-check（make ターゲットなし）/ test-perf-record-check / record-summary（make ターゲットなし）/ test-record-summary / ci-frame-check / test-ci-frame-check / public-api-check / dep-graph-wgpu-check/ test-dep-graph-wgpu-check / test-public-api-check / public-name-check / test-public-name-check / public-api-diff（make ターゲットなし）/ test-public-api-diff / rerun-compare（make ターゲットなし）/ test-rerun-compare / wasm-node-check / test-wasm-node-check / metal-session（make ターゲットなし）/ test-metal-session / lib.sh
+└── scripts/                  # help / doctor / setup / check / verify / build-profiles / deny / measure-verify / wasm-verify / wasm-size / test-wasm-size / deps-check / test-deps-check / inventory-trace-check / test-inventory-trace-check / session-record-check（make ターゲットなし）/ test-session-record-check / perf-record-check（make ターゲットなし）/ test-perf-record-check / record-summary（make ターゲットなし）/ test-record-summary / ci-frame-check / test-ci-frame-check / public-api-check / dep-graph-wgpu-check / test-dep-graph-wgpu-check / baseline-positive-control / test-baseline-positive-control / test-public-api-check / public-name-check / test-public-name-check / public-api-diff（make ターゲットなし）/ test-public-api-diff / rerun-compare（make ターゲットなし）/ test-rerun-compare / wasm-node-check / test-wasm-node-check / metal-session（make ターゲットなし）/ test-metal-session / lib.sh
     └── hooks/                # secret-scan.sh / commit-msg-check.sh / test-hooks.sh（フック自体の回帰テスト）
 ```
 

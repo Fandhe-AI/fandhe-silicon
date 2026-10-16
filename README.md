@@ -96,6 +96,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14・TASK-113） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
+| `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27） |

@@ -87,5 +87,6 @@ worktree のルートで `scripts/dep-graph-wgpu-check.sh` を実行すると、
 
 - [public-api-wgpu-check.md](./public-api-wgpu-check.md)
 - [baseline-wgpu.md](./baseline-wgpu.md)
+- [baseline-positive-control.md](./baseline-positive-control.md)
 - [workspace-boundary.md](./workspace-boundary.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[dependency-policy](../.claude/rules/dependency-policy.md)
