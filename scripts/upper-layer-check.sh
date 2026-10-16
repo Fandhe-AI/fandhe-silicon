@@ -78,7 +78,9 @@ if sys.version_info < (3, 8):
 # 対象の crate の manifest（workspace_root からの相対）。公開名は未決のため package 名でなく位置で特定する。
 TARGET_MANIFEST_REL = "crates/upper/Cargo.toml"
 # (3) 上の層の直接依存に許してよい package 名（折りたたんだ形で完全一致）。
-ALLOWED_DEPS = ("fandhe-silicon-core", "fandhe-silicon-exec")
+# core・exec に加え、チップ固有の機能を使う場合に限って下-1 の契約の crate（contract）も許す（BUILD-55・BUILD-57 のポインタ）。
+# チップの crate（objc2 系・ash・cudarc）への直接依存は (2) が引き続き止める。
+ALLOWED_DEPS = ("fandhe-silicon-core", "fandhe-silicon-exec", "fandhe-silicon-contract")
 # 契約の crate の manifest（製品の workspace_root からの相対）。(4) で名前でなく位置で特定する。
 CONTRACT_MANIFEST_REL = "crates/contract/Cargo.toml"
 # 測定の workspace の manifest（製品の workspace_root からの相対）。
