@@ -63,6 +63,8 @@ LABELS = (
             "invalid-permission-setting",
             "combination-not-declared",
             "permission-missing",
+            "reference-missing",
+            "reference-unavailable",
         ),
     ),
     ("indeterminate", ("device-mismatch", "machine-unreachable")),

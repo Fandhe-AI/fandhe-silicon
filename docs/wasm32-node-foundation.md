@@ -97,9 +97,9 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | ---- | ---- | -------- |
 | 入口 | `make wasm-node-check`（`scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>]`）。前提の確認、`.wasm` のビルド（`--wasm` なら cargo を呼ばない）、`wasm-bindgen --target nodejs` で glue を一時ディレクトリへ生成、Node の実行、判定の順。実物の実行で、CI は `wasm-macos` ジョブが呼ぶ | `sed -n 1,20p scripts/wasm-node-check.sh` |
 | Node のスクリプト | `wasm/node/run-glue.cjs`。glue を呼んで f32 のビット列（8 桁の 16 進）を書き出すだけで、判定は持たない。`require` は `node:` の組み込みと引数の glue だけ。呼べる export は許可表の `roundtrip_f32` だけ。`package.json`・npm パッケージは無い | `grep -n require wasm/node/run-glue.cjs` |
-| 入力 | `wasm/node/cases.json`。`roundtrip_f32` の 3 行（空・有限値と `-0.0`・非有限値）。参照は `wasm/crates/glue/src/lib.rs` の単体テストが固定する振る舞いと同じ値。`reference` が無い・`null` の行は照合の相手が無い行 | `cat wasm/node/cases.json` |
+| 入力 | `wasm/node/cases.json`。`roundtrip_f32` の 3 行（空・有限値と `-0.0`・非有限値）。参照は `wasm/crates/glue/src/lib.rs` の単体テストが固定する振る舞いと同じ値。各行は参照の出どころの欄 `reference_source` が必須で、値は `fixed`・`native-neon` の 2 つだけ（欠け・未知の値は入力の不正）。同梱の 3 行はどれも `fixed`。`reference` が無い・`null` の行は照合の相手が無い行 | `cat wasm/node/cases.json` |
 | 前提の版 | Node は `scripts/wasm-node-check.sh` 先頭の定数 `v24.13.0` と完全一致。wasm-bindgen の CLI は `wasm/crates/glue/Cargo.toml` の版と `wasm-bindgen --version` の完全一致（宣言点を増やさない）。無い・版違いは終了コード 2。版の宣言は `ci.yml` の `env`（導入用）とスクリプト側（`NODE_EXPECTED` など）の二つ。一致は `wasm-macos` ジョブの中で二重に確かめる（導入した物と `env` を比べ、各 make が自分の定数と比べる）ので、ずれれば終了コード 2 で失敗する | `grep -n NODE_EXPECTED scripts/wasm-node-check.sh` |
-| 判定 | 参照があり長さも全要素のビット列も一致なら `match`、違えば（Node 側の呼び出しの失敗を含む）`mismatch`、参照が無ければ `not-run`（一致扱いにしない）。標準出力は `row: <id> <状態>` と `summary: rows=N match=N mismatch=N not-run=N` | `bash scripts/test-wasm-node-check.sh`（項目 5〜11） |
+| 判定 | 参照があり長さも全要素のビット列も一致なら `match`、違えば（Node 側の呼び出しの失敗を含む）`mismatch`、出どころがこの環境で参照を作れないもの（今は `native-neon` の全行。参照の値があっても比べない）は `not-run (reference-unavailable)`、作れる出どころで参照が無ければ `not-run (reference-missing)`（どちらも一致扱いにしない。出どころを先に見る）。標準出力は `row: <id> <状態>`（`not-run` は括弧で理由）と `summary: rows=N match=N mismatch=N not-run=N` | `bash scripts/test-wasm-node-check.sh`（項目 5〜11） |
 | 終了コード | 0 は 1 行以上あり全行 `match` のときだけ。1 は `mismatch`・`not-run`・行が 0 件。2 は誤用・前提の不足・版違い・入力や結果の不正（未知の id・重複・欠け・形の不正）・Node の実行の失敗 | 同上 |
 | 入力の扱い | 入力の値はシェルに展開しない（`python3 -I` の固定のコードにパスだけを引数で渡す）。`id` は `[a-z0-9-]` の文字種、ビット列は 8 桁の小文字 16 進、`export` は許可表のみ。生成物は一時ディレクトリだけに出して終了時に消す | `bash scripts/test-wasm-node-check.sh`（項目 14・17） |
 | 回帰テスト | `make test-wasm-node-check`（`scripts/test-wasm-node-check.sh`）。偽の node・wasm-bindgen・cargo と合成の結果で判定の全経路を確かめる。`run-glue.cjs` は本物の node で偽の glue を読ませて確かめる。CI の `deny` ジョブが呼ぶ | `make test-wasm-node-check` |
@@ -112,7 +112,10 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 | wasm-bindgen が無い・版違いは失敗 | 3・4 |
 | 全行一致で 0 | 5・22 |
 | ビット列が 1 つでも違えば `mismatch`（`-0.0` と `+0.0`、NaN のペイロード違い、長さ違い、Node 側のエラーを含む） | 6〜8・11 |
-| 参照の無い行は `not-run` で、成功にしない | 9 |
+| 参照の無い行は `not-run (reference-missing)` で、成功にしない | 9・26 |
+| 出どころの欄の欠け・未知の値は 2 で、Node の本体を起動しない | 25 |
+| 作れない出どころ（`native-neon`）の行は参照の値があっても `not-run (reference-unavailable)`。出どころが先 | 26 |
+| 出どころ・理由の綴りが core のソースに在る | 27 |
 | 行が 0 件は成功にしない | 10 |
 | Node の失敗・結果の欠け・不正・未知の id・重複は 2 | 12・13 |
 | 入力の不正・誤用・存在しない `.wasm`・glue が生成されない場合は 2 | 14〜16 |
