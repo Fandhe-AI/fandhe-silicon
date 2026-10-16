@@ -190,7 +190,7 @@ jobs:
   # 公開 API の wgpu 系の参照の検査（`make public-api-check`。走査した公開アイテムの数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 公開 API の名前の検査（`make public-name-check`。`--source` は渡さない。走査の件数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-name-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 製品の依存グラフの wgpu 系 crate の検査は `make deny` の中で流れる（件数は `record:` の行としてジョブのログに残る）。その回帰テスト（`make test-dep-graph-wgpu-check`。一時 workspace の実物の cargo metadata / cargo tree）も同様に追加実行する。
-  # 比較基準の別 workspace への陽性対照（`make baseline-positive-control`。検出の件数が `record:` の行としてジョブのログに残る）は `make deny` の後のステップで流し、その回帰テスト（`make test-baseline-positive-control`。偽の検査）も同様に追加実行する。
+  # 比較基準の別 workspace への陽性対照（`make baseline-positive-control`。検出の件数が `record:` の行としてジョブのログに残る）は `make deny` の後のステップで流し、その回帰テスト（`make test-baseline-positive-control`。偽の検査と一時 workspace の実物の出力）も同様に追加実行する。
   # RUSTC_BOOTSTRAP はスクリプト内の rustdoc 呼び出しだけに限られ、ジョブの env には足さない。
   # 実物の入力の検査（`make inventory-trace-check`）はここでは走らせない（入力が private 側にあるため、本リポの CI には組み込まない）。
   # jq・python3 は runner 同梱のものを使う（導入しない。Python 3.11 未満・欠落は deps-check.sh が失敗にする）。
