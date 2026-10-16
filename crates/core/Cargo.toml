@@ -72,3 +72,7 @@ required-features = ["test-support"]
 
 [lints]
 workspace = true
+
+[[test]]
+name = "rerun_check"
+required-features = ["test-support"]

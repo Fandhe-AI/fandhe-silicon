@@ -16,7 +16,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 設定ファイル・Make ターゲット | 語の一覧の設定ファイル `public-name-check.conf` がリポジトリ直下にあり、`make public-name-check` が入口になる | `ls public-name-check.conf`・`make help` |
 | 回帰テスト | `scripts/test-public-name-check.sh` が、合成 JSON・合成ソースと一時 workspace の実物の rustdoc の JSON で、終了コード 0・1・2 を確かめる | `make test-public-name-check` |
 | CI | CI の `deny` ジョブが `make public-name-check` と `make test-public-name-check` を呼ぶ | `grep -n public-name .github/workflows/ci.yml` がステップを返す |
-| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/core/src/lib.rs` は `test-support` の裏の `pub mod parity` と `pub mod test_frame` のみ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
+| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/core/src/lib.rs` は `test-support` の裏の `pub mod parity`・`pub mod test_frame`・`pub mod rerun` のみ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod`・`pub use` は無い | `grep -n "pub mod\|pub use" crates/*/src/lib.rs` |
 
 ## 本リポでの反映の方針
 
