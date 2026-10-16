@@ -23,7 +23,7 @@
 #       （resolve の feature は workspace 全体で統一され package に帰属できないため）。有効な feature は、依存の宣言の
 #       features・default（uses_default_features のとき）・member 自身の [features] からの転送（`<キー>/<feat>`・`<キー>?/<feat>`。
 #       測定の検査は --all-features で流すので全 member の feature を有効とみなす）を、契約の crate の feature の表で閉包して求める。
-# 呼び出し元: 現時点では直接実行のみ（make ターゲットと CI への組み込みは後の段）。
+# 呼び出し元: `make upper-layer-check`、CI の `deny` ジョブ、回帰テスト `scripts/test-upper-layer-check.sh`（`make deny` には含めない）。
 #
 # 使い方:
 #   scripts/upper-layer-check.sh                            cargo metadata を流して数える
