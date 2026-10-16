@@ -100,19 +100,58 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 
 ## 振る舞いとテストの対応
 
-テストは `crates/core/tests/rerun_round_trip.rs` の関数。
+テストは `crates/core/tests/` の関数と、`scripts/` の回帰テストのケース名。ファイルは各行の括弧に書く。段の順に並べる。
 
 | 振る舞い | テスト |
 | -------- | ------ |
-| 同じ内容を 2 回書いて比べると差分なし（終了コード 0、件数は書いた部品の数） | `same_unconfigured_run_twice_has_no_differences` |
-| 枠が書くラベルの全種類（ok・ng・判定不能 2 種・判定保留・未実施）の部品が、形の検査と比較を通る | `every_label_kind_the_frame_writes_passes_the_tool` |
-| 結果の違いは分類の順・鍵の昇順で報告され、終了コード 1 | `changed_results_are_reported_in_the_fixed_order` |
-| 組み合わせの未設定と設定済みは、組み合わせごとに比べる | `unconfigured_then_configured_is_compared_per_combination` |
-| 空の新しい記録は差分なしではなく誤りとして終了コード 2 | `an_empty_new_record_is_an_error_not_no_difference` |
+| `Check` は trait object として使え、`subject`・`declaration`・`run` が実装どおりの値を返す（2/8） | `check_is_usable_as_trait_object`（`rerun_check.rs`） |
+| `CheckSet` は渡された順を保つ。空・上限超え・ID の重複（ほかの部分が違っても）を拒み、上限ちょうどは受ける。検査の順は空 → 件数 → 重複（2/8） | `set_keeps_declaration_order`・`empty_is_rejected`・`count_limit_is_enforced`・`duplicate_id_is_rejected_even_if_other_parts_differ`・`validation_order_is_empty_then_count_then_duplicate`（`rerun_check.rs`） |
+| `CheckSetError` の表示は ASCII で、入力の値を含まない（2/8） | `error_text_is_ascii_and_has_no_input`（`rerun_check.rs`） |
+| 組み合わせが未設定なら本体を呼ばず未実施になる。結果は `test_frame::judge` のラベルに写る（2/8） | `unset_combination_does_not_call_run`・`judge_maps_results_to_labels`（`rerun_check.rs`） |
+| `run_checks` は、未設定では本体を呼ばず全件を未実施にする。設定済みではラベルが枠に従い、宣言に無い組み合わせでは本体を呼ばない。結果は宣言の順（3/8） | `unset_combination_runs_nothing_and_every_check_is_not_run`・`labels_follow_the_frame_on_a_configured_combination`・`undeclared_combination_does_not_call_the_body`・`outcomes_keep_declaration_order`（`rerun_run.rs`） |
+| 書き出し: ディレクトリが `None` なら何も書かない。部品ごとに枠と同じ名前と中身のファイルを書き、返す名前は部品の順。失敗したらこの呼び出しが作ったファイルだけが消える。相対パス・無いディレクトリは誤り（3/8） | `no_directory_writes_nothing`・`export_writes_one_file_per_part_with_the_frame_names_and_content`・`export_outcomes_returns_names_in_part_order`・`a_failure_removes_every_file_this_call_made_and_keeps_others`・`invalid_directories_are_errors`（`rerun_run.rs`） |
+| ラベルは書き出しの有無に依らない。結果からの集計は枠の集計と一致する（3/8） | `labels_do_not_depend_on_export`・`summary_from_the_outcomes_matches_the_frame`（`rerun_run.rs`） |
+| 出どころのトークンは往復し、完全一致だけを受ける。行のトークンの組も完全一致だけを受ける。欠けの規則は作れない出どころが先（4/8） | `source_tokens_round_trip`・`row_tokens_parse_exactly`・`gap_prefers_unavailable_source`（`rerun_reference.rs`） |
+| 行の状態は枠のラベルに写る。機材の無い設定では行を呼ばず未実施。参照の欠けの理由は記録の部品に入る。同じ ID の行は拒む（4/8） | `row_states_map_to_task23_labels`・`device_free_setting_is_not_run_without_calling_rows`・`reference_gap_rows_export_reason`・`row_checks_reject_duplicate_ids`（`rerun_reference.rs`） |
+| 参照の欠けは理由つきの未実施になり、閾値の検査を飛ばす。未設定は参照の欠けより先で、本体を呼ばない（4/8） | `missing_reference_gives_not_run_with_a_reason_and_skips_the_threshold_check`・`unset_setting_wins_over_a_reference_gap_and_the_body_is_not_called`（`test_frame_outcome.rs`） |
+| スクリプト側の欠けの規則と、トークンの綴りの core との一致（一方向）（4/8） | 項目 26・27（`scripts/test-wasm-node-check.sh`。`make test-wasm-node-check`） |
+| 差分なし（同じ内容、同じディレクトリを 2 回）は終了コード 0（5/8） | `identical`・`same_dir_twice`（`test-rerun-compare.sh`） |
+| 分類（`regressed`・`improved`・`changed`〔理由だけの違い・OK 以外どうしの違い〕・`removed`・`added`・同じ ID の別の組み合わせ）と件数。混在と出力の順の決定性（5/8） | `regressed`・`improved`・`reason_changed`・`label_changed_non_ok`・`added`・`removed`・`same_id_other_combination_is_added`・`mixed`・`order_deterministic`（`test-rerun-compare.sh`） |
+| 読めない記録（空・形の不備・JSON の不備・記録でない名前・片方だけの不備）は終了コード 2（5/8） | `empty_dir`・`empty_dir_previous`・`malformed_part`・`malformed_in_new_only`・`malformed_in_previous_only`・`invalid_json_part`・`non_record_name`（`test-rerun-compare.sh`） |
+| ディレクトリでない・無い・シンボリックリンク（末尾の区切りつきを含む）は終了コード 2 の誤り。無いパスの名前を出さない（5/8） | `not_a_directory`・`missing_dir`・`symlink_dir`・`symlink_dir_trailing_separator`（`test-rerun-compare.sh`） |
+| 誤用（引数の数・`-` 始まりの引数・未知のオプション）は終了コード 2、`--help` は 0（5/8） | `args_0`・`args_1`・`args_3`・`dash_arg`・`unknown_option`・`help`（`test-rerun-compare.sh`） |
+| ファイルを作らず、入力を変えない（5/8） | `creates_no_files`・`inputs_unchanged`（`test-rerun-compare.sh`） |
+| 同じ内容を 2 回書いて比べると差分なし（終了コード 0、件数は書いた部品の数）（6/8） | `same_unconfigured_run_twice_has_no_differences`（`rerun_round_trip.rs`） |
+| 枠が書くラベルの全種類（ok・ng・判定不能 2 種・判定保留・未実施）の部品が、形の検査と比較を通る（6/8） | `every_label_kind_the_frame_writes_passes_the_tool`（`rerun_round_trip.rs`） |
+| 結果の違いは分類の順・鍵の昇順で報告され、終了コード 1（6/8） | `changed_results_are_reported_in_the_fixed_order`（`rerun_round_trip.rs`） |
+| 組み合わせの未設定と設定済みは、組み合わせごとに比べる（6/8） | `unconfigured_then_configured_is_compared_per_combination`（`rerun_round_trip.rs`） |
+| 空の新しい記録は差分なしではなく誤りとして終了コード 2（6/8） | `an_empty_new_record_is_an_error_not_no_difference`（`rerun_round_trip.rs`） |
+
+公開テストから到達させていない経路:
+
+- `RunSetting::from_env` を通す経路（設定と書き出し先は呼び出し側が渡す形でだけ通している）
+- `RowState::run_result` を直接呼ぶ試験（`RowCheck` の `run` 経由でだけ通る）
+- `ExportError` の `ParentComponent`・`DirectoryIsSymlink`・`NotADirectory`・`Io` を `rerun` の口から出す試験（`rerun_run.rs` が通すのは `AlreadyExists`・`NotAbsolute`・`DirectoryMissing`）
+- Node を起動する経路（`rerun` のコードは子プロセスに触れない）
+
+## 入れていないもの
+
+- 新しいエラー型・集計の型・記録の形（`test_frame` のものをそのまま使う）。run の欄
+- 照合の中身（どの行を比べるか）と、組み合わせの決め方
+- `measure-perf` の run ごとの記録を比べる処理（`rerun-compare` は扱わない）
+- `rerun-compare` の make ターゲットと、それを呼ぶ CI のジョブ（入口は回帰テストの `make test-rerun-compare` だけ。既存の `deny` ジョブが呼ぶ）
+- 閾値の承認の判定（`RowCheck` は見ない）
+
+## 確かめ方
+
+- `cargo test -p fandhe-silicon-core --features test-support --test rerun_check`（`rerun_run`・`rerun_reference`・`rerun_round_trip`・`test_frame_outcome` も同じ形）
+- `make test-rerun-compare`・`make test-wasm-node-check`・`make test-record-summary`
+- `make verify`（上の Rust の試験を `--all-features` で含む）
+- 製品の経路から参照しないこと: `grep -rn rerun crates/contract/src crates/exec/src crates/upper/src`（0 件）
 
 ## 本リポでの反映の方針
 
-- 本書には現状の事実だけを置く。形の具体は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す（親 #135）
+- 本書には本リポのコードと公開テストが示す事実だけを置く。テストの無い約束は書かない
 - 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)（測定 → 製品の一方向・PoC の記録を写さない）・[dependency-policy](../.claude/rules/dependency-policy.md)・[unsafe-policy](unsafe-policy.md)・[ci-device-free-jobs](ci-device-free-jobs.md)
 
 ## 関連
