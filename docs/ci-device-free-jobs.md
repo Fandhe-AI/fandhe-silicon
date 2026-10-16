@@ -76,6 +76,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-name-check` | `scripts/test-public-name-check.sh` | 上の回帰テスト（ダミーの語の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（`make deny` の後のステップ。検出の件数が `record:` の行としてログに残り、狭い定義・広い定義・公開 API のどれかが 0 件なら失敗） |
 | `deny` | `make test-baseline-positive-control` | `scripts/test-baseline-positive-control.sh` | 上の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる） |
+| `deny` | `make upper-layer-check` | `scripts/upper-layer-check.sh` | 上の層（`crates/upper`）と測定の workspace に 4 つの検査（unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定の feature）を当てる（`make deny` の後のステップ。数えた件数が `record:` の行としてログに残り、違反があれば失敗） |
+| `deny` | `make test-upper-layer-check` | `scripts/test-upper-layer-check.sh` | 上の検査の回帰テスト（合成の入力、一時 workspace の実物の cargo metadata、実物のリポジトリの合格） |
 | `deny` | `make test-dep-graph-wgpu-check` | `scripts/test-dep-graph-wgpu-check.sh` | 依存グラフの wgpu 系 crate の検査（`make deny` の中で流れる）の回帰テスト（合成 JSON・合成 tree と一時 workspace の実物の cargo metadata / cargo tree） |
 | `deny` | `make test-public-api-diff` | `scripts/test-public-api-diff.sh` | 公開 API の差分の道具 `scripts/public-api-diff.sh` の回帰テスト（合成 JSON だけ） |
 | `deny` | `make test-rerun-compare` | `scripts/test-rerun-compare.sh` | 前の記録と比べる道具 `scripts/rerun-compare.sh` の回帰テスト（合成の記録の部品だけ） |
