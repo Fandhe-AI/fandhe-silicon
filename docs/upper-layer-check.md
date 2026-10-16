@@ -52,7 +52,7 @@
 | -------- | ------------------ |
 | unsafe の不在（forbid の宣言・forbid が届かない位置の unsafe） | 節 1 の `real-unsafe`・`real-unsafe-again`・`no-forbid-msg`・`unsafe-in-tests-msg`・`unsafe-in-build-rs-msg`・`unsafe-two-count` |
 | チップの crate の不在（依存・ソース） | 節 1 の `chip-dep-*`・`chip-use-*`・`chip-path-*`・`comment-not-chip`・`string-not-chip` |
-| 直接依存の許可リスト | 節 1 の `allow-ok`・`allow-extra-normal`・`allow-renamed-extra`・`allow-chip` |
+| 直接依存の許可リスト | 節 1 の `allow-ok`・`allow-extra-normal`・`allow-renamed-extra`・`allow-chip`・`allow-contract-normal`・`allow-contract-dev`・`allow-contract-build`・`allow-contract-with-extra`・`allow-contract-with-chip`・`allow-contract-chip-source`・`allow-renamed-contract-alias`・`allow-fold-contract-ok` |
 | 測定の feature | 節 1 の `measure-default`・`measure-test-support`・`measure-fault-injection`・`measure-forward`・`measure-indirect` |
 | 対象 0 件の合格 | 節 1 の `measure-no-contract`・`allow-zero-deps-count`・`measure-zero-contract-deps-count` |
 | 終了コード 2 | 節 1 の `upper-missing`・`product-not-json`・`no-rs-files`・`symlink-rs`・`unterminated-comment`・`measure-not-json` |

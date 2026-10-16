@@ -282,6 +282,8 @@ expect_text allow-chip-chipdep err "violation: check=chip-dep crate=ash kind=nor
 expect_text allow-chip-depallow err "violation: check=dep-allow crate=ash kind=normal"
 UPPER_DEPS="[$(dep Fandhe_Silicon_Core)]"
 run_case allow-fold-ok 0 "${FB}"
+UPPER_DEPS="[$(dep fandhe_silicon_contract)]"
+run_case allow-fold-contract-ok 0 "${FB}"
 
 # ---- (4) 測定の workspace の feature ----
 EMPTY_OBJ='{}'
