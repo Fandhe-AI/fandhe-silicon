@@ -214,12 +214,13 @@ def reachable(md):
         for d in deps:
             need(isinstance(d, dict) and isinstance(d.get("pkg"), str), "malformed resolve dep")
             kinds = d.get("dep_kinds")
-            need(isinstance(kinds, list), "malformed resolve dep kinds")
+            need(isinstance(kinds, list) and kinds, "malformed resolve dep kinds")
             counted = False
             for k in kinds:
                 need(isinstance(k, dict), "malformed resolve dep kinds")
                 kind = k.get("kind")
-                need(kind is None or isinstance(kind, str), "malformed resolve dep kinds")
+                # cargo が出す kind は null（通常）・normal・build・dev だけ。それ以外は辺を捨てず誤りとして止める。
+                need(kind is None or kind in ("normal", "build", "dev"), "unknown resolve dep kind")
                 # kind が null は通常の依存。定義の依存の種類に入る辺だけをたどる。
                 if (kind or "normal") in DEP_KINDS:
                     counted = True
