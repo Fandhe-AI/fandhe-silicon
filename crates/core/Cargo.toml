@@ -76,3 +76,7 @@ workspace = true
 [[test]]
 name = "rerun_check"
 required-features = ["test-support"]
+
+[[test]]
+name = "rerun_run"
+required-features = ["test-support"]
