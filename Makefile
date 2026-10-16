@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check test-public-api-sdk-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -101,7 +101,10 @@ test-rerun-compare: ## rerun-compare の回帰テスト（合成の記録の部�
 test-public-api-check: ## public-api-check の回帰テスト（合成 JSON と、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-check.sh
 	@scripts/test-public-api-check.sh
 
-test-public-api-sdk-check: ## public-api-sdk-check の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI はまだ呼ばない）。直接: scripts/test-public-api-sdk-check.sh
+public-api-sdk-check: ## 製品の 4 crate の公開 API と共通の crate（crates/core）の依存宣言に、チップの SDK の crate が無いことを rustdoc の JSON と cargo metadata から数えて検査する（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/public-api-sdk-check.sh [--json <path>...] [--metadata-json <path>]
+	@scripts/public-api-sdk-check.sh
+
+test-public-api-sdk-check: ## public-api-sdk-check の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-sdk-check.sh
 	@scripts/test-public-api-sdk-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh

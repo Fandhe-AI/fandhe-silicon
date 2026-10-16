@@ -2,8 +2,8 @@
 # 製品の 4 crate の公開 API に、チップの SDK の crate（`objc2-metal`・`ash`・`cudarc`）の型・経路が出ていないことを、
 # rustdoc の JSON から機械で数えて確かめる。あわせて、公開 API から解決された外部 crate の一覧を出す。
 # また、共通の crate（`crates/core`）が宣言する依存にチップの SDK の crate が無いことを、cargo metadata から確かめる
-# （spec TASK-13・BUILD-51・BUILD-54・U-30 の案 A のポインタ。親 Issue #366 の 1/4・2/4・3/4）。
-# 呼び出し元: 直接実行（検査本体の make ターゲットと CI からは呼ばれていない）。回帰テストは `scripts/test-public-api-sdk-check.sh`（`make test-public-api-sdk-check`）。検査の枠（rustdoc の JSON を作る段）は
+# （spec TASK-13・BUILD-51・BUILD-54・U-30 の案 A のポインタ。親 Issue #366 の 1/4・2/4・3/4・4/4）。
+# 呼び出し元: `make public-api-sdk-check`（直接実行も可）。CI の `deny` ジョブも呼ぶ（`scanned:` / `record:` の行がジョブのログに残る）。回帰テストは `scripts/test-public-api-sdk-check.sh`（`make test-public-api-sdk-check`）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json` を呼んで共有し、抽出の実体をここに持たない（`scripts/public-name-check.sh` と同じ形）。
 #
 # 使い方:
