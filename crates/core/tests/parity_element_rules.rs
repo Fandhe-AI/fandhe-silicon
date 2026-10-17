@@ -412,14 +412,14 @@ fn zero_reference_with_finite_outside_absolute_bound_is_a_mismatch() {
     let reference = vec![1.0, 0.0, -0.0, 2.0, 0.0, -0.0, 0.0];
     let actual = vec![
         1.0,
-        bound,            // 上限ちょうど（厳密な `<` なので外）
-        -bound.next_up(), // その次の値
+        bound, // 上限を f32 に丸めた値（上限そのものは f32 で表せず、内外は期待の導出に任せる）
+        -bound.next_up(), // 丸めた値の次の f32 値（上限の外側）
         2.0,
         bound.next_down(), // 内
         bound * 8.0,       // 上限の数倍
         -0.0,
     ];
-    // 期待は f64 の厳密な `<` から導く（上限ちょうどの内外を直書きで仮定しない）。
+    // 期待は f64 の厳密な `<` から導く。上限を挟む隣接 f32 値の内外を直書きで仮定しない。
     let expected: Vec<usize> = (0..reference.len())
         .filter(|&i| reference[i] == 0.0 && !inside_absolute_bound(actual[i]))
         .collect();
