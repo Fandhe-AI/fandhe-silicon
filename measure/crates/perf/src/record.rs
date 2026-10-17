@@ -381,17 +381,28 @@ pub enum IndeterminateReason {
     DeviceMismatch,
     /// 機材に届かない。
     MachineUnreachable,
+    /// 合格の証拠がそろっていない。
+    EvidenceMissing,
+    /// 比べる 2 つの run の環境が違う。
+    EnvironmentDiffers,
 }
 
 impl IndeterminateReason {
     /// 全ての理由。
-    pub const ALL: [IndeterminateReason; 2] = [Self::DeviceMismatch, Self::MachineUnreachable];
+    pub const ALL: [IndeterminateReason; 4] = [
+        Self::DeviceMismatch,
+        Self::MachineUnreachable,
+        Self::EvidenceMissing,
+        Self::EnvironmentDiffers,
+    ];
 
     /// 理由のトークン。
     pub const fn name(self) -> &'static str {
         match self {
             Self::DeviceMismatch => "device-mismatch",
             Self::MachineUnreachable => "machine-unreachable",
+            Self::EvidenceMissing => "evidence-missing",
+            Self::EnvironmentDiffers => "environment-differs",
         }
     }
 }

@@ -184,6 +184,21 @@ judge "pass: ng records alone still exit 0" 0 "| combination | ok | ng | pending
 | cuda-node-b | 0 | 0 | 0 | 0 | 0 |
 | cuda-node-a | 0 | 0 | 0 | 0 | 0 |"
 
+# 判定不能の理由 4 語は、どれも indeterminate の列に数えられる。
+fresh
+put_part reason_a vulkan-amd indeterminate evidence-missing
+put_part reason_b vulkan-amd indeterminate environment-differs
+run_tool "${D}"
+judge "pass: new indeterminate reasons are counted as indeterminate" 0 "| combination | ok | ng | pending | not-run | indeterminate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| metal-mac-mini | 0 | 0 | 0 | 0 | 0 |
+| vulkan-node-b | 0 | 0 | 0 | 0 | 0 |
+| vulkan-node-a | 0 | 0 | 0 | 0 | 0 |
+| vulkan-amd | 0 | 0 | 0 | 0 | 2 |
+| vulkan-intel | 0 | 0 | 0 | 0 | 0 |
+| cuda-node-b | 0 | 0 | 0 | 0 | 0 |
+| cuda-node-a | 0 | 0 | 0 | 0 | 0 |"
+
 # CI の機材なしの形: 宣言した組み合わせごとに not-run だけが並ぶ。
 fresh
 put_part ci_shape metal-mac-mini not-run not-configured
@@ -430,7 +445,7 @@ BODY_KIND_VALUE="$(rust_names "${RECORD_SRC}" 'BODY_KIND: &str = "([a-z0-9-]+)"'
 count_lines() { printf '%s\n' "$1" | grep -c . || true; }
 if [ "$(count_lines "${COMBOS}")" = 7 ] && [ "$(count_lines "${MACHINES}")" = 5 ] \
   && [ "$(count_lines "${KINDS}")" = 5 ] && [ "$(count_lines "${NOT_RUN_REASONS}")" = 7 ] \
-  && [ "$(count_lines "${INDETERMINATE_REASONS}")" = 2 ] && [ "${PENDING_REASON_VALUE}" = "threshold-unapproved" ] \
+  && [ "$(count_lines "${INDETERMINATE_REASONS}")" = 4 ] && [ "${PENDING_REASON_VALUE}" = "threshold-unapproved" ] \
   && [ "${BODY_KIND_VALUE}" = "contract-test" ]; then
   report_ok "sync: the Rust sources still yield the expected number of spellings"
 else
