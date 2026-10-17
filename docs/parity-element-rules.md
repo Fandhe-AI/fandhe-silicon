@@ -41,6 +41,22 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`
 
+## (2)(3) 有限でない値の規則の確かめ（TASK-975 の 3/6）
+
+対応する項目は PARITY-2・PARITY-3（ポインタのみ）。テストは `crates/core/tests/parity_element_rules.rs`。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 参照が NaN のとき、payload だけ・符号ビットだけが違う NaN は一致。既存の `compare_f32` では有限でない値として数えられる | `nan_reference_matches_nan_with_payload_only_difference` |
+| CPU 参照が出した NaN は、別の payload の NaN と一致 | `nan_from_cpu_reference_matches_nan_with_another_payload` |
+| 片側だけ NaN の組（有限・±Inf との組、両方向）は不一致。件数と最初の添字は要素ごとの判定と合う | `only_one_side_nan_is_a_mismatch` |
+| payload だけ違う NaN の一致があっても、別の添字の外れ（NaN 片側・有限の外れ）で列全体が不一致 | `payload_only_nan_match_does_not_hide_other_mismatch` |
+| 参照が ±Inf のとき、同じ符号の Inf だけ一致。NaN・符号違いの Inf・有限は不一致 | `infinite_reference_matches_only_same_sign_infinity` |
+| 参照が有限で実測が NaN・±Inf なら不一致。`f32::MAX` に対する Inf も不一致 | `finite_reference_against_nan_or_infinity_is_a_mismatch` |
+| CPU 参照が出した Inf を、符号反転・NaN・有限へ置き換えた要素の件数と最初の添字が合う | `infinity_from_cpu_reference_is_judged_per_element` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`
+
 ## 既にある関連の部品
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[test-frame](test-frame.md)

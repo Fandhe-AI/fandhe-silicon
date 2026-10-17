@@ -1,10 +1,13 @@
-//! T-1 の要素ごとの規則の確認（spec TASK-975 の 2/6。内容の (1)。対応する項目は PARITY-1 のポインタのみ）。
+//! T-1 の要素ごとの規則の確認（spec TASK-975 の 2/6・3/6。内容の (1)〜(3)。対応する項目は
+//! PARITY-1・PARITY-2・PARITY-3 のポインタのみ）。
 //! 比較元が融合積和の CPU 参照であること、一致が「相対誤差が内、または絶対誤差が内」の
 //! 要素ごとの判定であること、1 要素の外れで列全体が不一致になることを確かめる。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 
 use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
-use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
+use fandhe_silicon_core::parity::special_values::{
+    SpecialVerdict, compare_f32_with_special_values, judge_element_with_special_values,
+};
 use fandhe_silicon_core::parity::tolerance::{ElementVerdict, T1, compare_f32, judge_element};
 
 /// 長さ `n` の単純な有限の参照列（外れ値の土台に使う）。
@@ -149,4 +152,180 @@ fn elementwise_like_output_is_judged_per_element() {
     assert!(!result.is_match());
     assert_eq!(result.exceeded(), 1);
     assert_eq!(result.first_mismatch(), Some(4));
+}
+
+/// 有限でない側の値を要素単位で判定する（T1）。
+fn judge_sv(reference: f32, actual: f32) -> SpecialVerdict {
+    judge_element_with_special_values(reference, actual, T1)
+}
+
+/// 要素単位の判定から数えた、有限でない値の不一致の添字。
+fn non_finite_mismatch_positions(reference: &[f32], actual: &[f32]) -> Vec<usize> {
+    (0..reference.len())
+        .filter(|&i| judge_sv(reference[i], actual[i]) == SpecialVerdict::NonFiniteMismatch)
+        .collect()
+}
+
+// ---- 内容の (2)・(3)（TASK-975 の 3/6。PARITY-2・PARITY-3 のポインタのみ） ----
+
+#[test]
+fn nan_reference_matches_nan_with_payload_only_difference() {
+    let r = f32::NAN;
+    let payload_only = f32::from_bits(r.to_bits() ^ 1);
+    let sign_only = f32::from_bits(r.to_bits() ^ 0x8000_0000);
+    // 入力が崩れたら気づけるよう、NaN でありビット列が違うことを先に確かめる。
+    for v in [payload_only, sign_only] {
+        assert!(v.is_nan());
+        assert_ne!(v.to_bits(), r.to_bits());
+        assert_eq!(judge_sv(r, v), SpecialVerdict::BothNan);
+    }
+
+    let reference = [1.0, r, 2.0, r, 3.0];
+    let actual = [1.0, payload_only, 2.0, sign_only, 3.0];
+    let result = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(result.is_match());
+    assert_eq!(result.non_finite_mismatch(), 0);
+    assert_eq!(result.exceeded(), 0);
+    assert_eq!(result.first_mismatch(), None);
+
+    // 既存の比べ方では NaN は区別されず、有限でない値として数えられる。
+    let plain = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(plain.non_finite() > 0);
+}
+
+#[test]
+fn nan_from_cpu_reference_matches_nan_with_another_payload() {
+    // +Inf と -Inf の和が NaN になる入力。2 列目は有限。
+    let a = [1.0_f32, 1.0];
+    let b = [f32::INFINITY, 2.0, f32::NEG_INFINITY, 3.0];
+    let reference = reference_gemm_f32(&a, &b, 1, 2, 2).unwrap();
+    assert!(reference[0].is_nan());
+    assert!(reference[1].is_finite());
+
+    let mut actual = reference.clone();
+    actual[0] = f32::from_bits(reference[0].to_bits() ^ 1);
+    assert_ne!(actual[0].to_bits(), reference[0].to_bits());
+    let result = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(result.is_match());
+    assert_eq!(result.first_mismatch(), None);
+}
+
+#[test]
+fn only_one_side_nan_is_a_mismatch() {
+    let nan = f32::NAN;
+    let finites = [0.0_f32, -0.0, 1.0, f32::MAX];
+    for f in finites {
+        assert_eq!(judge_sv(nan, f), SpecialVerdict::NonFiniteMismatch);
+        assert_eq!(judge_sv(f, nan), SpecialVerdict::NonFiniteMismatch);
+    }
+    for inf in [f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(judge_sv(nan, inf), SpecialVerdict::NonFiniteMismatch);
+        assert_eq!(judge_sv(inf, nan), SpecialVerdict::NonFiniteMismatch);
+    }
+
+    let reference = [nan, 1.0, nan, f32::INFINITY, 2.0, nan];
+    let actual = [1.0, nan, f32::INFINITY, nan, 2.0, nan];
+    let expected = non_finite_mismatch_positions(&reference, &actual);
+    assert_eq!(expected, vec![0, 1, 2, 3]);
+    let result = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(!result.is_match());
+    assert_eq!(result.non_finite_mismatch(), expected.len());
+    assert_eq!(result.first_mismatch(), expected.first().copied());
+}
+
+#[test]
+fn payload_only_nan_match_does_not_hide_other_mismatch() {
+    let nan = f32::NAN;
+    let other = f32::from_bits(nan.to_bits() ^ 1);
+    assert!(other.is_nan());
+    let reference = vec![nan, 1.0, nan, 2.0, 3.0];
+
+    // 別の添字の NaN 片側。
+    let mut one_sided = vec![other, 1.0, other, 2.0, 3.0];
+    one_sided[3] = nan;
+    let result = compare_f32_with_special_values(&reference, &one_sided, T1).unwrap();
+    assert!(!result.is_match());
+    assert_eq!(result.non_finite_mismatch(), 1);
+    assert_eq!(result.first_mismatch(), Some(3));
+
+    // 別の添字の有限の外れ。
+    let mut exceeded = vec![other, 1.0, other, 2.0, 3.0];
+    exceeded[4] = 3.0 * (1.0 + (T1.relative() * 10.0) as f32);
+    let result = compare_f32_with_special_values(&reference, &exceeded, T1).unwrap();
+    assert!(!result.is_match());
+    assert_eq!(result.exceeded(), 1);
+    assert_eq!(result.non_finite_mismatch(), 0);
+    assert_eq!(result.first_mismatch(), Some(4));
+}
+
+#[test]
+fn infinite_reference_matches_only_same_sign_infinity() {
+    let nans = [
+        f32::NAN,
+        f32::from_bits(f32::NAN.to_bits() ^ 1),
+        f32::from_bits(f32::NAN.to_bits() ^ 0x8000_0000),
+    ];
+    let finites = [0.0_f32, -0.0, 1.0, f32::MAX, f32::MIN];
+    for (inf, opposite) in [
+        (f32::INFINITY, f32::NEG_INFINITY),
+        (f32::NEG_INFINITY, f32::INFINITY),
+    ] {
+        assert_eq!(judge_sv(inf, inf), SpecialVerdict::SameInfinity);
+        assert_eq!(judge_sv(inf, opposite), SpecialVerdict::NonFiniteMismatch);
+        for v in nans.into_iter().chain(finites) {
+            assert!(!v.is_infinite());
+            assert_eq!(judge_sv(inf, v), SpecialVerdict::NonFiniteMismatch);
+        }
+    }
+}
+
+#[test]
+fn finite_reference_against_nan_or_infinity_is_a_mismatch() {
+    let finites = [0.0_f32, -0.0, 1e-30, 1.0, 1e30, f32::MAX, f32::MIN];
+    let non_finites = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+    for r in finites {
+        for a in non_finites {
+            assert_eq!(judge_sv(r, a), SpecialVerdict::NonFiniteMismatch);
+        }
+    }
+    // 誤差で見れば近い組（最大値と無限大）も不一致。
+    assert_eq!(
+        judge_sv(f32::MAX, f32::INFINITY),
+        SpecialVerdict::NonFiniteMismatch
+    );
+    assert_eq!(
+        judge_sv(f32::MIN, f32::NEG_INFINITY),
+        SpecialVerdict::NonFiniteMismatch
+    );
+}
+
+#[test]
+fn infinity_from_cpu_reference_is_judged_per_element() {
+    // 1x1 に 1x4 を掛け、出力に +Inf・-Inf・有限・+Inf を並べる。
+    let a = [1.0_f32];
+    let b = [f32::INFINITY, f32::NEG_INFINITY, 2.0, f32::INFINITY];
+    let reference = reference_gemm_f32(&a, &b, 1, 1, 4).unwrap();
+    let infinite: Vec<usize> = (0..reference.len())
+        .filter(|&i| reference[i].is_infinite())
+        .collect();
+    assert_eq!(infinite, vec![0, 1, 3]);
+
+    let same = compare_f32_with_special_values(&reference, &reference, T1).unwrap();
+    assert!(same.is_match());
+
+    // Inf 要素を符号反転・NaN・有限へ置き換える。
+    let mut actual = reference.clone();
+    actual[1] = f32::INFINITY;
+    actual[3] = f32::MAX;
+    let replaced = [1usize, 3];
+    let result = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(!result.is_match());
+    assert_eq!(result.non_finite_mismatch(), replaced.len());
+    assert_eq!(result.first_mismatch(), Some(1));
+
+    let mut with_nan = reference.clone();
+    with_nan[0] = f32::NAN;
+    let result = compare_f32_with_special_values(&reference, &with_nan, T1).unwrap();
+    assert_eq!(result.non_finite_mismatch(), 1);
+    assert_eq!(result.first_mismatch(), Some(0));
 }
