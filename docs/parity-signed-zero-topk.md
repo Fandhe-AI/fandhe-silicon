@@ -32,6 +32,21 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | feature・依存・`unsafe` | `core` の `test-support` の裏。外部依存 0。`core` は `#![forbid(unsafe_code)]` | `grep -n -A2 '\[features\]' crates/core/Cargo.toml`、`grep -n forbid crates/core/src/lib.rs` |
 | 走る場所 | `core` の `parity_topk` は `make verify`（`--all-features`）で走る。`contract` の `test_support_*` は `make build-profiles` の `test-support` を含む組でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
 
+## (1) の確かめ（TASK-976 の 2/6）
+
+対応する項目は PARITY-4（ポインタのみ）。テストは `crates/core/tests/parity_signed_zero_topk.rs`。比べの側に絞り、参照の並び自体は既存の `positive_zero_precedes_negative_zero` が持つ。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| GEMM の参照が -0.0 のとき、実測の +0.0 と要素ごとの比べで一致する | `gemm_reference_negative_zero_matches_positive_zero_actual` |
+| GEMM の参照が +0.0 のとき、実測の -0.0 と要素ごとの比べで一致する | `gemm_reference_positive_zero_matches_negative_zero_actual` |
+| 要素ごと演算風の列で零の符号だけの差は一致、零でない外れ値は不一致で位置が出る | `elementwise_like_output_treats_signed_zeros_as_equal` |
+| IEEE の順に並べた Top-k は全順序の参照と不一致、全順序どおりなら一致する | `ieee_ordered_topk_is_a_mismatch_against_total_order_reference` |
+| 長い Top-k の中で、零の 2 件の食い違いだけが不一致として位置つきで出る | `signed_zero_mismatch_is_localized_within_longer_topk` |
+| 同じ ±0 の組が、要素ごとでは一致、Top-k では不一致になる | `same_signed_zero_pair_matches_elementwise_but_not_in_topk` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。後の段で足すテストと入力は、その PR のコードと公開テストが示し、その PR で本書に節を足す

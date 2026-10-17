@@ -96,3 +96,7 @@ required-features = ["test-support"]
 [[test]]
 name = "rerun_node_record"
 required-features = ["test-support"]
+
+[[test]]
+name = "parity_signed_zero_topk"
+required-features = ["test-support"]
