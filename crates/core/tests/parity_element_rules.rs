@@ -1,7 +1,8 @@
-//! T-1 の要素ごとの規則の確認（spec TASK-975 の 2/6・3/6。内容の (1)〜(3)。対応する項目は
-//! PARITY-1・PARITY-2・PARITY-3 のポインタのみ）。
+//! T-1 の要素ごとの規則の確認（spec TASK-975 の 2/6〜4/6。内容の (1)〜(4)。対応する項目は
+//! PARITY-1・PARITY-2・PARITY-3・PARITY-5 のポインタのみ）。
 //! 比較元が融合積和の CPU 参照であること、一致が「相対誤差が内、または絶対誤差が内」の
 //! 要素ごとの判定であること、1 要素の外れで列全体が不一致になることを確かめる。
+//! 参照が零の要素では相対誤差が効かず、絶対誤差の上限だけで決まることも確かめる。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 
 use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
@@ -328,4 +329,187 @@ fn infinity_from_cpu_reference_is_judged_per_element() {
     let result = compare_f32_with_special_values(&reference, &with_nan, T1).unwrap();
     assert_eq!(result.non_finite_mismatch(), 1);
     assert_eq!(result.first_mismatch(), Some(0));
+}
+
+// ---- 内容の (4)（TASK-975 の 4/6。PARITY-5 のポインタのみ） ----
+
+/// 絶対誤差の上限を `f32` に写した値（`T1` の getter から導く）。
+fn zero_bound() -> f32 {
+    T1.absolute() as f32
+}
+
+/// 絶対誤差が上限未満か（厳密な `<`）。`f64` で計算する期待値。
+fn inside_absolute_bound(x: f32) -> bool {
+    f64::from(x.abs()) < T1.absolute()
+}
+
+/// 要素単位の判定から数えた、外れの添字。
+fn exceeded_positions(reference: &[f32], actual: &[f32]) -> Vec<usize> {
+    (0..reference.len())
+        .filter(|&i| judge_element(reference[i], actual[i], T1) == ElementVerdict::Exceeded)
+        .collect()
+}
+
+#[test]
+fn zero_from_cpu_reference_matches_zero_of_either_sign() {
+    // 打ち消しで零になる要素（添字 0・4）と零でない有限の要素を混ぜる。積は丸めなしで表せる。
+    let a = [3.0_f32, -3.0, 3.0, 1.0, 2.0, -2.0];
+    let b = [0.5_f32, 1.0, 0.5, 2.0];
+    let reference = reference_gemm_f32(&a, &b, 3, 2, 2).unwrap();
+    let zeros: Vec<usize> = (0..reference.len())
+        .filter(|&i| reference[i] == 0.0)
+        .collect();
+    assert_eq!(zeros, vec![0, 4]);
+
+    // 零の符号は固定しない。どちらの符号の零に置き換えても一致する。
+    for z in [0.0_f32, -0.0] {
+        let mut actual = reference.clone();
+        for &i in &zeros {
+            actual[i] = z;
+        }
+        let plain = compare_f32(&reference, &actual, T1).unwrap();
+        assert!(plain.is_match());
+        assert_eq!(plain.exceeded(), 0);
+        let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+        assert!(sv.is_match());
+        assert_eq!(sv.first_mismatch(), None);
+    }
+}
+
+#[test]
+fn zero_reference_with_tiny_finite_inside_absolute_bound_matches() {
+    let bound = zero_bound();
+    let tiny = [
+        f32::from_bits(1),
+        (T1.absolute() * 0.5) as f32,
+        bound.next_down(),
+    ];
+    for t in tiny {
+        // 入力が想定どおりか（零でない有限で、上限未満）を先に確かめる。
+        assert!(t != 0.0 && t.is_finite());
+        assert!(inside_absolute_bound(t));
+    }
+    // 参照の零は CPU 参照の零と直書きの -0.0・+0.0 の両方。
+    let cpu = reference_gemm_f32(&[3.0, -3.0], &[0.5, 0.5], 1, 2, 1).unwrap();
+    assert!(cpu[0] == 0.0);
+    let reference = vec![cpu[0], -0.0, 0.0, 5.0];
+    for sign in [1.0_f32, -1.0] {
+        let actual = vec![sign * tiny[0], sign * tiny[1], sign * tiny[2], 5.0];
+        let plain = compare_f32(&reference, &actual, T1).unwrap();
+        assert!(plain.is_match());
+        assert_eq!(plain.exceeded(), 0);
+        assert_eq!(plain.first_mismatch(), None);
+        let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+        assert!(sv.is_match());
+        assert_eq!(sv.exceeded(), 0);
+        assert_eq!(sv.first_mismatch(), None);
+    }
+}
+
+#[test]
+fn zero_reference_with_finite_outside_absolute_bound_is_a_mismatch() {
+    let bound = zero_bound();
+    let reference = vec![1.0, 0.0, -0.0, 2.0, 0.0, -0.0, 0.0];
+    let actual = vec![
+        1.0,
+        bound,            // 上限ちょうど（厳密な `<` なので外）
+        -bound.next_up(), // その次の値
+        2.0,
+        bound.next_down(), // 内
+        bound * 8.0,       // 上限の数倍
+        -0.0,
+    ];
+    // 期待は f64 の厳密な `<` から導く（上限ちょうどの内外を直書きで仮定しない）。
+    let expected: Vec<usize> = (0..reference.len())
+        .filter(|&i| reference[i] == 0.0 && !inside_absolute_bound(actual[i]))
+        .collect();
+    assert!(expected.contains(&5));
+    assert!(expected.len() >= 2);
+    assert_eq!(exceeded_positions(&reference, &actual), expected);
+
+    let plain = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(!plain.is_match());
+    assert_eq!(plain.exceeded(), expected.len());
+    assert_eq!(plain.first_mismatch(), expected.first().copied());
+    let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(!sv.is_match());
+    assert_eq!(sv.exceeded(), expected.len());
+    assert_eq!(sv.first_mismatch(), expected.first().copied());
+}
+
+#[test]
+fn relative_error_is_not_used_for_zero_reference() {
+    // 絶対誤差の上限以上で、零でない参照には相対誤差だけで内に入る大きさの誤差。
+    let d = (T1.absolute() * 4.0) as f32;
+    assert!(f64::from(d) >= T1.absolute());
+    let r = (f64::from(d) / (T1.relative() * 0.5)) as f32;
+    for sign in [1.0_f32, -1.0] {
+        let delta = sign * d;
+        // 零でない参照では内（相対誤差だけで内）。
+        assert!(f64::from((r + delta) - r).abs() >= T1.absolute());
+        assert_eq!(judge_element(r, r + delta, T1), ElementVerdict::Within);
+        // 零の参照では、同じ大きさの誤差は外。
+        for z in [0.0_f32, -0.0] {
+            assert_eq!(judge_element(z, delta, T1), ElementVerdict::Exceeded);
+        }
+    }
+    // 1 本の列にまとめる。外れは零の参照の位置だけ。
+    let reference = vec![r, 0.0, r, -0.0, r, 0.0];
+    let actual = vec![r + d, d, r - d, -d, r + d, -d];
+    let plain = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(!plain.is_match());
+    assert_eq!(plain.exceeded(), 3);
+    assert_eq!(plain.first_mismatch(), Some(1));
+    let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert_eq!(sv.exceeded(), 3);
+    assert_eq!(sv.first_mismatch(), Some(1));
+}
+
+#[test]
+fn zero_reference_rule_does_not_hide_non_finite_mismatch() {
+    let tiny = f32::from_bits(1);
+    let reference = vec![0.0_f32, -0.0, 0.0, -0.0, 0.0];
+    let actual = vec![tiny, f32::NAN, -tiny, f32::INFINITY, -0.0];
+    let positions = non_finite_mismatch_positions(&reference, &actual);
+    assert_eq!(positions, vec![1, 3]);
+
+    let plain = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(!plain.is_match());
+    assert_eq!(plain.non_finite(), 2);
+    assert_eq!(plain.exceeded(), 0);
+    assert_eq!(plain.first_mismatch(), Some(1));
+    let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert!(!sv.is_match());
+    assert_eq!(sv.non_finite_mismatch(), 2);
+    assert_eq!(sv.exceeded(), 0);
+    assert_eq!(sv.first_mismatch(), Some(1));
+}
+
+#[test]
+fn elementwise_like_zeros_are_judged_by_absolute_bound() {
+    // ReLU 相当の出力（負の入力が零になる）を直書きで作る。
+    let input = [-2.0_f32, 1.5, -0.5, 3.0, -1.0];
+    let reference: Vec<f32> = input.iter().map(|&x| x.max(0.0)).collect();
+    let zeros: Vec<usize> = (0..reference.len())
+        .filter(|&i| reference[i] == 0.0)
+        .collect();
+    assert_eq!(zeros, vec![0, 2, 4]);
+
+    let bound = zero_bound();
+    let mut actual = reference.clone();
+    actual[0] = f32::from_bits(1);
+    actual[2] = -bound.next_down();
+    let ok = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(ok.is_match());
+
+    // 上限以上の値を入れた位置だけが外れ。
+    actual[4] = bound * 4.0;
+    assert!(!inside_absolute_bound(actual[4]));
+    let plain = compare_f32(&reference, &actual, T1).unwrap();
+    assert!(!plain.is_match());
+    assert_eq!(plain.exceeded(), 1);
+    assert_eq!(plain.first_mismatch(), Some(4));
+    let sv = compare_f32_with_special_values(&reference, &actual, T1).unwrap();
+    assert_eq!(sv.exceeded(), 1);
+    assert_eq!(sv.first_mismatch(), Some(4));
 }
