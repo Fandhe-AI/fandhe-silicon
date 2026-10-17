@@ -86,6 +86,32 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
 
+## 完了の条件の確かめ（5/6）
+
+5/6（#6225）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-976）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 本書の試験ファイル全体 | `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk` | `21 passed; 0 failed; 0 ignored` |
+| A2 | 既存の Top-k の試験 | 同 `--test parity_topk` | `15 passed; 0 failed; 0 ignored` |
+| A3 | (1) の期待（2/6） | A1 の出力で 2/6 の節の 6 本が `ok` | 6 本とも `ok` |
+| A4 | (2) の期待（3/6・4/6） | A1 の出力で 3/6 の節の 9 本と 4/6 の節の 6 本が `ok` | 15 本とも `ok` |
+| A5 | 比べる相手の明記 | `grep -n 'PARITY-13' crates/core/tests/parity_signed_zero_topk.rs docs/parity-signed-zero-topk.md` | 試験ファイルの `//!` と (2) の節の両方に在る。同じスコア列への参照と比べる `independent_selection_over_same_scores_equals_reference`・`independent_selection_agrees_on_every_additional_input` は `ok` |
+| A6 | 別 crate からの利用 | `make build-profiles` | 終了コード 0 |
+| A7 | main の CI | 両試験ファイルを含む最新の完了した push run の `make verify (fmt + clippy + test)` ジョブの step | `make verify` の conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。`make verify` の出力に両試験ファイルの実行が出る |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-976）。
+
+### 再実行の契機
+
+- `crates/core/src/parity/topk.rs`・`topk_inputs.rs`・`tolerance.rs`・`special_values.rs` を変えたとき
+- `crates/core/tests/parity_signed_zero_topk.rs`・`crates/core/tests/parity_topk.rs` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `cff173c`、`docs/spec` の gitlink は `6e9fc5d`。
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。後の段で足すテストと入力は、その PR のコードと公開テストが示し、その PR で本書に節を足す
