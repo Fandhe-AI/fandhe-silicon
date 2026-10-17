@@ -84,7 +84,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-signed-zero-topk.md` | ±0 の扱いと Top-k の規則（TASK-976）の所在と本リポの現状の事実 |
-| `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実 |
+| `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実・完了の条件の確かめ（6/6） |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
