@@ -12,7 +12,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 記録を出すコード | `crates/` に測定の記録を出す型・処理は無い（run ごとの記録の書き出しは `measure/` の `measure-perf` にある。[measurement-tool](measurement-tool.md)）。`crates/core` の公開面は `parity`・`test_frame`・`rerun`（いずれも `test-support` の裏）のみ | `grep -n "pub mod" crates/*/src/lib.rs`、`grep -rn -i -e serde -e serialize -e json crates --include='*.rs'`（0 件） |
+| 記録を出すコード | `crates/` に測定の記録を出す型・処理は無い（run ごとの記録の書き出しは `measure/` の `measure-perf` にある。[measurement-tool](measurement-tool.md)）。`crates/core` の公開面は条件なしの `hash` と、`parity`・`test_frame`・`rerun`（いずれも `test-support` の裏）のみ | `grep -n "pub mod" crates/*/src/lib.rs`、`grep -rn -i -e serde -e serialize -e json crates --include='*.rs'`（0 件） |
 | 書式の検査 | 回ごとの記録（TASK-19）の形を検査するスクリプトが `scripts/` にある（[metal-run-procedure](metal-run-procedure.md)）。測定の記録（run ごと）の形を検査する `scripts/perf-record-check.sh` がある（記入例は [run-record.example.json](run-record.example.json)） | `scripts/test-perf-record-check.sh` |
 | 既にある書式の文書 | 比較基準の wgpu の版の記録の書式は [wgpu-baseline-record](wgpu-baseline-record.md) にある | `ls docs/wgpu-baseline-record.md` |
 | `baseline-wgpu/` の smoke bin | 標準出力へ、アダプタの件数の行と、アダプタごとの `name`・`backend`・`device_type` の行を出す。記録の形式では出さない | `baseline-wgpu/crates/smoke/src/main.rs` の `println!` |
