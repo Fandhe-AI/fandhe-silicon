@@ -69,6 +69,23 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
 
+## 追加の入力の確かめ（TASK-976 の 4/6）
+
+対応する項目は PARITY-4・PARITY-6（ポインタのみ）。入力は `crates/core/src/parity/topk_inputs.rs` に名前付きの定数として置き、テストは同じ `crates/core/tests/parity_signed_zero_topk.rs`。期待の並びは規則から手で計算した値で、テストが `reference_topk_f32` と照らす。
+
+| 定数 | 入力が持つ形 | テスト |
+| ---- | ------------ | ------ |
+| `SIGNED_ZERO_INPUTS` | -0.0 のスロットが +0.0 のスロットより小さい。期待では +0.0 が先に来る（k の境で -0.0 が外れる入力を含む） | `signed_zero_inputs_mismatch_when_zeros_are_ieee_ordered` |
+| `PAD_POSITION_INPUTS` | k が有限の件数より大きく、末尾に埋める位置ができる（全位置が埋める位置の入力を含む） | `pad_position_inputs_compare_after_padding_with_any_candidate` |
+| `NON_FINITE_INPUTS` | NaN（payload・符号違い）・+Inf・-Inf を含み、期待には入らない | `non_finite_inputs_mismatch_when_a_non_finite_score_is_selected` |
+| 全入力 | 期待が参照の出力と一致し、件数が `min(k, 有限の件数)`、種ごとの性質を持つ。独立した選び方とも一致する | `every_additional_input_reproduces_its_expected_order`、`additional_inputs_have_the_kind_they_claim`、`independent_selection_agrees_on_every_additional_input` |
+
+- 公開アイテム: `TopKInput`・`SIGNED_ZERO_INPUTS`・`PAD_POSITION_INPUTS`・`NON_FINITE_INPUTS`（確かめ方: `grep -n -E '^pub (const\|struct)' crates/core/src/parity/topk_inputs.rs`）
+- 埋める値は定めない。埋める位置の入力は「k が有限の件数より大きい」ことで表し、値は使う側が渡す
+- feature `test-support` の裏だけに公開され、別の crate の試験からも同じ入力を使える
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。後の段で足すテストと入力は、その PR のコードと公開テストが示し、その PR で本書に節を足す
