@@ -129,6 +129,7 @@ fn same_signed_zero_pair_matches_elementwise_but_not_in_topk() {
         assert!(!c.is_match());
     }
 }
+
 // ---- 部分 Top-k の位置ごとの比べ（TASK-976 の 3/6） ----
 
 /// 埋める値の候補。本リポは埋める値を定めないので、どの候補でも同じ規則で比べられることを確かめる。
