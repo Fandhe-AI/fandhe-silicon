@@ -57,6 +57,21 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`
 
+## (4) 参照が零の要素の規則の確かめ（TASK-975 の 4/6）
+
+対応する項目は PARITY-5（ポインタのみ）。テストは `crates/core/tests/parity_element_rules.rs`。閾値の数値は本書に持たず、テストは `T1` の getter から導く。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 参照が零のとき、実測の零は符号を問わず一致。CPU 参照の零の符号は固定しない | `zero_from_cpu_reference_matches_zero_of_either_sign` |
+| 参照が零のとき、絶対誤差が上限未満の零でない有限（正負・非正規化数の最小値を含む）は一致 | `zero_reference_with_tiny_finite_inside_absolute_bound_matches` |
+| 参照が零のとき、絶対誤差が上限以上の有限は外れ（厳密な `<`）。上限そのものは `f32` で表せないため、上限を挟む隣接 `f32` 値の内外を確かめる。件数と最初の添字は要素ごとの判定と合う | `zero_reference_with_finite_outside_absolute_bound_is_a_mismatch` |
+| 同じ大きさの誤差が、零でない参照には相対誤差で内、零の参照には外（相対誤差は零の参照に効かない） | `relative_error_is_not_used_for_zero_reference` |
+| 零の参照が並ぶ列でも、NaN・Inf の実測は有限でない値の不一致として数える | `zero_reference_rule_does_not_hide_non_finite_mismatch` |
+| 要素ごと演算の出力に見立てた列（直書き）の零の位置も、絶対誤差の上限だけで判定される | `elementwise_like_zeros_are_judged_by_absolute_bound` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`
+
 ## 既にある関連の部品
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[test-frame](test-frame.md)
