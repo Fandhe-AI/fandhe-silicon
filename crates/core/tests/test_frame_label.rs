@@ -13,9 +13,11 @@ const NOT_RUN: [NotRunReason; 5] = [
     NotRunReason::PermissionMissing,
 ];
 
-const INDETERMINATE: [IndeterminateReason; 2] = [
+const INDETERMINATE: [IndeterminateReason; 4] = [
     IndeterminateReason::DeviceMismatch,
     IndeterminateReason::MachineUnreachable,
+    IndeterminateReason::EvidenceMissing,
+    IndeterminateReason::EnvironmentDiffers,
 ];
 
 fn token_ok(s: &str) -> bool {
@@ -89,6 +91,18 @@ fn only_ng_fails_the_test() {
 }
 
 #[test]
+fn new_indeterminate_reasons_have_their_fixed_spellings() {
+    assert_eq!(
+        IndeterminateReason::EvidenceMissing.name(),
+        "evidence-missing"
+    );
+    assert_eq!(
+        Label::Indeterminate(IndeterminateReason::EnvironmentDiffers).to_string(),
+        "indeterminate: the two runs differ in versions or combination"
+    );
+}
+
+#[test]
 fn display_is_ascii_english() {
     let mut all = one_of_each();
     all.extend(NOT_RUN.map(Label::NotRun));
@@ -138,7 +152,15 @@ fn reason_tokens_are_fixed_spellings() {
         ]
     );
     let indet: Vec<&str> = INDETERMINATE.iter().map(|r| r.name()).collect();
-    assert_eq!(indet, ["device-mismatch", "machine-unreachable"]);
+    assert_eq!(
+        indet,
+        [
+            "device-mismatch",
+            "machine-unreachable",
+            "evidence-missing",
+            "environment-differs"
+        ]
+    );
 }
 
 #[test]

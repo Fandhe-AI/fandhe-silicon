@@ -67,7 +67,15 @@ LABELS = (
             "reference-unavailable",
         ),
     ),
-    ("indeterminate", ("device-mismatch", "machine-unreachable")),
+    (
+        "indeterminate",
+        (
+            "device-mismatch",
+            "machine-unreachable",
+            "evidence-missing",
+            "environment-differs",
+        ),
+    ),
 )
 # record.rs の BODY_KIND。
 BODY_KINDS = ("contract-test",)

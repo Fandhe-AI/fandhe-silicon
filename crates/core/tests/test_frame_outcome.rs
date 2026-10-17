@@ -251,6 +251,8 @@ fn indeterminate_wins_over_pending_and_verdicts() {
     for r in [
         IndeterminateReason::DeviceMismatch,
         IndeterminateReason::MachineUnreachable,
+        IndeterminateReason::EvidenceMissing,
+        IndeterminateReason::EnvironmentDiffers,
     ] {
         let o = judge(&s, &decl(), &st, |_| RunResult::Indeterminate(r));
         assert_eq!(o.label(), &Label::Indeterminate(r));

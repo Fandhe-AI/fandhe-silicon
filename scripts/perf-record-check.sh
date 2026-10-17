@@ -82,7 +82,12 @@ REASONS = {
         "combination-not-declared",
         "permission-missing",
     ),
-    "indeterminate": ("device-mismatch", "machine-unreachable"),
+    "indeterminate": (
+        "device-mismatch",
+        "machine-unreachable",
+        "evidence-missing",
+        "environment-differs",
+    ),
 }
 BODY_KINDS = ("perf-samples",)
 BACKENDS = ("metal", "vulkan", "cuda")
