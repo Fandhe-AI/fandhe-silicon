@@ -117,4 +117,4 @@ worktree のルートで実行する。
 
 ## 関連
 
-[pixel-parity-tool](pixel-parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-signed-zero-topk](parity-signed-zero-topk.md)・[test-frame](test-frame.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+[pixel-parity-tool](pixel-parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-signed-zero-topk](parity-signed-zero-topk.md)・[test-frame](test-frame.md)・[gemm-test-inputs](gemm-test-inputs.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
