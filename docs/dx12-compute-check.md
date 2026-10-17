@@ -14,7 +14,7 @@ spec の本文・点検の結果は転記しない（[spec-confidentiality](../.
 | ---- | ---- | -------- |
 | feature | `backend-dx12-compute` は `contract-core` だけを有効にする仮の置き場。`default` には入っていない | `grep -n -E "^default|dx12" crates/contract/Cargo.toml` |
 | モジュール | `crates/contract/src` に DX12 のモジュールは無い（Metal・Vulkan・CUDA の 3 つだけ） | `ls crates/contract/src`、`grep -rni dx12 crates --include='*.rs'` |
-| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod` は無い。`crates/core` は `test-support` の裏の `parity`・`test_frame`・`rerun` のみ | `grep -n "pub mod" crates/*/src/lib.rs` |
+| 公開面 | `crates/contract/src/lib.rs` の `pub mod` は `backend_metal`・`backend_vulkan`・`backend_cuda` の feature ゲート付き 3 つ。`crates/exec`・`crates/upper` の `lib.rs` に `pub mod` は無い。`crates/core` は条件なしの `pub mod hash` と、`test-support` の裏の `parity`・`test_frame`・`rerun` のみ | `grep -n "pub mod" crates/*/src/lib.rs` |
 | build-profiles | `scripts/build-profiles.sh` の feature の組にこの feature は現れない。`--all-features` の実行でだけ有効になる | `grep -n -i dx12 scripts/build-profiles.sh`、`grep -n "all-features" scripts/build-profiles.sh` |
 
 ## 本リポでの反映の方針
