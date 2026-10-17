@@ -26,7 +26,7 @@
 | member | `crates/smoke`（`baseline-wgpu-smoke`）と `crates/public-api`（`baseline-wgpu-public-api`）の 2 つ | `baseline-wgpu/Cargo.toml` |
 | 外部依存 | `wgpu = "=30.0.1"`（完全固定）のみ | 両 member の `Cargo.toml` |
 | lints | `unsafe_code = "forbid"`・`missing_docs = "warn"` | `baseline-wgpu/Cargo.toml` |
-| 公開 API の lib | `baseline-wgpu-public-api` は戻り値に `wgpu::Backends` を出す関数を 1 つ公開する。製品の公開 API の検査を `scripts/public-api-check.sh --manifest-path baseline-wgpu/Cargo.toml` で当てる入力 | `baseline-wgpu/crates/public-api/src/lib.rs` |
+| 公開 API の lib | `baseline-wgpu-public-api` は、公開の struct の field、trait のメソッドの引数と戻り値、その trait の impl に wgpu の型を出す。製品の公開 API の検査を `scripts/public-api-check.sh --manifest-path baseline-wgpu/Cargo.toml` で当てる入力 | `baseline-wgpu/crates/public-api/src/lib.rs` |
 | smoke bin | `wgpu::Instance` で全 backend のアダプタを列挙し、名前・backend・device type を標準出力へ出す。アダプタが 0 件のときは `0 adapter(s)` を出して正常終了する | `baseline-wgpu/crates/smoke/src/main.rs` |
 | 検査の範囲 | `make verify`・`make check` はルートの workspace が対象で、本 workspace は範囲外。`make deny` は本 workspace に cargo-deny（設定は `baseline-wgpu/deny.toml`。ルートの `deny.toml` と違うのは wgpu 系の禁止を外した点だけ）と依存の承認の記録の検査をかけ、CI の `deny` ジョブも流す。ビルド・実行は範囲外 | `baseline-wgpu/deny.toml`、`scripts/deny.sh` |
 | 依存の承認の記録 | `baseline-wgpu/deps-approved.toml`（ルートの `deps-approved.toml` には入れない）。検査は `make deny` が `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ | `baseline-wgpu/deps-approved.toml` |
