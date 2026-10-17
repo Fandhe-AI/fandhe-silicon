@@ -1,9 +1,10 @@
 //! ±0 の扱いの「比べの側」と、部分 Top-k の位置ごとの比べの確認
-//! （spec TASK-976 の 2/6・3/6。対応する項目は PARITY-4・PARITY-6 のポインタのみ）。
+//! （spec TASK-976 の 2/6・3/6・4/6。対応する項目は PARITY-4・PARITY-6 のポインタのみ）。
 //! 要素ごとの比べでは符号付きの零を同じとみなし、Top-k の比べではビット列で区別することを、
 //! feature `test-support` の裏にだけ存在する検証用の道具で確かめる。
 //! 部分 Top-k の側では、k 件の出力を同じスコア列から作った `reference_topk_f32` と位置ごとに比べ、
 //! 足りない位置を埋める値の位置も同じビット規則で比べることを確かめる。
+//! 4/6 の追加の入力（`topk_inputs`）は、入力の表を通して期待の並びと比べの結果を確かめる。
 //! 比べる相手は同じスコア列への CPU 参照で、全量 readback の出力どうしの比べはここでは扱わない（PARITY-13 のポインタのみ）。
 //! 参照の並び自体は `parity_topk.rs` の `positive_zero_precedes_negative_zero` が持つので、ここでは重ねない。
 
@@ -15,6 +16,9 @@ use fandhe_silicon_core::parity::tolerance::{
     CompareError, ElementVerdict, T1, compare_f32, judge_element,
 };
 use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk, reference_topk_f32};
+use fandhe_silicon_core::parity::topk_inputs::{
+    NON_FINITE_INPUTS, PAD_POSITION_INPUTS, SIGNED_ZERO_INPUTS, TopKInput,
+};
 
 fn e(slot: u32, score: f32) -> TopKEntry {
     TopKEntry::new(slot, score)
@@ -352,5 +356,154 @@ fn independent_selection_over_same_scores_equals_reference() {
         let actual = independent_topk(&scores, k);
         let c = compare_topk(&reference, &actual).unwrap();
         assert!(c.is_match(), "k = {k}");
+    }
+}
+
+// ---- 追加の入力（TASK-976 の 4/6） ----
+
+fn all_inputs() -> impl Iterator<Item = &'static TopKInput> {
+    SIGNED_ZERO_INPUTS
+        .iter()
+        .chain(PAD_POSITION_INPUTS)
+        .chain(NON_FINITE_INPUTS)
+}
+
+#[test]
+fn every_additional_input_reproduces_its_expected_order() {
+    for input in all_inputs() {
+        let reference = reference_topk_f32(input.scores(), input.k()).unwrap();
+        assert_eq!(
+            pairs(&reference),
+            pairs(&input.expected()),
+            "{}",
+            input.name()
+        );
+    }
+}
+
+#[test]
+fn additional_inputs_have_the_kind_they_claim() {
+    for input in all_inputs() {
+        assert_eq!(
+            input.expected().len(),
+            input.k().min(input.finite_count()),
+            "{}",
+            input.name()
+        );
+    }
+    for input in SIGNED_ZERO_INPUTS {
+        let neg = input
+            .scores()
+            .iter()
+            .position(|s| s.to_bits() == (-0.0_f32).to_bits())
+            .unwrap_or_else(|| panic!("{}", input.name()));
+        let pos = input
+            .scores()
+            .iter()
+            .position(|s| s.to_bits() == 0)
+            .unwrap_or_else(|| panic!("{}", input.name()));
+        assert!(neg < pos, "{}", input.name());
+    }
+    for input in PAD_POSITION_INPUTS {
+        assert!(input.finite_count() < input.k(), "{}", input.name());
+    }
+    for input in NON_FINITE_INPUTS {
+        assert!(
+            input.finite_count() < input.scores().len(),
+            "{}",
+            input.name()
+        );
+        assert!(
+            input.expected().iter().all(|x| x.score().is_finite()),
+            "{}",
+            input.name()
+        );
+    }
+}
+
+#[test]
+fn signed_zero_inputs_mismatch_when_zeros_are_ieee_ordered() {
+    for input in SIGNED_ZERO_INPUTS {
+        let reference = input.expected();
+        let pos = reference.iter().position(|x| x.score_bits() == 0);
+        let neg = reference
+            .iter()
+            .position(|x| x.score_bits() == (-0.0_f32).to_bits());
+        if let (Some(p), Some(n)) = (pos, neg) {
+            // 期待の中の +0.0 の先頭と -0.0 の先頭の位置を入れ替えた並び（IEEE の順に見立てる）。
+            let mut actual = reference.clone();
+            actual.swap(p, n);
+            let c = compare_topk(&reference, &actual).unwrap();
+            assert!(!c.is_match(), "{}", input.name());
+            assert_eq!(c.first_mismatch(), Some(p.min(n)), "{}", input.name());
+        } else {
+            // 境で -0.0 が外れる入力。-0.0 のスロットを選んだ実測は境の位置で不一致になる。
+            assert_eq!(input.name(), "signed_zero_cut_at_k");
+            let last = input.k() - 1;
+            let mut actual = reference.clone();
+            actual[last] = e(0, -0.0);
+            let c = compare_topk(&reference, &actual).unwrap();
+            assert_eq!(c.first_mismatch(), Some(last));
+        }
+    }
+}
+
+#[test]
+fn pad_position_inputs_compare_after_padding_with_any_candidate() {
+    for input in PAD_POSITION_INPUTS {
+        let k = input.k();
+        let reference = reference_topk_f32(input.scores(), k).unwrap();
+        for pad in pad_candidates() {
+            let padded_ref = pad_to_k(reference.clone(), k, pad);
+            let padded_actual = pad_to_k(input.expected(), k, pad);
+            let c = compare_topk(&padded_ref, &padded_actual).unwrap();
+            assert!(c.is_match(), "{}", input.name());
+            assert_eq!(c.compared(), k, "{}", input.name());
+
+            // 埋める位置に実の 1 件を入れた実測は、その位置で不一致になる。
+            let first_pad = reference.len();
+            let mut with_real = padded_actual.clone();
+            with_real[first_pad] = e(0, 0.5);
+            let c = compare_topk(&padded_ref, &with_real).unwrap();
+            assert_eq!(c.first_mismatch(), Some(first_pad), "{}", input.name());
+        }
+        // 埋めない参照は黙って一致にならない（参照が空の入力は長さ違いが先に出る）。
+        let pad = e(u32::MAX, f32::NEG_INFINITY);
+        let padded_actual = pad_to_k(input.expected(), k, pad);
+        assert_eq!(
+            compare_topk(&reference, &padded_actual).unwrap_err(),
+            CompareError::LengthMismatch {
+                reference: reference.len(),
+                actual: k
+            },
+            "{}",
+            input.name()
+        );
+    }
+}
+
+#[test]
+fn non_finite_inputs_mismatch_when_a_non_finite_score_is_selected() {
+    for input in NON_FINITE_INPUTS {
+        let reference = input.expected();
+        let slot = input
+            .scores()
+            .iter()
+            .position(|s| !s.is_finite())
+            .unwrap_or_else(|| panic!("{}", input.name()));
+        let mut actual = reference.clone();
+        actual[0] = e(u32::try_from(slot).unwrap(), input.scores()[slot]);
+        let c = compare_topk(&reference, &actual).unwrap();
+        assert!(!c.is_match(), "{}", input.name());
+        assert_eq!(c.first_mismatch(), Some(0), "{}", input.name());
+    }
+}
+
+#[test]
+fn independent_selection_agrees_on_every_additional_input() {
+    for input in all_inputs() {
+        let reference = reference_topk_f32(input.scores(), input.k()).unwrap();
+        let actual = independent_topk(input.scores(), input.k());
+        assert_eq!(pairs(&reference), pairs(&actual), "{}", input.name());
     }
 }
