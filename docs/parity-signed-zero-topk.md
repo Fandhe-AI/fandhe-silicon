@@ -47,6 +47,28 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
 
+## (2) の確かめ（TASK-976 の 3/6）
+
+対応する項目は PARITY-6（ポインタのみ）。テストは同じ `crates/core/tests/parity_signed_zero_topk.rs`。入力は手書きの小さな列で、各テストは先に参照の並びを手計算の期待と照らしてから比べる。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 同点 2 件のスロットだけを入れ替えると、その 2 位置が不一致になる | `tie_pair_with_swapped_slots_is_a_mismatch` |
+| 有限の件数が k に満たないとき、参照と実測を同じ値で k 件にそろえれば一致する（埋める値は複数の候補で確かめる） | `padded_reference_matches_identically_padded_actual` |
+| 埋める位置に実の 1 件がある実測は、その位置で不一致になる | `real_entry_in_pad_position_is_a_mismatch` |
+| 埋める値のスコアのビット列だけが違う（NaN の payload・±0）と不一致になる | `pad_with_different_bits_is_a_mismatch` |
+| 埋める値を実の件より前に置くと、ずれた位置が不一致として数えられる | `pad_placed_before_real_entries_is_a_mismatch` |
+| そろえていない参照と k 件の実測は `CompareError::LengthMismatch` になる | `unpadded_reference_against_k_length_actual_is_length_mismatch` |
+| 有限でないスコアは参照に入らず、それを選んだ実測は位置 0 で不一致になる | `non_finite_scores_are_absent_and_selecting_them_is_a_mismatch` |
+| 同点・有限でない値・±0 を混ぜた入力で、k が有限の件数より小さい場合と大きい場合の両方が位置ごとに比べられる | `mixed_input_with_ties_non_finite_and_signed_zeros` |
+| テスト内の独立した選び方の結果が、同じスコア列への参照と一致する | `independent_selection_over_same_scores_equals_reference` |
+
+- 比べる相手は同じスコア列から作った `reference_topk_f32` の出力。全量 readback の出力どうしの比べはこの試験の対象外（PARITY-13 のポインタのみ）
+- 本リポは埋める値を定めない。テストは候補の値で、どれでも同じビット規則で比べられることを確かめる
+- 参照は k 件にそろえない。長さをそろえるのは呼び出し側（テストでは補助関数 `pad_to_k`）
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。後の段で足すテストと入力は、その PR のコードと公開テストが示し、その PR で本書に節を足す
