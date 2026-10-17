@@ -21,8 +21,8 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 | ---- | ---- | -------- |
 | 試験用の部品の feature | `core` の `lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`hash` は条件なし。`[features]` は `test-support = []` | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
 | 一致の道具のファイル | `crates/core/src/parity` に 5 ファイル（`cpu_reference`・`pixel`・`special_values`・`tolerance`・`topk`） | `ls crates/core/src/parity` |
-| 一致の道具の統合テスト | `core` は `crates/core/tests/parity_*.rs` の 7 本。`contract` は `test_support_forwarding.rs`・`test_support_pixel.rs`・`test_support_special_values.rs` | `ls crates/core/tests crates/contract/tests` |
-| `required-features` の件数 | 20 | `grep -c required-features crates/core/Cargo.toml` |
+| 一致の道具の統合テスト | `core` は `crates/core/tests/parity_*.rs` の 8 本。`contract` は `test_support_forwarding.rs`・`test_support_pixel.rs`・`test_support_special_values.rs`・`test_support_test_frame.rs` | `ls crates/core/tests crates/contract/tests` |
+| `required-features` の件数 | 22 | `grep -c required-features crates/core/Cargo.toml` |
 | 依存 | `core` の外部依存は 0。`#![forbid(unsafe_code)]` | `crates/core/Cargo.toml`、`crates/core/src/lib.rs` |
 | 走る場所 | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む組。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
 
@@ -71,6 +71,21 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 | 要素ごと演算の出力に見立てた列（直書き）の零の位置も、絶対誤差の上限だけで判定される | `elementwise_like_zeros_are_judged_by_absolute_bound` |
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`
+
+## (5) 追加の入力（TASK-975 の 5/6）
+
+対応する項目は PARITY-1・PARITY-2・PARITY-3・PARITY-5（ポインタのみ）。テストは `crates/core/tests/parity_element_inputs.rs`。入力はテストの中で組む（PoC の入力は写さない）。閾値の数値は本書に持たず、テストは `T1` の getter から導く。規則そのものは (1)〜(4) の節のテストで確かめ、ここでは名前の付いた入力の組を `compare_f32` と `compare_f32_with_special_values` の両方に通し、要素ごとの判定と列の集計が合うことを確かめる。
+
+| 振る舞い | テスト |
+| -------- | ------ |
+| 3 種類の入力（最大値は通るが要素ごとに外れる・NaN の payload だけ違う・参照が零で実測が微小な有限）がそれぞれ 1 組以上あり、ラベルは重複しない | `every_additional_input_kind_is_present` |
+| 最大値どうしは内でも、要素ごとの外れがあれば不一致。2 つの比べ方で件数と最初の添字が要素ごとの判定と合う | `max_passing_but_elementwise_failing_inputs_are_mismatches` |
+| payload・符号ビットだけが違う NaN の組は、有限でない値の規則つきの比べでは要素ごとに両方 NaN で一致し、規則なしの比べでは一致にならない。別の添字の有限の外れは隠れない | `nan_payload_only_inputs_match_under_special_values_rule` |
+| 参照が零で実測が微小な有限の組は、絶対誤差の上限の内外だけで決まる。零でない参照には相対誤差で内に入る同じ大きさの誤差が、零の参照には外 | `zero_reference_tiny_finite_inputs_follow_absolute_bound` |
+| 全組を連結した 1 列でも、件数と最初の添字は要素ごとの判定と合う | `concatenated_additional_inputs_are_judged_per_element` |
+| 有限だけの組では、2 つの比べ方の件数・最初の添字・一致の判定が合う | `both_comparators_agree_on_finite_only_additional_inputs` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_element_inputs`
 
 ## 既にある関連の部品
 

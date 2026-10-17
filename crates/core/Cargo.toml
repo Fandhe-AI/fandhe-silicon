@@ -35,6 +35,10 @@ name = "parity_element_rules"
 required-features = ["test-support"]
 
 [[test]]
+name = "parity_element_inputs"
+required-features = ["test-support"]
+
+[[test]]
 name = "parity_topk"
 required-features = ["test-support"]
 
