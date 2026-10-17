@@ -20,7 +20,7 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 試験用の部品の feature | `core` の `lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`hash` は条件なし。`[features]` は `test-support = []` | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
-| 一致の道具のファイル | `crates/core/src/parity` に 5 ファイル（`cpu_reference`・`pixel`・`special_values`・`tolerance`・`topk`） | `ls crates/core/src/parity` |
+| 一致の道具のファイル | `crates/core/src/parity` に 6 ファイル（`cpu_reference`・`pixel`・`special_values`・`tolerance`・`topk`・`topk_inputs`） | `ls crates/core/src/parity` |
 | 一致の道具の統合テスト | `core` は `crates/core/tests/parity_*.rs` の 8 本。`contract` は `test_support_forwarding.rs`・`test_support_pixel.rs`・`test_support_special_values.rs`・`test_support_test_frame.rs` | `ls crates/core/tests crates/contract/tests` |
 | `required-features` の件数 | 22 | `grep -c required-features crates/core/Cargo.toml` |
 | 依存 | `core` の外部依存は 0。`#![forbid(unsafe_code)]` | `crates/core/Cargo.toml`、`crates/core/src/lib.rs` |
@@ -90,6 +90,39 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 ## 既にある関連の部品
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[test-frame](test-frame.md)
+
+## 完了の条件の確かめ（6/6）
+
+6/6（#6220）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-975）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | (1) 要素ごとの規則（2/6） | `cargo test -p fandhe-silicon-core --features test-support --test parity_element_rules`。節ごとのテストは上の各節の表のとおり。A1〜A3 は同じテストのバイナリ | 19 passed; 0 failed |
+| A2 | (2)(3) 有限でない値の規則（3/6） | 同上 | 同上 |
+| A3 | (4) 参照が零の要素の規則（4/6） | 同上 | 同上 |
+| A4 | (5) 追加の入力（5/6） | `cargo test -p fandhe-silicon-core --features test-support --test parity_element_inputs` | 6 passed; 0 failed |
+| B1 | `test-support` を含む feature の組で走る | `make build-profiles` | 終了コード 0（all feature sets passed） |
+| C1 | 2 本のテストに背後実装での分岐が無い | `grep -c 'cfg(' crates/core/tests/parity_element_rules.rs crates/core/tests/parity_element_inputs.rs` | 両方 0 件 |
+| C2 | `unsafe` を使わない | `crates/core/src/lib.rs` の `#![forbid(unsafe_code)]` と、2 本のテストの `unsafe` の grep | `forbid` あり。テストは両方 0 件 |
+| C3 | 製品の経路から `parity` を参照しない | `grep -rn parity crates/contract/src crates/exec/src crates/upper/src` | 0 件 |
+| C4 | 依存が変わっていない | `core` の外部依存、`deps-approved.toml` の `[[approval]]` の件数、`make deps-check` | 外部依存 0、承認 0 件、終了コード 0 |
+| E1 | main の CI の `verify` ジョブ | base の push run の `make verify (fmt + clippy + test)` ジョブの step | `make verify`・`make build-profiles` とも success |
+| E2 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make deny` と続く全 step が success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0 |
+
+実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-975）。
+
+### 再実行の契機
+
+- `crates/core/tests/parity_element_rules.rs`・`parity_element_inputs.rs` を変えたとき
+- `crates/core/src/parity/`（`tolerance`・`cpu_reference`・`special_values`）の公開面・規則・閾値を変えたとき
+- `crates/core/Cargo.toml` の `[[test]]`・`[features]` を変えたとき
+- `scripts/verify.sh`・`scripts/build-profiles.sh`、CI の `verify`・`deny` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `cff173c71b091fb05851bb61fce7ce2b09a36be6`、`docs/spec` の gitlink は `6e9fc5d`。
 
 ## 本リポでの反映の方針
 
