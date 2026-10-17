@@ -86,9 +86,9 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support --test parity_signed_zero_topk`（`make verify` でも走る）
 
-## 完了の条件の確かめ（5/6）
+## 完了の条件の確かめ（6/6）
 
-5/6（#6225）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-976）。
+5/6（#6225）で作り、6/6（#6226）で最新の main で流し直した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-976）。
 結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
 
 | # | 確かめる項目 | 方法 | 結果 |
@@ -99,8 +99,16 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | A4 | (2) の期待（3/6・4/6） | A1 の出力で 3/6 の節の 9 本と 4/6 の節の 6 本が `ok` | 15 本とも `ok` |
 | A5 | 比べる相手の明記 | `grep -n 'PARITY-13' crates/core/tests/parity_signed_zero_topk.rs docs/parity-signed-zero-topk.md` | 試験ファイルの `//!` と (2) の節の両方に在る。同じスコア列への参照と比べる `independent_selection_over_same_scores_equals_reference`・`independent_selection_agrees_on_every_additional_input` は `ok` |
 | A6 | 別 crate からの利用 | `make build-profiles` | 終了コード 0 |
-| A7 | main の CI | 両試験ファイルを含む最新の完了した push run の `make verify (fmt + clippy + test)` ジョブの step | `make verify` の conclusion は success |
-| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。`make verify` の出力に両試験ファイルの実行が出る |
+| A7 | main の CI | 両試験ファイルを含む、base の push run の `make verify (fmt + clippy + test)` ジョブの step | `make verify` の conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0。`make verify` の出力に両試験ファイルの実行が出る |
+
+成果物と本書の節・テストの対応は次のとおり（本数は `-- --list` と区切りのコメントで数えた実測）。
+
+| 成果物 | 本書の節 | テスト |
+| ------ | -------- | ------ |
+| 成果物の 1 つ目（項目ごとの試験）の (1)（PARITY-4 のポインタ） | 「(1) の確かめ（2/6）」 | `parity_signed_zero_topk.rs` の 2/6 の 6 本 |
+| 成果物の 1 つ目の (2)（PARITY-6 のポインタ） | 「(2) の確かめ（3/6）」 | 同ファイルの 3/6 の 9 本 |
+| 成果物の 2 つ目（追加の入力） | 「追加の入力の確かめ（4/6）」 | `crates/core/src/parity/topk_inputs.rs` の定数と、同ファイルの 4/6 の 6 本 |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-976）。
 
@@ -110,11 +118,12 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 - `crates/core/tests/parity_signed_zero_topk.rs`・`crates/core/tests/parity_topk.rs` を変えたとき
 - `docs/spec` の gitlink を進めたとき
 
-確かめた base は `cff173c`、`docs/spec` の gitlink は `6e9fc5d`。
+確かめた base は `6fab2ee`、`docs/spec` の gitlink は `6e9fc5d`。
 
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。後の段で足すテストと入力は、その PR のコードと公開テストが示し、その PR で本書に節を足す
+- spec への進み具合の記録は spec 側の作業で、本リポからは書き換えない（private spec 側の記録に従う。ポインタのみ）
 - 値・規則を変える変更の扱いは [parity-tool](parity-tool.md) に従う
 - 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[coding-rust](../.claude/rules/coding-rust.md)
 
