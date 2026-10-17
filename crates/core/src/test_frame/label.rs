@@ -18,9 +18,9 @@ pub enum IndeterminateReason {
     DeviceMismatch,
     /// 機材に届かない。
     MachineUnreachable,
-    /// その run のログに、合格の証拠（試験の名前と、同じログの `test result: ok`）がそろっていない。
+    /// 合格の証拠がそろっていない。
     EvidenceMissing,
-    /// 比べる 2 つの run で、関わる版や組み合わせが違う。
+    /// 比べる 2 つの run の環境が違う。
     EnvironmentDiffers,
 }
 
@@ -41,10 +41,8 @@ impl fmt::Display for IndeterminateReason {
         f.write_str(match self {
             IndeterminateReason::DeviceMismatch => "device does not match the declared machine",
             IndeterminateReason::MachineUnreachable => "machine is unreachable",
-            IndeterminateReason::EvidenceMissing => "pass evidence is missing from the run log",
-            IndeterminateReason::EnvironmentDiffers => {
-                "the two runs differ in versions or combination"
-            }
+            IndeterminateReason::EvidenceMissing => "pass evidence is missing",
+            IndeterminateReason::EnvironmentDiffers => "the two runs differ in environment",
         })
     }
 }

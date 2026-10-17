@@ -91,15 +91,23 @@ fn only_ng_fails_the_test() {
 }
 
 #[test]
-fn new_indeterminate_reasons_have_their_fixed_spellings() {
-    assert_eq!(
-        IndeterminateReason::EvidenceMissing.name(),
-        "evidence-missing"
-    );
-    assert_eq!(
-        Label::Indeterminate(IndeterminateReason::EnvironmentDiffers).to_string(),
-        "indeterminate: the two runs differ in versions or combination"
-    );
+fn new_indeterminate_reasons_have_fixed_spellings_and_display() {
+    let cases = [
+        (
+            IndeterminateReason::EvidenceMissing,
+            "evidence-missing",
+            "indeterminate: pass evidence is missing",
+        ),
+        (
+            IndeterminateReason::EnvironmentDiffers,
+            "environment-differs",
+            "indeterminate: the two runs differ in environment",
+        ),
+    ];
+    for (r, name, shown) in cases {
+        assert_eq!(r.name(), name);
+        assert_eq!(Label::Indeterminate(r).to_string(), shown);
+    }
 }
 
 #[test]
