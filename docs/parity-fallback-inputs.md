@@ -26,7 +26,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 和の参照と非正規化数 | `fallback_compare` の `reference_sum_f32`（`IntoIterator<Item = f32>` を受ける）・`SumReference`・`flush_subnormal_f32`・`F32SubnormalHandling` | `crates/core/src/parity/fallback_compare.rs` |
 | 比べ方の入口 | `compare_bits_u32`・`compare_bits_f32`・`compare_relative_sum_f32`・`compare_order_distance_binary16` など。詳しくは [parity-fallback-compare](parity-fallback-compare.md) | `grep -n 'pub fn' crates/core/src/parity/fallback_compare.rs` |
 | CPU の参照 | `cpu_reference` の `reference_gemm_f32` と `ReferenceError`。代わりの実行の参照は 4/6 で `fallback_reference` に足した | `crates/core/src/parity/cpu_reference.rs` |
-| 統合テスト | `crates/core/tests` の `parity_*` は 18 本。`crates/core/Cargo.toml` の `required-features` は 32 件 | `ls crates/core/tests \| grep -c '^parity_'`、`grep -c required-features crates/core/Cargo.toml` |
+| 統合テスト | `crates/core/tests` の `parity_*` は 19 本。`crates/core/Cargo.toml` の `required-features` は 33 件 | `ls crates/core/tests \| grep -c '^parity_'`、`grep -c required-features crates/core/Cargo.toml` |
 | feature | `parity` は `test-support` の裏にある。`test-support = []` で、`contract` の `test-support` が `fandhe-silicon-core/test-support` へ転送する | `crates/core/src/lib.rs`、`crates/core/Cargo.toml`、`crates/contract/Cargo.toml` |
 | `exec` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec` |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
@@ -106,6 +106,28 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 決定性 | 同じ入力で同じ出力 | `references_are_deterministic` |
 | 既知値 | 参照の出力の sha256 を、本リポのコードが出す値として固定する（f32 の出力は NaN を 1 つの値に揃えて数える） | `known_digests` |
 
+## 所在（5/6）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | `crates/core/tests/parity_fallback_shape.rs`（試験だけ。製品のコードは変えない。参照の実装とは別に、規則をそのまま書いた散布の計算を試験の中に持つ） | `grep -n 'parity_fallback_shape' crates/core/Cargo.toml` |
+| 試験 | 8 本。`required-features = ["test-support"]` | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_shape` |
+
+## 振る舞い（5/6）
+
+具体の値は公開テストが固定する。`Preserve`・`FlushToZero` の両方で形が同じことを確かめる。
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| `subgroup-sum` の出力の長さ | n = 0 は 0、1〜256 は 1、257〜512 は 2、513 は 3。33・65 でも 1 で、ブロックの大きさ 256 は 32・64 に依らない。u32・f32 の参照の出力の長さも同じ | `subgroup_sum_output_len_hand_checked` |
+| `subgroup-sum` の足し先 | 入力の添字 p の 1 つだけが 1 なら、出力は p ÷ 256 の要素だけが 1 で他は 0 | `subgroup_sum_one_hot_marks_block` |
+| `subgroup-sum` の手計算 | `x[i] = i + 1` の n = 1・255・256・257・513 の出力を、リテラルの値で固定する | `subgroup_sum_arithmetic_series_hand_checked` |
+| `atomic-add` の手計算 | `x = [1, 2, 3, 4, 5]` の m = 1・2・3・5・7 の出力を、リテラルの値で固定する | `atomic_add_small_hand_examples` |
+| `atomic-add` の長さと初期値 | 出力の長さは m。足される入力が無い要素は +0.0 のビット列。すべて -0.0 の入力でも出力は +0.0。n が m より小さい・等しい・大きい場合を確かめる | `atomic_add_length_is_m_and_starts_from_positive_zero` |
+| `atomic-add` の足し先 | 入力の添字 p の 1 つだけが 1 なら、出力は p mod m の要素だけが 1 で他は 0 | `atomic_add_one_hot_marks_slot` |
+| 生成器の入力との突き合わせ（`subgroup-sum`） | 全 13 通りの長さで出力の長さが ⌈n ÷ 256⌉。値は n が 65,539 以下の入力で、`s[i / 256] += x[i]` の散布の計算とビットが一致する（長い入力は長さだけ確かめる） | `subgroup_sum_matches_scatter_for_generated_inputs` |
+| 生成器の入力との突き合わせ（`atomic-add`） | 全 13 通りの長さ・m の 3 通りで出力の長さが m。値は n が 65,539 以下の入力で、`o[i mod m] += x[i]` の散布の計算とビットが一致する（長い入力は長さだけ確かめる） | `atomic_add_matches_scatter_for_generated_inputs` |
+
 ## 段の表
 
 | 段 | Issue |
@@ -114,7 +136,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 2/6 | #6042（`f16-fma` の入力の生成器と長さ n の表。本書の「所在（2/6）」「振る舞い（2/6）」） |
 | 3/6 | #6043（`subgroup-sum`・`atomic-add` の入力の生成器と出力の数 m の表。本書の「所在（3/6）」「振る舞い（3/6）」） |
 | 4/6 | #6044（CPU の参照と f64 から binary16 への変換。本書の「所在（4/6）」「振る舞い（4/6）」） |
-| 5/6 | #6045 |
+| 5/6 | #6045（出力の形の規則の試験。本書の「所在（5/6）」「振る舞い（5/6）」） |
 | 6/6 | #6046 |
 
 ## 本リポでの反映の方針
