@@ -196,6 +196,7 @@ impl std::error::Error for VariationError {}
 /// 1 つの腕の run の値の列の要約（2 倍の中央値・最小・最大・幅）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArmSpread {
+    runs: usize,
     median_x2: u128,
     min: u64,
     max: u64,
@@ -219,6 +220,7 @@ impl ArmSpread {
             u128::from(v[n / 2 - 1]) + u128::from(v[n / 2])
         };
         Ok(Self {
+            runs: n,
             median_x2,
             min: v[0],
             max: v[n - 1],
@@ -245,7 +247,12 @@ fn spread_exceeds(arm: &ArmSpread, num: u64, den: u64) -> Result<bool, Variation
 }
 
 /// 幅の規則に当たったか（PoC-11 の規則は [`check_difference`] を使うので `Err`）。
+///
+/// `arm` の run の数が規則の設定の `runs` と違えば `Err(RunCount)`。
 pub fn check_arm(rule: VariationRule, arm: &ArmSpread) -> Result<bool, VariationError> {
+    if arm.runs != rule.setting().runs {
+        return Err(VariationError::RunCount);
+    }
     match rule.setting().criterion {
         Criterion::SpreadOverMedian { num, den } => spread_exceeds(arm, num, den),
         Criterion::SpreadOverMedianWithFloor {
@@ -461,6 +468,14 @@ mod tests {
             check_arm(VariationRule::Poc9, &a),
             Err(VariationError::ZeroMinimum)
         );
+    }
+
+    #[test]
+    fn check_arm_rejects_run_count_mismatch() {
+        let short = ArmSpread::from_runs(&[1000], 1).unwrap();
+        for rule in [VariationRule::Poc9, VariationRule::Poc10Row2] {
+            assert_eq!(check_arm(rule, &short), Err(VariationError::RunCount));
+        }
     }
 
     #[test]
