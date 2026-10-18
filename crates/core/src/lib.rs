@@ -6,6 +6,7 @@
 //!
 //! 外部依存なしの SHA-256（`hash` モジュール）は feature の条件なしで公開され、製品の経路から使える。
 //! 実行まわりの共通の型（`execution` モジュール。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型・引数の宣言の C8 を判定する純粋関数）も feature の条件なしで公開される。
+//! 成果物キャッシュのエントリの型（`artifact_cache` モジュール）も feature の条件なしで公開される。
 //!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
 //! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
@@ -13,6 +14,7 @@
 //! これら `test-support` の裏のモジュールは製品の経路からは使わない。
 #![forbid(unsafe_code)]
 
+pub mod artifact_cache;
 pub mod execution;
 pub mod hash;
 

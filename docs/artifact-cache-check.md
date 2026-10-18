@@ -24,7 +24,7 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | `hash` | 公開の関数は `sha256_bytes`（32 バイト）と `sha256_u64` の 2 つ。feature の条件なしで公開 | `grep -n 'pub fn' crates/core/src/hash.rs` |
 | `execution` | 型が主で、公開の関数は `DType::byte_size` だけ（`pub const fn`） | `grep -n 'pub const fn\|pub fn' crates/core/src/execution.rs` |
 | feature の配置 | `hash`・`execution` は条件なし。`parity`・`test_frame`・`rerun` は `test-support` の裏 | `crates/core/src/lib.rs` |
-| 照合・記録の型と関数 | 成果物のバイト列とハッシュを組にして照合する型・関数や、背後実装へ渡した成果物を記録する型は `crates/` に無い。cache の語が出るのは `execution.rs` のキーの型とその試験だけ | `git grep -n -i -c cache -- crates` |
+| 照合・記録の型と関数 | エントリの型 `CacheEntry` は `artifact_cache` にある（2/8）。読み込み時の照合の関数と、背後実装へ渡した成果物を記録する型は `crates/` に無い | `git grep -n -i -c cache -- crates` |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
 | `exec` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec` |
 | 依存の向き | contract → core、exec → core、upper → core・exec。`wasm/crates/glue` が `contract` に path で依存する（`core` に足すものは std だけで wasm32 でも通る必要がある） | 各 `Cargo.toml`、`wasm/crates/glue/Cargo.toml` |
@@ -40,6 +40,19 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | 5/8〜6/8 | #4911・#4912 | テスト |
 | 7/8 | #4913 | 確かめ |
 | 8/8 | #4914 | 完了の条件の確かめの記録 |
+
+## 現状の形（2/8）
+
+名前は仮。`crates/core/src/artifact_cache.rs`（feature の条件なし）に次を置く。
+
+| 項目 | 事実 |
+| ---- | ---- |
+| 型 | `CacheEntry`。キー（`CacheKey`）・成果物のバイト列・そのバイト列の SHA-256 を private フィールドで持つ。`Debug`・`Clone`・`PartialEq`・`Eq` |
+| 作り方 | `new(key, bytes)` は `hash::sha256_bytes` で SHA-256 を計算する。`from_parts(key, bytes, sha256)` は渡された値をそのまま保持し、再計算も照合もしない（バイト列と一致しない SHA-256 のエントリも表せる） |
+| 読み出し | `key()`・`bytes()`・`sha256()`、分解は `into_parts()` |
+| 持たないもの | 読み込み時の照合・拒否の理由・台帳 |
+
+対応するテスト: `crates/core/tests/artifact_cache_entry.rs`。確かめ方: `cargo test -p fandhe-silicon-core --test artifact_cache_entry`。
 
 ## 本リポでの反映の方針
 
