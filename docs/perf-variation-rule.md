@@ -5,6 +5,7 @@
 2/6（#6364）で「形の設計」の節を足した（決定の記録のポインタ・規則が乗る既存のコードの事実・守る本リポの規約）。
 3/6（#6365）で「変動の幅の規則（3/6）」の節を足した（規則のモジュール `variation`。値は表に写さずコードを指す）。
 4/6（#6366）で「測り直しと判定不能の扱い（4/6）」の節を足した（モジュール `remeasure`。値は表に写さずコードを指す）。
+5/6（#6367）で「再現の試験（5/6）」の節を足した（モジュール `replay` とコマンド `variation-replay`。記録済みの行は本リポに置かない）。
 
 ## 記録の所在
 
@@ -21,19 +22,19 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate`・`variation`・`remeasure` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
+| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate`・`variation`・`remeasure`・`replay` と、bin `across-runs`・`variation-replay` を持つ | `ls measure/crates/perf/src` |
 | run ごとの統計 | `stats::RunStats` が run ごとの統計を出す | `measure/crates/perf/src/stats.rs` |
 | run 間の変動帯 | 2 か所にある。`across::AcrossRuns` は f64 の `spread_abs`・`spread_ratio`、`runs::Band` は 1/4 単位の整数の `median`・`min`・`max`・`spread_abs` と千分の一単位の `spread_ratio_milli` | `measure/crates/perf/src/across.rs`・`measure/crates/perf/src/runs.rs` |
 | 判定に使う変動帯 | どちらのモジュールも、どちらで判定するかは決めていない（冒頭のコメントにそう書いてある。2 件） | `git grep -n 'どちら' -- measure/crates/perf/src` |
 | run 間の p95 | p95 は run ごとの統計と記録の書き出しにあり、run 間の集計（`across`・`runs`）には無い | `git grep -n p95 -- measure/crates/perf/src`（`stats.rs`・`record.rs` だけ） |
 | 比の区分 | `ratio` の閾値は 1 個の固定。`RATIO_SCOPE_TASKS` は空で、範囲外は判定保留に倒す。PoC ごとに切り替わる設定の口は無い。変動の幅の設定は `variation` の閉じた定数表が持ち、外から差し替える口は無い | `measure/crates/perf/src/ratio.rs` |
 | ラベルの語彙 | `record` の `Label` は Ok / Ng / Pending / NotRun / Indeterminate で、`IndeterminateReason` は 4 つ。綴りは `core` の `test_frame` に揃え、テストがソースと突き合わせる。変動の幅・測り直しに当たる理由は無い（4/6 でも変えていない）。`remeasure` は行・比較の単位の判定のラベルを別に持つ | `measure/crates/perf/src/record.rs` |
-| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs`・`remeasure.rs` と `lib.rs` の `//!` だけ。測り直しの語は `remeasure.rs` と、その回数を持つ `variation.rs` の設定の表に現れ、時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
-| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6・4/6 は記録の形を変えていない） | `measure/crates/perf/src/record.rs` |
+| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs`・`remeasure.rs`・`replay.rs`・`tests/replay.rs` と `lib.rs` の `//!` だけ。測り直しの語は `remeasure.rs` と、その回数を持つ `variation.rs` の設定の表に現れる。時刻の分解能の語は `replay.rs`・`tests/replay.rs` だけで、入力の整数を出力へ通す欄の名前として現れる | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
+| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6〜5/6 は記録の形を変えていない。5/6 の再現の出力は分解能を入力から通すだけで、記録の本体には足していない） | `measure/crates/perf/src/record.rs` |
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 門との関係 | `gate::GateOutcome::taken_run_ids` が、`runs::aggregate` へ渡す run を絞る | `measure/crates/perf/src/gate.rs` |
 | 走る場所 | `make measure-verify`。GPU の実機は要らない | `scripts/measure-verify.sh` |
-| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行と、`measure/crates/perf/src/variation.rs`・`measure/crates/perf/src/remeasure.rs` の `//!` だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
+| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行と、`measure/crates/perf/src/variation.rs`・`measure/crates/perf/src/remeasure.rs`・`measure/crates/perf/src/replay.rs`・`measure/crates/perf/tests/replay.rs` の `//!` だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
 
 ## 形の設計（2/6）
 
@@ -76,7 +77,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 ### 3/6 以降で扱うこと
 
 3/6（#6365）で入った物は次節「変動の幅の規則（3/6）」、4/6（#6366）で入った物は「測り直しと判定不能の扱い（4/6）」を参照。
-5/6（#6367）・6/6（#6368）は、各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+5/6（#6367）で入った物は「再現の試験（5/6）」を参照。6/6（#6368）は、その PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
 
 ## 変動の幅の規則（3/6）
 
@@ -112,6 +113,27 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 失敗の扱い | 回の数・不要な測り直し・腕の集合の不一致・未知の腕・自分との比較・比較の重複や 0 件・上限の分母 0・run の数の不一致・溢れは `Err`。判定できないものは判定不能にし、暗黙に OK に倒さない | `remeasure::RemeasureError` |
 | 記録の形 | 変えていない。`record`・`runs`・`docs/run-record.example.json`・`scripts/` に差分は無い | `git diff origin/main -- measure/crates/perf/src/record.rs measure/crates/perf/src/runs.rs docs/run-record.example.json scripts/` |
 | 試験 | 判定の境目、定数の相手、測り直しの要否、測り直した回の値だけでの判定、範囲ごとの判定不能、`Err` の各場合、渡す順への非依存、溢れ。値・腕の名前は合成 | `make measure-verify` |
+
+## 再現の試験（5/6）
+
+記録済みの run 間の値を入力にして、行ごとのラベルを再現する道具を足した。記録済みの行のファイルは本リポに置かない。公開側の試験と CI は、形が同じ合成値の入力で行う。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `measure/crates/perf/src/replay.rs`（`replay`）とコマンド `measure/crates/perf/src/bin/variation-replay.rs`。make ターゲットは無く、`scripts/rerun-compare.sh` と同じく手元でパスを引数に渡して流す。CI には入れない | `ls measure/crates/perf/src measure/crates/perf/src/bin` |
+| 入力 | JSON 1 ファイル。規則の名前、時刻の分解能（CPU と、あれば GPU。整数）、行の配列。行は識別子、測った回（1 回目、あれば測り直しの 2 回目）ごとの腕と run の値（1/4 ns 単位の整数）、比較の一覧、期待のラベル（比較ごと、または測り直しが要ること）を持つ。run の値は呼び手が `VariationSetting::statistic` に従って作る。PoC の生の標本からの変換は本リポの外の手元作業で、道具はしない | `replay::parse_input` |
+| 読み方 | `jsonread` の厳格な読み込み。未知のキー・小数・使えない名前・重複・件数の上限超えは違反。件数の上限は `replay` の定数 | `replay::MAX_ROWS` ほか |
+| 判定 | 行ごとに `remeasure::judge_row` を呼ぶ。規則と判定は足さず、判定側の `Err` は入力の違反にする | `replay::replay` |
+| 期待との突き合わせ | 比較ごとにラベルを比べ、行ごと・全体の一致を出す。期待の比較の識別子の集合が行の比較と合わないときは違反。判定が付くはずの行に測り直しの期待、または逆は不一致 | `replay::replay` |
+| 出力 | 標準出力に 1 ファイル 1 行の JSON。規則の名前、分解能の通し、行（識別子の昇順）ごとの結果と比較（識別子の昇順）ごとのラベル・理由・期待・一致、一致した行の数。ファイルは作らない | `measure/crates/perf/tests/replay.rs` |
+| 時刻の分解能 | 入力の整数をそのまま出力へ通す。判定には使わず、設定の表にも書かない | `measure/crates/perf/tests/replay.rs` の `resolution_passes_through` |
+| 終了コード | 0 すべて一致 / 1 不一致（JSON は出す）または入力の違反（JSON は出さない）/ 2 誤用（引数なし・未知のオプション・読めない）。`rerun-compare.sh` の 0 / 1 / 2 と同じ向き | `measure/crates/perf/tests/replay.rs` の `command_exit_codes`・`command_misuse_is_two` |
+| 標準エラー | 固定の文言と引数・行の番号だけ。入力の値とパスは出さない | `command_stderr_has_no_values_or_paths` |
+| 記録の形 | 変えていない。`record`・`runs`・`variation`・`remeasure`・`docs/run-record.example.json`・`scripts/` に差分は無い | `git diff origin/main -- measure/crates/perf/src/record.rs measure/crates/perf/src/runs.rs measure/crates/perf/src/variation.rs measure/crates/perf/src/remeasure.rs docs/run-record.example.json scripts/` |
+| 試験 | 全規則での判定・測り直しの要否・判定不能・測り直した回の値だけでの判定、判定不能の範囲の 3 種、境目（ちょうど・直上）、判定と判定不能と NG の混在、期待を変えた入力の不一致、渡す順への非依存、分解能の通し、違反と誤用の終了コード。値・腕・行の名前はすべて合成 | `make measure-verify` |
+
+使い方: `cargo run --manifest-path measure/Cargo.toml --bin variation-replay -- <入力の JSON> [<入力の JSON> ...]`。
+記録済みの行から入力を作ってラベルの再現を確かめるのは 6/6（#6368）で、記録のパスを手元で引数に渡して行う。
 
 ## 段の表
 

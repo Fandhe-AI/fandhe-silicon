@@ -34,7 +34,7 @@ fandhe-silicon/
 │   ├── workflows/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
-├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・性能値を採る前の門の規則・PoC ごとの変動の幅の規則・記録を読んで run 間の集計を出すコマンド `across-runs`）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
+├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・性能値を採る前の門の規則・PoC ごとの変動の幅の規則・記録済みの行からラベルを再現して期待と突き合わせる `replay`・記録を読んで run 間の集計を出すコマンド `across-runs` と記録のパスを受ける再現のコマンド `variation-replay`）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
@@ -80,7 +80,7 @@ fandhe-silicon/
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせと完了の条件の確かめ（TASK-2947）
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）（TASK-1026）
-├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）（TASK-1027）
+├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）（TASK-1027）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
