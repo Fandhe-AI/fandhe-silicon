@@ -7,7 +7,7 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 置き場 | `crates/core/src/parity.rs` と `crates/core/src/parity/`（`cpu_reference.rs`・`tolerance.rs`・`topk.rs`・`topk_inputs.rs`・`pixel.rs`・`special_values.rs`・`binary16.rs`・`gemm_inputs.rs`）。`topk_inputs` は [parity-signed-zero-topk](parity-signed-zero-topk.md)、`pixel` は [pixel-parity-tool](pixel-parity-tool.md)、`special_values` は [parity-non-finite](parity-non-finite.md)、`binary16`・`gemm_inputs` は [gemm-test-inputs](gemm-test-inputs.md) | `crates/core/src/parity.rs` |
+| 置き場 | `crates/core/src/parity.rs` と `crates/core/src/parity/`（`cpu_reference.rs`・`tolerance.rs`・`topk.rs`・`topk_inputs.rs`・`pixel.rs`・`special_values.rs`・`binary16.rs`・`gemm_inputs.rs`・`gemm_population.rs`）。`topk_inputs` は [parity-signed-zero-topk](parity-signed-zero-topk.md)、`pixel` は [pixel-parity-tool](pixel-parity-tool.md)、`special_values` は [parity-non-finite](parity-non-finite.md)、`binary16`・`gemm_inputs`・`gemm_population` は [gemm-test-inputs](gemm-test-inputs.md) | `crates/core/src/parity.rs` |
 | feature | `core` の `test-support` の裏にだけ公開される。`contract` の `test-support` は `fandhe-silicon-core/test-support` へ転送する。どの crate の `default` にも入っていない | 各 `Cargo.toml`、`contract_test_support_enables_core_parity_tool`（`crates/contract/tests/test_support_forwarding.rs`） |
 | 依存 | 外部依存 0。`unsafe` を使わない（`core` は `#![forbid(unsafe_code)]`） | `Cargo.lock`、`crates/core/src/lib.rs` |
 | 背後実装での分岐 | `parity` に背後実装の `cfg` は無い。`core` の `Cargo.toml` に背後実装の feature は無い | `grep -rn "cfg(" crates/core/src/parity.rs crates/core/src/parity`（0 件） |

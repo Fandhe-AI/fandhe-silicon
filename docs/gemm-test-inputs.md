@@ -48,6 +48,20 @@ TASK-1005 の作業を進めるにあたり、記録の所在と本リポの現�
 - 大きな行の試験は `#[ignore]` で、手元で `cargo test -p fandhe-silicon-core --features test-support --release --test parity_gemm_inputs -- --ignored` を流す
 - sha256 は、本リポのコードの出力を既知の値として固定している。生成の式・位置・丸めを変えたら試験の値も直す
 
+## 母数の表（3/6）
+
+門の run のセル（腕 × 行 × dtype）と、母数に入る件数を `test-support` の裏の `parity` に置く。根拠は TASK-1005・TASK-774・TASK-1008〜TASK-1011 のポインタ（腕の中身は各腕のタスクが持つ）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `crates/core/src/parity/gemm_population.rs`（`GemmGateArm`・`GemmGateCell`・`gate_cells`・`population_cells`・`GEMM_GATE_POPULATION`） | 同ファイルの `//!` |
+| 腕と dtype | `g1`・`g2`・`g5`・`g7` は f32 のみ。`g3`・`g3-prime`・`g6`・`g9`・`mps` は f32 と f16acc。母数に入らないのは `mps` だけ | `arms_per_dtype`、`mps_is_outside_population` |
+| 件数 | 母数 60（f32 が 40、f16acc が 20）。門の run のセルは 70（`mps` の 10 を含む）。`mps` は数えない | `population_is_sixty`、`population_split_by_dtype`、`mps_is_outside_population` |
+| セル | 腕・dtype ごとに 5 行が 1 回ずつ。識別名は `<腕>-<行>-<dtype>`（例 `g6-sq512-f32`）で `TestId` を通る。順は 腕 → 行 → dtype で固定 | `each_arm_covers_all_rows`、`cells_are_unique`、`ids_are_test_ids`、`order_is_fixed` |
+| 範囲の外 | 採否の規則と照合の集計は含まない（件数を数えるだけ） | - |
+
+試験は `crates/core/tests/parity_gemm_population.rs`。既定で走り（`make verify`）、GPU の実機は要らない。
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
