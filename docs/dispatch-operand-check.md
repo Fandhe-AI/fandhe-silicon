@@ -1,6 +1,6 @@
 # 引数の宣言の C8 の検査
 
-TASK-421 の 1/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4・2/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -23,11 +23,15 @@ TASK-421 の 1/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ�
 
 ## 対応するテスト
 
-`crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前）。統合テストと完了の条件の確かめは後続の段で扱う。
+- `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前）
+- `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_` で始まる名前）。長さ 0 の次元（GEMM の宣言を含む）と `u64` のあふれを確かめる
+
+上限超過の統合テストと完了の条件の確かめは後続の段で扱う。
 
 ## 確かめ方
 
 ```bash
 cargo test -p fandhe-silicon-core --lib dispatch_check
+cargo test -p fandhe-silicon-core --test execution_dispatch_check
 make verify
 ```
