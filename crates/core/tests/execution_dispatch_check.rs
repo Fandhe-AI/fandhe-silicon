@@ -3,6 +3,7 @@
 //! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
 //! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
 //! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
+//! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
 
 use fandhe_silicon_core::execution::{
     DType, OperandBinding, OperandCheckError, OperandConstant, OperandSpec, required_bytes,
@@ -181,6 +182,76 @@ fn c5_alignment_satisfied_is_accepted() {
         u64::MAX,
     );
     assert_eq!(r, Ok(()));
+}
+
+/// alignment 0 の宣言は offset が 0 でなくても C5 を判定せず通る。alignment 16 なら同じ offset で拒否される（TASK-425・BIND-59 のポインタ）。
+#[test]
+fn c5_zero_alignment_with_nonzero_offset_is_accepted() {
+    let shape = [1u64];
+    let zero = OperandSpec {
+        alignment: 0,
+        ..spec(0, DType::F32, &shape)
+    };
+    for offset in [4u64, 16, 1_000, 2_000] {
+        let r = validate_dispatch_operands(
+            &[zero],
+            &[OperandBinding { slot: 0, offset }],
+            &[],
+            |_| None,
+            u64::MAX,
+        );
+        assert_eq!(r, Ok(()), "offset {offset} with alignment 0");
+    }
+    let sixteen = OperandSpec {
+        alignment: 16,
+        ..zero
+    };
+    for offset in [4u64, 1_000] {
+        let r = validate_dispatch_operands(
+            &[sixteen],
+            &[OperandBinding { slot: 0, offset }],
+            &[],
+            |_| None,
+            u64::MAX,
+        );
+        assert!(
+            is_rejected_by(&r, "C5"),
+            "offset {offset} with alignment 16"
+        );
+    }
+}
+
+/// alignment 0 でも C4・C6 は判定される（C5 だけを飛ばす。TASK-425・BIND-59 のポインタ）。
+#[test]
+fn c5_zero_alignment_still_applies_other_checks() {
+    let shape = [4u64];
+    let zero = OperandSpec {
+        alignment: 0,
+        ..spec(0, DType::F32, &shape)
+    };
+    let bindings = [OperandBinding { slot: 0, offset: 4 }];
+    // C4: 16 バイトに対し offset 4 から残り 12 なら拒否、容量 20 ならちょうど通る。
+    assert!(is_rejected_by(
+        &run(&[zero], &bindings, &[], Some(16)),
+        "C4"
+    ));
+    assert_eq!(run(&[zero], &bindings, &[], Some(20)), Ok(()));
+    // C6: 定数が宣言の必要バイト数と違えば拒否、同じなら通る。
+    let c_shape = [3u64];
+    let declared = [zero, spec(1, DType::U32, &c_shape)];
+    let short = [OperandConstant {
+        slot: 1,
+        bytes: &[0u8; 8],
+    }];
+    assert!(is_rejected_by(
+        &run(&declared, &bindings, &short, None),
+        "C6"
+    ));
+    let exact = [OperandConstant {
+        slot: 1,
+        bytes: &[0u8; 12],
+    }];
+    assert_eq!(run(&declared, &bindings, &exact, None), Ok(()));
 }
 
 /// 定数が宣言の必要バイト数（u32 × 3 = 12）より短ければ C6 で拒否される（TASK-423・BIND-44 のポインタ）。
