@@ -3,6 +3,7 @@
 性能の測定の道具の現状について、本リポのコードと公開テストから説明できる事実を記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1027。ポインタのみ）。spec の本文・値・規則は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 2/6（#6364）で「形の設計」の節を足した（決定の記録のポインタ・規則が乗る既存のコードの事実・守る本リポの規約）。
+3/6（#6365）で「変動の幅の規則（3/6）」の節を足した（規則のモジュール `variation`。値は表に写さずコードを指す）。
 
 ## 記録の所在
 
@@ -19,19 +20,19 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
+| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate`・`variation` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
 | run ごとの統計 | `stats::RunStats` が run ごとの統計を出す | `measure/crates/perf/src/stats.rs` |
 | run 間の変動帯 | 2 か所にある。`across::AcrossRuns` は f64 の `spread_abs`・`spread_ratio`、`runs::Band` は 1/4 単位の整数の `median`・`min`・`max`・`spread_abs` と千分の一単位の `spread_ratio_milli` | `measure/crates/perf/src/across.rs`・`measure/crates/perf/src/runs.rs` |
 | 判定に使う変動帯 | どちらのモジュールも、どちらで判定するかは決めていない（冒頭のコメントにそう書いてある。2 件） | `git grep -n 'どちら' -- measure/crates/perf/src` |
 | run 間の p95 | p95 は run ごとの統計と記録の書き出しにあり、run 間の集計（`across`・`runs`）には無い | `git grep -n p95 -- measure/crates/perf/src`（`stats.rs`・`record.rs` だけ） |
-| 比の区分 | `ratio` の閾値は 1 個の固定。`RATIO_SCOPE_TASKS` は空で、範囲外は判定保留に倒す。PoC ごとに切り替わる設定の口は無い | `measure/crates/perf/src/ratio.rs` |
+| 比の区分 | `ratio` の閾値は 1 個の固定。`RATIO_SCOPE_TASKS` は空で、範囲外は判定保留に倒す。PoC ごとに切り替わる設定の口は無い。変動の幅の設定は `variation` の閉じた定数表が持ち、外から差し替える口は無い | `measure/crates/perf/src/ratio.rs` |
 | ラベルの語彙 | `record` の `Label` は Ok / Ng / Pending / NotRun / Indeterminate で、`IndeterminateReason` は 4 つ。綴りは `core` の `test_frame` に揃え、テストがソースと突き合わせる。変動の幅・測り直しに当たる理由は無い | `measure/crates/perf/src/record.rs` |
-| PoC・測り直し・分解能の語 | `measure/` には無い（0 件） | `git grep -n -i -e poc -e remeasure -e resolution -e 分解能 -e 測り直 -- measure/` |
-| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い | `measure/crates/perf/src/record.rs` |
+| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs` と `lib.rs` の `//!` だけ。測り直しの語は範囲外の注記（`variation.rs` の `//!`）としてだけ現れ、時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
+| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6 は記録の形を変えていない） | `measure/crates/perf/src/record.rs` |
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 門との関係 | `gate::GateOutcome::taken_run_ids` が、`runs::aggregate` へ渡す run を絞る | `measure/crates/perf/src/gate.rs` |
 | 走る場所 | `make measure-verify`。GPU の実機は要らない | `scripts/measure-verify.sh` |
-| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
+| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行と、`measure/crates/perf/src/variation.rs` の `//!` だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
 
 ## 形の設計（2/6）
 
@@ -73,8 +74,24 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 ### 3/6 以降で扱うこと
 
-3/6（#6365）・4/6（#6366）の実装、5/6（#6367）の試験、6/6（#6368）の確かめ。
-各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+3/6（#6365）で入った物は次節「変動の幅の規則（3/6）」を参照。
+4/6（#6366）・5/6（#6367）・6/6（#6368）は、各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+
+## 変動の幅の規則（3/6）
+
+規則のモジュール `variation` を足した。記録の JSON と、`runs`・`across`・`ratio`・`gate` の振る舞いは変えていない。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `measure/crates/perf/src/variation.rs`（`measure-perf` の `variation`） | `ls measure/crates/perf/src` |
+| 入力 | 腕ごとの run の値の列（1/4 ns 単位の整数）。1 run の値の統計は呼び手が選ぶ（設定が `RunStatistic` で示す） | `variation::VariationSetting` |
+| 出力 | 腕ごとの「幅の規則に当たったか」と、当たった腕の名前（昇順）。PoC-11 は「差が幅の中か」を別の関数で返す | `variation::check_row`・`variation::check_difference` |
+| 判定の形 | `Criterion` の 4 つ。幅が係数 × run 間中央値を超える（等しいときは超えない）、その下限つき、最大 ÷ 最小が閾値以上（等しいときは当たる）、差が幅以下（等しいときは当たる） | `variation::Criterion` |
+| 数え方 | 中央値は 2 倍して持ち、丸めない。比べるのは `u128` の checked 演算で、`f64` の割り算は使わない | `variation.rs` の単体試験 |
+| 設定の置き場 | `variation::VariationRule::setting` の定数表の 1 か所。値は本書に写さずコードを指す。外から差し替える公開の口は無い | `measure/crates/perf/src/variation.rs` |
+| 失敗の扱い | run の数の不一致・空・腕の名前の重複・最小が 0・判定の形に合わない呼び出し・溢れは `Err`。GPU の値が無い run には呼び手が規則を当てない | `variation::VariationError` |
+| 記録の形 | 変えていない。`record`・`runs`・`docs/run-record.example.json`・`scripts/` に差分は無い | `git diff origin/main -- measure/crates/perf/src/record.rs measure/crates/perf/src/runs.rs docs/run-record.example.json scripts/` |
+| 試験 | 境目（ちょうど・下・上）、偶数個の中央値、下限が効く場合と係数が効く場合、`Err` の各場合、溢れ。値・腕の名前は合成 | `make measure-verify` |
 
 ## 段の表
 
