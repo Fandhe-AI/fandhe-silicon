@@ -11,3 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+# 試験だけが core の比べの道具（feature test-support の裏）を呼ぶ。lib（src/）は core に依存しない。
+fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
