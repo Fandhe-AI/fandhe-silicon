@@ -38,7 +38,7 @@
 | `count:` | 標準出力 | 判定の名前ごとに 1 行。0 件の名前も出す | `scripts/profile-dep-graph-check.sh \| grep '^count:'` |
 | `count:`（feature） | 標準出力 | per-header feature ごとに 1 行（`feature=` と `judged=yes` または `judged=no`）。0 件も出す。`judged=no` は数えて記録するだけで落とさない | `scripts/profile-dep-graph-check.sh \| grep 'feature='` |
 | `record:` の追加欄 | 標準出力 | per-header feature を数えるプロファイルだけ、末尾に `header_crate_n`（crate の tree に載る `objc2-metal` の版の数）・`features_judged_total`・`features_recorded_total` | 同上 |
-| `violation:` / `FAILED:` / `error:` | 標準エラー | 違反の crate と版・feature / crate と feature それぞれの合計 / 終了コード 2 の理由 | 同スクリプトの先頭コメント | 同スクリプトの先頭コメント |
+| `violation:` / `FAILED:` / `error:` | 標準エラー | 違反の crate と版・feature / crate と feature それぞれの合計 / 終了コード 2 の理由 | 同スクリプトの先頭コメント |
 | `ok:` | 標準出力 | 合格のとき 1 行 | 直接実行 |
 
 ホストの絶対パスと環境変数の値は出力に出さない。
