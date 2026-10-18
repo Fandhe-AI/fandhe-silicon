@@ -21,8 +21,8 @@ TASK-977 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | feature | `parity`・`test_frame`・`rerun` は `core` の `test-support` の裏にある。`hash` は条件なしで公開される | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
-| 一致の道具のファイル | `crates/core/src/parity` に 11 ファイルある | `ls crates/core/src/parity` |
-| 統合テスト | `crates/core/tests/parity_*.rs` は 15 本。`required-features` の宣言は 29 件 | `ls crates/core/tests/parity_*.rs`、`grep -c required-features crates/core/Cargo.toml` |
+| 一致の道具のファイル | `crates/core/src/parity` に 12 ファイルある | `ls crates/core/src/parity` |
+| 統合テスト | `crates/core/tests/parity_*.rs` は 16 本。`required-features` の宣言は 30 件 | `ls crates/core/tests/parity_*.rs`、`grep -c required-features crates/core/Cargo.toml` |
 | GEMM の CPU 参照 | `reference_gemm_f32` は f32・行優先。各要素を `0.0` から `k` の昇順に `f32::mul_add` で積み上げる | `crates/core/src/parity/cpu_reference.rs` の rustdoc、`crates/core/tests/parity_cpu_reference.rs` |
 | 要素ごとの比べ | `compare_f32`（`T1`）と `compare_f32_with_special_values`。数値は本書に持たない | `crates/core/src/parity/tolerance.rs`・`special_values.rs` |
 | 要素ごと演算の CPU 参照 | `core` には無い。既存のテストは出力を直書きしている | `grep -n -i relu crates/core/tests/parity_element_rules.rs crates/core/tests/parity_signed_zero_topk.rs` |
@@ -33,7 +33,22 @@ TASK-977 の作業を進めるにあたり、記録の所在と本リポの現�
 | 背後実装との関係 | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。背後実装の crate に依存しない | `crates/core/Cargo.toml`、`crates/core/src/lib.rs` |
 | wasm の照合の入力の形 | `wasm/node/cases.json` は `reference_source` の欄を持つ（形が在るという事実だけ） | `wasm/node/cases.json` |
 | 走る場所 | `make verify`（`--all-features`）と `make build-profiles` の `test-support` を含む組。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
-| 本書の対象の言及 | 公開側の TASK-977 の言及は本書と、本書へのリンクの行だけ | `git grep -n TASK-977 -- . ':!docs/spec'` |
+| 本書の対象の言及 | 公開側の TASK-977 の言及は本書、本書へのリンクの行、`case_inputs` の rustdoc とそのテスト、`parity.rs` の入口の rustdoc | `git grep -n TASK-977 -- . ':!docs/spec'` |
+
+## 17 ケースの入力（2/4）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `crates/core/src/parity/case_inputs.rs`。feature `test-support` の裏。外部依存 0・`unsafe` なし | `grep -n 'pub mod case_inputs' crates/core/src/parity.rs` |
+| ケース | `CaseId::ALL` は 17 件（GEMM の 13 件 `g-01`〜`g-13`、既存の 4 入力 `e-1`〜`e-4`）。識別名は試験の枠の `TestId` に通る文字だけ | `crates/core/tests/parity_case_inputs.rs` の `all_has_seventeen_unique_ids`・`ids_are_test_ids` |
+| 作り方 | `CaseId::input()` が式からその場で決定的に作る。確保の失敗と次元の積の溢れは `ReferenceError` で返す | `inputs_are_fixed_by_sha256`（入力の f32 のビット列の sha256 を固定） |
+| 形 | 演算の種類・m/k/n・入力の長さ・Top-k の k | `ops_and_shapes_are_fixed` |
+| 出力の要素数 | `CaseInput::output_len()`。GEMM は `m*n`、Relu は入力の長さ、Top-k は `min(k, 有限のスコアの件数)`。合計の確かめは次の段 | `output_lens_are_fixed` |
+| GEMM の設計の区分 | `GemmCase::design()`（NaN・±Inf・零・零でない有限）。`reference_gemm_f32` の出力の区分と一致する | `gemm_design_matches_reference_class` |
+| 特殊値の置き方 | G-12 と E-1 の A の差は置き換えの位置だけ。E-2・E-4 の特殊値の位置 | `g12_differs_from_e1_only_in_replaced_rows`・`special_values_are_placed` |
+| 走る場所 | `make verify`（`--all-features`）。GPU の実機は要らない | `cargo test -p fandhe-silicon-core --features test-support --test parity_case_inputs` |
+
+次の段（3/4）に残すもの: ケースごとの CPU 参照の出力、処理する要素の総数の確かめ、Top-k の追加の入力が要るかの判断。
 
 ## 段の表
 
