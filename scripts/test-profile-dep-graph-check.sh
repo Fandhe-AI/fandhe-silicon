@@ -144,6 +144,47 @@ judge "tree_decorated" 0 "o:crates_total=4" "o:ok: " "!macro-dummy" "!/dummy" "!
 run_tree --tree-text "${work}/ok_prefix_only.tree" --profile cpu-only
 judge "tree_prefix_only" 0 "o:judged_total=0" "o:ok: " "!violation"
 
+# ---- 合成の節（--extra-judged-crate: 一覧に 1 件足すと落ちる）----
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate fandhe-silicon-core
+judge "extra_listed_name_fails" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core version=0.0.0" \
+  "e:FAILED: 1 judged crate(s) found" "o:count: profile=cpu-only crate=fandhe-silicon-core n=1" \
+  "o:judged_total=1 extra_judged_crate=fandhe-silicon-core" "!ok: " "!error:" "!${work}"
+count_is "extra_count_lines" "${OUT_F}" "count: profile=cpu-only crate=" 8
+
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate dummy-absent
+judge "extra_absent_name_passes" 0 "o:ok: 1 profile(s) checked, no judged crates (judged=0) extra_judged_crate=dummy-absent" \
+  "o:count: profile=cpu-only crate=dummy-absent n=0" "o:judged_total=0 extra_judged_crate=dummy-absent" "!violation" "!FAILED"
+
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate Fandhe_Silicon_Core
+judge "extra_name_is_folded" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core" "!ok: "
+
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate fandhe-silicon
+judge "extra_name_is_exact" 0 "o:ok: " "o:crate=fandhe-silicon n=0" "!violation"
+
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only
+judge "no_extra_leaves_record_unchanged" 0 "o:ok: 1 profile(s) checked, no judged crates (judged=0)" "!extra_judged_crate"
+count_is "no_extra_ok_line_is_exact" "${OUT_F}" "judged=0)" 1
+
+# 誤用: 空・不正な文字・長すぎる・既に判定の名前にある・2 回の指定・値なし
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate ""
+judge "extra_misuse_empty" 2 "e:error: invalid --extra-judged-crate" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate "a b"
+judge "extra_misuse_space" 2 "e:error: invalid --extra-judged-crate" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate "../x"
+judge "extra_misuse_path" 2 "e:error: invalid --extra-judged-crate" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate "$(printf 'a%.0s' $(seq 1 65))"
+judge "extra_misuse_too_long" 2 "e:error: invalid --extra-judged-crate" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate ash
+judge "extra_misuse_already_judged" 2 "e:error: --extra-judged-crate is already judged" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate ASH
+judge "extra_misuse_already_judged_folded" 2 "e:error: --extra-judged-crate is already judged" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate winit
+judge "extra_misuse_already_judged_other_profile" 2 "e:error: --extra-judged-crate is already judged" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate a --extra-judged-crate b
+judge "extra_misuse_twice" 2 "e:error: --extra-judged-crate takes exactly one name" "!ok: " "!record: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --extra-judged-crate
+judge "extra_misuse_no_value" 2 "!ok: " "!record: "
+
 run_tree --tree-text "${work}/err_empty.tree" --profile cpu-only
 judge "tree_empty" 2 "e:error: no crates found" "!ok: " "!record: "
 run_tree --tree-text "${work}/err_blank.tree" --profile cpu-only
@@ -207,6 +248,10 @@ judge "cm_feature_other_package" 0 "o:ok: " "o:features_judged_total=0" "!violat
 
 run_tree --tree-text "${work}/cm_plain_header.tree" --profile compute-only-metal --features-text "${work}/cm_f_dup.tree"
 judge "cm_feature_dedup" 1 "o:feature=MTLDrawable judged=yes n=1" "e:FAILED: 1 judged feature(s) found"
+
+run_tree --tree-text "${work}/cm_plain.tree" --profile compute-only-metal --features-text "${work}/cm_f_none.tree" --extra-judged-crate fandhe-silicon-core
+judge "extra_compute_only" 1 "e:violation: profile=compute-only-metal crate=fandhe-silicon-core version=0.0.0" \
+  "o:count: profile=compute-only-metal crate=fandhe-silicon-core n=1" "o:features_recorded_total=0 extra_judged_crate=fandhe-silicon-core" "!ok: "
 
 run_tree --tree-text "${work}/cm_plain_header.tree" --profile compute-only-metal --features-text "${work}/cm_f_bad.tree"
 judge "cm_feature_unreadable" 2 "e:error: unreadable cargo tree line" "!ok: " "!record: "
@@ -312,6 +357,19 @@ judge "fake_inverse_feature" 1 "e:violation: profile=compute-only-metal crate=ob
   "e:FAILED: 1 judged feature(s) found" "o:header_crate_n=1" "!${work}"
 count_is "fake_inverse_args" "${inv_log}" \
   "tree --locked -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops,backend-metal -e normal,build,dev,features -i objc2-metal@0.0.1 --target all --prefix none" 1
+# --extra-judged-crate は cargo の引数を変えない（名前は判定の比較にだけ使い、cargo へ渡さない）
+extra_log="${work}/fake-extra-args.log"
+rc=0
+PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok FAKE_ARGS_LOG="${extra_log}" FAKE_TREE="${work}/ok_basic.tree" \
+  "${CHECK}" --extra-judged-crate fandhe-silicon-core >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "fake_extra" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core" "e:violation: profile=compute-only-metal crate=fandhe-silicon-core" \
+  "o:extra_judged_crate=fandhe-silicon-core" "!ok: "
+if cmp -s <(grep -v '^$' "${args_log}") <(grep -v '^$' "${extra_log}"); then
+  report_ok "fake_extra_cargo_args_unchanged"
+else
+  report_fail "fake_extra_cargo_args_unchanged" "cargo arguments differ when --extra-judged-crate is given"
+fi
+count_is "fake_extra_name_not_passed_to_cargo" "${extra_log}" "fandhe-silicon-core" 0
 run_fake ok dirty "${work}/ok_basic.tree"
 judge "fake_dirty" 0 "o:commit=0123456789abcdef0123456789abcdef01234567-dirty " "o:ok: "
 run_fake ok ok "${work}/bad_ash.tree"
@@ -396,7 +454,7 @@ real_contract() {
 }
 run_real() {
   rc=0
-  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/profile-dep-graph-check.sh) \
+  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/profile-dep-graph-check.sh "$@") \
     >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 }
 
@@ -419,6 +477,12 @@ if real_git init -q >/dev/null 2>"${ERR_F}" && real_contract "${BASE_FEATURES}";
   else
     report_fail "real_clean_commit_is_clean_sha" "commit must be a full hex sha without -dirty"
   fi
+
+  # (a2) 実物の tree に載っている名前を 1 件足すと、両プロファイルで違反になる（検査が空振りしていない）
+  run_real --extra-judged-crate fandhe-silicon-core
+  judge "real_extra_fails" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core version=0.0.0" \
+    "e:violation: profile=compute-only-metal crate=fandhe-silicon-core version=0.0.0" "e:FAILED: 2 judged crate(s) found" \
+    "o:crate=fandhe-silicon-core n=1" "o:extra_judged_crate=fandhe-silicon-core" "!ok: " "!error:" "!${rw}"
 
   # (b) 選んだ feature の裏の依存は数える
   real_contract "${BASE_FEATURES/cpu-ops = []/cpu-ops = [\"dep:ash\"]}" || report_fail "real_feature_setup" "cannot prepare"
@@ -528,6 +592,12 @@ fi
 rc=0
 "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 judge "repo_real" 0 "o:ok: " "o:record: commit=" "o:profile=cpu-only" "o:profile=compute-only-metal" "o:header_crate_n=0" "!violation" "!error:" "!${ROOT_DIR}"
+
+rc=0
+"${CHECK}" --extra-judged-crate fandhe-silicon-core >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "repo_real_extra_fails" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core" \
+  "e:violation: profile=compute-only-metal crate=fandhe-silicon-core" "e:FAILED: 2 judged crate(s) found" \
+  "o:extra_judged_crate=fandhe-silicon-core" "!ok: " "!error:" "!${ROOT_DIR}"
 
 echo "passed: ${passed}, failed: ${failed}"
 [ "${failed}" -eq 0 ]

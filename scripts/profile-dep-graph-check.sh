@@ -10,6 +10,10 @@
 #                                                                        渡した tree の出力だけを数える（cargo・git を呼ばない。
 #                                                                        --tree-text と --profile は組でだけ受け付ける。per-header feature を
 #                                                                        数えるプロファイルは --features-text が必須、それ以外は受け付けない）
+#   --extra-judged-crate <name>                                          上のどちらの経路とも併用できる確かめ用の opt-in。全プロファイルの判定の名前の
+#                                                                        一覧の末尾に 1 件だけ足して数える（足す向きにしか働かない。一覧の定義は書き換えない。
+#                                                                        文字種は英数字・`_`・`-`、長さ 1〜64。既に判定の名前にあるものは誤用）。
+#                                                                        足した名前が tree に載っていれば違反になり、終了コードは 1 になる
 # 終了コード: 0 全プロファイルで 0 件 / 1 1 件以上（違反）
 #   2 誤用・前提の不足（python3・cargo・git が無い、cargo の失敗、コミットが取れない）・読めない入力・
 #     数えた crate が 0 件または検査対象の crate 自身が tree に無い（成功扱いにしない）
@@ -18,6 +22,8 @@
 #   per-header feature を数えるプロファイルは、record の末尾に `header_crate_n` `features_judged_total` `features_recorded_total` が付き、
 #   feature ごとの `count: profile=<p> feature=<名前> judged=<yes|no> n=<k>` も出る（judged=no は数えるだけで落とさない）。
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--tree-text の経路では `-`。
+#   --extra-judged-crate を渡したときだけ、`record:` と `ok:` の末尾に ` extra_judged_crate=<name>` が付き、その名前の `count:` も出る
+#   （渡さないときの出力は変わらない）。
 # 標準エラー: `violation:`・`FAILED:`（crate / feature ごと）・`error:`。
 #
 # 数え方: プロファイル・feature の組・依存の種類・target・名前の一覧は、Python 部の先頭の
@@ -56,6 +62,8 @@ SDK_LOADER_NAMES = ("objc2-metal", "ash", "cudarc", "libloading")
 SURFACE_NAMES = ("objc2-quartz-core", "raw-window-handle", "winit")
 # 名前の比べ方: 小文字にしたあとに適用する置換。完全一致で比べる（接頭辞には広げない）。
 NAME_REPLACE = (("_", "-"),)
+# --extra-judged-crate の値として受け付ける形。
+EXTRA_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # per-header feature を数える package（cargo の package 名）。
 HEADER_CRATE = "objc2-metal"
 # per-header feature のうち、1 件でもあれば違反にするもの / 数えて記録するだけのもの（大文字と小文字を区別した完全一致）。
@@ -214,11 +222,14 @@ def cargo_features(root, profile, crates):
     return out
 
 
-def judge(profile, crates):
-    """プロファイル 1 つ分の判定に当たる (名前, 版) を並べて返す。空の tree や検査対象の欠落は Misuse。"""
+def judge(profile, crates, extra=None):
+    """プロファイル 1 つ分の判定に当たる (名前, 版) を並べて返す。空の tree や検査対象の欠落は Misuse。
+    extra は --extra-judged-crate の名前で、判定の名前の一覧の末尾に足して数える。"""
     need(crates, "no crates found in the dependency graph")
     need(any(fold(n) == fold(PACKAGE) for n, _ in crates), "the checked crate is missing from the dependency graph")
     wanted = {fold(n) for n in PROFILES[profile]["names"]}
+    if extra is not None:
+        wanted.add(fold(extra))
     return sorted(k for k in crates if fold(k[0]) in wanted)
 
 
@@ -228,7 +239,15 @@ def main():
     ap.add_argument("--tree-text")
     ap.add_argument("--profile")
     ap.add_argument("--features-text")
+    ap.add_argument("--extra-judged-crate", action="append")
     a = ap.parse_args()
+    need(a.extra_judged_crate is None or len(a.extra_judged_crate) == 1, "--extra-judged-crate takes exactly one name")
+    extra_name = None if a.extra_judged_crate is None else a.extra_judged_crate[0]
+    if extra_name is not None:
+        need(EXTRA_NAME.fullmatch(extra_name) is not None, "invalid --extra-judged-crate")
+        already = {fold(n) for cfg in PROFILES.values() for n in cfg["names"]}
+        need(fold(extra_name) not in already, "--extra-judged-crate is already judged")
+    extra_field = "" if extra_name is None else " extra_judged_crate=%s" % clean(extra_name)
     if (a.tree_text is None) != (a.profile is None):
         raise Misuse("--tree-text and --profile must be given together")
     if a.features_text is not None and a.tree_text is None:
@@ -252,7 +271,7 @@ def main():
                 feats = parse_feature_tree(cargo_features(a.root, profile, crates))[1]
             inputs.append((profile, crates, feats, commit))
 
-    results = [(p, c, f, rev, judge(p, c)) for (p, c, f, rev) in inputs]
+    results = [(p, c, f, rev, judge(p, c, extra_name)) for (p, c, f, rev) in inputs]
     crate_total = 0
     feature_total = 0
     for profile, crates, feats, commit, hits in results:
@@ -269,9 +288,9 @@ def main():
                 len(header_versions(crates, hc)),
                 sum(k for j, _f, k in counts if j == "yes"), sum(k for j, _f, k in counts if j == "no"))
         print("scanned: profile=%s crates=%d" % (profile, len(crates)))
-        print("record: commit=%s profile=%s crates_total=%d judged_total=%d%s"
-              % (commit, profile, len(crates), len(hits), extra))
-        for n in cfg["names"]:
+        print("record: commit=%s profile=%s crates_total=%d judged_total=%d%s%s"
+              % (commit, profile, len(crates), len(hits), extra, extra_field))
+        for n in cfg["names"] + (() if extra_name is None else (extra_name,)):
             k = sum(1 for (hn, _v) in hits if fold(hn) == fold(n))
             print("count: profile=%s crate=%s n=%d" % (profile, clean(n), k))
         for judged, f, k in counts:
@@ -290,7 +309,7 @@ def main():
         print("FAILED: %d judged feature(s) found" % feature_total, file=sys.stderr)
     if crate_total or feature_total:
         return 1
-    print("ok: %d profile(s) checked, no judged crates (judged=0)" % len(results))
+    print("ok: %d profile(s) checked, no judged crates (judged=0)%s" % (len(results), extra_field))
     return 0
 
 
