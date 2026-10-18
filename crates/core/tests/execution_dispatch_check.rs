@@ -1,6 +1,6 @@
-//! `execution` の C8 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421 のポインタ。BIND-35・BIND-36）。
+//! `execution` の C8 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421 のポインタ。BIND-35〜BIND-37）。
 //!
-//! 長さ 0 の次元と `u64` のあふれが `InvalidArgument`（文言の先頭 `C8`）で拒否されることを確かめる。feature なしで動く。
+//! 長さ 0 の次元・`u64` のあふれ・上限超過が `InvalidArgument`（文言の先頭 `C8`）で拒否され、上限ちょうどは通ることを確かめる。feature なしで動く。
 
 use fandhe_silicon_core::execution::{
     DType, OperandCheckError, OperandSpec, required_bytes, validate_dispatch_operands,
@@ -62,4 +62,34 @@ fn c8_u64_overflow_in_byte_calculation_is_rejected() {
     assert_eq!(required_bytes(&s), None);
     let r = check(&[s], u64::MAX);
     assert!(is_c8(&r), "{r:?}");
+}
+
+/// 必要 4,000 バイトの宣言は、上限が 3,999 なら C8 で拒否される。
+/// 巨大な宣言（必要バイト数が約 2^63）でも結果が返ること自体が、バッファを確保せずに判定している証拠になる。
+#[test]
+fn c8_exceeds_max_buffer_bytes_is_rejected_without_allocating() {
+    let shape = [1000u64];
+    let s = spec(0, DType::F32, &shape);
+    assert_eq!(required_bytes(&s), Some(4000));
+    let r = check(&[s], 3999);
+    assert!(is_c8(&r), "{r:?}");
+
+    let huge_shape = [u64::MAX / 8];
+    let huge = spec(0, DType::F32, &huge_shape);
+    let n = required_bytes(&huge).expect("does not overflow u64");
+    assert!(n > 0);
+    let r = check(&[huge], n - 1);
+    assert!(is_c8(&r), "{r:?}");
+}
+
+/// 上限が必要バイト数ちょうどなら通る（巨大な宣言でも確保せずに通る）。
+#[test]
+fn c8_within_max_buffer_bytes_is_accepted() {
+    let shape = [1000u64];
+    assert_eq!(check(&[spec(0, DType::F32, &shape)], 4000), Ok(()));
+
+    let huge_shape = [u64::MAX / 8];
+    let huge = spec(0, DType::F32, &huge_shape);
+    let n = required_bytes(&huge).expect("does not overflow u64");
+    assert_eq!(check(&[huge], n), Ok(()));
 }
