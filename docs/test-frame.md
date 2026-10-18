@@ -204,4 +204,4 @@ worktree のルートで実行する。
 
 ## 関連
 
-[parity-tool](./parity-tool.md)・[pixel-parity-tool](./pixel-parity-tool.md)（枠から読む比較型）・[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[unsafe-policy](./unsafe-policy.md)・[workspace-boundary](./workspace-boundary.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[security](../.claude/rules/security.md)
+[artifact-cache-check](./artifact-cache-check.md)・[parity-tool](./parity-tool.md)・[pixel-parity-tool](./pixel-parity-tool.md)（枠から読む比較型）・[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[unsafe-policy](./unsafe-policy.md)・[workspace-boundary](./workspace-boundary.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[security](../.claude/rules/security.md)

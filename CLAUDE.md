@@ -51,6 +51,7 @@ fandhe-silicon/
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
+├── docs/artifact-cache-check.md  # 成果物キャッシュの照合の所在と、本リポの現状の事実（TASK-483）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
