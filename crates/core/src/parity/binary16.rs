@@ -2,6 +2,7 @@
 //!
 //! GEMM の門の run で、入力を f32 から binary16 へ 1 回だけ丸める側と、binary16 の値を f32 へ
 //! 正確に広げる側（CPU 参照・出力の比較）から呼ばれる。標準ライブラリだけで書き、外部依存は持たない。
+//! TASK-929 の 4/6 で、f64 から 1 回で丸める入口と f64 へ広げる入口を足した。
 //! ビット列は `u16` で持つ（型名に裸の半精度のプリミティブ名は使わない）。
 
 use super::cpu_reference::ReferenceError;
@@ -72,6 +73,65 @@ pub fn binary16_bits_to_f32(bits: u16) -> f32 {
         31 => f32::from_bits(sign | 0x7f80_0000 | (man << 13)),
         _ => f32::from_bits(sign | ((exp + 112) << 23) | (man << 13)),
     }
+}
+
+/// f64 を binary16 のビット列へ、f32 を経由せず最近接偶数で 1 回だけ丸める。
+///
+/// 規則は [`f32_to_binary16_bits`] と同じ（零の符号を保つ・非正規化数は最小が 2^-24・65520 以上は
+/// 符号つきの無限大・NaN は符号と仮数の上位 bit を保って静かな NaN にする）。
+/// f64 の非正規化数は零へ丸まる。f32 を経由すると丸めが 2 回になる値でも、ここでは 1 回で決まる。
+/// 代わりの実行の CPU の参照（`fallback_reference`）が、f64 の積和を丸めるときに呼ぶ。
+pub fn f64_to_binary16_bits(x: f64) -> u16 {
+    let bits = x.to_bits();
+    let sign = ((bits >> 48) & 0x8000) as u16;
+    let exp = ((bits >> 52) & 0x7ff) as i32;
+    let man = bits & 0x000f_ffff_ffff_ffff;
+
+    if exp == 0x7ff {
+        if man == 0 {
+            return sign | 0x7c00;
+        }
+        return sign | 0x7e00 | ((man >> 42) as u16 & 0x3ff);
+    }
+
+    let e = exp - 1023 + 15;
+    if e >= 31 {
+        return sign | 0x7c00;
+    }
+    if e <= 0 {
+        // -10 を下回ると最小の非正規化数の半分に届かず零へ丸まる（f64 の非正規化数もここ）。
+        if e < -10 {
+            return sign;
+        }
+        let full = man | (1u64 << 52);
+        // e は -10..=0 なので shift は 43..=53 で、u64 のシフト量として安全。
+        let shift = (43 - e) as u32;
+        let q = full >> shift;
+        let rem = full & ((1u64 << shift) - 1);
+        let half = 1u64 << (shift - 1);
+        let q = if rem > half || (rem == half && (q & 1) == 1) {
+            q + 1
+        } else {
+            q
+        };
+        return sign | q as u16;
+    }
+
+    let q = ((e as u64) << 10) | (man >> 42);
+    let rem = man & ((1u64 << 42) - 1);
+    let half = 1u64 << 41;
+    let q = if rem > half || (rem == half && (q & 1) == 1) {
+        // 仮数の繰り上がりは指数へ伝わる。e == 30 のときは無限大のビット列になる。
+        q + 1
+    } else {
+        q
+    };
+    sign | q as u16
+}
+
+/// binary16 のビット列を f64 へ正確に広げる（非正規化数・無限大・NaN を含む）。
+pub fn binary16_bits_to_f64(bits: u16) -> f64 {
+    f64::from(binary16_bits_to_f32(bits))
 }
 
 /// `values` の各要素を [`f32_to_binary16_bits`] で 1 回だけ丸めた列を返す。

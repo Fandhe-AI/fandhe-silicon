@@ -19,14 +19,14 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 一致の道具のファイル | `parity` は 13 個の `pub mod`（`binary16`・`case_inputs`・`cpu_reference`・`fallback_compare`・`fallback_inputs`・`gemm_gate`・`gemm_inputs`・`gemm_population`・`pixel`・`special_values`・`tolerance`・`topk`・`topk_inputs`）で束ねる。比べ方の追加は配下にファイルを足して `pub mod` で束ねる流儀 | `ls crates/core/src/parity`、`grep -n 'pub mod' crates/core/src/parity.rs` |
-| binary16 の変換 | 公開の関数は `f32_to_binary16_bits`・`binary16_bits_to_f32`・`round_slice_to_binary16`・`widen_binary16_slice` の 4 つ。丸める入口は f32 だけで、f64 から変換する入口は無い | `grep -n 'pub fn' crates/core/src/parity/binary16.rs`、`crates/core/tests/parity_binary16.rs` |
+| 一致の道具のファイル | `parity` は 14 個の `pub mod`（`binary16`・`case_inputs`・`cpu_reference`・`fallback_compare`・`fallback_inputs`・`fallback_reference`・`gemm_gate`・`gemm_inputs`・`gemm_population`・`pixel`・`special_values`・`tolerance`・`topk`・`topk_inputs`）で束ねる。比べ方の追加は配下にファイルを足して `pub mod` で束ねる流儀 | `ls crates/core/src/parity`、`grep -n 'pub mod' crates/core/src/parity.rs` |
+| binary16 の変換 | 公開の関数は `f32_to_binary16_bits`・`binary16_bits_to_f32`・`round_slice_to_binary16`・`widen_binary16_slice`・`f64_to_binary16_bits`・`binary16_bits_to_f64` の 6 つ。f64 から 1 回で丸める入口と f64 へ広げる入口は 4/6 で足した | `grep -n 'pub fn' crates/core/src/parity/binary16.rs`、`crates/core/tests/parity_binary16.rs` |
 | 決定的な乱数の生成器 | `gemm_inputs` の `SplitMix64`（`new`・`next_u64`・`skip`・`next_signed_unit_f32`）と `GEMM_INPUT_SEED` が `pub`。入力は固定の seed からその場で作り、ファイルには置かない | `crates/core/src/parity/gemm_inputs.rs`、[gemm-test-inputs](gemm-test-inputs.md) |
 | 入力の作り方の流儀 | `case_inputs`・`topk_inputs` は式や定数からその場で入力を作る。入力のファイルは無い | `crates/core/src/parity/case_inputs.rs`、`crates/core/src/parity/topk_inputs.rs` |
 | 和の参照と非正規化数 | `fallback_compare` の `reference_sum_f32`（`IntoIterator<Item = f32>` を受ける）・`SumReference`・`flush_subnormal_f32`・`F32SubnormalHandling` | `crates/core/src/parity/fallback_compare.rs` |
 | 比べ方の入口 | `compare_bits_u32`・`compare_bits_f32`・`compare_relative_sum_f32`・`compare_order_distance_binary16` など。詳しくは [parity-fallback-compare](parity-fallback-compare.md) | `grep -n 'pub fn' crates/core/src/parity/fallback_compare.rs` |
-| CPU の参照 | `cpu_reference` の `reference_gemm_f32` と `ReferenceError` | `crates/core/src/parity/cpu_reference.rs` |
-| 統合テスト | `crates/core/tests` の `parity_*` は 17 本。`crates/core/Cargo.toml` の `required-features` は 31 件 | `ls crates/core/tests \| grep -c '^parity_'`、`grep -c required-features crates/core/Cargo.toml` |
+| CPU の参照 | `cpu_reference` の `reference_gemm_f32` と `ReferenceError`。代わりの実行の参照は 4/6 で `fallback_reference` に足した | `crates/core/src/parity/cpu_reference.rs` |
+| 統合テスト | `crates/core/tests` の `parity_*` は 18 本。`crates/core/Cargo.toml` の `required-features` は 32 件 | `ls crates/core/tests \| grep -c '^parity_'`、`grep -c required-features crates/core/Cargo.toml` |
 | feature | `parity` は `test-support` の裏にある。`test-support = []` で、`contract` の `test-support` が `fandhe-silicon-core/test-support` へ転送する | `crates/core/src/lib.rs`、`crates/core/Cargo.toml`、`crates/contract/Cargo.toml` |
 | `exec` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec` |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
@@ -80,6 +80,32 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | seed・決定性 | `AS` の seed は n と m で決まり、長さの表と m の表の範囲で一意。同じ入力で同じ列 | `seed_differs_across_kinds_and_lengths`・`generation_is_deterministic` |
 | 既知値 | 小さな長さの 7 種の sha256 を、本リポのコードが出す値として固定する | `known_digests_subgroup_atomic` |
 
+## 所在（4/6）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | `crates/core/src/parity/fallback_reference.rs`（`test-support` の裏。外部依存 0・`unsafe` なし。和の計算は `fallback_compare::reference_sum_f32` を呼び、新しく書かない）。f64 の変換は `binary16.rs` に足した | `grep -n 'pub mod fallback_reference' crates/core/src/parity.rs` |
+| 公開名 | `reference_f16_fma`・`reference_f16_fma_slice`・`subgroup_sum_output_len`・`subgroup_sum_block_range`・`reference_subgroup_sum_u32`・`reference_subgroup_sum_f32`・`reference_atomic_add_f32`・`F32SumReferences`（`values`・`abs_sums`・`len`・`is_empty`）。`binary16` に `f64_to_binary16_bits`・`binary16_bits_to_f64` | `crates/core/src/parity/fallback_reference.rs` |
+| 試験 | `crates/core/tests/parity_fallback_reference.rs`（15 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_reference` |
+
+## 振る舞い（4/6）
+
+具体の値は公開テストが固定する。
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| f64 から binary16 | f32 を経由せず最近接偶数で 1 回だけ丸める。全 65,536 のビット列が往復で戻る（NaN は NaN のまま）。f32 で表せる値では `f32_to_binary16_bits` と一致する | `f64_conversion_round_trips_every_binary16`・`f64_conversion_matches_f32_conversion_on_f32_values`・`f64_conversion_rounds_once` |
+| 境界の値 | 零の符号を保つ。f64 の非正規化数は零へ。2^-25 ちょうどは 0、超えれば最小の非正規化数。65520 以上は無限大 | `f64_conversion_special_values` |
+| `f16-fma` | 3 つを f64 に広げ `f64::mul_add` で融合して計算し、binary16 へ 1 回だけ丸める。結果が NaN のときは `0x7e00` に揃える | `f16_fma_hand_checked` |
+| `E1` | 全長さで、整数の正確な計算を binary16 に丸めた値とビットが一致する | `f16_fma_e1_matches_exact_integer_arithmetic` |
+| 列の関数 | `b`・`c` の長さが `a` と違えば `LengthMismatch`。空は空の列。要素ごとの関数と一致する | `f16_fma_slice_checks_lengths_and_empty`・`f16_fma_slice_matches_element_function` |
+| ブロックの範囲 | 出力の数は ⌈n ÷ 256⌉。ブロックは重ならず 0..n を覆う。範囲外の j は `None` | `block_ranges_cover_input` |
+| `subgroup-sum` の u32 | ブロックごとの和を 2^32 を法として求める | `subgroup_sum_u32_wraps_and_matches_blocks` |
+| `subgroup-sum` の f32 | ブロックごとの値と Σ\|x\| が `reference_sum_f32` をブロックに直接かけた結果と一致する（`Preserve`・`FlushToZero`） | `subgroup_sum_f32_matches_reference_sum_per_block` |
+| `atomic-add` | 出力は長さ m。要素 j は `skip(j).step_by(m)` の和と一致し、足される入力が無い要素は +0.0・Σ\|x\| 0。m = 0 は空の結果 | `atomic_add_matches_strided_sums`・`atomic_add_small_hand_example_and_zero_outputs` |
+| 決定性 | 同じ入力で同じ出力 | `references_are_deterministic` |
+| 既知値 | 参照の出力の sha256 を、本リポのコードが出す値として固定する（f32 の出力は NaN を 1 つの値に揃えて数える） | `known_digests` |
+
 ## 段の表
 
 | 段 | Issue |
@@ -87,7 +113,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 1/6 | #6041 |
 | 2/6 | #6042（`f16-fma` の入力の生成器と長さ n の表。本書の「所在（2/6）」「振る舞い（2/6）」） |
 | 3/6 | #6043（`subgroup-sum`・`atomic-add` の入力の生成器と出力の数 m の表。本書の「所在（3/6）」「振る舞い（3/6）」） |
-| 4/6 | #6044 |
+| 4/6 | #6044（CPU の参照と f64 から binary16 への変換。本書の「所在（4/6）」「振る舞い（4/6）」） |
 | 5/6 | #6045 |
 | 6/6 | #6046 |
 
