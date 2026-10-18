@@ -4,9 +4,12 @@
 //! その場で決定的に作り、ファイルには置かない。参照は [`super::cpu_reference`] の
 //! `reference_gemm_f32` に通すだけで、累積の手順をここでは新しく書かない。
 //! 判定は [`super::tolerance`] の `compare_f32` にそのまま渡せる f32 の列で返す。
+//! 累積の順を `k` の降順にした対照の参照は `reference_for_descending_k`（TASK-1005 の 4/6。判定には使わない）。
 
 use super::binary16::{round_slice_to_binary16, widen_binary16_slice};
-use super::cpu_reference::{ReferenceError, reference_gemm_f16acc, reference_gemm_f32};
+use super::cpu_reference::{
+    ReferenceError, reference_gemm_f16acc, reference_gemm_f32, reference_gemm_f32_descending_k,
+};
 
 /// SplitMix64 の加算の定数（状態を 1 回進める幅）。
 const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -300,6 +303,29 @@ pub fn reference_for(
         GemmInputDtype::F16Acc => {
             let half = inputs.to_binary16()?;
             reference_gemm_f16acc(half.a(), half.b(), row.m(), row.k(), row.n())?
+        }
+    };
+    Ok(GemmGateReference { values })
+}
+
+/// [`reference_for`] と同じ形で、累積の順だけを `k` の降順にした対照の参照を作る（TASK-1005 の 4/6）。
+///
+/// 判定には使わない。`F16Acc` の入力の丸め（f32 から binary16 へ 1 回）は [`reference_for`] と同じ。
+/// 返す [`GemmGateReference`] は `compare_f32` にそのまま渡せる。
+pub fn reference_for_descending_k(
+    row: GemmGateRow,
+    dtype: GemmInputDtype,
+    inputs: &GemmInputsF32,
+) -> Result<GemmGateReference, ReferenceError> {
+    let values = match dtype {
+        GemmInputDtype::F32 => {
+            reference_gemm_f32_descending_k(inputs.a(), inputs.b(), row.m(), row.k(), row.n())?
+        }
+        GemmInputDtype::F16Acc => {
+            let half = inputs.to_binary16()?;
+            let a = widen_binary16_slice(half.a())?;
+            let b = widen_binary16_slice(half.b())?;
+            reference_gemm_f32_descending_k(&a, &b, row.m(), row.k(), row.n())?
         }
     };
     Ok(GemmGateReference { values })
