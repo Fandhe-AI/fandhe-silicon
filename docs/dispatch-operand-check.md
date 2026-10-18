@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4・3/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4〜3/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -27,7 +27,9 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 ## 対応するテスト
 
 - `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前。C8 に加え、`dispatch_check_c4_`・`dispatch_check_c5_`・`dispatch_check_c6_`、C8 が先に判定される順、宣言の無い `slot` を見ないことを確かめる）
-- `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_`・`c6_` で始まる名前）。定数が宣言の必要バイト数より短ければ C6 で拒否、同じ長さなら通る。長さ 0 の次元（GEMM の宣言を含む）・`u64` のあふれ・上限超過（1 バイト足りなければ拒否、ちょうどなら通る。巨大な宣言でも確保せずに判定する）を確かめる
+- `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_` で始まる名前）。長さ 0 の次元（GEMM の宣言を含む）・`u64` のあふれ・上限超過（1 バイト足りなければ拒否、ちょうどなら通る。巨大な宣言でも確保せずに判定する）を確かめる
+- 同じファイルの `c6_` で始まる名前の統合テスト。定数が宣言の必要バイト数より短ければ C6 で拒否、同じ長さなら通る
+- 同じファイルの `c4_`・`c5_` で始まる名前の統合テスト。容量 16 のバッファに 400 バイトの宣言は拒否、16 バイトちょうどは通る（C4）。alignment 16 に offset 4 は拒否、offset 16 は通る（C5）
 
 ## 確かめ方
 

@@ -1,7 +1,8 @@
-//! `execution` の C8・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423 のポインタ。BIND-35〜BIND-37・BIND-44）。
+//! `execution` の C8・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44）。
 //!
-//! 長さ 0 の次元・`u64` のあふれ・上限超過が `InvalidArgument`（文言の先頭 `C8`）で拒否され、上限ちょうどは通ることを確かめる。
-//! 定数の長さが宣言の必要バイト数と違えば先頭 `C6` で拒否され、同じ長さなら通ることも確かめる。feature なしで動く。
+//! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
+//! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
+//! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
 
 use fandhe_silicon_core::execution::{
     DType, OperandBinding, OperandCheckError, OperandConstant, OperandSpec, required_bytes,
@@ -22,6 +23,11 @@ fn check(declared: &[OperandSpec<'_>], max: u64) -> Result<(), OperandCheckError
     validate_dispatch_operands(declared, &[], &[], |_| None, max)
 }
 
+/// variant と文言の先頭が検査名 `name` であることだけを見る（`OperandCheckError` は `non_exhaustive`）。
+fn is_rejected_by(r: &Result<(), OperandCheckError>, name: &str) -> bool {
+    matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with(name))
+}
+
 /// 束縛・定数・束縛の容量を渡せる呼び出し（容量はどの束縛にも同じ値を返す）。
 fn run(
     declared: &[OperandSpec<'_>],
@@ -32,14 +38,9 @@ fn run(
     validate_dispatch_operands(declared, bindings, consts, |_| cap, u64::MAX)
 }
 
-/// variant と文言の先頭 `code`（`C6` など）だけを見る。
-fn is_code(r: &Result<(), OperandCheckError>, code: &str) -> bool {
-    matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with(code))
-}
-
-/// variant と文言の先頭 `C8` だけを見る（`OperandCheckError` は `non_exhaustive`）。
+/// variant と文言の先頭 `C8` だけを見る。
 fn is_c8(r: &Result<(), OperandCheckError>) -> bool {
-    matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C8"))
+    is_rejected_by(r, "C8")
 }
 
 /// shape に 0 の次元があれば、上限が最大でも C8 で拒否される。
@@ -111,6 +112,77 @@ fn c8_within_max_buffer_bytes_is_accepted() {
     assert_eq!(check(&[huge], n), Ok(()));
 }
 
+/// 容量 16 のバッファに必要 400 バイトの宣言を束縛すると C4 で拒否される（ほかの検査には当たらない入力）。
+#[test]
+fn c4_buffer_capacity_exceeded_is_rejected() {
+    let shape = [100u64];
+    let s = spec(0, DType::F32, &shape);
+    assert_eq!(required_bytes(&s), Some(400));
+    let r = validate_dispatch_operands(
+        &[s],
+        &[OperandBinding { slot: 0, offset: 0 }],
+        &[],
+        |_| Some(16),
+        u64::MAX,
+    );
+    assert!(is_rejected_by(&r, "C4"), "{r:?}");
+}
+
+/// 必要 16 バイトちょうどの容量なら C4 を通る。
+#[test]
+fn c4_buffer_capacity_sufficient_is_accepted() {
+    let shape = [4u64];
+    let s = spec(0, DType::F32, &shape);
+    assert_eq!(required_bytes(&s), Some(16));
+    let r = validate_dispatch_operands(
+        &[s],
+        &[OperandBinding { slot: 0, offset: 0 }],
+        &[],
+        |_| Some(16),
+        u64::MAX,
+    );
+    assert_eq!(r, Ok(()));
+}
+
+/// alignment 16 の宣言に offset 4 を束縛すると C5 で拒否される（容量は不明にして C4 を避ける）。
+#[test]
+fn c5_alignment_violation_is_rejected() {
+    let shape = [1u64];
+    let s = OperandSpec {
+        alignment: 16,
+        ..spec(0, DType::F32, &shape)
+    };
+    let r = validate_dispatch_operands(
+        &[s],
+        &[OperandBinding { slot: 0, offset: 4 }],
+        &[],
+        |_| None,
+        u64::MAX,
+    );
+    assert!(is_rejected_by(&r, "C5"), "{r:?}");
+}
+
+/// 同じ宣言で offset 16 なら alignment を満たし、C5 を通る。
+#[test]
+fn c5_alignment_satisfied_is_accepted() {
+    let shape = [1u64];
+    let s = OperandSpec {
+        alignment: 16,
+        ..spec(0, DType::F32, &shape)
+    };
+    let r = validate_dispatch_operands(
+        &[s],
+        &[OperandBinding {
+            slot: 0,
+            offset: 16,
+        }],
+        &[],
+        |_| None,
+        u64::MAX,
+    );
+    assert_eq!(r, Ok(()));
+}
+
 /// 定数が宣言の必要バイト数（u32 × 3 = 12）より短ければ C6 で拒否される（TASK-423・BIND-44 のポインタ）。
 #[test]
 fn c6_constant_size_mismatch_is_rejected() {
@@ -120,7 +192,7 @@ fn c6_constant_size_mismatch_is_rejected() {
         slot: 0,
         bytes: &[0u8; 8],
     }];
-    assert!(is_code(&run(&declared, &[], &consts, None), "C6"));
+    assert!(is_rejected_by(&run(&declared, &[], &consts, None), "C6"));
 }
 
 /// 定数が必要バイト数ちょうどなら通る。拒否の原因が長さだけであることを示す。
