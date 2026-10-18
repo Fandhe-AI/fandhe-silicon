@@ -1,4 +1,4 @@
-//! 3 段で受け渡す実行まわりの共通の型。パイプライン生成の入力の型と、引数の宣言の型を置く（TASK-470 のポインタ）。
+//! 3 段で受け渡す実行まわりの共通の型。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型を置く（TASK-470 のポインタ）。
 //!
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が組み立てた入力を、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が受け取るときの形を定める。
@@ -179,4 +179,28 @@ pub struct OperandSpec<'a> {
     pub stride: &'a [i64],
     /// offset の境界のバイト数。
     pub alignment: u32,
+}
+
+/// パイプラインのキャッシュを引くためのキー。
+///
+/// 値を保持するだけで、ハッシュの計算やキーの組み立てはしない。
+/// 全フィールドが等価比較とハッシュに使われるので、1 つでも違えば別のキーになる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CacheKey {
+    /// ソースのハッシュ値。
+    pub source_hash: u64,
+    /// コンパイラの識別名。
+    pub compiler_id: &'static str,
+    /// コンパイラの版の値。
+    pub compiler_version: u64,
+    /// ビルドの対象の名前。
+    pub target: &'static str,
+    /// コンパイルの選択のハッシュ値。
+    pub options_hash: u64,
+    /// 境界の検査を有効にしたか。
+    pub bounds_checked: bool,
+    /// 特殊化の値のハッシュ値。
+    pub specialization_hash: u64,
+    /// ドライバの版の値。取れないときは `None`。
+    pub driver_version: Option<u64>,
 }

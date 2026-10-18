@@ -21,6 +21,7 @@
 | `FunctionConstantValue` | `#[non_exhaustive]` の enum（`U32`・`Bool`）。`Copy` |
 | `DType` | `#[non_exhaustive]` の enum（`F32`・`F16`・`U32`・`I32`・`Bool`）。`Copy`・`PartialEq`・`Eq` |
 | `OperandSpec<'a>` | 公開フィールド `slot: u32`・`dtype: DType`・`shape: &[u64]`・`stride: &[i64]`・`alignment: u32` の struct。`Copy`。形と stride は借用 |
+| `CacheKey` | 公開フィールド 8 つ（`source_hash: u64`・`compiler_id: &'static str`・`compiler_version: u64`・`target: &'static str`・`options_hash: u64`・`bounds_checked: bool`・`specialization_hash: u64`・`driver_version: Option<u64>`）の struct。`Copy`・`PartialEq`・`Eq`・`Hash`。`#[non_exhaustive]` ではない |
 
 振る舞いを持つ関数は `DType::byte_size`（1 要素のバイト数を返す）だけ。必要バイト数の計算や宣言の検査はここにない。
 
@@ -32,12 +33,14 @@
 | `MslMathMode`・`MslFloatFunctions` の `Copy`・等価比較 | 同 `execution_mode_enums_are_copy_and_eq` |
 | function constant の件数と中身が保たれる | 同 `execution_function_constants_keep_count_and_values` |
 | `DType::byte_size` の値、`OperandSpec` の組み立てと読み出し・`Copy` | `crates/core/tests/execution_operand_spec.rs` の `execution_dtype_byte_sizes`・`execution_dtype_is_copy_and_eq`・`execution_operand_spec_keeps_fields`・`execution_operand_spec_accepts_empty_dims` |
+| `CacheKey` の組み立てと読み出し・`Copy`、全フィールドの等価比較、1 フィールドの違いが別のキーになること、等しいキーのハッシュの一致 | `crates/core/tests/execution_cache_key.rs` の `execution_cache_key_keeps_fields`・`execution_cache_key_equal_when_all_fields_equal`・`execution_cache_key_differs_when_one_field_differs`・`execution_cache_key_hash_follows_equality` |
 
 ## 確かめ方
 
 ```bash
 cargo test -p fandhe-silicon-core --test execution_pipeline_input
 cargo test -p fandhe-silicon-core --test execution_operand_spec
+cargo test -p fandhe-silicon-core --test execution_cache_key
 ```
 
 `make verify` が流す。GPU の実機は要らない。
