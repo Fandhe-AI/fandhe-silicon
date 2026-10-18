@@ -1,10 +1,11 @@
-//! `execution` の C8・C4・C5 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421 のポインタ。BIND-35〜BIND-37。TASK-423 のポインタ。BIND-42・BIND-43）。
+//! `execution` の C8・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44）。
 //!
-//! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）が
-//! `InvalidArgument`（文言の先頭が各検査名）で拒否され、境界ちょうどは通ることを確かめる。feature なしで動く。
+//! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
+//! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
+//! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
 
 use fandhe_silicon_core::execution::{
-    DType, OperandBinding, OperandCheckError, OperandSpec, required_bytes,
+    DType, OperandBinding, OperandCheckError, OperandConstant, OperandSpec, required_bytes,
     validate_dispatch_operands,
 };
 
@@ -27,6 +28,17 @@ fn is_rejected_by(r: &Result<(), OperandCheckError>, name: &str) -> bool {
     matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with(name))
 }
 
+/// 束縛・定数・束縛の容量を渡せる呼び出し（容量はどの束縛にも同じ値を返す）。
+fn run(
+    declared: &[OperandSpec<'_>],
+    bindings: &[OperandBinding],
+    consts: &[OperandConstant<'_>],
+    cap: Option<u64>,
+) -> Result<(), OperandCheckError> {
+    validate_dispatch_operands(declared, bindings, consts, |_| cap, u64::MAX)
+}
+
+/// variant と文言の先頭 `C8` だけを見る。
 fn is_c8(r: &Result<(), OperandCheckError>) -> bool {
     is_rejected_by(r, "C8")
 }
@@ -169,4 +181,27 @@ fn c5_alignment_satisfied_is_accepted() {
         u64::MAX,
     );
     assert_eq!(r, Ok(()));
+}
+
+/// 定数が宣言の必要バイト数（u32 × 3 = 12）より短ければ C6 で拒否される（TASK-423・BIND-44 のポインタ）。
+#[test]
+fn c6_constant_size_mismatch_is_rejected() {
+    let declared = [spec(0, DType::U32, &[3])];
+    assert_eq!(required_bytes(&declared[0]), Some(12));
+    let consts = [OperandConstant {
+        slot: 0,
+        bytes: &[0u8; 8],
+    }];
+    assert!(is_rejected_by(&run(&declared, &[], &consts, None), "C6"));
+}
+
+/// 定数が必要バイト数ちょうどなら通る。拒否の原因が長さだけであることを示す。
+#[test]
+fn c6_constant_size_match_is_accepted() {
+    let declared = [spec(0, DType::U32, &[3])];
+    let consts = [OperandConstant {
+        slot: 0,
+        bytes: &[0u8; 12],
+    }];
+    assert_eq!(run(&declared, &[], &consts, None), Ok(()));
 }
