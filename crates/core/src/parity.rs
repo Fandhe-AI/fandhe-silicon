@@ -2,7 +2,7 @@
 //!
 //! feature `test-support` の裏にだけ公開される（置き場と feature 名の説明は `docs/parity-tool.md` の「所在」）。
 //! 製品の経路（`contract`・`exec`・`upper` の非テストのコード）からは参照しない。
-//! `f16-fma` の試験の入力の生成器と長さ n の表は `fallback_inputs`（TASK-929 の 2/6）。
+//! `f16-fma`・`subgroup-sum`・`atomic-add` の試験の入力の生成器と長さ n・出力の数 m の表は `fallback_inputs`（TASK-929 の 2/6・3/6）。
 //! 比べ方の追加（後続の作業）は、このモジュール配下にファイルを足して `pub mod` で束ねる。
 
 pub mod binary16;
