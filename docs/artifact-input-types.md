@@ -23,7 +23,7 @@
 | `OperandSpec<'a>` | 公開フィールド `slot: u32`・`dtype: DType`・`shape: &[u64]`・`stride: &[i64]`・`alignment: u32` の struct。`Copy`。形と stride は借用 |
 | `CacheKey` | 公開フィールド 8 つ（`source_hash: u64`・`compiler_id: &'static str`・`compiler_version: u64`・`target: &'static str`・`options_hash: u64`・`bounds_checked: bool`・`specialization_hash: u64`・`driver_version: Option<u64>`）の struct。`Copy`・`PartialEq`・`Eq`・`Hash`。`#[non_exhaustive]` ではない |
 
-振る舞いを持つ関数は `DType::byte_size`（1 要素のバイト数を返す）だけ。必要バイト数の計算や宣言の検査はここにない。
+振る舞いを持つ関数は `DType::byte_size`（1 要素のバイト数を返す）だけ。必要バイト数の計算と宣言の C8 の検査は同じ `execution` の別の関数にあり、[dispatch-operand-check.md](dispatch-operand-check.md) に書く。
 
 ## 対応するテスト
 
