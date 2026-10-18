@@ -35,7 +35,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_compare.rs`（`test-support` の裏。標準ライブラリだけ、確保も panic もしない） | `grep -n 'pub mod' crates/core/src/parity.rs` |
 | 公開名 | `OrderVerdict`・`judge_order_f32`・`judge_order_binary16`・`FallbackVerdict`・`judge_bits_u32`・`judge_bits_f32`・`FallbackComparison`・`compare_bits_u32`・`compare_bits_f32`。エラーは `tolerance::CompareError` を再利用する | `crates/core/src/parity/fallback_compare.rs` |
-| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8〜6/8 の分を含めて 49 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8〜7/8 の分を含めて 53 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
 
 ## 振る舞い（2/8）
 
@@ -135,6 +135,35 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | 0 に落とす参照の境目 | 最大の非正規化数は +0、最小の正規化数はそのまま。和がちょうど最小の正規化数なら置き換えられず、その少し下は落とす参照で +0・保つ参照で非正規化数。同じ実測で判定が分かれる | `boundary_flush_reference_edges` |
 | binary16 には当てない | binary16 の非正規化数は零と区別し、順序の差の条件で比べる | `boundary_binary16_ignores_flush` |
 | 列の集計 | 境目の組を混ぜた列で、`compared`・`mismatched`・`first_mismatch`・余裕が手で書いた期待どおり | `boundary_sequence_order_summary` |
+
+## 所在（7/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/8 と同じ `parity_fallback_compare.rs` に足す（新しいファイルは足さない）。本体の `fallback_compare.rs` は変えない | `git diff --stat origin/main -- crates/core/src` |
+| 試験 | 同じ `parity_fallback_compare.rs` に 4 本（名前は `threshold_` で始まる）を足す | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare threshold_` |
+
+## 振る舞い（7/8）
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| 定数が外から読め、値が固定 | `BINARY16_MAX_ORDER_DISTANCE` と `SUM_RELATIVE_BOUND` は外の crate から読め、値はテストが固定する | `threshold_constants_are_readable_and_fixed` |
+| 順序の差の条件に使う値が読める定数と同じ | 差が定数ちょうどなら `WithinOrderDistance`、定数 + 1 なら `OrderDistanceExceeded`。正・負の正規化数と非正規化数で同じで、列の入口でも同じ | `threshold_order_distance_applied_is_the_readable_one` |
+| 相対の条件に使う値が読める定数と同じ | 誤差がちょうど定数 * Σ\|x\| なら一致（境目を含む）、1 ulp 上は不一致、1 ulp 下は一致。Σ\|x\| をわずかに下げると不一致。余裕の値も同じ側に出て、列の入口でも同じ | `threshold_relative_sum_applied_is_the_readable_one` |
+| 閾値を引数に取らない | 判定・差・余裕・列の入口の関数は閾値を引数に取らない形で、コンパイルで固定する | `threshold_is_not_a_parameter` |
+
+## 閾値と当てる範囲の扱い
+
+- 閾値の置き場は `fallback_compare.rs` の 2 つの定数（1 か所ずつ）。本書には数値を持たない（数値はテストが固定する）
+- `tolerance` の `judge_element` と違い、比べる関数は閾値を引数に取らず定数を中で使う。外から差し替える口は無い
+- 道具は「どの出力に当てるか」の情報を持たず、入力の列を受けて集計を返すだけ。`parity` は `test-support` の裏にある
+- 当てる範囲は本書では決めない。private spec 側の TASK-53・TASK-38 を参照する（ポインタのみ）
+
+## 値・規則を変える変更の扱い
+
+- 対象は 2 つの定数と、判定の向き（境目を含むこと）。定義の正は private spec 側（TASK-928 のポインタ）
+- 本リポの都合で値を変えない。変える必要が出たら該当の作業を止め、[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の差し戻しの手順に従う
+- 値と、それを固定する公開テストの期待値は同じ PR でしか変えない。期待値だけを弱めて通さない
 
 ## 段の表
 
