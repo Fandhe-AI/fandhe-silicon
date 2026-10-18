@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4〜3/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -46,7 +46,7 @@ make verify
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
 | A1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 6 passed / 0 failed / 0 ignored |
-| A2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 7 passed / 0 failed / 0 ignored |
+| A2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 5 passed / 0 failed / 0 ignored |
 | A3 | 統合テストの関数の数 | `grep -c -E '^fn c8_' crates/core/tests/execution_dispatch_check.rs` | 5 |
 | A4 | 宣言された大きさの確保・panic がない（拒否の文言の生成を除く） | 本体（`#[cfg(test)]` より上）への grep は `checked_mul` だけ。`crates/core/src/lib.rs` は `#![forbid(unsafe_code)]` | 一致 |
 | A5 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
@@ -71,3 +71,36 @@ make verify
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `7c962ec88bccc285f63d81e46a1f4381f8490082`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## 完了の条件の確かめ（4/4）（TASK-423）
+
+4/4（#4750）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-423。関連: BIND-42〜BIND-44）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 15 passed / 0 failed / 0 ignored |
+| B2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 11 passed / 0 failed / 0 ignored |
+| B3 | 統合テストの関数の数 | `grep -c -E '^fn c4_'`・`'^fn c5_'`・`'^fn c6_'`（`crates/core/tests/execution_dispatch_check.rs`） | 2・2・2 |
+| B4 | panic・確保がない（拒否の文言の生成を除く） | 本体（`#[cfg(test)]` より上）への grep は `checked_mul`（`required_bytes`）・`saturating_sub`（C4）・`u64::try_from`（C6）・`%`（C5。alignment が 0 の入力は先に抜ける）だけ。`unwrap`・`expect`・確保は 0 件。`crates/core/src/lib.rs` は `#![forbid(unsafe_code)]` | 一致 |
+| B5 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
+| B6 | base の CI | `gh run list`（base の push の run、ID 39161164298） | 成功（success、完了済み） |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+
+ビヘイビア ID と試験の対応（関数名）:
+
+| ID | 試験 |
+| -- | ---- |
+| BIND-42 | `c4_buffer_capacity_exceeded_is_rejected`・`c4_buffer_capacity_sufficient_is_accepted` |
+| BIND-43 | `c5_alignment_violation_is_rejected`・`c5_alignment_satisfied_is_accepted` |
+| BIND-44 | `c6_constant_size_mismatch_is_rejected`・`c6_constant_size_match_is_accepted` |
+
+試験が照合するのは `InvalidArgument` の variant と、文言の先頭 `C4`・`C5`・`C6` まで。
+
+範囲の外: C7、同じ `slot` の宣言が複数あるときの扱い、容量が不明・offset が 0 より大きい・alignment が 0 の入力、期待より長い定数・定数の slot の入力、背後実装の入口を通した確かめは本書の範囲の外（ポインタ: TASK-422・TASK-424、TASK-426、TASK-425・TASK-477、TASK-475・TASK-476、TASK-494・TASK-495）。
+
+### 再実行の契機
+
+- `dispatch_check.rs`・`execution_dispatch_check.rs`・`execution.rs` の `OperandSpec`／`DType::byte_size`、`OperandBinding`／`OperandConstant`／`binding_capacity` の形を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `22f552400926555b5f8018ffd6feae1518b2d38b`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
