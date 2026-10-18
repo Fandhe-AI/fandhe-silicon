@@ -61,11 +61,14 @@ macOS の上でだけ動く（それ以外は終了コード 2。JSON を出さ�
 | ---- | ---- |
 | `--combination <name>` | 必須。環境変数 `FANDHE_SILICON_TEST_MACHINE_COMBINATION` に渡す。既定値を持たず、呼び出し側の環境の同名の変数も読まない。文字種は `[a-z0-9-]`・64 バイト以下 |
 | `--permissions <csv>` | 付けたときだけ環境変数 `FANDHE_SILICON_TEST_PERMISSIONS` を設定する。付けないときは、呼び出し側の環境に同名の変数があっても取り除く。名前は `[a-z0-9-]`（64 バイト以下・16 個まで）をカンマで区切る。空は拒否 |
+| `--validation-layer` | 付けたときだけ環境変数 `MTL_DEBUG_LAYER` と `MTL_SHADER_VALIDATION` をどちらも `1` にする。付けないときは、呼び出し側の環境に同名の変数があっても 2 つとも取り除く |
+| `--gate-cell <id>` | 付けたときだけ環境変数 `FANDHE_SILICON_GEMM_GATE_CELL` に渡す（GEMM の門の run で流す 1 セルの識別名）。付けないときは取り除く。文字種は `[a-z0-9-]`・64 バイト以下・空は拒否。知らない識別名かどうかは枠が決める。1 セル = 1 プロセスなので、セルを回すループは呼び出し側が持つ |
 | `--developer-dir <dir>` | `DEVELOPER_DIR` に渡す。省略時と空文字を渡したときは、呼び出し側の環境の `DEVELOPER_DIR`。どちらも無い・絶対パスでない・実在するディレクトリでないときは起動しない。既定の開発者ディレクトリは切り替えない |
 | `--no-caffeinate` | 付けたときだけ `caffeinate -i` を使わない。既定は `caffeinate -i` の下で起動する。`caffeinate` が見つからず `--no-caffeinate` も無いときは起動しない（終了コード 2）。`--caffeinate` は受け付けない |
 | `--` 以降 | 起動するコマンドと引数。配列のまま `exec` する（連結も `eval` もしない）。終了コードは起動したコマンドのもの |
 
 - 環境変数の名前と受ける値は `crates/core/src/test_frame/setting.rs` が定める。試験の枠は `FANDHE_SILICON_TEST_MACHINE_COMBINATION` が未設定のとき「未実施」を返し、`FANDHE_SILICON_TEST_PERMISSIONS` が未設定のとき許可は 0 件として扱う（公開テスト: `crates/core/tests/test_frame_decide.rs` の `unset_combination_is_not_configured`・`unset_and_empty_permissions_mean_none_granted`）。試験の枠の現状は [test-frame](./test-frame.md)
+- 門の run の 1 セルを検証レイヤーの下で流す例: `scripts/metal-session.sh run --combination metal-mac-mini --validation-layer --gate-cell g6-sq512-f32 -- cargo test -p fandhe-silicon-contract <腕の試験>`（`<腕の試験>` は各腕のタスクが置く。枠は [gemm-test-inputs](./gemm-test-inputs.md)）
 - 組み合わせの名前の正は `crates/core/src/test_frame/combination.rs`
 - feature の組は `scripts/build-profiles.sh` を指す
 
@@ -160,7 +163,8 @@ example-dir<TAB><example-place>
 | 既定で `caffeinate -i`、`--no-caffeinate` で外す、無ければ起動しない | `run: caffeinate -i wraps the command by default`・`run: caffeinate not called with --no-caffeinate`・`run: missing caffeinate refuses to start`・`run: the old --caffeinate option is misuse` |
 | 終了コードの伝播 | `run: child exit code propagates`・`run: exit code propagates through caffeinate` |
 | 空白・`;`・`$()` を含む引数が 1 つの引数のまま渡る | `run: odd arguments arrive as single arguments`・`run: nothing was evaluated` |
-| 不正な値・引数を拒否する | `run: bad combination ...`・`run: bad permissions ...`・`run: unknown option` |
+| 検証レイヤーと門のセルは明示したときだけ渡す | `run: validation layer variables reach child`・`run: gate cell reaches child`・`run: caller's validation and cell not passed on` |
+| 不正な値・引数を拒否する | `run: bad gate cell ...`・`run: gate cell over 64 bytes`・`run: bad combination ...`・`run: bad permissions ...`・`run: unknown option` |
 | `redact` が語ごとの印に置き換え、入力を変えない | `redact: replaces words`・`redact: each word gets its own mark`・`redact: input is not modified` |
 | 既存の出力を上書きしない | `redact: existing output is not overwritten`・`redact: output symlink is refused` |
 | 語が固定の文字列として扱われる | `redact: words are fixed strings, not regexes`・`scan: regex characters in words are literal` |

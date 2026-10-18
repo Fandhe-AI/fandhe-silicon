@@ -122,6 +122,13 @@ impl GemmGateCell {
     pub fn in_population(self) -> bool {
         self.arm.in_population()
     }
+
+    /// 識別名（[`Self::id`] の形）と完全一致したときだけセルを返す。大小文字や前後の空白は許さない。
+    ///
+    /// 門の run の枠が、プロセスに渡された識別名を 1 セルへ解決するために呼ぶ。
+    pub fn from_id(id: &str) -> Option<GemmGateCell> {
+        gate_cells().into_iter().find(|c| c.id() == id)
+    }
 }
 
 /// 門の run で流す全セル（`Mps` を含む）。順は 腕 → 行 → dtype で決定的。

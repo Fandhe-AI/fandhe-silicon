@@ -118,6 +118,10 @@ name = "parity_gemm_reference"
 required-features = ["test-support"]
 
 [[test]]
+name = "parity_gemm_gate"
+required-features = ["test-support"]
+
+[[test]]
 name = "parity_gemm_population"
 required-features = ["test-support"]
 
