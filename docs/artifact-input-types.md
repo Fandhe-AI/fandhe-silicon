@@ -19,8 +19,10 @@
 | `MslFloatFunctions` | `#[non_exhaustive]` の enum（`Fast`・`Precise`）。`Copy`・`PartialEq`・`Eq` |
 | `FunctionConstant` | 公開フィールド `index: u32`・`value: FunctionConstantValue` の struct。`Copy` |
 | `FunctionConstantValue` | `#[non_exhaustive]` の enum（`U32`・`Bool`）。`Copy` |
+| `DType` | `#[non_exhaustive]` の enum（`F32`・`F16`・`U32`・`I32`・`Bool`）。`Copy`・`PartialEq`・`Eq` |
+| `OperandSpec<'a>` | 公開フィールド `slot: u32`・`dtype: DType`・`shape: &[u64]`・`stride: &[i64]`・`alignment: u32` の struct。`Copy`。形と stride は借用 |
 
-型だけを置き、振る舞いを持つ関数はない。
+振る舞いを持つ関数は `DType::byte_size`（1 要素のバイト数を返す）だけ。必要バイト数の計算や宣言の検査はここにない。
 
 ## 対応するテスト
 
@@ -29,11 +31,13 @@
 | 各 variant を外の crate から組み立て、渡した値が読み出せる | `crates/core/tests/execution_pipeline_input.rs` の `execution_source_variants_keep_fields`・`execution_msl_option_variants_keep_fields` |
 | `MslMathMode`・`MslFloatFunctions` の `Copy`・等価比較 | 同 `execution_mode_enums_are_copy_and_eq` |
 | function constant の件数と中身が保たれる | 同 `execution_function_constants_keep_count_and_values` |
+| `DType::byte_size` の値、`OperandSpec` の組み立てと読み出し・`Copy` | `crates/core/tests/execution_operand_spec.rs` の `execution_dtype_byte_sizes`・`execution_dtype_is_copy_and_eq`・`execution_operand_spec_keeps_fields`・`execution_operand_spec_accepts_empty_dims` |
 
 ## 確かめ方
 
 ```bash
 cargo test -p fandhe-silicon-core --test execution_pipeline_input
+cargo test -p fandhe-silicon-core --test execution_operand_spec
 ```
 
 `make verify` が流す。GPU の実機は要らない。
