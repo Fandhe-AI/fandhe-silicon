@@ -33,7 +33,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 
 | パス | crate | 役割 |
 |---|---|---|
-| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
+| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型（`execution`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
 | `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ |
 | `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]` |
@@ -87,6 +87,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実・完了の条件の確かめ（6/6） |
 | `docs/parity-fallback-compare.md` | 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-928） |
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実 |
+| `docs/artifact-input-types.md` | 成果物の受け付けに使う公開の型（TASK-470）の所在・現状の型・対応するテスト・確かめ方 |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |

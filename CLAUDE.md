@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` と実行まわりの型 `execution` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -50,6 +50,7 @@ fandhe-silicon/
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
+├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方（TASK-470）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
