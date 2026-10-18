@@ -24,6 +24,7 @@ require_cmd git
 MS="${DIR}/metal-session.sh"
 SETTING_RS="${ROOT_DIR}/crates/core/src/test_frame/setting.rs"
 COMBINATION_RS="${ROOT_DIR}/crates/core/src/test_frame/combination.rs"
+GATE_RS="${ROOT_DIR}/crates/core/src/parity/gemm_gate.rs"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/test-metal-session.XXXXXX")"
 trap 'rm -rf "${work:?}"' EXIT
@@ -37,7 +38,7 @@ failed=0
 rc=0
 
 # 呼び出し側の環境の値を引き継がない（実機の CI 環境に同名の変数がありうる）。
-unset DEVELOPER_DIR FANDHE_SILICON_TEST_MACHINE_COMBINATION FANDHE_SILICON_TEST_PERMISSIONS
+unset DEVELOPER_DIR FANDHE_SILICON_TEST_MACHINE_COMBINATION FANDHE_SILICON_TEST_PERMISSIONS FANDHE_SILICON_GEMM_GATE_CELL MTL_DEBUG_LAYER MTL_SHADER_VALIDATION
 
 # ---- 偽のコマンド ----
 
@@ -74,6 +75,9 @@ mkfake cargo '{
   printf "COMB=%s\n" "${FANDHE_SILICON_TEST_MACHINE_COMBINATION-UNSET}"
   printf "PERM=%s\n" "${FANDHE_SILICON_TEST_PERMISSIONS-UNSET}"
   printf "DEV=%s\n" "${DEVELOPER_DIR-UNSET}"
+  printf "GATE=%s\n" "${FANDHE_SILICON_GEMM_GATE_CELL-UNSET}"
+  printf "DBG=%s\n" "${MTL_DEBUG_LAYER-UNSET}"
+  printf "SHV=%s\n" "${MTL_SHADER_VALIDATION-UNSET}"
   printf "ARGC=%s\n" "$#"
   for a in "$@"; do printf "ARG=%s\n" "$a"; done
 } >"$FAKE_REC"
@@ -278,7 +282,7 @@ mkdir "${devdir2}"
 rm -f "${FAKE_REC}"
 ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test -p example
 expect "run: child exit 0" 0
-check "run: env reaches child" "$(printf 'COMB=metal-mac-mini\nPERM=UNSET\nDEV=%s\nARGC=3\nARG=test\nARG=-p\nARG=example\n' "${devdir}" | cmp -s - "${FAKE_REC}" && echo 0 || echo 1)"
+check "run: env reaches child" "$(printf 'COMB=metal-mac-mini\nPERM=UNSET\nDEV=%s\nGATE=UNSET\nDBG=UNSET\nSHV=UNSET\nARGC=3\nARG=test\nARG=-p\nARG=example\n' "${devdir}" | cmp -s - "${FAKE_REC}" && echo 0 || echo 1)"
 
 rm -f "${FAKE_REC}"
 FANDHE_SILICON_TEST_PERMISSIONS=caller-granted ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test
@@ -354,7 +358,7 @@ expect "run: child exit code 1 propagates" 1
 rm -f "${FAKE_REC}" "${work}/pwned"
 ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo 'a b' ';' "\$(touch ${work}/pwned)" '' '*' '--flag' "it's"
 expect "run: odd arguments accepted" 0
-check "run: odd arguments arrive as single arguments" "$(printf 'COMB=metal-mac-mini\nPERM=UNSET\nDEV=%s\nARGC=7\nARG=a b\nARG=;\nARG=$(touch %s)\nARG=\nARG=*\nARG=--flag\nARG=it'"'"'s\n' "${devdir}" "${work}/pwned" | cmp -s - "${FAKE_REC}" && echo 0 || echo 1)"
+check "run: odd arguments arrive as single arguments" "$(printf 'COMB=metal-mac-mini\nPERM=UNSET\nDEV=%s\nGATE=UNSET\nDBG=UNSET\nSHV=UNSET\nARGC=7\nARG=a b\nARG=;\nARG=$(touch %s)\nARG=\nARG=*\nARG=--flag\nARG=it'"'"'s\n' "${devdir}" "${work}/pwned" | cmp -s - "${FAKE_REC}" && echo 0 || echo 1)"
 check "run: nothing was evaluated" "$([ ! -e "${work}/pwned" ] && echo 0 || echo 1)"
 
 # スリープの抑止は既定で入り、--no-caffeinate で外す。
@@ -1036,6 +1040,29 @@ expect "misuse: no subcommand" 2 "usage:"
 ms no-such-subcommand
 expect "misuse: unknown subcommand" 2 "usage:"
 
+# ---- 検証レイヤーと門のセルの指定 ----
+
+rm -f "${FAKE_REC}"
+ms run --combination metal-mac-mini --validation-layer --gate-cell g6-sq512-f32 --developer-dir "${devdir}" -- cargo test
+expect "run: validation layer and gate cell given" 0
+check "run: validation layer variables reach child" "$(grep -qx 'DBG=1' "${FAKE_REC}" && grep -qx 'SHV=1' "${FAKE_REC}" && echo 0 || echo 1)"
+check "run: gate cell reaches child" "$(grep -qx 'GATE=g6-sq512-f32' "${FAKE_REC}" && echo 0 || echo 1)"
+
+rm -f "${FAKE_REC}"
+FANDHE_SILICON_GEMM_GATE_CELL=caller-cell MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1 ms run --combination metal-mac-mini --developer-dir "${devdir}" -- cargo test
+expect "run: caller's validation and cell not passed on" 0
+check "run: validation layer stays unset without the option" "$(grep -qx 'DBG=UNSET' "${FAKE_REC}" && grep -qx 'SHV=UNSET' "${FAKE_REC}" && echo 0 || echo 1)"
+check "run: gate cell stays unset without the option" "$(grep -qx 'GATE=UNSET' "${FAKE_REC}" && echo 0 || echo 1)"
+
+for g in '' 'A' 'a b' 'a;b' 'a$(b)' 'g1_sq512'; do
+  rm -f "${FAKE_REC}"
+  ms run --combination metal-mac-mini --gate-cell "${g}" --developer-dir "${devdir}" -- cargo test
+  expect "run: bad gate cell '${g}'" 2 "error:"
+  check "run: child not started with bad gate cell '${g}'" "$([ ! -e "${FAKE_REC}" ] && echo 0 || echo 1)"
+done
+ms run --combination metal-mac-mini --gate-cell "$(python3 -I -c "print('a' * 65)")" --developer-dir "${devdir}" -- cargo test
+expect "run: gate cell over 64 bytes" 2 "too long"
+
 # ---- 綴りの同期 ----
 
 # 環境変数の名前と組み合わせの名前が、Rust 側（試験の枠）と本体で揃っていること。
@@ -1044,6 +1071,9 @@ c_env="FANDHE_SILICON_TEST_MACHINE_COMBINATION"
 p_env="FANDHE_SILICON_TEST_PERMISSIONS"
 check "sync: combination env name matches setting.rs" "$(grep -qF "pub const COMBINATION_ENV: &str = \"${c_env}\";" "${SETTING_RS}" && grep -qF "COMBINATION_ENV=\"${c_env}\"" "${MS}" && echo 0 || echo 1)"
 check "sync: permissions env name matches setting.rs" "$(grep -qF "pub const PERMISSIONS_ENV: &str = \"${p_env}\";" "${SETTING_RS}" && grep -qF "PERMISSIONS_ENV=\"${p_env}\"" "${MS}" && echo 0 || echo 1)"
+check "sync: gate cell env name matches gemm_gate.rs" "$(grep -qF 'pub const GATE_CELL_ENV: &str = "FANDHE_SILICON_GEMM_GATE_CELL";' "${GATE_RS}" && grep -qF 'GATE_CELL_ENV="FANDHE_SILICON_GEMM_GATE_CELL"' "${MS}" && echo 0 || echo 1)"
+check "sync: debug layer env name matches gemm_gate.rs" "$(grep -qF 'pub const DEBUG_LAYER_ENV: &str = "MTL_DEBUG_LAYER";' "${GATE_RS}" && grep -qF 'DEBUG_LAYER_ENV="MTL_DEBUG_LAYER"' "${MS}" && echo 0 || echo 1)"
+check "sync: shader validation env name matches gemm_gate.rs" "$(grep -qF 'pub const SHADER_VALIDATION_ENV: &str = "MTL_SHADER_VALIDATION";' "${GATE_RS}" && grep -qF 'SHADER_VALIDATION_ENV="MTL_SHADER_VALIDATION"' "${MS}" && echo 0 || echo 1)"
 check "sync: usage example name matches combination.rs" "$(grep -qF 'MachineCombination::MetalMacMini => "metal-mac-mini"' "${COMBINATION_RS}" && grep -qF 'example name: metal-mac-mini' "${MS}" && echo 0 || echo 1)"
 
 echo "passed: ${passed}, failed: ${failed}"

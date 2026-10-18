@@ -6,7 +6,7 @@
 #
 # 使い方:
 #   scripts/metal-session.sh probe
-#   scripts/metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
+#   scripts/metal-session.sh run --combination <name> [--permissions <csv>] [--validation-layer] [--gate-cell <id>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
 #   scripts/metal-session.sh redact <words-file> <input> <output>
 #   scripts/metal-session.sh scan <words-file> <file>...
 # 終了コード: 0 成功 / 1 違反（置き換えの後に語か形が残る・入力が不適）/ 2 誤用・前提の不足。
@@ -19,7 +19,12 @@
 #   コマンドの出力は全文を流さず、正規表現で数値と決まった語だけを取り出す
 #   （ホスト名・ユーザー名・プロセス名・識別子は出力に出ない）。
 #   常駐プロセスと GUI のログインの状態は人が記入する欄で、触れない（`not_probed` に名前を出す）。
-# run: 試験の枠が読む環境変数 2 つと DEVELOPER_DIR を設定して、`--` 以降のコマンドを exec する。
+# run: 試験の枠が読む環境変数と DEVELOPER_DIR を設定して、`--` 以降のコマンドを exec する。
+#   --validation-layer を付けたときだけ、検証レイヤーの環境変数（MTL_DEBUG_LAYER・MTL_SHADER_VALIDATION）を
+#   どちらも 1 にする。付けないときは 2 つとも外し、呼び出し側の環境から引き継がない。
+#   --gate-cell <id> は GEMM の門の run で流す 1 セルの識別名を渡す（1 プロセス 1 セル。セルを回すループは
+#   呼び出し側が持つ）。付けないときは外す。値の形（[a-z0-9-]・64 文字以下）だけ検査し、
+#   知らない識別名かどうかは枠が決める。
 #   組み合わせの名前は既定を持たず必須。許可は --permissions で明示したときだけ設定し、
 #   呼び出し側の環境に同名の変数があっても引き継がない。DEVELOPER_DIR は --developer-dir か
 #   呼び出し側の環境の値（実在するディレクトリ）が要る。既定の開発者ディレクトリは切り替えない。
@@ -57,12 +62,17 @@ source "${DIR}/lib.sh"
 # （回帰テストが突き合わせる）。
 COMBINATION_ENV="FANDHE_SILICON_TEST_MACHINE_COMBINATION"
 PERMISSIONS_ENV="FANDHE_SILICON_TEST_PERMISSIONS"
+# GEMM の門の run の枠が読む環境変数の名前。綴りは crates/core/src/parity/gemm_gate.rs に揃える
+# （回帰テストが突き合わせる）。
+GATE_CELL_ENV="FANDHE_SILICON_GEMM_GATE_CELL"
+DEBUG_LAYER_ENV="MTL_DEBUG_LAYER"
+SHADER_VALIDATION_ENV="MTL_SHADER_VALIDATION"
 
 usage() {
   cat >&2 <<'EOF'
 usage:
   metal-session.sh probe
-  metal-session.sh run --combination <name> [--permissions <csv>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
+  metal-session.sh run --combination <name> [--permissions <csv>] [--validation-layer] [--gate-cell <id>] [--developer-dir <dir>] [--no-caffeinate] -- <command> [args...]
       example name: metal-mac-mini
   metal-session.sh redact <words-file> <input> <output>
   metal-session.sh scan <words-file> <file>...
@@ -199,7 +209,7 @@ PY
 # ---- run ----
 
 cmd_run() {
-  local combination="" permissions="" have_perm=0 devdir="" caffeinate=1
+  local combination="" permissions="" have_perm=0 devdir="" caffeinate=1 validation=0 gate_cell="" have_gate=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --combination)
@@ -211,6 +221,16 @@ cmd_run() {
         [ "$#" -ge 2 ] || usage
         permissions="$2"
         have_perm=1
+        shift 2
+        ;;
+      --validation-layer)
+        validation=1
+        shift
+        ;;
+      --gate-cell)
+        [ "$#" -ge 2 ] || usage
+        gate_cell="$2"
+        have_gate=1
         shift 2
         ;;
       --developer-dir)
@@ -250,6 +270,13 @@ cmd_run() {
       [ "${#part}" -le 64 ] || die "--permissions has a too long name"
     done
   fi
+  if [ "${have_gate}" -eq 1 ]; then
+    [ -n "${gate_cell}" ] || die "--gate-cell is empty (omit the option to select no cell)"
+    case "${gate_cell}" in
+      *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) die "--gate-cell has characters outside [a-z0-9-]" ;;
+    esac
+    [ "${#gate_cell}" -le 64 ] || die "--gate-cell is too long"
+  fi
   if [ -z "${devdir}" ]; then
     devdir="${DEVELOPER_DIR:-}"
   fi
@@ -269,6 +296,16 @@ cmd_run() {
     export "${PERMISSIONS_ENV}=${permissions}"
   else
     unset "${PERMISSIONS_ENV}"
+  fi
+  if [ "${validation}" -eq 1 ]; then
+    export "${DEBUG_LAYER_ENV}=1" "${SHADER_VALIDATION_ENV}=1"
+  else
+    unset "${DEBUG_LAYER_ENV}" "${SHADER_VALIDATION_ENV}"
+  fi
+  if [ "${have_gate}" -eq 1 ]; then
+    export "${GATE_CELL_ENV}=${gate_cell}"
+  else
+    unset "${GATE_CELL_ENV}"
   fi
   export DEVELOPER_DIR="${devdir}"
   if [ "${caffeinate}" -eq 1 ]; then

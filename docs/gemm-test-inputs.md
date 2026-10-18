@@ -24,7 +24,7 @@ TASK-1005 の作業を進めるにあたり、記録の所在と本リポの現�
 | 試験の枠・流し直し | `test_frame`・`rerun` は `test-support` の裏にある | [test-frame](test-frame.md)、[rerun-frame](rerun-frame.md) |
 | feature の転送 | `contract` の `test-support` は `fandhe-silicon-core/test-support` へ転送する | `crates/contract/Cargo.toml`、`crates/contract/tests/test_support_forwarding.rs` |
 | Metal の背後実装 | `crates/contract/src/backend_metal.rs` は 6 行で、`//!` の説明だけを持つ骨格。チップのバインディング crate への依存は無い | `wc -l crates/contract/src/backend_metal.rs` |
-| 実機の手順のスクリプト | `scripts/metal-session.sh` の `run` は、試験の枠が読む環境変数と開発者ディレクトリを設定して `--` 以降のコマンドを exec する。ほかに `probe`・`redact`・`scan` を持つ | `scripts/metal-session.sh` の冒頭、[metal-run-procedure](metal-run-procedure.md) |
+| 実機の手順のスクリプト | `scripts/metal-session.sh` の `run` は、試験の枠が読む環境変数と開発者ディレクトリ（付けたときだけ検証レイヤーの環境変数と門のセルの識別名）を設定して `--` 以降のコマンドを exec する。ほかに `probe`・`redact`・`scan` を持つ | `scripts/metal-session.sh` の冒頭、[metal-run-procedure](metal-run-procedure.md) |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
 | 走る場所 | `core` の `parity_*` は `make verify`（`--all-features`）で走る。`contract` の `test_support_*` は `make build-profiles` の `test-support` を含む組でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
 
@@ -93,6 +93,34 @@ TASK-1005 の作業を進めるにあたり、記録の所在と本リポの現�
 | 同 `--release -- --ignored sq2048` | 2 passed（外れ件数は上のとおり） |
 
 確かめた base は `94408323bccf28bce9f79462aae5c74486d89bd9`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## 門の run の枠（5/6）
+
+門の run の 1 セル（腕 × 行 × dtype）を 1 プロセスで 1 つだけ流す共通の枠。腕の中身（TASK-774・TASK-1008〜TASK-1011）は含まず、本リポの試験は偽の腕（CPU 参照そのもの・値を崩した腕）で枠だけを確かめる。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `crates/core/src/parity/gemm_gate.rs`（feature `test-support` の裏）。セルの識別名の解決は `gemm_population.rs` の `GemmGateCell::from_id` | 各ファイルの `//!`・`///` |
+| セルの選び方 | 環境変数 `FANDHE_SILICON_GEMM_GATE_CELL` の値を、セルの識別名との完全一致だけで 1 セルへ解決する。未設定・不正（空・UTF-8 でない・64 バイト超・知らない識別名・大文字・前後の空白）は腕を呼ばずに失敗で返す。値はエラー・表示に出さない | `selection_parses_exact_ids`、`selection_errors_do_not_echo_value`、`unselected_does_not_call_arm` |
+| 1 プロセス 1 回 | 選択つきの入口は同じプロセスで 2 回目を `AlreadyRanInProcess` で拒否し、腕を呼ばない。この入口を呼ぶ試験はテストのバイナリにつき 1 つだけにする | `second_run_in_process_is_rejected` |
+| 投入は 1 回 | 入力と参照は 1 回の実行で 1 回ずつ作り、腕へは `FnOnce` で 1 回だけ渡す。`F32` のセルは f32 の入力、`F16Acc` のセルは binary16 へ 1 回だけ丸めた入力 | `submit_is_called_once`、`input_kind_follows_dtype` |
+| 比べる相手 | `T1` の `compare_f32` で比べる。f32 の出力は参照そのもの、binary16 の出力は「参照を binary16 へ 1 回だけ丸めた値」と比べる。`F16Acc` のセルは f32 の出力も受け付ける。`F32` のセルの binary16 の出力・長さが M×N と違う出力は失敗にする | `reference_arm_matches_f32`、`binary16_arm_matches_rounded_reference`、`f32_output_on_f16acc_cell_is_accepted`、`binary16_on_f32_cell_is_error`、`wrong_length_is_error`、`perturbed_arm_is_detected` |
+| 結果の欄 | `Comparison`、丸めた参照とビット列が違う要素の数、有限な要素どうしの最大の絶対差（f64）、出力の sha256（要素をリトルエンディアンで並べたバイト列。f32 は 4 バイト、binary16 は 2 バイト）、検証レイヤーの状態、セル。`Display` は 1 行 | `sha256_is_little_endian_bytes`、`display_is_one_line` |
+| 検証レイヤー | `MTL_DEBUG_LAYER` と `MTL_SHADER_VALIDATION` が両方ちょうど `"1"` のときだけ有効として結果に残す。それ以外はすべて無効。枠は環境変数を設定しない（起動時に設定されている必要がある） | `validation_setting_requires_both_exact_one`、`validation_state_is_recorded_in_result` |
+| 手順のスクリプト | `scripts/metal-session.sh run` の `--validation-layer` が上の 2 つを `1` にし、`--gate-cell <id>` が識別名を渡す。付けないときは 3 つとも取り除く。セルを回すループは呼び出し側が持つ | `scripts/test-metal-session.sh`（`run: validation layer ...`・`run: gate cell ...`・`sync: ...`）、[metal-run-procedure](metal-run-procedure.md) |
+| 範囲の外 | 腕の実装、機材の組み合わせの判定（各腕の試験が試験の枠で持つ）、採否の集計、最大の相対差、実機（Mac mini）での実行 | - |
+
+試験は `crates/core/tests/parity_gemm_gate.rs`。既定で走り（`make verify`）、既定の行は `odd37x41x53`・`sq512` だけ。GPU の実機は要らない。大きな行の CPU 参照は単一スレッドで 600 秒を超えうる（4/6 の実測）。
+
+### 確かめ（5/6）
+
+| 方法 | 結果 |
+| ---- | ---- |
+| `cargo test -p fandhe-silicon-core --features test-support --test parity_gemm_gate` | 20 passed; 0 failed |
+| `make test-metal-session` | passed: 292, failed: 0 |
+| 実機（Mac mini）での 1 セルの実行 | 未実施（device の経路が無い。合格とは書かない） |
+
+確かめた base は `ca04e4b22f55837d724372ed08017f59ebe8d0b6`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
 
 ## 本リポでの反映の方針
 
