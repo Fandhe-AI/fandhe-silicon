@@ -20,9 +20,9 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 試験用の部品の feature | `core` の `lib.rs` で `parity`・`test_frame`・`rerun` が `#[cfg(feature = "test-support")]` の下にある。`hash` は条件なし。`[features]` は `test-support = []` | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
-| 一致の道具のファイル | `crates/core/src/parity` に 6 ファイル（`cpu_reference`・`pixel`・`special_values`・`tolerance`・`topk`・`topk_inputs`） | `ls crates/core/src/parity` |
-| 一致の道具の統合テスト | `core` は `crates/core/tests/parity_*.rs` の 8 本。`contract` は `test_support_forwarding.rs`・`test_support_pixel.rs`・`test_support_special_values.rs`・`test_support_test_frame.rs` | `ls crates/core/tests crates/contract/tests` |
-| `required-features` の件数 | 22 | `grep -c required-features crates/core/Cargo.toml` |
+| 一致の道具のファイル | `crates/core/src/parity` に 8 ファイル（`binary16`・`cpu_reference`・`gemm_inputs`・`pixel`・`special_values`・`tolerance`・`topk`・`topk_inputs`） | `ls crates/core/src/parity` |
+| 一致の道具の統合テスト | `core` は `crates/core/tests/parity_*.rs` の 11 本。`contract` は `test_support_forwarding.rs`・`test_support_pixel.rs`・`test_support_special_values.rs`・`test_support_test_frame.rs` | `ls crates/core/tests crates/contract/tests` |
+| `required-features` の件数 | 25 | `grep -c required-features crates/core/Cargo.toml` |
 | 依存 | `core` の外部依存は 0。`#![forbid(unsafe_code)]` | `crates/core/Cargo.toml`、`crates/core/src/lib.rs` |
 | 走る場所 | `make verify`（`--all-features`）と、`make build-profiles` の `test-support` を含む組。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
 

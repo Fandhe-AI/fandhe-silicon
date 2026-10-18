@@ -92,3 +92,36 @@ pub fn reference_gemm_f32(
     }
     Ok(c)
 }
+
+/// binary16 のビット列の入力 `a (m×k) * b (k×n)` を、f32 に広げてから [`reference_gemm_f32`] で計算する。
+///
+/// 累積の手順は [`reference_gemm_f32`] と同じ（新しく書かない）。長さの検査・溢れ・確保の失敗は
+/// 同じ [`ReferenceError`] で返す。広げる前に長さを検査するので、不一致の入力は確保しない。
+pub fn reference_gemm_f16acc(
+    a_bits: &[u16],
+    b_bits: &[u16],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<Vec<f32>, ReferenceError> {
+    let a_len = m.checked_mul(k).ok_or(ReferenceError::SizeOverflow)?;
+    let b_len = k.checked_mul(n).ok_or(ReferenceError::SizeOverflow)?;
+    m.checked_mul(n).ok_or(ReferenceError::SizeOverflow)?;
+    if a_bits.len() != a_len {
+        return Err(ReferenceError::LengthMismatch {
+            input: "a",
+            expected: a_len,
+            actual: a_bits.len(),
+        });
+    }
+    if b_bits.len() != b_len {
+        return Err(ReferenceError::LengthMismatch {
+            input: "b",
+            expected: b_len,
+            actual: b_bits.len(),
+        });
+    }
+    let a = super::binary16::widen_binary16_slice(a_bits)?;
+    let b = super::binary16::widen_binary16_slice(b_bits)?;
+    reference_gemm_f32(&a, &b, m, k, n)
+}
