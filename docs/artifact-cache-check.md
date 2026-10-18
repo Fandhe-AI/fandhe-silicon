@@ -24,7 +24,7 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | `hash` | 公開の関数は `sha256_bytes`（32 バイト）と `sha256_u64` の 2 つ。feature の条件なしで公開 | `grep -n 'pub fn' crates/core/src/hash.rs` |
 | `execution` | 型が主で、公開の関数は `DType::byte_size` だけ（`pub const fn`） | `grep -n 'pub const fn\|pub fn' crates/core/src/execution.rs` |
 | feature の配置 | `hash`・`execution` は条件なし。`parity`・`test_frame`・`rerun` は `test-support` の裏 | `crates/core/src/lib.rs` |
-| 照合・記録の型と関数 | エントリの型 `CacheEntry` は `artifact_cache` にある（2/8）。読み込み時の照合の関数と、背後実装へ渡した成果物を記録する型は `crates/` に無い | `git grep -n -i -c cache -- crates` |
+| 照合・記録の型と関数 | エントリの型 `CacheEntry`（2/8）と、読み込み時の照合（`RejectReason`・`LoadOutcome`・`verify_entry`・入れ物 `CacheStore`。3/8）は `artifact_cache` にある。背後実装へ渡した成果物を記録する型は `crates/` に無い | `git grep -n -i -c cache -- crates` |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
 | `exec` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec` |
 | 依存の向き | contract → core、exec → core、upper → core・exec。`wasm/crates/glue` が `contract` に path で依存する（`core` に足すものは std だけで wasm32 でも通る必要がある） | 各 `Cargo.toml`、`wasm/crates/glue/Cargo.toml` |
@@ -53,6 +53,20 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | 持たないもの | 読み込み時の照合・拒否の理由・台帳 |
 
 対応するテスト: `crates/core/tests/artifact_cache_entry.rs`。確かめ方: `cargo test -p fandhe-silicon-core --test artifact_cache_entry`。
+
+## 現状の形（3/8）
+
+名前は仮。同じ `crates/core/src/artifact_cache.rs`（feature の条件なし）に次を足した。
+
+| 項目 | 事実 |
+| ---- | ---- |
+| 拒否の理由 | `RejectReason`（`KeyMismatch`・`HashMismatch`）。`#[non_exhaustive]` |
+| 読み込みの結果 | `LoadOutcome<'a>`（`Hit(&CacheEntry)`・`Rejected(RejectReason)`）。`#[non_exhaustive]`。`Hit` は借用でバイト列を複製しない |
+| 照合 | `verify_entry(&entry, &requested)`。判定の順序は固定: キーが違えば `KeyMismatch`（ハッシュは計算しない）、次にバイト列から SHA-256 を計算し直して保持する値と違えば `HashMismatch`、どちらも合えば `Ok`。計算量はバイト列の長さに比例 |
+| 入れ物 | `CacheStore`（`Vec` の線形探索）。`new`・`insert`・`load`。`insert` は照合せず、同じキーがあれば置き換えて前のものを返す。`load` は `&self` で、キーが合うエントリが無ければ `Rejected(KeyMismatch)`、あれば `verify_entry` を通す。拒否したエントリも消さない |
+| 持たないもの | 台帳・拒否の数え上げ・上限や追い出し |
+
+対応するテスト: `crates/core/tests/artifact_cache_load.rs` と `artifact_cache.rs` 内の網羅の試験。確かめ方: `cargo test -p fandhe-silicon-core --test artifact_cache_load`。
 
 ## 本リポでの反映の方針
 
