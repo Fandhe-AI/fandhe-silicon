@@ -109,11 +109,12 @@ def name_counts(path):
     return counts
 
 
+# 実行エラー（2・想定外のコード）は基準の違反（1）より先に見る（2 は 1 に勝つ）
+if base_rc not in (0, 1) or extra_rc not in (0, 1):
+    fail2("inner-error")
 if base_rc == 1:
     print("positive-control-failed: crate=%s result=baseline-violation" % name, file=sys.stderr)
     sys.exit(1)
-if base_rc != 0 or extra_rc not in (0, 1):
-    fail2("inner-error")
 
 base = judged_totals(base_out)
 extra = judged_totals(extra_out)

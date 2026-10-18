@@ -170,6 +170,8 @@ run_fake FAKE_BASE_RC=7
 judge "baseline_unexpected_exit" 2 "e:result=inner-error" "!ok: positive control"
 run_fake FAKE_EXTRA_RC=2
 judge "extra_inner_error" 2 "e:result=inner-error" "!ok: positive control" "!result=detected"
+run_fake FAKE_BASE_RC=1 FAKE_BASE_TOTAL=1 FAKE_EXTRA_RC=2
+judge "baseline_violation_and_extra_inner_error" 2 "e:result=inner-error" "!result=baseline-violation" "!ok: positive control"
 run_fake FAKE_EXTRA_RC=0
 judge "extra_exit_zero_but_counted" 2 "e:result=inconsistent" "!ok: positive control" "!result=detected"
 run_fake FAKE_N_CPU=0 FAKE_N_CM=0
