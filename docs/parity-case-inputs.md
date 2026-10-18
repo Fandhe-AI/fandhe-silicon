@@ -33,7 +33,7 @@ TASK-977 の作業を進めるにあたり、記録の所在と本リポの現�
 | 背後実装との関係 | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。背後実装の crate に依存しない | `crates/core/Cargo.toml`、`crates/core/src/lib.rs` |
 | wasm の照合の入力の形 | `wasm/node/cases.json` は `reference_source` の欄を持つ（形が在るという事実だけ） | `wasm/node/cases.json` |
 | 走る場所 | `make verify`（`--all-features`）と `make build-profiles` の `test-support` を含む組。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
-| 本書の対象の言及 | 公開側の TASK-977 の言及は本書と、本書へのリンクの行だけ | `git grep -n TASK-977 -- . ':!docs/spec'` |
+| 本書の対象の言及 | 公開側の TASK-977 の言及は本書、本書へのリンクの行、`case_inputs` の rustdoc とそのテスト、`parity.rs` の入口の rustdoc | `git grep -n TASK-977 -- . ':!docs/spec'` |
 
 ## 17 ケースの入力（2/4）
 
