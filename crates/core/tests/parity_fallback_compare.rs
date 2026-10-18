@@ -1,10 +1,10 @@
-//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の振る舞いの確認と、境目の入力での判定の順序の確認（spec TASK-928 の 2/8〜6/8）。
+//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の振る舞いの確認と、境目の入力での判定の順序・閾値の固定の確認（spec TASK-928 の 2/8〜7/8）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。入力はこの場で作る。
 
 use fandhe_silicon_core::parity::binary16::binary16_bits_to_f32;
 use fandhe_silicon_core::parity::fallback_compare::{
-    BINARY16_MAX_ORDER_DISTANCE, F32SubnormalHandling, FallbackVerdict, OrderVerdict,
-    SUM_RELATIVE_BOUND, binary16_order_distance, compare_bits_f32, compare_bits_u32,
+    BINARY16_MAX_ORDER_DISTANCE, F32SubnormalHandling, FallbackComparison, FallbackVerdict,
+    OrderVerdict, SUM_RELATIVE_BOUND, binary16_order_distance, compare_bits_f32, compare_bits_u32,
     compare_order_distance_binary16, compare_relative_sum_f32, count_bit_identical_binary16,
     flush_subnormal_f32, judge_bits_f32, judge_bits_u32, judge_order_binary16,
     judge_order_distance_binary16, judge_order_f32, judge_relative_sum_f32, reference_sum_f32,
@@ -1078,4 +1078,111 @@ fn boundary_sequence_order_summary() {
     );
     let inf = f64::INFINITY;
     assert_eq!(m, [0.0, 0.0, 0.0, 0.0, inf, inf, inf]);
+}
+
+// ---- 閾値の固定（7/8）----
+
+#[test]
+fn threshold_constants_are_readable_and_fixed() {
+    // 外の crate から読めて、値が固定されていること（緩めも締めもしない）
+    assert_eq!(BINARY16_MAX_ORDER_DISTANCE, 1);
+    assert_eq!(SUM_RELATIVE_BOUND.to_bits(), 1e-3_f64.to_bits());
+}
+
+#[test]
+fn threshold_order_distance_applied_is_the_readable_one() {
+    let d = u16::try_from(BINARY16_MAX_ORDER_DISTANCE).unwrap();
+    // 正の正規化数・負の正規化数・零をまたがない非正規化数
+    let bases = [0x3C00u16, 0xBC00, 0x0010, 0x8010];
+    let (mut seen_within, mut seen_exceeded) = (false, false);
+    let (mut r, mut a, mut want_mismatched) = (Vec::new(), Vec::new(), 0usize);
+    for base in bases {
+        // 符号ビットの向きによらず、ビット列の値が 1 増えると順序の差も 1 増える
+        let at = base + d;
+        let over = base + d + 1;
+        assert_eq!(
+            binary16_order_distance(base, at),
+            BINARY16_MAX_ORDER_DISTANCE
+        );
+        assert_eq!(
+            binary16_order_distance(base, over),
+            BINARY16_MAX_ORDER_DISTANCE + 1
+        );
+        let v_at = judge_order_distance_binary16(base, at);
+        let v_over = judge_order_distance_binary16(base, over);
+        assert_eq!(v_at, FallbackVerdict::WithinOrderDistance);
+        assert_eq!(v_over, FallbackVerdict::OrderDistanceExceeded);
+        seen_within |= v_at == FallbackVerdict::WithinOrderDistance;
+        seen_exceeded |= v_over == FallbackVerdict::OrderDistanceExceeded;
+        r.extend([base, base]);
+        a.extend([at, over]);
+        want_mismatched += 1;
+    }
+    assert!(seen_within && seen_exceeded);
+    // 列の入口でも同じ切り替わりが出る（超えた組だけが不一致）
+    let c = compare_order_distance_binary16(&r, &a).unwrap();
+    assert_eq!(c.compared(), r.len());
+    assert_eq!(c.mismatched(), want_mismatched);
+    assert_eq!(c.first_mismatch(), Some(1));
+}
+
+#[test]
+fn threshold_relative_sum_applied_is_the_readable_one() {
+    // 閾値 * Σ|x| が f64 で正確に 1.0 になる組を使う（先に確かめる）
+    let abs_sum = 1000.0f64;
+    let bound = SUM_RELATIVE_BOUND * abs_sum;
+    assert_eq!(bound, 1.0);
+    let r = 0.0f32;
+    let at = 1.0f32; // 誤差がちょうど閾値 * Σ|x|
+    let over = at.next_up(); // 1 ulp 上
+    let under = at.next_down(); // 1 ulp 下
+    assert_eq!(f64::from(at), bound);
+    let (mut seen_within, mut seen_exceeded) = (false, false);
+
+    let v_at = judge_relative_sum_f32(r, at, abs_sum);
+    let v_over = judge_relative_sum_f32(r, over, abs_sum);
+    let v_under = judge_relative_sum_f32(r, under, abs_sum);
+    // 境目を含む。1 ulp 下も一致（締められていない）、1 ulp 上は不一致（緩められていない）
+    assert_eq!(v_at, FallbackVerdict::WithinRelativeSum);
+    assert_eq!(v_under, FallbackVerdict::WithinRelativeSum);
+    assert_eq!(v_over, FallbackVerdict::RelativeSumExceeded);
+    seen_within |= v_at == FallbackVerdict::WithinRelativeSum;
+    seen_exceeded |= v_over == FallbackVerdict::RelativeSumExceeded;
+    // 同じ誤差で Σ|x| をわずかに下げると不一致
+    assert_eq!(
+        judge_relative_sum_f32(r, at, abs_sum - 1e-6),
+        FallbackVerdict::RelativeSumExceeded
+    );
+    assert!(seen_within && seen_exceeded);
+
+    // 余裕の値も同じ閾値の側に出る
+    let m_at = relative_sum_margin(r, at, abs_sum);
+    let m_under = relative_sum_margin(r, under, abs_sum);
+    let m_over = relative_sum_margin(r, over, abs_sum);
+    assert!(m_at <= SUM_RELATIVE_BOUND && m_under <= SUM_RELATIVE_BOUND);
+    assert!(m_over > SUM_RELATIVE_BOUND);
+
+    // 列の入口でも同じ
+    let mut margins = [0.0f64; 3];
+    let c =
+        compare_relative_sum_f32(&[r; 3], &[at, over, under], &[abs_sum; 3], &mut margins).unwrap();
+    assert_eq!(
+        (c.compared(), c.mismatched(), c.first_mismatch()),
+        (3, 1, Some(1))
+    );
+    assert_eq!(margins, [m_at, m_over, m_under]);
+}
+
+#[test]
+fn threshold_is_not_a_parameter() {
+    // 閾値を引数に取らない形をコンパイルで固定する（呼び出し側で緩めも締めもできない）
+    let _: fn(u16, u16) -> FallbackVerdict = judge_order_distance_binary16;
+    let _: fn(u16, u16) -> u32 = binary16_order_distance;
+    let _: fn(&[u16], &[u16]) -> Result<FallbackComparison, CompareError> =
+        compare_order_distance_binary16;
+    let _: fn(f32, f32, f64) -> FallbackVerdict = judge_relative_sum_f32;
+    let _: fn(f32, f32, f64) -> f64 = relative_sum_margin;
+    type SumSeq =
+        fn(&[f32], &[f32], &[f64], &mut [f64]) -> Result<FallbackComparison, CompareError>;
+    let _: SumSeq = compare_relative_sum_f32;
 }
