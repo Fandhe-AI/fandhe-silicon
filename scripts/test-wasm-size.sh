@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # wasm-size.sh の回帰テスト（spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6）。
+# TASK-247（親 Issue #467 の 1/4）で、内訳の出力（raw_bytes・file: の行）と --require-exports（export の確かめ）のケースを足した。
 # 一時ディレクトリにダミーのバイト列で glue の出力の形を作って --from-dir で渡し、終了コード・標準出力・標準エラーの
 # 文言を確かめる。既定の経路（ビルドする経路）は、PATH を一時ディレクトリの偽の cargo / rustc / wasm-bindgen に
 # 差し替えて流す。wasm-bindgen の CLI・Node・ネットワーク・docs/spec の取得は要らず、リポジトリのファイルは変更しない。
@@ -59,15 +60,15 @@ def put(base, setting, target, name, data):
         fh.write(data)
 
 
-def build(name, wasm_n=5000, over=None):
-    """全 8 組に同じ内容を置く。over は {(setting, target, file): bytes | None}。"""
+def build(name, wasm_n=5000, over=None, wasm_data=None):
+    """全 8 組に同じ内容を置く。over は {(setting, target, file): bytes | None}。wasm_data があれば全組の _bg.wasm をそれにする。"""
     base = os.path.join(out, name)
     os.makedirs(base)
     for s in SETTINGS:
         for t, files in TARGETS.items():
             for f in files:
                 if f.endswith("_bg.wasm"):
-                    data = blob(1, wasm_n)
+                    data = wasm_data if wasm_data is not None else blob(1, wasm_n)
                 elif f.endswith("_bg.js"):
                     data = blob(2, 2000)
                 else:
@@ -91,6 +92,9 @@ def write(name, text):
 build("all_ok")
 write("web_total", str(gz(blob(3, 3000)) + gz(blob(1, 5000))))
 write("bundler_total", str(gz(blob(3, 3000)) + gz(blob(2, 2000)) + gz(blob(1, 5000))))
+write("gz_js", str(gz(blob(3, 3000))))
+write("gz_bgjs", str(gz(blob(2, 2000))))
+write("gz_wasm", str(gz(blob(1, 5000))))
 
 # 境界: release-scalar/web の合計をちょうど 60000 / 60001 にする。js は固定、wasm の長さを探す。
 js = blob(3, 3000)
@@ -108,6 +112,73 @@ for name, total in (("boundary_eq", 60000), ("boundary_over", 60001)):
     build(name, over={("release-scalar", "web", "wasm_glue_bg.wasm"): find(total)})
 
 build("one_ng", over={("wasm-size-simd128", "bundler", "wasm_glue_bg.wasm"): blob(9, 70000)})
+
+REQ = ["gemm_scalar", "gemm_simd", "topk_scalar", "topk_simd", "elementwise_scalar", "elementwise_simd", "detect_isa_bits"]
+
+
+def leb(n):
+    out = bytearray()
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        if n:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+
+def export_section(entries, raw_names=None):
+    """entries は (名前, kind) の並び。raw_names があれば名前をそのバイト列で置く。"""
+    payload = leb(len(entries))
+    for i, (name, kind) in enumerate(entries):
+        nb = raw_names[i] if raw_names else name.encode()
+        payload += leb(len(nb)) + nb + bytes([kind]) + leb(0)
+    return b"\x07" + leb(len(payload)) + payload
+
+
+HEADER = b"\x00asm\x01\x00\x00\x00"
+TYPE_SEC = b"\x01\x01\x00"
+
+
+def wasm(entries, raw_names=None):
+    return HEADER + TYPE_SEC + export_section(entries, raw_names)
+
+
+FULL = [(n, 0) for n in REQ] + [("roundtrip_f32", 0), ("memory", 2), ("__wbindgen_start", 0)]
+with open(os.path.join(out, "good.wasm"), "wb") as fh:
+    fh.write(wasm(FULL))
+with open(os.path.join(out, "only_rt.wasm"), "wb") as fh:
+    fh.write(wasm([("roundtrip_f32", 0)]))
+
+build("ex_ok", wasm_data=wasm(FULL))
+build("ex_one_missing", wasm_data=wasm(FULL),
+      over={("release-scalar", "web", "wasm_glue_bg.wasm"): wasm(FULL[1:])})
+build("ex_only_rt", wasm_data=wasm([("roundtrip_f32", 0)]))
+build("ex_not_func", wasm_data=wasm([(n, 3) for n in REQ]))
+build("ex_no_section", wasm_data=HEADER + TYPE_SEC)
+bad = {
+    "bad_magic": b"\x00asn\x01\x00\x00\x00" + TYPE_SEC,
+    "bad_version": b"\x00asm\x02\x00\x00\x00" + TYPE_SEC,
+    "bad_length": HEADER + b"\x01\x7f\x00",
+    "bad_leb": HEADER + b"\x01\x80\x80\x80\x80\x80\x00",
+    "bad_utf8": wasm([("x", 0)], raw_names=[b"\xff\xfe"]),
+    "bad_trailing": HEADER + b"\x07\x03\x00\x00\x00",
+}
+for k, v in bad.items():
+    build(k, over={("release-scalar", "web", "wasm_glue_bg.wasm"): v}, wasm_data=wasm(FULL))
+b = build("ex_unexpected", wasm_data=wasm(FULL))
+os.makedirs(os.path.join(b, "wasm-size-scalar", "bundler", "snippets"))
+with open(os.path.join(b, "wasm-size-scalar", "bundler", "snippets", "x.js"), "wb") as fh:
+    fh.write(blob(7, 100))
+b = build("ex_dts", wasm_data=wasm(FULL))
+for s_ in SETTINGS:
+    for t in TARGETS:
+        put(b, s_, t, "wasm_glue.d.ts", blob(5, 100))
+        put(b, s_, t, "wasm_glue_bg.wasm.d.ts", blob(5, 100))
+        put(b, s_, t, "package.json", blob(6, 100))
+b = build("ex_symlink", wasm_data=wasm(FULL))
+os.symlink(os.path.join(b, "release-scalar", "web", "wasm_glue.js"), os.path.join(b, "release-scalar", "web", "link.txt"))
 
 import shutil
 b = build("missing_dir")
@@ -139,7 +210,7 @@ PY
 mk_path() {
   local dir="$1" t
   mkdir -p "${dir}"
-  for t in bash env dirname basename mkdir python3; do
+  for t in bash env dirname basename mkdir python3 cp; do
     ln -s "$(command -v "${t}")" "${dir}/${t}"
   done
 }
@@ -198,6 +269,7 @@ while [ "\$#" -gt 1 ]; do
 done
 echo js >"\${out}/wasm_glue.js"
 echo wasm >"\${out}/wasm_glue_bg.wasm"
+if [ -n "\${FAKE_BG_WASM:-}" ]; then cp "\${FAKE_BG_WASM}" "\${out}/wasm_glue_bg.wasm"; fi
 if [ "\${target}" = "bundler" ]; then echo bgjs >"\${out}/wasm_glue_bg.js"; fi
 EOF
   chmod +x "${dir}/wasm-bindgen"
@@ -272,6 +344,20 @@ expect "all-ok" 0 "record: combos=8 ok=8 ng=0 not_run=0 limit=60000" "ok:" "!FAI
   "combo=wasm-size-simd128 target=bundler label=ok gzip_bytes=${bundler_total} files=3 limit=60000"
 expect_count "all-ok-lines" "label=ok" 8
 
+# 1b. 内訳: raw_bytes と file: の行（TASK-247）。数え方は gzip level 9・mtime 0 のファイルごと
+gz_js="$(cat "${work}/gz_js")"
+gz_bgjs="$(cat "${work}/gz_bgjs")"
+gz_wasm="$(cat "${work}/gz_wasm")"
+run_case --from-dir "${work}/all_ok"
+expect "raw-and-file-lines" 0 \
+  "combo=release-scalar target=web label=ok gzip_bytes=${web_total} files=2 limit=60000 raw_bytes=8000" \
+  "combo=wasm-size-simd128 target=bundler label=ok gzip_bytes=${bundler_total} files=3 limit=60000 raw_bytes=10000" \
+  "file: combo=release-scalar target=web name=wasm_glue.js raw_bytes=3000 gzip_bytes=${gz_js}" \
+  "file: combo=release-scalar target=web name=wasm_glue_bg.wasm raw_bytes=5000 gzip_bytes=${gz_wasm}" \
+  "file: combo=release-scalar target=bundler name=wasm_glue_bg.js raw_bytes=2000 gzip_bytes=${gz_bgjs}" \
+  "!exports="
+expect_count "file-lines" "file: combo=" 20
+
 # 2. 境界: ちょうど 60000 は ok、60001 は ng
 run_case --from-dir "${work}/boundary_eq"
 expect "boundary-eq" 0 "combo=release-scalar target=web label=ok gzip_bytes=60000 files=2" "ng=0"
@@ -309,6 +395,49 @@ expect "dir-as-file" 2 "error:" "!record:"
 run_case --from-dir "${work}/unknown_entry"
 expect "unknown-entry" 2 "error: unexpected entry in --from-dir" "!record:"
 
+# 7b. --require-exports（TASK-247）
+run_case --require-exports --from-dir "${work}/ex_ok"
+expect "exports-all-present" 0 "record: combos=8 ok=8 ng=0 not_run=0" "ok:" "!FAILED" "!error:" \
+  "combo=release-scalar target=web label=ok gzip_bytes=" "exports=7/7"
+expect_count "exports-all-present-lines" "exports=7/7" 8
+run_case --from-dir "${work}/ex_ok" --require-exports
+expect "exports-flag-after" 0 "ok=8" "exports=7/7"
+run_case --require-exports --from-dir "${work}/ex_one_missing"
+expect "exports-one-missing" 1 "combo=release-scalar target=web label=not-run reason=missing-export" "exports=6/7" \
+  "record: combos=8 ok=7 ng=0 not_run=1" "FAILED:" "!ok:"
+run_case --require-exports --from-dir "${work}/ex_only_rt"
+expect "exports-only-roundtrip" 1 "record: combos=8 ok=0 ng=0 not_run=8" "reason=missing-export" "exports=0/7" "FAILED:" "!gzip_bytes="
+expect_count "exports-only-roundtrip-lines" "reason=missing-export" 8
+run_case --require-exports --from-dir "${work}/ex_not_func"
+expect "exports-not-function" 1 "not_run=8" "reason=missing-export" "exports=0/7"
+run_case --require-exports --from-dir "${work}/ex_no_section"
+expect "exports-no-section" 1 "not_run=8" "reason=missing-export" "exports=0/7"
+# 既定の経路は export を見ない
+run_case --from-dir "${work}/ex_only_rt"
+expect "exports-ignored-by-default" 0 "ok=8" "!exports="
+
+for k in bad_magic bad_version bad_length bad_leb bad_utf8 bad_trailing; do
+  run_case --require-exports --from-dir "${work}/${k}"
+  expect "wasm-unparseable(${k})" 2 "error: cannot parse release-scalar/web/wasm_glue_bg.wasm as wasm" "!record:" "!ok:"
+  run_case --from-dir "${work}/${k}"
+  expect "wasm-unparseable-default-ignored(${k})" 0 "ok=8"
+done
+
+run_case --require-exports --from-dir "${work}/ex_unexpected"
+expect "unexpected-output" 1 "combo=wasm-size-scalar target=bundler label=not-run reason=unexpected-output" \
+  "record: combos=8 ok=7 ng=0 not_run=1" "FAILED:"
+run_case --from-dir "${work}/ex_unexpected"
+expect "unexpected-output-default-ignored" 0 "ok=8" "!unexpected-output"
+run_case --require-exports --from-dir "${work}/ex_dts"
+expect "dts-still-ignored" 0 "ok=8" "exports=7/7" "!unexpected-output"
+run_case --require-exports --from-dir "${work}/ex_symlink"
+expect "exports-symlink-entry" 2 "error: release-scalar/web/link.txt is not a regular file" "!record:"
+
+run_case --require-exports=x --from-dir "${work}/ex_ok"
+expect "require-exports-with-value" 2 "!record:"
+run_case --require-exports --require-exports --from-dir "${work}/ex_ok"
+expect "require-exports-twice" 2 "error: invalid arguments" "!record:"
+
 # 8. 誤用 -> 2
 run_case --bogus
 expect "unknown-arg" 2 "!record:"
@@ -338,7 +467,7 @@ export FAKE_SYSROOT
 run_fake() {
   : >"${FAKE_LOG}"
   rc=0
-  PATH="${fake}/bin" "${TOOL}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+  PATH="${fake}/bin" "${TOOL}" "$@" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 }
 
 # 9a. wasm-bindgen が無い
@@ -402,6 +531,14 @@ expect "fake-build-failed" 1 \
   "combo=wasm-size-simd128 target=web label=not-run reason=build-failed" \
   "combo=wasm-size-simd128 target=bundler label=not-run reason=build-failed" \
   "record: combos=8 ok=6 ng=0 not_run=2" "FAILED:"
+
+# 9f. --require-exports の既定の経路（偽の wasm-bindgen が合成の wasm を _bg.wasm に写す）
+FAKE_BG_WASM="${work}/good.wasm" run_fake --require-exports
+expect "fake-require-exports-ok" 0 "record: combos=8 ok=8 ng=0 not_run=0" "exports=7/7"
+FAKE_BG_WASM="${work}/only_rt.wasm" run_fake --require-exports
+expect "fake-require-exports-missing" 1 "record: combos=8 ok=0 ng=0 not_run=8" "reason=missing-export"
+FAKE_BG_WASM="${work}/only_rt.wasm" run_fake
+expect "fake-default-no-export-check" 0 "ok=8" "!exports="
 
 echo "test-wasm-size: ${passed} passed, ${failed} failed" >&2
 if [ "${failed}" -ne 0 ]; then

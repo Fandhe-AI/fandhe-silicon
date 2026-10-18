@@ -66,6 +66,8 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 | 終了コード | 0 全部の組が `ok`、1 `ng` または `not-run` の組がある、2 誤用・前提の不足・読めない入力 | `sed -n 1,25p scripts/wasm-size.sh` |
 | ビルドする経路の前提 | `wasm-bindgen` の CLI が `0.2.128` と厳密に一致（`wasm/Cargo.lock` の版とも突き合わせる）、wasm32 の target、依存が手元にある（`make wasm-verify` で取得。ビルドは `--locked --offline`）。外れたら cargo を呼ぶ前に終了コード 2。CLI の入手は試みない | `scripts/test-wasm-size.sh` |
 | 子プロセスの環境 | `RUSTFLAGS` は渡さず、`CARGO_ENCODED_RUSTFLAGS` で命令の指定だけを渡す。命令ごとに target ディレクトリを分け、cargo の `target_directory` 直下の専用ディレクトリ（`glue-size`）に出す | `grep -n -e CARGO_ENCODED_RUSTFLAGS -e WORK_SUBDIR scripts/wasm-size.sh` |
+| 内訳の出力（TASK-247 の 1/4） | 測れた組（`ok`・`ng`）の `size:` の行の末尾に `raw_bytes=`（生の合計）を足し、数えたファイルごとに `file: combo=… target=… name=… raw_bytes=… gzip_bytes=…` の行を出す（測れた組だけ。ファイル名だけでホストのパスは出さない） | `grep -n -e raw_bytes -e 'file:' scripts/wasm-size.sh` |
+| export の確かめ（`--require-exports`。直接実行のみ・make ターゲットは無い） | 期待する関数の export の名前は `REQUIRED_EXPORTS` の 1 か所で宣言する（引数・環境変数で変える口は無い）。各組の `wasm_glue_bg.wasm` の export セクションを境界付きで読み、全部あれば `exports=7/7`。足りない組は `not-run`（`missing-export`）、数える名前・`*.d.ts`・`package.json` 以外の項目が組にある組は `not-run`（`unexpected-output`）。読めない wasm は終了コード 2。指定しない既定の経路（`make wasm-size`）の判定と終了コードは変わらない | `grep -n -e REQUIRED_EXPORTS -e require_exports scripts/wasm-size.sh` |
 | CI | `deny` ジョブは `make test-wasm-size`（偽のコマンド）を呼ぶ。実物の `make wasm-size` は CLI を入れた `wasm-macos` ジョブが呼ぶ | `grep -n wasm-size .github/workflows/ci.yml` |
 
 流し方:
@@ -87,6 +89,13 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 | CLI 無し・版違い・読めない版・target 無しは終了コード 2 で cargo を呼ばない | `no-bindgen`・`bad-version`・`no-target` |
 | 偽のコマンドで 8 組を組み立て、profile・命令の指定が組ごとに正しく渡り、利用者の `RUSTFLAGS` は渡らない | `fake-all`・`fake-flags`・`fake-bindgen-calls` |
 | ある設定のビルドが失敗したら、その 2 組が `not-run`（`build-failed`）で終了コード 1 | `fake-build-failed` |
+| 内訳（`raw_bytes`・ファイルごとの `file:` の行）が数え方と一致する | `raw-and-file-lines` |
+| `--require-exports` で期待の export が全部あれば終了コード 0・`exports=7/7`、他の export が混ざっても可 | `exports-all-present`・`exports-flag-after` |
+| export が欠ける・関数でない・export セクションが無い組は `not-run`（`missing-export`）で終了コード 1。既定の経路は export を見ない | `exports-one-missing`・`exports-only-roundtrip`・`exports-not-function`・`exports-no-section`・`exports-ignored-by-default` |
+| 読めない wasm（magic・版・長さ・LEB128・UTF-8・セクションの余り）は終了コード 2 で、入力の値を出さない | `wasm-unparseable(*)` |
+| 余計な項目のある組は `not-run`（`unexpected-output`）。`.d.ts`・`package.json` は余計に数えない。既定の経路は従来どおり無視する | `unexpected-output`・`unexpected-output-default-ignored`・`dts-still-ignored`・`exports-symlink-entry` |
+| `--require-exports` の誤用（値付き・2 回指定）は終了コード 2 | `require-exports-with-value`・`require-exports-twice` |
+| 偽のコマンドの経路でも `--require-exports` が働く | `fake-require-exports-ok`・`fake-require-exports-missing`・`fake-default-no-export-check` |
 | 出力に一時ディレクトリの絶対パスが出ない | 全ケース |
 
 ## Node での照合の土台
