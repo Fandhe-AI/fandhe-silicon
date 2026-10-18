@@ -134,5 +134,9 @@ name = "parity_fallback_compare"
 required-features = ["test-support"]
 
 [[test]]
+name = "parity_fallback_inputs"
+required-features = ["test-support"]
+
+[[test]]
 name = "parity_case_inputs"
 required-features = ["test-support"]
