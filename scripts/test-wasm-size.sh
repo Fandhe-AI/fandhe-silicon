@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # wasm-size.sh の回帰テスト（spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6）。
 # TASK-247（親 Issue #467 の 1/4）で、内訳の出力（raw_bytes・file: の行）と --require-exports（export の確かめ）のケースを足した。
+# 2/4 で、file: の行の sha256 と、ビルドする経路の tools: の行（道具の版・Cargo.lock のハッシュ）のケースを足した。
 # 一時ディレクトリにダミーのバイト列で glue の出力の形を作って --from-dir で渡し、終了コード・標準出力・標準エラーの
 # 文言を確かめる。既定の経路（ビルドする経路）は、PATH を一時ディレクトリの偽の cargo / rustc / wasm-bindgen に
 # 差し替えて流す。wasm-bindgen の CLI・Node・ネットワーク・docs/spec の取得は要らず、リポジトリのファイルは変更しない。
@@ -95,6 +96,10 @@ write("bundler_total", str(gz(blob(3, 3000)) + gz(blob(2, 2000)) + gz(blob(1, 50
 write("gz_js", str(gz(blob(3, 3000))))
 write("gz_bgjs", str(gz(blob(2, 2000))))
 write("gz_wasm", str(gz(blob(1, 5000))))
+import hashlib
+write("sha_js", hashlib.sha256(blob(3, 3000)).hexdigest())
+write("sha_bgjs", hashlib.sha256(blob(2, 2000)).hexdigest())
+write("sha_wasm", hashlib.sha256(blob(1, 5000)).hexdigest())
 
 # 境界: release-scalar/web の合計をちょうど 60000 / 60001 にする。js は固定、wasm の長さを探す。
 js = blob(3, 3000)
@@ -249,7 +254,10 @@ EOF
   cat >"${dir}/rustc" <<'EOF'
 #!/usr/bin/env bash
 echo "rustc $*" >>"${FAKE_LOG}"
-echo "${FAKE_SYSROOT}"
+case "$1" in
+  -V|--version) printf '%s\n' "${FAKE_RUSTC_VERSION-rustc 1.0.0 (0000000 2000-01-01)}" ;;
+  *) echo "${FAKE_SYSROOT}" ;;
+esac
 EOF
   chmod +x "${dir}/cargo" "${dir}/rustc"
 }
@@ -361,6 +369,21 @@ expect "raw-and-file-lines" 0 \
   "file: combo=release-scalar target=bundler name=wasm_glue_bg.js raw_bytes=2000 gzip_bytes=${gz_bgjs}" \
   "!exports="
 expect_count "file-lines" "file: combo=" 20
+
+# 1c. file: の行の sha256（TASK-247 の 2/4）。数えたバイト列そのもののハッシュ
+sha_js="$(cat "${work}/sha_js")"
+sha_bgjs="$(cat "${work}/sha_bgjs")"
+sha_wasm="$(cat "${work}/sha_wasm")"
+run_case --from-dir "${work}/all_ok"
+expect "file-sha256" 0 \
+  "name=wasm_glue.js raw_bytes=3000 gzip_bytes=${gz_js} sha256=${sha_js}" \
+  "name=wasm_glue_bg.js raw_bytes=2000 gzip_bytes=${gz_bgjs} sha256=${sha_bgjs}" \
+  "name=wasm_glue_bg.wasm raw_bytes=5000 gzip_bytes=${gz_wasm} sha256=${sha_wasm}" \
+  "!tools:"
+expect_count "file-sha256-count" " sha256=" 20
+run_case --from-dir "${work}/missing_file"
+expect "not-run-no-sha256" 1 "label=not-run reason=missing-file" "!combo=wasm-size-scalar target=bundler name="
+expect_count "not-run-file-lines" "file: combo=wasm-size-scalar target=bundler" 0
 
 # 2. 境界: ちょうど 60000 は ok、60001 は ng
 run_case --from-dir "${work}/boundary_eq"
@@ -528,6 +551,25 @@ else
   echo "FAIL fake-bindgen-calls: expected 8 wasm-bindgen runs" >&2
   failed=$((failed + 1))
 fi
+
+# 9d2. tools: の行（道具の版と wasm/Cargo.lock のハッシュ）
+lock_sha="$(python3 -I -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${DIR}/../wasm/Cargo.lock")"
+run_fake
+expect "fake-tools-line" 0 \
+  "tools: wasm_bindgen_version=0.2.128 rustc_version=1.0.0 cargo_lock_sha256=${lock_sha}"
+expect_count "fake-tools-line-count" "tools: " 1
+
+# 9d3. rustc の版が読めない -> 2、cargo build は呼ばれない
+for v in "" "garbage" "rustc x.y"; do
+  FAKE_RUSTC_VERSION="${v}" run_fake
+  expect "rustc-bad-version(${v})" 2 "error: cannot read the rustc version" "!record:" "!tools:"
+  if grep -q "^cargo " "${FAKE_LOG}"; then
+    echo "FAIL rustc-bad-version(${v}): cargo was called" >&2
+    failed=$((failed + 1))
+  else
+    passed=$((passed + 1))
+  fi
+done
 
 # 9e. 1 設定の cargo が失敗 -> 1、該当の 2 組が not-run build-failed
 FAKE_CARGO_FAIL_PROFILE=wasm-size FAKE_CARGO_FAIL_ISA=simd128 run_fake
