@@ -129,6 +129,42 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 - CI の `wasm-macos` ジョブの手順・道具の版を変えたとき
 - `docs/spec` の gitlink を進めたとき
 
+## 完了の条件の確かめ（TASK-247 の 4/4）
+
+4/4（#3969）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-247。関連: BUILD-42・T-12・TASK-28）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節・スクリプト |
+| ------ | -------------------- |
+| 測定の手順のスクリプト（gzip の `mtime=0` を含む） | 本書の「glue 込みの量の測定」の節・`scripts/wasm-size.sh`・`scripts/test-wasm-size.sh`（1/4・2/4） |
+| 量の測定の記録（8 組） | 本書の「量の測定の記録（TASK-247 の 3/4）」の節（記録の実物は本リポに置かない。private spec 側の記録に従う。ポインタのみ） |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 量の測定の回帰テスト | `make test-wasm-size` | 終了コード 0・`82 passed, 0 failed` |
+| A2 | 8 組の宣言 | `grep -n -e '^PROFILES' -e '^ISAS' -e '^TARGETS' scripts/wasm-size.sh` | profile 2（`release`・`wasm-size`）× 命令 2（`scalar`・`simd128`）× 出力先 2（`web`・`bundler`） |
+| A3 | gzip の条件 | `grep -n 'compresslevel=9, mtime=0' scripts/wasm-size.sh` | 1 か所 |
+| A4 | 閾値の宣言 | `grep -n 'LIMIT_BYTES =' scripts/wasm-size.sh` | 1 か所・`60000` |
+| A5 | 期待の export の宣言と確かめの口 | `grep -n -A3 '^REQUIRED_EXPORTS' scripts/wasm-size.sh`・`grep -n 'require-exports' scripts/wasm-size.sh` | `REQUIRED_EXPORTS` は 7 名・`--require-exports` あり |
+| A6 | glue の export の現状 | `grep -n wasm_bindgen wasm/crates/glue/src/lib.rs`・テストのケース `exports-only-roundtrip` | 宣言は `roundtrip_f32` だけ。`--require-exports` を付けると 8 組とも `not-run`（`missing-export`） |
+| A7 | main の CI の実物の測定 | main の push run `39115426926`（head `d7f6ffc4ae2b1034b8dad01de00d0272203c0f61`）の `wasm32 build + size + node (macos-latest)` ジョブ。`gh run view 39115426926 -R Fandhe-AI/fandhe-silicon --log` の行の件数 | step `make wasm-size` は success。`record: combos=8 ok=8 ng=0 not_run=0 limit=60000`・`tools:` の行 1 行・`file:` の行 20 行（20 行とも `sha256=` を持つ） |
+| A8 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make test-wasm-size`・`make wasm-verify`・`make deps-check` とも conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make wasm-verify` | すべて終了コード 0 |
+
+実物の `make wasm-size` は wasm-bindgen の CLI `0.2.128` が要るため手元の表に含めず、A7 の CI のジョブで確かめた。
+測った成果物は glue の export が `roundtrip_f32` だけの時点のもの（「量の測定の記録（TASK-247 の 3/4）」の「測った成果物の位置づけ」「閾値との関係」の行を参照）。期待の export を持つ成果物の測り直しは、export を足すタスクの範囲（TASK-1350・1351・1352・237 のポインタ）。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-247）。
+
+### 再実行の契機
+
+- `scripts/wasm-size.sh`・`scripts/test-wasm-size.sh`・`wasm/` を変えたとき
+- glue に export を足したとき（TASK-1350・1351・1352・237 のポインタ）
+- CI の `wasm-macos` ジョブ・`deny` ジョブの手順、道具の版を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `b5b5a54`、`docs/spec` の gitlink は `8664148`。
+
 ## Node での照合の土台
 
 glue を Node で読み込み、最小の export を呼んで結果をネイティブの参照と照合し、行ごとに `match`・`mismatch`・`not-run` を出す枠。照合の中身（再現する行）はここに入れない。`crates/core` の `test_frame`（記録の部品・集計）や `parity`（許容誤差のある比べ方）とは役割を重ねない（比べるのはビット列の完全一致だけ）。
