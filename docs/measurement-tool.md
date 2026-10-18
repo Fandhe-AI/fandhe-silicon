@@ -75,7 +75,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 ## 現状の形（3/8）
 
 測定専用の別 workspace `measure/`（ルート `Cargo.toml` の `exclude`。自身の `Cargo.lock` を持つ）に、共有 crate `measure-perf`（`measure/crates/perf/`・lib のみ・外部依存 0 件）を置いた。
-製品の crate は本 crate に依存せず、本 crate も製品の crate に依存しない。device には触れない。
+製品の crate は本 crate に依存しない。本 crate の lib は製品の crate に依存せず、試験（`tests/gate.rs`）だけが `core`（feature `test-support`）を dev-dependency で使う（TASK-1026 の 3/4）。device には触れない。
 記録の書き出しは 4/8 の節に書く。後続の段の範囲（欄の追加・判定など）は本節に書かない。
 
 ### 公開アイテムと振る舞い

@@ -24,8 +24,8 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 判定への写し | `test_frame` の `Verdict::{Match, Mismatch}` へ、比べの結果からの `impl From<&_> for Verdict` が 5 件ある | `git grep -n 'impl From' -- crates/core/src/test_frame/outcome.rs` |
 | feature | `parity`・`test_frame` は `core` の feature `test-support` の裏だけで公開される | `grep -n -A2 '\[features\]' crates/core/Cargo.toml` |
 | 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
-| 測定の道具と `core` | `measure/` は `core` に依存しない。門は一致・不一致を独自の列挙で受ける | `git grep -n -e fandhe-silicon-core -e fandhe_silicon_core -- measure/`（0 件） |
-| path 依存の検査 | `measure-verify.sh` は `--allow-path-root` を渡さずに `deps-check.sh` を呼ぶ | `grep -n 'allow-path-root' scripts/measure-verify.sh`（0 件） |
+| 測定の道具と `core` | `measure-perf` の lib は `core` に依存しない。門は一致・不一致を独自の列挙で受ける。`core`（feature `test-support`）は dev-dependency だけで、試験が使う | `git grep -n -e fandhe-silicon-core -e fandhe_silicon_core -- measure/crates/perf`（`src/` は 0 件。`Cargo.toml` の `[dev-dependencies]` と `tests/gate.rs` にある） |
+| path 依存の検査 | `measure-verify.sh` は `--allow-path-root` で `crates/` 配下への path だけを免除して `deps-check.sh` を呼ぶ | `grep -n 'allow-path-root' scripts/measure-verify.sh`（1 件） |
 | 記録の語彙 | `record` に `Label`・`NotRunReason`・`IndeterminateReason` がある。綴りは `test_frame` に揃え、テストがソースと突き合わせる | `measure/crates/perf/src/record.rs` |
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 走る場所 | `measure/` の試験は `make measure-verify`、`core` の `parity_*`・`test_frame_*` は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/measure-verify.sh`、`scripts/verify.sh` |
@@ -37,7 +37,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | -- | ----- |
 | 1/4 現状と前提の確認 | #6359 |
 | 2/4 門の規則を測定の道具に足す | #6360 |
-| 3/4 | #6361 |
+| 3/4 門を通らない入力・通る入力の試験 | #6361 |
 | 4/4 | #6362 |
 
 ## 門の規則（2/4）
@@ -48,9 +48,27 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 入力 | run ごとに、腕・行・run の ID と照合の結果（結果の一致の道具または画素の一致の道具の一致・不一致。結果が無いときは `None`） |
 | 出力 | run ごとの採否と、採らない理由の綴り（`result-parity-mismatch`・`pixel-parity-mismatch`・`result-missing`・`pair-not-taken`）、採った・採らなかった run と組の件数、理由ごとの件数 |
 | 規則 | 明示の一致の run だけ採る。同じ腕 × 行の組に採らない run が 1 件でもあれば、その組の一致の run も採らない。入力が 0 件、または run の ID の重複はエラー |
-| `core` との関係 | `core` に依存しない（依存を足していない）。`core` の比べの結果から `GateVerdict` への写しは呼び手が行う |
+| `core` との関係 | lib（`src/`）は `core` に依存しない。`core` の比べの結果から `GateVerdict` への写しは呼び手が行い、試験（`tests/gate.rs`）がその呼び手になる |
 | 記録の形 | `record` の `RunRecord` の JSON は変えていない。呼び手が `GateOutcome::taken_run_ids` で `runs::aggregate` へ渡す run を絞る |
 | 確かめ方 | `make measure-verify`（`gate.rs` の単体試験を含む） |
+
+## 試験（3/4）
+
+`measure/crates/perf/tests/gate.rs`。`core` の実物の比べの道具（`compare_f32`・`compare_topk`・`compare_f32_with_special_values`・`compare_pixels`・`compare_pixels_exact`）の結果を `GateVerdict` へ写して門に通す。比べがエラーのときは結果なし（`None`）に写す。GPU の実機・ファイル・ネットワークは使わない。
+
+| 試験の関数 | 確かめる振る舞い |
+| ---------- | ---------------- |
+| `result_parity_exact_input_is_taken` | 参照と同じ列は一致で、採る |
+| `result_parity_perturbed_input_is_not_taken_and_blocks_pair` | 1 要素に誤差を足した列は不一致で `result-parity-mismatch`。同じ組の一致の run は `pair-not-taken` |
+| `topk_identical_taken_and_bit_flip_or_swap_not_taken` | Top-k は同一なら採り、スコアの 1 ビット違い・順序の入れ替えは `result-parity-mismatch` |
+| `non_finite_in_finite_reference_position_is_not_taken` | 参照が有限の位置の NaN は不一致で採らない。同じ列は採る |
+| `pixel_parity_same_image_taken_and_changed_pixel_not_taken` | 同じ画像は採り、1 画素のチャネル差が上限を超えると `pixel-parity-mismatch` |
+| `pixel_parity_exact_rejects_difference_of_one` | 厳密な比べは差 1 でも不一致で採らない |
+| `compare_error_maps_to_missing_and_is_not_taken` | 長さ違い・大きさ違いは `result-missing` で採らない |
+| `mixed_inputs_leave_reasons_and_counts` | 混ぜた入力で、run ごとの採否・件数・理由ごとの件数・`taken_run_ids`・`render` の欄が期待どおり |
+| `all_match_inputs_are_all_taken` | すべて一致の入力は全件採り、理由の件数は 0 |
+
+確かめ方: `make measure-verify`。
 
 ## 本リポでの反映の方針
 

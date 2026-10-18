@@ -23,7 +23,7 @@
 
 - 手順: 承認事項の提示 → ユーザーの明示承認 → 依存の追加と**同じ PR** で記録を追加 → `make deps-check`。版の更新・削除でも記録を直す
 - 検出する違反: 記録なし・版の不一致・利用元（`used_by`）の不一致・使われていない記録・記録の書式違反・記録ファイルの欠落／破損
-- `--allow-path-root <dir>`（直接実行のみ）: 別 workspace `wasm/` が製品の crate（`crates/`）を path で参照するときだけ、`<dir>` 配下への path 依存を免除する。`<dir>` の外への path・未固定・registry の依存は違反のまま
+- `--allow-path-root <dir>`（直接実行のみ）: 別 workspace `wasm/`・`measure/`（試験の dev-dependency のみ）が製品の crate（`crates/`）を path で参照するときだけ、`<dir>` 配下への path 依存を免除する。`<dir>` の外への path・未固定・registry の依存は違反のまま
 - builder Agent は記録を自分で書かず、承認事項として main へ報告する。得ていない承認を記録・コミット・PR 本文に書かない
 - `purpose` に private spec の本文や内部判断を書かない
 
