@@ -1,12 +1,13 @@
-//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件の振る舞いの確認（spec TASK-928 の 2/8・3/8）。
+//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件の振る舞いの確認（spec TASK-928 の 2/8・3/8・4/8）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。入力はこの場で作る。
 
 use fandhe_silicon_core::parity::binary16::binary16_bits_to_f32;
 use fandhe_silicon_core::parity::fallback_compare::{
-    BINARY16_MAX_ORDER_DISTANCE, FallbackVerdict, OrderVerdict, binary16_order_distance,
-    compare_bits_f32, compare_bits_u32, compare_order_distance_binary16,
-    count_bit_identical_binary16, judge_bits_f32, judge_bits_u32, judge_order_binary16,
-    judge_order_distance_binary16, judge_order_f32,
+    BINARY16_MAX_ORDER_DISTANCE, FallbackVerdict, OrderVerdict, SUM_RELATIVE_BOUND,
+    binary16_order_distance, compare_bits_f32, compare_bits_u32, compare_order_distance_binary16,
+    compare_relative_sum_f32, count_bit_identical_binary16, judge_bits_f32, judge_bits_u32,
+    judge_order_binary16, judge_order_distance_binary16, judge_order_f32, judge_relative_sum_f32,
+    relative_sum_margin,
 };
 use fandhe_silicon_core::parity::special_values::{
     SpecialVerdict, judge_element_with_special_values,
@@ -384,4 +385,154 @@ fn count_bit_identical_records_only() {
         count_bit_identical_binary16(&[], &[]),
         Err(CompareError::EmptyInput)
     );
+}
+
+fn next_up(x: f32) -> f32 {
+    f32::from_bits(x.to_bits() + 1)
+}
+
+#[test]
+fn relative_sum_order_first() {
+    let sums = [0.0, -1.0, f64::NAN, f64::INFINITY, 1000.0];
+    let cases = [
+        (f32::NAN, -f32::NAN, FallbackVerdict::BothNan),
+        (f32::INFINITY, f32::INFINITY, FallbackVerdict::SameInfinity),
+        (
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            FallbackVerdict::NonFiniteMismatch,
+        ),
+        (f32::NAN, 1.0, FallbackVerdict::NonFiniteMismatch),
+        (0.0, -0.0, FallbackVerdict::BothZero),
+    ];
+    for s in sums {
+        for (r, a, v) in cases {
+            assert_eq!(judge_relative_sum_f32(r, a, s), v);
+        }
+    }
+}
+
+#[test]
+fn relative_sum_boundary_is_inclusive() {
+    assert_eq!(SUM_RELATIVE_BOUND, 1e-3);
+    assert_eq!(
+        judge_relative_sum_f32(1.0, 2.0, 1000.0),
+        FallbackVerdict::WithinRelativeSum
+    );
+    assert_eq!(
+        judge_relative_sum_f32(2.0, 1.0, 1000.0),
+        FallbackVerdict::WithinRelativeSum
+    );
+    assert_eq!(
+        judge_relative_sum_f32(1.0, next_up(2.0), 1000.0),
+        FallbackVerdict::RelativeSumExceeded
+    );
+    assert_eq!(
+        judge_relative_sum_f32(next_up(2.0), 1.0, 1000.0),
+        FallbackVerdict::RelativeSumExceeded
+    );
+}
+
+#[test]
+fn relative_sum_within_and_exceeded() {
+    let w = judge_relative_sum_f32(10.0, 10.25, 1000.0);
+    assert_eq!(w, FallbackVerdict::WithinRelativeSum);
+    assert!(w.is_match());
+    assert_eq!(
+        judge_relative_sum_f32(3.5, 3.5, 1.0),
+        FallbackVerdict::WithinRelativeSum
+    );
+    let e = judge_relative_sum_f32(10.0, 12.0, 1000.0);
+    assert_eq!(e, FallbackVerdict::RelativeSumExceeded);
+    assert!(!e.is_match());
+}
+
+#[test]
+fn relative_sum_zero_abs_sum() {
+    let tiny = f32::from_bits(1);
+    assert_eq!(
+        judge_relative_sum_f32(0.0, tiny, 0.0),
+        FallbackVerdict::RelativeSumExceeded
+    );
+    assert_eq!(relative_sum_margin(0.0, tiny, 0.0), f64::INFINITY);
+    assert_eq!(
+        judge_relative_sum_f32(1.5, 1.5, 0.0),
+        FallbackVerdict::WithinRelativeSum
+    );
+    assert_eq!(relative_sum_margin(1.5, 1.5, 0.0), 0.0);
+}
+
+#[test]
+fn relative_sum_invalid_abs_sum_fails_closed() {
+    for s in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            judge_relative_sum_f32(1.0, 1.0, s),
+            FallbackVerdict::RelativeSumExceeded
+        );
+        assert_eq!(relative_sum_margin(1.0, 1.0, s), f64::INFINITY);
+    }
+}
+
+#[test]
+fn relative_sum_margin_values() {
+    assert_eq!(relative_sum_margin(1.0, 1.5, 1000.0), 5e-4);
+    assert_eq!(relative_sum_margin(f32::NAN, f32::NAN, 1000.0), 0.0);
+    assert_eq!(relative_sum_margin(0.0, -0.0, f64::NAN), 0.0);
+    assert_eq!(
+        relative_sum_margin(f32::INFINITY, 1.0, 1000.0),
+        f64::INFINITY
+    );
+    for (r, a) in [(1.0f32, 1.5f32), (1.0, 3.0), (5.0, 5.0)] {
+        let within = judge_relative_sum_f32(r, a, 1000.0).is_match();
+        assert_eq!(
+            within,
+            relative_sum_margin(r, a, 1000.0) <= SUM_RELATIVE_BOUND
+        );
+    }
+}
+
+#[test]
+fn compare_relative_sum_errors() {
+    let mut m = [-7.0f64; 3];
+    assert_eq!(
+        compare_relative_sum_f32(&[1.0], &[1.0, 2.0], &[1.0], &mut m),
+        Err(CompareError::LengthMismatch {
+            reference: 1,
+            actual: 2
+        })
+    );
+    assert_eq!(
+        compare_relative_sum_f32(&[1.0, 2.0], &[1.0, 2.0], &[1.0], &mut m),
+        Err(CompareError::LengthMismatch {
+            reference: 2,
+            actual: 1
+        })
+    );
+    assert_eq!(
+        compare_relative_sum_f32(&[1.0, 2.0], &[1.0, 2.0], &[1.0, 1.0], &mut m),
+        Err(CompareError::LengthMismatch {
+            reference: 2,
+            actual: 3
+        })
+    );
+    assert_eq!(
+        compare_relative_sum_f32(&[], &[], &[], &mut []),
+        Err(CompareError::EmptyInput)
+    );
+    assert_eq!(m, [-7.0; 3]);
+}
+
+#[test]
+fn compare_relative_sum_summary_and_margins() {
+    let r = [1.0f32, 10.0, f32::NAN, 0.0, 5.0];
+    let a = [2.0f32, 12.0, f32::NAN, -0.0, 5.0];
+    let s = [1000.0f64, 1000.0, f64::NAN, 0.0, 1.0];
+    let mut m = [-7.0f64; 5];
+    let c = compare_relative_sum_f32(&r, &a, &s, &mut m).unwrap();
+    assert_eq!(c.compared(), 5);
+    assert_eq!(c.mismatched(), 1);
+    assert_eq!(c.first_mismatch(), Some(1));
+    for i in 0..5 {
+        assert_eq!(m[i], relative_sum_margin(r[i], a[i], s[i]));
+    }
 }

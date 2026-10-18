@@ -35,7 +35,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_compare.rs`（`test-support` の裏。標準ライブラリだけ、確保も panic もしない） | `grep -n 'pub mod' crates/core/src/parity.rs` |
 | 公開名 | `OrderVerdict`・`judge_order_f32`・`judge_order_binary16`・`FallbackVerdict`・`judge_bits_u32`・`judge_bits_f32`・`FallbackComparison`・`compare_bits_u32`・`compare_bits_f32`。エラーは `tolerance::CompareError` を再利用する | `crates/core/src/parity/fallback_compare.rs` |
-| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8 の分を含めて 21 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8・4/8 の分を含めて 29 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
 
 ## 振る舞い（2/8）
 
@@ -68,6 +68,26 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | 前段が先 | 最大の有限値と +Inf のようにビット列が隣り合う組は、前段で `NonFiniteMismatch` に決まり、差の条件へ進まない | `order_distance_overflow_neighbour_is_not_within`・`order_distance_non_finite_follows_order` |
 | 列の比べ | 長さ違いが先、次に長さ 0。集計の形は 2/8 と同じ | `compare_order_distance_errors_and_summary` |
 | ビット同一の記録 | `count_bit_identical_binary16` はビット列が等しい要素の数を返す。判定には使わない | `count_bit_identical_records_only` |
+
+## 所在（4/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/8 と同じ `fallback_compare.rs` に足す（新しいファイルは足さない） | `crates/core/src/parity/fallback_compare.rs` |
+| 公開名 | `SUM_RELATIVE_BOUND`・`judge_relative_sum_f32`・`relative_sum_margin`・`compare_relative_sum_f32`。`FallbackVerdict` に `WithinRelativeSum`・`RelativeSumExceeded` を足す | `grep -n 'pub ' crates/core/src/parity/fallback_compare.rs` |
+| 試験 | 同じ `parity_fallback_compare.rs` に 8 本を足す | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+
+## 振る舞い（4/8）
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| 前段が先 | 前段で決まる組はその区分に写し、このとき `abs_sum` は見ない | `relative_sum_order_first` |
+| 一致の条件 | 前段で決まらない組は、誤差（f64）が `SUM_RELATIVE_BOUND`（1e-3）* `abs_sum` 以下なら `WithinRelativeSum`、超えれば `RelativeSumExceeded`。境目は含み、割り算は使わない | `relative_sum_boundary_is_inclusive`・`relative_sum_within_and_exceeded` |
+| `abs_sum` が 0 | 誤差が正なら不一致、誤差 0 なら一致 | `relative_sum_zero_abs_sum` |
+| `abs_sum` が使えない値 | 負・NaN・無限大は不一致に倒す | `relative_sum_invalid_abs_sum_fails_closed` |
+| 余裕 | `relative_sum_margin` は誤差 / `abs_sum`。前段で一致は 0、前段で不一致は +Inf。記録だけに使い、判定は `judge_relative_sum_f32` だけが決める | `relative_sum_margin_values` |
+| 列の比べ | 長さの検査の順は参照と実測、`abs_sums`、`margins`、長さ 0。エラーのとき `margins` は書き換えない | `compare_relative_sum_errors` |
+| 余裕の全件記録 | 検査が通れば全添字の余裕を `margins` に書く。集計の形は 2/8 と同じ | `compare_relative_sum_summary_and_margins` |
 
 ## 段の表
 
