@@ -37,6 +37,14 @@
 | 各 enum の全 variant の網羅（crate 内で `_` なしの `match`。`PipelineInput` 9・`MslMathMode` 2・`MslFloatFunctions` 2・`FunctionConstantValue` 2・`DType` 5） | `crates/core/src/execution.rs` の `tests` の `execution_pipeline_input_has_nine_variants`・`execution_small_enums_have_expected_variants`・`execution_dtype_has_five_variants` |
 | `#[non_exhaustive]` が外れたら落ちること（外の crate で `_` の腕が到達不能になる）と、struct のフィールドの集合（`..` なしの分解） | `crates/core/tests/execution_type_coverage.rs` の `execution_enums_stay_non_exhaustive`・`execution_pipeline_input_stays_non_exhaustive`・`execution_structs_keep_field_sets` |
 
+## CI での走り方
+
+| ジョブ | 呼ぶ make ターゲット | 流れるもの | 確かめ方 |
+| ------ | -------------------- | ---------- | -------- |
+| `verify` | `make verify` | `--all-features` での `execution_*` の統合テストと `execution` の単体テスト | `scripts/verify.sh` |
+| `verify` | `make build-profiles` | `core` を feature なしで clippy（`-D warnings`）と test。`test-support` の要る試験は含まれず、型の試験はそれなしで通る | `grep -n CORE_PKG scripts/build-profiles.sh` |
+| `deny` | `make public-api-check` | `core` を production と all-features の 2 組で走査し、wgpu の型の参照が 0 件で合格する | `scripts/public-api-check.sh`、`.github/workflows/ci.yml` |
+
 ## 確かめ方
 
 ```bash
@@ -45,7 +53,9 @@ cargo test -p fandhe-silicon-core --test execution_operand_spec
 cargo test -p fandhe-silicon-core --test execution_cache_key
 cargo test -p fandhe-silicon-core --test execution_type_coverage
 cargo test -p fandhe-silicon-core --lib execution
+cargo test -p fandhe-silicon-core
 make public-api-check
+make build-profiles
 ```
 
 `make verify` が流す。GPU の実機は要らない。
