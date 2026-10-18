@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜2/4（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -31,6 +31,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 - 同じファイルの `c6_` で始まる名前の統合テスト。定数が宣言の必要バイト数より短ければ C6 で拒否、同じ長さなら通る
 - 同じファイルの `c4_`・`c5_` で始まる名前の統合テスト。容量 16 のバッファに 400 バイトの宣言は拒否、16 バイトちょうどは通る（C4）。alignment 16 に offset 4 は拒否、offset 16 は通る（C5）
 - 同じファイルの `c4_` で始まる名前のうち、容量が不明の束縛（C4 を判定しない）と、offset 0・4・16・1,000・2,000 の束縛（容量から offset を引いた残り。容量以上の offset では 0）を流す試験（TASK-425 の 2/4）
+- 同じファイルの `c5_zero_alignment_` で始まる名前の統合テスト。alignment 0 の宣言は offset 4・16・1,000・2,000 でも C5 を判定せずに通り（対照の alignment 16 は offset 4・1,000 で `C5`）、alignment 0 でも C4・C6 は判定される（TASK-425 の 3/4）
 
 ## 確かめ方
 
@@ -157,3 +158,46 @@ TASK-425（関連: BIND-58）の 2/4（#4754）で、`crates/core/tests/executio
 範囲の外: alignment 0 の入力は 3/4（#4755）、完了の条件の確かめは 4/4（#4756）。
 
 確かめた base は `13fb87a`（`git rev-parse origin/main`）、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## alignment 0 の C5 の試験（3/4）（TASK-425）
+
+TASK-425（関連: BIND-59）の 3/4（#4755）で、`crates/core/tests/execution_dispatch_check.rs` に alignment 0 の統合テストを足した。実装（`dispatch_check.rs`）は変えていない。本節は 4/4（#4756）で記録した。
+
+| 関数 | 流す入力 | 結果 |
+| ---- | -------- | ---- |
+| `c5_zero_alignment_with_nonzero_offset_is_accepted` | alignment 0、offset 4・16・1,000・2,000 | すべて通る。対照の alignment 16 は offset 4・1,000 で `C5` |
+| `c5_zero_alignment_still_applies_other_checks` | alignment 0・F32 `[4]`・offset 4 で容量 16 と 20。U32 `[3]` の定数 8 バイトと 12 バイト | 容量 16 は `C4` で拒否、容量 20 は通る。定数は 8 バイトなら `C6` で拒否、12 バイトなら通る |
+
+対応: BIND-59（ポインタのみ）。確かめた base は `9a634f0`。
+
+## 完了の条件の確かめ（4/4）（TASK-425。以下は当時の base の記録）
+
+4/4（#4756）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-425。関連: BIND-58・BIND-59）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| E1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 15 passed / 0 failed / 0 ignored |
+| E2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 17 passed / 0 failed / 0 ignored |
+| E3 | 統合テストの関数の数 | `grep -c -E '^fn c4_'`・`'^fn c5_'`（`crates/core/tests/execution_dispatch_check.rs`） | 6・4 |
+| E4 | TASK-425 で実装を変えていない | 1/4 の base `938c93e` から本 base までの `crates/core/src` の差分 | 空 |
+| E5 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
+| E6 | base の CI | `gh run list`（base の push の run、ID 39166382577） | 記録時点は in_progress。直前の 3/4 の commit `9a634f0` の run（ID 39166321519）は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+
+ビヘイビア ID と試験の対応（関数名）:
+
+| ID | 試験 |
+| -- | ---- |
+| BIND-58 | `c4_unknown_capacity_is_not_checked`・`c4_unknown_capacity_binding_is_skipped_per_binding`・`c4_offset_reduces_remaining_capacity`・`c4_large_offset_subtracts_from_known_capacity` |
+| BIND-59 | `c5_zero_alignment_with_nonzero_offset_is_accepted`・`c5_zero_alignment_still_applies_other_checks` |
+
+試験が照合するのは `Ok(())` と、`InvalidArgument` の variant・文言の先頭 `C4`・`C5`・`C6` まで。
+
+範囲の外: C7、同じ `slot` の宣言が複数あるときの扱い、alignment が 4・8・64 の C5、背後実装の入口を通した確かめは本書の範囲の外（ポインタ: TASK-424、TASK-426、TASK-475・TASK-476・TASK-477、TASK-494・TASK-495）。
+
+### 再実行の契機
+
+- `dispatch_check.rs`・`execution_dispatch_check.rs`・`execution.rs` の `OperandSpec`／`DType::byte_size`、`OperandBinding`／`binding_capacity` の形を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `2e105b5163b0becd759f4d1e5388c30b1083b11a`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
