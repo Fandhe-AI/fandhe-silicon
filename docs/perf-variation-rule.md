@@ -2,6 +2,7 @@
 
 性能の測定の道具の現状について、本リポのコードと公開テストから説明できる事実を記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1027。ポインタのみ）。spec の本文・値・規則は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+2/6（#6364）で「形の設計」の節を足した（決定の記録のポインタ・規則が乗る既存のコードの事実・守る本リポの規約）。
 
 ## 記録の所在
 
@@ -32,6 +33,49 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 走る場所 | `make measure-verify`。GPU の実機は要らない | `scripts/measure-verify.sh` |
 | 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
 
+## 形の設計（2/6）
+
+本段の範囲は `docs/spec/05-tasks.md` の TASK-1027 の内容の前半。
+具体（置き場の名前・型・欄・設定の値・規則の形・出力の先）は 3/6（#6365）以降のコードと公開テストが示し、本節には先に書かない。
+本節に書くのは、決定の記録のポインタ、規則が乗る既存のコードの事実、どの形でも守る本リポの規約。
+
+### 決定の記録に従う点
+
+- 規則と設定は、`docs/spec/05-tasks.md` の TASK-1027 と `docs/spec/04-behavior/performance.md` から辿る決定の記録に従う（ポインタのみ）。本書には内容を書かない
+- 関連の文書: [measurement-tool](measurement-tool.md)（TASK-27）・[perf-gate-rule](perf-gate-rule.md)（TASK-1026）・[measurement-record](measurement-record.md)（TASK-28）
+- 決定の記録から一意に決まらない点は [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の経路で扱う
+
+### 規則が乗る既存のコード・検査の事実
+
+上の「本リポの現状」の表と重なる事実は、その表を参照する。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| run 間の集計のコマンド | `across-runs` は標準出力に 1 行の JSON を出し、ファイルを作らない | `measure/crates/perf/src/lib.rs` の `//!` |
+| run ごとの記録の形の検査 | `scripts/perf-record-check.sh`。make ターゲットは無く、回帰テストは `make test-perf-record-check` | ファイル冒頭のコメント |
+| 記録の例 | `docs/run-record.example.json` は書き出しの実物とバイトで一致する | `measure/crates/perf/tests/repeat.rs` |
+| 語彙の突き合わせ | `record` の `Label`・`IndeterminateReason` の綴りは、試験が `crates/core` の `test_frame` のソースと突き合わせる | `measure/crates/perf/tests/record.rs` |
+| 記録のパスを引数で受ける照合の前例 | `scripts/rerun-compare.sh`。make ターゲットを持たない | ファイル冒頭のコメント |
+| 検査の入口 | `make measure-verify`。CI の `deny` ジョブが呼ぶ | `scripts/measure-verify.sh` |
+
+### どの形でも守る本リポの規約
+
+| 項目 | 規約 | 所在 |
+| ---- | ---- | ---- |
+| 製品の workspace | 製品の crate は測定の道具に依存しない。向きは「測定 → 製品の公開 API」の一方向 | [poc-carry-over](../.claude/rules/poc-carry-over.md)、[workspace-boundary](workspace-boundary.md) |
+| 依存 | 標準ライブラリだけで書く。依存が要る場合は承認の経路を通し、`=x.y.z` で固定する | [dependency-policy](../.claude/rules/dependency-policy.md) |
+| unsafe | `measure/` は `unsafe_code = "forbid"` | `measure/Cargo.toml` |
+| 失敗の扱い | ライブラリは `Result` を返し panic しない。不正な入力・未知の入力は `Err` にするか、判定を付けない側に倒す | [coding-rust](../.claude/rules/coding-rust.md) |
+| 値の置き場 | 記録済みの run の値は公開側に置かない。公開側の試験と CI は、形が同じ合成値の fixture で行う | 親 #935 |
+| 記録済みの行との照合 | 記録のパスを引数で受ける形にし、公開側の試験・CI には組み込まない | `scripts/rerun-compare.sh`、親 #935 |
+| spec との対応 | ID のポインタだけ | [spec-confidentiality](../.claude/rules/spec-confidentiality.md) |
+| 検査 | `make measure-verify`。記録の形を変える場合は `make test-perf-record-check` も通す | `Makefile` |
+
+### 3/6 以降で扱うこと
+
+3/6（#6365）・4/6（#6366）の実装、5/6（#6367）の試験、6/6（#6368）の確かめ。
+各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+
 ## 段の表
 
 | 段 | Issue |
@@ -45,7 +89,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 ## 本リポでの反映の方針
 
-- 本書には現状の事実だけを置く。後の段で足す振る舞いは、その PR のコードと公開テストが示し、その PR で本書に節を足す
+- 本書には現状の事実と、決定の記録のポインタ・守る規約だけを置く。後の段で足す振る舞いは、その PR のコードと公開テストが示し、その PR で本書に節を足す
 - 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 
 ## 関連
