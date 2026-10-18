@@ -104,6 +104,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）（TASK-253） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
+| `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）（TASK-228） |
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
 | `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
