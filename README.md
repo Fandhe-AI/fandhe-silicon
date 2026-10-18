@@ -167,7 +167,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make check` | `scripts/check.sh` | editorconfig-checker + shellcheck（ソースは変更しない） |
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない）。`cargo test` の 1 回だけ試験の枠の記録を新しい一時ディレクトリへ書かせ、試験の後に集計の表（機材の組み合わせ × ラベルの件数）を標準出力に出して一時ディレクトリを消す。呼び出し側の環境に `FANDHE_SILICON_TEST_RECORD_DIR` が既にあるときは上書きせず、集計も片づけもしない |
 | `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、wasm32 は check、core crate は feature なしで clippy / test（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
-| `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 + `measure/`・`baseline-wgpu/`・`wasm/` の cargo-deny と `baseline-wgpu/`・`wasm/` の依存の承認の記録の検査 + 製品の依存グラフの wgpu 系 crate の検査（jq・python3・git が要る） |
+| `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 + `measure/`・`baseline-wgpu/`・`wasm/` の cargo-deny と `baseline-wgpu/`・`wasm/` の依存の承認の記録の検査 + 製品の依存グラフの wgpu 系 crate の検査 + 契約の crate のプロファイルごとの依存グラフの検査と陽性対照（jq・python3・git が要る） |
 | `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定で、承認の記録（`deps-approved.toml`）と一致するかを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
 | `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
