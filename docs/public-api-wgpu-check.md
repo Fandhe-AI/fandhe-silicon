@@ -90,6 +90,6 @@ worktree のルートで実行する。
 
 ## 関連
 
-- [public-name-check](public-name-check.md)・[ci-device-free-jobs](ci-device-free-jobs.md)・[ci-job-split](ci-job-split.md)
+- [public-api-contract-check](public-api-contract-check.md)・[public-name-check](public-name-check.md)・[ci-device-free-jobs](ci-device-free-jobs.md)・[ci-job-split](ci-job-split.md)
 - [baseline-wgpu](baseline-wgpu.md)・[baseline-positive-control](baseline-positive-control.md)・[workspace-boundary](workspace-boundary.md)・[measurement-record](measurement-record.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[dependency-policy](../.claude/rules/dependency-policy.md)
