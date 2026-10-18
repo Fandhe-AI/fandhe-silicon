@@ -104,3 +104,15 @@ required-features = ["test-support"]
 [[test]]
 name = "parity_signed_zero_topk"
 required-features = ["test-support"]
+
+[[test]]
+name = "parity_binary16"
+required-features = ["test-support"]
+
+[[test]]
+name = "parity_gemm_inputs"
+required-features = ["test-support"]
+
+[[test]]
+name = "parity_gemm_reference"
+required-features = ["test-support"]
