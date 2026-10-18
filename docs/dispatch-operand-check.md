@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜2/4（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -30,6 +30,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 - `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_` で始まる名前）。長さ 0 の次元（GEMM の宣言を含む）・`u64` のあふれ・上限超過（1 バイト足りなければ拒否、ちょうどなら通る。巨大な宣言でも確保せずに判定する）を確かめる
 - 同じファイルの `c6_` で始まる名前の統合テスト。定数が宣言の必要バイト数より短ければ C6 で拒否、同じ長さなら通る
 - 同じファイルの `c4_`・`c5_` で始まる名前の統合テスト。容量 16 のバッファに 400 バイトの宣言は拒否、16 バイトちょうどは通る（C4）。alignment 16 に offset 4 は拒否、offset 16 は通る（C5）
+- 同じファイルの `c4_` で始まる名前のうち、容量が不明の束縛（C4 を判定しない）と、offset 0・4・16・1,000・2,000 の束縛（容量から offset を引いた残り。容量以上の offset では 0）を流す試験（TASK-425 の 2/4）
 
 ## 確かめ方
 
@@ -72,7 +73,7 @@ make verify
 
 確かめた base は `7c962ec88bccc285f63d81e46a1f4381f8490082`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
 
-## 完了の条件の確かめ（4/4）（TASK-423）
+## 完了の条件の確かめ（4/4）（TASK-423。以下は当時の base の記録）
 
 4/4（#4750）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-423。関連: BIND-42〜BIND-44）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
 
@@ -139,3 +140,20 @@ TASK-425（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-58・BIND-59）�
 後の段で足す振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)。
 
 確かめた base は `938c93e714b755785cb25a714a701792c3f8ce5c`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## C4 の容量不明・offset の試験（2/4）（TASK-425）
+
+TASK-425（関連: BIND-58）の 2/4（#4754）で、`crates/core/tests/execution_dispatch_check.rs` に C4 の統合テストを足した。実装（`dispatch_check.rs`）は変えていない。試験の宣言は alignment 4 で、流す offset（0・4・16・1,000・2,000）はすべて 4 の倍数なので C5 には当たらない。
+
+| 関数 | 流す入力 | 結果 |
+| ---- | -------- | ---- |
+| `c4_unknown_capacity_is_not_checked` | 容量 `None`、必要 400 バイト、offset 0・4・16・1,000・2,000 | すべて通る。対照の容量 16 は `C4` で拒否 |
+| `c4_unknown_capacity_binding_is_skipped_per_binding` | slot 0 は容量 `None`（必要 400 バイト）、slot 1 は容量 16 | slot 1 が必要 16 バイトなら通り、20 バイトなら `C4` |
+| `c4_offset_reduces_remaining_capacity` | 容量 16、offset 0・4・16・1,000・2,000 | 残り 16・12・0・0・0。残りちょうどは通り、1 要素多いと `C4`。残り 0 では F32 `[1]`・Bool `[]` とも `C4` |
+| `c4_large_offset_subtracts_from_known_capacity` | 容量 4,096、offset 1,000・2,000 | 残り 3,096・2,096。残りちょうど（F32 `[774]`・`[524]`）は通り、1 要素多いと `C4` |
+
+実行の結果: `cargo test -p fandhe-silicon-core --test execution_dispatch_check` は 15 件が通る（`c4_` で始まる関数は 2 から 6 になった）。対応: BIND-58（ポインタのみ）。
+
+範囲の外: alignment 0 の入力は 3/4（#4755）、完了の条件の確かめは 4/4（#4756）。
+
+確かめた base は `13fb87a`（`git rev-parse origin/main`）、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
