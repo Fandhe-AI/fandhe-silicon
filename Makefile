@@ -35,7 +35,7 @@ verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変�
 build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）。直接: scripts/build-profiles.sh
 	@scripts/build-profiles.sh
 
-deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検査 + 依存グラフの wgpu 系の検査（dep-graph-wgpu-check。python3・git も要る）+ 別 workspace の監査。直接: scripts/deny.sh
+deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検査 + 依存グラフの wgpu 系の検査（dep-graph-wgpu-check。python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照（profile-dep-graph-check・profile-dep-graph-positive-control）+ 別 workspace の監査。直接: scripts/deny.sh
 	@scripts/deny.sh
 
 measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
@@ -113,13 +113,13 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
 
-profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（CpuOnly と ComputeOnly の Metal の組。後者は objc2-metal の per-header feature も数える）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny には含めない）。直接: scripts/profile-dep-graph-check.sh
+profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（CpuOnly と ComputeOnly の Metal の組。後者は objc2-metal の per-header feature も数える）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/profile-dep-graph-check.sh
 	@scripts/profile-dep-graph-check.sh
 
 test-profile-dep-graph-check: ## profile-dep-graph-check の回帰テスト（合成 tree・偽の cargo / git と、実行時に作る一時 workspace の実物の cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-check.sh
 	@scripts/test-profile-dep-graph-check.sh
 
-profile-dep-graph-positive-control: ## profile-dep-graph-check の陽性対照。判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、全プロファイルで違反が出る（終了コード 1・1 件以上）ことを確かめる（bash + python3 + cargo + git。ソースと Cargo.lock は変更しない・ネットワーク不要。make deny には含めない）。直接: scripts/profile-dep-graph-positive-control.sh
+profile-dep-graph-positive-control: ## profile-dep-graph-check の陽性対照。判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、全プロファイルで違反が出る（終了コード 1・1 件以上）ことを確かめる（bash + python3 + cargo + git。ソースと Cargo.lock は変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/profile-dep-graph-positive-control.sh
 	@scripts/profile-dep-graph-positive-control.sh
 
 test-profile-dep-graph-positive-control: ## profile-dep-graph-positive-control の回帰テスト（偽の内側の検査で判定と fail-closed を、実物のリポジトリでも確かめる。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-positive-control.sh
