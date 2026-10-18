@@ -2,8 +2,14 @@
 //!
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が組み立てた入力を、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が受け取るときの形を定める。
-//! ここには型の定義と、型に固有の定数を返す関数だけを置き、検証・コンパイル・チップ固有の型は持たない。
+//! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C8 を判定する純粋関数（`dispatch_check`）を置き、コンパイル・チップ固有の型は持たない。
 //! 入力は借用で持つので、確保も所有権の移動も起きない。
+
+mod dispatch_check;
+
+pub use dispatch_check::{
+    OperandBinding, OperandCheckError, OperandConstant, required_bytes, validate_dispatch_operands,
+};
 
 /// MSL の算術関数の扱い（数学モード）。
 ///
@@ -166,7 +172,7 @@ impl DType {
 /// 引数 1 つの宣言。
 ///
 /// 形と stride は借用で持つので、確保も所有権の移動も起きない。
-/// ここでは値を保持するだけで、宣言の検査や必要バイト数の計算はしない。
+/// この型自体は値を保持するだけで、検査と必要バイト数の計算は `validate_dispatch_operands`・`required_bytes` が行う。
 #[derive(Debug, Clone, Copy)]
 pub struct OperandSpec<'a> {
     /// 束縛の番号。
