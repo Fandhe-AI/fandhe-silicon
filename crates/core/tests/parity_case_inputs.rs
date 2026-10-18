@@ -1,12 +1,17 @@
-//! 17 ケースの入力の確認（spec TASK-977 の 2/4）。
+//! 17 ケースの入力と参照の出力の確認（spec TASK-977 の 2/4・3/4）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。
 //!
-//! sha256 の値は、本リポの製品のコードが出す既知の出力として固定する
-//! （`parity_gemm_inputs.rs` と同じ流儀）。参照の出力そのものは固定しない。
+//! 入力の sha256 の値は、本リポの製品のコードが出す既知の出力として固定する
+//! （`parity_gemm_inputs.rs` と同じ流儀）。参照の出力の sha256 は固定しない
+//! （GEMM が新しく作る NaN のビット列は CPU の種類で違うため、要素の区分と既存の参照との一致で確かめる）。
 
 use fandhe_silicon_core::hash::sha256_bytes;
-use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, OutputClass, classify};
-use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
+use fandhe_silicon_core::parity::case_inputs::{
+    CaseId, CaseInput, CaseReferenceError, OutputClass, additional_topk_inputs, classify,
+    total_output_len,
+};
+use fandhe_silicon_core::parity::cpu_reference::{ReferenceError, reference_gemm_f32};
+use fandhe_silicon_core::parity::topk::{TopKReferenceError, reference_topk_f32};
 use fandhe_silicon_core::test_frame::TestId;
 
 fn hex(d: [u8; 32]) -> String {
@@ -143,6 +148,132 @@ fn special_values_are_placed() {
     assert_eq!(scores[3].to_bits(), (-0.0f32).to_bits());
     assert_eq!(scores[4].to_bits(), 0.0f32.to_bits());
     assert!(scores[5..].iter().all(|x| *x == 1.0));
+}
+
+fn same_bits_or_both_nan(a: f32, b: f32) -> bool {
+    (a.is_nan() && b.is_nan()) || a.to_bits() == b.to_bits()
+}
+
+#[test]
+fn reference_len_matches_output_len() {
+    for c in CaseId::ALL {
+        let want = c.input().unwrap().output_len().unwrap();
+        assert_eq!(c.reference().unwrap().len(), want, "{c:?}");
+    }
+}
+
+#[test]
+fn total_output_len_is_fixed() {
+    assert_eq!(total_output_len().unwrap(), 3096);
+    let sum: usize = CaseId::ALL
+        .iter()
+        .map(|c| c.reference().unwrap().len())
+        .sum();
+    assert_eq!(sum, 3096);
+}
+
+#[test]
+fn gemm_reference_is_reference_gemm_f32() {
+    for c in CaseId::ALL {
+        let CaseInput::Gemm(g) = c.input().unwrap() else {
+            continue;
+        };
+        let want = reference_gemm_f32(g.a(), g.b(), g.m(), g.k(), g.n()).unwrap();
+        let out = c.reference().unwrap();
+        let got = out.as_f32().unwrap();
+        assert_eq!(got.len(), want.len(), "{c:?}");
+        for (i, (x, y)) in got.iter().zip(&want).enumerate() {
+            assert!(same_bits_or_both_nan(*x, *y), "{c:?}[{i}]");
+        }
+    }
+}
+
+#[test]
+fn relu_reference_rules() {
+    let CaseInput::Relu(input) = CaseId::E2.input().unwrap() else {
+        panic!()
+    };
+    let out = CaseId::E2.reference().unwrap();
+    let got = out.as_f32().unwrap();
+    assert_eq!(got.len(), 37);
+    assert!(out.as_topk().is_none());
+    for (i, (x, y)) in input.iter().zip(got).enumerate() {
+        if *x > 0.0 {
+            assert_eq!(y.to_bits(), x.to_bits(), "[{i}]");
+        } else {
+            // NaN・-Inf・-0.0・+0.0・負の数はすべて +0.0。
+            assert_eq!(y.to_bits(), 0.0f32.to_bits(), "[{i}]");
+        }
+    }
+    assert_eq!(got[1], f32::INFINITY);
+    assert_eq!(got[0].to_bits(), 0.0f32.to_bits());
+    assert_eq!(got[3].to_bits(), 0.0f32.to_bits());
+}
+
+#[test]
+fn topk_reference_is_reference_topk_f32() {
+    for (c, len) in [(CaseId::E3, 5), (CaseId::E4, 8)] {
+        let CaseInput::TopK { scores, k } = c.input().unwrap() else {
+            panic!()
+        };
+        let want = reference_topk_f32(&scores, k).unwrap();
+        let out = c.reference().unwrap();
+        let got = out.as_topk().unwrap();
+        assert_eq!(got.len(), len, "{c:?}");
+        assert_eq!(got.len(), want.len(), "{c:?}");
+        for (g, w) in got.iter().zip(&want) {
+            assert_eq!(
+                (g.slot(), g.score_bits()),
+                (w.slot(), w.score_bits()),
+                "{c:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn additional_inputs_put_negative_zero_first() {
+    let inputs = additional_topk_inputs();
+    assert!(!inputs.is_empty());
+    for t in inputs {
+        let s = t.scores();
+        let neg = s.iter().position(|x| x.to_bits() == (-0.0f32).to_bits());
+        let pos = s.iter().rposition(|x| x.to_bits() == 0.0f32.to_bits());
+        let (Some(n), Some(p)) = (neg, pos) else {
+            panic!("{}: needs both zeros", t.name());
+        };
+        assert!(n < p, "{}", t.name());
+        let want = t.expected();
+        let got = reference_topk_f32(s, t.k()).unwrap();
+        assert_eq!(got.len(), want.len(), "{}", t.name());
+        for (g, w) in got.iter().zip(&want) {
+            assert_eq!(
+                (g.slot(), g.score_bits()),
+                (w.slot(), w.score_bits()),
+                "{}",
+                t.name()
+            );
+        }
+        assert!(
+            CaseId::ALL.iter().all(|c| c.name() != t.name()),
+            "{}",
+            t.name()
+        );
+    }
+    assert_eq!(CaseId::ALL.len(), 17);
+}
+
+#[test]
+fn case_reference_error_wraps_and_displays() {
+    let a: CaseReferenceError = ReferenceError::SizeOverflow.into();
+    assert_eq!(a, CaseReferenceError::Gemm(ReferenceError::SizeOverflow));
+    let b: CaseReferenceError = TopKReferenceError::SlotOverflow.into();
+    assert_eq!(
+        b,
+        CaseReferenceError::TopK(TopKReferenceError::SlotOverflow)
+    );
+    assert!(!a.to_string().is_empty());
+    assert!(!b.to_string().is_empty());
 }
 
 #[test]

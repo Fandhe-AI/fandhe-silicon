@@ -1,11 +1,16 @@
-//! 結果の一致の試験の共通の入力: GEMM の 13 ケースと既存の 4 入力の計 17 ケース（spec TASK-977 の 2/4）。
+//! 結果の一致の試験の共通の入力と CPU 参照の出力: GEMM の 13 ケースと既存の 4 入力の計 17 ケース
+//! （spec TASK-977 の 2/4・3/4）。
 //!
-//! 各腕（背後実装ごと）の試験と、後段の CPU 参照の出力の作成から呼ばれる。入力は式から
-//! その場で決定的に作り、ファイルには置かない。確保の失敗と次元の積の溢れは
-//! [`ReferenceError`] で返し、panic しない。対象の項目は PARITY-4（ポインタのみ）。
-//! 参照の出力はここでは作らない（呼び出し側が [`super::cpu_reference`] に通す）。
+//! 各腕（背後実装ごと）の試験から呼ばれる。入力は式からその場で決定的に作り、ファイルには
+//! 置かない。確保の失敗と次元の積の溢れは [`ReferenceError`] で返し、panic しない。
+//! 対象の項目は PARITY-4（ポインタのみ）。参照の出力は [`CaseInput::reference`] が既存の
+//! `reference_gemm_f32`・`reference_topk_f32` と本ファイルの Relu の参照に通して作る。
 
-use super::cpu_reference::ReferenceError;
+use std::fmt;
+
+use super::cpu_reference::{ReferenceError, reference_gemm_f32};
+use super::topk::{TopKEntry, TopKReferenceError, reference_topk_f32};
+use super::topk_inputs::{SIGNED_ZERO_INPUTS, TopKInput};
 
 /// 17 ケースの識別子。順は G-01〜G-13、E-1〜E-4。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,6 +130,121 @@ impl CaseInput {
             }
         }
     }
+
+    /// CPU 参照の出力を作る。GEMM は `reference_gemm_f32`、Top-k は `reference_topk_f32`、
+    /// Relu は本ファイルの参照（正はそのまま、それ以外は `+0.0`）に通す。
+    pub fn reference(&self) -> Result<CaseOutput, CaseReferenceError> {
+        match self {
+            Self::Gemm(g) => Ok(CaseOutput::F32(reference_gemm_f32(
+                &g.a, &g.b, g.m, g.k, g.n,
+            )?)),
+            Self::Relu(v) => Ok(CaseOutput::F32(relu_reference(v)?)),
+            Self::TopK { scores, k } => Ok(CaseOutput::TopK(reference_topk_f32(scores, *k)?)),
+        }
+    }
+}
+
+/// 参照の出力の作成に失敗した理由。内側の参照の関数のエラーをそのまま包む。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaseReferenceError {
+    /// 入力の作成または GEMM・Relu の参照が失敗した。
+    Gemm(ReferenceError),
+    /// Top-k の参照が失敗した。
+    TopK(TopKReferenceError),
+}
+
+impl fmt::Display for CaseReferenceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gemm(e) => write!(f, "case reference failed: {e}"),
+            Self::TopK(e) => write!(f, "case top-k reference failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for CaseReferenceError {}
+
+impl From<ReferenceError> for CaseReferenceError {
+    fn from(e: ReferenceError) -> Self {
+        Self::Gemm(e)
+    }
+}
+
+impl From<TopKReferenceError> for CaseReferenceError {
+    fn from(e: TopKReferenceError) -> Self {
+        Self::TopK(e)
+    }
+}
+
+/// ケースの CPU 参照の出力。GEMM と Relu は f32 の列、Top-k は 1 件ずつの並び。
+///
+/// `PartialEq` を実装しない。`f32` の `==` は零の符号を区別せず NaN を等しくしないので、
+/// 比べは要素のビットか [`classify`] の区分で行う。
+#[derive(Debug, Clone)]
+pub enum CaseOutput {
+    /// GEMM（m×n、行優先）または Relu の出力。
+    F32(Vec<f32>),
+    /// Top-k の出力（スコアの降順、同点はスロット番号の昇順）。
+    TopK(Vec<TopKEntry>),
+}
+
+impl CaseOutput {
+    /// 出力の要素数。
+    pub fn len(&self) -> usize {
+        match self {
+            Self::F32(v) => v.len(),
+            Self::TopK(v) => v.len(),
+        }
+    }
+
+    /// 出力が空か。
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// f32 の列（GEMM・Relu）の中身。Top-k なら `None`。
+    pub fn as_f32(&self) -> Option<&[f32]> {
+        match self {
+            Self::F32(v) => Some(v),
+            Self::TopK(_) => None,
+        }
+    }
+
+    /// Top-k の中身。f32 の列なら `None`。
+    pub fn as_topk(&self) -> Option<&[TopKEntry]> {
+        match self {
+            Self::TopK(v) => Some(v),
+            Self::F32(_) => None,
+        }
+    }
+}
+
+/// Relu の CPU 参照。正の値（+Inf を含む）はそのまま、それ以外（NaN・-Inf・負・±0.0）は `+0.0`。
+///
+/// `f32::max(x, 0.0)` は零の符号と NaN の扱いが決まっていないので使わず、分岐で明示する。
+fn relu_reference(input: &[f32]) -> Result<Vec<f32>, ReferenceError> {
+    let mut out = vec_with(input.len())?;
+    out.extend(input.iter().map(|&x| if x > 0.0 { x } else { 0.0 }));
+    Ok(out)
+}
+
+/// 17 ケースの処理する出力の要素数の合計（[`CaseInput::output_len`] の和）。溢れは
+/// [`ReferenceError::SizeOverflow`]。
+pub fn total_output_len() -> Result<usize, ReferenceError> {
+    let mut total = 0usize;
+    for id in CaseId::ALL {
+        total = total
+            .checked_add(id.input()?.output_len()?)
+            .ok_or(ReferenceError::SizeOverflow)?;
+    }
+    Ok(total)
+}
+
+/// 17 ケースの外に足す部分 Top-k の追加の入力。-0.0 を +0.0 より小さいスロット番号に置いたもの。
+///
+/// [`CaseId::ALL`] と [`total_output_len`] には入らない。対象の項目は PARITY-4（ポインタのみ）。
+pub fn additional_topk_inputs() -> &'static [TopKInput] {
+    SIGNED_ZERO_INPUTS
 }
 
 fn vec_with(len: usize) -> Result<Vec<f32>, ReferenceError> {
@@ -262,6 +382,11 @@ impl CaseId {
             Self::E3 => "e-3",
             Self::E4 => "e-4",
         }
+    }
+
+    /// ケースの CPU 参照の出力を作る（`self.input()?.reference()` の糖衣）。
+    pub fn reference(self) -> Result<CaseOutput, CaseReferenceError> {
+        self.input()?.reference()
     }
 
     /// ケースの入力をその場で決定的に作る。
