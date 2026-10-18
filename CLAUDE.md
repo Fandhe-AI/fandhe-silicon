@@ -38,7 +38,7 @@ fandhe-silicon/
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕。`test-support` の裏に `parity`・`test_frame`・`rerun`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`artifact_cache`〔成果物キャッシュのエントリの型〕。`test-support` の裏に `parity`・`test_frame`・`rerun`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -51,7 +51,7 @@ fandhe-silicon/
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
-├── docs/artifact-cache-check.md  # 成果物キャッシュの照合の所在と、本リポの現状の事実（TASK-483）
+├── docs/artifact-cache-check.md  # 成果物キャッシュの照合の所在と、本リポの現状の事実・現状の形（2/8）（TASK-483）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
