@@ -58,7 +58,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | パス | 役割 |
 |---|---|
 | `wasm/` | wasm32 向けの別 workspace（TASK-22）。cdylib `wasm-glue`（`wasm/crates/glue/`）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の依存グラフに入らない（ルート `exclude`）。外部依存は wasm-bindgen の 1 件（wasm32 向けにだけ宣言）。`make wasm-verify` が検査し、CI の `deny` ジョブも呼ぶ |
-| `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs` を置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は 0 件（試験だけが `crates/core` を dev-dependency で使う）。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
+| `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs`・記録のパスを引数で受けてラベルを再現するコマンド `variation-replay` を置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は 0 件（試験だけが `crates/core` を dev-dependency で使う）。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
 | `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
@@ -112,7 +112,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
 | `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27） |
 | `docs/perf-gate-rule.md` | 性能の値を採る前の門の規則の所在と、本リポの現状の事実・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）（TASK-1026） |
-| `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）（TASK-1027） |
+| `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）（TASK-1027） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |

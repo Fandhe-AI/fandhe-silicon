@@ -11,6 +11,7 @@
 //! 照合の結果（一致・不一致）から、性能値を採る run だけを選ぶ門の規則を `gate` が持つ。
 //! PoC ごとの run 間の変動の幅の規則（閉じた設定の定数表と、幅の規則に当たったかを出す純粋な関数）を `variation` が持つ。
 //! 測り直しと判定不能の扱い（該当する行だけを 1 回測り直し、残った当たりを判定不能にして run 間の中央値で判定する）を `remeasure` が持つ。
+//! 記録済みの run 間の値から行ごとのラベルを再現して期待と突き合わせる `replay` を持ち、コマンド `variation-replay`（記録のパスを引数で受ける手元の照合。標準出力に 1 行の JSON）がそれを呼ぶ。
 //! 本 crate は device に触れない。GPU 時間は呼び手が測った値を受け取るだけである。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-27（ポインタのみ）。
@@ -23,6 +24,7 @@ pub mod jsonread;
 pub mod ratio;
 pub mod record;
 pub mod remeasure;
+pub mod replay;
 pub mod runs;
 pub mod sample;
 pub mod stats;
