@@ -2,7 +2,8 @@
 # 契約の crate（fandhe-silicon-contract）をプロファイルごとの feature の組にしたときの依存グラフに、
 # 判定に使う crate 名が載っていないことを数えて確かめる（spec TASK-228・BUILD-1・BUILD-2 のポインタ）。
 # ComputeOnly（Metal）の組では、`objc2-metal` の per-header feature も `cargo tree -e features` で数える。
-# 呼び出し元: `make profile-dep-graph-check`。直接実行も可。`make deny`・CI からは呼ばない。
+# 呼び出し元: `make profile-dep-graph-check` と `make deny`（`scripts/deny.sh`）。直接実行も可。
+# CI の `deny` ジョブは `make deny` の中で流す（別ステップにしない）。
 #
 # 使い方:
 #   scripts/profile-dep-graph-check.sh                                   cargo tree を流して数える

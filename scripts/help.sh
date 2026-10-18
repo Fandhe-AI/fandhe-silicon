@@ -19,7 +19,7 @@ cat <<'EOF'
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
   verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
   build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）
-  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
+  deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）
   wasm-size       scripts/wasm-size.sh           wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。CI は wasm-macos ジョブが呼び、deny ジョブは呼ばない）。--from-dir <dir> なら生成済みの出力だけを測る
@@ -37,9 +37,9 @@ cat <<'EOF'
   test-public-api-sdk-check scripts/test-public-api-sdk-check.sh  公開 API のチップの SDK の検査（make public-api-sdk-check）の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
   dep-graph-wgpu-check scripts/dep-graph-wgpu-check.sh  製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数える検査。件数を標準出力の record: に出す（bash + python3 + cargo + git・ソースは変更しない・make deny も呼ぶ）
   test-dep-graph-wgpu-check scripts/test-dep-graph-wgpu-check.sh  dep-graph-wgpu-check 自体の回帰テスト（合成 JSON・合成 tree と、一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
-  profile-dep-graph-check scripts/profile-dep-graph-check.sh  契約の crate のプロファイルごとの依存グラフ（CpuOnly と ComputeOnly の Metal の組。後者は objc2-metal の per-header feature も数える）で判定に使う crate 名を数える検査。件数を標準出力の record: / count: に出す（bash + python3 + cargo + git・ソースは変更しない・make deny には含めない）
+  profile-dep-graph-check scripts/profile-dep-graph-check.sh  契約の crate のプロファイルごとの依存グラフ（CpuOnly と ComputeOnly の Metal の組。後者は objc2-metal の per-header feature も数える）で判定に使う crate 名を数える検査。件数を標準出力の record: / count: に出す（bash + python3 + cargo + git・ソースは変更しない・make deny も呼ぶ）
   test-profile-dep-graph-check scripts/test-profile-dep-graph-check.sh  profile-dep-graph-check 自体の回帰テスト（合成 tree・偽の cargo / git と、一時 workspace の実物の cargo tree。bash + python3 + cargo + git）
-  profile-dep-graph-positive-control scripts/profile-dep-graph-positive-control.sh  profile-dep-graph-check の陽性対照。判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる（make deny には含めない。bash + python3 + cargo + git）
+  profile-dep-graph-positive-control scripts/profile-dep-graph-positive-control.sh  profile-dep-graph-check の陽性対照。判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる（make deny も呼ぶ。bash + python3 + cargo + git）
   test-profile-dep-graph-positive-control scripts/test-profile-dep-graph-positive-control.sh  profile-dep-graph-positive-control 自体の回帰テスト（偽の内側の検査と実物のリポジトリ。bash + python3 + cargo + git）
   baseline-positive-control scripts/baseline-positive-control.sh  比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用は終了コード 2。件数は record: の行。bash + python3 + cargo + git・make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）
   test-baseline-positive-control scripts/test-baseline-positive-control.sh  baseline-positive-control 自体の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる。python3 + cargo + git・ネットワーク不要・CI の deny ジョブも実行する）

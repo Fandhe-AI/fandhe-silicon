@@ -2,7 +2,8 @@
 # プロファイルごとの依存グラフの検査（profile-dep-graph-check.sh）が空振りしていないことを確かめる「陽性対照」。
 # 判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、検査が実際に違反を出す（終了コード 1・
 # 全プロファイルで 1 件以上）ことを示す（spec TASK-228・BUILD-1・BUILD-2 のポインタ。親 Issue #459 の 3/6）。
-# 呼び出し元: `make profile-dep-graph-positive-control`。直接実行も可。`make deny`・CI からは呼ばない。
+# 呼び出し元: `make profile-dep-graph-positive-control` と `make deny`（`scripts/deny.sh`）。直接実行も可。
+# CI の `deny` ジョブは `make deny` の中で流す（別ステップにしない）。
 # 回帰テストは `make test-profile-dep-graph-positive-control`（`scripts/test-profile-dep-graph-positive-control.sh`）。
 #
 # 流す順:

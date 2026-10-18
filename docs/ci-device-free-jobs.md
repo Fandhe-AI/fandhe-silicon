@@ -54,7 +54,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `test-hooks` | `make test-metal-session` | `scripts/test-metal-session.sh` | Metal の実機の回の手順のスクリプトの回帰テスト |
 | `verify` | `make verify` | `scripts/verify.sh` | fmt・clippy・workspace の試験。試験の枠の記録から集計の表をジョブのログに出す（[test-frame](./test-frame.md)） |
 | `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check、core の feature なしの clippy・test |
-| `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る） |
+| `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
 | `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
@@ -95,6 +95,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ---------- | ---------------------------- |
 | `help`・`doctor`・`setup` | 開発者向けの案内・環境確認・導入。検査ではない |
 | `dep-graph-wgpu-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
+| `profile-dep-graph-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
+| `profile-dep-graph-positive-control` | `make deny` の中で検査の直後に同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。

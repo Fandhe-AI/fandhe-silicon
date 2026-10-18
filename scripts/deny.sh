@@ -5,6 +5,8 @@
 # （基盤に足場を残さない向き。ポインタ: TASK-6・AP-4・AC-2）。段階 (1) の最終の判定（TASK-83）ではない。
 # 製品の workspace の依存グラフの wgpu 系 crate の検査（ポインタ: TASK-11）も `dep-graph-wgpu-check.sh` で呼ぶ
 # （終了コード 1・2 はそのまま `make deny` の失敗にする。python3・git が要る）。
+# 契約の crate のプロファイルごとの依存グラフの検査（ポインタ: TASK-228・BUILD-1・BUILD-2）と、その陽性対照も呼ぶ
+# （`profile-dep-graph-check.sh`・`profile-dep-graph-positive-control.sh`。終了コード 1・2 はそのまま `make deny` の失敗にする）。
 # 別 workspace も監査する（ポインタ: TASK-27）。measure/ にはルートの deny.toml をそのまま当て、
 # baseline-wgpu/ には wgpu 系の禁止だけを外した baseline-wgpu/deny.toml を --config で明示して当てる
 # （明示しないと cargo-deny は上の階層のルートの deny.toml を拾って bans で落ちる）。あわせて
@@ -76,6 +78,19 @@ fi
 # 違反（1）も誤用・前提の不足（2）も握りつぶさず、set -e でそのまま失敗にする。
 log "dep-graph-wgpu-check (product workspace)"
 "${DIR}/dep-graph-wgpu-check.sh"
+
+# 契約の crate のプロファイルごとの依存グラフの検査（ポインタ: TASK-228・BUILD-1・BUILD-2）。
+# 順は「検査 → 陽性対照」に固定する。検査の終了コード 1 は違反そのものと読めるが、陽性対照の 1 は
+# 「基準の実行が違反した」場合も含むので、先に流すと失敗の意味がぼやける。
+# 陽性対照は中で基準の検査をもう一度流すため、検査は合計 3 回流れる（cargo tree だけで数秒）。
+# 陽性対照だけを呼ぶ形にまとめず、失敗の意味の分かりやすさを優先する。
+# cargo-deny が依存を取得した後なので、中の cargo tree（--locked）はネットワークを要しない。
+# 違反（1）も誤用・前提の不足（2）も握りつぶさず、set -e でそのまま失敗にする。
+log "profile-dep-graph-check (contract profiles)"
+"${DIR}/profile-dep-graph-check.sh"
+
+log "profile-dep-graph-positive-control"
+"${DIR}/profile-dep-graph-positive-control.sh"
 
 # 別 workspace の依存の監査（ポインタ: TASK-27）。いずれか 1 つでも失敗したら非 0 で終える。
 BASELINE_DENY="${ROOT_DIR}/baseline-wgpu/deny.toml"

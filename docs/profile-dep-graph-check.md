@@ -8,11 +8,11 @@
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 検査 | `scripts/profile-dep-graph-check.sh`（bash + `python3 -I`、標準ライブラリのみ） | `scripts/profile-dep-graph-check.sh` |
-| 呼び出し元 | `make profile-dep-graph-check`（単体）。`make deny` と CI のジョブからは呼ばない | `grep -rn profile-dep-graph-check scripts/deny.sh Makefile .github` |
+| 呼び出し元 | `make profile-dep-graph-check`（単体）と `make deny`（`scripts/deny.sh`）。CI の `deny` ジョブは `make deny` の中で流す（別ステップにしない）。違反も前提の不足も失敗にし、握りつぶさない | `grep -rn profile-dep-graph-check scripts/deny.sh Makefile .github` |
 | 入力 | `cargo tree --locked -p <契約の crate> <feature の引数> -e normal,build,dev --target all --prefix none`。per-header feature を数えるプロファイルは、これに加えて辺の種類に `features` を足した順方向の tree と、crate の tree に `objc2-metal` が載っているときだけ、その版ごとに `-i <名前>@<版>` を付けた逆向きの tree（順方向は契約の crate 自身の feature が有効にする分を表示しないため）。または `--tree-text`・`--features-text` で渡した出力 | 同スクリプトの先頭コメント |
-| 回帰テスト | `scripts/test-profile-dep-graph-check.sh`（`make test-profile-dep-graph-check`）。合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の `cargo tree`、実物のリポジトリで、0 件の成功・1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-profile-dep-graph-check` |
-| 陽性対照 | `scripts/profile-dep-graph-positive-control.sh`（bash + `python3 -I`）。検査に `--extra-judged-crate` で実物の tree に載る名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる。単体の呼び出し元は `make profile-dep-graph-positive-control`。`make deny` と CI のジョブからは呼ばない | `make profile-dep-graph-positive-control` |
-| 陽性対照の回帰テスト | `scripts/test-profile-dep-graph-positive-control.sh`（`make test-profile-dep-graph-positive-control`）。偽の内側の検査で検出・0 件・基準の違反・読めない入力の各経路を、実物のリポジトリで本物の本体を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-profile-dep-graph-positive-control` |
+| 回帰テスト | `scripts/test-profile-dep-graph-check.sh`（`make test-profile-dep-graph-check`）。合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の `cargo tree`、実物のリポジトリで、0 件の成功・1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI のジョブからは呼ばない（手元で流す） | `make test-profile-dep-graph-check` |
+| 陽性対照 | `scripts/profile-dep-graph-positive-control.sh`（bash + `python3 -I`）。検査に `--extra-judged-crate` で実物の tree に載る名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる。単体の呼び出し元は `make profile-dep-graph-positive-control`。`make deny` も検査の直後に呼ぶ（CI の `deny` ジョブの `make deny` の中で流れる） | `make profile-dep-graph-positive-control` |
+| 陽性対照の回帰テスト | `scripts/test-profile-dep-graph-positive-control.sh`（`make test-profile-dep-graph-positive-control`）。偽の内側の検査で検出・0 件・基準の違反・読めない入力の各経路を、実物のリポジトリで本物の本体を確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI のジョブからは呼ばない（手元で流す） | `make test-profile-dep-graph-positive-control` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
@@ -79,7 +79,10 @@ make profile-dep-graph-check
 make test-profile-dep-graph-check
 make profile-dep-graph-positive-control
 make test-profile-dep-graph-positive-control
+make deny
 ```
+
+`make deny` のログに、`profile-dep-graph-check (contract profiles)` の行とプロファイルごとの `record:`、`profile-dep-graph-positive-control` の行とプロファイルごとの `positive-control:` の行が出て、終了コード 0 で終わることを見る。
 
 ## 関連
 
