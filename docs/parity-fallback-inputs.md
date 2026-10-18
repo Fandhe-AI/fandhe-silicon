@@ -39,7 +39,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_inputs.rs`（`test-support` の裏。外部依存 0・`unsafe` なし。乱数は `gemm_inputs::SplitMix64` を使う） | `grep -n 'pub mod fallback_inputs' crates/core/src/parity.rs` |
 | 公開名 | `FALLBACK_LENGTHS`・`FALLBACK_INPUT_SEED`・`FallbackInputKind`（`name`・`seed_for`）・`F16FmaInputs`・`generate_f16_fma_e1`・`generate_f16_fma_r`・`generate_f16_fma_e2`・`generate_f16_fma_s`・`E2_PAIRS`・`E2_LEN`・`S_VALUES`・`S_LEN` | `crates/core/src/parity/fallback_inputs.rs` |
-| 試験 | `crates/core/tests/parity_fallback_inputs.rs`（14 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_inputs` |
+| 試験 | `crates/core/tests/parity_fallback_inputs.rs`（3/6 の分を含めて 23 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_inputs` |
 
 ## 振る舞い（2/6）
 
@@ -56,13 +56,37 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 決定性・空 | 同じ入力で同じ列を返す。n = 0 は空の列を返し拒否は入口の受け持ち | `generation_is_deterministic`・`empty_length_returns_empty` |
 | 既知値 | 小さな長さの `E1`・`R` と `S` の sha256 を、本リポのコードが出す値として固定する | `known_digests` |
 
+## 所在（3/6）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/6 と同じ `crates/core/src/parity/fallback_inputs.rs` と `crates/core/tests/parity_fallback_inputs.rs` に足した（`pub mod` の数・`parity_*` の本数・`required-features` の件数は不変） | `git grep -n 'ax_pair_allowed' -- crates` |
+| 公開名 | `SUBGROUP_SUM_BLOCK`・`ATOMIC_ADD_OUTPUT_COUNTS`・`ax_pair_allowed`・`FallbackInputKind` の 7 変種と `seed_for_outputs`・`generate_subgroup_sum_u32_u`・`generate_subgroup_sum_f32_fx`・`generate_subgroup_sum_f32_fg`・`generate_subgroup_sum_f32_fs`・`generate_atomic_add_ax`・`generate_atomic_add_ag`・`generate_atomic_add_as` | `crates/core/src/parity/fallback_inputs.rs` |
+
+## 振る舞い（3/6）
+
+具体の値は公開テストが固定する。
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| 表 | ブロックの大きさは 256、出力の数 m の表は {1, 64, 4096} | `outputs_table_and_block_are_fixed` |
+| `AX` の組 | 256 × ⌈n ÷ m⌉ が 2^24 未満の組だけ真。m = 0 と桁あふれは偽。長さの表との組では m = 1 が 9、m = 64 が 12、m = 4096 が 13 長さ | `ax_pairs_are_computed` |
+| `U` | u32 の乱数。長さが n に揃う | `u_is_uniform_over_high_bits` |
+| `FX`・`AX` | −256〜256 の整数値の f32。使える組では出力の要素ごとの和の上限が 2^24 未満 | `fx_ax_are_integers_in_range` |
+| `FG`・`AG` | 有限で、大きさは 2^−20 以上 2^20 以下。符号は両方出る。2 の冪の 40 区間すべてに値が出る。libm を使わず基本演算だけで作る | `fg_ag_magnitudes_in_range` |
+| `FS` | 256 個のブロックごとに、ブロック番号 % 8 の型（NaN 1 つ・+Inf 1 つ・−Inf 1 つ・+Inf と −Inf・すべて −0.0・±0 の混在・すべて非正規化数・非正規化数と正規化数の交互）を置く。長さ 1 のクラスの規則も固定 | `fs_patterns_by_block` |
+| `AS` | `i % m` が同じ要素の組ごとに、出力の要素番号 % 8 の型を置く。m = 0 は空の列 | `as_patterns_by_output_element`・`empty_length_returns_empty` |
+| 有限の部分 | `FS`・`AS` の有限の値は大きさ 2^20 以下 | `fs_as_finite_parts_bound` |
+| seed・決定性 | `AS` の seed は n と m で決まり、長さの表と m の表の範囲で一意。同じ入力で同じ列 | `seed_differs_across_kinds_and_lengths`・`generation_is_deterministic` |
+| 既知値 | 小さな長さの 7 種の sha256 を、本リポのコードが出す値として固定する | `known_digests_subgroup_atomic` |
+
 ## 段の表
 
 | 段 | Issue |
 | -- | ----- |
 | 1/6 | #6041 |
 | 2/6 | #6042（`f16-fma` の入力の生成器と長さ n の表。本書の「所在（2/6）」「振る舞い（2/6）」） |
-| 3/6 | #6043 |
+| 3/6 | #6043（`subgroup-sum`・`atomic-add` の入力の生成器と出力の数 m の表。本書の「所在（3/6）」「振る舞い（3/6）」） |
 | 4/6 | #6044 |
 | 5/6 | #6045 |
 | 6/6 | #6046 |
