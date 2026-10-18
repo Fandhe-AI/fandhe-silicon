@@ -1,12 +1,13 @@
-//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件の振る舞いの確認（spec TASK-928 の 2/8・3/8・4/8）。
+//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の振る舞いの確認（spec TASK-928 の 2/8・3/8・4/8・5/8）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。入力はこの場で作る。
 
 use fandhe_silicon_core::parity::binary16::binary16_bits_to_f32;
 use fandhe_silicon_core::parity::fallback_compare::{
-    BINARY16_MAX_ORDER_DISTANCE, FallbackVerdict, OrderVerdict, SUM_RELATIVE_BOUND,
-    binary16_order_distance, compare_bits_f32, compare_bits_u32, compare_order_distance_binary16,
-    compare_relative_sum_f32, count_bit_identical_binary16, judge_bits_f32, judge_bits_u32,
-    judge_order_binary16, judge_order_distance_binary16, judge_order_f32, judge_relative_sum_f32,
+    BINARY16_MAX_ORDER_DISTANCE, F32SubnormalHandling, FallbackVerdict, OrderVerdict,
+    SUM_RELATIVE_BOUND, binary16_order_distance, compare_bits_f32, compare_bits_u32,
+    compare_order_distance_binary16, compare_relative_sum_f32, count_bit_identical_binary16,
+    flush_subnormal_f32, judge_bits_f32, judge_bits_u32, judge_order_binary16,
+    judge_order_distance_binary16, judge_order_f32, judge_relative_sum_f32, reference_sum_f32,
     relative_sum_margin,
 };
 use fandhe_silicon_core::parity::special_values::{
@@ -534,5 +535,150 @@ fn compare_relative_sum_summary_and_margins() {
     assert_eq!(c.first_mismatch(), Some(1));
     for i in 0..5 {
         assert_eq!(m[i], relative_sum_margin(r[i], a[i], s[i]));
+    }
+}
+
+const PRESERVE: F32SubnormalHandling = F32SubnormalHandling::Preserve;
+const FLUSH: F32SubnormalHandling = F32SubnormalHandling::FlushToZero;
+
+#[test]
+fn flush_subnormal_boundaries() {
+    for bits in [0x0000_0001u32, 0x007F_FFFF, 0x8000_0001, 0x807F_FFFF] {
+        assert_eq!(flush_subnormal_f32(f32::from_bits(bits)).to_bits(), 0);
+    }
+    for bits in [0x0080_0000u32, 0x8080_0000] {
+        assert_eq!(flush_subnormal_f32(f32::from_bits(bits)).to_bits(), bits);
+    }
+}
+
+#[test]
+fn flush_leaves_special_values() {
+    for x in [
+        0.0f32,
+        -0.0,
+        1.0,
+        -2.5,
+        f32::MAX,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+    ] {
+        assert_eq!(flush_subnormal_f32(x).to_bits(), x.to_bits());
+    }
+    assert!(flush_subnormal_f32(f32::NAN).is_nan());
+}
+
+#[test]
+fn reference_preserve_is_plain_f64_sum() {
+    let xs = [1.0f32, f32::from_bits(5), -0.5, f32::from_bits(0x007F_FFFF)];
+    let r = reference_sum_f32(xs, PRESERVE);
+    let want: f64 = xs.iter().map(|&x| f64::from(x)).sum();
+    let abs: f64 = xs.iter().map(|&x| f64::from(x).abs()).sum();
+    assert_eq!(r.value().to_bits(), (want as f32).to_bits());
+    assert_eq!(r.abs_sum(), abs);
+}
+
+#[test]
+fn reference_flush_replaces_inputs() {
+    let xs = [
+        f32::from_bits(1),
+        -f32::from_bits(0x007F_FFFF),
+        f32::from_bits(77),
+    ];
+    let f = reference_sum_f32(xs, FLUSH);
+    assert_eq!(f.value().to_bits(), 0);
+    assert_eq!(f.abs_sum(), 0.0);
+    let p = reference_sum_f32(xs, PRESERVE);
+    assert!(p.value().is_subnormal() || p.value() == 0.0);
+    assert!(p.abs_sum() > 0.0);
+    assert_ne!(p.value().to_bits(), 0);
+}
+
+#[test]
+fn reference_flush_replaces_rounded_result() {
+    let xs = [f32::MIN_POSITIVE * 1.5, -f32::MIN_POSITIVE];
+    let p = reference_sum_f32(xs, PRESERVE);
+    assert!(p.value().is_subnormal());
+    let f = reference_sum_f32(xs, FLUSH);
+    assert_eq!(f.value().to_bits(), 0);
+    assert_eq!(f.abs_sum(), p.abs_sum());
+}
+
+#[test]
+fn reference_empty_inputs() {
+    for h in [PRESERVE, FLUSH] {
+        let r = reference_sum_f32(std::iter::empty(), h);
+        assert_eq!(r.value().to_bits(), 0);
+        assert_eq!(r.abs_sum(), 0.0);
+    }
+}
+
+#[test]
+fn reference_accepts_strided_inputs() {
+    let all = [1.0f32, 9.0, f32::from_bits(3), 9.0, 2.0, 9.0];
+    let picked = [1.0f32, f32::from_bits(3), 2.0];
+    for h in [PRESERVE, FLUSH] {
+        let a = reference_sum_f32(all.iter().copied().step_by(2), h);
+        assert_eq!(a, reference_sum_f32(picked, h));
+    }
+}
+
+#[test]
+fn reference_flush_changes_verdict() {
+    let xs = [f32::MIN_POSITIVE * 1.5, -f32::MIN_POSITIVE];
+    let flushed_actual = 0.0f32;
+    let kept_actual = f32::MIN_POSITIVE * 0.5;
+    for (actual, flush_ok, keep_ok) in [(flushed_actual, true, false), (kept_actual, false, true)] {
+        let f = reference_sum_f32(xs, FLUSH);
+        let p = reference_sum_f32(xs, PRESERVE);
+        let vf = judge_relative_sum_f32(f.value(), actual, f.abs_sum());
+        let vp = judge_relative_sum_f32(p.value(), actual, p.abs_sum());
+        assert_eq!(vf.is_match(), flush_ok);
+        assert_eq!(vp.is_match(), keep_ok);
+    }
+    // 置き換えの後の Σ|x| が小さくなって判定が変わる組（値は同じ +0）
+    let s = f32::from_bits(0x007F_FFFF);
+    let ys = [s, -s];
+    let f = reference_sum_f32(ys, FLUSH);
+    let p = reference_sum_f32(ys, PRESERVE);
+    assert_eq!(f.value().to_bits(), p.value().to_bits());
+    assert_eq!(f.abs_sum(), 0.0);
+    assert!(p.abs_sum() > 0.0);
+    let actual = f32::from_bits(1);
+    assert!(!judge_relative_sum_f32(f.value(), actual, f.abs_sum()).is_match());
+    assert!(judge_relative_sum_f32(p.value(), actual, p.abs_sum()).is_match());
+    let mut m = [0.0f64];
+    let c = compare_relative_sum_f32(&[p.value()], &[actual], &[p.abs_sum()], &mut m).unwrap();
+    assert!(c.is_match());
+}
+
+#[test]
+fn reference_non_finite_inputs_follow_order() {
+    let nan = reference_sum_f32([1.0, f32::NAN], FLUSH);
+    assert_eq!(
+        judge_relative_sum_f32(nan.value(), f32::NAN, nan.abs_sum()),
+        FallbackVerdict::BothNan
+    );
+    let inf = reference_sum_f32([1.0, f32::INFINITY], PRESERVE);
+    assert_eq!(
+        judge_relative_sum_f32(inf.value(), f32::INFINITY, inf.abs_sum()),
+        FallbackVerdict::SameInfinity
+    );
+    let mixed = reference_sum_f32([f32::INFINITY, f32::NEG_INFINITY], FLUSH);
+    assert!(mixed.value().is_nan());
+    assert_eq!(
+        judge_relative_sum_f32(mixed.value(), 1.0, mixed.abs_sum()),
+        FallbackVerdict::NonFiniteMismatch
+    );
+}
+
+#[test]
+fn reference_connects_to_bit_identity() {
+    let xs = [1.0f32, 2.0, 4.0];
+    for h in [PRESERVE, FLUSH] {
+        let r = reference_sum_f32(xs, h);
+        assert_eq!(
+            judge_bits_f32(r.value(), 7.0),
+            FallbackVerdict::BitIdentical
+        );
     }
 }

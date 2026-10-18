@@ -1,11 +1,11 @@
-//! 代わりの実行の結果を比べる新しい比べ方の前段と、ビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件（spec TASK-928 の 2/8・3/8・4/8）。
+//! 代わりの実行の結果を比べる新しい比べ方の前段と、ビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の作り方（spec TASK-928 の 2/8・3/8・4/8・5/8）。
 //!
 //! 代わりの実行の結果を CPU 参照と比べる側（検証用のテスト・測定）から呼ばれる。
 //! feature `test-support` の裏にだけ公開される。標準ライブラリだけで書き、確保も panic もしない。
 //! 要素ごとの順序（NaN、無限大、零）は `special_values` の判定をそのまま使い、作り直さない。
-//! その順序で決まらない要素だけを数値の条件へ回す。ここにあるのは前段、ビット同一の条件、binary16 の順序の差の条件、f32 の和の相対の条件（と余裕の記録）だけ。
+//! その順序で決まらない要素だけを数値の条件へ回す。ここにあるのは前段、ビット同一の条件、binary16 の順序の差の条件、f32 の和の相対の条件（と余裕の記録）、f32 の非正規化数を 0 に落とす経路の比べに使う参照の作り方だけ。
 //! 置き場・名前・振る舞いの説明は `docs/parity-fallback-compare.md`。
-//! spec との対応は TASK-928、`04-behavior/fallback-execution.md` の FB-31・FB-32・FB-35・FB-37 のポインタのみ。
+//! spec との対応は TASK-928、`04-behavior/fallback-execution.md` の FB-31・FB-32・FB-35・FB-36・FB-37 のポインタのみ。
 
 use super::binary16::binary16_bits_to_f32;
 use super::special_values::{SpecialVerdict, judge_element_with_special_values};
@@ -397,4 +397,69 @@ pub fn compare_relative_sum_f32(
         margins[i] = relative_sum_margin(r, a, s);
     }
     Ok(result)
+}
+
+/// f32 の非正規化数の扱い。比べる経路が 0 に落とすか保つかを、参照の側へ伝える。
+///
+/// binary16 には使わない（binary16 の非正規化数は `judge_order_distance_binary16` の順序の差で比べる）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum F32SubnormalHandling {
+    /// 保つ。入力も結果も置き換えない。
+    Preserve,
+    /// 0 に落とす。非正規化数の入力と、丸めた結果が非正規化数なら +0 に置き換える。
+    FlushToZero,
+}
+
+/// f32 の非正規化数（正負とも）を +0 に置き換える。±0・NaN・±Inf・正規化数はそのまま返す。
+pub fn flush_subnormal_f32(x: f32) -> f32 {
+    if x.is_subnormal() { 0.0 } else { x }
+}
+
+/// [`reference_sum_f32`] の結果。参照の和（f32）と、その出力に足した値の絶対値の和（Σ|x|、f64）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SumReference {
+    value: f32,
+    abs_sum: f64,
+}
+
+impl SumReference {
+    /// 参照の和（f64 の和を f32 に 1 回丸めた値。`FlushToZero` では丸めた結果の置き換えも済み）。
+    pub fn value(&self) -> f32 {
+        self.value
+    }
+
+    /// Σ|x|。`FlushToZero` では置き換えの後の入力で数える。
+    pub fn abs_sum(&self) -> f64 {
+        self.abs_sum
+    }
+}
+
+/// 出力 1 要素に足される入力の列から、f32 の和の参照と Σ|x| を作る。
+///
+/// 和は列の順に f64 で足し、f32 へ 1 回丸める（最近接偶数。桁あふれは ±Inf）。
+/// `FlushToZero` では各入力を [`flush_subnormal_f32`] で置き換えてから足し・Σ|x| にも同じ入力を使い、
+/// 丸めた結果が非正規化数なら +0 に置き換える。`Preserve` では置き換えず、Σ|x| は元の入力で数える。
+/// 空の列は値 +0・Σ|x| 0。NaN・Inf は置き換えず和に流し、判定は
+/// [`judge_relative_sum_f32`] の前段と fail-closed が受ける。
+/// 結果は [`judge_relative_sum_f32`]・[`compare_relative_sum_f32`] の `reference` と `abs_sum` に渡せる。確保も panic もしない。
+pub fn reference_sum_f32<I: IntoIterator<Item = f32>>(
+    inputs: I,
+    handling: F32SubnormalHandling,
+) -> SumReference {
+    let flush = handling == F32SubnormalHandling::FlushToZero;
+    let mut sum = 0.0f64;
+    let mut abs_sum = 0.0f64;
+    for x in inputs {
+        let x = if flush { flush_subnormal_f32(x) } else { x };
+        let v = f64::from(x);
+        sum += v;
+        abs_sum += v.abs();
+    }
+    let rounded = sum as f32;
+    let value = if flush {
+        flush_subnormal_f32(rounded)
+    } else {
+        rounded
+    };
+    SumReference { value, abs_sum }
 }
