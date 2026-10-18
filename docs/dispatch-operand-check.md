@@ -43,7 +43,7 @@ make verify
 | A1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 6 passed / 0 failed / 0 ignored |
 | A2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 5 passed / 0 failed / 0 ignored |
 | A3 | 統合テストの関数の数 | `grep -c -E '^fn c8_' crates/core/tests/execution_dispatch_check.rs` | 5 |
-| A4 | 確保・panic がない | 本体（`#[cfg(test)]` より上）への grep は `checked_mul` だけ。`crates/core/src/lib.rs` は `#![forbid(unsafe_code)]` | 一致 |
+| A4 | 宣言された大きさの確保・panic がない（拒否の文言の生成を除く） | 本体（`#[cfg(test)]` より上）への grep は `checked_mul` だけ。`crates/core/src/lib.rs` は `#![forbid(unsafe_code)]` | 一致 |
 | A5 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
 | A6 | base の CI | `gh run list`（base の push の run、ID 39149201126） | 成功（success、完了済み） |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
