@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# プロファイルごとの feature の組で contract crate がビルドできることを確かめる（非破壊）。
+# プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし（試験の枠の
+# test-support を外した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
 # native では build / clippy（-D warnings）/ test、wasm32 では check のみを回す。
 # 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
 # feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
@@ -19,6 +20,7 @@ require_cmd rustup
 unset FANDHE_SILICON_TEST_RECORD_DIR
 
 readonly PKG="fandhe-silicon-contract"
+readonly CORE_PKG="fandhe-silicon-core"
 readonly WASM_TARGET="wasm32-unknown-unknown"
 
 # native の組（--no-default-features に付ける feature 列）
@@ -70,6 +72,10 @@ for feats in "${NATIVE_SETS[@]}"; do
   run cargo clippy -p "${PKG}" --all-targets --no-default-features --features "${feats}" -- -D warnings
   run cargo test -p "${PKG}" --no-default-features --features "${feats}"
 done
+
+# core を feature なしで（verify は --all-features だけなので、条件なしの型の試験が test-support 抜きでも通ることをここで拾う。spec TASK-470）
+run cargo clippy -p "${CORE_PKG}" --all-targets -- -D warnings
+run cargo test -p "${CORE_PKG}"
 
 # 全 feature（spec BUILD-6。後から増える feature も自動で含む）
 run cargo build -p "${PKG}" --all-features

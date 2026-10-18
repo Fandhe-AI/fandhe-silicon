@@ -12,7 +12,7 @@
 | 依存 | 外部依存 0。`unsafe` を使わない（`core` は `#![forbid(unsafe_code)]`）。`special_values.rs` の `use` は `super::tolerance` だけ | `Cargo.lock`、`crates/core/src/parity/special_values.rs` |
 | 既存の比べ方との関係 | 有限どうしは `tolerance.rs` の `judge_element` へ委ねる。`judge_element`・`compare_f32`・`ElementVerdict`・`Comparison` とは別の型を持ち、これらは変えていない | `crates/core/src/parity/special_values.rs`、`agrees_with_compare_f32_on_all_finite_sequences` |
 | 利用側 | `exec`・`upper` に `test-support` の転送は無い | 各 `Cargo.toml` |
-| 走る場所 | `core` の `parity_special_values` は `make verify`（`--all-features`）で走る。`contract` の `test_support_special_values` は `make verify` に加え、`make build-profiles`（対象は `fandhe-silicon-contract` だけ）の `test-support` を含む 4 組でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` の `PKG`・`NATIVE_SETS` |
+| 走る場所 | `core` の `parity_special_values` は `make verify`（`--all-features`）で走る。`contract` の `test_support_special_values` は `make verify` に加え、`make build-profiles`（feature の組の対象は `fandhe-silicon-contract` だけ）の `test-support` を含む 4 組でも走る。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` の `PKG`・`NATIVE_SETS` |
 
 ## 振る舞い
 
