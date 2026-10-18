@@ -51,7 +51,7 @@ impl SplitMix64 {
 }
 
 /// 門の run の行。表記は M×N×K で、A は M×K、B は K×N、C は M×N（いずれも行優先）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GemmGateRow {
     /// 512×512×512。
     Sq512,
@@ -175,7 +175,7 @@ impl GemmGateRow {
 }
 
 /// 入力の dtype。`F32` は A・B とも f32、`F16acc` は A・B を binary16 へ 1 回丸めた値（累積は f32）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GemmInputDtype {
     /// A・B とも f32。
     F32,
