@@ -35,7 +35,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_compare.rs`（`test-support` の裏。標準ライブラリだけ、確保も panic もしない） | `grep -n 'pub mod' crates/core/src/parity.rs` |
 | 公開名 | `OrderVerdict`・`judge_order_f32`・`judge_order_binary16`・`FallbackVerdict`・`judge_bits_u32`・`judge_bits_f32`・`FallbackComparison`・`compare_bits_u32`・`compare_bits_f32`。エラーは `tolerance::CompareError` を再利用する | `crates/core/src/parity/fallback_compare.rs` |
-| 試験 | `crates/core/tests/parity_fallback_compare.rs`（12 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8 の分を含めて 21 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
 
 ## 振る舞い（2/8）
 
@@ -49,6 +49,25 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | binary16 | `u16` のビット列を `binary16_bits_to_f32` で広げて同じ前段に通す。65504 と +Inf は前段で `NonFiniteMismatch` に決まる | `binary16_order_kinds`・`binary16_overflow_neighbour_is_decided_before_numeric`・`binary16_same_bits_never_mismatch_in_order` |
 | ビット同一 | u32 は値が等しいときだけ `BitIdentical`。f32 は前段で決まらなかったときだけ `to_bits` を比べる。−0 と +0 は前段で `BothZero` になる | `bits_u32_identity`・`bits_f32_after_order` |
 | 列の比べ | 長さ違いが先、次に長さ 0 で、検査のあとで添字を読む。集計は比べた数・不一致の数・最初の不一致の添字 | `compare_bits_errors_and_summary` |
+
+## 所在（3/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/8 と同じ `fallback_compare.rs` に足す（新しいファイルは足さない） | `crates/core/src/parity/fallback_compare.rs` |
+| 公開名 | `BINARY16_MAX_ORDER_DISTANCE`・`binary16_order_distance`・`judge_order_distance_binary16`・`compare_order_distance_binary16`・`count_bit_identical_binary16`。`FallbackVerdict` に `WithinOrderDistance`・`OrderDistanceExceeded` を足す | `grep -n 'pub ' crates/core/src/parity/fallback_compare.rs` |
+| 試験 | 同じ `parity_fallback_compare.rs` に 9 本を足す | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+
+## 振る舞い（3/8）
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| 順序の差 | binary16 のビット列を符号つきの整数の鍵に写し、その差を取る。+0 と −0 は同じ鍵で、隣り合う値で 1。両端でもオーバーフローしない | `order_distance_mapping` |
+| 一致の条件 | 前段で決まらない組は、差が `BINARY16_MAX_ORDER_DISTANCE`（1）以下なら `WithinOrderDistance`（一致）、超えれば `OrderDistanceExceeded`。ビット同一の組も `WithinOrderDistance` | `order_distance_neighbours`・`order_distance_same_bits_all_patterns` |
+| 非正規化数・零をまたぐ組 | 非正規化数も 0 に落とさずこの条件で比べる。零をまたぐ組も鍵で数える | `order_distance_subnormals`・`order_distance_across_zero` |
+| 前段が先 | 最大の有限値と +Inf のようにビット列が隣り合う組は、前段で `NonFiniteMismatch` に決まり、差の条件へ進まない | `order_distance_overflow_neighbour_is_not_within`・`order_distance_non_finite_follows_order` |
+| 列の比べ | 長さ違いが先、次に長さ 0。集計の形は 2/8 と同じ | `compare_order_distance_errors_and_summary` |
+| ビット同一の記録 | `count_bit_identical_binary16` はビット列が等しい要素の数を返す。判定には使わない | `count_bit_identical_records_only` |
 
 ## 段の表
 

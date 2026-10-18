@@ -1,10 +1,12 @@
-//! 代わりの実行の比べ方の順序の前段とビット同一の条件の振る舞いの確認（spec TASK-928 の 2/8）。
+//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件の振る舞いの確認（spec TASK-928 の 2/8・3/8）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。入力はこの場で作る。
 
 use fandhe_silicon_core::parity::binary16::binary16_bits_to_f32;
 use fandhe_silicon_core::parity::fallback_compare::{
-    FallbackVerdict, OrderVerdict, compare_bits_f32, compare_bits_u32, judge_bits_f32,
-    judge_bits_u32, judge_order_binary16, judge_order_f32,
+    BINARY16_MAX_ORDER_DISTANCE, FallbackVerdict, OrderVerdict, binary16_order_distance,
+    compare_bits_f32, compare_bits_u32, compare_order_distance_binary16,
+    count_bit_identical_binary16, judge_bits_f32, judge_bits_u32, judge_order_binary16,
+    judge_order_distance_binary16, judge_order_f32,
 };
 use fandhe_silicon_core::parity::special_values::{
     SpecialVerdict, judge_element_with_special_values,
@@ -222,5 +224,164 @@ fn compare_bits_errors_and_summary() {
     assert_eq!(
         (bad.compared(), bad.mismatched(), bad.first_mismatch()),
         (4, 2, Some(2))
+    );
+}
+
+#[test]
+fn order_distance_mapping() {
+    assert_eq!(BINARY16_MAX_ORDER_DISTANCE, 1);
+    for (r, a, d) in [
+        (0x0000u16, 0x8000u16, 0u32),
+        (0x0001, 0x0000, 1),
+        (0x0001, 0x8001, 2),
+        (0x3C00, 0x3C01, 1),
+        (0xBC00, 0xBC01, 1),
+        (0x7BFF, 0xFBFF, 0xF7FE),
+    ] {
+        assert_eq!(binary16_order_distance(r, a), d);
+        assert_eq!(binary16_order_distance(a, r), d);
+    }
+}
+
+#[test]
+fn order_distance_same_bits_all_patterns() {
+    for b in 0..=u16::MAX {
+        let expected = match judge_order_binary16(b, b) {
+            OrderVerdict::BothNan => FallbackVerdict::BothNan,
+            OrderVerdict::SameInfinity => FallbackVerdict::SameInfinity,
+            OrderVerdict::BothZero => FallbackVerdict::BothZero,
+            OrderVerdict::Numeric => FallbackVerdict::WithinOrderDistance,
+            OrderVerdict::NonFiniteMismatch => panic!("same bits must not mismatch: {b:#06x}"),
+        };
+        let got = judge_order_distance_binary16(b, b);
+        assert_eq!(got, expected, "bits {b:#06x}");
+        assert!(got.is_match());
+    }
+}
+
+#[test]
+fn order_distance_neighbours() {
+    for (r, a) in [(0x3C00u16, 0x3C01u16), (0xBC00, 0xBC01), (0x3C01, 0x3C00)] {
+        assert_eq!(
+            judge_order_distance_binary16(r, a),
+            FallbackVerdict::WithinOrderDistance
+        );
+    }
+    for (r, a) in [(0x3C00u16, 0x3C02u16), (0xBC00, 0xBC02), (0x3C02, 0x3C00)] {
+        let v = judge_order_distance_binary16(r, a);
+        assert_eq!(v, FallbackVerdict::OrderDistanceExceeded);
+        assert!(!v.is_match());
+    }
+}
+
+#[test]
+fn order_distance_subnormals() {
+    for (r, a) in [(0x0001u16, 0x0002u16), (0x03FF, 0x0400), (0x8001, 0x8002)] {
+        assert_eq!(
+            judge_order_distance_binary16(r, a),
+            FallbackVerdict::WithinOrderDistance
+        );
+    }
+    assert_eq!(
+        judge_order_distance_binary16(0x0000, 0x0002),
+        FallbackVerdict::OrderDistanceExceeded
+    );
+}
+
+#[test]
+fn order_distance_across_zero() {
+    for (r, a) in [(0x0000u16, 0x8001u16), (0x8000, 0x0001)] {
+        assert_eq!(
+            judge_order_distance_binary16(r, a),
+            FallbackVerdict::WithinOrderDistance
+        );
+    }
+    assert_eq!(
+        judge_order_distance_binary16(0x0001, 0x8001),
+        FallbackVerdict::OrderDistanceExceeded
+    );
+}
+
+#[test]
+fn order_distance_overflow_neighbour_is_not_within() {
+    assert_eq!(binary16_order_distance(0x7BFF, 0x7C00), 1);
+    for (r, a) in [
+        (0x7BFFu16, 0x7C00u16),
+        (0x7C00, 0x7BFF),
+        (0xFBFF, 0xFC00),
+        (0xFC00, 0xFBFF),
+    ] {
+        let v = judge_order_distance_binary16(r, a);
+        assert_eq!(v, FallbackVerdict::NonFiniteMismatch);
+        assert!(!v.is_match());
+    }
+}
+
+#[test]
+fn order_distance_non_finite_follows_order() {
+    let grid = [
+        0x0000u16, 0x8000, 0x0001, 0x8001, 0x03FF, 0x3C00, 0x3C01, 0x7BFF, 0xFBFF, 0x7C00, 0xFC00,
+        0x7C01, 0xFE00, 0x7E00,
+    ];
+    for r in grid {
+        for a in grid {
+            let got = judge_order_distance_binary16(r, a);
+            match judge_order_binary16(r, a) {
+                OrderVerdict::BothNan => assert_eq!(got, FallbackVerdict::BothNan),
+                OrderVerdict::SameInfinity => assert_eq!(got, FallbackVerdict::SameInfinity),
+                OrderVerdict::NonFiniteMismatch => {
+                    assert_eq!(got, FallbackVerdict::NonFiniteMismatch)
+                }
+                OrderVerdict::BothZero => assert_eq!(got, FallbackVerdict::BothZero),
+                OrderVerdict::Numeric => assert!(matches!(
+                    got,
+                    FallbackVerdict::WithinOrderDistance | FallbackVerdict::OrderDistanceExceeded
+                )),
+            }
+        }
+    }
+}
+
+#[test]
+fn compare_order_distance_errors_and_summary() {
+    assert_eq!(
+        compare_order_distance_binary16(&[], &[1]),
+        Err(CompareError::LengthMismatch {
+            reference: 0,
+            actual: 1
+        })
+    );
+    assert_eq!(
+        compare_order_distance_binary16(&[], &[]),
+        Err(CompareError::EmptyInput)
+    );
+    let r = [0x3C00u16, 0x3C00, 0x7BFF, 0x0000, 0x7E00];
+    let a = [0x3C01u16, 0x3C02, 0x7C00, 0x8000, 0x7C01];
+    let c = compare_order_distance_binary16(&r, &a).unwrap();
+    assert_eq!(c.compared(), 5);
+    assert_eq!(c.mismatched(), 2);
+    assert_eq!(c.first_mismatch(), Some(1));
+    assert!(!c.is_match());
+    let ok = compare_order_distance_binary16(&[0x3C00, 0x0001], &[0x3C01, 0x8000]).unwrap();
+    assert!(ok.is_match());
+    assert_eq!(ok.first_mismatch(), None);
+}
+
+#[test]
+fn count_bit_identical_records_only() {
+    let r = [0x3C00u16, 0x3C00, 0x0000, 0x7E00];
+    let a = [0x3C00u16, 0x3C01, 0x8000, 0x7E00];
+    assert_eq!(count_bit_identical_binary16(&r, &a), Ok(2));
+    assert!(compare_order_distance_binary16(&r, &a).unwrap().is_match());
+    assert_eq!(
+        count_bit_identical_binary16(&[], &[1]),
+        Err(CompareError::LengthMismatch {
+            reference: 0,
+            actual: 1
+        })
+    );
+    assert_eq!(
+        count_bit_identical_binary16(&[], &[]),
+        Err(CompareError::EmptyInput)
     );
 }
