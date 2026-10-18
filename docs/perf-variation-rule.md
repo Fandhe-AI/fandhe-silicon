@@ -27,7 +27,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | run 間の p95 | p95 は run ごとの統計と記録の書き出しにあり、run 間の集計（`across`・`runs`）には無い | `git grep -n p95 -- measure/crates/perf/src`（`stats.rs`・`record.rs` だけ） |
 | 比の区分 | `ratio` の閾値は 1 個の固定。`RATIO_SCOPE_TASKS` は空で、範囲外は判定保留に倒す。PoC ごとに切り替わる設定の口は無い。変動の幅の設定は `variation` の閉じた定数表が持ち、外から差し替える口は無い | `measure/crates/perf/src/ratio.rs` |
 | ラベルの語彙 | `record` の `Label` は Ok / Ng / Pending / NotRun / Indeterminate で、`IndeterminateReason` は 4 つ。綴りは `core` の `test_frame` に揃え、テストがソースと突き合わせる。変動の幅・測り直しに当たる理由は無い | `measure/crates/perf/src/record.rs` |
-| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs` と `lib.rs` の `//!` だけ。測り直しと時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
+| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs` と `lib.rs` の `//!` だけ。測り直しの語は範囲外の注記（`variation.rs` の `//!`）としてだけ現れ、時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
 | 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6 は記録の形を変えていない） | `measure/crates/perf/src/record.rs` |
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 門との関係 | `gate::GateOutcome::taken_run_ids` が、`runs::aggregate` へ渡す run を絞る | `measure/crates/perf/src/gate.rs` |

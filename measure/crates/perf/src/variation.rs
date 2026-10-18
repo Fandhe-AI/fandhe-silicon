@@ -286,7 +286,7 @@ pub struct RowVariation {
 }
 
 impl RowVariation {
-    /// どれか 1 つでも当たったか（その行が測り直しの対象になる）。
+    /// どれか 1 つでも当たったか。
     pub fn any_exceeded(&self) -> bool {
         self.arms.iter().any(|a| a.exceeded)
     }
