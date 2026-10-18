@@ -40,12 +40,29 @@
 - `public_items` の値は変わるので書かない。1 以上で検査が成立している（終了コードが 2 ではない）ことだけを見る。走査の数の比較は TASK-254 のポインタに留める
 - 同じ行は、本 PR の CI の `deny` ジョブのログでも確かめる（`gh run view <id> --log | grep 'scanned: crate=fandhe_silicon_contract'`）
 
+## 外部 crate の一覧とチップの SDK の型（2/4）
+
+`make public-api-sdk-check` を、コミット `03c6623` で作業ツリーが clean の状態から流した結果。終了コードは 0 で、`ok:` の行が出た。対象は契約の crate と共通の crate を別々の行で扱う。
+
+| crate | 組 | `sdk_type_refs` | `sdk_other_refs` | `external_crates` | 確かめ方 |
+| ----- | -- | --------------- | ---------------- | ----------------- | -------- |
+| contract | production | 0 | 0 | `-` | `make public-api-sdk-check \| grep 'scanned: crate=fandhe_silicon_contract'` |
+| contract | all-features | 0 | 0 | `alloc,core` | 同上 |
+| core | production | 0 | 0 | `alloc,core` | `make public-api-sdk-check \| grep 'scanned: crate=fandhe_silicon_core'` |
+| core | all-features | 0 | 0 | `alloc,core,std` | 同上 |
+
+- `external_crates` は公開 API から実際に解決された外部 crate 名（自 crate を除く）の昇順で、1 つも無ければ `-`。一覧は時点（コミット）で変わるので、記録には版を添える
+- 依存側の `scanned: check=common-deps` の `chip_deps` は 0。`record:` の `sdk_type_refs_total`・`sdk_other_refs_total`・`common_chip_deps` も 0（`commit=` に `-dirty` は付かなかった）
+- 契約の crate の `[dependencies]` は共通の crate への path 依存だけ（確かめ方: `sed -n '/^\[dependencies\]/,/^$/p' crates/contract/Cargo.toml`）
+- 同じ出力には exec・upper の行も出るが、本節の対象は contract と core だけ
+- 同じ行は、本 PR の CI の `deny` ジョブのログでも確かめる（`gh run view <id> --log | grep 'scanned: crate=fandhe_silicon_\(contract\|core\)'`）
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
 | -- | -------- | ---- |
-| 1/4 | #3978 | 確かめ（本節） |
-| 2/4 | #3979 | |
+| 1/4 | #3978 | 本番の feature の組と --all-features での wgpu 系の参照 |
+| 2/4 | #3979 | 外部 crate の一覧とチップの SDK の型 |
 | 3/4 | #3980 | |
 | 4/4 | #3981 | |
 
