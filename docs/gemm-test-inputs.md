@@ -122,9 +122,49 @@ TASK-1005 の作業を進めるにあたり、記録の所在と本リポの現�
 
 確かめた base は `ca04e4b22f55837d724372ed08017f59ebe8d0b6`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#6302）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-1005）。
+GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| 門の run の入力と参照 | 入力と参照（2/6） | `parity_binary16`・`parity_gemm_inputs`・`parity_gemm_reference` |
+| 母数の表 | 母数の表（3/6） | `parity_gemm_population`（母数 60 件は `population_is_sixty`） |
+| 門の run の枠 | 門の run の枠（5/6） | `parity_gemm_gate`、`scripts/test-metal-session.sh` |
+| 補足の対照（判定には使わない） | 累積の順の対照（4/6） | `parity_gemm_k_order` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | binary16 の変換 | `cargo test -p fandhe-silicon-core --features test-support --test parity_binary16` | 7 passed; 0 failed; 0 ignored |
+| A2 | 入力 | 同 `--test parity_gemm_inputs` | 5 passed; 0 failed; 1 ignored |
+| A3 | CPU 参照 | 同 `--test parity_gemm_reference` | 6 passed; 0 failed; 0 ignored |
+| A4 | 母数の表 | 同 `--test parity_gemm_population` | 9 passed; 0 failed; 0 ignored |
+| A5 | 累積の順の対照 | 同 `--test parity_gemm_k_order` | 5 passed; 0 failed; 6 ignored |
+| A6 | 門の run の枠 | 同 `--test parity_gemm_gate` | 20 passed; 0 failed; 0 ignored |
+| A7 | 手順のスクリプト | `make test-metal-session` | passed: 292, failed: 0 |
+| A8 | feature の転送 | `make build-profiles` | 終了コード 0 |
+| A9 | 母数の件数 | A4 のうち `population_is_sixty`・`population_split_by_dtype`・`mps_is_outside_population` | いずれも ok |
+| A10 | base の CI | base の push の CI の run | success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | いずれも終了コード 0 |
+| - | 大きな行の対照 | 4/6 の実測のとおり | `sq2048` は外れあり、`sq4096`・`rect4096x1024x4096` は未取得（合格とは書かない） |
+| - | 実機（Mac mini）での 1 セルの実行 | - | 未実施（合格とは書かない） |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1005）。
+
+### 再実行の契機
+
+- `crates/core/src/parity/` の `binary16.rs`・`gemm_inputs.rs`・`cpu_reference.rs`・`gemm_population.rs`・`gemm_gate.rs`・`tolerance.rs` を変えたとき
+- 上の 6 本の試験ファイルを変えたとき
+- `scripts/metal-session.sh` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `bb926b2342b2d6a145c327e714ff5061bde84856`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
+- spec への進み具合の記録は spec 側の作業で、本リポからは書き換えない（private spec 側の記録に従う。ポインタのみ）
 - 値・規則を変える変更の扱いは [parity-tool](parity-tool.md) に従う
 - 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 
