@@ -13,7 +13,7 @@ pub enum ReferenceError {
     SizeOverflow,
     /// 入力の長さが次元から求めた要素数と一致しなかった。
     LengthMismatch {
-        /// 長さが合わなかった入力（`"a"` または `"b"`）。
+        /// 長さが合わなかった入力（`"a"`・`"b"`・`"c"` のいずれか）。
         input: &'static str,
         /// 次元から求めた要素数。
         expected: usize,
