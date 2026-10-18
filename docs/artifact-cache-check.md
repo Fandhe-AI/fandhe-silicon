@@ -39,7 +39,7 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | 2/8〜4/8 | #4908・#4909・#4910 | 実装 |
 | 5/8〜6/8 | #4911・#4912 | テスト |
 | 7/8 | #4913 | 確かめ（本書の「確かめ（7/8）」） |
-| 8/8 | #4914 | 完了の条件の確かめの記録 |
+| 8/8 | #4914 | 完了の条件の確かめの記録（本書の「完了の条件の確かめ（8/8）」） |
 
 ## 現状の形（2/8）
 
@@ -148,6 +148,41 @@ ART-52 に当たる試験関数（複数 ID をまたぐ索引は作らない。
 `crates/core/src/artifact_cache.rs`・`crates/core/src/hash.rs`・`crates/core/src/execution.rs` の `CacheKey`・`crates/core/tests/artifact_cache_*.rs`・`crates/core/src/lib.rs` の feature の配置・`docs/spec` の gitlink を変えたとき。
 
 確かめた base は `10bedf09feae998041f6fe8a809dc22274d9aec7`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## 完了の条件の確かめ（8/8）
+
+8/8（#4914）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-483。ART-52）。結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。本体のコード（`src/`）と試験は変えていない。
+
+### 成果物と本書の置き場の対応
+
+| 成果物 | 置き場 | 本書の節 |
+| ------ | ------ | -------- |
+| 照合・台帳の実装 | `crates/core/src/artifact_cache.rs` | 「現状の形（2/8）」〜「現状の形（4/8）」 |
+| 台帳の試験 | `crates/core/tests/artifact_cache_ledger.rs`・`artifact_cache_ledger_flow.rs`・`artifact_cache_key_rewrite.rs` | 「試験（5/8）」「試験（6/8）」 |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | 統合テスト（feature なし） | `cargo test -p fandhe-silicon-core` の `artifact_cache_entry`・`_load`・`_ledger`・`_ledger_flow`・`_key_rewrite` | 8・13・9・7・5 件。すべて 0 failed / 0 ignored |
+| B2 | モジュール内の試験 | `cargo test -p fandhe-silicon-core --lib artifact_cache` | 2 passed / 0 failed / 0 ignored |
+| B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1 と同じ件数がすべて通る（`--lib` 全体は 21 passed。feature なしは 11 passed） |
+| B4 | 台帳の全記録との照合と対照 | `artifact_cache_ledger_flow.rs` の `corrupted_sha256_is_absent_from_every_record`・`check_detects_ledger_that_recorded_corrupted_bytes`（陽性対照）・`equal_counts_do_not_rule_out_corrupted_record`（件数だけでは足りない対照）・`counts_before_reject_after_reject_and_after_rebuild` | 4 つとも実在し、同ファイルの 7 passed に含まれる |
+| B5 | キーの書き換えと作り直し | `artifact_cache_key_rewrite.rs` の `rebuilt_entry_has_same_sha256_and_one_matching_record`・`hash_mismatch_differs_but_key_rewrite_does_not`・`bypassing_load_gives_equal_records_but_load_tells_them_apart` | 3 つとも実在し、同ファイルの 5 passed に含まれる。説明は「試験（6/8）」に従う |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` | `pub mod artifact_cache;` は feature の条件なし。外部依存 0。承認の記録 0 件。`#![forbid(unsafe_code)]` |
+| C2 | 製品の経路からの参照 | `git grep -n -e artifact_cache -e CacheStore -e CacheEntry -e Ledger -e verify_entry -- crates/exec crates/contract crates/upper wasm measure baseline-wgpu` | 0 件。置き場は TASK-460 の決定の記録に従う（ポインタのみ） |
+| C3 | wasm32 | `make wasm-verify` | 終了コード 0 |
+| C4 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml` | base のコミットの run 39155992280 が completed / success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+### 再実行の契機
+
+「確かめ（7/8）」の「再実行の契機」と同じ。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-483）。
+
+確かめた base は `7fb7a23966c854503a984414238a034bc997ae4e`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
 
 ## 本リポでの反映の方針
 
