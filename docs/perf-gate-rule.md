@@ -38,7 +38,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 1/4 現状と前提の確認 | #6359 |
 | 2/4 門の規則を測定の道具に足す | #6360 |
 | 3/4 門を通らない入力・通る入力の試験 | #6361 |
-| 4/4 | #6362 |
+| 4/4 完了の条件の確かめ | #6362 |
 
 ## 門の規則（2/4）
 
@@ -69,6 +69,40 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | `all_match_inputs_are_all_taken` | すべて一致の入力は全件採り、理由の件数は 0 |
 
 確かめ方: `make measure-verify`。
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#6362）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-1026）。
+GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| 門の規則 | 門の規則（2/4） | `measure/crates/perf/src/gate.rs` の単体試験 |
+| 門を通らない入力・通る入力の試験 | 試験（3/4） | `measure/crates/perf/tests/gate.rs` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 結合試験が通る | `cargo test --manifest-path measure/Cargo.toml --workspace --all-features --locked --test gate` | 9 passed; 0 failed; 0 ignored |
+| A2 | 単体試験が通る | 同じ形に `--lib gate::` | 6 passed; 0 failed; 0 ignored |
+| A3 | 不一致の入力では性能値を採らず、理由と件数が残る | A1 のうち `result_parity_perturbed_input_is_not_taken_and_blocks_pair`・`topk_identical_taken_and_bit_flip_or_swap_not_taken`・`non_finite_in_finite_reference_position_is_not_taken`・`pixel_parity_same_image_taken_and_changed_pixel_not_taken`・`pixel_parity_exact_rejects_difference_of_one`・`compare_error_maps_to_missing_and_is_not_taken`・`mixed_inputs_leave_reasons_and_counts` | すべて ok |
+| A4 | 一致の入力では性能値を採る | A1 のうち `result_parity_exact_input_is_taken`・`all_match_inputs_are_all_taken`（と A3 の各試験の一致の側） | すべて ok |
+| A5 | 採った run の ID と 1 行の JSON が出る | `mixed_inputs_leave_reasons_and_counts` が `taken_run_ids` と `render` の欄を確かめる | ok |
+| A6 | lib が `core` に依存しない | 「本リポの現状」の表の「測定の道具と `core`」の行の grep | `src/` は 0 件。`Cargo.toml` の `[dev-dependencies]` と `tests/gate.rs` にだけある |
+| A7 | path 依存の免除 | `grep -c 'allow-path-root' scripts/measure-verify.sh` | 1 件 |
+| A8 | base の CI | base の push の CI run を `gh run view` で確認 | 完了・success（`ci-complete` も success） |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make measure-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1026）。
+
+### 再実行の契機
+
+- `measure/crates/perf/src/gate.rs` を変えたとき
+- `measure/crates/perf/tests/gate.rs` を変えたとき
+- `crates/core/src/parity/` の `tolerance.rs`・`topk.rs`・`special_values.rs`・`pixel.rs` を変えたとき
+- `measure/crates/perf/Cargo.toml` の dev-dependency を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `9440832`、`docs/spec` の gitlink は `8664148`。
 
 ## 本リポでの反映の方針
 
