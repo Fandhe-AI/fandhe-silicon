@@ -1,7 +1,7 @@
 //! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421 のポインタ。BIND-35〜BIND-37）。
 //!
 //! `execution` から再公開される。上や下-2 が組み立てた宣言を、下-1 の背後実装へ渡す前に
-//! 共通の層で拒否するために置く。今は C8（長さ 0・`u64` のあふれ・上限超過）だけを判定する。
+//! 共通の層で拒否するために置く。C8（長さ 0・`u64` のあふれ・上限超過）を判定する。
 //! 背後実装・ファイル・時刻には触れず、バッファも確保しない（確保が起きるのはエラーの文字列だけ）。
 
 use super::OperandSpec;
@@ -50,19 +50,18 @@ pub fn required_bytes(spec: &OperandSpec<'_>) -> Option<u64> {
         .try_fold(spec.dtype.byte_size(), |acc, &d| acc.checked_mul(d))
 }
 
-/// dispatch の引数の宣言を検査する。今は C8 だけを判定する。
+/// dispatch の引数の宣言を検査する。C8 を判定する。
 ///
 /// `declared` を先頭から順に見て、宣言ごとに (1) `shape` に 0 の次元がある、
 /// (2) 必要バイト数が `u64` をあふれる、(3) 必要バイト数が `max_buffer_bytes` より大きい、
 /// の順で調べ、最初に当たった違反で `InvalidArgument`（先頭 `C8:`）を返す。上限ちょうどは通す。
-/// C7・C4〜C6 は後から同じ関数に足す（C8 が先頭）。
 ///
 /// # Errors
 ///
 /// 上記のいずれかに当たると [`OperandCheckError::InvalidArgument`] を返す。
 pub fn validate_dispatch_operands<F>(
     declared: &[OperandSpec<'_>],
-    // 以降の 3 引数は C7（TASK-422）・C4〜C6（TASK-423）が読む。C8 では未使用。
+    // 以降の 3 引数は C8 では読まない。
     _bindings: &[OperandBinding],
     _consts: &[OperandConstant<'_>],
     _binding_capacity: F,
