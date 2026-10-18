@@ -344,6 +344,12 @@ fn replay_row(rule: VariationRule, idx: usize, row: &Row) -> Result<RowOut, Repl
         .collect();
     let judged =
         judge_row(rule, &attempts, &comparisons).map_err(|e| err(ReplayErrorKind::Judge(e), r))?;
+    // 期待の欠け・余りは判定結果によらず入力の違反。暗黙に一致へ倒さない。
+    if let Expected::Labels(map) = &row.expected
+        && (map.len() != comparisons.len() || !comparisons.iter().all(|c| map.contains_key(c.id)))
+    {
+        return Err(err(ReplayErrorKind::BadExpected, r));
+    }
     match (judged, &row.expected) {
         (RowJudgement::NeedsRemeasure { triggered }, exp) => Ok(RowOut {
             id: row.id.clone(),
@@ -359,19 +365,14 @@ fn replay_row(rule: VariationRule, idx: usize, row: &Row) -> Result<RowOut, Repl
             exp,
         ) => {
             let outs: Vec<CmpOut> = match exp {
-                Expected::Labels(map) => {
-                    // 期待の欠け・余りは入力の違反。暗黙に一致へ倒さない。
-                    if map.len() != cs.len() || !cs.iter().all(|c| map.contains_key(&c.id)) {
-                        return Err(err(ReplayErrorKind::BadExpected, r));
-                    }
-                    cs.iter()
-                        .map(|c| CmpOut {
-                            id: c.id.clone(),
-                            label: c.label,
-                            expected: map.get(&c.id).copied(),
-                        })
-                        .collect()
-                }
+                Expected::Labels(map) => cs
+                    .iter()
+                    .map(|c| CmpOut {
+                        id: c.id.clone(),
+                        label: c.label,
+                        expected: map.get(&c.id).copied(),
+                    })
+                    .collect(),
                 Expected::NeedsRemeasure => cs
                     .iter()
                     .map(|c| CmpOut {

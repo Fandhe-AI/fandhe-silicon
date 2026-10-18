@@ -167,6 +167,27 @@ fn first_attempt_with_trigger_needs_remeasure() {
 }
 
 #[test]
+fn needs_remeasure_row_still_validates_expected_label_set() {
+    for rule in spread_rules() {
+        let bad = [
+            "{\"labels\":{}}".to_string(),
+            labels(&SETTLED_N[..4]),
+            labels(&[("c9", "ok")]),
+        ];
+        for exp in bad {
+            let r = row(
+                "r1",
+                &[attempt(&[("a", &W), ("b", &N)])],
+                &cmps(&ROW_CMPS),
+                &exp,
+            );
+            let t = input(rule.name(), &[r]);
+            assert_eq!(kind(&t), ReplayErrorKind::BadExpected, "{}", rule.name());
+        }
+    }
+}
+
+#[test]
 fn trigger_remaining_after_remeasure_is_indeterminate_per_scope() {
     for rule in spread_rules() {
         let scope = rule.setting().scope;
