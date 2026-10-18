@@ -62,7 +62,7 @@ pub fn required_bytes(spec: &OperandSpec<'_>) -> Option<u64> {
 ///    `alignment` の倍数でなければ拒否する。
 /// 4. C6: `consts` のバイト列の長さが宣言の必要バイト数と異なれば（短くても長くても）拒否する。
 ///
-/// 宣言の無い `slot` の束縛・定数は、ここでは見ない。
+/// 宣言の無い `slot` の束縛・定数は、ここでは見ない。同じ `slot` の宣言が複数あるときは、C4・C5・C6 とも先頭のものを使う。
 ///
 /// # Errors
 ///
@@ -103,7 +103,7 @@ where
 
 /// C4: 容量が分かる束縛について、必要バイト数が残り（容量 - offset）に収まるかを調べる。
 ///
-/// `validate_dispatch_operands` から C8 を通った後に呼ばれる。同じ `slot` の宣言が複数あるときは後ろのものを使う。
+/// `validate_dispatch_operands` から C8 を通った後に呼ばれる。同じ `slot` の宣言が複数あるときは先頭のものを使う（C5・C6 と同じ）。
 fn check_capacity<F>(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
@@ -113,7 +113,7 @@ where
     F: Fn(&OperandBinding) -> Option<u64>,
 {
     for b in bindings {
-        let Some(spec) = declared.iter().rev().find(|s| s.slot == b.slot) else {
+        let Some(spec) = declared.iter().find(|s| s.slot == b.slot) else {
             continue;
         };
         let Some(cap) = binding_capacity(b) else {
@@ -359,5 +359,34 @@ mod tests {
             bytes: &[0u8; 1],
         }];
         assert_eq!(run(&s, &b, &c, Some(0)), Ok(()));
+    }
+
+    #[test]
+    fn dispatch_check_duplicate_slot_uses_first_declaration_everywhere() {
+        // 同じ slot の宣言が 2 件: 先頭は 4 バイト・alignment 16、後ろは 64 バイト・alignment 0。
+        let s = [
+            OperandSpec {
+                alignment: 16,
+                ..spec(DType::F32, &[1])
+            },
+            OperandSpec {
+                alignment: 0,
+                ..spec(DType::F32, &[16])
+            },
+        ];
+        let b = [OperandBinding { slot: 0, offset: 0 }];
+        // C4: 先頭の 4 バイトは容量 4 に収まる（後ろを採ると拒否される）。
+        let c = [OperandConstant {
+            slot: 0,
+            bytes: &[0u8; 4],
+        }];
+        assert_eq!(
+            validate_dispatch_operands(&s, &b, &c, |_| Some(4), 1024),
+            Ok(())
+        );
+        // C5: 先頭の alignment 16 を採るので offset 4 は拒否される。
+        let b = [OperandBinding { slot: 0, offset: 4 }];
+        let r = validate_dispatch_operands(&s, &b, &[], |_| None, 1024);
+        assert!(matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C5:")));
     }
 }
