@@ -11,6 +11,8 @@
 | 呼び出し元 | `make profile-dep-graph-check`（単体）。`make deny` と CI のジョブからは呼ばない | `grep -rn profile-dep-graph-check scripts/deny.sh Makefile .github` |
 | 入力 | `cargo tree --locked -p <契約の crate> <feature の引数> -e normal,build,dev --target all --prefix none`。per-header feature を数えるプロファイルは、これに加えて辺の種類に `features` を足した順方向の tree と、crate の tree に `objc2-metal` が載っているときだけ、その版ごとに `-i <名前>@<版>` を付けた逆向きの tree（順方向は契約の crate 自身の feature が有効にする分を表示しないため）。または `--tree-text`・`--features-text` で渡した出力 | 同スクリプトの先頭コメント |
 | 回帰テスト | `scripts/test-profile-dep-graph-check.sh`（`make test-profile-dep-graph-check`）。合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の `cargo tree`、実物のリポジトリで、0 件の成功・1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-profile-dep-graph-check` |
+| 陽性対照 | `scripts/profile-dep-graph-positive-control.sh`（bash + `python3 -I`）。検査に `--extra-judged-crate` で実物の tree に載る名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる。単体の呼び出し元は `make profile-dep-graph-positive-control`。`make deny` と CI のジョブからは呼ばない | `make profile-dep-graph-positive-control` |
+| 陽性対照の回帰テスト | `scripts/test-profile-dep-graph-positive-control.sh`（`make test-profile-dep-graph-positive-control`）。偽の内側の検査で検出・0 件・基準の違反・読めない入力の各経路を、実物のリポジトリで本物の本体を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-profile-dep-graph-positive-control` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
@@ -20,6 +22,7 @@
 | 引数なし | プロファイルごとに cargo を流して数える | 直接実行 |
 | `--tree-text <path> --profile <name>` | 渡した tree だけを数える（cargo・git を呼ばない）。2 つは組でだけ受け付ける | 直接実行 |
 | `--features-text <path>` | 上に足す。per-header feature を数えるプロファイルでは必須、数えないプロファイルや単独では誤用（終了コード 2）。順方向と逆向きの出力をつないで渡してよい | 直接実行 |
+| `--extra-judged-crate <name>` | 確かめ用の opt-in。上のどちらの経路とも併用でき、全プロファイルの判定の名前の一覧の末尾に 1 件だけ足して数える（足す向きにしか働かず、定義の一覧は書き換えない）。英数字・`_`・`-` で 1〜64 文字。すでに判定の名前にあるもの（小文字にして `_` を `-` にそろえて比べる）・2 回の指定・不正な文字は誤用（終了コード 2）。cargo の引数は変わらない | 直接実行 |
 
 | コード | 意味 | 確かめ方 |
 | ------ | ---- | -------- |
@@ -40,6 +43,8 @@
 | `record:` の追加欄 | 標準出力 | per-header feature を数えるプロファイルだけ、末尾に `header_crate_n`（crate の tree に載る `objc2-metal` の版の数）・`features_judged_total`・`features_recorded_total` | 同上 |
 | `violation:` / `FAILED:` / `error:` | 標準エラー | 違反の crate と版・feature / crate と feature それぞれの合計 / 終了コード 2 の理由 | 同スクリプトの先頭コメント |
 | `ok:` | 標準出力 | 合格のとき 1 行 | 直接実行 |
+| `extra_judged_crate=` | 標準出力 | `--extra-judged-crate` を渡したときだけ、`record:` と `ok:` の末尾に付く。足した名前の `count:` も判定の名前の後ろに出る。渡さないときの出力は変わらない | `scripts/profile-dep-graph-check.sh --extra-judged-crate <name>` |
+| `positive-control:` | 標準出力（陽性対照） | プロファイルごとに 1 行。`n` は足した名前の件数で、1 件以上なら `result=detected`。0 件は標準エラーの `positive-control-failed: … result=no-detection`（終了コード 1）。読めない入力・想定外の終了・件数の食い違いは `positive-control-failed: … result=<理由>`（終了コード 2） | `make profile-dep-graph-positive-control` |
 
 ホストの絶対パスと環境変数の値は出力に出さない。
 
@@ -64,6 +69,7 @@
 | ほかのプロファイル | `PROFILES` の表にあるプロファイルだけを数える |
 | 件数の増減 | 0 件かどうかだけを判定する |
 | SDK の crate の有無 | ComputeOnly の組では `objc2-metal` が入っていてよい（SDK を除く判定は対象外）。今の製品の crate には `objc2-metal` が無く、tree に載らないので per-header feature の件数は 0 件で、`header_crate_n=0` として出る |
+| per-header feature の一覧へ足す経路 | 無い。`--extra-judged-crate` は crate 名の一覧にだけ足す。今の製品の crate には `objc2-metal` が無く、実物で「落ちる」ことを示せないため。feature の判定が働くことは回帰テストの一時 workspace の節が示す |
 | 製品の workspace 全体の依存 | 契約の crate だけを `-p` で数える（全体は [dep-graph-wgpu-check.md](dep-graph-wgpu-check.md)） |
 
 ## 確かめ方
@@ -71,6 +77,8 @@
 ```bash
 make profile-dep-graph-check
 make test-profile-dep-graph-check
+make profile-dep-graph-positive-control
+make test-profile-dep-graph-positive-control
 ```
 
 ## 関連
