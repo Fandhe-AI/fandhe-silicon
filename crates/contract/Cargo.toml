@@ -42,6 +42,10 @@ name = "backend_vulkan_spirv_operands"
 required-features = ["backend-vulkan", "test-support"]
 
 [[test]]
+name = "test_support_case_inputs"
+required-features = ["test-support"]
+
+[[test]]
 name = "test_support_forwarding"
 required-features = ["test-support"]
 
