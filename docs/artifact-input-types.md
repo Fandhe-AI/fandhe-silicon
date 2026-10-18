@@ -59,3 +59,36 @@ make build-profiles
 ```
 
 `make verify` が流す。GPU の実機は要らない。
+
+## 完了の条件の確かめ（6/6）
+
+6/6（#4894）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-470）。
+GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| 型の実装 | 現状の型 | `crates/core/src/execution.rs` |
+| 型の試験 | 対応するテスト | `execution_pipeline_input`・`execution_operand_spec`・`execution_cache_key`・`execution_type_coverage`・`--lib execution` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 列挙型の網羅（`_` なしの match） | `cargo test -p fandhe-silicon-core --lib execution` | 3 passed; 0 failed; 0 ignored（`execution_pipeline_input_has_nine_variants`・`execution_small_enums_have_expected_variants`・`execution_dtype_has_five_variants`） |
+| A2 | `#[non_exhaustive]` の保持と struct のフィールドの集合 | 同 `--test execution_type_coverage` | 3 passed; 0 failed; 0 ignored |
+| A3 | 各 variant の組み立てと読み出し | 同 `--test execution_pipeline_input` | 4 passed; 0 failed; 0 ignored |
+| A4 | `DType` のバイト数 | 同 `--test execution_operand_spec` | 4 passed; 0 failed; 0 ignored |
+| A5 | `CacheKey` の等価比較とハッシュ | 同 `--test execution_cache_key` | 4 passed; 0 failed; 0 ignored |
+| A6 | feature なしでの試験 | `cargo test -p fandhe-silicon-core`・`make build-profiles` | 型の試験 4 本と単体がすべて ok、`build-profiles` は終了コード 0 |
+| A7 | 公開 API に wgpu の型が無いこと | `make public-api-check` | `core` の `features=production`・`features=all-features` の 2 行がともに `wgpu_type_refs=0 wgpu_other_refs=0`、終了コード 0 |
+| A8 | base の CI | main の base の commit を指定した push の run の一覧 | run 39121355696 が success（`make verify`・`make deny`・`make check`・`ci-complete` とも success） |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | いずれも終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-470）。
+
+### 再実行の契機
+
+- `crates/core/src/execution.rs` を変えたとき
+- 上の 4 本の試験ファイルを変えたとき
+- `scripts/public-api-check.sh`・`scripts/build-profiles.sh` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `a8e36ad13b12ef9998d8d4ca6ed6215d1207764f`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
