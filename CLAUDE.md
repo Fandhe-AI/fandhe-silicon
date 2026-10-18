@@ -56,7 +56,7 @@ fandhe-silicon/
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
 ├── docs/parity-signed-zero-topk.md # ±0 の扱いと Top-k の規則の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-976）
 ├── docs/parity-element-rules.md # T-1 の要素ごとの規則の確かめの所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-975）
-├── docs/parity-fallback-compare.md # 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-928）
+├── docs/parity-fallback-compare.md # 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）（TASK-928）
 ├── docs/gemm-test-inputs.md  # GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-1005）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-16・TASK-17）

@@ -165,6 +165,33 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 - 本リポの都合で値を変えない。変える必要が出たら該当の作業を止め、[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の差し戻しの手順に従う
 - 値と、それを固定する公開テストの期待値は同じ PR でしか変えない。期待値だけを弱めて通さない
 
+## 完了の条件の確かめ（8/8）
+
+8/8（#6040）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-928）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 本書の試験ファイル全体 | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` | `53 passed; 0 failed; 0 ignored`。所在（2/8）の件数と一致 |
+| A2 | 境目の入力での判定の順序（6/8） | A1 の出力で 6/8 の節の 10 本（`boundary_` で始まる）が `ok` | 10 本とも `ok`。NaN が先・無限大が数値の条件より先（f32 / binary16）・零が数値の条件より先・隣り合うビット列（binary16 / f32）・相対の条件の境目・0 に落とす参照の境目・binary16 には当てない・列の集計の各行に 1 本ずつ対応 |
+| A3 | 前段の振る舞いの裏付け（2/8〜5/8） | A1 の出力で `order_nan_pairs_are_both_nan`・`order_infinity_requires_the_same_sign`・`order_signed_zeros_are_both_zero`・`order_distance_neighbours`・`relative_sum_boundary_is_inclusive`・`reference_flush_replaces_rounded_result` が `ok` | 6 本とも `ok` |
+| A4 | 閾値の固定（7/8） | A1 の出力で 7/8 の節の 4 本（`threshold_` で始まる）が `ok` | 4 本とも `ok` |
+| C1 | 本体の範囲 | `grep -n 'unsafe\|std::fs\|println!\|env::var\|process::Command' crates/core/src/parity/fallback_compare.rs`、`grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src` | どちらも 0 件 |
+| C2 | 依存 | `deps-approved.toml` の承認の件数、`crates/core/Cargo.toml` の依存 | 承認は 0 件、`core` の外部依存は 0 |
+| E | main の CI | base の push run の `make verify (fmt + clippy + test)` と `make deny (cargo-deny)` のジョブの step | `make verify`・`make deny`・`make deps-check` の conclusion は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。`make verify` の出力に `parity_fallback_compare` の 53 本の実行が出る |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-928）。
+
+### 再実行の契機
+
+- `crates/core/src/parity/fallback_compare.rs`・`special_values.rs`・`tolerance.rs`・`binary16.rs` を変えたとき
+- `crates/core/tests/parity_fallback_compare.rs` を変えたとき
+- CI の `verify`・`deny` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `1648adc`、`docs/spec` の gitlink は `8664148`。
+
 ## 段の表
 
 | 段 | Issue |
@@ -180,7 +207,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 
 ## 本リポでの反映の方針
 
-- 本書には現状の事実だけを置く。後の段で足す振る舞いは、その PR のコードと公開テストが示し、その PR で本書に節を足す
+- 本書には現状の事実だけを置く。値・規則を変える変更で振る舞いが変わるときは、その PR のコードと公開テストが示し、その PR で本書の節を直す
 - 守る規約: [coding-rust](../.claude/rules/coding-rust.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[code-comment-style](../.claude/rules/code-comment-style.md)
 
 ## 関連
