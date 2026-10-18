@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # wasm-bindgen の glue を含めた成果物の量（gzip 後の合計）を、組ごとに測って閾値と比べる
-# （spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6。TASK-247・親 Issue #467 の 1/4 で内訳の出力と --require-exports を足した）。
+# （spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6。TASK-247・親 Issue #467 の 1/4 で内訳の出力と --require-exports を、2/4 で成果物の素性の出力を足した）。
 # 呼び出し元: `make wasm-size`（手元と、CI の `wasm-macos` ジョブ。CI の `deny` ジョブは wasm-bindgen の CLI が無いので呼ばない）。
 # 回帰テストは `make test-wasm-size`（`scripts/test-wasm-size.sh`。合成の入力だけで流れ、CLI も Node もネットワークも要らない。CI の `deny` ジョブが呼ぶ）。
 #
@@ -15,7 +15,10 @@
 #   締めの `record:` の行、合格時の `ok:` の 1 行。標準エラー: `error:`（2）・`FAILED:`（1）。
 #   測れた組（label が ok / ng）は `size:` の行に生の合計 `raw_bytes=` を足し、数えたファイルごとに
 #   `file: combo=… target=… name=… raw_bytes=… gzip_bytes=…` の行を出す（ファイル名だけ。量の表の数え直し用）。
-#   ホストの絶対パス・環境変数の値は出力に出さない（組名とファイル名だけ）。
+#   `file:` の行の末尾の `sha256=` は、数えたバイト列そのもののハッシュ（小文字 16 進 64 桁）。
+#   ビルドする経路だけ、締めの前に `tools: wasm_bindgen_version=… rustc_version=… cargo_lock_sha256=…` を 1 行出す
+#   （記録に要る道具の版と wasm/Cargo.lock のハッシュ。--from-dir の経路では出さない。TASK-247 の 2/4）。
+#   ホストの絶対パス・環境変数の値は出力に出さない（組名・ファイル名・ハッシュ・道具の版だけ）。
 #
 # 組: ビルド設定 4 つ（profile release・wasm-size × 命令 scalar・simd128）× 出力先 2 つ（web・bundler）= 8。
 #   欠けた組は 0 バイトや合格にせず not-run にする（reason: missing-directory / missing-file / empty-file /
@@ -44,6 +47,7 @@ require_cmd python3 || exit 2
 exec python3 -I - "${ROOT_DIR}" "$@" <<'PY'
 import argparse
 import gzip
+import hashlib
 import os
 import re
 import shutil
@@ -166,7 +170,7 @@ def has_unexpected_entry(d, names, label):
 
 def measure_combo(root, setting, target, names, require_exports=False):
     """1 組を測り (label, reason, gzip_bytes, files, raw_bytes, details, exports) を返す。
-    details は数えたファイルごとの (名前, raw, gzip)。exports は見つかった期待名の数（--require-exports で解析できたときだけ）。
+    details は数えたファイルごとの (名前, raw, gzip, sha256 の 16 進)。exports は見つかった期待名の数（--require-exports で解析できたときだけ）。
     読めない入力は Misuse。"""
     d = os.path.join(root, setting, target)
     if not os.path.lexists(d):
@@ -194,7 +198,7 @@ def measure_combo(root, setting, target, names, require_exports=False):
         gz = len(gzip.compress(data, compresslevel=9, mtime=0))
         total += gz
         raw_total += len(data)
-        details.append((name, len(data), gz))
+        details.append((name, len(data), gz, hashlib.sha256(data).hexdigest()))
         if require_exports and name.endswith("_bg.wasm"):
             try:
                 found = wasm_function_exports(data)
@@ -237,7 +241,7 @@ def measure_all(root, overrides, require_exports=False):
     return results
 
 
-def report(results):
+def report(results, tools=None):
     counts = {"ok": 0, "ng": 0, "not-run": 0}
     for setting, target, label, reason, total, files, raw, details, exports in results:
         counts[label] += 1
@@ -253,8 +257,11 @@ def report(results):
         if exports is not None:
             line += " exports=%d/%d" % (exports, len(REQUIRED_EXPORTS))
         print(line)
-        for name, fraw, fgz in details if total is not None else ():
-            print("file: combo=%s target=%s name=%s raw_bytes=%d gzip_bytes=%d" % (setting, target, name, fraw, fgz))
+        for name, fraw, fgz, fsha in details if total is not None else ():
+            print("file: combo=%s target=%s name=%s raw_bytes=%d gzip_bytes=%d sha256=%s"
+                  % (setting, target, name, fraw, fgz, fsha))
+    if tools is not None:
+        print("tools: wasm_bindgen_version=%s rustc_version=%s cargo_lock_sha256=%s" % tools)
     print("record: combos=%d ok=%d ng=%d not_run=%d limit=%d"
           % (len(results), counts["ok"], counts["ng"], counts["not-run"], LIMIT_BYTES))
     if counts["ng"] or counts["not-run"]:
@@ -273,10 +280,13 @@ def run(cmd, root, env=None):
 def lock_bindgen_version(root):
     path = os.path.join(root, "wasm", "Cargo.lock")
     try:
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        lines = raw.decode("utf-8").splitlines()
     except OSError:
         raise Misuse("cannot read wasm/Cargo.lock")
+    except UnicodeDecodeError:
+        raise Misuse("malformed wasm/Cargo.lock")
     found = []
     for i, line in enumerate(lines):
         if line.strip() == 'name = "%s"' % BINDGEN_PACKAGE:
@@ -285,10 +295,11 @@ def lock_bindgen_version(root):
             found.append(m.group(1))
     need(len(found) == 1, "wasm-bindgen is not exactly once in wasm/Cargo.lock")
     need(found[0] == BINDGEN_VERSION, "wasm/Cargo.lock wasm-bindgen version differs from the expected one")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def check_prerequisites(root):
-    """cargo を呼ぶ前に済ませる確認。外れたら Misuse。戻り値は cargo の target_directory。"""
+    """cargo を呼ぶ前に済ませる確認。外れたら Misuse。戻り値は (cargo の target_directory, (wasm-bindgen の版, rustc の版, Cargo.lock の sha256))。"""
     for tool in ("cargo", "rustc", "wasm-bindgen"):
         need(shutil.which(tool) is not None, "required command not found on PATH: %s" % tool)
     try:
@@ -299,7 +310,14 @@ def check_prerequisites(root):
     m = re.match(r"^wasm-bindgen (\d+\.\d+\.\d+)$", out.splitlines()[0] if out else "")
     need(r.returncode == 0 and m is not None, "cannot read the wasm-bindgen version")
     need(m.group(1) == BINDGEN_VERSION, "wasm-bindgen version is not the expected %s" % BINDGEN_VERSION)
-    lock_bindgen_version(root)
+    lock_sha = lock_bindgen_version(root)
+    try:
+        r = run(["rustc", "-V"], root)
+    except OSError:
+        raise Misuse("cannot run rustc")
+    out = r.stdout.decode("utf-8", "replace").strip()
+    rm = re.match(r"^rustc (\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)(?: |$)", out.splitlines()[0] if out else "")
+    need(r.returncode == 0 and rm is not None, "cannot read the rustc version")
     r = run(["rustc", "--print", "sysroot"], root)
     need(r.returncode == 0, "cannot find the rust sysroot")
     sysroot = r.stdout.decode("utf-8", "replace").strip()
@@ -315,7 +333,7 @@ def check_prerequisites(root):
     except (ValueError, KeyError, TypeError):
         raise Misuse("cannot read target_directory from cargo metadata")
     need(isinstance(tdir, str) and os.path.isabs(tdir), "malformed target_directory")
-    return tdir
+    return tdir, (m.group(1), rm.group(1), lock_sha)
 
 
 def build_and_generate(root, tdir):
@@ -375,9 +393,9 @@ def main():
         if args.from_dir is not None:
             need(args.from_dir != "", "--from-dir is empty")
             return report(measure_all(args.from_dir, {}, args.require_exports == 1))
-        tdir = check_prerequisites(args.root)
+        tdir, tools = check_prerequisites(args.root)
         out_root, failures = build_and_generate(args.root, tdir)
-        return report(measure_all(out_root, failures, args.require_exports == 1))
+        return report(measure_all(out_root, failures, args.require_exports == 1), tools)
     except Misuse as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
