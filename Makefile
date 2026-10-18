@@ -113,7 +113,7 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
 
-profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（現状は CpuOnly）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny には含めない）。直接: scripts/profile-dep-graph-check.sh
+profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（CpuOnly と ComputeOnly の Metal の組。後者は objc2-metal の per-header feature も数える）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny には含めない）。直接: scripts/profile-dep-graph-check.sh
 	@scripts/profile-dep-graph-check.sh
 
 test-profile-dep-graph-check: ## profile-dep-graph-check の回帰テスト（合成 tree・偽の cargo / git と、実行時に作る一時 workspace の実物の cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-check.sh
