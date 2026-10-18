@@ -35,7 +35,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_compare.rs`（`test-support` の裏。標準ライブラリだけ、確保も panic もしない） | `grep -n 'pub mod' crates/core/src/parity.rs` |
 | 公開名 | `OrderVerdict`・`judge_order_f32`・`judge_order_binary16`・`FallbackVerdict`・`judge_bits_u32`・`judge_bits_f32`・`FallbackComparison`・`compare_bits_u32`・`compare_bits_f32`。エラーは `tolerance::CompareError` を再利用する | `crates/core/src/parity/fallback_compare.rs` |
-| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8・4/8・5/8 の分を含めて 39 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8〜6/8 の分を含めて 49 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
 
 ## 振る舞い（2/8）
 
@@ -111,6 +111,30 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | NaN・Inf | 置き換えず和に流れ、前段で決まる区分に従う | `reference_non_finite_inputs_follow_order` |
 | ビット同一との接続 | 結果は `judge_bits_f32` にも渡せる | `reference_connects_to_bit_identity` |
 | binary16 | この置き換えは当てない（3/8 の順序の差の条件のまま） | （f32 の関数だけ） |
+
+## 所在（6/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/8 と同じ `parity_fallback_compare.rs` に足す（新しいファイルは足さない）。本体の `fallback_compare.rs` は変えない | `git diff --stat origin/main -- crates/core` |
+| 試験 | 同じ `parity_fallback_compare.rs` に 10 本（名前は `boundary_` で始まる）を足す | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare boundary_` |
+
+## 振る舞い（6/8）
+
+境目に当たる入力を、判定の入口（ビット同一・順序の差・相対の条件・余裕と、それぞれの列の入口）に通し、前の段で決まる組が、後の段の条件が成り立つ値を与えても前の段の区分になることを確かめる。期待値は IEEE 754 のビット列から直接書く。
+
+| 境目 | 事実 | 対応するテスト |
+| ---- | ---- | -------------- |
+| NaN が先 | NaN と他の値の組は、Σ|x| が巨大でも、ビット列が隣り合う場合（binary16 の最小の NaN と +Inf）でも `NonFiniteMismatch`。NaN どうしは `BothNan` | `boundary_nan_is_decided_first` |
+| 無限大が数値の条件より先（f32） | 最大の有限値と Inf の組は `NonFiniteMismatch` で、Σ|x| が巨大でも一致にならない。同符号の Inf は Σ|x| が使えない値でも `SameInfinity` | `boundary_infinity_before_numeric_f32` |
+| 無限大が数値の条件より先（binary16） | 最大の有限値と Inf は順序の差が 1 でも `NonFiniteMismatch`。一つ手前の組は `WithinOrderDistance` | `boundary_infinity_before_order_distance_binary16` |
+| 零が数値の条件より先 | 符号つきの零どうしは全入口で `BothZero`。零と最小の非正規化数は前段で決まらず、数値の条件へ進む | `boundary_signed_zero_before_numeric` |
+| 隣り合うビット列（binary16） | 差 1 は `WithinOrderDistance`、差 2 は `OrderDistanceExceeded`。非正規化数と正規化数の境も同じ規則で、零をまたぐ組は差 2 | `boundary_adjacent_bits_binary16` |
+| 隣り合うビット列（f32） | 1 ulp 違いは `BitsDiffer`、同じビット列は `BitIdentical` | `boundary_adjacent_bits_f32` |
+| 相対の条件の境目 | 誤差がちょうど閾値 * Σ|x| なら一致、超えれば不一致。Σ|x| が 0 で誤差 0 は一致。Σ|x| が使えない値は前段で決まらない組だけ不一致 | `boundary_relative_sum_edges` |
+| 0 に落とす参照の境目 | 最大の非正規化数は +0、最小の正規化数はそのまま。和がちょうど最小の正規化数なら置き換えられず、その少し下は落とす参照で +0・保つ参照で非正規化数。同じ実測で判定が分かれる | `boundary_flush_reference_edges` |
+| binary16 には当てない | binary16 の非正規化数は零と区別し、順序の差の条件で比べる | `boundary_binary16_ignores_flush` |
+| 列の集計 | 境目の組を混ぜた列で、`compared`・`mismatched`・`first_mismatch`・余裕が手で書いた期待どおり | `boundary_sequence_order_summary` |
 
 ## 段の表
 
