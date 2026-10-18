@@ -174,6 +174,8 @@ pub enum RemeasureError {
     EmptyComparisons,
     /// 比の上限の分母が 0。
     ZeroBoundDenominator,
+    /// 比較の相手の値（中央値または定数）が 0 で、比が判定できない。
+    ZeroCounterpart,
     /// 計算が溢れた。
     Overflow,
 }
@@ -190,6 +192,7 @@ impl fmt::Display for RemeasureError {
             Self::DuplicateComparison => f.write_str("duplicate comparison id"),
             Self::EmptyComparisons => f.write_str("no comparisons"),
             Self::ZeroBoundDenominator => f.write_str("bound denominator is zero"),
+            Self::ZeroCounterpart => f.write_str("comparison counterpart value is zero"),
             Self::Overflow => f.write_str("arithmetic overflow"),
         }
     }
@@ -270,6 +273,10 @@ fn judge_comparisons(
             Counterpart::Arm(n) => (eval.spreads[n].median_x2(), Some(n)),
             Counterpart::Constant(v) => (2 * u128::from(v), None),
         };
+        // 相手が 0 の比（target ÷ 0）は判定できない。判定不能の範囲に関わらず暗黙に Ok へ倒さない。
+        if counterpart_x2 == 0 {
+            return Err(RemeasureError::ZeroCounterpart);
+        }
         let indeterminate = match scope {
             IndeterminateScope::Row => !eval.triggered.is_empty(),
             IndeterminateScope::ComparisonsWithExceededArm => {
@@ -307,7 +314,7 @@ fn judge_comparisons(
 ///
 /// `attempts` は測った回の順（1 回目、あれば測り直しの 2 回目）。2 回目を渡したときは 2 回目の値だけで
 /// 判定する。入力の不整合（回の数・不要な測り直し・腕の集合の不一致・未知の腕・自分との比較・
-/// 比較の重複や 0 件・上限の分母 0・run の数の不一致）と計算の溢れは `Err`。渡す順に結果は依らない。
+/// 比較の重複や 0 件・上限の分母 0・相手の値が 0・run の数の不一致）と計算の溢れは `Err`。渡す順に結果は依らない。
 pub fn judge_row(
     rule: VariationRule,
     attempts: &[&[ArmRuns<'_>]],
@@ -612,6 +619,31 @@ mod tests {
         assert_eq!(
             e(&[&[]], &ok),
             RemeasureError::Variation(VariationError::Empty)
+        );
+    }
+
+    #[test]
+    fn zero_counterpart_is_an_error() {
+        let rule = VariationRule::Poc10Row2;
+        let zero = [0u64; 6];
+        let e = |arms: &[ArmRuns<'_>], c: Comparison<'_>| judge_row(rule, &[arms], &[c]);
+        // 腕 a が全ゼロで、相手が定数 0。
+        let a_zero: Vec<ArmRuns<'_>> = vec![("a", &zero), ("b", &NARROW)];
+        assert_eq!(
+            e(&a_zero, cmp("c", "a", Counterpart::Constant(0), 1, 1)),
+            Err(RemeasureError::ZeroCounterpart)
+        );
+        // 相手の腕がゼロ。
+        let b_zero: Vec<ArmRuns<'_>> = vec![("a", &NARROW), ("b", &zero)];
+        assert_eq!(
+            e(&b_zero, cmp("c", "a", Counterpart::Arm("b"), 1, 1)),
+            Err(RemeasureError::ZeroCounterpart)
+        );
+        // 両方の腕がゼロ（0 ÷ 0）。
+        let both: Vec<ArmRuns<'_>> = vec![("a", &zero), ("b", &zero)];
+        assert_eq!(
+            e(&both, cmp("c", "a", Counterpart::Arm("b"), 1, 1)),
+            Err(RemeasureError::ZeroCounterpart)
         );
     }
 
