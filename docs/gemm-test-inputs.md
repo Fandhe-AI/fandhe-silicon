@@ -62,6 +62,38 @@ TASK-1005 の作業を進めるにあたり、記録の所在と本リポの現�
 
 試験は `crates/core/tests/parity_gemm_population.rs`。既定で走り（`make verify`）、GPU の実機は要らない。
 
+## 累積の順の対照（4/6）
+
+同じ入力で、累積の順だけを `k` の降順にした CPU の行列積を作り、昇順の参照と `compare_f32`（`T1`）で比べる。判定には使わない対照で、根拠は TASK-1005 のポインタ。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `crates/core/src/parity/cpu_reference.rs` の `reference_gemm_f32_descending_k`、`gemm_inputs.rs` の `reference_for_descending_k` | 各ファイルの `//!`・`///` |
+| 振る舞い | `0.0` から `k` の降順に `f32::mul_add` で積み上げる。昇順の参照との違いは累積の順だけ。長さの検査・溢れ・確保の失敗は昇順と同じ順・同じ `ReferenceError`。`reference_gemm_f32` は変えていない | `descending_hand_computed`、`descending_differs_from_ascending_when_order_matters`、`descending_errors_match_ascending` |
+| 既定の行 | `odd37x41x53`・`sq512` × `f32`・`f16acc` の 4 セルで、`compare_f32`（`T1`）の外れ 0 件・有限でない値 0 件 | `descending_is_within_t1_on_default_rows` |
+| 併記 | 上の 4 セルでも、降順の値はビット列が昇順と違う要素を持つ。T-1 で一致しても、同じ順で積み上げた証拠にはならない | `t1_match_does_not_imply_same_order` |
+| 大きな行 | `sq2048`・`sq4096`・`rect4096x1024x4096` × 2 dtype を、行 × dtype ごとの `#[ignore]` の試験にした。外れの件数を出力して記録し、外れ 0 件は要求しない（有限でない値 0 件と比べた件数だけを確かめる） | 下の流し方 |
+
+### 大きな行の実測（本段で流した範囲）
+
+- `sq2048` の `f32` は外れ 3 件、`f16acc` は外れ 397 件だった（`T1` で比べた降順の値。ビット列の違う要素は 4,000,000 余り）。つまり大きな行では、累積の順の違いだけで `T1` の外れが出うる
+- `sq4096`・`rect4096x1024x4096` は、素朴な単一スレッドの参照が 1 回の実行（600 秒）に収まらず、本段では流していない。結果は未取得で、合格とは書かない
+
+### 走る場所と流し方
+
+- 既定の試験は `make verify` で走り、GPU の実機は要らない
+- 大きな行は `cargo test -p fandhe-silicon-core --features test-support --release --test parity_gemm_k_order -- --ignored --nocapture <試験名>` で 1 つずつ流す（例 `sq2048_f32`）
+- 再実行の契機: `cpu_reference.rs`・`gemm_inputs.rs`・`binary16.rs`・`tolerance.rs`・`parity_gemm_k_order.rs` を変えたとき、`docs/spec` の gitlink を進めたとき
+
+### 確かめ（4/6）
+
+| 方法 | 結果 |
+| ---- | ---- |
+| `cargo test -p fandhe-silicon-core --features test-support --test parity_gemm_k_order` | 5 passed; 0 failed; 6 ignored |
+| 同 `--release -- --ignored sq2048` | 2 passed（外れ件数は上のとおり） |
+
+確かめた base は `94408323bccf28bce9f79462aae5c74486d89bd9`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
