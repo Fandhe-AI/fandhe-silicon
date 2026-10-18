@@ -92,7 +92,57 @@ exec・upper も含む合計で、本節の対象の crate だけの値ではな
 
 - `public_items` は時点で変わる。走査の数を前の記録と比べることは TASK-254 のポインタに留め、本書では比べない
 - CI の `deny` ジョブのログの行は、CI が走ったコミットの時点のもの（`gh run view <id> --log | grep 'scanned: crate=fandhe_silicon_\(contract\|core\)'`）。記録したコミットとは違うことがある
-- 外部 crate の一覧のまとめと完了の条件の確かめは 4/4（#3981）
+- 外部 crate の一覧のまとめは「外部 crate の一覧（4/4）」、完了の条件の確かめは「完了の条件の確かめ（4/4）」の節
+
+## 外部 crate の一覧（4/4）
+
+`make public-api-sdk-check` を、コミット `6f5a955` で作業ツリーが clean の状態から流した結果。終了コードは 0 で、`ok:` の行が出た。
+
+| crate | 組 | `external_crates` |
+| ----- | -- | ----------------- |
+| contract | production | `-` |
+| contract | all-features | `alloc,core` |
+| core | production | `alloc,core` |
+| core | all-features | `alloc,core,std` |
+
+- 確かめ方: `make public-api-sdk-check | grep 'scanned: crate=fandhe_silicon_\(contract\|core\)'`
+- 一覧に `objc2-metal`・`ash`・`cudarc` は 1 つも無く、4 行とも `sdk_type_refs`・`sdk_other_refs` は 0
+- `-` は外部 crate が 1 つも無いこと。`alloc`・`core`・`std` は標準の crate
+- 一覧は時点（コミット）で変わるので、時点はコミットで添える。4 crate とも `version` が `0.0.0` なのは 3/4 の節と同じ（確かめ方は既存の grep）
+- `public_items` は 3/4 の節が持つので、この節には書かない
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#3981）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-253）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 契約の crate・本番の組で wgpu 系の参照が 0 | `make public-api-check \| grep 'scanned: crate=fandhe_silicon_contract'` | `wgpu_type_refs=0`・`wgpu_other_refs=0` |
+| A2 | 契約の crate・全 feature の組で同じく 0 | 同上 | 0 / 0 |
+| A3 | チップの SDK の型の参照が contract・core とも両方の組で 0 | `make public-api-sdk-check` | `sdk_type_refs=0`・`sdk_other_refs=0`。`common-deps` は `chip_deps=0` |
+| B1 | 外部 crate の一覧を contract と core で別々に記録した | 本書の「外部 crate の一覧（4/4）」・2/4 の節 | 記録済み |
+| B2 | 記録に時点が添えてある | 2 つのスクリプトの `record:` の `commit=` | 一致し `-dirty` なし。1/4〜4/4 の節すべてにコミットがある |
+| C1 | 検出の仕組みの陽性対照 | `make baseline-positive-control` | 終了コード 0（`ok: positive control detected wgpu in baseline-wgpu`） |
+| C2 | 検査の仕組みを作り直していない | `git diff --stat origin/main -- scripts/` | 変更 0 件 |
+| D | 品質ゲート | `make check` | 終了コード 0。文書だけの変更なので `verify`・`deny` は PR の CI のジョブで確かめる |
+
+- CI の `deny` ジョブのログの行は、CI が走ったコミットの時点のもの。記録したコミットとは違うことがある
+
+### 成果物と節の対応
+
+| 成果物 | 節 |
+| ------ | -- |
+| 公開 API の検査の実行の記録 | 1/4・2/4・3/4 の節 |
+| 外部 crate の一覧 | 2/4 の節・4/4 の節 |
+
+### 再実行の契機
+
+- `scripts/public-api-check.sh`・`scripts/public-api-sdk-check.sh`・`scripts/baseline-positive-control.sh` を変えたとき
+- `crates/contract/Cargo.toml`・`crates/core/Cargo.toml` の `[features]`・`[dependencies]` を変えたとき
+- `crates/contract/src/lib.rs` の `cfg` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `6f5a9556d99ac275ea5222988da6eabcf9b544ba`、`docs/spec` の gitlink は `8664148`。完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-253）。
 
 ## 段の表
 
@@ -101,7 +151,7 @@ exec・upper も含む合計で、本節の対象の crate だけの値ではな
 | 1/4 | #3978 | 本番の feature の組と --all-features での wgpu 系の参照 |
 | 2/4 | #3979 | 外部 crate の一覧とチップの SDK の型 |
 | 3/4 | #3980 | 公開 API の検査の実行の記録（契約の crate・共通の crate、時点つき） |
-| 4/4 | #3981 | |
+| 4/4 | #3981 | 外部 crate の一覧のまとめと完了の条件の確かめ |
 
 ## 本リポでの反映の方針
 
