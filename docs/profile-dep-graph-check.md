@@ -111,6 +111,36 @@ make deny
 
 確かめた base は `beb4172`、`docs/spec` の gitlink は `8664148`。
 
+## プロファイルごとの件数の記録（6/6）
+
+6/6（#3927）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-228。BUILD-1・BUILD-2）。結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の置き場 |
+| ------ | ------------ |
+| 検査と CI への組み込み | 「所在」「使い方と終了コード」「完了の条件の確かめ（5/6）」 |
+| プロファイルごとの件数の記録 | 本節（`record:`・`count:` の行） |
+
+`make profile-dep-graph-check` の標準出力（終了コード 0。`record:` の `commit=` は base と一致し `-dirty` 無し）を、プロファイルごとに並べる。
+
+| プロファイル | `crates_total` | `judged_total` | crate の `count:` の行 | `header_crate_n` | `features_judged_total` | `features_recorded_total` | feature の `count:` の行 |
+| ------------ | -------------- | -------------- | ---------------------- | ---------------- | ----------------------- | ------------------------- | ------------------------ |
+| `cpu-only` | 2 | 0 | 7 行（すべて `n=0`） | — | — | — | — |
+| `compute-only-metal` | 2 | 0 | 3 行（すべて `n=0`） | 0 | 0 | 0 | judged=yes が 5 行・judged=no が 3 行（すべて `n=0`） |
+
+- 数えるだけの feature（`RECORD_ONLY_HEADER_FEATURES`）は、judged=no の 3 行として判定の対象と別に出ていて、`features_judged_total` には入らない
+- crate の一覧は `SDK_LOADER_NAMES`・`SURFACE_NAMES`、judged=yes の feature は `RENDER_HEADER_FEATURES` で指す（名前は本書に写さない）
+- 末尾の行は `ok: 2 profile(s) checked, no judged crates (judged=0)`
+
+`make profile-dep-graph-positive-control` は終了コード 0。`positive-control:` は 2 行（プロファイルごとに 1 行）で、どちらも `n=1 result=detected`。
+
+CI のログ: main の push の `ci.yml` の run 39133670015（base と同じコミット）の `make deny (cargo-deny)` ジョブ（job 117693749343）の conclusion は success。ログに上と同じ値の `record:`（プロファイルごとに 2 行）・`ok: 2 profile(s) checked, no judged crates (judged=0)`・`positive-control:`（2 行、`result=detected`）が出ている。
+
+再実行の契機は「完了の条件の確かめ（5/6）」の「再実行の契機」と同じ。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-228）。
+
+確かめた base は `8d838b352e33cdcdd02fd530a7c958fc4925bc82`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
 ## 関連
 
 - [dep-graph-wgpu-check.md](dep-graph-wgpu-check.md)（形を揃えた既存の検査）
