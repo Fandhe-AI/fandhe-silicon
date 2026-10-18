@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -112,6 +112,12 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
+
+profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（現状は CpuOnly）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny には含めない）。直接: scripts/profile-dep-graph-check.sh
+	@scripts/profile-dep-graph-check.sh
+
+test-profile-dep-graph-check: ## profile-dep-graph-check の回帰テスト（合成 tree・偽の cargo / git と、実行時に作る一時 workspace の実物の cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-check.sh
+	@scripts/test-profile-dep-graph-check.sh
 
 baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
 	@scripts/baseline-positive-control.sh
