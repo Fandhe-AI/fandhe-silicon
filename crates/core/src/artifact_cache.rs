@@ -1,7 +1,7 @@
 //! 成果物キャッシュの照合の部品の置き場（TASK-483・ART-52 のポインタ）。
 //!
 //! 現状はエントリの型 [`CacheEntry`]・読み込み時の照合（[`RejectReason`]・[`LoadOutcome`]・[`verify_entry`]）・
-//! エントリを複数持つ最小のメモリ上の入れ物 [`CacheStore`] を持つ。台帳と保存先は持たない（後の段で扱う）。
+//! エントリを複数持つ最小のメモリ上の入れ物 [`CacheStore`]・背後実装へ渡す直前のバイト列の SHA-256 を記録する台帳 [`Ledger`] を持つ。保存先は持たない（後の段で扱う）。
 //! `fandhe-silicon-exec` / `fandhe-silicon-contract` が成果物を保存・復元するときに、
 //! キーとバイト列とそのバイト列の SHA-256 を組にして受け渡すための共通の型である。
 //!
@@ -114,7 +114,7 @@ pub fn verify_entry(entry: &CacheEntry, requested: &CacheKey) -> Result<(), Reje
 /// エントリを複数持つ最小のメモリ上の入れ物。
 ///
 /// `Vec` を線形に探す（探索の計算量はエントリ数に比例）。上限や追い出しは持たない。
-/// 台帳や拒否の数え上げは持たない。
+/// 台帳は別の型 [`Ledger`] で、この入れ物は持たない。拒否の数え上げも持たない。
 #[derive(Debug, Clone, Default)]
 pub struct CacheStore {
     entries: Vec<CacheEntry>,
@@ -152,6 +152,58 @@ impl CacheStore {
                 Err(reason) => LoadOutcome::Rejected(reason),
             },
         }
+    }
+}
+
+/// 背後実装へ渡す直前のバイト列の SHA-256 を記録する台帳。
+///
+/// 呼び出し側（`fandhe-silicon-exec` / `fandhe-silicon-contract` の受け渡し口）が、渡すバイト列を [`Ledger::record`] に通して使う。
+/// 記録は渡されたバイト列から計算し直した値で、[`CacheEntry::sha256`] の保持値は写さない。
+/// 保持値がバイト列と一致しないエントリを渡しても、実際に渡したバイト列の SHA-256 が残る。
+/// 記録はハッシュだけでバイト列は持たない。上限・削除・保存先は持たない（記録するたびに増える）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ledger {
+    records: Vec<[u8; 32]>,
+}
+
+impl Ledger {
+    /// 空の台帳を作る。
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// バイト列の SHA-256 を計算して末尾に記録し、その値を返す。
+    ///
+    /// 重複は除かない（同じバイト列を 2 回記録すれば 2 件残る）。計算量はバイト列の長さに比例。
+    pub fn record(&mut self, bytes: &[u8]) -> [u8; 32] {
+        let sha = sha256_bytes(bytes);
+        self.records.push(sha);
+        sha
+    }
+
+    /// 記録の件数。
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// 記録が 0 件か。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// 記録を古い順に返す。
+    #[must_use]
+    pub fn records(&self) -> &[[u8; 32]] {
+        &self.records
+    }
+
+    /// 指定の SHA-256 が記録にあるか（線形探索）。
+    #[must_use]
+    pub fn contains(&self, sha256: &[u8; 32]) -> bool {
+        self.records.contains(sha256)
     }
 }
 
