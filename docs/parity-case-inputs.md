@@ -21,8 +21,8 @@ TASK-977 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | feature | `parity`・`test_frame`・`rerun` は `core` の `test-support` の裏にある。`hash` は条件なしで公開される | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
-| 一致の道具のファイル | `crates/core/src/parity` に 12 ファイルある | `ls crates/core/src/parity` |
-| 統合テスト | `crates/core/tests/parity_*.rs` は 16 本。`required-features` の宣言は 30 件 | `ls crates/core/tests/parity_*.rs`、`grep -c required-features crates/core/Cargo.toml` |
+| 一致の道具のファイル | `crates/core/src/parity` に 13 ファイルある | `ls crates/core/src/parity` |
+| 統合テスト | `crates/core/tests/parity_*.rs` は 17 本。`required-features` の宣言は 31 件 | `ls crates/core/tests/parity_*.rs`、`grep -c required-features crates/core/Cargo.toml` |
 | GEMM の CPU 参照 | `reference_gemm_f32` は f32・行優先。各要素を `0.0` から `k` の昇順に `f32::mul_add` で積み上げる | `crates/core/src/parity/cpu_reference.rs` の rustdoc、`crates/core/tests/parity_cpu_reference.rs` |
 | 要素ごとの比べ | `compare_f32`（`T1`）と `compare_f32_with_special_values`。数値は本書に持たない | `crates/core/src/parity/tolerance.rs`・`special_values.rs` |
 | 要素ごと演算の CPU 参照 | 共通の関数は無い。Relu の参照は `case_inputs.rs` の中にだけある（3/4）。既存のテストは出力を直書きしている | `grep -n -i relu crates/core/src/parity/case_inputs.rs crates/core/tests/parity_element_rules.rs` |
