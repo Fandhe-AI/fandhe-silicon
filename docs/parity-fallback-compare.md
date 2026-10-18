@@ -35,7 +35,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | ファイル | `crates/core/src/parity/fallback_compare.rs`（`test-support` の裏。標準ライブラリだけ、確保も panic もしない） | `grep -n 'pub mod' crates/core/src/parity.rs` |
 | 公開名 | `OrderVerdict`・`judge_order_f32`・`judge_order_binary16`・`FallbackVerdict`・`judge_bits_u32`・`judge_bits_f32`・`FallbackComparison`・`compare_bits_u32`・`compare_bits_f32`。エラーは `tolerance::CompareError` を再利用する | `crates/core/src/parity/fallback_compare.rs` |
-| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8・4/8 の分を含めて 29 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+| 試験 | `crates/core/tests/parity_fallback_compare.rs`（3/8・4/8・5/8 の分を含めて 39 本） | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
 
 ## 振る舞い（2/8）
 
@@ -88,6 +88,29 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | 余裕 | `relative_sum_margin` は誤差 / `abs_sum`。前段で一致は 0、前段で不一致は +Inf。記録だけに使い、判定は `judge_relative_sum_f32` だけが決める | `relative_sum_margin_values` |
 | 列の比べ | 長さの検査の順は参照と実測、`abs_sums`、`margins`、長さ 0。エラーのとき `margins` は書き換えない | `compare_relative_sum_errors` |
 | 余裕の全件記録 | 検査が通れば全添字の余裕を `margins` に書く。集計の形は 2/8 と同じ | `compare_relative_sum_summary_and_margins` |
+
+## 所在（5/8）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ファイル | 2/8 と同じ `fallback_compare.rs` に足す（新しいファイルは足さない） | `crates/core/src/parity/fallback_compare.rs` |
+| 公開名 | `F32SubnormalHandling`（`Preserve`・`FlushToZero`）・`flush_subnormal_f32`・`SumReference`（`value`・`abs_sum`）・`reference_sum_f32`。`FallbackVerdict` は変えない | `grep -n 'pub ' crates/core/src/parity/fallback_compare.rs` |
+| 試験 | 同じ `parity_fallback_compare.rs` に 10 本を足す | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_compare` |
+
+## 振る舞い（5/8）
+
+| 振る舞い | 事実 | 対応するテスト |
+| -------- | ---- | -------------- |
+| 1 値の置き換え | f32 の非正規化数（正負とも）は +0 になる。±0・NaN・±Inf・正規化数はそのまま | `flush_subnormal_boundaries`・`flush_leaves_special_values` |
+| 保つ | 入力も結果も置き換えず、f64 で列の順に足して f32 に 1 回丸める。Σ|x| は元の入力で数える | `reference_preserve_is_plain_f64_sum` |
+| 0 に落とす（入力） | 各入力を置き換えてから足す。Σ|x| も置き換えの後の入力で数える | `reference_flush_replaces_inputs` |
+| 0 に落とす（結果） | 丸めた結果が非正規化数なら +0 にする。入力が正規化数でも起こり、Σ|x| は保つと同じ | `reference_flush_replaces_rounded_result` |
+| 空の列 | 値 +0・Σ|x| 0 | `reference_empty_inputs` |
+| 入力の渡し方 | 入力は `IntoIterator<Item = f32>`。飛び飛びの列でも、集めた列と同じ結果 | `reference_accepts_strided_inputs` |
+| 判定との接続 | 結果は `judge_relative_sum_f32`・`compare_relative_sum_f32` にそのまま渡せ、扱いによって判定が変わる組がある。Σ|x| が 0 になる組も含む | `reference_flush_changes_verdict` |
+| NaN・Inf | 置き換えず和に流れ、前段で決まる区分に従う | `reference_non_finite_inputs_follow_order` |
+| ビット同一との接続 | 結果は `judge_bits_f32` にも渡せる | `reference_connects_to_bit_identity` |
+| binary16 | この置き換えは当てない（3/8 の順序の差の条件のまま） | （f32 の関数だけ） |
 
 ## 段の表
 
