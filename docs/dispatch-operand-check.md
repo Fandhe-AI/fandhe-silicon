@@ -1,6 +1,6 @@
-# 引数の宣言の C8 の検査
+# 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -8,22 +8,25 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 
 | 名前 | 役割 |
 | ---- | ---- |
-| `validate_dispatch_operands` | 宣言を先頭から見て C8 を判定する。最初の違反で `Err`、全部通れば `Ok(())` |
+| `validate_dispatch_operands` | C8 → C4 → C5 → C6 の順に判定する。最初の違反で `Err`、全部通れば `Ok(())` |
 | `required_bytes` | 宣言 1 件の必要バイト数。`u64` であふれたら `None` |
 | `OperandCheckError` | 暫定のエラー型（`#[non_exhaustive]`、`InvalidArgument(String)`）。契約のエラー型そのものではない |
 | `OperandBinding`・`OperandConstant` | 検査の入力のための形。背後実装へ渡す束縛の型ではない |
 
 ## 現状の振る舞い
 
-- C8 を判定する。束縛・定数・容量を返す関数の引数は受けるが読まない
+- C8 を宣言ごとに先頭から判定し、続けて C4（残容量）・C5（offset の境界）・C6（定数の長さ）を段ごとに全件見る。宣言の無い `slot` の束縛・定数は見ない
+- C4: 容量が分かる束縛だけを、必要バイト数と「容量から `offset` を引いた残り（引き切れなければ 0）」とで比べる。容量が `None` の束縛は通す
+- C5: 宣言の `alignment` が 0 でないときだけ、`offset` が `alignment` の倍数かを調べる
+- C6: 定数のバイト列の長さが必要バイト数と違えば（短くても長くても）拒否する
 - 判定の順は、`shape` に 0 の次元がある、必要バイト数が `u64` をあふれる、必要バイト数が `max_buffer_bytes` より大きい。上限ちょうどは通す
-- 違反は `InvalidArgument` で、文言の先頭は `C8:`（本文は英語）
+- 違反は `InvalidArgument` で、文言の先頭は `C4:`・`C5:`・`C6:`・`C8:` のいずれか（本文は英語）
 - `shape` が空なら次元の積は 1 で、1 要素分のバイト数になる
-- 必要バイト数は `checked_mul` で計算する。panic・添字アクセス・バッファの確保はない
+- 算術は `checked_mul`・`saturating_sub`・0 を除いた剰余だけで行う。panic・添字アクセス・バッファの確保はない
 
 ## 対応するテスト
 
-- `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前）
+- `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前。C8 に加え、`dispatch_check_c4_`・`dispatch_check_c5_`・`dispatch_check_c6_`、C8 が先に判定される順、宣言の無い `slot` を見ないことを確かめる）
 - `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_` で始まる名前）。長さ 0 の次元（GEMM の宣言を含む）・`u64` のあふれ・上限超過（1 バイト足りなければ拒否、ちょうどなら通る。巨大な宣言でも確保せずに判定する）を確かめる
 
 ## 確かめ方
@@ -34,7 +37,7 @@ cargo test -p fandhe-silicon-core --test execution_dispatch_check
 make verify
 ```
 
-## 完了の条件の確かめ（4/4）
+## 完了の条件の確かめ（4/4）（TASK-421。以下は当時の base の記録）
 
 4/4（#4744）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-421。関連: BIND-35〜BIND-37）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
 
@@ -58,7 +61,7 @@ make verify
 
 試験が照合するのは `InvalidArgument` の variant と、文言の先頭 `C8` まで。
 
-範囲の外: 先頭以外の次元が 0 の入力、C4〜C7、背後実装の入口を通した確かめは本書の範囲の外（ポインタ: TASK-477・TASK-422・TASK-423・TASK-494・TASK-495）。
+範囲の外: 先頭以外の次元が 0 の入力、C7、背後実装の入口を通した確かめは本書の範囲の外（ポインタ: TASK-477・TASK-422・TASK-423・TASK-494・TASK-495）。
 
 ### 再実行の契機
 
