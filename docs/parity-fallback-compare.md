@@ -212,4 +212,4 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 
 ## 関連
 
-[parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-element-rules](parity-element-rules.md)・[test-frame](test-frame.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+[parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-element-rules](parity-element-rules.md)・[test-frame](test-frame.md)・[parity-fallback-inputs](parity-fallback-inputs.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
