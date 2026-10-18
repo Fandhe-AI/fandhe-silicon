@@ -6,6 +6,7 @@
 3/6（#6365）で「変動の幅の規則（3/6）」の節を足した（規則のモジュール `variation`。値は表に写さずコードを指す）。
 4/6（#6366）で「測り直しと判定不能の扱い（4/6）」の節を足した（モジュール `remeasure`。値は表に写さずコードを指す）。
 5/6（#6367）で「再現の試験（5/6）」の節を足した（モジュール `replay` とコマンド `variation-replay`。記録済みの行は本リポに置かない）。
+6/6（#6368）で「完了の条件の確かめ（6/6）」の節を足した（公開の試験の実測と品質ゲート）。
 
 ## 記録の所在
 
@@ -77,7 +78,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 ### 3/6 以降で扱うこと
 
 3/6（#6365）で入った物は次節「変動の幅の規則（3/6）」、4/6（#6366）で入った物は「測り直しと判定不能の扱い（4/6）」を参照。
-5/6（#6367）で入った物は「再現の試験（5/6）」を参照。6/6（#6368）は、その PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+5/6（#6367）で入った物は「再現の試験（5/6）」を参照。6/6（#6368）で入った物は「完了の条件の確かめ（6/6）」を参照。
 
 ## 変動の幅の規則（3/6）
 
@@ -133,7 +134,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 試験 | 全規則での判定・測り直しの要否・判定不能・測り直した回の値だけでの判定、判定不能の範囲の 3 種、境目（ちょうど・直上）、判定と判定不能と NG の混在、期待を変えた入力の不一致、渡す順への非依存、分解能の通し、違反と誤用の終了コード。値・腕・行の名前はすべて合成 | `make measure-verify` |
 
 使い方: `cargo run --manifest-path measure/Cargo.toml --bin variation-replay -- <入力の JSON> [<入力の JSON> ...]`。
-記録済みの行から入力を作ってラベルの再現を確かめるのは 6/6（#6368）で、記録のパスを手元で引数に渡して行う。
+記録済みの行を入力にした再現の扱いは「完了の条件の確かめ（6/6）」を参照。
 
 ## 段の表
 
@@ -145,6 +146,39 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 4/6 実装 | #6366 |
 | 5/6 テスト | #6367 |
 | 6/6 確かめ | #6368 |
+
+## 完了の条件の確かめ（6/6）
+
+6/6（#6368）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-1027）。
+GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| `variation` | 変動の幅の規則（3/6） | `measure/crates/perf/src/variation.rs` の単体試験 |
+| `remeasure` | 測り直しと判定不能の扱い（4/6） | `measure/crates/perf/src/remeasure.rs` の単体試験 |
+| `replay` と `variation-replay` | 再現の試験（5/6） | `measure/crates/perf/tests/replay.rs` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 変動の幅の規則の単体試験が通る | `cargo test --manifest-path measure/Cargo.toml --workspace --all-features --locked --lib variation::` | 15 passed; 0 failed; 0 ignored |
+| A2 | 測り直しの単体試験が通る | 同じ形に `--lib remeasure::` | 13 passed; 0 failed; 0 ignored |
+| A3 | 再現の結合試験が通る | 同じ形に `--test replay` | 18 passed; 0 failed; 0 ignored |
+| A4 | 規則・判定不能の範囲・測り直し・不一致の検出・終了コードが合成値で確かめられている | A3 のうち `scopes_are_all_exercised`・`first_attempt_without_trigger_settles`・`first_attempt_with_trigger_needs_remeasure`・`trigger_remaining_after_remeasure_is_indeterminate_per_scope`・`remeasured_values_alone_decide`・`changed_expected_label_is_a_mismatch_with_output`・`expected_needs_remeasure_but_settled_is_a_mismatch`・`resolution_passes_through`・`command_exit_codes`・`command_misuse_is_two`・`command_stderr_has_no_values_or_paths` | すべて ok |
+| B1 | 記録の形が変わっていない | base との差分: `record.rs`・`runs.rs`・`docs/run-record.example.json`・`scripts/`・`Cargo.lock`・`deps-approved.toml`・`measure/deps-approved.toml`（この PR の変更後） | 差分なし |
+| B2 | 依存の向きが「測定 → 製品」の一方向 | `grep -rl measure-perf crates` | 0 件 |
+| E1 | base の CI | base の直前の push の CI run（`22a5127`）を `gh run view` で確認。base（`1c97bf3`）の run は確認時点で実行中 | 完了・success（`ci-complete` も success） |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make measure-verify` | すべて終了コード 0 |
+
+記録済みの行を入力にした再現は公開側の試験・CI に含めない。完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1027）。
+
+### 再実行の契機
+
+- `measure/crates/perf/src/variation.rs`・`remeasure.rs`・`replay.rs`・`bin/variation-replay.rs` を変えたとき
+- `measure/crates/perf/tests/replay.rs` を変えたとき
+- `record.rs`・`jsonread.rs` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `1c97bf3`、`docs/spec` の gitlink は `8664148`。
 
 ## 本リポでの反映の方針
 
