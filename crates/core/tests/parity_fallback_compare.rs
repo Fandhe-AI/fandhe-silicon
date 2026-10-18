@@ -1,4 +1,4 @@
-//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の振る舞いの確認（spec TASK-928 の 2/8・3/8・4/8・5/8）。
+//! 代わりの実行の比べ方の順序の前段とビット同一の条件・binary16 の順序の差の条件・f32 の和の相対の条件・非正規化数を 0 に落とす参照の振る舞いの確認と、境目の入力での判定の順序の確認（spec TASK-928 の 2/8〜6/8）。
 //! feature `test-support` の裏にだけ存在する検証用の道具を対象にする。入力はこの場で作る。
 
 use fandhe_silicon_core::parity::binary16::binary16_bits_to_f32;
@@ -681,4 +681,401 @@ fn reference_connects_to_bit_identity() {
             FallbackVerdict::BitIdentical
         );
     }
+}
+// ---- 境目の入力（6/8）----
+// 期待値は IEEE 754 のビット列から直接書く。前の段で決まる組は、後の段の条件が成り立つ値を与えても前の段の区分になる。
+
+const INF: f32 = f32::INFINITY;
+const NINF: f32 = f32::NEG_INFINITY;
+const HUGE_SUM: f64 = f64::MAX;
+
+/// f32 の 1 組を f32 を扱う入口（ビット同一・相対の条件・その余裕と、それぞれの列の入口）に通す。
+/// `bits` はビット同一の入口の期待、`rel` は相対の条件の期待、`margin_zero` は余裕が 0.0 か +Inf か。
+fn check_f32_pair(
+    r: f32,
+    a: f32,
+    abs_sum: f64,
+    bits: FallbackVerdict,
+    rel: FallbackVerdict,
+    margin_zero: bool,
+) {
+    assert_eq!(
+        judge_bits_f32(r, a),
+        bits,
+        "bits {:#x} {:#x}",
+        r.to_bits(),
+        a.to_bits()
+    );
+    assert_eq!(judge_relative_sum_f32(r, a, abs_sum), rel);
+    let m = relative_sum_margin(r, a, abs_sum);
+    if margin_zero {
+        assert_eq!(m, 0.0);
+    } else {
+        assert_eq!(m, f64::INFINITY);
+    }
+    let mut ms = [1.0f64];
+    let c = compare_relative_sum_f32(&[r], &[a], &[abs_sum], &mut ms).unwrap();
+    assert_eq!(c.mismatched(), usize::from(!rel.is_match()));
+    assert_eq!(ms[0].to_bits(), m.to_bits());
+    let cb = compare_bits_f32(&[r], &[a]).unwrap();
+    assert_eq!(cb.mismatched(), usize::from(!bits.is_match()));
+}
+
+#[test]
+fn boundary_nan_is_decided_first() {
+    use FallbackVerdict::{BothNan, NonFiniteMismatch};
+    for n in nans() {
+        for x in [INF, NINF, 0.0, -0.0, 1.0, f32::MAX, f32::from_bits(1)] {
+            for s in [0.0, 1.0, HUGE_SUM] {
+                check_f32_pair(n, x, s, NonFiniteMismatch, NonFiniteMismatch, false);
+                check_f32_pair(x, n, s, NonFiniteMismatch, NonFiniteMismatch, false);
+            }
+        }
+        for m in nans() {
+            check_f32_pair(n, m, 0.0, BothNan, BothNan, true);
+        }
+    }
+    // binary16: 最小の NaN は +Inf とビット列が隣り合う（順序の差の鍵では 1）が、前段で不一致に決まる
+    assert_eq!(binary16_order_distance(0x7C00, 0x7C01), 1);
+    assert_eq!(
+        judge_order_distance_binary16(0x7C01, 0x7C00),
+        NonFiniteMismatch
+    );
+    assert_eq!(
+        judge_order_distance_binary16(0x7C00, 0x7C01),
+        NonFiniteMismatch
+    );
+    assert_eq!(
+        judge_order_distance_binary16(0xFC00, 0xFC01),
+        NonFiniteMismatch
+    );
+    for r in [0x7C01u16, 0x7E00, 0xFE00] {
+        for a in [0x7C01u16, 0x7E00, 0xFE00] {
+            assert_eq!(judge_order_distance_binary16(r, a), BothNan);
+        }
+    }
+}
+
+#[test]
+fn boundary_infinity_before_numeric_f32() {
+    use FallbackVerdict::{NonFiniteMismatch, SameInfinity};
+    assert_eq!(f32::MAX.to_bits(), 0x7F7F_FFFF);
+    assert_eq!(INF.to_bits(), 0x7F80_0000);
+    // 最大の有限値と Inf はビット列が隣り合うが、数値の条件へは進まない
+    for (r, a) in [
+        (f32::MAX, INF),
+        (INF, f32::MAX),
+        (f32::MIN, NINF),
+        (NINF, f32::MIN),
+        (INF, NINF),
+        (NINF, INF),
+    ] {
+        check_f32_pair(r, a, HUGE_SUM, NonFiniteMismatch, NonFiniteMismatch, false);
+    }
+    for x in [INF, NINF] {
+        check_f32_pair(x, x, 0.0, SameInfinity, SameInfinity, true);
+        // 同符号の Inf は Σ|x| が使えない値でも一致
+        check_f32_pair(x, x, f64::NAN, SameInfinity, SameInfinity, true);
+    }
+}
+
+#[test]
+fn boundary_infinity_before_order_distance_binary16() {
+    use FallbackVerdict::{NonFiniteMismatch, SameInfinity, WithinOrderDistance};
+    for (r, a) in [
+        (0x7BFFu16, 0x7C00u16),
+        (0x7C00, 0x7BFF),
+        (0xFBFF, 0xFC00),
+        (0xFC00, 0xFBFF),
+    ] {
+        assert_eq!(binary16_order_distance(r, a), 1);
+        assert_eq!(judge_order_distance_binary16(r, a), NonFiniteMismatch);
+    }
+    assert_eq!(
+        judge_order_distance_binary16(0x7BFE, 0x7BFF),
+        WithinOrderDistance
+    );
+    assert_eq!(
+        judge_order_distance_binary16(0xFBFE, 0xFBFF),
+        WithinOrderDistance
+    );
+    assert_eq!(judge_order_distance_binary16(0x7C00, 0x7C00), SameInfinity);
+    assert_eq!(
+        judge_order_distance_binary16(0x7C00, 0xFC00),
+        NonFiniteMismatch
+    );
+    let c = compare_order_distance_binary16(&[0x7BFE, 0x7BFF, 0xFBFF], &[0x7BFF, 0x7C00, 0xFC00])
+        .unwrap();
+    assert_eq!(
+        (c.compared(), c.mismatched(), c.first_mismatch()),
+        (3, 2, Some(1))
+    );
+}
+
+#[test]
+fn boundary_signed_zero_before_numeric() {
+    use FallbackVerdict::{BitsDiffer, BothZero, RelativeSumExceeded, WithinRelativeSum};
+    // 符号つきの零はビット列が違っても全入口で一致
+    for (r, a) in [(0.0f32, -0.0f32), (-0.0, 0.0), (0.0, 0.0), (-0.0, -0.0)] {
+        for s in [0.0, 1.0, f64::NAN] {
+            check_f32_pair(r, a, s, BothZero, BothZero, true);
+        }
+    }
+    for (r, a) in [(0x0000u16, 0x8000u16), (0x8000, 0x0000), (0x0000, 0x0000)] {
+        assert_eq!(judge_order_distance_binary16(r, a), BothZero);
+    }
+    // 零と最小の非正規化数は前段で決まらず、数値の条件へ進む
+    for tiny in [f32::from_bits(1), f32::from_bits(0x8000_0001)] {
+        for z in [0.0f32, -0.0] {
+            for (r, a) in [(z, tiny), (tiny, z)] {
+                assert_eq!(judge_order_f32(r, a), OrderVerdict::Numeric);
+                check_f32_pair(r, a, 0.0, BitsDiffer, RelativeSumExceeded, false);
+                assert_eq!(judge_relative_sum_f32(r, a, 1.0), WithinRelativeSum);
+                assert_eq!(relative_sum_margin(r, a, 1.0), f64::from(tiny).abs());
+            }
+        }
+    }
+    for tiny in [0x0001u16, 0x8001] {
+        for z in [0x0000u16, 0x8000] {
+            assert_eq!(
+                judge_order_distance_binary16(z, tiny),
+                FallbackVerdict::WithinOrderDistance
+            );
+            assert_eq!(
+                judge_order_distance_binary16(tiny, z),
+                FallbackVerdict::WithinOrderDistance
+            );
+        }
+    }
+}
+
+#[test]
+fn boundary_adjacent_bits_binary16() {
+    use FallbackVerdict::{OrderDistanceExceeded as Exceeded, WithinOrderDistance as Within};
+    let rows: [(u16, u16, u32, FallbackVerdict); 9] = [
+        (0x3C00, 0x3C01, 1, Within),
+        (0x3C01, 0x3C00, 1, Within),
+        (0x03FF, 0x0400, 1, Within),
+        (0x83FF, 0x8400, 1, Within),
+        (0x3C00, 0x3C02, 2, Exceeded),
+        (0x8001, 0x0001, 2, Exceeded),
+        (0x0002, 0x0000, 2, Exceeded),
+        (0x8002, 0x0000, 2, Exceeded),
+        (0x03FF, 0x0401, 2, Exceeded),
+    ];
+    for (r, a, d, v) in rows {
+        assert_eq!(binary16_order_distance(r, a), d);
+        assert_eq!(judge_order_distance_binary16(r, a), v);
+    }
+    let r: Vec<u16> = rows.iter().map(|x| x.0).collect();
+    let a: Vec<u16> = rows.iter().map(|x| x.1).collect();
+    let c = compare_order_distance_binary16(&r, &a).unwrap();
+    assert_eq!(
+        (c.compared(), c.mismatched(), c.first_mismatch()),
+        (9, 5, Some(4))
+    );
+    // ビット同一の件数は記録だけで、判定の数とは別
+    assert_eq!(count_bit_identical_binary16(&r, &a).unwrap(), 0);
+}
+
+#[test]
+fn boundary_adjacent_bits_f32() {
+    use FallbackVerdict::{BitIdentical, BitsDiffer};
+    let one = 1.0f32;
+    let next = f32::from_bits(one.to_bits() + 1);
+    let prev = f32::from_bits(one.to_bits() - 1);
+    let sub_max = f32::from_bits(0x007F_FFFF);
+    let norm_min = f32::from_bits(0x0080_0000);
+    assert_eq!(norm_min, f32::MIN_POSITIVE);
+    for (r, a, v) in [
+        (one, next, BitsDiffer),
+        (one, prev, BitsDiffer),
+        (sub_max, norm_min, BitsDiffer),
+        (norm_min, sub_max, BitsDiffer),
+        (-sub_max, -norm_min, BitsDiffer),
+        (one, one, BitIdentical),
+        (sub_max, sub_max, BitIdentical),
+        (norm_min, norm_min, BitIdentical),
+    ] {
+        assert_eq!(judge_bits_f32(r, a), v);
+    }
+    assert_eq!(judge_bits_u32(1, 2), BitsDiffer);
+    assert_eq!(judge_bits_u32(u32::MAX, u32::MAX), BitIdentical);
+}
+
+#[test]
+fn boundary_relative_sum_edges() {
+    use FallbackVerdict::{NonFiniteMismatch, RelativeSumExceeded, WithinRelativeSum};
+    // 誤差 1.0 は Σ|x| = 1000 のちょうど SUM_RELATIVE_BOUND 倍（f64 で正確に 1.0）
+    assert_eq!(SUM_RELATIVE_BOUND * 1000.0, 1.0);
+    let up = f32::from_bits(1.0f32.to_bits() + 1);
+    assert_eq!(judge_relative_sum_f32(0.0, 1.0, 1000.0), WithinRelativeSum);
+    assert_eq!(judge_relative_sum_f32(0.0, -1.0, 1000.0), WithinRelativeSum);
+    assert_eq!(relative_sum_margin(0.0, 1.0, 1000.0), 1e-3);
+    // 境目を 1 ulp 超える誤差と、Σ|x| を 1 段小さくした組は不一致
+    assert_eq!(judge_relative_sum_f32(0.0, up, 1000.0), RelativeSumExceeded);
+    assert_eq!(judge_relative_sum_f32(0.0, 1.0, 999.0), RelativeSumExceeded);
+    // Σ|x| = 0: 誤差 0 は一致、誤差が正なら不一致
+    assert_eq!(judge_relative_sum_f32(1.0, 1.0, 0.0), WithinRelativeSum);
+    assert_eq!(relative_sum_margin(1.0, 1.0, 0.0), 0.0);
+    assert_eq!(judge_relative_sum_f32(1.0, up, 0.0), RelativeSumExceeded);
+    assert_eq!(relative_sum_margin(1.0, up, 0.0), f64::INFINITY);
+    // Σ|x| が使えない値は、前段で決まらない組だけ不一致
+    for s in [f64::NAN, -1.0, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(judge_relative_sum_f32(1.0, 1.0, s), RelativeSumExceeded);
+        assert_eq!(relative_sum_margin(1.0, 1.0, s), f64::INFINITY);
+        assert_eq!(
+            judge_relative_sum_f32(0.0, -0.0, s),
+            FallbackVerdict::BothZero
+        );
+        assert_eq!(judge_relative_sum_f32(f32::NAN, 1.0, s), NonFiniteMismatch);
+        assert_eq!(
+            judge_relative_sum_f32(INF, INF, s),
+            FallbackVerdict::SameInfinity
+        );
+    }
+}
+
+#[test]
+fn boundary_flush_reference_edges() {
+    // 最大の非正規化数は +0（ビット列 0）、最小の正規化数はそのまま
+    assert_eq!(
+        flush_subnormal_f32(f32::from_bits(0x007F_FFFF)).to_bits(),
+        0
+    );
+    assert_eq!(
+        flush_subnormal_f32(f32::from_bits(0x807F_FFFF)).to_bits(),
+        0
+    );
+    assert_eq!(flush_subnormal_f32(f32::from_bits(1)).to_bits(), 0);
+    assert_eq!(
+        flush_subnormal_f32(f32::from_bits(0x8000_0001)).to_bits(),
+        0
+    );
+    assert_eq!(
+        flush_subnormal_f32(f32::MIN_POSITIVE).to_bits(),
+        0x0080_0000
+    );
+    assert_eq!(
+        flush_subnormal_f32(-f32::MIN_POSITIVE).to_bits(),
+        0x8080_0000
+    );
+    assert_eq!(flush_subnormal_f32(-0.0).to_bits(), 0x8000_0000);
+
+    let mp = f32::MIN_POSITIVE;
+    // 和がちょうど最小の正規化数: 置き換えられない
+    let at = [2.0 * mp, -mp];
+    for h in [PRESERVE, FLUSH] {
+        let r = reference_sum_f32(at, h);
+        assert_eq!(r.value().to_bits(), 0x0080_0000);
+        assert_eq!(r.abs_sum(), f64::from(3.0 * mp));
+    }
+    // その少し下（丸めた結果が非正規化数）: 落とす参照は +0、保つ参照は非正規化数のまま
+    let below = [2.0 * mp, -1.5 * mp];
+    let f = reference_sum_f32(below, FLUSH);
+    let p = reference_sum_f32(below, PRESERVE);
+    assert_eq!(f.value().to_bits(), 0);
+    assert_eq!(p.value().to_bits(), 0x0040_0000);
+    assert_eq!(f.abs_sum(), f64::from(3.5 * mp));
+    assert_eq!(p.abs_sum(), f64::from(3.5 * mp));
+    let neg = reference_sum_f32([-2.0 * mp, 1.5 * mp], FLUSH);
+    assert_eq!(neg.value().to_bits(), 0);
+    // Σ|x| は置き換えの後の入力で数える
+    let sub = f32::from_bits(0x007F_FFFF);
+    let mixed = [sub, mp, -sub];
+    assert_eq!(reference_sum_f32(mixed, FLUSH).abs_sum(), f64::from(mp));
+    assert_eq!(
+        reference_sum_f32(mixed, PRESERVE).abs_sum(),
+        2.0 * f64::from(sub) + f64::from(mp)
+    );
+    // 同じ実測で、落とす参照と保つ参照の判定が分かれる
+    let actual = f32::from_bits(0x0040_0000);
+    assert_eq!(
+        judge_relative_sum_f32(f.value(), actual, 0.0),
+        FallbackVerdict::RelativeSumExceeded
+    );
+    assert_eq!(
+        judge_relative_sum_f32(p.value(), actual, 0.0),
+        FallbackVerdict::WithinRelativeSum
+    );
+    let mut mf = [0.0f64];
+    let mut mk = [0.0f64];
+    let cf = compare_relative_sum_f32(&[f.value()], &[actual], &[0.0], &mut mf).unwrap();
+    let ck = compare_relative_sum_f32(&[p.value()], &[actual], &[0.0], &mut mk).unwrap();
+    assert_eq!((cf.mismatched(), ck.mismatched()), (1, 0));
+    assert_eq!((mf[0], mk[0]), (f64::INFINITY, 0.0));
+}
+
+#[test]
+fn boundary_binary16_ignores_flush() {
+    // binary16 の非正規化数は 0 に落とさず零と区別する（入口は u16 のまま）
+    assert_ne!(binary16_bits_to_f32(0x0002), 0.0);
+    assert_eq!(judge_order_binary16(0x0002, 0x0000), OrderVerdict::Numeric);
+    assert_eq!(
+        judge_order_distance_binary16(0x0002, 0x0000),
+        FallbackVerdict::OrderDistanceExceeded
+    );
+    assert_eq!(
+        judge_order_distance_binary16(0x0001, 0x0000),
+        FallbackVerdict::WithinOrderDistance
+    );
+}
+
+#[test]
+fn boundary_sequence_order_summary() {
+    use FallbackVerdict::{
+        BothNan, BothZero, NonFiniteMismatch, OrderDistanceExceeded, SameInfinity,
+        WithinOrderDistance,
+    };
+    // binary16: 一致 / NaN / 零 / Inf 同 / 最大有限と Inf / 隣り合う / 差 2 / NaN と Inf
+    let r16 = [
+        0x3C00u16, 0x7E00, 0x0000, 0xFC00, 0x7BFF, 0x03FF, 0x8001, 0x7C01,
+    ];
+    let a16 = [
+        0x3C00u16, 0xFE00, 0x8000, 0xFC00, 0x7C00, 0x0400, 0x0001, 0x7C00,
+    ];
+    let want16 = [
+        WithinOrderDistance,
+        BothNan,
+        BothZero,
+        SameInfinity,
+        NonFiniteMismatch,
+        WithinOrderDistance,
+        OrderDistanceExceeded,
+        NonFiniteMismatch,
+    ];
+    for i in 0..r16.len() {
+        assert_eq!(judge_order_distance_binary16(r16[i], a16[i]), want16[i]);
+    }
+    let c = compare_order_distance_binary16(&r16, &a16).unwrap();
+    assert_eq!(
+        (c.compared(), c.mismatched(), c.first_mismatch()),
+        (8, 3, Some(4))
+    );
+
+    // f32: ビット同一と相対の条件の集計
+    let r = [1.0f32, f32::NAN, 0.0, NINF, f32::MAX, 0.0, 1.0];
+    let a = [
+        1.0f32,
+        -f32::NAN,
+        -0.0,
+        NINF,
+        INF,
+        f32::from_bits(1),
+        f32::from_bits(1.0f32.to_bits() + 1),
+    ];
+    let s = [0.0f64, 1.0, 0.0, 0.0, HUGE_SUM, 0.0, 0.0];
+    let cb = compare_bits_f32(&r, &a).unwrap();
+    assert_eq!(
+        (cb.compared(), cb.mismatched(), cb.first_mismatch()),
+        (7, 3, Some(4))
+    );
+    let mut m = [9.0f64; 7];
+    let cr = compare_relative_sum_f32(&r, &a, &s, &mut m).unwrap();
+    assert_eq!(
+        (cr.compared(), cr.mismatched(), cr.first_mismatch()),
+        (7, 3, Some(4))
+    );
+    let inf = f64::INFINITY;
+    assert_eq!(m, [0.0, 0.0, 0.0, 0.0, inf, inf, inf]);
 }
