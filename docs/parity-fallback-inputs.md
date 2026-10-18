@@ -31,7 +31,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | `exec` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec` |
 | 依存・unsafe | `core` の外部依存は 0。`#![forbid(unsafe_code)]`。`deps-approved.toml` の承認は 0 件 | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`deps-approved.toml` |
 | 走る場所 | `core` の `parity_*` は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-929 の言及は本書、`CLAUDE.md`、`README.md` にある | `git grep -n TASK-929 -- . ':!docs/spec'` |
+| 本書の対象の言及 | TASK-929 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/parity.rs`、`parity/binary16.rs`、`parity/fallback_inputs.rs`、`parity/fallback_reference.rs` と、試験 `parity_fallback_inputs.rs`・`parity_fallback_reference.rs`・`parity_fallback_shape.rs` にある | `git grep -n TASK-929 -- . ':!docs/spec'` |
 
 ## 所在（2/6）
 
@@ -128,6 +128,41 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 生成器の入力との突き合わせ（`subgroup-sum`） | 全 13 通りの長さで出力の長さが ⌈n ÷ 256⌉。値は n が 65,539 以下の入力で、`s[i / 256] += x[i]` の散布の計算とビットが一致する（長い入力は長さだけ確かめる） | `subgroup_sum_matches_scatter_for_generated_inputs` |
 | 生成器の入力との突き合わせ（`atomic-add`） | 全 13 通りの長さ・m の 3 通りで出力の長さが m。値は n が 65,539 以下の入力で、`o[i mod m] += x[i]` の散布の計算とビットが一致する（長い入力は長さだけ確かめる） | `atomic_add_matches_scatter_for_generated_inputs` |
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#6046）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-929）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| 入力の生成器 | 所在（2/6）・振る舞い（2/6）・所在（3/6）・振る舞い（3/6） | `parity_fallback_inputs` |
+| CPU の参照 | 所在（4/6）・振る舞い（4/6） | `parity_fallback_reference` |
+| 出力の形の規則の試験 | 所在（5/6）・振る舞い（5/6） | `parity_fallback_shape` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 入力の生成器の試験 | `cargo test -p fandhe-silicon-core --features test-support --test parity_fallback_inputs` | 23 passed; 0 failed; 0 ignored。所在（2/6）の件数と一致 |
+| A2 | 長さ・m の表と `AX` の組 | A1 の出力 | `lengths_table_is_fixed`・`outputs_table_and_block_are_fixed`・`ax_pairs_are_computed` が ok |
+| A3 | CPU の参照の試験 | 同 `--test parity_fallback_reference` | 15 passed; 0 failed; 0 ignored |
+| A4 | 1 回だけの丸めと境界の値 | A3 の出力 | `f64_conversion_round_trips_every_binary16`・`f64_conversion_rounds_once`・`f64_conversion_special_values`・`f16_fma_hand_checked` が ok |
+| A5 | 出力の形の規則（手計算の小さな入力） | 同 `--test parity_fallback_shape` | 8 passed; 0 failed; 0 ignored。`subgroup_sum_arithmetic_series_hand_checked`・`atomic_add_small_hand_examples` を含む |
+| A6 | binary16 の既存の変換の回帰 | 同 `--test parity_binary16` | 7 passed; 0 failed |
+| A7 | feature なしで外れること | `cargo test -p fandhe-silicon-core`（feature なし）・`make build-profiles` | どちらも終了コード 0 |
+| C1 | 本体の範囲 | `fallback_inputs.rs`・`fallback_reference.rs` を `unsafe`・`std::fs`・`println!`・`env::var`・`process::Command` で grep。`crates/contract`・`crates/exec`・`crates/upper` の `src` を `fallback_inputs`・`fallback_reference` で grep | 前者は 1 件（`fallback_reference.rs` 冒頭のコメントで「`unsafe` を持たない」と述べる行。コードではない）、後者は 0 件 |
+| C2 | 依存 | `deps-approved.toml` の承認の件数、`crates/core/Cargo.toml` の依存 | 承認 0 件、`core` の外部依存 0 |
+| D | 品質ゲート | `make verify` | 終了コード 0。出力に 3 本の試験ファイルの実行が出る |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+### 再実行の契機
+
+- `crates/core/src/parity/fallback_inputs.rs`・`fallback_reference.rs`・`binary16.rs`・`fallback_compare.rs`・`gemm_inputs.rs` を変えたとき
+- `crates/core/tests/parity_fallback_inputs.rs`・`parity_fallback_reference.rs`・`parity_fallback_shape.rs` を変えたとき
+- CI の `verify`・`deny` ジョブの手順を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `1c97bf3`、`docs/spec` の gitlink は `8664148`。
+
 ## 段の表
 
 | 段 | Issue |
@@ -137,7 +172,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 3/6 | #6043（`subgroup-sum`・`atomic-add` の入力の生成器と出力の数 m の表。本書の「所在（3/6）」「振る舞い（3/6）」） |
 | 4/6 | #6044（CPU の参照と f64 から binary16 への変換。本書の「所在（4/6）」「振る舞い（4/6）」） |
 | 5/6 | #6045（出力の形の規則の試験。本書の「所在（5/6）」「振る舞い（5/6）」） |
-| 6/6 | #6046 |
+| 6/6 | #6046（完了の条件の確かめ。本書の「完了の条件の確かめ（6/6）」） |
 
 ## 本リポでの反映の方針
 
