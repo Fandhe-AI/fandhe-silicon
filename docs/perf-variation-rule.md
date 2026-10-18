@@ -30,7 +30,7 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 門との関係 | `gate::GateOutcome::taken_run_ids` が、`runs::aggregate` へ渡す run を絞る | `measure/crates/perf/src/gate.rs` |
 | 走る場所 | `make measure-verify`。GPU の実機は要らない | `scripts/measure-verify.sh` |
-| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
+| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
 
 ## 段の表
 
