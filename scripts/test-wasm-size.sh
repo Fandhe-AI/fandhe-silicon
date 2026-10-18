@@ -157,7 +157,11 @@ build("ex_one_missing", wasm_data=wasm(FULL),
 build("ex_only_rt", wasm_data=wasm([("roundtrip_f32", 0)]))
 build("ex_not_func", wasm_data=wasm([(n, 3) for n in REQ]))
 build("ex_no_section", wasm_data=HEADER + TYPE_SEC)
+# 期待の 7 名を 2 つの export セクションへ分けた入力（重複セクションは不正）
+_half = [(n, 0) for n in REQ[:3]]
+_rest = [(n, 0) for n in REQ[3:]] + [("roundtrip_f32", 0)]
 bad = {
+    "bad_dup_export": HEADER + TYPE_SEC + export_section(_half) + export_section(_rest),
     "bad_magic": b"\x00asn\x01\x00\x00\x00" + TYPE_SEC,
     "bad_version": b"\x00asm\x02\x00\x00\x00" + TYPE_SEC,
     "bad_length": HEADER + b"\x01\x7f\x00",
@@ -416,7 +420,7 @@ expect "exports-no-section" 1 "not_run=8" "reason=missing-export" "exports=0/7"
 run_case --from-dir "${work}/ex_only_rt"
 expect "exports-ignored-by-default" 0 "ok=8" "!exports="
 
-for k in bad_magic bad_version bad_length bad_leb bad_utf8 bad_trailing; do
+for k in bad_magic bad_version bad_length bad_leb bad_utf8 bad_trailing bad_dup_export; do
   run_case --require-exports --from-dir "${work}/${k}"
   expect "wasm-unparseable(${k})" 2 "error: cannot parse release-scalar/web/wasm_glue_bg.wasm as wasm" "!record:" "!ok:"
   run_case --from-dir "${work}/${k}"

@@ -115,6 +115,7 @@ def wasm_function_exports(data):
     if data[:8] != b"\x00asm\x01\x00\x00\x00":
         raise ValueError("bad header")
     names = set()
+    seen_export = False
     pos = 8
     n = len(data)
     while pos < n:
@@ -124,6 +125,9 @@ def wasm_function_exports(data):
         if end > n:
             raise ValueError("section exceeds input")
         if sec_id == 7:
+            if seen_export:
+                raise ValueError("duplicate export section")
+            seen_export = True
             count, p = read_leb_u32(data, pos)
             for _ in range(count):
                 ln, p = read_leb_u32(data, p)
