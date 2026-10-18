@@ -4,6 +4,7 @@
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1027。ポインタのみ）。spec の本文・値・規則は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 2/6（#6364）で「形の設計」の節を足した（決定の記録のポインタ・規則が乗る既存のコードの事実・守る本リポの規約）。
 3/6（#6365）で「変動の幅の規則（3/6）」の節を足した（規則のモジュール `variation`。値は表に写さずコードを指す）。
+4/6（#6366）で「測り直しと判定不能の扱い（4/6）」の節を足した（モジュール `remeasure`。値は表に写さずコードを指す）。
 
 ## 記録の所在
 
@@ -20,19 +21,19 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate`・`variation` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
+| 測定の道具の構成 | `measure-perf` は `sample`・`stats`・`across`・`record`・`evidence`・`json`・`jsonread`・`runs`・`ratio`・`gate`・`variation`・`remeasure` と、bin `across-runs` を持つ | `ls measure/crates/perf/src` |
 | run ごとの統計 | `stats::RunStats` が run ごとの統計を出す | `measure/crates/perf/src/stats.rs` |
 | run 間の変動帯 | 2 か所にある。`across::AcrossRuns` は f64 の `spread_abs`・`spread_ratio`、`runs::Band` は 1/4 単位の整数の `median`・`min`・`max`・`spread_abs` と千分の一単位の `spread_ratio_milli` | `measure/crates/perf/src/across.rs`・`measure/crates/perf/src/runs.rs` |
 | 判定に使う変動帯 | どちらのモジュールも、どちらで判定するかは決めていない（冒頭のコメントにそう書いてある。2 件） | `git grep -n 'どちら' -- measure/crates/perf/src` |
 | run 間の p95 | p95 は run ごとの統計と記録の書き出しにあり、run 間の集計（`across`・`runs`）には無い | `git grep -n p95 -- measure/crates/perf/src`（`stats.rs`・`record.rs` だけ） |
 | 比の区分 | `ratio` の閾値は 1 個の固定。`RATIO_SCOPE_TASKS` は空で、範囲外は判定保留に倒す。PoC ごとに切り替わる設定の口は無い。変動の幅の設定は `variation` の閉じた定数表が持ち、外から差し替える口は無い | `measure/crates/perf/src/ratio.rs` |
-| ラベルの語彙 | `record` の `Label` は Ok / Ng / Pending / NotRun / Indeterminate で、`IndeterminateReason` は 4 つ。綴りは `core` の `test_frame` に揃え、テストがソースと突き合わせる。変動の幅・測り直しに当たる理由は無い | `measure/crates/perf/src/record.rs` |
-| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs` と `lib.rs` の `//!` だけ。測り直しの語は範囲外の注記（`variation.rs` の `//!`）としてだけ現れ、時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
-| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6 は記録の形を変えていない） | `measure/crates/perf/src/record.rs` |
+| ラベルの語彙 | `record` の `Label` は Ok / Ng / Pending / NotRun / Indeterminate で、`IndeterminateReason` は 4 つ。綴りは `core` の `test_frame` に揃え、テストがソースと突き合わせる。変動の幅・測り直しに当たる理由は無い（4/6 でも変えていない）。`remeasure` は行・比較の単位の判定のラベルを別に持つ | `measure/crates/perf/src/record.rs` |
+| PoC・測り直し・分解能の語 | `measure/` で当たるのは `variation.rs`・`remeasure.rs` と `lib.rs` の `//!` だけ。測り直しの語は `remeasure.rs` と、その回数を持つ `variation.rs` の設定の表に現れ、時刻の分解能の語は無い | `git grep -n -i -l -e poc -e remeasure -e resolution -e 分解能 -e 測り直し -- measure/` |
+| 記録の本体 | 標本の数、CPU・GPU の標本、run ごとの統計を持つ。時刻の分解能の欄は無い（3/6・4/6 は記録の形を変えていない） | `measure/crates/perf/src/record.rs` |
 | 集計に入れない run | `not-run`・`indeterminate` の run は run 間の集計に入らない | `measure/crates/perf/src/runs.rs` |
 | 門との関係 | `gate::GateOutcome::taken_run_ids` が、`runs::aggregate` へ渡す run を絞る | `measure/crates/perf/src/gate.rs` |
 | 走る場所 | `make measure-verify`。GPU の実機は要らない | `scripts/measure-verify.sh` |
-| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行と、`measure/crates/perf/src/variation.rs` の `//!` だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
+| 本書の対象の言及 | `docs/spec` を除く公開側の TASK-1027 の言及は、本書と、本書を指す CLAUDE.md・README.md の索引行と、`measure/crates/perf/src/variation.rs`・`measure/crates/perf/src/remeasure.rs` の `//!` だけ | `git grep -n TASK-1027 -- . ':!docs/spec'` |
 
 ## 形の設計（2/6）
 
@@ -74,8 +75,8 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 
 ### 3/6 以降で扱うこと
 
-3/6（#6365）で入った物は次節「変動の幅の規則（3/6）」を参照。
-4/6（#6366）・5/6（#6367）・6/6（#6368）は、各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
+3/6（#6365）で入った物は次節「変動の幅の規則（3/6）」、4/6（#6366）で入った物は「測り直しと判定不能の扱い（4/6）」を参照。
+5/6（#6367）・6/6（#6368）は、各段の PR のコードと公開テストが具体を示し、その PR で本書に節を足す。
 
 ## 変動の幅の規則（3/6）
 
@@ -92,6 +93,25 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 | 失敗の扱い | run の数の不一致・空・腕の名前の重複・最小が 0・判定の形に合わない呼び出し・溢れは `Err`。GPU の値が無い run には呼び手が規則を当てない | `variation::VariationError` |
 | 記録の形 | 変えていない。`record`・`runs`・`docs/run-record.example.json`・`scripts/` に差分は無い | `git diff origin/main -- measure/crates/perf/src/record.rs measure/crates/perf/src/runs.rs docs/run-record.example.json scripts/` |
 | 試験 | 境目（ちょうど・下・上）、偶数個の中央値、下限が効く場合と係数が効く場合、`Err` の各場合、溢れ。値・腕の名前は合成 | `make measure-verify` |
+
+## 測り直しと判定不能の扱い（4/6）
+
+モジュール `remeasure` を足し、`variation` の設定の表に測り直しの回数と判定不能の範囲を足した。記録の JSON と、`runs`・`across`・`ratio`・`gate` の振る舞いは変えていない。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `measure/crates/perf/src/remeasure.rs`（`measure-perf` の `remeasure`） | `ls measure/crates/perf/src` |
+| 入力 | 測った回ごとの腕の run の値の列（1/4 ns 単位の整数）と、行の中の比較の一覧（識別子・比べる腕・相手〔腕か定数〕・比の上限）。比の上限は呼び手が渡す | `remeasure::judge_row` |
+| 出力 | 測り直しが要る（当たった腕、または比較の名前の昇順）か、判定が付いた（判定に使った回・腕ごとの run 間中央値・比較ごとのラベル）か | `remeasure::RowJudgement` |
+| 測り直し | 規則に当たった行だけを測り直す。回数の上限は設定の表が持ち、それを超える回は渡せない。当たりが無い行への測り直しは `Err` | `variation::VariationSetting::remeasures`・`remeasure::RemeasureError` |
+| 判定不能の範囲 | 測り直した後も当たりが残ったときの範囲は設定の表が PoC ごとに持つ。行の全部・当たった腕が関わる比較・差が幅の中の比較の 3 種 | `variation::IndeterminateScope`・`variation::VariationRule::setting` |
+| 判定の値 | run 間の中央値。2 倍で持ち丸めない。測り直したときは測り直した回の値だけで判定し、前の回の値は混ぜない | `variation::ArmSpread::median_x2`・`remeasure.rs` の単体試験 |
+| 境目 | 比の上限以内（等しいときを含む）なら OK、超えれば NG。`u128` の checked 演算で行い、`f64` は使わない | `remeasure.rs` の単体試験 |
+| ラベル | `ok`・`ng`・`indeterminate`（理由は `variation-exceeded`）。行・比較の単位の判定で、`record::Label` は変えていない | `remeasure::JudgedLabel` |
+| 設定の置き場 | 回数と範囲は `variation::VariationRule::setting` の 1 か所。値は本書に写さずコードを指す | `measure/crates/perf/src/variation.rs` |
+| 失敗の扱い | 回の数・不要な測り直し・腕の集合の不一致・未知の腕・自分との比較・比較の重複や 0 件・上限の分母 0・run の数の不一致・溢れは `Err`。判定できないものは判定不能にし、暗黙に OK に倒さない | `remeasure::RemeasureError` |
+| 記録の形 | 変えていない。`record`・`runs`・`docs/run-record.example.json`・`scripts/` に差分は無い | `git diff origin/main -- measure/crates/perf/src/record.rs measure/crates/perf/src/runs.rs docs/run-record.example.json scripts/` |
+| 試験 | 判定の境目、定数の相手、測り直しの要否、測り直した回の値だけでの判定、範囲ごとの判定不能、`Err` の各場合、渡す順への非依存、溢れ。値・腕の名前は合成 | `make measure-verify` |
 
 ## 段の表
 

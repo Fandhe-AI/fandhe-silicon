@@ -8,7 +8,8 @@
 //! 時計・ファイル・環境に触れず、`record::RunRecord` の JSON も変えない。
 //!
 //! 本モジュールが受け取るのは値の列だけである。GPU の値が取れない run（`runs` の `gpu: None`）には
-//! 呼び手が規則を当てず、判定を付けない側に倒す。測り直しと判定不能の扱いは本モジュールの範囲の外。
+//! 呼び手が規則を当てず、判定を付けない側に倒す。測り直しと判定不能の扱いは `remeasure` が持つ
+//! （本モジュールは、その回数と範囲を設定の表に置くところまで）。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-1027、`docs/spec/04-behavior/performance.md`
 //! （ポインタのみ）。係数の出どころは T-7・T-13・T-15・T-16、対象の PoC は PoC-9・10・11・23 の ID で示す。
@@ -64,35 +65,65 @@ impl VariationRule {
         }
     }
 
-    /// 設定の値。値の唯一の置き場（この表以外に係数・run の数を書かない）。
+    /// 設定の値。値の唯一の置き場（この表以外に係数・run の数・測り直しの回数を書かない）。
     pub const fn setting(self) -> VariationSetting {
+        use IndeterminateScope::{Comparison, ComparisonsWithExceededArm, Row};
         const RUNS: usize = 6;
         const fn spread(num: u64, den: u64) -> Criterion {
             Criterion::SpreadOverMedian { num, den }
         }
+        let median = RunStatistic::Median;
         match self {
-            Self::Poc10Row2 => VariationSetting::new(RUNS, RunStatistic::Median, spread(1, 10)),
-            Self::Poc10Row3 => VariationSetting::new(RUNS, RunStatistic::Median, spread(1, 20)),
+            Self::Poc10Row2 => VariationSetting::new(RUNS, median, spread(1, 10), Row),
+            Self::Poc10Row3 => VariationSetting::new(RUNS, median, spread(1, 20), Row),
             Self::Poc23Cpu => VariationSetting::new(
                 RUNS,
-                RunStatistic::Median,
+                median,
                 Criterion::SpreadOverMedianWithFloor {
                     num: 1,
                     den: 20,
                     floor_quarters: 4_000,
                 },
+                Row,
             ),
-            Self::Poc23Gpu => VariationSetting::new(RUNS, RunStatistic::Median, spread(1, 50)),
-            Self::Poc23V3bCpu => VariationSetting::new(RUNS, RunStatistic::Median, spread(1, 10)),
-            Self::Poc23V3bGpu => VariationSetting::new(RUNS, RunStatistic::Median, spread(1, 50)),
+            Self::Poc23Gpu => VariationSetting::new(RUNS, median, spread(1, 50), Row),
+            Self::Poc23V3bCpu => VariationSetting::new(RUNS, median, spread(1, 10), Row),
+            Self::Poc23V3bGpu => VariationSetting::new(RUNS, median, spread(1, 50), Row),
             Self::Poc9 => VariationSetting::new(
                 RUNS,
-                RunStatistic::Median,
+                median,
                 Criterion::MaxOverMinAtLeast { num: 13, den: 10 },
+                ComparisonsWithExceededArm,
             ),
-            Self::Poc11 => {
-                VariationSetting::new(RUNS, RunStatistic::P95, Criterion::DifferenceWithinSpread)
-            }
+            Self::Poc11 => VariationSetting::new(
+                RUNS,
+                RunStatistic::P95,
+                Criterion::DifferenceWithinSpread,
+                Comparison,
+            ),
+        }
+    }
+}
+
+/// 測り直した後も規則に当たる腕・比較が残ったとき、どこまでを判定不能にするか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IndeterminateScope {
+    /// 当たる腕が残れば、その行の全ての比較を判定不能にする。
+    Row,
+    /// 当たった腕が関わる比較だけを判定不能にする。
+    ComparisonsWithExceededArm,
+    /// 測り直した後も差が幅の中にある比較だけを判定不能にする。
+    Comparison,
+}
+
+impl IndeterminateScope {
+    /// 出力用の綴り（英小文字 ASCII とハイフン）。
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Row => "row",
+            Self::ComparisonsWithExceededArm => "comparisons-with-exceeded-arm",
+            Self::Comparison => "comparison",
         }
     }
 }
@@ -147,14 +178,27 @@ pub struct VariationSetting {
     pub statistic: RunStatistic,
     /// 判定の形。
     pub criterion: Criterion,
+    /// 許す測り直しの回数（該当する行だけを測り直す。これを超えては測らない）。
+    pub remeasures: usize,
+    /// 測り直した後も当たりが残ったときに判定不能にする範囲。
+    pub scope: IndeterminateScope,
 }
 
 impl VariationSetting {
-    const fn new(runs: usize, statistic: RunStatistic, criterion: Criterion) -> Self {
+    const fn new(
+        runs: usize,
+        statistic: RunStatistic,
+        criterion: Criterion,
+        scope: IndeterminateScope,
+    ) -> Self {
+        // 測り直しの回数は全設定で同じ。変えるときはここだけを直す。
+        const REMEASURES: usize = 1;
         Self {
             runs,
             statistic,
             criterion,
+            remeasures: REMEASURES,
+            scope,
         }
     }
 }
@@ -225,6 +269,11 @@ impl ArmSpread {
             min: v[0],
             max: v[n - 1],
         })
+    }
+
+    /// run 間の中央値の 2 倍（1/4 ns 単位。丸めないために 2 倍で持つ）。
+    pub const fn median_x2(&self) -> u128 {
+        self.median_x2
     }
 
     /// 幅（最大 − 最小、1/4 ns 単位）。
@@ -387,6 +436,33 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), VariationRule::ALL.len());
+    }
+
+    #[test]
+    fn remeasure_count_is_one_and_scopes_split_in_three() {
+        for r in VariationRule::ALL {
+            assert_eq!(r.setting().remeasures, 1);
+        }
+        assert_eq!(
+            VariationRule::Poc9.setting().scope,
+            IndeterminateScope::ComparisonsWithExceededArm
+        );
+        assert_eq!(
+            VariationRule::Poc11.setting().scope,
+            IndeterminateScope::Comparison
+        );
+        for r in [VariationRule::Poc10Row2, VariationRule::Poc23Gpu] {
+            assert_eq!(r.setting().scope, IndeterminateScope::Row);
+        }
+        assert_eq!(IndeterminateScope::Row.name(), "row");
+    }
+
+    #[test]
+    fn median_x2_is_not_rounded() {
+        let a = ArmSpread::from_runs(&[1, 2, 3, 4, 5, 6], 6).unwrap();
+        assert_eq!(a.median_x2(), 7);
+        let b = ArmSpread::from_runs(&[1, 2, 3], 3).unwrap();
+        assert_eq!(b.median_x2(), 4);
     }
 
     #[test]
