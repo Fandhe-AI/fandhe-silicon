@@ -84,6 +84,33 @@ make deny
 
 `make deny` のログに、`profile-dep-graph-check (contract profiles)` の行とプロファイルごとの `record:`、`profile-dep-graph-positive-control` の行とプロファイルごとの `positive-control:` の行が出て、終了コード 0 で終わることを見る。
 
+## 完了の条件の確かめ（5/6）
+
+5/6（#3926）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-228。BUILD-1・BUILD-2）。結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 検査が通り、判定の件数がプロファイルごとに 0 件 | `make profile-dep-graph-check` | 終了コード 0。`scanned:` は 2 プロファイル（各 `crates=2`）。各 `record:` は `judged_total=0`、`commit=` は base（`-dirty` 無し）。`count:` の全行が `n=0`。ComputeOnly の組の `record:` は `header_crate_n=0`・`features_judged_total=0`・`features_recorded_total=0`。feature ごとの `count:` は judged=yes が 5 行・judged=no が 3 行で、すべて `n=0` |
+| A2 | ComputeOnly の組が描画系の feature を含まない定義であること | `grep -n -A22 '^PROFILES' scripts/profile-dep-graph-check.sh` | `--no-default-features` で、描画系の feature を渡す引数が無いことを確認 |
+| A3 | 判定の一覧に 1 件足すと落ちること | `make profile-dep-graph-positive-control` | 終了コード 0。`positive-control:` はプロファイルごとに 1 行（2 行）で、すべて `n=1 result=detected`。内側の検査は `FAILED: 2 judged crate(s) found` |
+| A4 | 回帰テストが通ること | `make test-profile-dep-graph-check`、`make test-profile-dep-graph-positive-control` | どちらも終了コード 0。合格 94 件・不合格 0 件、合格 23 件・不合格 0 件。per-header feature の判定が働くことは、前者の一時 workspace の節が示す（本書「検査しないもの」の記述どおり） |
+| A5 | CI の機材の要らないジョブで通ること | main の push の `ci.yml` の run 39132697062（base と同じコミット）の `make deny (cargo-deny)` ジョブ（`ubuntu-latest`）のログ | ジョブの conclusion は success。ログに `profile-dep-graph-check (contract profiles)`・`ok: 2 profile(s) checked, no judged crates (judged=0)`・`profile-dep-graph-positive-control`・`positive-control: ... result=detected` が 2 行・`ok: positive control detected ...` が出ている |
+| D | 品質ゲート | `make check`、`make verify`、`make deny`、`make deps-check` | すべて終了コード 0。`make deny` のログに検査と陽性対照の 2 つの `[deny.sh]` の行が出る |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-228）。
+
+### 再実行の契機
+
+次を変えたときは、上の表を流し直す。
+
+- `scripts/profile-dep-graph-check.sh`（特に「数え方の定義」ブロック）
+- `scripts/profile-dep-graph-positive-control.sh`、`scripts/deny.sh`
+- `crates/contract/Cargo.toml` の feature と依存、`Cargo.lock`
+- `.github/workflows/ci.yml` の `deny` ジョブ
+- `docs/spec` の gitlink
+
+確かめた base は `beb4172`、`docs/spec` の gitlink は `8664148`。
+
 ## 関連
 
 - [dep-graph-wgpu-check.md](dep-graph-wgpu-check.md)（形を揃えた既存の検査）
