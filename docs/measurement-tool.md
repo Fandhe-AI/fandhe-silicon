@@ -289,4 +289,5 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 ## 関連
 
 - [measurement-record](measurement-record.md)
+- [perf-gate-rule](perf-gate-rule.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)

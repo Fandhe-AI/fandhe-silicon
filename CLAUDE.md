@@ -73,6 +73,7 @@ fandhe-silicon/
 ├── docs/public-api-diff.md   # 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせと完了の条件の確かめ（TASK-2947）
+├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実（TASK-1026）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
