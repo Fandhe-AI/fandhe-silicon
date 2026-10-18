@@ -34,6 +34,8 @@
 | function constant の件数と中身が保たれる | 同 `execution_function_constants_keep_count_and_values` |
 | `DType::byte_size` の値、`OperandSpec` の組み立てと読み出し・`Copy` | `crates/core/tests/execution_operand_spec.rs` の `execution_dtype_byte_sizes`・`execution_dtype_is_copy_and_eq`・`execution_operand_spec_keeps_fields`・`execution_operand_spec_accepts_empty_dims` |
 | `CacheKey` の組み立てと読み出し・`Copy`、全フィールドの等価比較、1 フィールドの違いが別のキーになること、等しいキーのハッシュの一致 | `crates/core/tests/execution_cache_key.rs` の `execution_cache_key_keeps_fields`・`execution_cache_key_equal_when_all_fields_equal`・`execution_cache_key_differs_when_one_field_differs`・`execution_cache_key_hash_follows_equality` |
+| 各 enum の全 variant の網羅（crate 内で `_` なしの `match`。`PipelineInput` 9・`MslMathMode` 2・`MslFloatFunctions` 2・`FunctionConstantValue` 2・`DType` 5） | `crates/core/src/execution.rs` の `tests` の `execution_pipeline_input_has_nine_variants`・`execution_small_enums_have_expected_variants`・`execution_dtype_has_five_variants` |
+| `#[non_exhaustive]` が外れたら落ちること（外の crate で `_` の腕が到達不能になる）と、struct のフィールドの集合（`..` なしの分解） | `crates/core/tests/execution_type_coverage.rs` の `execution_enums_stay_non_exhaustive`・`execution_pipeline_input_stays_non_exhaustive`・`execution_structs_keep_field_sets` |
 
 ## 確かめ方
 
@@ -41,6 +43,9 @@
 cargo test -p fandhe-silicon-core --test execution_pipeline_input
 cargo test -p fandhe-silicon-core --test execution_operand_spec
 cargo test -p fandhe-silicon-core --test execution_cache_key
+cargo test -p fandhe-silicon-core --test execution_type_coverage
+cargo test -p fandhe-silicon-core --lib execution
+make public-api-check
 ```
 
 `make verify` が流す。GPU の実機は要らない。

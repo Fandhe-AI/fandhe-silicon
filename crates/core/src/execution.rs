@@ -204,3 +204,128 @@ pub struct CacheKey {
     /// ドライバの版の値。取れないときは `None`。
     pub driver_version: Option<u64>,
 }
+/// 列挙型の網羅の試験（TASK-470 のポインタ）。
+///
+/// 同じ crate の中では `#[non_exhaustive]` が効かないので、`_` の腕を持たない `match` が書ける。
+/// variant を足すとこのコンパイルが落ち、試験の更新が要る。外の crate からは `_` が要る
+/// （`crates/core/tests/execution_type_coverage.rs`）。
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pipeline_index(input: &PipelineInput<'_>) -> usize {
+        match input {
+            PipelineInput::Msl { .. } => 0,
+            PipelineInput::SpirV { .. } => 1,
+            PipelineInput::CudaC { .. } => 2,
+            PipelineInput::Ptx { .. } => 3,
+            PipelineInput::Dxil { .. } => 4,
+            PipelineInput::Wgsl { .. } => 5,
+            PipelineInput::MslSpecialized { .. } => 6,
+            PipelineInput::MslWithOptions { .. } => 7,
+            PipelineInput::MslSpecializedWithOptions { .. } => 8,
+        }
+    }
+
+    #[test]
+    fn execution_pipeline_input_has_nine_variants() {
+        let e = "main";
+        let fc: &[FunctionConstant] = &[];
+        let inputs = [
+            PipelineInput::Msl {
+                source: "",
+                entry_point: e,
+            },
+            PipelineInput::SpirV {
+                words: &[],
+                entry_point: e,
+            },
+            PipelineInput::CudaC {
+                source: "",
+                entry_point: e,
+            },
+            PipelineInput::Ptx {
+                source: "",
+                entry_point: e,
+            },
+            PipelineInput::Dxil {
+                bytes: &[],
+                entry_point: e,
+            },
+            PipelineInput::Wgsl {
+                source: "",
+                entry_point: e,
+            },
+            PipelineInput::MslSpecialized {
+                source: "",
+                entry_point: e,
+                function_constants: fc,
+            },
+            PipelineInput::MslWithOptions {
+                source: "",
+                entry_point: e,
+                math_mode: MslMathMode::Safe,
+            },
+            PipelineInput::MslSpecializedWithOptions {
+                source: "",
+                entry_point: e,
+                function_constants: fc,
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Precise,
+            },
+        ];
+        let mut seen = [false; 9];
+        for input in &inputs {
+            seen[pipeline_index(input)] = true;
+        }
+        assert!(seen.iter().all(|s| *s));
+        assert_eq!(inputs.len(), 9);
+    }
+
+    #[test]
+    fn execution_small_enums_have_expected_variants() {
+        let modes = [MslMathMode::Safe, MslMathMode::Fast];
+        for m in modes {
+            match m {
+                MslMathMode::Safe | MslMathMode::Fast => {}
+            }
+        }
+        assert_ne!(modes[0], modes[1]);
+
+        let funcs = [MslFloatFunctions::Fast, MslFloatFunctions::Precise];
+        for f in funcs {
+            match f {
+                MslFloatFunctions::Fast | MslFloatFunctions::Precise => {}
+            }
+        }
+        assert_ne!(funcs[0], funcs[1]);
+
+        let values = [
+            FunctionConstantValue::U32(1),
+            FunctionConstantValue::Bool(true),
+        ];
+        for v in values {
+            match v {
+                FunctionConstantValue::U32(_) | FunctionConstantValue::Bool(_) => {}
+            }
+        }
+        assert!(matches!(values[0], FunctionConstantValue::U32(1)));
+        assert!(matches!(values[1], FunctionConstantValue::Bool(true)));
+    }
+
+    #[test]
+    fn execution_dtype_has_five_variants() {
+        let all = [DType::F32, DType::F16, DType::U32, DType::I32, DType::Bool];
+        for d in all {
+            match d {
+                DType::F32 | DType::F16 | DType::U32 | DType::I32 | DType::Bool => {}
+            }
+        }
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert_eq!(all.len(), 5);
+    }
+}
