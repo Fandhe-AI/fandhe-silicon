@@ -67,4 +67,4 @@ worktree のルートで実行する。
 
 ## 関連
 
-[parity-tool](parity-tool.md)・[pixel-parity-tool](pixel-parity-tool.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+[parity-tool](parity-tool.md)・[pixel-parity-tool](pixel-parity-tool.md)・[parity-fallback-compare](parity-fallback-compare.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
