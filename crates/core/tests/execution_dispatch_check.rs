@@ -1,4 +1,4 @@
-//! `execution` の C8・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44）。
+//! `execution` の C8・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423・TASK-425 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44・BIND-58）。
 //!
 //! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
 //! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
@@ -143,6 +143,106 @@ fn c4_buffer_capacity_sufficient_is_accepted() {
         u64::MAX,
     );
     assert_eq!(r, Ok(()));
+}
+
+/// slot 0 に F32 `[n]` を宣言して `offset` で束縛し、容量 `cap` で C4 を流す（alignment 4 で offset は 4 の倍数なので C5 には当たらない）。
+fn run_c4(n: u64, offset: u64, cap: Option<u64>) -> Result<(), OperandCheckError> {
+    let shape = [n];
+    let s = spec(0, DType::F32, &shape);
+    assert_eq!(required_bytes(&s), Some(n * 4));
+    validate_dispatch_operands(
+        &[s],
+        &[OperandBinding { slot: 0, offset }],
+        &[],
+        |_| cap,
+        u64::MAX,
+    )
+}
+
+/// 容量が不明（`None`）の束縛は、必要 400 バイトでも offset 0・4・16・1,000・2,000 のどれでも C4 で拒否されない。
+/// 対照として同じ入力を容量 16 で流すと C4 で拒否される。
+#[test]
+fn c4_unknown_capacity_is_not_checked() {
+    for offset in [0u64, 4, 16, 1_000, 2_000] {
+        assert_eq!(run_c4(100, offset, None), Ok(()), "offset {offset}");
+        let r = run_c4(100, offset, Some(16));
+        assert!(is_rejected_by(&r, "C4"), "offset {offset}: {r:?}");
+    }
+}
+
+/// 容量の不明な束縛だけが C4 を飛ばされ、容量の分かる別の束縛は同じ呼び出しの中で判定される。
+#[test]
+fn c4_unknown_capacity_binding_is_skipped_per_binding() {
+    let big = [100u64];
+    let fits = [4u64];
+    let over = [5u64];
+    let cap = |b: &OperandBinding| if b.slot == 0 { None } else { Some(16) };
+    let bindings = [
+        OperandBinding { slot: 0, offset: 0 },
+        OperandBinding { slot: 1, offset: 0 },
+    ];
+    let ok = validate_dispatch_operands(
+        &[spec(0, DType::F32, &big), spec(1, DType::F32, &fits)],
+        &bindings,
+        &[],
+        cap,
+        u64::MAX,
+    );
+    assert_eq!(ok, Ok(()));
+    let ng = validate_dispatch_operands(
+        &[spec(0, DType::F32, &big), spec(1, DType::F32, &over)],
+        &bindings,
+        &[],
+        cap,
+        u64::MAX,
+    );
+    assert!(is_rejected_by(&ng, "C4"), "{ng:?}");
+}
+
+/// 容量 16 で、残り（容量から offset を引いた値。容量以上の offset では 0）ちょうどは通り、1 要素多いと C4 で拒否される。
+/// offset が容量以上でも panic せず、折り返さずに 0 として拒否される。
+#[test]
+fn c4_offset_reduces_remaining_capacity() {
+    // (offset, 通る要素数。None は通る F32 が無い, 拒否される要素数)
+    let cases: [(u64, Option<u64>, u64); 5] = [
+        (0, Some(4), 5),
+        (4, Some(3), 4),
+        (16, None, 1),
+        (1_000, None, 1),
+        (2_000, None, 1),
+    ];
+    for (offset, pass, reject) in cases {
+        if let Some(n) = pass {
+            assert_eq!(run_c4(n, offset, Some(16)), Ok(()), "offset {offset}");
+        }
+        let r = run_c4(reject, offset, Some(16));
+        assert!(is_rejected_by(&r, "C4"), "offset {offset}: {r:?}");
+    }
+    // 残り 0 では 1 バイトの Bool 宣言も拒否される。
+    let s = spec(0, DType::Bool, &[]);
+    assert_eq!(required_bytes(&s), Some(1));
+    let r = validate_dispatch_operands(
+        &[s],
+        &[OperandBinding {
+            slot: 0,
+            offset: 16,
+        }],
+        &[],
+        |_| Some(16),
+        u64::MAX,
+    );
+    assert!(is_rejected_by(&r, "C4"), "{r:?}");
+}
+
+/// 容量 4,096 に大きな offset を束縛しても、残りちょうどは通り、1 要素多いと C4 で拒否される。
+#[test]
+fn c4_large_offset_subtracts_from_known_capacity() {
+    // (offset, 残りちょうどの要素数)
+    for (offset, fit) in [(1_000u64, 774u64), (2_000, 524)] {
+        assert_eq!(run_c4(fit, offset, Some(4_096)), Ok(()), "offset {offset}");
+        let r = run_c4(fit + 1, offset, Some(4_096));
+        assert!(is_rejected_by(&r, "C4"), "offset {offset}: {r:?}");
+    }
 }
 
 /// alignment 16 の宣言に offset 4 を束縛すると C5 で拒否される（容量は不明にして C4 を避ける）。
