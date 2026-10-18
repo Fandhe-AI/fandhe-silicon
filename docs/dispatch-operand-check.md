@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C6・C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）と TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -104,3 +104,38 @@ make verify
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `22f552400926555b5f8018ffd6feae1518b2d38b`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## 現状と前提の確認（1/4）（TASK-425）
+
+TASK-425（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-58・BIND-59）の 1/4（#4753）で、本リポのコードと公開テストから観測できる事実だけを記録した。前提・完了の条件の正は private spec 側の記録に従う（ポインタのみ）。コードは変えていない。
+
+### 前提
+
+| 前提 | 本リポの物 | 確かめ方 |
+| ---- | ---------- | -------- |
+| TASK-423 | `dispatch_check.rs` の C4・C5・C6 と、本書の「完了の条件の確かめ（4/4）（TASK-423）」 | `gh issue view 617 --json state`（CLOSED）・本書の節 |
+
+### 現状
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| C4 の容量が不明の束縛 | `binding_capacity` が `None` なら判定しない（本書「現状の振る舞い」の C4 の行） | `grep -n -A3 'fn check_capacity' crates/core/src/execution/dispatch_check.rs` |
+| C4 の offset | `saturating_sub` で残りを出して必要バイト数と比べる | `grep -n saturating_sub crates/core/src/execution/dispatch_check.rs` |
+| C5 の alignment 0 | 判定しない | `grep -n 'alignment == 0' crates/core/src/execution/dispatch_check.rs` |
+| 単体テスト | 15 件が通る。この入力の種類に触れるのは `dispatch_check_c4_skips_unknown_capacity`（容量 `None`・offset 0）、`dispatch_check_c4_subtracts_offset`（容量 16 に offset 4・1000）、`dispatch_check_c5_skips_zero_alignment`（alignment 0 に offset 4）、`dispatch_check_duplicate_slot_uses_first_declaration_everywhere` | `cargo test -p fandhe-silicon-core --lib dispatch_check` |
+| 統合テスト | 11 件が通る。`c4_` は容量 `Some(16)`・offset 0、`c5_` は alignment 16・容量 `None` の入力だけ | `grep -n -E '^fn c[45]_' crates/core/tests/execution_dispatch_check.rs`・`cargo test -p fandhe-silicon-core --test execution_dispatch_check` |
+| 統合テストの補助 `spec()` | 既定の alignment は 4 | `grep -n 'alignment' crates/core/tests/execution_dispatch_check.rs` |
+| 公開側の TASK-425 の言及 | 本書の TASK-423 の節の「範囲の外」の 1 行だけだった（本節の追加前） | `git grep -n TASK-425 -- . ':!docs/spec'` |
+
+### 段
+
+| 段 | Issue |
+| -- | ----- |
+| 1/4 現状と前提の確認 | #4753 |
+| 2/4 | #4754 |
+| 3/4 | #4755 |
+| 4/4 | #4756 |
+
+後の段で足す振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)。
+
+確かめた base は `938c93e714b755785cb25a714a701792c3f8ce5c`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
