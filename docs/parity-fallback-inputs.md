@@ -48,7 +48,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | 振る舞い | 事実 | 対応するテスト |
 | -------- | ---- | -------------- |
 | 長さの表 | 13 通りの長さを `FALLBACK_LENGTHS` に持つ | `lengths_table_is_fixed` |
-| seed | 基の seed は GEMM の入力と同じ値。種類と長さが違えば seed が違う | `seed_base_matches_gemm_seed`・`seed_differs_across_kinds_and_lengths`・`kind_names_are_fixed` |
+| seed | 基の seed は GEMM の入力と同じ値。`FALLBACK_LENGTHS` の長さの範囲では、種類と長さが違えば seed が違う（任意の `usize` では保証しない） | `seed_base_matches_gemm_seed`・`seed_differs_across_kinds_and_lengths`・`kind_names_are_fixed` |
 | `E1` | a・b・c は整数で、a×b+c が binary16 で正確に表せる範囲に入る。全長さで確かめる | `e1_values_are_integers_in_range` |
 | `R` | 全長さで Inf・NaN を含まず、長さが n に揃う | `r_excludes_non_finite` |
 | `E2` | a が外側、(b, c) の 16 組が内側の全数の列挙。乱数を使わない | `e2_enumeration`・`e2_pairs_are_distinct_and_hand_checked`・`e2_digest` |
@@ -62,9 +62,9 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | -- | ----- |
 | 1/6 | #6041 |
 | 2/6 | #6042（`f16-fma` の入力の生成器と長さ n の表。本書の「所在（2/6）」「振る舞い（2/6）」） |
-| 3/6 | #6043（`subgroup-sum`・`atomic-add` の入力と m の表を足す） |
-| 4/6 | #6044（CPU の参照と、f64 から binary16 へ丸める入口を足す） |
-| 5/6 | #6045（出力の形の規則の試験） |
+| 3/6 | #6043 |
+| 4/6 | #6044 |
+| 5/6 | #6045 |
 | 6/6 | #6046 |
 
 ## 本リポでの反映の方針

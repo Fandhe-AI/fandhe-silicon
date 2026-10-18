@@ -1,9 +1,9 @@
 //! 代わりの実行の試験の入力のうち、`f16-fma` の 4 種（`E1`・`E2`・`S`・`R`）と長さ n の表（spec TASK-929 の 2/6）。
 //!
-//! 各経路の試験と、後段の CPU の参照（TASK-929 の 4/6）から呼ばれる。入力は固定 seed の
+//! 各経路の試験から呼ばれる。入力は固定 seed の
 //! [`super::gemm_inputs::SplitMix64`] からその場で決定的に作り、ファイルには置かない。
 //! `E2`・`S` は全数の列挙で乱数を使わない。長さ 0 の拒否は下-2 の入口の受け持ちで、
-//! ここでは空の列を返す。`subgroup-sum`・`atomic-add` の入力と m の表は後段（TASK-929 の 3/6）。
+//! ここでは空の列を返す。
 
 use super::binary16::f32_to_binary16_bits;
 use super::cpu_reference::ReferenceError;
@@ -114,7 +114,10 @@ impl FallbackInputKind {
         }
     }
 
-    /// 種類と長さ `n` から決まる seed。種類か長さが違えば値が違う。
+    /// 種類と長さ `n` から決まる seed。
+    ///
+    /// 種類か長さが違えば値が違うことは、[`FALLBACK_LENGTHS`] の長さの範囲でだけ保証する。
+    /// 任意の `usize` では 64 bit 環境で衝突しうる（検証はしない）。
     pub fn seed_for(self, n: usize) -> u64 {
         FALLBACK_INPUT_SEED
             .wrapping_add(self.number() << 32)
