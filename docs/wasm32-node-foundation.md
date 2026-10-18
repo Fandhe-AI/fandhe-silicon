@@ -102,6 +102,33 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 | ビルドする経路で `tools:` の行が 1 行だけ出る。`rustc -V` が読めなければ終了コード 2 で cargo を呼ばない | `fake-tools-line`・`fake-tools-line-count`・`rustc-bad-version(*)` |
 | 出力に一時ディレクトリの絶対パスが出ない | 全ケース |
 
+## 量の測定の記録（TASK-247 の 3/4）
+
+3/4（#3968）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-247。関連: TASK-28）。
+量の測定の記録の実物（組ごと・ファイルごとの値）は本リポに置かない。記録の正は private spec 側の記録に従う（ポインタのみ）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 測った run | main の push の CI の run `39114444117`（head `59d03fa9ffb7584aaa63ebe21ce0d2b8a131a882`）。ジョブ `wasm32 build + size + node (macos-latest)` の step `make wasm-size` の conclusion は success | `gh run view 39114444117 -R Fandhe-AI/fandhe-silicon --json headSha,status,conclusion` |
+| 締めの行 | ログの `record:` の行をそのまま写す: `record: combos=8 ok=8 ng=0 not_run=0 limit=60000` | 下の「記録の取り方」 |
+| 素性の行 | ログに `tools:` の行が 1 行、`file:` の行が 20 行あり、`file:` の行はすべて `sha256=` を持つ（値は写さない） | 同上 |
+| 測った成果物の位置づけ | glue の export が `roundtrip_f32` だけの時点の成果物。期待の export（`REQUIRED_EXPORTS`）を持つ成果物の量ではない。`--require-exports` を付けると 8 組とも `not-run`（`missing-export`）になる | テストのケース `exports-only-roundtrip` |
+| 閾値との関係 | 上の成果物は期待の export を持たないため、閾値以内であることは期待の export を持つ成果物については何も示さない | 同上 |
+| `docs/spec` の gitlink | `86641485a76d52552027eada422e38a5a9ca411d`（確かめた base は `59d03fa`） | main の `docs/spec` の tree 項目（`ls-tree`） |
+
+### 記録の取り方
+
+- 完了した run を選ぶ: `gh run list -R Fandhe-AI/fandhe-silicon --branch main --workflow ci.yml`
+- ログから行を取る: `gh run view <run> -R Fandhe-AI/fandhe-silicon --log` を `grep -E '(size|file|tools|record):'` に通す。各行の先頭にジョブ名・step 名・時刻が付くので、`sed` で落としてから読む（ビルドする経路の `tools:` の行が無い run は 2/4 より前の版なので使わない）
+- 手元で取る: `make wasm-verify` の後に `make wasm-size`（wasm-bindgen の CLI `0.2.128` が要る）。期待の export が入った後は `scripts/wasm-size.sh --require-exports`
+
+### 再実行の契機
+
+- `wasm/`・`scripts/wasm-size.sh`・`scripts/test-wasm-size.sh` を変えたとき
+- glue に export を足したとき（TASK-1350・1351・1352・237 のポインタ）
+- CI の `wasm-macos` ジョブの手順・道具の版を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
 ## Node での照合の土台
 
 glue を Node で読み込み、最小の export を呼んで結果をネイティブの参照と照合し、行ごとに `match`・`mismatch`・`not-run` を出す枠。照合の中身（再現する行）はここに入れない。`crates/core` の `test_frame`（記録の部品・集計）や `parity`（許容誤差のある比べ方）とは役割を重ねない（比べるのはビット列の完全一致だけ）。
@@ -186,6 +213,7 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 
 ## 本リポでの反映の方針
 
+- spec への進み具合の記録は spec 側の作業で、本リポからは書き換えない（private spec 側の記録に従う。ポインタのみ）
 - 本書は現状の事実だけを置く。形の具体は、受け持つ段のコードと公開テストの PR で入れ、その PR で本書に節を足す
 - 製品の workspace の外に置く物は [workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)、依存は [dependency-policy](../.claude/rules/dependency-policy.md)、CI に足す扱いは [ci-device-free-jobs](ci-device-free-jobs.md)・[github-actions](../.claude/rules/github-actions.md) に従う
 
