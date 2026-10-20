@@ -75,24 +75,42 @@ put("f/simd.wasm", HEADER + TYPE_SEC + features(BASE + [b"simd128"]))
 put("f/nosection.wasm", HEADER + TYPE_SEC)
 put("f/badmagic.wasm", b"\x00asn\x01\x00\x00\x00" + TYPE_SEC)
 put("f/badleb.wasm", HEADER + b"\x00\x80\x80\x80\x80\x80\x00")
+put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
+put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
 put("f/trunc.wasm", HEADER + b"\x00\x7f\x00")
 put("f/dup.wasm", HEADER + features(BASE) + features(BASE))
 put("f/empty.wasm", b"")
 
+def item(name, kind, vis="public", **inner):
+    return {"name": name, "visibility": vis, "inner": {kind: inner}}
+
+
+def item(nm, kind, vis="public", **inner):
+    return {"name": nm, "visibility": vis, "inner": {kind: inner}}
+
+
 doc = {
     "root": 0,
     "paths": {
-        "1": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Alpha"], "kind": "struct"},
         "2": {"crate_id": 1, "path": ["core", "option", "Option"], "kind": "enum"},
-        "3": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Hidden"], "kind": "struct"},
-        "4": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "make"], "kind": "function"},
-        "5": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod"], "kind": "module"},
-        "6": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Kind"], "kind": "enum"},
-        "7": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Shape"], "kind": "trait"},
         "8": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "PathsOnly"], "kind": "struct"},
     },
-    "index": {"1": {"visibility": "public"}, "3": {"visibility": "crate"}, "4": {"visibility": "public"},
-              "5": {"visibility": "public"}, "6": {"visibility": "public"}, "7": {"visibility": "public"}},
+    "index": {
+        "0": item("fandhe_silicon_wasm_abi", "module", items=[5, 20, 21, 22, 23]),
+        "5": item("dummy_mod", "module", items=[1, 3, 4, 6, 7, 8]),
+        "1": item("Alpha", "struct"),
+        "3": item("Hidden", "struct", "crate"),
+        "4": item("make", "function"),
+        "6": item("Kind", "enum"),
+        "7": item("Shape", "trait"),
+        "8": item("PathsOnly", "struct", "crate"),
+        "20": item(None, "use", id=1, name="Renamed", is_glob=False, source="dummy_mod::Alpha"),
+        "21": item(None, "use", id=24, name="Reexp", is_glob=False, source="inner"),
+        "22": item(None, "use", id=2, name="Ext", is_glob=False, source="core::option::Option"),
+        "23": item(None, "use", "crate", id=1, name="Hid", is_glob=False, source="x"),
+        "24": item("inner", "module", items=[25]),
+        "25": item("Deep", "struct"),
+    },
 }
 put("f/doc.json", json.dumps(doc), "w")
 put("f/baddoc.json", "{}", "w")
@@ -107,6 +125,16 @@ srcs = {
     "any_form": '#[cfg(any(target_arch = "wasm32", target_feature = "simd128"))]\npub fn a() {}\n',
     "runtime_spaced": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected\n  ! (\n"simd128") {} }\n' % GOOD,
     "debug_cfg": '#[%s]\npub fn a() {}\n#[cfg(debug_assertions)]\npub struct Alpha;\n' % GOOD,
+    "doc_cfg": '#[%s]\npub fn a() {}\n#[cfg(doc)]\npub struct Alpha;\n' % GOOD,
+    "doc_cfg_attr_ok": '#[%s]\npub fn a() {}\n#[cfg_attr(feature = "x", doc = "doc debug_assertions")]\npub fn b() {}\n' % GOOD,
+    "ident_debug": '#[%s]\npub fn a() {}\npub fn debug_assertions() {}\npub fn doc() {}\n' % GOOD,
+    "cfg_macro_debug": '#[%s]\npub fn a() {}\npub fn b() -> bool { cfg!(any(unix, debug_assertions)) }\n' % GOOD,
+    "cfg_attr_debug": '#[%s]\npub fn a() {}\n#[cfg_attr(debug_assertions, inline)]\npub fn b() {}\n' % GOOD,
+    "doc_cfg": '#[%s]\npub fn a() {}\n#[cfg(doc)]\npub struct Alpha;\n' % GOOD,
+    "doc_cfg_attr_ok": '#[%s]\npub fn a() {}\n#[cfg_attr(feature = "x", doc = "doc debug_assertions")]\npub fn b() {}\n' % GOOD,
+    "ident_debug": '#[%s]\npub fn a() {}\npub fn debug_assertions() {}\npub fn doc() {}\n' % GOOD,
+    "cfg_macro_debug": '#[%s]\npub fn a() {}\npub fn b() -> bool { cfg!(any(unix, debug_assertions)) }\n' % GOOD,
+    "cfg_attr_debug": '#[%s]\npub fn a() {}\n#[cfg_attr(debug_assertions, inline)]\npub fn b() {}\n' % GOOD,
     "runtime": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected!("simd128") {} }\n' % GOOD,
     "comments_only": '//! target_feature = "simd128" の話\n// target_feature = "simd128"\n/* target_feature = "simd128" */\n/// target_feature = "simd128"\npub fn a() {}\n',
     "none": 'pub fn a() {}\n',
@@ -255,6 +283,10 @@ run_case --from-dir "${F}/badmagic.wasm" "${F}/simd.wasm" --source-root "${S}/no
 expect "artifact-bad-magic" 2 "error: not a wasm module" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/badleb.wasm" --source-root "${S}/none"
 expect "artifact-bad-leb" 2 "error: malformed LEB128" "!record:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/badleb5.wasm" --source-root "${S}/none"
+expect "artifact-leb-fifth-byte-high-bits" 2 "error: malformed LEB128" "!record:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/badleb5.wasm" --source-root "${S}/none"
+expect "artifact-leb-fifth-byte-high-bits" 2 "error: malformed LEB128" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/trunc.wasm" --source-root "${S}/none"
 expect "artifact-truncated-section" 2 "error:" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/dup.wasm" --source-root "${S}/none"
@@ -272,6 +304,28 @@ expect "type-present-full-path" 0 "label=match" "types=1/1"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type dummy_mod::Alpha --require-type dummy_mod::Missing
 expect "type-one-missing" 1 "type: name=dummy_mod::Missing label=mismatch" "types=1/2" "FAILED:"
+for n in Renamed Reexp::Deep; do
+  run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+    --require-type "${n}"
+  expect "type-reexport-${n}" 0 "type: name=${n} label=match build=simd128" "types=1/1"
+done
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type Hid
+expect "type-nonpublic-use" 1 "type: name=Hid label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type Ext
+expect "type-external-use" 1 "type: name=Ext label=mismatch"
+for n in Renamed Reexp::Deep; do
+  run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+    --require-type "${n}"
+  expect "type-reexport-${n}" 0 "type: name=${n} label=match build=simd128" "types=1/1"
+done
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type Hid
+expect "type-nonpublic-use" 1 "type: name=Hid label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type Ext
+expect "type-external-use" 1 "type: name=Ext label=mismatch"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type dummy_mod::Hidden
 expect "type-non-public" 1 "type: name=dummy_mod::Hidden label=mismatch"
@@ -323,6 +377,26 @@ cfg_case runtime_spaced
 expect "cfg-runtime-detection-spaced" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
 cfg_case debug_cfg
 expect "cfg-debug-assertions" 1 "label=mismatch reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
+cfg_case doc_cfg
+expect "cfg-doc" 1 "label=mismatch reason=doc-cfg" "line=3 reason=doc-cfg"
+cfg_case doc_cfg_attr_ok
+expect "cfg-attr-doc-attribute-ok" 0 "cfg: sites=1 label=match" "ok:"
+cfg_case ident_debug
+expect "cfg-ident-debug-assertions-ok" 0 "cfg: sites=1 label=match" "ok:"
+cfg_case cfg_macro_debug
+expect "cfg-macro-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
+cfg_case cfg_attr_debug
+expect "cfg-attr-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
+cfg_case doc_cfg
+expect "cfg-doc" 1 "label=mismatch reason=doc-cfg" "line=3 reason=doc-cfg"
+cfg_case doc_cfg_attr_ok
+expect "cfg-attr-doc-attribute-ok" 0 "cfg: sites=1 label=match" "ok:"
+cfg_case ident_debug
+expect "cfg-ident-debug-assertions-ok" 0 "cfg: sites=1 label=match" "ok:"
+cfg_case cfg_macro_debug
+expect "cfg-macro-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
+cfg_case cfg_attr_debug
+expect "cfg-attr-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
 cfg_case strings_only
 expect "cfg-strings-only" 1 "cfg: sites=0 label=not-run reason=no-simd128-sites" "!violation:"
 cfg_case string_then_real

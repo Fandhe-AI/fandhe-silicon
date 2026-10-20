@@ -18,7 +18,7 @@
 # 各行:
 #   artifact  2 つの wasm の先頭が `\0asm` で、custom section `target_features` に `+simd128` が simd128 版にだけ在り、2 つが別のバイト列であること。
 #   type      --require-type の各 path が、2 版それぞれと同じ指定（simd128 版は +simd128）で作った wasm32 向けの rustdoc JSON の
-#             公開アイテムに型（struct / enum / union / type alias / trait）として在ること。行は build=scalar|simd128 ごと。0 個なら not-run（reason=no-required-types）。
+#             公開アイテムに型（struct / enum / union / type alias / trait）として在ること（crate のルートから公開の module と use〔再エクスポートの別名を含む〕をたどった公開パスで照合する）。行は build=scalar|simd128 ごと。0 個なら not-run（reason=no-required-types）。
 #   cfg       文字列・文字リテラルの外の `target_feature = "simd128"` の出現（コメントを除く）がすべて `cfg(all(target_arch = "wasm32", target_feature = "simd128"))`
 #             （または `cfg(not(all(...)))`。scalar 側の分岐用）の中に在り、実行時の検出（`_feature_detected!("simd128")`）が無いこと。出現が 0 件なら not-run（reason=no-simd128-sites）。
 # 既定の経路（ビルドする）の前提: python3 3.8 以上・cargo・wasm32-unknown-unknown の target。外れたら終了コード 2。
@@ -158,17 +158,19 @@ def build_rustdoc_json(root, td, kind, flags):
 
 # ---- wasm の読み取り ----
 def leb(data, pos, end):
+    """u32 の LEB128（最大 5 バイト。5 バイト目は下位 4 ビットだけが有効で継続ビットも立てない）。"""
     val = 0
-    shift = 0
-    while True:
-        if pos >= end or shift > 35:
+    for i in range(5):
+        if pos >= end:
             raise Misuse("malformed LEB128")
         b = data[pos]
         pos += 1
-        val |= (b & 0x7F) << shift
+        if i == 4 and b & 0xF0:
+            raise Misuse("malformed LEB128")
+        val |= (b & 0x7F) << (7 * i)
         if not b & 0x80:
             return val, pos
-        shift += 7
+    raise Misuse("malformed LEB128")
 
 
 def target_features(data):
@@ -244,25 +246,59 @@ def artifact_rows(paths):
 
 # ---- 型 ----
 def public_types(json_path):
+    """crate のルートから公開の module と use をたどり、利用者が参照できる公開パスの集合を返す
+    （定義パスではなく再エクスポートの別名を含む。cfg(doc) などの確認は cfg_rows 側）。"""
     try:
         with open(json_path, encoding="utf-8") as f:
             doc = json.load(f)
-        paths, index = doc["paths"], doc["index"]
-        if not isinstance(paths, dict) or not isinstance(index, dict):
+        index, root = doc["index"], doc["root"]
+        if not isinstance(index, dict) or not isinstance(doc["paths"], dict):
+            raise ValueError
+        root_item = index[str(root)]
+        if not isinstance(root_item["inner"]["module"]["items"], list):
             raise ValueError
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
         raise Misuse("cannot read rustdoc JSON")
     public = set()
-    for key, ent in paths.items():
-        try:
-            if ent["crate_id"] != 0 or ent["kind"] not in TYPE_KINDS:
+    seen = set()
+
+    def kind_of(item):
+        inner = item["inner"]
+        if not isinstance(inner, dict) or len(inner) != 1:
+            raise ValueError
+        return next(iter(inner))
+
+    def exported(item):
+        return item.get("visibility") in ("public", "default")
+
+    def walk(mid, prefix, depth):
+        if depth > 32 or (mid, prefix) in seen:
+            return
+        seen.add((mid, prefix))
+        for cid in index[str(mid)]["inner"]["module"]["items"]:
+            item = index.get(str(cid))
+            if not isinstance(item, dict) or not exported(item):
                 continue
-            item = index.get(key)
-            if not isinstance(item, dict) or item.get("visibility") not in ("public", "default"):
-                continue
-            public.add("::".join(ent["path"]))
-        except (KeyError, TypeError, AttributeError):
-            raise Misuse("unexpected rustdoc JSON shape")
+            kind = kind_of(item)
+            if kind == "use":
+                use = item["inner"]["use"]
+                target = index.get(str(use["id"])) if use.get("id") is not None else None
+                if not isinstance(target, dict):
+                    continue
+                tkind = kind_of(target)
+                if tkind == "module":
+                    walk(use["id"], prefix if use.get("is_glob") else prefix + (use["name"],), depth + 1)
+                elif tkind in TYPE_KINDS and not use.get("is_glob"):
+                    public.add("::".join(prefix + (use["name"],)))
+            elif kind == "module":
+                walk(cid, prefix + (item["name"],), depth + 1)
+            elif kind in TYPE_KINDS:
+                public.add("::".join(prefix + (item["name"],)))
+
+    try:
+        walk(root, (), 0)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise Misuse("unexpected rustdoc JSON shape")
     return public
 
 
@@ -276,7 +312,7 @@ def type_rows(types, json_paths):
     for t in types:
         all_ok = True
         for kind, public in sets:
-            ok = t in public or (LIB + "::" + t) in public
+            ok = t in public or (t.startswith(LIB + "::") and t[len(LIB) + 2:] in public)
             all_ok = all_ok and ok
             lab = "match" if ok else "mismatch"
             rows.append(("type: name=%s label=%s build=%s" % (re.sub(r"[^A-Za-z0-9_:]", "?", t), lab, kind), lab))
@@ -378,9 +414,38 @@ def strip_comments(text):
 SITE = re.compile(r'target_feature\s*=\s*"simd128"')
 ALL = r'all\s*\(\s*target_arch\s*=\s*"wasm32"\s*,\s*target_feature\s*=\s*"simd128"\s*,?\s*\)'
 GOOD = re.compile(r'cfg!?\s*\(\s*(?:' + ALL + r'|not\s*\(\s*' + ALL + r'\s*\))\s*\)')
-# rustdoc は --release でも -C の指定を見ず cfg(debug_assertions) を常に有効として扱うため、release 成果物と型が食い違いうる。
-# 公開型を信用できなくなる書き方なので、ソースに現れたら fail-closed で mismatch にする。
-DEBUG_ASSERT = re.compile(r'\bdebug_assertions\b')
+# cfg / cfg_attr（の条件）/ cfg! の括弧の中。rustdoc は --release でも -C の指定を見ず cfg(debug_assertions) を常に有効とし、
+# さらに cfg(doc) も有効にするため、rustdoc の JSON の公開型が release の成果物と食い違いうる。条件の中の出現だけを拒否する。
+CFG_OPEN = re.compile(r'(?<![A-Za-z0-9_])(cfg_attr|cfg)\s*!?\s*\(')
+COND_WORDS = (("debug-assertions-cfg", re.compile(r'(?<![A-Za-z0-9_])debug_assertions(?![A-Za-z0-9_])')),
+              ("doc-cfg", re.compile(r'(?<![A-Za-z0-9_])doc(?![A-Za-z0-9_])')))
+
+
+def cfg_conditions(text, mark):
+    """(条件の文字列, 本文での開始位置) の列。文字列リテラルの中身は空白に置き換える。"""
+    blank = "".join(" " if m and ch != "\n" else ch for ch, m in zip(text, mark))
+    for m in CFG_OPEN.finditer(blank):
+        if mark[m.start()]:
+            continue
+        start = m.end()
+        depth = 1
+        i = start
+        top_comma = None
+        while i < len(blank) and depth:
+            ch = blank[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 1 and top_comma is None:
+                top_comma = i
+            i += 1
+        end = i - 1 if depth == 0 else i
+        if m.group(1) == "cfg_attr" and top_comma is not None:
+            end = top_comma
+        yield blank[start:end], start
+
+
 RUNTIME = re.compile(r'_feature_detected\s*!\s*\(\s*"simd128"')
 
 
@@ -409,10 +474,10 @@ def cfg_rows(root, src_root):
                 sites += 1
                 if not any(s <= m.start() and m.end() <= e for s, e in good):
                     bad.append((rel, text.count("\n", 0, m.start()) + 1, "unsupported-cfg-form"))
-            for m in DEBUG_ASSERT.finditer(text):
-                if mark[m.start()]:
-                    continue
-                bad.append((rel, text.count("\n", 0, m.start()) + 1, "debug-assertions-cfg"))
+            for cond, off in cfg_conditions(text, mark):
+                for why, rx in COND_WORDS:
+                    for m in rx.finditer(cond):
+                        bad.append((rel, text.count("\n", 0, off + m.start()) + 1, why))
             for m in RUNTIME.finditer(text):
                 if mark[m.start()]:
                     continue
