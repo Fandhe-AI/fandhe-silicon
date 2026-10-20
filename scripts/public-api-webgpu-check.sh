@@ -2,7 +2,8 @@
 # feature `native-blocking-wait` を外した構成で、契約のコア（`crates/core` と `crates/contract`）の公開面に
 # ブロッキング待ちの名前の公開アイテムが 0 件であることを、rustdoc の JSON から数えて確かめる
 # （spec TASK-241・BUILD-29・BUILD-11・BUILD-12 のポインタ。親 Issue #465 の 2/6。内容の (1)）。
-# 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI にはまだ組み込まない）。検査の枠（rustdoc の JSON を作る段）は
+# 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI にはまだ組み込まない）。回帰テストは `make test-public-api-webgpu-check`
+# （`scripts/test-public-api-webgpu-check.sh`。合成 JSON と一時 workspace の実物の rustdoc の JSON を通す）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json <dir> --without-feature native-blocking-wait` を呼んで共有し、
 # 抽出の実体と feature 列をここに持たない。
 #
