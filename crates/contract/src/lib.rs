@@ -9,6 +9,11 @@
 // （方針: docs/unsafe-policy.md、spec TASK-9 のポインタ）。
 #![deny(unsafe_code)]
 
+// feature ゲートのコンパイル失敗の試験（doctest のみ）。rustdoc は公開到達可能な項目の doctest しか集めないため
+// `pub` にするが、`doc(hidden)` で文書には出さない。
+#[doc(hidden)]
+pub mod cfg_gate_doctest;
+
 // 背後実装のモジュール。
 // Metal は feature のみでゲートする（spec BUILD-22）。
 #[cfg(feature = "backend-metal")]
