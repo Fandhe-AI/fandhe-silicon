@@ -559,6 +559,7 @@ check "--interop-json が無ければ G1 をかけない（record に明示）" 
 check "--interop-json があれば検査済み" 0 "interop_documents=1 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=0 submit_wait_params_total=0 interop_violations_total=0" - \
     --config "${C}" --json "$(J core_ok)" --interop-json "$(J core_ok)"
 check "(3) 合格の ok の行" 0 "no blocking-wait names, pipeline input ok, ext-interop ok" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J core_ok)"
+check "(3) interop の JSON が無ければ ok の行は skipped" 0 "pipeline input ok, ext-interop skipped" - --config "${C}" --json "$(J core_ok)"
 check "組 A の scanned に (3) の欄" 0 "external_interop_items=0 semaphore_handle_defs=0 submit_functions=0 submit_wait_params=0 interop_violations=0" - \
     --config "${C}" --json "$(J core_ok)"
 check "組 B の scanned は (1)(2) の欄を持たない" 0 "scanned: crate=fandhe_silicon_core features=- format_version=61 public_items=4 external_interop_items=0 interop_op_names=0 semaphore_handle_defs=0 submit_functions=0 submit_wait_params=0 interop_violations=0" - \

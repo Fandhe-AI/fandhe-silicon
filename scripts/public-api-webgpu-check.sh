@@ -51,7 +51,7 @@
 #   (3) の欄: 組 A の scanned の末尾に `external_interop_items=<n> semaphore_handle_defs=<n> submit_functions=<n> submit_wait_params=<n>
 #      interop_violations=<n>`、組 B の scanned は (1)(2) の欄を持たず `external_interop_items interop_op_names semaphore_handle_defs
 #      submit_functions submit_wait_params interop_violations`。record の末尾に `interop_documents ext_interop_checked
-#      external_interop_items_total semaphore_handle_defined submit_wait_params_total interop_violations_total`、ok の末尾に `, ext-interop ok`。
+#      external_interop_items_total semaphore_handle_defined submit_wait_params_total interop_violations_total`、ok の末尾に `, ext-interop ok`（--interop-json 無しで G1 をかけないときは `, ext-interop skipped`）。
 #      違反の行は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=ext-interop reason=<visible-without-feature|interop-op-without-feature>`、
 #      `... check=semaphore-handle reason=<outside-core|duplicate|outside-execution>`、
 #      `... item=<関数名> kind=function check=submit-wait reason=<..>`。FAILED の件数は (1)(2)(3) の合計。
@@ -546,7 +546,8 @@ def main():
     if failed:
         print("FAILED: %d item(s)" % failed, file=sys.stderr)
         return 1
-    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok" % len(inputs))
+    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop %s"
+          % (len(inputs), "ok" if btotal else "skipped"))
     return 0
 
 
