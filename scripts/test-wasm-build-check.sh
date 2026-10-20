@@ -89,6 +89,7 @@ doc = {
         "5": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod"], "kind": "module"},
         "6": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Kind"], "kind": "enum"},
         "7": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Shape"], "kind": "trait"},
+        "8": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "PathsOnly"], "kind": "struct"},
     },
     "index": {"1": {"visibility": "public"}, "3": {"visibility": "crate"}, "4": {"visibility": "public"},
               "5": {"visibility": "public"}, "6": {"visibility": "public"}, "7": {"visibility": "public"}},
@@ -272,6 +273,9 @@ expect "type-one-missing" 1 "type: name=dummy_mod::Missing label=mismatch" "type
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type dummy_mod::Hidden
 expect "type-non-public" 1 "type: name=dummy_mod::Hidden label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type dummy_mod::PathsOnly
+expect "type-paths-only-not-in-index" 1 "type: name=dummy_mod::PathsOnly label=mismatch"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type core::option::Option
 expect "type-external-crate" 1 "label=mismatch"

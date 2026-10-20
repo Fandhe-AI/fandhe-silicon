@@ -258,7 +258,7 @@ def public_types(json_path):
             if ent["crate_id"] != 0 or ent["kind"] not in TYPE_KINDS:
                 continue
             item = index.get(key)
-            if item is not None and item.get("visibility") not in ("public", "default"):
+            if not isinstance(item, dict) or item.get("visibility") not in ("public", "default"):
                 continue
             public.add("::".join(ent["path"]))
         except (KeyError, TypeError, AttributeError):
