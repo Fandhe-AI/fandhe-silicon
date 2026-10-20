@@ -13,6 +13,7 @@
 //! を使うコードの snippet は、対象のアイテムが入った時点で同じ形でここに足す。
 //! 現状は仕組みの確認として、実在の feature ゲート `backend-metal` の対と、
 //! `native-blocking-wait`・`ext-interop` それぞれの「門の目印」の対を置く。
+//! `fault-injection` は core の `fault` モジュールへ届くかどうかの対を置く（TASK-271）。
 //! 目印は枠の確かめにとどまり、対象のアイテム自体の確かめではない。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
@@ -46,3 +47,12 @@ pub struct ExtInteropEnabled;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct ExtInteropGate;
+
+/// `fault-injection` を有効にしない構成では core の `fault` モジュールが解決できずコンパイルエラーになる
+/// （contract の feature が core の同名 feature へ転送されることの確かめ）。
+#[cfg_attr(not(feature = "fault-injection"), doc = "```compile_fail")]
+#[cfg_attr(feature = "fault-injection", doc = "```")]
+#[doc = "use fandhe_silicon_core::fault::FaultHooks;"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct FaultInjectionGate;

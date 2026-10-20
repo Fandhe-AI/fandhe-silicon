@@ -49,7 +49,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | `backend-metal`・`backend-vulkan`・`backend-cuda` | | 各 GPU の背後実装。いずれも `contract-core` を有効にする（`--no-default-features` でも共通契約の入口は含まれる）。`backend-vulkan`・`backend-cuda` は `wasm32` では有効にならない |
 | `backend-dx12-compute` | | DX12 の compute の背後実装の置き場（名前は仮）。現時点で中身はなく、既定では無効。`contract-core` を有効にする |
 | `graphics`・`ext-interop`・`native-blocking-wait` | | 描画・外部 API との相互運用・ブロッキング待機 |
-| `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない）。`test-support` は `core` の同名 feature（検証用の道具）へ転送する。`artifact-inspection` は `backend-metal`（したがって `contract-core`）も有効にするため、`--no-default-features` でこの feature だけを選んでも Metal の背後実装と共通契約の入口が含まれる |
+| `test-support`・`fault-injection`・`artifact-inspection` | | テスト・診断専用（本番ビルドに含めない）。`test-support` は `core` の同名 feature（検証用の道具）へ、`fault-injection` は `core` の同名 feature（故障の差し込み口）へ転送する。`artifact-inspection` は `backend-metal`（したがって `contract-core`）も有効にするため、`--no-default-features` でこの feature だけを選んでも Metal の背後実装と共通契約の入口が含まれる |
 
 wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `deny.toml` で依存グラフへの混入を禁止しています。
 
@@ -92,7 +92,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/artifact-input-types.md` | 成果物の受け付けに使う公開の型（TASK-470）の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6） |
 | `docs/contract-error-types.md` | 契約のエラー・完了状態の型（TASK-269）の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8） |
 | `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6） |
-| `docs/contract-fault-injection.md` | 故障の差し込みの部品（TASK-271）の所在と、本リポの現状の事実 |
+| `docs/contract-fault-injection.md` | 故障の差し込みの部品（TASK-271）の所在と、本リポの現状の事実・現状の形（2/8） |
 | `docs/artifact-cache-check.md` | 成果物キャッシュの照合（TASK-483）の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8） |
 | `docs/dispatch-operand-check.md` | 引数の宣言の C4〜C8 を判定する純粋関数（TASK-421・TASK-423）の所在・現状の振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（4/4）・現状と前提の確認（1/4）・C4 の容量不明・offset の試験（2/4）・alignment 0 の C5 の試験（3/4）・完了の条件の確かめ（4/4）（TASK-425）・C7 の実装（1/2）・統合テストと完了の条件の確かめ（2/2）（TASK-2952）・定数の C7 の試験（1/2）・完了の条件の確かめ（2/2）（TASK-424） |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
