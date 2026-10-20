@@ -2,7 +2,7 @@
 
 wasm32 向けの cdylib（製品の workspace の `crates/wasm-abi`）の所在と、scalar 版のビルドについて、本リポのコードから説明できる現状を記録する。
 記録の所在は private spec の TASK-237 とその前提（`docs/spec/05-tasks.md`。ポインタのみ。内容は転記しない）。
-親 Issue は #462、この文書は 1/4（#3940）・2/4（#3941）・3/4（#3942）の範囲。CI への組み込みは後続の sub-issue（#3943）で追記する。
+親 Issue は #462、この文書は 1/4（#3940）・2/4（#3941）・3/4（#3942）・4/4（#3943）の範囲。
 
 ## 所在
 
@@ -57,7 +57,7 @@ env -u CARGO_ENCODED_RUSTFLAGS RUSTFLAGS="-C target-feature=+simd128" \
 ## 2 版の判別・型の存在・cfg の確かめ（BUILD-21・BUILD-25 のポインタ。3/4）
 
 検査は `scripts/wasm-build-check.sh`（`make wasm-build-check`）、回帰テストは `scripts/test-wasm-build-check.sh`（`make test-wasm-build-check`）。
-どちらも手元で流す道具で、CI からは呼ばない（組み込みは 4/4、#3943）。bash + python3（3.8 以上・標準ライブラリのみ）+ cargo + `wasm32-unknown-unknown` の target が要り、無ければ終了コード 2（skip しない）。
+検査の本体は手元で流す道具で CI からは呼ばない。回帰テストは CI の `deny` ジョブが呼ぶ（[CI への組み込み](#ci-への組み込み44)）。bash + python3（3.8 以上・標準ライブラリのみ）+ cargo + `wasm32-unknown-unknown` の target が要り、無ければ終了コード 2（skip しない）。
 
 ```sh
 scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
@@ -99,3 +99,30 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 | `artifact:`（scalar・simd128） | 2 行とも match（300 バイトと 309 バイト。simd128 版にだけ `+simd128`） | 空の crate でも `target_features` で判別できる |
 | `type:` | not-run | `--require-type` を渡していない |
 | `cfg:` | not-run | コメントを除くと `simd128` の出現が `crates/` に 0 件 |
+
+## CI への組み込み（4/4）
+
+既存のジョブへステップとして足した。新しいジョブ・runner・ツールは無く、check 名と `ci-complete` の `needs` は変わらない。
+
+| ジョブ | ステップ | 流すもの |
+| ------ | -------- | -------- |
+| `verify` | `make build-profiles` | `scripts/build-profiles.sh` の末尾で `crates/wasm-abi` の scalar 版・simd128 版を release でビルドし、成果物の在りかと wasm の先頭 4 バイトを確かめる（BUILD-19・BUILD-20 のポインタ）。利用者の rustflags 系の環境変数は外し、simd128 版にだけ `+simd128` を渡す。target が無ければ失敗する |
+| `deny` | `make test-wasm-build-check` | `scripts/wasm-build-check.sh` の回帰テスト（偽の cargo と一時 workspace のダミーの crate。ネットワーク不要） |
+
+`make wasm-build-check` の本体は CI から呼ばない。本リポの現状では `type:` に渡せる公開の型の名前が `crates/` に無く、`cfg:` の対象の `simd128` の出現も 0 件で、どちらも not-run になり終了コード 1 だから。
+ダミーの型や `cfg` を足す、not-run を許す口を足すといった合格に見せる変更はしない。
+
+組み込みに要る条件は次の 3 つ。そろったら Makefile のターゲットに `--require-type` を渡したうえで `deny` ジョブへ足す。
+
+- `--require-type` に渡す公開の型が `crates/` にある
+- `cfg:` の出現が 1 件以上ある
+- 手元の `make wasm-build-check` が終了コード 0 になる
+
+確かめ方:
+
+| 確かめること | コマンド |
+| ------------ | -------- |
+| 2 版のビルドが `verify` から流れる | `make build-profiles`（ログに `wasm-abi scalar` と `wasm-abi simd128` の `cargo build` が出る） |
+| 回帰テストが通る | `make test-wasm-build-check` |
+| `deny` ジョブに足したステップ | `grep -n "wasm-build-check" .github/workflows/ci.yml` |
+| 本体が CI から呼ばれていない | `grep -n "run: make wasm-build-check" .github/workflows/ci.yml`（0 件） |

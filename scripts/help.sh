@@ -18,7 +18,7 @@ cat <<'EOF'
   setup           scripts/setup.sh               Git hooks 有効化と .env 雛形の配置（再実行しても安全）
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
   verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
-  build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）
+  build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check・wasm-abi の 2 版の release ビルド（ソースは変更しない）
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）
@@ -53,7 +53,7 @@ cat <<'EOF'
   test-public-name-check scripts/test-public-name-check.sh  public-name-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。CI の deny ジョブも実行する）
   test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）
   wasm-build-check scripts/wasm-build-check.sh   wasm32 の cdylib の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）
-  test-wasm-build-check scripts/test-wasm-build-check.sh  wasm-build-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物のビルド。CI からは呼ばない）
+  test-wasm-build-check scripts/test-wasm-build-check.sh  wasm-build-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物のビルド。CI の deny ジョブも実行する）
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）
   test-rerun-compare scripts/test-rerun-compare.sh  rerun-compare 自体の回帰テスト（合成の記録の部品だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/rerun-compare.sh <前の記録のディレクトリ> <新しい記録のディレクトリ>（終了コード 0 差分なし・1 差分あり・2 誤用・前提の不足・読めない記録）
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>

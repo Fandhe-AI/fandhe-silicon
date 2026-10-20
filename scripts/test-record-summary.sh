@@ -710,6 +710,21 @@ BP_LOG="${work}/bp.log"
 cat >"${BIN2}/cargo" <<'FAKE'
 #!/usr/bin/env bash
 if [ "${FANDHE_SILICON_TEST_RECORD_DIR+set}" = set ]; then echo SET >>"${BP_LOG}"; else echo UNSET >>"${BP_LOG}"; fi
+# wasm-abi の手順が読む分だけ返す。metadata は target_directory の JSON、build は --target-dir 配下に wasm の先頭 4 バイトだけの成果物を作る。
+if [ "${1:-}" = metadata ]; then
+  printf '{"target_directory":"%s"}\n' "${BP_TARGET_DIR}"
+elif [ "${1:-}" = build ]; then
+  td=""
+  prev=""
+  for a in "$@"; do
+    if [ "${prev}" = "--target-dir" ]; then td="${a}"; fi
+    prev="${a}"
+  done
+  if [ -n "${td}" ]; then
+    mkdir -p "${td}/wasm32-unknown-unknown/release"
+    printf '\000asm\001\000\000\000' >"${td}/wasm32-unknown-unknown/release/fandhe_silicon_wasm_abi.wasm"
+  fi
+fi
 FAKE
 cat >"${BIN2}/rustup" <<'FAKE'
 #!/usr/bin/env bash
@@ -718,7 +733,7 @@ FAKE
 chmod +x "${BIN2}/cargo" "${BIN2}/rustup"
 : >"${BP_LOG}"
 rc=0
-env BP_LOG="${BP_LOG}" FANDHE_SILICON_TEST_RECORD_DIR="${work}/inherited" PATH="${BIN2}:${PATH}" \
+env BP_LOG="${BP_LOG}" BP_TARGET_DIR="${work}/bp-target" FANDHE_SILICON_TEST_RECORD_DIR="${work}/inherited" PATH="${BIN2}:${PATH}" \
   "${BASH}" "${DIR}/build-profiles.sh" >"${FV_OUT}" 2>"${FV_ERR}" </dev/null || rc=$?
 name="build-profiles: the caller's record directory is not passed to any cargo call"
 if [ "${rc}" -eq 0 ] && [ "$(grep -c UNSET "${BP_LOG}")" -gt 10 ] && ! grep -q '^SET$' "${BP_LOG}"; then
