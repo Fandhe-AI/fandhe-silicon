@@ -30,7 +30,10 @@
 # JSON を作る段（rust-toolchain.toml の toolchain のまま動かす）:
 #   先に HEAD のコミットを取る（GIT_OPTIONAL_LOCKS=0。取れなければ終了コード 2。cargo を流す前に止める）。
 #   cargo metadata で workspace の lib crate を列挙し、crate ごとに 2 組（production / all-features）で
-#   `cargo rustdoc --lib -- -Z unstable-options --output-format json` を流す。
+#   `cargo rustdoc --lib -- -Z unstable-options --output-format json` を流す。検査の経路（引数なし・--manifest-path）だけ
+#   `--document-hidden-items` を足し、#[doc(hidden)] の公開アイテム（型を消したハンドルの読む口など。TASK-136 のポインタ）
+#   も走査に入れる（既定の JSON には入らず、署名に wgpu 系の型が出ても見逃すため）。`--emit-json` の経路は足さず、
+#   emit を共有する他の検査の入力は変えない。includes_private は false のまま（V1 が見る）。
 #   production は contract だけ本番の feature 列を明示し、ほかは既定の feature。名前は crates/contract/Cargo.toml のもの。
 #   環境変数 RUSTC_BOOTSTRAP=1 は、この cargo rustdoc とその事前確認の子プロセスにだけ渡す
 #   （他の cargo の呼び出し・make・CI には広げない）。依存の crate も同じ呼び出しの中で
@@ -250,12 +253,14 @@ def resolve_manifest(root, value):
     return path
 
 
-def build_docs(root, manifest=None, without=None):
+def build_docs(root, manifest=None, without=None, hidden=False):
     """workspace の lib crate ごとに 2 組の rustdoc JSON を作って (crate, 組, パス) を返す。
 
     manifest が在れば、その Cargo.toml の workspace を対象にする（cwd は root のまま）。
     without が在れば、既定の 2 組の代わりに「契約の production の feature 列から without を除いた」1 組だけを作る
     （他の crate は既定の feature。組のラベルは `without-<名前>`）。
+    hidden が真なら rustdoc に --document-hidden-items を渡し、#[doc(hidden)] の公開アイテム（型を消したハンドルの
+    読む口など）も JSON に入れる。検査の経路だけが真で、--emit-json の経路（他の検査と共有）は偽のまま（TASK-136 のポインタ）。
     """
     mpath = ["--manifest-path", manifest] if manifest else []
     env = dict(os.environ, RUSTC_BOOTSTRAP="1")
@@ -312,6 +317,8 @@ def build_docs(root, manifest=None, without=None):
             cmd += feats
             cmd += mpath
             cmd += ["--lib", "--", "-Z", "unstable-options", "--output-format", "json"]
+            if hidden:
+                cmd.append("--document-hidden-items")
             done = run(cmd, with_env=env, to_stderr=True)
             need(done.returncode == 0, "cargo rustdoc failed for %s (%s)" % (clean(name), label))
             need(os.path.isfile(path), "rustdoc JSON was not produced for %s" % clean(name))
@@ -365,7 +372,7 @@ def main():
         inputs = [("-", "-", p) for p in args.json]
     else:
         commit = source_commit(root)
-        inputs = build_docs(root, manifest)
+        inputs = build_docs(root, manifest, hidden=True)
 
     total = 0
     sum_public = sum_type = sum_other = 0
