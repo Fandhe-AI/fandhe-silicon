@@ -1,6 +1,7 @@
 //! device の要求・能力問合せの型を別の crate から作って呼べることの最小の試験（TASK-136 の 2/6）。
 //!
-//! 構築と呼び出しだけを見る。フィールドの列挙・`#[non_exhaustive]` の腕・既定の実装の値の確かめは後の段の持ち分。
+//! 構築と呼び出しだけを見る。フィールドの列挙は `device_request_fields.rs`、`#[non_exhaustive]` の腕は
+//! `device_capability_non_exhaustive.rs`、既定の実装の値は `capability_query_default.rs` が見る（3/6）。
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
