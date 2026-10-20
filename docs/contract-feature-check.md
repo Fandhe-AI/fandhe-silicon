@@ -82,3 +82,42 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 - 流れる場所: `make verify`（`--all-features`）と、`scripts/build-profiles.sh` の各組の `cargo test -p fandhe-silicon-contract`
 
 確かめた base は `cc2b977`。
+
+## CI への組み込み（3/3）（TASK-226）
+
+3/3（#7357）で、2/3 の試験が CI で流れていることと、feature を 1 つ足すと落ちることを確かめて記録した。CI の設定・スクリプトは変えていない（専用のジョブ・step・make ターゲットは足していない）。完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-226）。
+
+### CI での走り方
+
+試験は `crates/contract/tests/` にあるので、既存の 2 つの step で自動で流れる。どちらも CI の `verify` ジョブ（`make verify (fmt + clippy + test)`）の step。
+
+| step（make ターゲット） | 流れ方 | 回数 |
+| ----------------------- | ------ | ---- |
+| `make verify` | `cargo test --workspace --all-features` | 1 |
+| `make build-profiles` | 既定の組・`NATIVE_SETS` の 14 組・`--all-features` の各組の `cargo test -p fandhe-silicon-contract` | 16 |
+
+確かめ方: `scripts/verify.sh`、`grep -n 'NATIVE_SETS' -A16 scripts/build-profiles.sh`、`grep -n 'make verify\|make build-profiles' .github/workflows/ci.yml`。`cargo metadata` は有効な feature に左右されないので、どの組でも結果は同じ。
+
+### 確かめた main の CI
+
+| 項目 | 内容 |
+| ---- | ---- |
+| run | `ci.yml` の push の run `39435713207`（sha `e2e1e0c`、conclusion は success） |
+| `make verify` の step | success。`Running tests/feature_default_scope.rs` が 1 回、`15 passed; 0 failed` |
+| `make build-profiles` の step | success。`Running tests/feature_default_scope.rs` が 16 回、どの回も `real_manifest_has_no_violations ... ok`・`15 tests` |
+
+ログの数え方は、`verify` ジョブのログから step ごとに `Running tests/feature_default_scope.rs` と `real_manifest_has_no_violations ... ok` を数えた（どちらも合計 17 回、`FAILED` は 0 回）。
+
+### feature を 1 つ足すと落ちること
+
+| 確かめ | 内容 |
+| ------ | ---- |
+| 常設の陽性対照 | `control_*` の試験が、実物の features を 1 か所だけ変えた入力で違反を出す。上の CI の毎回の実行に含まれる |
+| 手元（`graphics` を `default` に足す） | `cargo test -p fandhe-silicon-contract --test feature_default_scope` が終了コード 101。`real_manifest_has_no_violations` が失敗し、`default` の不一致を出す。戻したあと 15 件が通る |
+| 手元（`fault-injection` を `default` に足す） | 終了コード 101。14 passed・1 failed（`real_manifest_has_no_violations`）で、`fault-injection is reachable from default`。戻したあと作業ツリーの差分は 0 |
+
+### 品質ゲート
+
+`make check` を通した（結果は PR の CI を参照）。`make verify`・`make deny` は、コードと設定を変えないため本 PR では手元で流していない（未実施）。
+
+確かめた base は `e2e1e0c`、`docs/spec` の gitlink は `f603cba`。
