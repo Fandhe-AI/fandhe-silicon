@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -151,6 +151,12 @@ test-upper-layer-check: ## upper-layer-check の回帰テスト（合成の入�
 
 wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
 	@scripts/wasm-build-check.sh
+
+wasm-backend-check: ## 背後実装の feature を付けた wasm32 向けの契約の crate の cargo check・Vulkan と CUDA のモジュールが外れ Metal のモジュールが公開のアイテムを持たないこと・wasm32 の依存グラフのチップの SDK の件数を行ごとに出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch・2 誤用か前提の不足。CI の deny ジョブも実行する）
+	@scripts/wasm-backend-check.sh
+
+test-wasm-backend-check: ## wasm-backend-check の回帰テスト（合成の rustdoc JSON・tree と偽の cargo、一時 workspace の実物の検査と陽性対照。bash + python3 + cargo + git + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-backend-check.sh
+	@scripts/test-wasm-backend-check.sh
 
 test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-build-check.sh
 	@scripts/test-wasm-build-check.sh

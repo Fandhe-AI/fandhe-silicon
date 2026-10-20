@@ -52,6 +52,8 @@ cat <<'EOF'
   test-public-api-webgpu-check scripts/test-public-api-webgpu-check.sh  public-api-webgpu-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON と、一時 workspace の実物の rustdoc の JSON。TASK-241。bash + python3 + cargo + git。CI の deny ジョブも実行する）
   test-public-name-check scripts/test-public-name-check.sh  public-name-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。CI の deny ジョブも実行する）
   test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）
+  wasm-backend-check scripts/wasm-backend-check.sh  背後実装の feature を付けた wasm32 の cargo check・Vulkan と CUDA のモジュールの除外と Metal のモジュールが空であること・wasm32 の依存グラフのチップの SDK の件数を行ごとに出す（bash + python3 + cargo + wasm32 の target。CI の deny ジョブも実行する）
+  test-wasm-backend-check scripts/test-wasm-backend-check.sh  wasm-backend-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物の検査と陽性対照。CI の deny ジョブも実行する）
   wasm-build-check scripts/wasm-build-check.sh   wasm32 の cdylib の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）
   test-wasm-build-check scripts/test-wasm-build-check.sh  wasm-build-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物のビルド。CI の deny ジョブも実行する）
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）

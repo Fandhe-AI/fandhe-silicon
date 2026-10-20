@@ -60,6 +60,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
 | `wasm-macos` | `make wasm-size` | `scripts/wasm-size.sh` | glue 込みの量（gzip 後）を 8 組で測って閾値と比べる実物の測定 |
 | `wasm-macos` | `make wasm-node-check` | `scripts/wasm-node-check.sh` | wasm32 の `.wasm` を glue 越しに Node で呼び参照と照合する実物の実行 |
+| `deny` | `make wasm-backend-check` | `scripts/wasm-backend-check.sh` | 背後実装の feature を付けた wasm32 の cargo check・モジュールの有無・wasm32 の依存グラフのチップの SDK の件数（[wasm32-backend-check.md](./wasm32-backend-check.md)） |
+| `deny` | `make test-wasm-backend-check` | `scripts/test-wasm-backend-check.sh` | `scripts/wasm-backend-check.sh` の回帰テスト（合成の入力・偽の cargo と一時 workspace の実物の検査。ネットワーク不要） |
 | `deny` | `make test-wasm-build-check` | `scripts/test-wasm-build-check.sh` | wasm32 の cdylib の 2 版の検査 `scripts/wasm-build-check.sh` の回帰テスト（合成の入力・偽の cargo と一時 workspace のダミーの crate。ネットワーク不要） |
 | `deny` | `make test-wasm-size` | `scripts/test-wasm-size.sh` | glue 込みの量の測定の道具 `scripts/wasm-size.sh` の回帰テスト（合成の入力と偽のコマンド。wasm-bindgen の CLI は要らない） |
 | `deny` | `make test-wasm-node-check` | `scripts/test-wasm-node-check.sh` | Node での照合の土台（`scripts/wasm-node-check.sh`）の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果） |
