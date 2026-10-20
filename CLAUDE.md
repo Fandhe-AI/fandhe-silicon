@@ -68,7 +68,7 @@ fandhe-silicon/
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-16・TASK-17）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と本リポの現状の事実（TASK-43）
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
-├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）（TASK-233）
+├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-233）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）
