@@ -111,8 +111,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-api-webgpu-check.md` | 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
 | `docs/contract-feature-check.md` | `default` feature とテスト・診断専用 feature の検査（TASK-226）の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3） |
+| `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）（TASK-229） |
 | `docs/ext-interop-build-check.md` | `ext-interop` と片方の背後実装の組のビルドの確かめ（TASK-231）の所在と、本リポの現状の事実・現状と前提の確認（1/4） |
-| `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）（TASK-229） |
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
 | `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
