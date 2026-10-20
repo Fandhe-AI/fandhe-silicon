@@ -9,6 +9,12 @@
 #   scripts/public-api-check.sh --json <path> [<path>…]  渡した JSON だけを検査する（cargo を呼ばない）
 #   scripts/public-api-check.sh --emit-json <dir>        JSON を作って <dir>/{lib}.{組}.json へ写すだけで検査しない（`emitted:` の行。
 #                                                        scripts/public-name-check.sh が抽出を共有するための口。--json とは併用できない）
+#   scripts/public-api-check.sh --emit-json <dir> --without-feature <名前>
+#                                                        契約の crate の production の feature 列から <名前> だけを除いた組（ラベル
+#                                                        `without-<名前>`。{lib}.without-<名前>.json）を、lib crate ごとに 1 組だけ作る
+#                                                        opt-in の口（他の crate は既定の feature）。scripts/public-api-webgpu-check.sh
+#                                                        （TASK-241）が使う。--emit-json が要る。--json・--manifest-path とは併用できず、
+#                                                        2 回の指定・production の列に無い名前・契約の crate の無い workspace は終了コード 2
 #   scripts/public-api-check.sh --manifest-path <ROOT_DIR 配下の Cargo.toml>
 #                                                        別 workspace（比較基準の baseline-wgpu/ など）の lib crate に同じ検査を当てる。
 #                                                        --json・--emit-json とは併用できない。`make public-api-check` は製品の workspace だけ。
@@ -244,10 +250,12 @@ def resolve_manifest(root, value):
     return path
 
 
-def build_docs(root, manifest=None):
+def build_docs(root, manifest=None, without=None):
     """workspace の lib crate ごとに 2 組の rustdoc JSON を作って (crate, 組, パス) を返す。
 
     manifest が在れば、その Cargo.toml の workspace を対象にする（cwd は root のまま）。
+    without が在れば、既定の 2 組の代わりに「契約の production の feature 列から without を除いた」1 組だけを作る
+    （他の crate は既定の feature。組のラベルは `without-<名前>`）。
     """
     mpath = ["--manifest-path", manifest] if manifest else []
     env = dict(os.environ, RUSTC_BOOTSTRAP="1")
@@ -279,6 +287,9 @@ def build_docs(root, manifest=None):
         if libs:
             targets.append((pkg["name"], libs[0]["name"].replace("-", "_")))
     need(targets, "no library crates found in the workspace")
+    if without is not None:
+        # 引いた結果が実際に効くことを保証するため、契約の crate が無い workspace は通さない。
+        need(any(n == CONTRACT_PKG for n, _l in targets), "contract package is not in the workspace")
 
     probe = run(["rustdoc", "-Z", "unstable-options", "--version"], with_env=env)
     need(probe.returncode == 0, "rustdoc cannot emit JSON output")
@@ -289,6 +300,10 @@ def build_docs(root, manifest=None):
         if name == CONTRACT_PKG:
             production = ["--no-default-features", "--features", CONTRACT_PRODUCTION]
         sets = [("production", production), ("all-features", ["--all-features"])]
+        if without is not None:
+            rest = ",".join(f for f in CONTRACT_PRODUCTION.split(",") if f != without)
+            feats = ["--no-default-features", "--features", rest] if name == CONTRACT_PKG else []
+            sets = [("without-" + without, feats)]
         for label, feats in sets:
             path = os.path.join(tdir, "doc", lib + ".json")
             if os.path.exists(path):
@@ -321,7 +336,16 @@ def main():
     parser.add_argument("--json", nargs="+", metavar="PATH")
     parser.add_argument("--emit-json", metavar="DIR")
     parser.add_argument("--manifest-path", metavar="PATH")
+    parser.add_argument("--without-feature", action="append", metavar="NAME")
     args = parser.parse_args(sys.argv[2:])
+    without = None
+    if args.without_feature is not None:
+        need(len(args.without_feature) == 1, "--without-feature can be given only once")
+        without = args.without_feature[0]
+        need(args.emit_json is not None, "--without-feature requires --emit-json")
+        need(args.json is None, "--without-feature cannot be combined with --json")
+        need(args.manifest_path is None, "--without-feature cannot be combined with --manifest-path")
+        need(without in CONTRACT_PRODUCTION.split(","), "--without-feature name is not in the production feature list")
     manifest = None
     if args.manifest_path is not None:
         need(args.json is None, "--manifest-path cannot be combined with --json")
@@ -330,7 +354,7 @@ def main():
     if args.emit_json is not None:
         need(args.json is None, "--emit-json cannot be combined with --json")
         need(os.path.isdir(args.emit_json), "--emit-json directory does not exist")
-        for crate, label, path in build_docs(root):
+        for crate, label, path in build_docs(root, None, without):
             fname = os.path.basename(path)
             # 別の FS でも動くよう、移動ではなく複写にする。
             shutil.copyfile(path, os.path.join(args.emit_json, fname))

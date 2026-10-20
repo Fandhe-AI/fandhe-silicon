@@ -40,3 +40,20 @@
 後の段で足す検査の振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)。
 
 確かめた base は `b0f3982ea9a037bce40d63b6729a33ecbcc6ea07`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## (1) の検査の実装（2/6）（TASK-241）
+
+内容の (1) の機械検査を入れた。コードと公開テストから観測できる事実だけを記録する。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 検査本体 | `scripts/public-api-webgpu-check.sh --config public-api-webgpu-check.conf`（`make public-api-webgpu-check`）。CI にはまだ組み込まない | スクリプトの先頭コメント |
+| 抽出 | `public-api-check.sh --emit-json <dir> --without-feature native-blocking-wait` を共有する。対象は core と contract の 2 本で、片方が欠けたら終了コード 2 | `scripts/test-public-api-check.sh` の `without_*` |
+| 数えるもの | 公開の関数・メソッド・再公開のうち、名前を `_` で区切った語が語の一覧の語に等しいもの（部分一致では当てない）。参照先が外部 crate または解決できない glob の再公開は、名前を照合できないので終了コード 2 で止める | スクリプトの先頭コメント |
+| 語の一覧 | `public-api-webgpu-check.conf` の節 `[blocking-words]` | 同ファイルの先頭 |
+| 終了コード | 0 一致なし・1 一致あり・2 誤用または前提の不足または読み切れない入力 | スクリプトの先頭コメント |
+| 検査しないもの | 語を含まない名前、非ブロッキングの形の有無、exec・upper、他の feature の組 | スクリプトの先頭コメント |
+| 現状 | 手元で `make public-api-webgpu-check` が終了コード 0（件数の値は時点で変わるので書かない） | `make public-api-webgpu-check` |
+
+振る舞いとテストの対応の表は、テストを足す段で本書に足す。
+

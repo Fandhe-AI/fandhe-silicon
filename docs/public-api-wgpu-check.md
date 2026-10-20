@@ -26,6 +26,8 @@
 
 production の組で contract に渡す feature 列は、スクリプトの `CONTRACT_PRODUCTION` を正とする（本書には列挙しない）。
 
+`--emit-json <dir> --without-feature <名前>` は、契約の production の feature 列から名前を除いた組を lib crate ごとに 1 組だけ作る opt-in の口（ラベル `without-<名前>`。誤用は終了コード 2）。使うのは [public-api-webgpu-check](public-api-webgpu-check.md)。対応する回帰テストのケースは `scripts/test-public-api-check.sh` の `without_*`・`real_without_no_contract`。
+
 終了コード:
 
 | コード | 意味 |
