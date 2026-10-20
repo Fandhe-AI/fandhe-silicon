@@ -105,6 +105,8 @@ srcs = {
     "not_form": '#[%s]\npub fn a() {}\n#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]\npub fn a() {}\n' % GOOD,
     "only_feature": '#[cfg(target_feature = "simd128")]\npub fn a() {}\n',
     "any_form": '#[cfg(any(target_arch = "wasm32", target_feature = "simd128"))]\npub fn a() {}\n',
+    "runtime_spaced": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected\n  ! (\n"simd128") {} }\n' % GOOD,
+    "debug_cfg": '#[%s]\npub fn a() {}\n#[cfg(debug_assertions)]\npub struct Alpha;\n' % GOOD,
     "runtime": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected!("simd128") {} }\n' % GOOD,
     "comments_only": '//! target_feature = "simd128" の話\n// target_feature = "simd128"\n/* target_feature = "simd128" */\n/// target_feature = "simd128"\npub fn a() {}\n',
     "none": 'pub fn a() {}\n',
@@ -317,6 +319,10 @@ cfg_case any_form
 expect "cfg-any-form" 1 "cfg: sites=1 label=mismatch" "reason=unsupported-cfg-form"
 cfg_case runtime
 expect "cfg-runtime-detection" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
+cfg_case runtime_spaced
+expect "cfg-runtime-detection-spaced" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
+cfg_case debug_cfg
+expect "cfg-debug-assertions" 1 "label=mismatch reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
 cfg_case strings_only
 expect "cfg-strings-only" 1 "cfg: sites=0 label=not-run reason=no-simd128-sites" "!violation:"
 cfg_case string_then_real
@@ -347,6 +353,7 @@ run_fake --source-root "${S}/good" --require-type dummy_mod::Alpha
 expect "fake-with-types" 0 "type: name=dummy_mod::Alpha label=match" "ok:"
 expect_log "fake-rustdoc-bootstrap" "ARGS rustdoc" "BOOT=1" "--output-format json" "--target wasm32-unknown-unknown" "/wasm-build-check/rustdoc-scalar" \
   "/wasm-build-check/rustdoc-simd128"
+expect_log "fake-rustdoc-release" "ARGS rustdoc" "--release"
 expect_log "fake-rustdoc-simd-flags" "RDENC=-C|target-feature=+simd128"
 rc=0
 FAKE_FAIL=1 PATH="${work}/bin:${PATH}" FAKE_LOG="${work}/fake.log" FAKE_TD="${work}/td" "${TOOL}" --source-root "${S}/good" \

@@ -141,7 +141,7 @@ def build_rustdoc_json(root, td, kind, flags):
     path = os.path.join(out, TARGET, "doc", LIB + ".json")
     if os.path.exists(path):
         os.remove(path)
-    cmd = ["cargo", "rustdoc", "--locked", "--target-dir", out, "-p", PACKAGE, "--no-default-features",
+    cmd = ["cargo", "rustdoc", "--release", "--locked", "--target-dir", out, "-p", PACKAGE, "--no-default-features",
           "--features", FEATURES, "--target", TARGET, "--lib", "--", "-Z", "unstable-options",
           "--output-format", "json"]
     extra = {"RUSTC_BOOTSTRAP": "1"}
@@ -378,7 +378,10 @@ def strip_comments(text):
 SITE = re.compile(r'target_feature\s*=\s*"simd128"')
 ALL = r'all\s*\(\s*target_arch\s*=\s*"wasm32"\s*,\s*target_feature\s*=\s*"simd128"\s*,?\s*\)'
 GOOD = re.compile(r'cfg!?\s*\(\s*(?:' + ALL + r'|not\s*\(\s*' + ALL + r'\s*\))\s*\)')
-RUNTIME = re.compile(r'_feature_detected!\s*\(\s*"simd128"')
+# rustdoc は --release でも -C の指定を見ず cfg(debug_assertions) を常に有効として扱うため、release 成果物と型が食い違いうる。
+# 公開型を信用できなくなる書き方なので、ソースに現れたら fail-closed で mismatch にする。
+DEBUG_ASSERT = re.compile(r'\bdebug_assertions\b')
+RUNTIME = re.compile(r'_feature_detected\s*!\s*\(\s*"simd128"')
 
 
 def cfg_rows(root, src_root):
@@ -406,6 +409,10 @@ def cfg_rows(root, src_root):
                 sites += 1
                 if not any(s <= m.start() and m.end() <= e for s, e in good):
                     bad.append((rel, text.count("\n", 0, m.start()) + 1, "unsupported-cfg-form"))
+            for m in DEBUG_ASSERT.finditer(text):
+                if mark[m.start()]:
+                    continue
+                bad.append((rel, text.count("\n", 0, m.start()) + 1, "debug-assertions-cfg"))
             for m in RUNTIME.finditer(text):
                 if mark[m.start()]:
                     continue
