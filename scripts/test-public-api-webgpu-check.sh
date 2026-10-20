@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# public-api-webgpu-check.sh の回帰テスト（spec TASK-241・BUILD-29 のポインタ。親 Issue #465 の 3/6。内容の (1) の検査の試験）。
+# public-api-webgpu-check.sh の回帰テスト（spec TASK-241・BUILD-29・BUILD-31 のポインタ。親 Issue #465 の 3/6 と 4/6。
+# 内容の (1) の検査の試験と、内容の (2)〔パイプライン生成の入力の形〕の試験）。
 # 一時ディレクトリに、ダミーの語の一覧と合成 rustdoc JSON を作って検査へ渡し、終了コード・標準出力・標準エラーの文言を確かめる。
 #   前半は --json の経路（合成 JSON。cargo・git を呼ばない）。実物の語の一覧が書式どおり読めることと、
 #   その各語が当たることも、設定から実行時に入力を作って確かめる（語はテストに書き写さない）。
 #   後半は一時 workspace に検査・public-api-check.sh・lib.sh を写し、package 名がちょうど fandhe-silicon-core と
 #   fandhe-silicon-contract の依存なしの 2 crate を置いて、実物の cargo rustdoc の JSON で既定の経路
 #   （feature native-blocking-wait を外した構成・commit の記録・違反を 1 件足すと落ちること・終了コード 2 の経路）を通す。
+#   (2) は合成 JSON〔core の文書の形・生成の関数の入力・形の崩れ〕と、一時 workspace の core に PipelineInput を置いた実物
+#   〔印を外す・Wgsl を外す・2 つ目の定義・生成の関数を足すと落ちること〕で通す。生成の語は検査本体の定数から実行時に読む。
 #   ネットワーク不要・リポジトリを変更しない。
 # 呼び出し元: `make test-public-api-webgpu-check`（直接実行も可。CI のジョブからは呼ばず手元で流す）。
 #   前提: python3・cargo・git（無ければ失敗。skip しない）。
@@ -34,9 +37,11 @@ failed=0
 rc=0
 
 # 合成 JSON を作る。ファイル名は ${work}/<ケース名>.json。
-python3 -I - "${work}" <<'PY'
+python3 -I - "${work}" "${CHECK}" <<'PY'
+import ast
 import json
 import os
+import re
 import sys
 
 out = sys.argv[1]
@@ -160,6 +165,127 @@ put("bad_no_inner", d)
 d = base()
 d["index"] = {"0": item(0, "dummy", {"module": {}}, vis="crate")}
 put("zero_public", d)
+# ---- (2): パイプライン生成の入力の形 ----
+PI = "PipelineInput"
+
+
+def core_base(extra=None):
+    d = {
+        "root": 0,
+        "format_version": 61,
+        "includes_private": False,
+        "external_crates": {},
+        "paths": {},
+        "index": {
+            "0": item(0, "fandhe_silicon_core", {"module": {"is_crate": True, "items": [1]}}),
+            "1": item(1, PI, {"enum": {"variants": [3, 4]}}),
+            "3": item(3, "Wgsl", {"variant": {}}, vis="default"),
+            "4": item(4, "Msl", {"variant": {}}, vis="default"),
+        },
+    }
+    d["index"]["1"]["attrs"] = ["non_exhaustive"]
+    for k, v in (extra or {}).items():
+        d["index"][k] = v
+    return d
+
+
+def rp(path):
+    return {"resolved_path": {"path": path, "id": 1, "args": None}}
+
+
+def ref(t):
+    return {"borrowed_ref": {"lifetime": None, "is_mutable": False, "type": t}}
+
+
+def pfn(iid, name, inputs, vis="public", generics=None):
+    sig = {"inputs": [["a%d" % i, t] for i, t in enumerate(inputs)], "output": None, "is_c_variadic": False}
+    fn = {"sig": sig, "generics": generics or {"params": [], "where_predicates": []}}
+    return item(iid, name, {"function": fn}, vis=vis)
+
+
+def into_bound():
+    return {"trait_bound": {"trait": {"path": "Into", "id": 9, "args": {"angle_bracketed": {"args": [{"type": rp(PI)}]}}}}}
+
+
+BYTES = ref({"slice": {"primitive": "u8"}})
+put("core_ok", core_base())
+put("core_fn_ok", core_base({"5": pfn(5, "create_pipeline", [rp(PI)])}))
+put("core_fn_ref", core_base({"5": pfn(5, "create_pipeline", [ref(ref(rp(PI)))])}))
+put("core_fn_path", core_base({"5": pfn(5, "create_pipeline", [rp("fandhe_silicon_core::execution::" + PI)])}))
+put("core_fn_second_arg", core_base({"5": pfn(5, "create_pipeline", [BYTES, rp(PI)])}))
+put("core_fn_impl_into", core_base({"5": pfn(5, "create_pipeline", [{"impl_trait": [into_bound()]}])}))
+gen = {"params": [{"name": "T", "kind": {"type": {"bounds": [into_bound()]}}}], "where_predicates": []}
+put("core_fn_generic", core_base({"5": pfn(5, "create_pipeline", [{"generic": "T"}], generics=gen)}))
+# 名前が当たらない関数は sig を読まない（sig が無くても通る）。
+put("core_fn_unrelated", core_base({
+    "5": item(5, "pipeline_count", {"function": {}}),
+    "6": item(6, "create_buffer", {"function": {}}),
+    "7": item(7, "Pipeline_Handle", {"function": {}}),
+}))
+# 非公開の生成の関数は数えない。
+put("core_fn_private", core_base({"5": pfn(5, "create_pipeline", [BYTES], vis="crate")}))
+
+d = core_base()
+d["index"]["1"]["attrs"] = []
+put("core_no_attr", d)
+d = core_base()
+d["index"]["1"]["attrs"] = [{"other": "#[derive(Debug)]"}]
+put("core_other_attr", d)
+d = core_base()
+d["index"]["1"]["attrs"] = [{"other": "#[non_exhaustive]"}]
+put("core_old_attr", d)
+d = core_base()
+d["index"]["1"]["inner"]["enum"]["variants"] = [4]
+put("core_no_wgsl", d)
+d = core_base()
+d["index"]["1"]["inner"] = {"struct": {}}
+put("core_not_enum", d)
+d = core_base({"8": item(8, PI, {"enum": {"variants": [3]}})})
+d["index"]["8"]["attrs"] = ["non_exhaustive"]
+put("core_dup", d)
+d = core_base()
+del d["index"]["1"]
+d["index"]["0"]["inner"]["module"]["items"] = []
+put("core_missing", d)
+# 再公開は数えない（定義は 1 つのまま）。
+put("core_reexport", core_base({"8": item(8, PI, {"use": {"name": PI, "source": "x", "id": 1, "is_glob": False}})}))
+d = base()
+d["index"]["2"] = item(2, PI, {"enum": {"variants": [3]}})
+d["index"]["3"] = item(3, "Wgsl", {"variant": {}}, vis="default")
+d["index"]["2"]["attrs"] = ["non_exhaustive"]
+put("dummy_with_pi", d)
+
+put("fn_bytes", core_base({"5": pfn(5, "create_pipeline", [BYTES])}))
+put("fn_upper", core_base({"5": pfn(5, "Create_Pipeline_Raw", [BYTES])}))
+put("fn_method", core_base({"5": pfn(5, "build_pipeline", [BYTES], vis="default")}))
+put("fn_two", core_base({"5": pfn(5, "create_pipeline", [BYTES]), "6": pfn(6, "new_pipeline", [])}))
+put("fn_blocking_and_pipeline", core_base({
+    "5": pfn(5, "create_pipeline", [BYTES]),
+    "6": item(6, "zzblock_fn", {"function": {}}),
+}))
+src = open(sys.argv[2], encoding="utf-8").read()
+m = re.search(r"^CREATE_WORDS = (\(.*?\))$", src, re.M)
+if not m:
+    sys.exit("CREATE_WORDS not found")
+for i, w in enumerate(ast.literal_eval(m.group(1))):
+    put("cw%d" % i, core_base({"5": pfn(5, "x_pipeline_%s" % w.upper(), [BYTES])}))
+
+d = core_base()
+d["index"]["1"]["attrs"] = "non_exhaustive"
+put("bad_attrs", d)
+d = core_base()
+d["index"]["1"]["inner"]["enum"]["variants"] = "x"
+put("bad_variants", d)
+d = core_base()
+d["index"]["1"]["inner"]["enum"]["variants"] = [99]
+put("bad_variant_id", d)
+d = core_base()
+d["index"]["1"]["inner"]["enum"]["variants"] = [0]
+put("bad_variant_kind", d)
+put("bad_nosig", core_base({"5": item(5, "create_pipeline", {"function": {}})}))
+d = core_base({"5": pfn(5, "create_pipeline", [])})
+d["index"]["5"]["inner"]["function"]["sig"]["inputs"] = "x"
+put("bad_inputs", d)
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
 PY
@@ -268,6 +394,48 @@ check "JSON 1 本だけが 0 件でも 2" 2 - "no public items found" --config "
 check "外部 crate を指す glob の再公開" 2 - "glob re-export target is external or unresolved" --config "${C}" --json "$(J glob_external)"
 check "解決できない glob の再公開" 2 - "glob re-export target is external or unresolved" --config "${C}" --json "$(J glob_unresolved)"
 
+# ---- (2) の検査（--json の経路）----
+check "core の文書がなければ E1・E2 はかけない（record に明示）" 0 "pipeline_input_checked=0 pipeline_input_violations_total=0" - --config "${C}" --json "$(J clean)"
+check "core の文書があれば検査済み" 0 "pipeline_input_checked=1 pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_ok)"
+check "(2) 合格の ok の行" 0 "no blocking-wait names, pipeline input ok" - --config "${C}" --json "$(J core_ok)"
+check "scanned に (2) の欄" 0 "pipeline_create_functions=0 pipeline_input_violations=0" - --config "${C}" --json "$(J core_ok)"
+check "生成の関数が PipelineInput を取る" 0 "pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_ok)"
+check "参照で包んだ PipelineInput" 0 "pipeline_create_functions_total=1" - --config "${C}" --json "$(J core_fn_ref)"
+check "完全なパスの PipelineInput" 0 "pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_path)"
+check "2 番目の引数の PipelineInput" 0 "pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_second_arg)"
+check "impl Into<PipelineInput>" 0 "pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_impl_into)"
+check "generics の bound の PipelineInput" 0 "pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_generic)"
+check "名前が当たらない関数は数えず sig も読まない" 0 "pipeline_create_functions_total=0 pipeline_input_checked=1 pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_fn_unrelated)"
+check "非公開の生成の関数は数えない" 0 "pipeline_create_functions_total=0" - --config "${C}" --json "$(J core_fn_private)"
+check "旧表記の non_exhaustive の印" 0 "pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_old_attr)"
+check "再公開は定義に数えない" 0 "pipeline_input_violations_total=0" - --config "${C}" --json "$(J core_reexport)"
+
+check "non_exhaustive の印が無い" 1 "pipeline_input_violations_total=1" "violation: crate=fandhe_silicon_core features=- check=pipeline-input reason=not-non-exhaustive" --config "${C}" --json "$(J core_no_attr)"
+check "別の属性だけでは印にならない" 1 - "reason=not-non-exhaustive" --config "${C}" --json "$(J core_other_attr)"
+check "Wgsl の variant が無い" 1 - "check=pipeline-input reason=no-wgsl" --config "${C}" --json "$(J core_no_wgsl)"
+check "enum でない PipelineInput" 1 - "check=pipeline-input reason=not-enum" --config "${C}" --json "$(J core_not_enum)"
+check "PipelineInput が 2 つ" 1 - "check=pipeline-input reason=duplicate" --config "${C}" --json "$(J core_dup)"
+check "PipelineInput が無い" 1 "pipeline_input_checked=1" "check=pipeline-input reason=missing" --config "${C}" --json "$(J core_missing)"
+check "core の外の定義" 1 - "violation: crate=dummy features=- check=pipeline-input reason=outside-core" --config "${C}" --json "$(J core_ok)" "$(J dummy_with_pi)"
+check "core が無くても外の定義は違反" 1 "pipeline_input_checked=0" "reason=outside-core" --config "${C}" --json "$(J dummy_with_pi)"
+check "PipelineInput を取らない生成の関数" 1 "pipeline_input_violations_total=1" "violation: crate=fandhe_silicon_core features=- item=create_pipeline kind=function check=pipeline-create reason=no-pipeline-input" --config "${C}" --json "$(J fn_bytes)"
+check "FAILED は (2) の件数" 1 - "FAILED: 1 item(s)" --config "${C}" --json "$(J fn_bytes)"
+check "大文字の生成の関数も当たる" 1 - "item=Create_Pipeline_Raw kind=function check=pipeline-create" --config "${C}" --json "$(J fn_upper)"
+check "trait のメソッド（default）も当たる" 1 - "item=build_pipeline kind=function check=pipeline-create" --config "${C}" --json "$(J fn_method)"
+check "引数が無い生成の関数も違反" 1 "pipeline_create_functions_total=2 pipeline_input_checked=1 pipeline_input_violations_total=2" "item=new_pipeline kind=function check=pipeline-create" --config "${C}" --json "$(J fn_two)"
+check "(1) と (2) の違反の合計" 1 - "FAILED: 2 item(s)" --config "${C}" --json "$(J fn_blocking_and_pipeline)"
+check "(1) の違反の行の形は変わらない" 1 - "violation: crate=fandhe_silicon_core features=- item=zzblock_fn kind=function word=zzblock" --config "${C}" --json "$(J fn_blocking_and_pipeline)"
+for f in "${work}"/cw*.json; do
+    check "生成の語が当たる: $(basename "${f}")" 1 - "check=pipeline-create reason=no-pipeline-input" --config "${C}" --json "${f}"
+done
+
+check "attrs が並びでない" 2 - "malformed attrs on PipelineInput" --config "${C}" --json "$(J bad_attrs)"
+check "variants が並びでない" 2 - "malformed variants on PipelineInput" --config "${C}" --json "$(J bad_variants)"
+check "解決できない variant の id" 2 - "unresolved variant id on PipelineInput" --config "${C}" --json "$(J bad_variant_id)"
+check "variant でないアイテムを指す id" 2 - "unresolved variant id on PipelineInput" --config "${C}" --json "$(J bad_variant_kind)"
+check "名前が当たった関数に sig が無い" 2 - "pipeline-creating function lacks a valid sig" --config "${C}" --json "$(J bad_nosig)"
+check "sig の inputs が並びでない" 2 - "pipeline-creating function lacks a valid sig" --config "${C}" --json "$(J bad_inputs)"
+
 # 実物の語の一覧が書式どおり読める。
 check "実物の設定が書式どおり読める" 0 "ok: 1 public API document(s)" - --config "${REAL_CONF}" --json "$(J clean)"
 
@@ -344,7 +512,8 @@ version = "0.0.0"
 edition = "2024"
 TOML
 {
-    printf '[package]\nname = "fandhe-silicon-contract"\nversion = "0.0.0"\nedition = "2024"\n\n[features]\n'
+    printf '[package]\nname = "fandhe-silicon-contract"\nversion = "0.0.0"\nedition = "2024"\n\n'
+    printf '[dependencies]\nfandhe-silicon-core = { path = "../core" }\n\n[features]\n'
     printf '%s\n' "${feature_names}" | while IFS= read -r feat; do
         if [[ -n "${feat}" ]]; then printf '%s = []\n' "${feat}"; fi
     done
@@ -355,6 +524,16 @@ chmod +x "${ws}/scripts/public-api-webgpu-check.sh" "${ws}/scripts/public-api-ch
 if [[ -f "${DIR}/../rust-toolchain.toml" ]]; then
     cp "${DIR}/../rust-toolchain.toml" "${ws}/rust-toolchain.toml"
 fi
+
+# core の基準の中身。PipelineInput（non_exhaustive・Wgsl を持つ enum）を 1 つ置く。
+CORE_OK='#[non_exhaustive]
+pub enum PipelineInput<'"'"'a> {
+    Wgsl { source: &'"'"'a str },
+    Msl { source: &'"'"'a str },
+}
+pub struct Own;'
+# (a) の陽性対照用に、先頭の属性の行を外した版。
+CORE_NO_ATTR="${CORE_OK#*$'\n'}"
 
 # libs <core の lib.rs> <contract の lib.rs>
 libs() {
@@ -428,7 +607,7 @@ PY
 )" || first_word=""
 VIOL="${first_word}_idle"
 
-libs 'pub struct Own;' 'pub struct Own;'
+libs "${CORE_OK}" 'pub struct Own;'
 if [[ -n "${feature_names}" && -n "${first_word}" ]] \
     && (cd "${ws}" && cargo generate-lockfile --offline) >/dev/null 2>"${ERR_F}" \
     && real_git init -q >/dev/null 2>>"${ERR_F}" \
@@ -441,9 +620,11 @@ if [[ -n "${feature_names}" && -n "${first_word}" ]] \
     has_in real_clean_core "${OUT_F}" '^scanned: crate=fandhe_silicon_core features=without-native-blocking-wait '
     has_in real_clean_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=without-native-blocking-wait '
     not_in real_clean_no_violation "${ERR_F}" 'violation'
+    has_in real_clean_pipeline_input "${OUT_F}" 'pipeline_input_checked=1 pipeline_input_violations_total=0'
+    has_in real_clean_ok_pipeline "${OUT_F}" 'pipeline input ok$'
 
     # 陽性対照: 外した feature の裏にある語の名前の関数は、その feature を外した構成では 0 件で通る。
-    libs 'pub struct Own;' "pub struct Own;
+    libs "${CORE_OK}" "pub struct Own;
 #[cfg(feature = \"native-blocking-wait\")]
 pub fn ${VIOL}() {}"
     real real_feature_gated 0 "blocking_wait_names_total=0" -
@@ -451,36 +632,78 @@ pub fn ${VIOL}() {}"
     has_in real_feature_gated_dirty "${OUT_F}" '^record: commit=[0-9a-f]+-dirty documents=2 '
 
     # 同じ関数を cfg なしで置くと落ちる（違反を 1 件足すと 1 になる）。
-    libs 'pub struct Own;' "pub struct Own;
+    libs "${CORE_OK}" "pub struct Own;
 pub fn ${VIOL}() {}"
     real real_contract_fn 1 "blocking_wait_names_total=1" "violation: crate=fandhe_silicon_contract features=without-native-blocking-wait item=${VIOL} kind=function"
     has_in real_contract_fn_failed "${ERR_F}" 'FAILED: 1 item\(s\)'
     not_in real_contract_fn_no_ok "${OUT_F}" '^ok:'
 
     # core の crate も対象。
-    libs "pub fn ${VIOL}() {}" 'pub struct Own;'
+    libs "${CORE_OK}
+pub fn ${VIOL}() {}" 'pub struct Own;'
     real real_core_fn 1 "blocking_wait_names_total=1" "violation: crate=fandhe_silicon_core "
     not_in real_core_fn_no_ok "${OUT_F}" '^ok:'
 
     # inherent のメソッド。
-    libs 'pub struct Own;' "pub struct Own;
+    libs "${CORE_OK}" "pub struct Own;
 impl Own {
     pub fn ${VIOL}(&self) {}
 }"
     real real_method 1 "blocking_wait_names_total=1" "item=${VIOL} kind=function"
 
     # 再公開（局所名が語を含む）。
-    libs 'pub struct Own;' "mod m {
+    libs "${CORE_OK}" "mod m {
     pub fn ${VIOL}() {}
 }
 pub use m::${VIOL};"
     real real_reexport 1 - "kind=use word=${first_word}"
 
+    # ---- (2) の陽性対照（実物の rustdoc の JSON）----
+    # (a) non_exhaustive を外すと落ちる。
+    libs "${CORE_NO_ATTR}" 'pub struct Own;'
+    real real_pi_no_attr 1 "pipeline_input_violations_total=1" "check=pipeline-input reason=not-non-exhaustive"
+    not_in real_pi_no_attr_no_ok "${OUT_F}" '^ok:'
+    # (b) Wgsl の variant を外すと落ちる。
+    libs '#[non_exhaustive]
+pub enum PipelineInput<'"'"'a> { Msl { source: &'"'"'a str } }
+pub struct Own;' 'pub struct Own;'
+    real real_pi_no_wgsl 1 - "check=pipeline-input reason=no-wgsl"
+    # (c) 2 つ目の公開の PipelineInput（別のモジュール）で落ちる。
+    libs "${CORE_OK}
+pub mod other {
+    #[non_exhaustive]
+    pub enum PipelineInput { Wgsl }
+}" 'pub struct Own;'
+    real real_pi_dup 1 - "check=pipeline-input reason=duplicate"
+    # PipelineInput が無い core でも落ちる。
+    libs 'pub struct Own;' 'pub struct Own;'
+    real real_pi_missing 1 - "check=pipeline-input reason=missing"
+    # (d) PipelineInput を取らない生成の関数を contract に足すと落ちる。
+    libs "${CORE_OK}" "pub struct Own;
+pub fn create_pipeline(bytes: &[u8]) -> u32 { bytes.len() as u32 }"
+    real real_pipeline_bytes 1 - "item=create_pipeline kind=function check=pipeline-create reason=no-pipeline-input"
+    has_in real_pipeline_bytes_failed "${ERR_F}" 'FAILED: 1 item\(s\)'
+    # (e) PipelineInput を取る生成の関数は通る。
+    libs "${CORE_OK}" "pub struct Own;
+pub fn create_pipeline(i: &fandhe_silicon_core::PipelineInput<'_>) -> u32 { let _ = i; 0 }"
+    real real_pipeline_input 0 "pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0" -
+    # (f) 外した feature の裏に置いた (d) は、外した組では見えない。
+    libs "${CORE_OK}" "pub struct Own;
+#[cfg(feature = \"native-blocking-wait\")]
+pub fn create_pipeline(bytes: &[u8]) -> u32 { bytes.len() as u32 }"
+    real real_pipeline_gated 0 "pipeline_create_functions_total=0" -
+    # (g) inherent のメソッドも対象。
+    libs "${CORE_OK}" "pub struct Own;
+impl Own {
+    pub fn create_pipeline(&self, bytes: &[u8]) -> u32 { bytes.len() as u32 }
+}"
+    real real_pipeline_method 1 - "item=create_pipeline kind=function check=pipeline-create"
+
     libs 'this does not compile' 'pub struct Own;'
     real real_build_fail 2 - "public-api-check.sh --emit-json failed"
 
     # 契約の crate を外した workspace は、片方しか無い構成を成功扱いにしない。
-    libs 'pub struct Own;' 'pub struct Own;'
+    libs "${CORE_OK}" 'pub struct Own;'
     write_ws '["crates/core"]'
     (cd "${ws}" && cargo generate-lockfile --offline) >/dev/null 2>&1 || true
     real real_no_contract 2 - "public-api-check.sh --emit-json failed"
