@@ -28,7 +28,7 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | 非対応の理由 | `UnsupportedReason` は 3 値（`NoApi`・`NotSupported`・`UnknownFeature`）で `#[non_exhaustive]` | `crates/core/src/error.rs` |
 | 背後実装の実装 | `Capabilities` の実装は `crates/core/tests/` の試験用のスタブの 2 件だけ。`crates/contract`・`exec`・`upper`・`wasm/` には 0 件。背後実装の `query`・`query_ex` の実装は別タスクの持ち分（TASK-173〜TASK-175 のポインタ） | `git grep -n -E 'impl .*Capabilities for' -- crates wasm` |
 | 戻り値の検査 | `CapabilityQuery` を検査する関数は `crates/`・`wasm/` に無い（参照は `capability.rs` と上記 2 件の試験だけ） | `git grep -n CapabilityQuery -- crates wasm` |
-| 2 段の手順に当たる口 | 列挙・device の取得の口（`DeviceProvider` などに当たる物）は `crates/`・`wasm/` に無い（持ち分は TASK-157 のポインタ） | `git grep -n -E 'DeviceProvider\|fn enumerate\|fn request_device' -- crates wasm` |
+| 2 段の手順に当たる口 | 列挙・device の取得の口（`DeviceProvider` などに当たる物）は `crates/`・`wasm/` に無い（持ち分は TASK-157 のポインタ） | `git grep -n -e DeviceProvider -e 'fn enumerate' -e 'fn request_device' -- crates wasm` |
 | 能力の差し込み | `fault-injection` の裏の部品に、能力の問合せの結果を差し替える差し込みは無い | `git grep -n -E 'CapabilityQueryFails' -- crates/core/src/fault` |
 | テスト専用の feature | `core` の feature は `test-support`・`fault-injection`。`contract` は同名の feature を `core` へ転送する | `sed -n '/\[features\]/,/^\[\[test/p' crates/core/Cargo.toml crates/contract/Cargo.toml` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
