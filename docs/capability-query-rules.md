@@ -26,10 +26,10 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | 問合せの結果 | `CapabilityQuery` は `level`・`unsupported_reason: Option<UnsupportedReason>`・`evidence: Option<CapabilityEvidence>` の 3 フィールド | 同上 |
 | 問合せのトレイト | `Capabilities` は必須の `query` と、既定の実装つきの `query_ex` を持つ。既定の `query_ex` は `query` の値に、理由 `None`・根拠 `None` を添えて返す | 同上、`crates/core/tests/capability_query_default.rs` |
 | 非対応の理由 | `UnsupportedReason` は 3 値（`NoApi`・`NotSupported`・`UnknownFeature`）で `#[non_exhaustive]` | `crates/core/src/error.rs` |
-| 背後実装の実装 | `Capabilities` の実装は `crates/core/tests/` の試験用のスタブの 2 件だけ。`crates/contract`・`exec`・`upper`・`wasm/` には 0 件。背後実装の `query`・`query_ex` の実装は別タスクの持ち分（TASK-173〜TASK-175 のポインタ） | `git grep -n -E 'impl .*Capabilities for' -- crates wasm` |
-| 戻り値の検査 | `CapabilityQuery` を検査する関数は `crates/`・`wasm/` に無い（参照は `capability.rs` と上記 2 件の試験だけ） | `git grep -n CapabilityQuery -- crates wasm` |
+| 背後実装の実装 | `Capabilities` の実装は、`crates/core/src/fault/decorator.rs` の `FaultInjecting<D>`（`fault-injection` の裏）と、`crates/core/tests/` の試験用のスタブ（`capability_query_default.rs`・`device_capability_types.rs`・`fault_decorator_capability.rs`）。`crates/contract`・`exec`・`upper`・`wasm/` には 0 件。背後実装の `query`・`query_ex` の実装は別タスクの持ち分（TASK-173〜TASK-175 のポインタ） | `git grep -n -E 'impl.* Capabilities for' -- crates wasm` |
+| 戻り値の検査 | `CapabilityQuery` を検査する関数は `crates/`・`wasm/` に無い（参照は `capability.rs`・`fault/decorator.rs` と試験だけ） | `git grep -n CapabilityQuery -- crates wasm` |
 | 2 段の手順に当たる口 | 列挙・device の取得の口（`DeviceProvider` などに当たる物）は `crates/`・`wasm/` に無い（持ち分は TASK-157 のポインタ） | `git grep -n -e DeviceProvider -e 'fn enumerate' -e 'fn request_device' -- crates wasm` |
-| 能力の差し込み | `fault-injection` の裏の部品に、能力の問合せの結果を差し替える差し込みは無い | `git grep -n -E 'CapabilityQueryFails' -- crates/core/src/fault` |
+| 能力の差し込み | `fault-injection` の裏の `FaultInjecting<D>` が `Capabilities` を実装し、`FaultScript::CapabilityQueryFails` で問合せの結果を `S0`（理由 `None`・根拠 `None`）に差し替える。対象の機能だけ `Unsupported` にする `CapabilityInsufficient` もある。公開テストは `crates/core/tests/fault_decorator_capability.rs` | `git grep -n -E 'CapabilityQueryFails' -- crates/core` |
 | テスト専用の feature | `core` の feature は `test-support`・`fault-injection`。`contract` は同名の feature を `core` へ転送する | `sed -n '/\[features\]/,/^\[\[test/p' crates/core/Cargo.toml crates/contract/Cargo.toml` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | workspace | member は `crates/` 配下の 5 つ（`core`・`contract`・`exec`・`upper`・`wasm-abi`）。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
