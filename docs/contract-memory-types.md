@@ -45,6 +45,24 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | 5/6 | #4287 | テスト |
 | 6/6 | #4288 | 確かめ |
 
+## 現状の形（2/6）
+
+型は `crates/core` に置く（外部依存 0・`forbid(unsafe_code)` のまま）。置き場と形は TASK-308 の決定の記録に従う（ポインタのみ）。
+1/6 の「本リポの現状」の表の「足りない型」「`core` の形」の行は、この節の時点では次のとおり変わった。
+
+| 型 | 置き場 | 値・フィールド | `doc(hidden)` の口 |
+| -- | ------ | -------------- | ------------------ |
+| `BufferUsage` | `crates/core/src/memory/buffer.rs` | 非公開の `u32`。定数 7 つ（`STORAGE`・`UPLOAD`・`DOWNLOAD`・`VERTEX`・`INDEX`・`UNIFORM`・`EXPORTABLE`）、`empty`・`is_empty`・`bits`・`contains`、`BitOr`・`BitOrAssign`。`Debug`・`Clone`・`Copy`・`PartialEq`・`Eq`・`Hash` | なし |
+| `BufferHandle` | 同上 | 非公開の 3 フィールド（世代・識別子・device の識別子）。`Debug` のみ（`Clone`・`Copy` なし） | `__backend_new`・`__backend_generation`・`__backend_id`・`__backend_device_id` |
+| `MemoryOps`（トレイト） | `crates/core/src/memory/ops.rs` | `allocate`・`upload`・`download_blocking`・`download_async`・`free`・既定の実装つきの `pending_release_count`。オブジェクト安全 | なし |
+
+- core に feature `native-blocking-wait` を足し、`contract` の同名の feature から転送する。`download_blocking` はこの feature の裏にある
+- `download_async` は wasm32 とそれ以外で、コールバックの `Send` の境界だけが違う
+- 外部の crate は足していない
+- 対応するテスト: `crates/core/tests/memory_types.rs`（構築と呼び出しだけを見る最小の試験）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test memory_types`（`--features native-blocking-wait` 付きでも流す）
+- 残る段: 3/6〜6/6
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（型・値・メソッド・置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
