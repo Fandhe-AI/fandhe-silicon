@@ -25,6 +25,14 @@ name = "fault_hooks_inject"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_stub_lost"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "fault_decorator_completion_unknown"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "parity_cpu_reference"
 required-features = ["test-support"]
 
