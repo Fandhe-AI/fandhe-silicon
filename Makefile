@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -148,6 +148,12 @@ upper-layer-check: ## 上の層（crates/upper）と測定の workspace（measur
 
 test-upper-layer-check: ## upper-layer-check の回帰テスト（合成の入力・ツールが無いとき・偽のコマンドと、一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-upper-layer-check.sh
 	@scripts/test-upper-layer-check.sh
+
+wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。手元用で CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
+	@scripts/wasm-build-check.sh
+
+test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない・手元用で CI からは呼ばない）。直接: scripts/test-wasm-build-check.sh
+	@scripts/test-wasm-build-check.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh
 	@scripts/test-wasm-size.sh
