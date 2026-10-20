@@ -1,0 +1,150 @@
+//! 能力の問合せの共通の規則を確かめるための試験用の部品（`test-support` の裏）。
+//!
+//! 背後実装に依らない規則（TASK-273 の (1)・(2)、ERR-50・ERR-62 のポインタ）を、
+//! 表で値を返すスタブ（`CapabilityTable`）と、呼び出しの順の記録（`StepLog`）、
+//! 「列挙・取得が成功してから機能の値を読む」2 段の手順（`query_after_acquire`）で確かめられるようにする。
+//! 製品の経路からは使わない。ここに出てくる名前は仮で、列挙・device の本物の口が入る段
+//! （TASK-157 のポインタ）で形を合わせる。
+//!
+//! `crate::fault` は参照しない。`test-support` だけの組（`fault-injection` 無し）でもビルドされるため。
+//! デコレータとの組み合わせは統合テストの側で行う。
+
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use crate::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureId};
+use crate::error::ContractError;
+
+/// 2 段の手順で起きた呼び出し 1 件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Step {
+    /// 列挙の呼び出し。
+    Enumerate,
+    /// device の取得の呼び出し。
+    RequestDevice,
+    /// 機能の値の読み出し。
+    ReadFeature(FeatureId),
+}
+
+/// 呼び出しの順の記録。複数の持ち主から共有して積む。
+#[derive(Debug, Default)]
+pub struct StepLog {
+    steps: Mutex<Vec<Step>>,
+}
+
+impl StepLog {
+    /// 空の記録を作る。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 毒化していても中身を取り出して錠を取る（試験の panic を引きずらない）。
+    fn lock(&self) -> MutexGuard<'_, Vec<Step>> {
+        self.steps.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 1 件積む。
+    pub fn push(&self, step: Step) {
+        self.lock().push(step);
+    }
+
+    /// これまでの記録を積んだ順に返す。
+    pub fn steps(&self) -> Vec<Step> {
+        self.lock().clone()
+    }
+
+    /// `ReadFeature` の件数を返す。
+    pub fn read_count(&self) -> usize {
+        self.lock()
+            .iter()
+            .filter(|s| matches!(s, Step::ReadFeature(_)))
+            .count()
+    }
+}
+
+/// 機能ごとの値を表で返すスタブ。確認済みの非対応（`Unsupported`）を作る用途を持つ。
+#[derive(Debug, Clone)]
+pub struct CapabilityTable {
+    entries: Vec<(FeatureId, CapabilityQuery)>,
+    default: CapabilityQuery,
+    log: Option<Arc<StepLog>>,
+}
+
+impl Default for CapabilityTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CapabilityTable {
+    /// 表が空で、表に無い機能には `S0`（理由・根拠なし）を返すスタブを作る。
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            default: CapabilityQuery {
+                level: CapabilityLevel::S0,
+                unsupported_reason: None,
+                evidence: None,
+            },
+            log: None,
+        }
+    }
+
+    /// 機能の値を表に足す。同じ機能は後から足した方が先に当たる。
+    pub fn with(mut self, feature: FeatureId, value: CapabilityQuery) -> Self {
+        self.entries.insert(0, (feature, value));
+        self
+    }
+
+    /// 表に無い機能に返す値を決める。
+    pub fn with_default(mut self, value: CapabilityQuery) -> Self {
+        self.default = value;
+        self
+    }
+
+    /// 読み出しのたびに `Step::ReadFeature` を積む記録を付ける。
+    pub fn with_log(mut self, log: Arc<StepLog>) -> Self {
+        self.log = Some(log);
+        self
+    }
+
+    fn lookup(&self, feature: FeatureId) -> CapabilityQuery {
+        if let Some(log) = &self.log {
+            log.push(Step::ReadFeature(feature));
+        }
+        self.entries
+            .iter()
+            .find(|(f, _)| *f == feature)
+            .map(|(_, v)| *v)
+            .unwrap_or(self.default)
+    }
+}
+
+impl Capabilities for CapabilityTable {
+    fn query(&self, feature: FeatureId) -> CapabilityLevel {
+        self.lookup(feature).level
+    }
+
+    fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
+        self.lookup(feature)
+    }
+}
+
+/// 列挙、device の取得、機能の読み出しの順で問い合わせる 2 段の手順。
+///
+/// 列挙か取得が `Err` なら、後の段も機能の読み出しも呼ばずに `S0` を返す（失敗の中身は返さない）。
+/// 両方 `Ok` のときだけ、取得した値の `query(feature)` を返す。
+pub fn query_after_acquire<D, E, A>(enumerate: E, acquire: A, feature: FeatureId) -> CapabilityLevel
+where
+    D: Capabilities,
+    E: FnOnce() -> Result<(), ContractError>,
+    A: FnOnce() -> Result<D, ContractError>,
+{
+    if enumerate().is_err() {
+        return CapabilityLevel::S0;
+    }
+    match acquire() {
+        Ok(d) => d.query(feature),
+        Err(_) => CapabilityLevel::S0,
+    }
+}
