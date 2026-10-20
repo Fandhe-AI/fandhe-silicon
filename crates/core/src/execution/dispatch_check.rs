@@ -1,7 +1,8 @@
-//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44）。
+//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423・TASK-2952 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44）。
 //!
 //! `execution` から再公開される。上や下-2 が組み立てた宣言を、下-1 の背後実装へ渡す前に
-//! 共通の層で拒否するために置く。C4（残容量）・C5（offset の境界）・C6（定数の長さ）・C8（長さ 0・`u64` のあふれ・上限超過）を判定する。
+//! 共通の層で拒否するために置く。C4（残容量）・C5（offset の境界）・C6（定数の長さ）・C7（宣言に無い `slot`・`slot` の重複）・C8（長さ 0・`u64` のあふれ・上限超過）を判定する。
+//! 配列を持つ宣言（束縛の配列）の数え方は TASK-422・TASK-1146 のポインタ。
 //! 背後実装・ファイル・時刻には触れず、バッファも確保しない（確保が起きるのはエラーの文字列だけ）。
 
 use super::OperandSpec;
@@ -9,7 +10,7 @@ use super::OperandSpec;
 /// 宣言の検査が返すエラー。
 ///
 /// 検査の入力の不正を表す暫定の型で、契約のエラー型そのものではない。
-/// 文言は英語で、違反は先頭が `C4:`・`C5:`・`C6:`・`C8:` のいずれかになる。
+/// 文言は英語で、違反は先頭が `C4:`・`C5:`・`C6:`・`C7:`・`C8:` のいずれかになる。
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum OperandCheckError {
@@ -50,23 +51,26 @@ pub fn required_bytes(spec: &OperandSpec<'_>) -> Option<u64> {
         .try_fold(spec.dtype.byte_size(), |acc, &d| acc.checked_mul(d))
 }
 
-/// dispatch の引数の宣言を検査する。C4・C5・C6・C8 を判定する。
+/// dispatch の引数の宣言を検査する。C4〜C8 を判定する。
 ///
 /// 段ごとに全件を見て、最初に当たった違反で `InvalidArgument` を返す。段の順は次のとおり。
 ///
 /// 1. C8: `declared` を先頭から順に、(1) `shape` に 0 の次元がある、(2) 必要バイト数が `u64` を
 ///    あふれる、(3) 必要バイト数が `max_buffer_bytes` より大きい、の順で調べる。上限ちょうどは通す。
-/// 2. C4: `bindings` のうち `binding_capacity` が容量を返すものについて、必要バイト数が
+/// 2. C7: `bindings` を先に、次に `consts` を先頭から順に見て、(1) `declared` に同じ `slot` の宣言が無い、
+///    (2) 同じ `slot` が前の `bindings`（`consts` では前の `consts` か `bindings`）にもある、のどちらかなら拒否する。
+///    `declared` 内の同じ `slot` の重複は拒否しない。
+/// 3. C4: `bindings` のうち `binding_capacity` が容量を返すものについて、必要バイト数が
 ///    容量から `offset` を引いた残り（引き切れなければ 0）より大きければ拒否する。容量が `None` の束縛は見ない。
-/// 3. C5: `bindings` のうち、宣言の `alignment` が 0 でないものについて、`offset` が
+/// 4. C5: `bindings` のうち、宣言の `alignment` が 0 でないものについて、`offset` が
 ///    `alignment` の倍数でなければ拒否する。
-/// 4. C6: `consts` のバイト列の長さが宣言の必要バイト数と異なれば（短くても長くても）拒否する。
+/// 5. C6: `consts` のバイト列の長さが宣言の必要バイト数と異なれば（短くても長くても）拒否する。
 ///
-/// 宣言の無い `slot` の束縛・定数は、ここでは見ない。同じ `slot` の宣言が複数あるときは、C4・C5・C6 とも先頭のものを使う。
+/// 同じ `slot` の宣言が複数あるときは、C4・C5・C6 とも先頭のものを使う。
 ///
 /// # Errors
 ///
-/// 上記のいずれかに当たると [`OperandCheckError::InvalidArgument`]（先頭 `C8:`・`C4:`・`C5:`・`C6:`）を返す。
+/// 上記のいずれかに当たると [`OperandCheckError::InvalidArgument`]（先頭 `C8:`・`C7:`・`C4:`・`C5:`・`C6:`）を返す。
 pub fn validate_dispatch_operands<F>(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
@@ -95,10 +99,49 @@ where
             )));
         }
     }
-    // C7（TASK-422 のポインタ）の入る位置。
+    check_slots(declared, bindings, consts)?;
     check_capacity(declared, bindings, &binding_capacity)?;
     check_alignment(declared, bindings)?;
     check_constant_sizes(declared, consts)
+}
+
+/// C7: 束縛・定数の `slot` が宣言にあり、束縛と定数をまたいで重ならないかを調べる。
+///
+/// `validate_dispatch_operands` から C8 を通った後に呼ばれる。束縛を先に、次に定数を見る。
+/// 重複の検出は前方の要素との比較だけで、確保も添字アクセスもしない。
+fn check_slots(
+    declared: &[OperandSpec<'_>],
+    bindings: &[OperandBinding],
+    consts: &[OperandConstant<'_>],
+) -> Result<(), OperandCheckError> {
+    for (i, b) in bindings.iter().enumerate() {
+        let slot = b.slot;
+        if !declared.iter().any(|s| s.slot == slot) {
+            return Err(OperandCheckError::InvalidArgument(format!(
+                "C7: slot {slot}: binding slot is not declared"
+            )));
+        }
+        if bindings.iter().take(i).any(|p| p.slot == slot) {
+            return Err(OperandCheckError::InvalidArgument(format!(
+                "C7: slot {slot}: binding slot is passed more than once"
+            )));
+        }
+    }
+    for (i, c) in consts.iter().enumerate() {
+        let slot = c.slot;
+        if !declared.iter().any(|s| s.slot == slot) {
+            return Err(OperandCheckError::InvalidArgument(format!(
+                "C7: slot {slot}: constant slot is not declared"
+            )));
+        }
+        if consts.iter().take(i).any(|p| p.slot == slot) || bindings.iter().any(|p| p.slot == slot)
+        {
+            return Err(OperandCheckError::InvalidArgument(format!(
+                "C7: slot {slot}: constant slot is passed more than once"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// C4: 容量が分かる束縛について、必要バイト数が残り（容量 - offset）に収まるかを調べる。
@@ -328,42 +371,113 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_check_checks_c8_before_c4_c5_c6() {
-        // C8 と C4 の両方に当たる入力は C8。
+    fn dispatch_check_checks_in_order_c8_c7_c4_c5_c6() {
+        // C8 と C7 の両方に当たる入力は C8。
         let zero = [spec(DType::F32, &[0])];
-        assert_eq!(code(&run(&zero, &bind(0), &[], Some(0))), "C8");
+        let undeclared = [OperandBinding { slot: 9, offset: 0 }];
+        assert_eq!(code(&run(&zero, &undeclared, &[], Some(0))), "C8");
+        // C7 と C4 の両方に当たる入力（宣言済み slot の容量不足 + 未宣言の束縛）は C7。
+        let s = [spec(DType::F32, &[100])];
+        let b = [
+            OperandBinding { slot: 0, offset: 0 },
+            OperandBinding { slot: 9, offset: 0 },
+        ];
+        assert_eq!(code(&run(&s, &b, &[], Some(16))), "C7");
         // C4 と C5 の両方に当たる入力は C4。
         let s = [OperandSpec {
             alignment: 16,
             ..spec(DType::F32, &[100])
         }];
         assert_eq!(code(&run(&s, &bind(4), &[], Some(16))), "C4");
-        // C5 と C6 の両方に当たる入力は C5。
-        let s = [OperandSpec {
-            alignment: 16,
-            ..spec(DType::U32, &[3])
-        }];
+        // C5 と C6 の両方に当たる入力は C5（宣言を 2 件に分けて slot を重ねない）。
+        let s = [
+            OperandSpec {
+                alignment: 16,
+                ..spec(DType::F32, &[1])
+            },
+            OperandSpec {
+                slot: 1,
+                ..spec(DType::U32, &[3])
+            },
+        ];
         let c = [OperandConstant {
-            slot: 0,
+            slot: 1,
             bytes: &[0u8; 8],
         }];
         assert_eq!(code(&run(&s, &bind(4), &c, None)), "C5");
     }
 
     #[test]
-    fn dispatch_check_ignores_undeclared_slots() {
+    fn dispatch_check_c7_rejects_undeclared_slots() {
         let s = [spec(DType::F32, &[1])];
+        // 宣言済みなら C4・C5 に当たる入力でも、未宣言の束縛は C7。
         let b = [OperandBinding { slot: 9, offset: 3 }];
+        assert_eq!(code(&run(&s, &b, &[], Some(0))), "C7");
+        // 未宣言の定数（束縛は空）も C7。
         let c = [OperandConstant {
             slot: 9,
             bytes: &[0u8; 1],
         }];
-        assert_eq!(run(&s, &b, &c, Some(0)), Ok(()));
+        assert_eq!(code(&run(&s, &[], &c, Some(0))), "C7");
+    }
+
+    #[test]
+    fn dispatch_check_c7_rejects_undeclared_binding_slot() {
+        let s = [spec(DType::F32, &[1])];
+        let ok = [OperandBinding { slot: 0, offset: 0 }];
+        assert_eq!(run(&s, &ok, &[], None), Ok(()));
+        let bad = [OperandBinding { slot: 5, offset: 0 }];
+        assert_eq!(code(&run(&s, &bad, &[], None)), "C7");
+    }
+
+    #[test]
+    fn dispatch_check_c7_rejects_duplicate_binding_slot() {
+        let s = [spec(DType::F32, &[1])];
+        let b = [OperandBinding { slot: 0, offset: 0 }; 2];
+        assert_eq!(code(&run(&s, &b, &[], None)), "C7");
+    }
+
+    #[test]
+    fn dispatch_check_c7_rejects_duplicate_const_slot() {
+        let s = [spec(DType::F32, &[1])];
+        let one = [OperandConstant {
+            slot: 0,
+            bytes: &[0u8; 4],
+        }];
+        assert_eq!(run(&s, &[], &one, None), Ok(()));
+        let two = [one[0], one[0]];
+        assert_eq!(code(&run(&s, &[], &two, None)), "C7");
+    }
+
+    #[test]
+    fn dispatch_check_c7_rejects_const_overlapping_binding() {
+        let s = [spec(DType::F32, &[1])];
+        let b = [OperandBinding { slot: 0, offset: 0 }];
+        let c = [OperandConstant {
+            slot: 0,
+            bytes: &[0u8; 4],
+        }];
+        assert_eq!(code(&run(&s, &b, &c, None)), "C7");
+    }
+
+    #[test]
+    fn dispatch_check_c7_checks_bindings_before_consts() {
+        let s = [spec(DType::F32, &[1])];
+        let b = [OperandBinding { slot: 0, offset: 0 }; 2];
+        let c = [OperandConstant {
+            slot: 9,
+            bytes: &[0u8; 4],
+        }];
+        let r = run(&s, &b, &c, None);
+        assert!(
+            matches!(&r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C7:") && m.contains("binding"))
+        );
     }
 
     #[test]
     fn dispatch_check_duplicate_slot_uses_first_declaration_everywhere() {
         // 同じ slot の宣言が 2 件: 先頭は 4 バイト・alignment 16、後ろは 64 バイト・alignment 0。
+        // declared 内の slot の重複は C7 にしない。
         let s = [
             OperandSpec {
                 alignment: 16,
@@ -374,14 +488,19 @@ mod tests {
                 ..spec(DType::F32, &[16])
             },
         ];
-        let b = [OperandBinding { slot: 0, offset: 0 }];
         // C4: 先頭の 4 バイトは容量 4 に収まる（後ろを採ると拒否される）。
+        let b = [OperandBinding { slot: 0, offset: 0 }];
+        assert_eq!(
+            validate_dispatch_operands(&s, &b, &[], |_| Some(4), 1024),
+            Ok(())
+        );
+        // C6: 先頭の 4 バイトと一致する定数は通る（後ろを採ると拒否される）。
         let c = [OperandConstant {
             slot: 0,
             bytes: &[0u8; 4],
         }];
         assert_eq!(
-            validate_dispatch_operands(&s, &b, &c, |_| Some(4), 1024),
+            validate_dispatch_operands(&s, &[], &c, |_| None, 1024),
             Ok(())
         );
         // C5: 先頭の alignment 16 を採るので offset 4 は拒否される。

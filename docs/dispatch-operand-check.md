@@ -1,6 +1,6 @@
-# 引数の宣言の C4〜C6・C8 の検査
+# 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2（BIND-38・BIND-39・BIND-41 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -8,25 +8,26 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 
 | 名前 | 役割 |
 | ---- | ---- |
-| `validate_dispatch_operands` | C8 → C4 → C5 → C6 の順に判定する。最初の違反で `Err`、全部通れば `Ok(())` |
+| `validate_dispatch_operands` | C8 → C7 → C4 → C5 → C6 の順に判定する。最初の違反で `Err`、全部通れば `Ok(())` |
 | `required_bytes` | 宣言 1 件の必要バイト数。`u64` であふれたら `None` |
 | `OperandCheckError` | 暫定のエラー型（`#[non_exhaustive]`、`InvalidArgument(String)`）。契約のエラー型そのものではない |
 | `OperandBinding`・`OperandConstant` | 検査の入力のための形。背後実装へ渡す束縛の型ではない |
 
 ## 現状の振る舞い
 
-- C8 を宣言ごとに先頭から判定し、続けて C4（残容量）・C5（offset の境界）・C6（定数の長さ）を段ごとに全件見る。宣言の無い `slot` の束縛・定数は見ない
+- C8 を宣言ごとに先頭から判定し、続けて C7（宣言に無い `slot`・`slot` の重複）・C4（残容量）・C5（offset の境界）・C6（定数の長さ）を段ごとに全件見る。C4・C5・C6 は宣言の無い `slot` を見ない（C7 が先に拒否する）
+- C7: `bindings` を先に、次に `consts` を先頭から見る。`declared` に同じ `slot` の宣言が無ければ拒否（未宣言）。前の `bindings` に同じ `slot` があれば拒否、`consts` では前の `consts` か `bindings` のどれかにあれば拒否（重複。束縛と定数の重なりも重複）。`declared` 内の同じ `slot` の重複は拒否しない。配列を持つ宣言（束縛の配列）の数え方は TASK-422・TASK-1146 のポインタ
 - C4: 容量が分かる束縛だけを、必要バイト数と「容量から `offset` を引いた残り（引き切れなければ 0）」とで比べる。容量が `None` の束縛は通す
 - C5: 宣言の `alignment` が 0 でないときだけ、`offset` が `alignment` の倍数かを調べる
 - C6: 定数のバイト列の長さが必要バイト数と違えば（短くても長くても）拒否する
 - 判定の順は、`shape` に 0 の次元がある、必要バイト数が `u64` をあふれる、必要バイト数が `max_buffer_bytes` より大きい。上限ちょうどは通す
-- 違反は `InvalidArgument` で、文言の先頭は `C4:`・`C5:`・`C6:`・`C8:` のいずれか（本文は英語）
+- 違反は `InvalidArgument` で、文言の先頭は `C4:`・`C5:`・`C6:`・`C7:`・`C8:` のいずれか（本文は英語）
 - `shape` が空なら次元の積は 1 で、1 要素分のバイト数になる
-- 算術は `checked_mul`・`saturating_sub`・0 を除いた剰余だけで行う。panic・添字アクセス・バッファの確保はない
+- 算術は `checked_mul`・`saturating_sub`・0 を除いた剰余だけで行う。C7 は前方の要素との比較だけで確保しない。panic・添字アクセス・バッファの確保はない
 
 ## 対応するテスト
 
-- `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前。C8 に加え、`dispatch_check_c4_`・`dispatch_check_c5_`・`dispatch_check_c6_`、C8 が先に判定される順、宣言の無い `slot` を見ないことを確かめる）
+- `crates/core/src/execution/dispatch_check.rs` の単体テスト（`dispatch_check_` で始まる名前。C8 に加え、`dispatch_check_c4_`・`dispatch_check_c5_`・`dispatch_check_c6_`、`dispatch_check_c7_`、C8 → C7 → C4 → C5 → C6 の順、`declared` 内の重複は C7 にならず先頭の宣言を使うことを確かめる）
 - `crates/core/tests/execution_dispatch_check.rs`: 外の crate から公開のパスで呼ぶ統合テスト（`c8_` で始まる名前）。長さ 0 の次元（GEMM の宣言を含む）・`u64` のあふれ・上限超過（1 バイト足りなければ拒否、ちょうどなら通る。巨大な宣言でも確保せずに判定する）を確かめる
 - 同じファイルの `c6_` で始まる名前の統合テスト。定数が宣言の必要バイト数より短ければ C6 で拒否、同じ長さなら通る
 - 同じファイルの `c4_`・`c5_` で始まる名前の統合テスト。容量 16 のバッファに 400 バイトの宣言は拒否、16 バイトちょうどは通る（C4）。alignment 16 に offset 4 は拒否、offset 16 は通る（C5）
@@ -201,3 +202,26 @@ TASK-425（関連: BIND-59）の 3/4（#4755）で、`crates/core/tests/executio
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `2e105b5163b0becd759f4d1e5388c30b1083b11a`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## C7 の実装（1/2）（TASK-2952）
+
+TASK-2952（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-38・BIND-39・BIND-41）の 1/2 で、`dispatch_check.rs` に C7 を足した。公開面は増やしていない。
+
+| 関数 | 流す入力 | 結果 |
+| ---- | -------- | ---- |
+| `dispatch_check_c7_rejects_undeclared_slots` | 宣言に無い `slot` の束縛（宣言済みなら C4・C5 に当たる値）、同じく定数 | どちらも `C7` |
+| `dispatch_check_c7_rejects_undeclared_binding_slot` | 宣言 slot 0 に対し束縛 slot 0 と 5 | 0 は通り、5 は `C7` |
+| `dispatch_check_c7_rejects_duplicate_binding_slot` | 束縛 slot 0 を 2 回 | `C7` |
+| `dispatch_check_c7_rejects_duplicate_const_slot` | 定数 slot 0 を 1 回と 2 回 | 1 回は通り、2 回は `C7` |
+| `dispatch_check_c7_rejects_const_overlapping_binding` | 束縛 slot 0 と定数 slot 0 | `C7` |
+| `dispatch_check_c7_checks_bindings_before_consts` | 束縛の重複と定数の未宣言 | 文言は束縛側 |
+| `dispatch_check_checks_in_order_c8_c7_c4_c5_c6` | 各段に同時に当たる入力 | C8、C7、C4、C5 の順に先に当たる |
+
+| 段 | Issue |
+| -- | ----- |
+| 1/2 実装 | #7329 |
+| 2/2 統合テストと完了の条件の確かめ | #7330 |
+
+統合テスト（`execution_dispatch_check.rs`）と完了の条件の確かめは 2/2 で足す。
+
+確かめた base は `1b70c78`。
