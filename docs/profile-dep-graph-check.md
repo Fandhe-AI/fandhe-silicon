@@ -1,4 +1,4 @@
-# 依存グラフのプロファイルごとの検査（TASK-228）の所在と現状の事実
+# 依存グラフのプロファイルごとの検査（TASK-228・TASK-229）の所在と現状の事実
 
 契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数える検査について、本リポのスクリプトから説明できる振る舞いを記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-228。対象は BUILD-1・BUILD-2。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
@@ -140,6 +140,48 @@ CI のログ: main の push の `ci.yml` の run 39133670015（base と同じコ
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-228）。
 
 確かめた base は `8d838b352e33cdcdd02fd530a7c958fc4925bc82`、`docs/spec` の gitlink は `86641485a76d52552027eada422e38a5a9ca411d`。
+
+## 現状と前提の確認（1/6）（TASK-229）
+
+TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・BUILD-5）の 1/6（#7358）で、本リポのコードと公開テストから観測できる事実だけを記録した。前提・完了の条件の正は private spec 側の記録に従う（ポインタのみ）。コードは変えていない。
+
+### 前提
+
+| 前提 | 本リポの物 | 確かめ方 |
+| ---- | ---------- | -------- |
+| TASK-228 | `scripts/profile-dep-graph-check.sh`・陽性対照・本書の 5/6・6/6 の節 | `gh issue view 459 --json state`（CLOSED） |
+| TASK-112 | 機材の要らないジョブの枠（[ci-device-free-jobs.md](ci-device-free-jobs.md)） | `gh issue view 393 --json state`（CLOSED） |
+
+### 現状
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 検査のプロファイル | `PROFILES` は `cpu-only`・`compute-only-metal` の 2 件だけ | `grep -n -A22 '^PROFILES' scripts/profile-dep-graph-check.sh` |
+| 判定の名前 | `compute-only-metal` の判定の名前は `SURFACE_NAMES` だけで、`SDK_LOADER_NAMES` は入っていない（`cpu-only` は両方） | 同上 |
+| 判定の形 | 0 件かどうかだけ。プロファイル間の差を出す出力は無く、`record:` はプロファイルごとの件数だけ | 本書「検査しないもの」の「件数の増減」の行 |
+| `--extra-judged-crate` | crate 名の一覧の末尾にだけ足す。feature 側の経路は無い | 本書「検査しないもの」 |
+| feature の組のビルド | `scripts/build-profiles.sh` の `NATIVE_SETS` に `backend-vulkan,graphics` の組（BUILD-3）と `backend-vulkan,backend-cuda,graphics,ext-interop` の組（BUILD-4）があり、契約の crate の `--all-features` の build / clippy / test も同スクリプトが回す | `grep -n -E 'BUILD-[34]\|all-features' scripts/build-profiles.sh` |
+| 依存グラフの実測 | 上の 2 組と `--all-features` の `cargo tree` は、どれも `fandhe-silicon-contract` と `fandhe-silicon-core` の 2 crate だけ。`SDK_LOADER_NAMES`・`SURFACE_NAMES` の名前は 0 件 | `cargo tree --locked -p fandhe-silicon-contract --all-features -e normal,build,dev --target all --prefix none`（組は `--no-default-features --features <組>`） |
+| 外部依存 | 契約の crate が依存するのは `fandhe-silicon-core` だけ。`deps-approved.toml` の記録は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| feature の宣言 | `graphics`・`ext-interop`・`backend-vulkan`・`backend-cuda` は `crates/contract/Cargo.toml` に宣言がある。`cfg(feature = ...)` の参照は `ext-interop` が `src/cfg_gate_doctest.rs` と `tests/feature_gate_enabled.rs` にあり、`graphics` には無い | `git grep -n -E 'feature = "(graphics\|ext-interop)"' -- crates` |
+| 同じ語彙の既存検査 | 公開 API 側は `scripts/public-api-sdk-check.sh` の `CHIP_SDK`、wasm32 の依存グラフは `scripts/wasm-backend-check.sh`（[wasm32-backend-check.md](wasm32-backend-check.md)） | 各スクリプトの先頭コメント |
+| CI | 本検査は CI の `deny` ジョブの `make deny`（`scripts/deny.sh`）の中で流れる | `grep -n profile-dep-graph scripts/deny.sh` |
+| 公開側の言及 | 本節の追加前は TASK-229 の言及が無かった | `git grep -n TASK-229 -- . ':!docs/spec'` |
+
+### 段
+
+| 段 | Issue |
+| -- | ----- |
+| 1/6 現状と前提の確認 | #7358 |
+| 2/6 | #7359 |
+| 3/6 | #7360 |
+| 4/6 | #7361 |
+| 5/6 | #7362 |
+| 6/6 | #7363 |
+
+後の段で足す振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [spec-confidentiality](../.claude/rules/spec-confidentiality.md) と [makefile](../.claude/rules/makefile.md)。
+
+確かめた base は `0568b89d3c5ddc48973ea0133aba7f0447867bf3`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
 
 ## 関連
 
