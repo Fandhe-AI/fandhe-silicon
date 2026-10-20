@@ -85,8 +85,13 @@ doc = {
         "1": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Alpha"], "kind": "struct"},
         "2": {"crate_id": 1, "path": ["core", "option", "Option"], "kind": "enum"},
         "3": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Hidden"], "kind": "struct"},
+        "4": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "make"], "kind": "function"},
+        "5": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod"], "kind": "module"},
+        "6": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Kind"], "kind": "enum"},
+        "7": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "Shape"], "kind": "trait"},
     },
-    "index": {"1": {"visibility": "public"}, "3": {"visibility": "crate"}},
+    "index": {"1": {"visibility": "public"}, "3": {"visibility": "crate"}, "4": {"visibility": "public"},
+              "5": {"visibility": "public"}, "6": {"visibility": "public"}, "7": {"visibility": "public"}},
 }
 put("f/doc.json", json.dumps(doc), "w")
 put("f/baddoc.json", "{}", "w")
@@ -102,6 +107,10 @@ srcs = {
     "runtime": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected!("simd128") {} }\n' % GOOD,
     "comments_only": '//! target_feature = "simd128" の話\n// target_feature = "simd128"\n/* target_feature = "simd128" */\n/// target_feature = "simd128"\npub fn a() {}\n',
     "none": 'pub fn a() {}\n',
+    "strings_only": 'pub const A: &str = "target_feature = \\"simd128\\"";\npub const B: &str = r#"#[cfg(target_feature = "simd128")] x"#;\n'
+                    'pub const C: &str = "is_x86_feature_detected!(\\"simd128\\")";\npub const D: char = \'"\';\n',
+    "string_then_real": 'pub const A: &str = r#"target_feature = "simd128""#;\npub const D: char = \'"\';\n#[%s]\npub fn a() {}\n' % GOOD,
+    "string_then_bad": 'pub const A: &str = "cfg(all(target_arch = \\"wasm32\\", target_feature = \\"simd128\\"))";\n#[cfg(target_feature = "simd128")]\npub fn a() {}\n',
 }
 for name, text in srcs.items():
     os.makedirs(os.path.join(out, "src", name))
@@ -114,6 +123,7 @@ cat >"${work}/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 echo "ARGS $*" >>"${FAKE_LOG}"
 echo "RUSTFLAGS=${RUSTFLAGS-unset} ENC=$(printf %s "${CARGO_ENCODED_RUSTFLAGS-unset}" | tr '\037' '|') BOOT=${RUSTC_BOOTSTRAP-unset}" >>"${FAKE_LOG}"
+echo "RDENC=$(printf %s "${CARGO_ENCODED_RUSTDOCFLAGS-unset}" | tr '\037' '|') BOOT=${RUSTC_BOOTSTRAP-unset}" >>"${FAKE_LOG}"
 td=""
 prev=""
 for a in "$@"; do
@@ -265,6 +275,17 @@ expect "type-non-public" 1 "type: name=dummy_mod::Hidden label=mismatch"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type core::option::Option
 expect "type-external-crate" 1 "label=mismatch"
+for n in make Kind Shape; do
+  run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+    --require-type "dummy_mod::${n}"
+  case "${n}" in
+    make) expect "type-kind-function-is-not-type" 1 "type: name=dummy_mod::make label=mismatch build=scalar" "types=0/1" ;;
+    *) expect "type-kind-${n}-ok" 0 "type: name=dummy_mod::${n} label=match build=simd128" "types=1/1" ;;
+  esac
+done
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type dummy_mod
+expect "type-kind-module-is-not-type" 1 "type: name=dummy_mod label=mismatch build=scalar" "types=0/1"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json"
 expect "type-none-required" 1 "type: label=not-run reason=no-required-types" "artifact: kind=simd128 label=match" "not_run=1" "!ok:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/baddoc.json" \
@@ -292,6 +313,12 @@ cfg_case any_form
 expect "cfg-any-form" 1 "cfg: sites=1 label=mismatch" "reason=unsupported-cfg-form"
 cfg_case runtime
 expect "cfg-runtime-detection" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
+cfg_case strings_only
+expect "cfg-strings-only" 1 "cfg: sites=0 label=not-run reason=no-simd128-sites" "!violation:"
+cfg_case string_then_real
+expect "cfg-string-then-real" 0 "cfg: sites=1 label=match" "ok:"
+cfg_case string_then_bad
+expect "cfg-string-then-bad" 1 "cfg: sites=1 label=mismatch reason=unsupported-cfg-form" "line=2 reason=unsupported-cfg-form"
 cfg_case comments_only
 expect "cfg-comments-only" 1 "cfg: sites=0 label=not-run reason=no-simd128-sites" "!violation:"
 cfg_case none
@@ -314,7 +341,9 @@ expect_log "fake-target-dirs" "/wasm-build-check/scalar" "/wasm-build-check/simd
 expect_log "fake-no-rustdoc-without-types" "!rustdoc"
 run_fake --source-root "${S}/good" --require-type dummy_mod::Alpha
 expect "fake-with-types" 0 "type: name=dummy_mod::Alpha label=match" "ok:"
-expect_log "fake-rustdoc-bootstrap" "ARGS rustdoc" "BOOT=1" "--output-format json" "--target wasm32-unknown-unknown" "/wasm-build-check/rustdoc"
+expect_log "fake-rustdoc-bootstrap" "ARGS rustdoc" "BOOT=1" "--output-format json" "--target wasm32-unknown-unknown" "/wasm-build-check/rustdoc-scalar" \
+  "/wasm-build-check/rustdoc-simd128"
+expect_log "fake-rustdoc-simd-flags" "RDENC=-C|target-feature=+simd128"
 rc=0
 FAKE_FAIL=1 PATH="${work}/bin:${PATH}" FAKE_LOG="${work}/fake.log" FAKE_TD="${work}/td" "${TOOL}" --source-root "${S}/good" \
   >"${OUT_F}" 2>"${ERR_F}" || rc=$?
@@ -358,6 +387,14 @@ pub mod dummy_mod {
     pub struct Alpha;
 }
 
+/// 命令の有無で在る型が変わるダミー。
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+pub struct SimdOnly;
+
+/// scalar 版にだけ在るダミーの型。
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+pub struct ScalarOnly;
+
 /// 命令の有無をビルド時の cfg で決めるダミーの関数。
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 pub fn lanes() -> u32 {
@@ -375,11 +412,16 @@ rc=0
 (cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type dummy_mod::Alpha) \
   >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "real-all-match" 0 "artifact: kind=scalar label=match simd128=absent" "artifact: kind=simd128 label=match simd128=present" \
-  "type: name=dummy_mod::Alpha label=match" "cfg: sites=2 label=match" "artifact=2/2 types=1/1 cfg_sites=2 not_run=0" "ok:"
+  "type: name=dummy_mod::Alpha label=match" "cfg: sites=4 label=match" "artifact=2/2 types=1/1 cfg_sites=4 not_run=0" "ok:"
 rc=0
 (cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type dummy_mod::Nope) \
   >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "real-type-missing" 1 "type: name=dummy_mod::Nope label=mismatch" "FAILED:"
+rc=0
+(cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type SimdOnly --require-type ScalarOnly) \
+  >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "real-cfg-split-types" 1 "type: name=SimdOnly label=match build=simd128" "type: name=SimdOnly label=mismatch build=scalar" \
+  "type: name=ScalarOnly label=match build=scalar" "type: name=ScalarOnly label=mismatch build=simd128" "types=0/2"
 
 echo "test-wasm-build-check: ${passed} passed, ${failed} failed" >&2
 if [ "${failed}" -ne 0 ]; then

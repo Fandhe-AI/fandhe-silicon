@@ -10,15 +10,16 @@
 #     --require-type   公開アイテムに在るべき型の path（crate 名の有無はどちらでもよい。複数可。確かめる名前はこのスクリプトに持たせない）
 #     --from-dir       ビルドせず、渡した 2 つの wasm を判別する（回帰テスト用。順は scalar、simd128。名前に反してファイルを 2 つ取る）
 #     --source-root    cfg の走査の起点（既定は crates/）
-#     --rustdoc-json   cargo を呼ばずにこの rustdoc JSON で型を確かめる（回帰テスト用）
+#     --rustdoc-json   cargo を呼ばずにこの rustdoc JSON で（2 版とも）型を確かめる（回帰テスト用）
 # 終了コード: 0 全行が match / 1 mismatch または not-run が 1 行以上 / 2 誤用・前提の不足・読めない入力。
 # 標準出力: 行ごとの `artifact:`・`type:`・`cfg:`（label は match / mismatch / not-run。理由は reason=）、
 #   終了コード 0 と 1 のときだけ `record:`、合格時の `ok:`。標準エラー: `error:`（2）・`FAILED:`（1）。
 #   ホストの絶対パス・環境変数の値は出力しない。
 # 各行:
 #   artifact  2 つの wasm の先頭が `\0asm` で、custom section `target_features` に `+simd128` が simd128 版にだけ在り、2 つが別のバイト列であること。
-#   type      --require-type の各 path が wasm32 向けの rustdoc JSON の公開アイテムに在ること。0 個なら not-run（reason=no-required-types）。
-#   cfg       `target_feature = "simd128"` の出現（コメントを除く）がすべて `cfg(all(target_arch = "wasm32", target_feature = "simd128"))`
+#   type      --require-type の各 path が、2 版それぞれと同じ指定（simd128 版は +simd128）で作った wasm32 向けの rustdoc JSON の
+#             公開アイテムに型（struct / enum / union / type alias / trait）として在ること。行は build=scalar|simd128 ごと。0 個なら not-run（reason=no-required-types）。
+#   cfg       文字列・文字リテラルの外の `target_feature = "simd128"` の出現（コメントを除く）がすべて `cfg(all(target_arch = "wasm32", target_feature = "simd128"))`
 #             （または `cfg(not(all(...)))`。scalar 側の分岐用）の中に在り、実行時の検出（`_feature_detected!("simd128")`）が無いこと。出現が 0 件なら not-run（reason=no-simd128-sites）。
 # 既定の経路（ビルドする）の前提: python3 3.8 以上・cargo・wasm32-unknown-unknown の target。外れたら終了コード 2。
 #   feature の組は `contract-core,cpu-isa,cpu-ops`、--locked。成果物は cargo の target_directory 配下の専用ディレクトリ
@@ -53,7 +54,11 @@ SUBDIR = "wasm-build-check"
 SIMD_FLAGS = "-C\x1ftarget-feature=+simd128"
 # 子プロセスへ引き継がない rustflags 系の環境変数（命令の指定を利用者の環境から切り離す）。
 FLAG_ENVS = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS",
-            "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS", "RUSTC_BOOTSTRAP")
+            "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS", "RUSTC_BOOTSTRAP",
+            "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTDOCFLAGS", "CARGO_BUILD_RUSTDOCFLAGS",
+            "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTDOCFLAGS")
+# 型として数える rustdoc JSON の kind（関数・モジュール・定数などは型ではない）。
+TYPE_KINDS = ("struct", "enum", "union", "type_alias", "trait")
 
 
 class Misuse(Exception):
@@ -131,15 +136,20 @@ def build_wasm(root, td, kind, flags):
     return os.path.join(out, TARGET, "release", LIB + ".wasm")
 
 
-def build_rustdoc_json(root, td):
-    out = os.path.join(td, SUBDIR, "rustdoc")
+def build_rustdoc_json(root, td, kind, flags):
+    out = os.path.join(td, SUBDIR, "rustdoc-" + kind)
     path = os.path.join(out, TARGET, "doc", LIB + ".json")
     if os.path.exists(path):
         os.remove(path)
     cmd = ["cargo", "rustdoc", "--locked", "--target-dir", out, "-p", PACKAGE, "--no-default-features",
           "--features", FEATURES, "--target", TARGET, "--lib", "--", "-Z", "unstable-options",
           "--output-format", "json"]
-    if run(cmd, root, clean_env({"RUSTC_BOOTSTRAP": "1"})).returncode != 0:
+    extra = {"RUSTC_BOOTSTRAP": "1"}
+    if flags:
+        # 依存の rustc には RUSTFLAGS、rustdoc 本体の cfg には RUSTDOCFLAGS が効く。2 版のビルドと同じ指定を両方へ渡す。
+        extra["CARGO_ENCODED_RUSTFLAGS"] = flags
+        extra["CARGO_ENCODED_RUSTDOCFLAGS"] = flags
+    if run(cmd, root, clean_env(extra)).returncode != 0:
         fail2("cargo rustdoc failed")
     if not os.path.isfile(path):
         fail2("rustdoc JSON was not produced")
@@ -233,9 +243,7 @@ def artifact_rows(paths):
 
 
 # ---- 型 ----
-def type_rows(types, json_path):
-    if not types:
-        return [("type: label=not-run reason=no-required-types", "not-run")]
+def public_types(json_path):
     try:
         with open(json_path, encoding="utf-8") as f:
             doc = json.load(f)
@@ -247,7 +255,7 @@ def type_rows(types, json_path):
     public = set()
     for key, ent in paths.items():
         try:
-            if ent["crate_id"] != 0:
+            if ent["crate_id"] != 0 or ent["kind"] not in TYPE_KINDS:
                 continue
             item = index.get(key)
             if item is not None and item.get("visibility") not in ("public", "default"):
@@ -255,58 +263,116 @@ def type_rows(types, json_path):
             public.add("::".join(ent["path"]))
         except (KeyError, TypeError, AttributeError):
             raise Misuse("unexpected rustdoc JSON shape")
+    return public
+
+
+def type_rows(types, json_paths):
+    """json_paths は (build 名, rustdoc JSON のパス) の列。build ごとに要求された型を照合する。"""
+    if not types:
+        return [("type: label=not-run reason=no-required-types", "not-run")], 0
+    sets = [(kind, public_types(path)) for kind, path in json_paths]
     rows = []
+    both = 0
     for t in types:
-        ok = t in public or (LIB + "::" + t) in public
-        lab = "match" if ok else "mismatch"
-        rows.append(("type: name=%s label=%s" % (re.sub(r"[^A-Za-z0-9_:]", "?", t), lab), lab))
-    return rows
+        all_ok = True
+        for kind, public in sets:
+            ok = t in public or (LIB + "::" + t) in public
+            all_ok = all_ok and ok
+            lab = "match" if ok else "mismatch"
+            rows.append(("type: name=%s label=%s build=%s" % (re.sub(r"[^A-Za-z0-9_:]", "?", t), lab, kind), lab))
+        if all_ok:
+            both += 1
+    return rows, both
 
 
 # ---- cfg ----
+RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
+
+
+def is_ident(ch):
+    return ch.isalnum() or ch == "_"
+
+
 def strip_comments(text):
-    """コメントを空白に置き換える（改行と文字列は残す。位置と行番号を保つ）。"""
+    """コメントを空白に置き換える（改行を残し、位置と行番号を保つ）。
+    戻り値は (本文, 文字列・文字リテラルの内側かの印)。通常文字列・raw string・文字リテラルは字句として読み、
+    印の付いた位置から始まる一致は属性やマクロ呼び出しではないので数えない。"""
     out = []
+    mark = []
     i, n = 0, len(text)
+
+    def emit(ch, flag):
+        out.append(ch)
+        mark.append(flag)
+
     while i < n:
         c = text[i]
         two = text[i:i + 2]
         if two == "//":
             while i < n and text[i] != "\n":
-                out.append(" ")
+                emit(" ", False)
                 i += 1
-        elif two == "/*":
+            continue
+        if two == "/*":
             depth = 0
             while i < n:
                 if text[i:i + 2] == "/*":
                     depth += 1
-                    out.append("  ")
+                    emit(" ", False)
+                    emit(" ", False)
                     i += 2
                 elif text[i:i + 2] == "*/":
                     depth -= 1
-                    out.append("  ")
+                    emit(" ", False)
+                    emit(" ", False)
                     i += 2
                     if depth == 0:
                         break
                 else:
-                    out.append("\n" if text[i] == "\n" else " ")
+                    emit("\n" if text[i] == "\n" else " ", False)
                     i += 1
-        elif c == '"':
-            out.append(c)
+            continue
+        prev_ident = i > 0 and is_ident(text[i - 1])
+        raw = RAW_OPEN.match(text, i) if c in "rbc" and not prev_ident else None
+        if raw:
+            close = '"' + raw.group(1)
+            end = text.find(close, raw.end())
+            end = n if end < 0 else end + len(close)
+            while i < end:
+                emit(text[i], True)
+                i += 1
+            continue
+        if c == '"':
+            emit(c, True)
             i += 1
             while i < n and text[i] != '"':
                 if text[i] == "\\" and i + 1 < n:
-                    out.append(text[i])
+                    emit(text[i], True)
                     i += 1
-                out.append(text[i])
+                emit(text[i], True)
                 i += 1
             if i < n:
-                out.append('"')
+                emit('"', True)
                 i += 1
-        else:
-            out.append(c)
-            i += 1
-    return "".join(out)
+            continue
+        if c == "'":
+            # 文字リテラル（'x' '\n' '"'）か、ライフタイム（'a）か。
+            if i + 1 < n and text[i + 1] == "\\":
+                j = i + 2
+                while j < n and text[j] != "'" and text[j] != "\n":
+                    j += 1
+                end = j + 1 if j < n and text[j] == "'" else i + 1
+            elif i + 2 < n and text[i + 2] == "'" and text[i + 1] != "'":
+                end = i + 3
+            else:
+                end = i + 1
+            while i < end:
+                emit(text[i], end > i + 1)
+                i += 1
+            continue
+        emit(c, False)
+        i += 1
+    return "".join(out), mark
 
 
 SITE = re.compile(r'target_feature\s*=\s*"simd128"')
@@ -329,16 +395,20 @@ def cfg_rows(root, src_root):
             full = os.path.join(base, name)
             try:
                 with open(full, encoding="utf-8") as f:
-                    text = strip_comments(f.read())
+                    text, mark = strip_comments(f.read())
             except (OSError, UnicodeDecodeError):
                 raise Misuse("cannot read a source file")
             rel = os.path.relpath(full, root if os.path.abspath(full).startswith(aroot) else src_root)
-            good = [m.span() for m in GOOD.finditer(text)]
+            good = [m.span() for m in GOOD.finditer(text) if not mark[m.start()]]
             for m in SITE.finditer(text):
+                if mark[m.start()]:
+                    continue
                 sites += 1
                 if not any(s <= m.start() and m.end() <= e for s, e in good):
                     bad.append((rel, text.count("\n", 0, m.start()) + 1, "unsupported-cfg-form"))
             for m in RUNTIME.finditer(text):
+                if mark[m.start()]:
+                    continue
                 bad.append((rel, text.count("\n", 0, m.start()) + 1, "runtime-detection"))
     lines = []
     if bad:
@@ -381,11 +451,14 @@ def main():
             paths = (build_wasm(root, td, "scalar", ""), build_wasm(root, td, "simd128", SIMD_FLAGS))
         else:
             paths = a["from"]
-        json_path = a["json"]
-        if a["types"] and json_path is None:
-            json_path = build_rustdoc_json(root, td)
+        if a["types"] and a["json"] is None:
+            scalar_doc = build_rustdoc_json(root, td, "scalar", "")
+            simd_doc = build_rustdoc_json(root, td, "simd128", SIMD_FLAGS)
+            jsons = (("scalar", scalar_doc), ("simd128", simd_doc))
+        else:
+            jsons = (("scalar", a["json"]), ("simd128", a["json"]))
         art = artifact_rows(paths)
-        typ = type_rows(a["types"], json_path)
+        typ, tm = type_rows(a["types"], jsons)
         src = a["src"] or os.path.join(root, "crates")
         cfg, sites = cfg_rows(root, src)
     except Misuse as e:
@@ -395,7 +468,6 @@ def main():
         print(text)
     labels = [lab for _, lab in rows if lab]
     matched = sum(1 for _, lab in art if lab == "match")
-    tm = sum(1 for _, lab in typ if lab == "match")
     not_run = sum(1 for lab in labels if lab == "not-run")
     print("record: commit=%s artifact=%d/2 types=%d/%d cfg_sites=%d not_run=%d" % (
         commit(root), matched, tm, len(a["types"]), sites, not_run))
