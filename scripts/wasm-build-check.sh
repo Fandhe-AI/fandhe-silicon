@@ -207,6 +207,8 @@ def target_features(data):
                         raise Misuse("truncated target_features")
                     found.add(prefix + data[p:p + flen].decode("utf-8", "replace"))
                     p += flen
+                if p != end:
+                    raise Misuse("trailing bytes in target_features")
         pos = end
     return found
 
@@ -269,7 +271,8 @@ def public_types(json_path):
         return next(iter(inner))
 
     def exported(item):
-        return item.get("visibility") in ("public", "default")
+        # "default" は非公開モジュール・非公開 use を表すので公開としない（公開 use 経由のパスだけが公開の名前になる）。
+        return item.get("visibility") == "public"
 
     def walk(mid, prefix, depth):
         if depth > 32 or (mid, prefix) in seen:

@@ -79,6 +79,7 @@ put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
 put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
 put("f/trunc.wasm", HEADER + b"\x00\x7f\x00")
 put("f/dup.wasm", HEADER + features(BASE) + features(BASE))
+put("f/garbage.wasm", HEADER + custom(b"target_features", leb(0) + b"\x01\x02"))
 put("f/empty.wasm", b"")
 
 def item(name, kind, vis="public", **inner):
@@ -96,7 +97,7 @@ doc = {
         "8": {"crate_id": 0, "path": ["fandhe_silicon_wasm_abi", "dummy_mod", "PathsOnly"], "kind": "struct"},
     },
     "index": {
-        "0": item("fandhe_silicon_wasm_abi", "module", items=[5, 20, 21, 22, 23]),
+        "0": item("fandhe_silicon_wasm_abi", "module", items=[5, 20, 21, 22, 23, 26, 29]),
         "5": item("dummy_mod", "module", items=[1, 3, 4, 6, 7, 8]),
         "1": item("Alpha", "struct"),
         "3": item("Hidden", "struct", "crate"),
@@ -110,6 +111,10 @@ doc = {
         "23": item(None, "use", "crate", id=1, name="Hid", is_glob=False, source="x"),
         "24": item("inner", "module", items=[25]),
         "25": item("Deep", "struct"),
+        "26": item("hidden", "module", "default", items=[27, 28]),
+        "27": item("Leaked", "struct"),
+        "28": item("Shown", "struct"),
+        "29": item(None, "use", id=28, name="Shown", is_glob=False, source="hidden::Shown"),
     },
 }
 put("f/doc.json", json.dumps(doc), "w")
@@ -293,6 +298,8 @@ run_case --from-dir "${F}/scalar.wasm" "${F}/dup.wasm" --source-root "${S}/none"
 expect "artifact-duplicate-section" 2 "error: duplicate target_features section"
 run_case --from-dir "${F}/scalar.wasm" "${F}/empty.wasm" --source-root "${S}/none"
 expect "artifact-empty-file" 2 "error: empty wasm input"
+run_case --from-dir "${F}/scalar.wasm" "${F}/garbage.wasm" --source-root "${S}/none"
+expect "artifact-trailing-bytes" 2 "error: trailing bytes in target_features" "!record:"
 
 # 2. 型の確かめ（合成 rustdoc JSON とダミーの名前）
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
@@ -309,6 +316,15 @@ for n in Renamed Reexp::Deep; do
     --require-type "${n}"
   expect "type-reexport-${n}" 0 "type: name=${n} label=match build=simd128" "types=1/1"
 done
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type hidden::Leaked
+expect "type-private-module-path" 1 "type: name=hidden::Leaked label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type hidden::Shown
+expect "type-private-module-path-reexported" 1 "type: name=hidden::Shown label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
+  --require-type Shown
+expect "type-private-module-use" 0 "type: name=Shown label=match build=simd128"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type Hid
 expect "type-nonpublic-use" 1 "type: name=Hid label=mismatch"
@@ -446,6 +462,9 @@ expect "misuse-require-type-no-value" 2 "usage:"
 ws="${work}/ws"
 mkdir -p "${ws}/scripts" "${ws}/crates/wasm-abi/src"
 cp "${DIR}/wasm-build-check.sh" "${DIR}/lib.sh" "${ws}/scripts/"
+if [ -f "${DIR}/../rust-toolchain.toml" ]; then
+  cp "${DIR}/../rust-toolchain.toml" "${ws}/rust-toolchain.toml"
+fi
 cat >"${ws}/Cargo.toml" <<'EOF'
 [workspace]
 members = ["crates/wasm-abi"]
