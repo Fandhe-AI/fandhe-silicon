@@ -47,7 +47,7 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 検査本体 | `scripts/public-api-webgpu-check.sh --config public-api-webgpu-check.conf`（`make public-api-webgpu-check`）。CI にはまだ組み込まない | スクリプトの先頭コメント |
+| 検査本体 | `scripts/public-api-webgpu-check.sh --config public-api-webgpu-check.conf`（`make public-api-webgpu-check`）。CI の `deny` ジョブも実行する（6/6 で組み込んだ） | スクリプトの先頭コメント |
 | 抽出 | `public-api-check.sh --emit-json <dir> --without-feature native-blocking-wait` を共有する。対象は core と contract の 2 本で、片方が欠けたら終了コード 2 | `scripts/test-public-api-check.sh` の `without_*` |
 | 数えるもの | 公開の関数・メソッド・再公開のうち、名前を `_` で区切った語が語の一覧の語に等しいもの（部分一致では当てない）。参照先が外部 crate または解決できない glob の再公開は、名前を照合できないので終了コード 2 で止める | スクリプトの先頭コメント |
 | 語の一覧 | `public-api-webgpu-check.conf` の節 `[blocking-words]` | 同ファイルの先頭 |
@@ -63,7 +63,7 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 所在 | `scripts/test-public-api-webgpu-check.sh`（`make test-public-api-webgpu-check`）。前提は python3・cargo・git で、無ければ失敗する（skip しない）。CI のジョブからは呼ばず、手元で流す | スクリプトの先頭コメント |
+| 所在 | `scripts/test-public-api-webgpu-check.sh`（`make test-public-api-webgpu-check`）。前提は python3・cargo・git で、無ければ失敗する（skip しない）。CI の `deny` ジョブも実行する（6/6 で組み込んだ） | スクリプトの先頭コメント |
 | 構成 | 前半は合成 JSON を `--json` で渡す経路（cargo・git を呼ばない）。後半は package 名が `fandhe-silicon-core`・`fandhe-silicon-contract` の依存なしの一時 workspace に検査本体・`public-api-check.sh`・`lib.sh` を写し、実物の rustdoc の JSON で既定の経路を通す | 同上 |
 | 副作用 | リポジトリのファイルを変更しない・ネットワーク不要（一時ディレクトリは終了時に消す） | 同上 |
 | 判定 | 終了コード + 標準出力 + 標準エラーの部分一致。終了コード 2 のケースは `ok:`・`record:` が無いことも見る | `check` 関数 |
@@ -93,7 +93,7 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 検査本体 | `scripts/public-api-webgpu-check.sh` に同居する（新しいスクリプトは無い）。rustdoc の JSON は (1) と同じ 2 本を共有し、`cargo rustdoc` は 1 回で済む。CI にはまだ組み込まない | スクリプトの先頭コメント |
+| 検査本体 | `scripts/public-api-webgpu-check.sh` に同居する（新しいスクリプトは無い）。rustdoc の JSON は (1) と同じ 2 本を共有し、`cargo rustdoc` は 1 回で済む。CI の `deny` ジョブも実行する（6/6 で組み込んだ） | スクリプトの先頭コメント |
 | E1 | core の文書に、公開の `PipelineInput` がちょうど 1 つあり、enum で、`non_exhaustive` の印を持つこと。0 件・2 件以上・enum でない・印が無い・core 以外の文書にある定義は違反（再公開は数えない） | `make test-public-api-webgpu-check` |
 | E2 | その enum が `Wgsl` の variant を持つこと | 同上 |
 | F1 | 名前に pipeline と生成の語を含む公開の関数・メソッドは、引数の型か generics に `PipelineInput` を持つこと（参照・入れ子・`impl Into<..>` の中を含む）。パスの最後の区切りで照合する。生成の語の一覧はスクリプトの定数で、テストは実行時にそこから読む | 同上 |
@@ -122,7 +122,7 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 検査本体 | `scripts/public-api-webgpu-check.sh` に同居する（新しいスクリプトは無い）。rustdoc の JSON は、(1)(2) 用の `native-blocking-wait` を外した組 A に加えて、`ext-interop` を外した組 B を作る。このため `public-api-check.sh --emit-json` は 2 回呼ばれる（4/6 の節の「`cargo rustdoc` は 1 回」は組 A だけの事実）。CI にはまだ組み込まない | スクリプトの先頭コメント |
+| 検査本体 | `scripts/public-api-webgpu-check.sh` に同居する（新しいスクリプトは無い）。rustdoc の JSON は、(1)(2) 用の `native-blocking-wait` を外した組 A に加えて、`ext-interop` を外した組 B を作る。このため `public-api-check.sh --emit-json` は 2 回呼ばれる（4/6 の節の「`cargo rustdoc` は 1 回」は組 A だけの事実）。CI の `deny` ジョブも実行する（6/6 で組み込んだ） | スクリプトの先頭コメント |
 | G1（組 B） | `ExternalInterop` という名前の公開アイテム（種類を問わない。再公開を含む）と、名前が `export_memory`・`import_memory`・`export_semaphore`・`import_semaphore` に完全一致する公開の関数・再公開が、`ext-interop` を外した組に 1 件も無いこと。組 A では `ExternalInterop` の数を `external_interop_items` として数えるだけで、合否に使わない | `make test-public-api-webgpu-check` |
 | G2（組 A・B） | 公開の `ImportedSemaphoreHandle` の定義（再公開・variant・field・関数は数えない）は core の文書に 1 件までで、完全なパスが `fandhe_silicon_core::execution::ImportedSemaphoreHandle`。core 以外の文書にある・2 件以上・execution の外は違反。0 件は違反にせず、`semaphore_handle_defined=0` で示す | 同上 |
 | G3（組 A・B） | 名前を `_` で区切って小文字にした語に `submit` を含む公開の関数・メソッドのうち、`wait` という名前の引数を持つものは、その型が共有参照の slice で、要素が G2 と同じパスの型であること。違反は `not-shared-slice`・`not-semaphore-handle`・`outside-execution`。`wait` を持たない submit 系は `submit_functions` に数えるだけ | 同上 |
@@ -147,3 +147,17 @@
 | 実物の rustdoc の JSON で、`ext-interop` の裏の拡張 trait は 0 件、裏から出す・操作名の自由関数を足すと落ちる | `real_interop_gated`・`real_interop_open`・`real_interop_op_fn` |
 | 実物で、`execution` の型と `&[..]` の `submit`・`submit_render` は通り、型の置き場や `wait` の形が違うと落ちる | `real_submit_ok`・`real_handle_root`・`real_handle_contract`・`real_wait_vec`・`real_wait_mut`・`real_wait_u32`・`real_submit_nowait` |
 | 2 回目の JSON を作る段だけの失敗、2 回目だけ contract の文書が出ない場合は終了コード 2 | `real_second_emit_fail`・`real_second_core_only` |
+
+## CI への組み込みと完了の条件の確かめ（6/6）（TASK-241）
+
+記録の正は private spec 側の TASK-241（ポインタのみ）。本リポの事実として確かめられること。
+
+| 確かめること | 事実 | 確かめ方 |
+| ------------ | ---- | -------- |
+| CI に組み込まれている | CI の `deny` ジョブが `make public-api-webgpu-check` と `make test-public-api-webgpu-check` を呼ぶ（`continue-on-error` なし） | `grep -n webgpu .github/workflows/ci.yml`・`make ci-frame-check` |
+| 実物のリポジトリで合格する | 引数なしで終了コード 0 になり、`scanned:`・`record:`・`ok:` が出る（件数の値は時点で変わるので書かない） | `make public-api-webgpu-check` |
+| (1) の違反を 1 件足すと落ちる | 一時 workspace の実物の rustdoc の JSON で終了コード 1 | `real_contract_fn`・`real_core_fn`・`real_method`・`real_reexport` |
+| (2) の違反を 1 件足すと落ちる | 同上 | `real_pi_no_attr`・`real_pi_no_wgsl`・`real_pi_dup`・`real_pi_missing`・`real_pipeline_bytes`・`real_pipeline_method` |
+| (3) の違反を 1 件足すと落ちる | 同上 | `real_interop_open`・`real_interop_op_fn`・`real_handle_root`・`real_handle_contract`・`real_wait_vec`・`real_wait_mut`・`real_wait_u32` |
+
+確かめ方: `make test-public-api-webgpu-check`（`failed=0`）。

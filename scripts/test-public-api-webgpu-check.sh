@@ -13,7 +13,7 @@
 #   〔feature ext-interop の裏の拡張 trait は 0・裏から出すと落ちること、execution の型と submit 系の wait の形、
 #   2 回目の JSON を作る段だけ失敗させる差し替え〕で通す。
 #   ネットワーク不要・リポジトリを変更しない。
-# 呼び出し元: `make test-public-api-webgpu-check`（直接実行も可。CI のジョブからは呼ばず手元で流す）。
+# 呼び出し元: `make test-public-api-webgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。
 #   前提: python3・cargo・git（無ければ失敗。skip しない）。
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う（終了コードだけでは別の理由の失敗を見逃す）。
 # 終了コード 2 のケースは、締めの `ok:`・`record:` を出していないことも必ず見る（失敗を成功扱いにしない）。
