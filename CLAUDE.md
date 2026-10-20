@@ -70,7 +70,7 @@ fandhe-silicon/
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
 ├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-233）
 ├── docs/contract-feature-check.md  # default feature とテスト・診断専用 feature の検査の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）（TASK-226）
-├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）（TASK-231）
+├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）（TASK-231）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）

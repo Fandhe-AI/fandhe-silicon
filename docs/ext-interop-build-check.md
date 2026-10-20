@@ -36,7 +36,7 @@
 | 1/4 | 現状と前提の確認 | #7364 |
 | 2/4 | 実装 | #7365 |
 | 3/4 | テスト | #7366 |
-| 4/4 | 確かめ | #7367 |
+| 4/4 | 完了の条件の確かめと 3 構成の結果の記録 | #7367 |
 
 親は #1152。後の段で足す振る舞いは、その PR のコードと公開テストが示し、その PR で本書に節を足す。
 
@@ -92,3 +92,36 @@
 - `cargo test -p fandhe-silicon-contract --test feature_default_scope`
 
 確かめた base は `732aee8`、`docs/spec` の gitlink は `f603cba`。
+
+## 完了の条件の確かめと 3 構成の結果の記録（4/4）（TASK-231）
+
+4/4（#7367）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-231。BUILD-14）。結果は GPU の実機なしで、末尾の base で実行した値。コード・設定・依存は変えていない。
+
+| 成果物 | 本書の置き場 |
+| ------ | ------------ |
+| feature の組のビルドの試験（CI） | 「実装（2/4）」「テスト（3/4）」の節 |
+| 結果の記録 | 本節 |
+
+### 確かめ
+
+件数は、`cargo test` の `test result:` 行（試験の binary ごと・doctest を含む 13 行）の passed を足した合計。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 両方の組（BUILD-4 の行） | `cargo build`・`cargo clippy --all-targets -- -D warnings`・`cargo test`（いずれも `-p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops,backend-vulkan,backend-cuda,graphics,ext-interop`） | 3 コマンドとも終了コード 0。clippy の警告 0。test は 13 行・56 件成功・0 件失敗・0 件 ignored |
+| A2 | Vulkan のみ | 同じ 3 コマンドを `--features backend-vulkan,ext-interop` で | 3 コマンドとも終了コード 0。test は 13 行・55 件成功・0 件失敗・0 件 ignored |
+| A3 | CUDA のみ | 同じ 3 コマンドを `--features backend-cuda,ext-interop` で | 3 コマンドとも終了コード 0。test は 13 行・55 件成功・0 件失敗・0 件 ignored |
+| A4 | 組の行を固定する試験・本番の組の照合 | `cargo test -p fandhe-silicon-contract --test ext_interop_build_sets`、`--test feature_default_scope`。A1〜A3 の `cargo test` の出力に `feature_gate_enabled` の `ext_interop_gate_is_visible` が `ok` で出ること | 前者 9 件・後者 15 件成功。`ext_interop_gate_is_visible` は A1〜A3 のいずれも `ok` で 1 件 |
+| B1 | 3 構成の行が流れる場所にある | `grep -n 'ext-interop' scripts/build-profiles.sh` | `NATIVE_SETS` に BUILD-4 の行（33 行目）、単独の行（43 行目）、Vulkan のみ（44 行目）、CUDA のみ（45 行目）の 4 行が出る。`WASM_SETS` には出ない |
+| B2 | 背後実装の中の `ext-interop` の条件付きコンパイル | `grep -rn 'ext-interop\|ext_interop' crates/contract/src/backend_vulkan.rs crates/contract/src/backend_vulkan crates/contract/src/backend_cuda.rs` | 0 件。相互運用の実装が無いので条件付きコンパイルの箇所は無い。門で囲むのは相互運用の実装を持つ PR で、その PR で本書に節を足す。本項は「無いこと」の記録で、囲んだ結果の確かめではない |
+| C1 | 依存 | `sed -n '/\[dependencies\]/,/^$/p' crates/contract/Cargo.toml`、`grep -c '^\[\[approval' deps-approved.toml` | 契約の crate の依存は `fandhe-silicon-core`（path）だけ。`[[approval]]` は 0 件のまま |
+| E1 | main の CI | main の push の `ci.yml` の run `39448637386`（対象 `1b70c789274badbe031219170aa0e96fc0ca3e43`）の `verify` ジョブ `118717187826` の `make build-profiles` の step のログ | run・`verify` ジョブとも success。ログに BUILD-4 の組・`backend-vulkan,ext-interop`・`backend-cuda,ext-interop`（と単独の `ext-interop`）それぞれの build / clippy / test の行が計 12 行ある |
+| D | 品質ゲート | `make check`・`make verify`・`make deny` | 下の「品質ゲート」に記録 |
+
+### 品質ゲート
+
+`make check`・`make verify`・`make deny` はいずれも終了コード 0（本節を足した状態で実行）。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-231）。
+
+確かめた base は `1b70c789274badbe031219170aa0e96fc0ca3e43`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
