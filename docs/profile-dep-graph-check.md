@@ -185,7 +185,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | 2/6 Graphics（Vulkan）の組の検査 | #7359 |
 | 3/6 Graphics と相互運用の組の検査 | #7360 |
 | 4/6 選んでいない SDK と比較基準の差の検査 | #7361 |
-| 5/6 | #7362 |
+| 5/6 試験 | #7362 |
 | 6/6 | #7363 |
 
 後の段で足す振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [spec-confidentiality](../.claude/rules/spec-confidentiality.md) と [makefile](../.claude/rules/makefile.md)。
@@ -326,3 +326,33 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-5）の 4/6（#7
 | `baseline-count:` / `diff:` | 3 行すべて `n=0` / 4 行すべて `diff=0` |
 
 確かめた base は `1249d2eab8a69df0c1b2b4182a27e27fc8736f67`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 試験（5/6）（TASK-229）
+
+TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）の 5/6（#7362）で、回帰テストを足した。完了の条件の確かめと件数の記録は後の段の PR が足す。検査の本体は変えていない。
+
+### 足したもの
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| プロファイルと判定の名前の表 | 許す SDK・ローダの期待は試験の `allowed_for` に独立に持ち、検査の定数（`*_ALLOWED_SDK`）から導かない。定義が黙って変わると落ちる | `grep -n -A8 'allowed_for()' scripts/test-profile-dep-graph-check.sh` |
+| 比較基準の端のケース | 同じ SDK の 2 版・一部だけ・数えない名前だけ・Graphics の 2 組の差・違反があっても記録する | 下の表 |
+| 全 backend の一時 workspace | `backend-vulkan` の裏に `ash` と `libloading` が並ぶ組 | 下の表 |
+
+### 対応する回帰テスト
+
+`make test-profile-dep-graph-check` と `make test-profile-dep-graph-positive-control`。
+
+| 区分 | ケース | 確かめること |
+| ---- | ------ | ------------ |
+| 合成の tree | `matrix_<プロファイル>_<名前>` | 4 プロファイル × 7 つの名前を 1 件ずつ載せ、許す名前は合格・数えず、それ以外は違反（終了コード 1）で `count:` に 1 件 |
+| 合成の tree | `matrix_<プロファイル>_count_lines`・`matrix_<プロファイル>_all_sdk` | `count:` の行数が 7・6・5・4、SDK・ローダ 4 つを載せたときの判定数が 4・3・2・1 で、許す名前が `violation:` に出ない |
+| 合成の tree | `bl_two_versions`・`bl_partial`・`bl_not_sdk` | 比較基準の 2 版は一意の (名前, 版) で数える・一部だけ載る・数える SDK に入らない名前は数えない |
+| 合成の tree | `bl_diff_graphics_vulkan`・`bl_diff_graphics_interop`・`bl_violation_still_records` | Graphics の 2 組の `diff:`、違反があっても `baseline:`・`diff:` を出し終了コードは 1 のまま |
+| 一時 workspace | `real_all_backends` | 全 backend の裏に SDK があるとき 4 プロファイルが合格し、`libloading` は比較基準にも `count:` にも出ない |
+| 実物のリポジトリ | `repo_real_count_lines_<プロファイル>`・`repo_real_diff_line_<プロファイル>` | 行の数と接頭辞だけを見る（SDK の依存が後で入っても値は固定しない） |
+| 陽性対照 | `baseline_lines_are_not_read`・`four_profiles` | 比較基準の行が出ても読み違えない・4 プロファイルでも検出する（偽の内側の `FAKE_BASELINE_LINES`） |
+
+### 実測
+
+`make test-profile-dep-graph-check` は `passed: 241`・`failed: 0`、`make test-profile-dep-graph-positive-control` は `passed: 25`・`failed: 0`。確かめた base は `32a9cb4`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。

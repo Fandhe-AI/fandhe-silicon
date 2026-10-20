@@ -83,6 +83,15 @@ extra=""
 if [ "${1:-}" = "--extra-judged-crate" ]; then
   extra="$2"
 fi
+# 4/6 で足した比較基準の行。陽性対照の読み方を乱さないことを確かめるため、足した名前を含む形で出す。
+baseline_lines() {
+  [ "${FAKE_BASELINE_LINES:-}" = "1" ] || return 0
+  echo "baseline: commit=- profile=all-features crates_total=2 sdk_total=0"
+  echo "baseline-count: profile=all-features crate=${extra:-ash} n=1"
+  for q in ${profiles}; do
+    echo "diff: profile=${q} baseline=all-features sdk_baseline=0 sdk_profile=0 diff=0"
+  done
+}
 if [ -z "${extra}" ]; then
   profiles="${FAKE_BASE_PROFILES:-cpu-only compute-only-metal}"
   for p in ${profiles}; do
@@ -90,6 +99,7 @@ if [ -z "${extra}" ]; then
     echo "record: commit=- profile=${p} crates_total=2 judged_total=${FAKE_BASE_TOTAL:-0}"
     echo "count: profile=${p} crate=ash n=${FAKE_BASE_TOTAL:-0}"
   done
+  baseline_lines
   exit "${FAKE_BASE_RC:-0}"
 fi
 profiles="${FAKE_EXTRA_PROFILES:-cpu-only compute-only-metal}"
@@ -123,6 +133,7 @@ for p in ${profiles}; do
     echo "violation: profile=${p} crate=${extra} version=0.0.0" >&2
   fi
 done
+baseline_lines
 if [ -n "${FAKE_VIOLATION_OTHER:-}" ]; then
   echo "violation: profile=cpu-only crate=ash version=0.38.0" >&2
 fi
@@ -150,6 +161,22 @@ judge "detected_counts_are_not_compared_to_a_fixed_value" 0 "o:profile=cpu-only 
 
 run_fake FAKE_BASE_PROFILES=cpu-only FAKE_EXTRA_PROFILES=cpu-only
 judge "single_profile" 0 "o:profile=cpu-only crate=fandhe-silicon-core n=1 result=detected" "!compute-only-metal"
+
+run_fake FAKE_BASELINE_LINES=1
+judge "baseline_lines_are_not_read" 0 \
+  "o:positive-control: profile=cpu-only crate=fandhe-silicon-core n=1 result=detected" \
+  "o:positive-control: profile=compute-only-metal crate=fandhe-silicon-core n=1 result=detected" \
+  "o:ok: positive control detected" "!positive-control-failed" "!${work}"
+
+run_fake FAKE_BASELINE_LINES=1 \
+  "FAKE_BASE_PROFILES=cpu-only compute-only-metal graphics-vulkan graphics-interop" \
+  "FAKE_EXTRA_PROFILES=cpu-only compute-only-metal graphics-vulkan graphics-interop"
+judge "four_profiles" 0 \
+  "o:positive-control: profile=cpu-only crate=fandhe-silicon-core n=1 result=detected" \
+  "o:positive-control: profile=compute-only-metal crate=fandhe-silicon-core n=1 result=detected" \
+  "o:positive-control: profile=graphics-vulkan crate=fandhe-silicon-core n=1 result=detected" \
+  "o:positive-control: profile=graphics-interop crate=fandhe-silicon-core n=1 result=detected" \
+  "o:ok: positive control detected" "!positive-control-failed" "!${work}"
 
 # ---- 失敗（1）: 足しても落ちない ----
 run_fake FAKE_N_CPU=0 FAKE_N_CM=0 FAKE_EXTRA_RC=0
