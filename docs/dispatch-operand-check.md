@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2（BIND-40・BIND-57 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -282,3 +282,35 @@ TASK-424（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-40・BIND-57）�
 | 2/2 | #4752 |
 
 確かめた base は `c0fb390`。
+
+## 完了の条件の確かめ（2/2）（TASK-424。以下は当時の base の記録）
+
+2/2（#4752）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-424。関連: BIND-40・BIND-57）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| G1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 20 passed / 0 failed / 0 ignored |
+| G2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 22 passed / 0 failed / 0 ignored |
+| G3 | 統合テストの関数の数 | `grep -c -E '^fn c7_' crates/core/tests/execution_dispatch_check.rs` | 5 |
+| G4 | TASK-424 で実装を変えていない | 1/2 の PR 自身の差分（`b77e213` と親の間）の `crates/core/src` | 空 |
+| G5 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
+| G6 | base の CI | `gh run list`（base の push の run、ID 39462928113） | 記録時点は in_progress。直前の commit `0f5507d` の run（ID 39461789062）は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+
+ビヘイビア ID と試験の対応（関数名）:
+
+| ID | 試験 |
+| -- | ---- |
+| BIND-40 | `c7_undeclared_slot_in_consts_is_rejected` |
+| BIND-57 | `c7_const_slot_overlapping_binding_slot_is_rejected` |
+
+試験が照合するのは `Ok(())` と、`InvalidArgument` の variant・文言の先頭 `C7` まで。観測した文言の全体は上の「定数の C7 の試験（1/2）」の節にある。
+
+範囲の外: 文言の全体の照合（TASK-473）、配列を持つ宣言の数え方（TASK-422・TASK-1146）、`declared` 内の `slot` の重複の扱い（TASK-426）、背後実装の入口を通した確かめ（TASK-494・TASK-495）は本書の範囲の外。
+
+### 再実行の契機
+
+- `dispatch_check.rs`・`execution_dispatch_check.rs`・`execution.rs` の `OperandSpec`、`OperandBinding`／`OperandConstant` の形を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `b77e2133f7eebb58c25d45f6271a782c4cd5543a`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
