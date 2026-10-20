@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# public-api-webgpu-check.sh の回帰テスト（spec TASK-241・BUILD-29・BUILD-31 のポインタ。親 Issue #465 の 3/6 と 4/6。
-# 内容の (1) の検査の試験と、内容の (2)〔パイプライン生成の入力の形〕の試験）。
+# public-api-webgpu-check.sh の回帰テスト（spec TASK-241・BUILD-29・BUILD-31・BUILD-32 のポインタ。親 Issue #465 の 3/6・4/6・5/6。
+# 内容の (1) の検査の試験と、内容の (2)〔パイプライン生成の入力の形〕の試験と、内容の (3)〔拡張の trait の閉じ込めと submit 系の wait の形〕の試験）。
 # 一時ディレクトリに、ダミーの語の一覧と合成 rustdoc JSON を作って検査へ渡し、終了コード・標準出力・標準エラーの文言を確かめる。
 #   前半は --json の経路（合成 JSON。cargo・git を呼ばない）。実物の語の一覧が書式どおり読めることと、
 #   その各語が当たることも、設定から実行時に入力を作って確かめる（語はテストに書き写さない）。
@@ -9,6 +9,9 @@
 #   （feature native-blocking-wait を外した構成・commit の記録・違反を 1 件足すと落ちること・終了コード 2 の経路）を通す。
 #   (2) は合成 JSON〔core の文書の形・生成の関数の入力・形の崩れ〕と、一時 workspace の core に PipelineInput を置いた実物
 #   〔印を外す・Wgsl を外す・2 つ目の定義・生成の関数を足すと落ちること〕で通す。生成の語は検査本体の定数から実行時に読む。
+#   (3) は合成 JSON〔組 A は --json、組 B は --interop-json。規則 G1〜G3 の合格・違反・形の崩れ〕と、一時 workspace の実物
+#   〔feature ext-interop の裏の拡張 trait は 0・裏から出すと落ちること、execution の型と submit 系の wait の形、
+#   2 回目の JSON を作る段だけ失敗させる差し替え〕で通す。
 #   ネットワーク不要・リポジトリを変更しない。
 # 呼び出し元: `make test-public-api-webgpu-check`（直接実行も可。CI のジョブからは呼ばず手元で流す）。
 #   前提: python3・cargo・git（無ければ失敗。skip しない）。
@@ -286,6 +289,121 @@ put("bad_nosig", core_base({"5": item(5, "create_pipeline", {"function": {}})}))
 d = core_base({"5": pfn(5, "create_pipeline", [])})
 d["index"]["5"]["inner"]["function"]["sig"]["inputs"] = "x"
 put("bad_inputs", d)
+# ---- (3): 拡張の trait の閉じ込めと submit 系の wait の形 ----
+SEM = "ImportedSemaphoreHandle"
+EXEC_PATH = ["fandhe_silicon_core", "execution", SEM]
+
+
+def with_handle(d, loc, iid="20", vis="public"):
+    d["index"][iid] = item(int(iid), SEM, {"struct": {}}, vis=vis)
+    d["paths"][iid] = {"crate_id": 0, "path": loc, "kind": "struct"}
+    return d
+
+
+def hrp(iid=20, path=SEM):
+    return {"resolved_path": {"path": path, "id": iid, "args": None}}
+
+
+def sref(elem, mut=False):
+    return {"borrowed_ref": {"lifetime": None, "is_mutable": mut, "type": {"slice": elem}}}
+
+
+def sfn(iid, name, params, vis="public"):
+    sig = {"inputs": [[n, t] for n, t in params], "output": None, "is_c_variadic": False}
+    return item(iid, name, {"function": {"sig": sig, "generics": {"params": [], "where_predicates": []}}}, vis=vis)
+
+
+def wdoc(params, name="submit", vis="public", loc=None):
+    d = with_handle(core_base(), loc or EXEC_PATH)
+    d["index"]["30"] = sfn(30, name, params, vis=vis)
+    return d
+
+
+GOOD_WAIT = [("self", {"generic": "Self"}), ("wait", sref(hrp()))]
+put("i_ok", wdoc(GOOD_WAIT))
+put("i_ok_render", wdoc(GOOD_WAIT, name="submit_render"))
+put("i_ok_method", wdoc(GOOD_WAIT, name="Submit_Ex", vis="default"))
+d = wdoc(GOOD_WAIT)
+d["index"]["31"] = sfn(31, "submit_render", GOOD_WAIT)
+put("i_ok_two", d)
+put("i_mut", wdoc([("wait", sref(hrp(), mut=True))]))
+put("i_vec", wdoc([("wait", {"resolved_path": {"path": "Vec", "id": 5, "args": None}})]))
+put("i_ref_handle", wdoc([("wait", {"borrowed_ref": {"lifetime": None, "is_mutable": False, "type": hrp()}})]))
+put("i_array", wdoc([("wait", {"array": {"type": hrp(), "len": "2"}})]))
+put("i_u32", wdoc([("wait", sref({"primitive": "u32"}))]))
+put("i_other_name", wdoc([("wait", sref(hrp(20, "Other")))]))
+d = wdoc([("wait", sref(hrp(21)))])
+d["paths"]["21"] = {"crate_id": 0, "path": ["fandhe_silicon_core", "other", SEM], "kind": "struct"}
+put("i_outside", d)
+d = wdoc([("wait", sref(hrp(21)))])
+d["paths"]["21"] = {"crate_id": 0, "path": ["fandhe_silicon_core", SEM], "kind": "struct"}
+put("i_outside_root", d)
+put("i_nowait", wdoc([("self", {"generic": "Self"}), ("waits", {"primitive": "u32"})]))
+put("i_not_submit", wdoc([("wait", {"primitive": "u32"})], name="resubmit"))
+put("i_private_submit", wdoc([("wait", {"primitive": "u32"})], vis="crate"))
+d = with_handle(core_base(), EXEC_PATH)
+d["index"]["30"] = item(30, "submit", {"function": {}})
+put("i_bad_nosig", d)
+d = wdoc([])
+d["index"]["30"]["inner"]["function"]["sig"]["inputs"] = "x"
+put("i_bad_inputs", d)
+d = wdoc([])
+d["index"]["30"]["inner"]["function"]["sig"]["inputs"] = [["wait"]]
+put("i_bad_entry", d)
+put("i_bad_waittype", wdoc([("wait", "x")]))
+put("i_bad_waitid", wdoc([("wait", sref(hrp(99)))]))
+d = wdoc([("wait", sref(hrp(21)))])
+put("i_bad_waitid_nopaths", d)
+
+# 定義 (G2)
+put("h_ok", with_handle(core_base(), EXEC_PATH))
+put("h_root", with_handle(core_base(), ["fandhe_silicon_core", SEM]))
+put("h_other_mod", with_handle(core_base(), ["fandhe_silicon_core", "other", SEM]))
+put("h_dummy", with_handle(base(), ["dummy", SEM]))
+d = with_handle(core_base(), EXEC_PATH)
+with_handle(d, EXEC_PATH, iid="21")
+put("h_dup", d)
+d = core_base()
+d["index"]["20"] = item(20, SEM, {"struct": {}})
+put("h_nopaths", d)
+d = core_base()
+d["index"]["20"] = item(20, SEM, {"struct": {}})
+d["paths"]["20"] = {"crate_id": 0, "path": "x", "kind": "struct"}
+put("h_badpath", d)
+# 再公開・variant・関数は定義に数えない。
+d = core_base()
+d["index"]["20"] = item(20, SEM, {"use": {"name": SEM, "source": "x", "id": None, "is_glob": False}})
+d["index"]["21"] = item(21, SEM, {"variant": {}}, vis="default")
+d["index"]["22"] = item(22, SEM, {"function": {}})
+put("h_not_defs", d)
+
+# 拡張の trait (G1)
+EI = "ExternalInterop"
+d = core_base()
+d["index"]["30"] = item(30, EI, {"trait": {}})
+put("e_trait", d)
+d = core_base()
+d["index"]["30"] = item(30, EI, {"use": {"name": EI, "source": "x", "id": None, "is_glob": False}})
+put("e_use", d)
+d = core_base()
+d["index"]["30"] = item(30, EI, {"trait": {}}, vis="crate")
+put("e_private", d)
+for op in ("export_memory", "import_memory", "export_semaphore", "import_semaphore"):
+    d = core_base()
+    d["index"]["30"] = item(30, op, {"function": {}}, vis="default")
+    put("o_" + op, d)
+d = core_base()
+d["index"]["30"] = item(30, "export_memory", {"use": {"name": "export_memory", "source": "x", "id": None, "is_glob": False}})
+put("o_use", d)
+d = core_base()
+d["index"]["30"] = item(30, "export_memory_x", {"function": {}})
+d["index"]["31"] = item(31, "ExportMemory", {"function": {}})
+d["index"]["32"] = item(32, "export_memory", {"struct": {}})
+put("o_partial", d)
+d = core_base()
+d["index"]["30"] = item(30, "export_memory", {"function": {}}, crate_id=1)
+put("o_external", d)
+
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
 PY
@@ -435,6 +553,76 @@ check "解決できない variant の id" 2 - "unresolved variant id on Pipeline
 check "variant でないアイテムを指す id" 2 - "unresolved variant id on PipelineInput" --config "${C}" --json "$(J bad_variant_kind)"
 check "名前が当たった関数に sig が無い" 2 - "pipeline-creating function lacks a valid sig" --config "${C}" --json "$(J bad_nosig)"
 check "sig の inputs が並びでない" 2 - "pipeline-creating function lacks a valid sig" --config "${C}" --json "$(J bad_inputs)"
+
+# ---- (3) の検査（--json / --interop-json の経路）----
+check "--interop-json が無ければ G1 をかけない（record に明示）" 0 "interop_documents=0 ext_interop_checked=0" - --config "${C}" --json "$(J core_ok)"
+check "--interop-json があれば検査済み" 0 "interop_documents=1 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=0 submit_wait_params_total=0 interop_violations_total=0" - \
+    --config "${C}" --json "$(J core_ok)" --interop-json "$(J core_ok)"
+check "(3) 合格の ok の行" 0 "no blocking-wait names, pipeline input ok, ext-interop ok" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J core_ok)"
+check "組 A の scanned に (3) の欄" 0 "external_interop_items=0 semaphore_handle_defs=0 submit_functions=0 submit_wait_params=0 interop_violations=0" - \
+    --config "${C}" --json "$(J core_ok)"
+check "組 B の scanned は (1)(2) の欄を持たない" 0 "scanned: crate=fandhe_silicon_core features=- format_version=61 public_items=4 external_interop_items=0 interop_op_names=0 semaphore_handle_defs=0 submit_functions=0 submit_wait_params=0 interop_violations=0" - \
+    --config "${C}" --json "$(J core_ok)" --interop-json "$(J core_ok)"
+check "組 A の外した feature の裏でない拡張 trait は数えるだけ" 0 "external_interop_items_total=1 " - --config "${C}" --json "$(J e_trait)"
+check "組 A の拡張 trait は違反にならない" 0 "external_interop_items=1 semaphore_handle_defs=0 submit_functions=0 submit_wait_params=0 interop_violations=0" - --config "${C}" --json "$(J e_trait)"
+check "組 B の非公開の拡張 trait は当てない" 0 "external_interop_items=0" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J e_private)"
+check "組 B の他 crate の操作名は当てない" 0 "interop_op_names=0" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J o_external)"
+check "操作名は完全一致だけ（部分一致・大文字・関数でない名前は当てない）" 0 "interop_op_names=0" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J o_partial)"
+check "再公開・variant・関数は定義に数えない" 0 "semaphore_handle_defined=0" - --config "${C}" --json "$(J h_not_defs)"
+check "組 B の core の定義が execution にある" 0 "semaphore_handle_defs=1 submit_functions=0" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J h_ok)"
+check "定義が core の execution にある" 0 "semaphore_handle_defined=1 " - --config "${C}" --json "$(J h_ok)"
+check "wait が &[ImportedSemaphoreHandle]" 0 "submit_functions=1 submit_wait_params=1 interop_violations=0" - --config "${C}" --json "$(J i_ok)"
+check "submit_render も対象" 0 "submit_wait_params_total=1 " - --config "${C}" --json "$(J i_ok_render)"
+check "メソッド（default）・大文字の名前も対象" 0 "submit_wait_params_total=1 " - --config "${C}" --json "$(J i_ok_method)"
+check "submit 系が 2 つ" 0 "submit_functions=2 submit_wait_params=2" - --config "${C}" --json "$(J i_ok_two)"
+check "wait を持たない submit は数えるだけ" 0 "submit_functions=1 submit_wait_params=0 interop_violations=0" - --config "${C}" --json "$(J i_nowait)"
+check "submit の語を含まない名前は数えない" 0 "submit_functions=0 submit_wait_params=0" - --config "${C}" --json "$(J i_not_submit)"
+check "非公開の submit は数えない" 0 "submit_functions=0" - --config "${C}" --json "$(J i_private_submit)"
+check "組 B でも wait の形をかける" 0 "submit_wait_params=1 interop_violations=0" - --config "${C}" --json "$(J core_ok)" --interop-json "$(J i_ok)"
+
+check "組 B の拡張 trait は違反" 1 "interop_violations_total=1" \
+    "violation: crate=fandhe_silicon_core features=- item=ExternalInterop kind=trait check=ext-interop reason=visible-without-feature" \
+    --config "${C}" --json "$(J core_ok)" --interop-json "$(J e_trait)"
+check "組 B の拡張 trait の再公開は違反" 1 - "item=ExternalInterop kind=use check=ext-interop reason=visible-without-feature" \
+    --config "${C}" --json "$(J core_ok)" --interop-json "$(J e_use)"
+for op in export_memory import_memory export_semaphore import_semaphore; do
+    check "組 B の操作名は違反: ${op}" 1 - "item=${op} kind=function check=ext-interop reason=interop-op-without-feature" \
+        --config "${C}" --json "$(J core_ok)" --interop-json "$(J "o_${op}")"
+done
+check "組 B の操作名の再公開は違反" 1 - "kind=use check=ext-interop reason=interop-op-without-feature" \
+    --config "${C}" --json "$(J core_ok)" --interop-json "$(J o_use)"
+check "違反のとき ok を出さない" 1 "record: " "FAILED: 1 item(s)" --config "${C}" --json "$(J core_ok)" --interop-json "$(J e_trait)"
+check "core の外の定義" 1 - "violation: crate=dummy features=- check=semaphore-handle reason=outside-core" --config "${C}" --json "$(J h_dummy)"
+check "定義が core の直下" 1 - "violation: crate=fandhe_silicon_core features=- check=semaphore-handle reason=outside-execution" --config "${C}" --json "$(J h_root)"
+check "定義が execution 以外のモジュール" 1 - "check=semaphore-handle reason=outside-execution" --config "${C}" --json "$(J h_other_mod)"
+check "定義が 2 件" 1 - "check=semaphore-handle reason=duplicate" --config "${C}" --json "$(J h_dup)"
+check "組 B の定義の違反" 1 - "features=- check=semaphore-handle reason=outside-execution" --config "${C}" --json "$(J core_ok)" --interop-json "$(J h_root)"
+check "wait が &mut [..]" 1 - "violation: crate=fandhe_silicon_core features=- item=submit kind=function check=submit-wait reason=not-shared-slice" --config "${C}" --json "$(J i_mut)"
+check "wait が Vec" 1 - "item=submit kind=function check=submit-wait reason=not-shared-slice" --config "${C}" --json "$(J i_vec)"
+check "wait が &H" 1 - "check=submit-wait reason=not-shared-slice" --config "${C}" --json "$(J i_ref_handle)"
+check "wait が配列" 1 - "check=submit-wait reason=not-shared-slice" --config "${C}" --json "$(J i_array)"
+check "wait が &[u32]" 1 - "check=submit-wait reason=not-semaphore-handle" --config "${C}" --json "$(J i_u32)"
+check "wait の要素が別の名前の型" 1 - "check=submit-wait reason=not-semaphore-handle" --config "${C}" --json "$(J i_other_name)"
+check "wait の要素が execution の外" 1 - "check=submit-wait reason=outside-execution" --config "${C}" --json "$(J i_outside)"
+check "wait の要素が core の直下" 1 - "check=submit-wait reason=outside-execution" --config "${C}" --json "$(J i_outside_root)"
+check "組 B の wait の違反" 1 - "features=- item=submit kind=function check=submit-wait reason=not-shared-slice" --config "${C}" --json "$(J core_ok)" --interop-json "$(J i_mut)"
+check "(1)(2)(3) の違反が FAILED に合計される" 1 - "FAILED: 3 item(s)" --config "${C}" --json "$(J fn_blocking_and_pipeline)" --interop-json "$(J e_trait)"
+check "(1) の違反の行の形は変わらない" 1 - "violation: crate=fandhe_silicon_core features=- item=zzblock_fn kind=function word=zzblock" \
+    --config "${C}" --json "$(J fn_blocking_and_pipeline)" --interop-json "$(J e_trait)"
+
+check "--interop-json の単独指定" 2 - "--interop-json requires --json" --config "${C}" --interop-json "$(J core_ok)"
+check "--interop-json の JSON が無い" 2 - "cannot read JSON input" --config "${C}" --json "$(J core_ok)" --interop-json "${work}/none.json"
+check "--interop-json の形の崩れ" 2 - "missing or malformed 'index'" --config "${C}" --json "$(J core_ok)" --interop-json "$(J bad_no_index)"
+check "定義の paths が無い" 2 - "unresolved path for ImportedSemaphoreHandle" --config "${C}" --json "$(J h_nopaths)"
+check "定義の path が並びでない" 2 - "unresolved path for ImportedSemaphoreHandle" --config "${C}" --json "$(J h_badpath)"
+check "組 B の定義の paths が無い" 2 - "unresolved path for ImportedSemaphoreHandle" --config "${C}" --json "$(J core_ok)" --interop-json "$(J h_nopaths)"
+check "名前が当たった submit に sig が無い" 2 - "submit function lacks a valid sig" --config "${C}" --json "$(J i_bad_nosig)"
+check "submit の inputs が並びでない" 2 - "submit function lacks a valid sig" --config "${C}" --json "$(J i_bad_inputs)"
+check "submit の引数の要素が組でない" 2 - "submit function lacks a valid sig" --config "${C}" --json "$(J i_bad_entry)"
+check "wait の型が object でない" 2 - "submit function lacks a valid sig" --config "${C}" --json "$(J i_bad_waittype)"
+check "wait の要素の id が引けない" 2 - "unresolved wait parameter type" --config "${C}" --json "$(J i_bad_waitid)"
+check "wait の要素の id が paths に無い" 2 - "unresolved wait parameter type" --config "${C}" --json "$(J i_bad_waitid_nopaths)"
+check "組 B の wait の要素の id が引けない" 2 - "unresolved wait parameter type" --config "${C}" --json "$(J core_ok)" --interop-json "$(J i_bad_waitid)"
 
 # 実物の語の一覧が書式どおり読める。
 check "実物の設定が書式どおり読める" 0 "ok: 1 public API document(s)" - --config "${REAL_CONF}" --json "$(J clean)"
@@ -621,7 +809,10 @@ if [[ -n "${feature_names}" && -n "${first_word}" ]] \
     has_in real_clean_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=without-native-blocking-wait '
     not_in real_clean_no_violation "${ERR_F}" 'violation'
     has_in real_clean_pipeline_input "${OUT_F}" 'pipeline_input_checked=1 pipeline_input_violations_total=0'
-    has_in real_clean_ok_pipeline "${OUT_F}" 'pipeline input ok$'
+    has_in real_clean_ok_pipeline "${OUT_F}" 'pipeline input ok, ext-interop ok$'
+    has_in real_clean_interop "${OUT_F}" 'interop_documents=2 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=0 '
+    has_in real_clean_b_core "${OUT_F}" '^scanned: crate=fandhe_silicon_core features=without-ext-interop '
+    has_in real_clean_b_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=without-ext-interop '
 
     # 陽性対照: 外した feature の裏にある語の名前の関数は、その feature を外した構成では 0 件で通る。
     libs "${CORE_OK}" "pub struct Own;
@@ -698,6 +889,96 @@ impl Own {
     pub fn create_pipeline(&self, bytes: &[u8]) -> u32 { bytes.len() as u32 }
 }"
     real real_pipeline_method 1 - "item=create_pipeline kind=function check=pipeline-create"
+
+    # ---- (3) の陽性対照（実物の rustdoc の JSON。外す feature ごとに 2 回 JSON を作る）----
+    EXEC_MOD='pub mod execution {
+    pub struct ImportedSemaphoreHandle;
+}'
+    CORE_EXEC="${CORE_OK}
+${EXEC_MOD}"
+    EXT_TRAIT='pub trait ExternalInterop {
+    fn export_memory(&self) {}
+}'
+    # (a) ext-interop の裏の拡張 trait は、その feature を外した組には出ないので 0 件で通り、組 A では数えられる。
+    libs "${CORE_OK}" "pub struct Own;
+#[cfg(feature = \"ext-interop\")]
+${EXT_TRAIT}"
+    real real_interop_gated 0 "ext_interop_checked=1" -
+    has_in real_interop_gated_counted "${OUT_F}" 'external_interop_items_total=[1-9]'
+    not_in real_interop_gated_no_violation "${ERR_F}" 'violation'
+    # (b) 裏から出す（cfg を外す）と、ext-interop を外した組で見えて落ちる。
+    libs "${CORE_OK}" "pub struct Own;
+${EXT_TRAIT}"
+    real real_interop_open 1 - "features=without-ext-interop item=ExternalInterop kind=trait check=ext-interop reason=visible-without-feature"
+    has_in real_interop_open_op "${ERR_F}" 'item=export_memory kind=function check=ext-interop reason=interop-op-without-feature'
+    not_in real_interop_open_no_ok "${OUT_F}" '^ok:'
+    # (c) 操作名の自由関数を core に置くと落ちる。
+    libs "${CORE_OK}
+pub fn import_semaphore() {}" 'pub struct Own;'
+    real real_interop_op_fn 1 - "violation: crate=fandhe_silicon_core features=without-ext-interop item=import_semaphore kind=function check=ext-interop"
+    # (d) execution の型と、それを &[..] で取る submit 系は通る（定義 1 件・wait 2 件）。
+    libs "${CORE_EXEC}" "pub struct Queue;
+impl Queue {
+    pub fn submit(&self, wait: &[fandhe_silicon_core::execution::ImportedSemaphoreHandle]) { let _ = wait; }
+    pub fn submit_render(&self, wait: &[fandhe_silicon_core::execution::ImportedSemaphoreHandle]) { let _ = wait; }
+}"
+    real real_submit_ok 0 "semaphore_handle_defined=1 submit_wait_params_total=2 interop_violations_total=0" -
+    not_in real_submit_ok_no_violation "${ERR_F}" 'violation'
+    # (e) 型が core の直下なら落ちる。contract に置いても落ちる。
+    libs "${CORE_OK}
+pub struct ImportedSemaphoreHandle;" 'pub struct Own;'
+    real real_handle_root 1 - "check=semaphore-handle reason=outside-execution"
+    libs "${CORE_OK}" 'pub struct ImportedSemaphoreHandle;'
+    real real_handle_contract 1 - "violation: crate=fandhe_silicon_contract features=without-native-blocking-wait check=semaphore-handle reason=outside-core"
+    # (f) wait の形が違えば落ちる。
+    libs "${CORE_EXEC}" "pub struct Queue;
+impl Queue {
+    pub fn submit(&self, wait: Vec<fandhe_silicon_core::execution::ImportedSemaphoreHandle>) { let _ = wait; }
+}"
+    real real_wait_vec 1 - "item=submit kind=function check=submit-wait reason=not-shared-slice"
+    libs "${CORE_EXEC}" "pub struct Queue;
+impl Queue {
+    pub fn submit(&self, wait: &mut [fandhe_silicon_core::execution::ImportedSemaphoreHandle]) { let _ = wait; }
+}"
+    real real_wait_mut 1 - "item=submit kind=function check=submit-wait reason=not-shared-slice"
+    libs "${CORE_EXEC}" "pub struct Queue;
+impl Queue {
+    pub fn submit(&self, wait: &[u32]) { let _ = wait; }
+}"
+    real real_wait_u32 1 - "item=submit kind=function check=submit-wait reason=not-semaphore-handle"
+    # wait を持たない submit は数えるだけで通る。
+    libs "${CORE_EXEC}" "pub struct Queue;
+impl Queue {
+    pub fn submit(&self) {}
+}"
+    real real_submit_nowait 0 "submit_wait_params_total=0" -
+
+    # (g) 2 回目（ext-interop を外す）の JSON を作る段だけ失敗させる。1 回目は写した本物へ渡す。
+    cp "${DIR}/public-api-check.sh" "${ws}/scripts/public-api-check.real.sh"
+    cat >"${ws}/scripts/public-api-check.sh" <<'SH'
+#!/usr/bin/env bash
+for a in "$@"; do
+    if [[ "$a" == "ext-interop" ]]; then exit 1; fi
+done
+exec bash "$(dirname "${BASH_SOURCE[0]}")/public-api-check.real.sh" "$@"
+SH
+    libs "${CORE_OK}" 'pub struct Own;'
+    real real_second_emit_fail 2 - "public-api-check.sh --emit-json failed"
+    # 2 回目だけ contract の文書が出ない構成も成功扱いにしない。
+    cat >"${ws}/scripts/public-api-check.sh" <<'SH'
+#!/usr/bin/env bash
+real="$(dirname "${BASH_SOURCE[0]}")/public-api-check.real.sh"
+for a in "$@"; do
+    if [[ "$a" == "ext-interop" ]]; then
+        bash "${real}" "$@" | grep -v fandhe-silicon-contract || true
+        exit 0
+    fi
+done
+exec bash "${real}" "$@"
+SH
+    real real_second_core_only 2 - "core and contract documents were not both emitted"
+    rm -f "${ws}/scripts/public-api-check.real.sh"
+    cp "${DIR}/public-api-check.sh" "${ws}/scripts/"
 
     libs 'this does not compile' 'pub struct Own;'
     real real_build_fail 2 - "public-api-check.sh --emit-json failed"

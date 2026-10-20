@@ -3,15 +3,18 @@
 # ブロッキング待ちの名前の公開アイテムが 0 件であることを、rustdoc の JSON から数えて確かめる
 # （spec TASK-241・BUILD-29・BUILD-11・BUILD-12 のポインタ。親 Issue #465 の 2/6。内容の (1)）。
 # あわせて、パイプライン生成の入力の形（spec BUILD-31 のポインタ。親 Issue #465 の 4/6。内容の (2)）も同じ JSON から確かめる。
+# さらに、拡張の trait の閉じ込めと submit 系の `wait` 引数の形（spec BUILD-32 のポインタ。親 Issue #465 の 5/6。内容の (3)）を確かめる。
 # 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI にはまだ組み込まない）。回帰テストは `make test-public-api-webgpu-check`
 # （`scripts/test-public-api-webgpu-check.sh`。合成 JSON と一時 workspace の実物の rustdoc の JSON を通す）。検査の枠（rustdoc の JSON を作る段）は
-# `scripts/public-api-check.sh --emit-json <dir> --without-feature native-blocking-wait` を呼んで共有し、
-# 抽出の実体と feature 列をここに持たない。
+# `scripts/public-api-check.sh --emit-json <dir> --without-feature <名前>` を呼んで共有し、
+# 抽出の実体と feature 列をここに持たない。(1)(2) は `native-blocking-wait` を外した組 A、(3) の G1 は `ext-interop` を外した組 B で、
+# JSON を作る呼び出しは 2 回になる（2 つを同時に外すと (1) の組が変わるため別々に作る）。
 #
 # 使い方:
 #   scripts/public-api-webgpu-check.sh --config <path> [--json <path>...]
 #   --config  語の一覧（必須。書式は public-api-webgpu-check.conf の先頭）。語はこのスクリプトに持たない。
-#   --json    渡した rustdoc の JSON だけを検査する（cargo・git を呼ばない。組は `-` と表示）。無ければ JSON を作る。
+#   --json    渡した rustdoc の JSON だけを検査する（cargo・git を呼ばない。組は `-` と表示）。無ければ JSON を作る。組 A として扱う。
+#   --interop-json  組 B の JSON。`--json` と一緒にだけ受け付ける（単独は誤用）。無ければ G1 をかけず、record の ext_interop_checked=0 で示す。
 # 終了コード: 0 一致が 0 件 / 1 一致が 1 件以上（違反） / 2 誤用・前提の不足・入力を読み切れない（成功扱いにしない）
 #   2 になるもの: 引数の誤用、設定の欠落・書式違反、指定のファイルが無い・読めない、JSON の形の不一致
 #   （public-api-check.sh の V1〜V3 と同じ形の検査）、JSON 1 本あたりの公開アイテムが 0 件、JSON を作る段の失敗
@@ -22,7 +25,7 @@
 #   inner が function のもの（自由関数・inherent と trait のメソッド）と再公開（use）。
 #   名前を `_` で区切って小文字にした語のどれかが [blocking-words] の語に等しければ違反（部分一致では当てない）。
 #
-# 内容の (2) の照合の規則（対象は (1) と同じ組の JSON。cargo rustdoc は 1 回で済ませる）:
+# 内容の (2) の照合の規則（対象は (1) と同じ組 A の JSON）:
 #   E1 crate_id 0・公開の `PipelineInput` という名前のアイテム（再公開は数えない）が、core の文書（root の名前が
 #      `fandhe_silicon_core`）にちょうど 1 つあり、inner が enum で、attrs に non_exhaustive の印があること。
 #      0 件・2 件以上・enum でない・印が無い・core 以外の文書にある定義は違反。
@@ -34,6 +37,25 @@
 #   `--json` の経路で core の文書が無いときは E1・E2 をかけず、`record:` の pipeline_input_checked=0 で明示する（F1 と
 #   core 以外の文書にある定義の検出はかける）。既定の経路は core と contract がそろわなければ終了コード 2 なので常に 1。
 #
+# 内容の (3) の照合の規則（crate_id 0・公開のアイテムが対象。名前は構造の事実としてこのスクリプトの定数に持つ）:
+#   G1（組 B だけ）`ExternalInterop` という名前のアイテム（種類を問わない。再公開の名前を含む）と、名前が拡張の trait の 4 つの操作
+#      （export_memory / import_memory / export_semaphore / import_semaphore）に完全一致する関数・再公開が 1 件でもあれば違反
+#      （feature `ext-interop` の裏に閉じていれば、これを外した組には出ない）。組 A では `ExternalInterop` の数を情報として数えるだけ。
+#   G2（組 A・B）`ImportedSemaphoreHandle` の公開の定義（再公開・variant・field・関数は数えない）は core の文書にちょうど 1 つあり、
+#      その完全なパスが core の `execution` モジュールの中であること。core 以外の文書にある・2 件以上・execution の外は違反。
+#      0 件は違反にせず record の semaphore_handle_defined=0 で示す。パスが `paths` から引けなければ終了コード 2。
+#   G3（組 A・B）名前を `_` で区切って小文字にした語に `submit` を含む公開の関数・メソッドのうち、`wait` という名前の引数を持つものは、
+#      その型が `&[ImportedSemaphoreHandle]`（共有参照の slice で、要素が G2 と同じパスの型）であること。違反の reason は
+#      not-shared-slice / not-semaphore-handle / outside-execution。`wait` を持たない submit 系は数えるだけで違反にしない。
+#      名前が当たった関数の sig が読めない・`wait` の型が object でない・要素の id が引けないは終了コード 2。
+#   (3) の欄: 組 A の scanned の末尾に `external_interop_items=<n> semaphore_handle_defs=<n> submit_functions=<n> submit_wait_params=<n>
+#      interop_violations=<n>`、組 B の scanned は (1)(2) の欄を持たず `external_interop_items interop_op_names semaphore_handle_defs
+#      submit_functions submit_wait_params interop_violations`。record の末尾に `interop_documents ext_interop_checked
+#      external_interop_items_total semaphore_handle_defined submit_wait_params_total interop_violations_total`、ok の末尾に `, ext-interop ok`。
+#      違反の行は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=ext-interop reason=<visible-without-feature|interop-op-without-feature>`、
+#      `... check=semaphore-handle reason=<outside-core|duplicate|outside-execution>`、
+#      `... item=<関数名> kind=function check=submit-wait reason=<..>`。FAILED の件数は (1)(2)(3) の合計。
+#
 # 標準出力: 文書ごとの `scanned:`、全部を検査し終えたとき（終了コード 0 と 1）だけ締めの `record:`、合格時の `ok:`。
 #   標準エラー: `violation:`・`FAILED:`・`error:`。
 #   `record: commit=<rev> documents=<n> public_items_total=<n> public_functions_total=<n> blocking_wait_names_total=<n>`
@@ -41,13 +63,15 @@
 #   record に `pipeline_create_functions_total=<n> pipeline_input_checked=<0|1> pipeline_input_violations_total=<n>`、
 #   ok の末尾に `, pipeline input ok`。(2) の違反の行は `violation: crate=<c> features=<f> check=pipeline-input reason=<..>` と
 #   `violation: crate=<c> features=<f> item=<名前> kind=function check=pipeline-create reason=no-pipeline-input`。
-#   FAILED の件数は (1) と (2) の合計。
+#   FAILED の件数は (1)(2)(3) の合計。
 #   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
 #
 # 検査しないもの: 語を含まない名前のブロッキング待ち、完了の通知に非ブロッキングの形があるか、exec・upper の公開面、
 #   production から 1 つ外した組以外の feature の組、doc コメント・シグネチャの中の文字列。(2) では、名前に pipeline と
 #   生成の語の両方を含まない生成の口、再公開の名前、外部 crate の関数、variant の中身の形、`Wgsl` 以外の variant の有無、
-#   生成の関数が実際に WGSL を受け付けるか（実行時の振る舞い）。
+#   生成の関数が実際に WGSL を受け付けるか（実行時の振る舞い）。(3) では、`ExternalInterop` 以外の拡張の trait の名前、4 つの操作以外の
+#   名前の拡張の操作（語の照合はしない）、`wait` を持たない submit 系、`submit` の語を含まない名前の待ちを取る口、外した feature の裏に置いた
+#   submit の `wait` の形（その feature を外した組で見えるものに限る）、WebGPU 側の実装が実行時に `wait` を空として扱うか。
 # ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +94,9 @@ if sys.version_info < (3, 8):
     sys.exit(2)
 
 # 外す feature の名前（public-api-check.sh の production の列にある名前）と、検査する crate の package 名。
-WITHOUT_FEATURE = "native-blocking-wait"
+# 組 A は (1)(2) 用、組 B は (3) の「ext-interop の裏に閉じている」の確かめ用（2 つを同時に外すと (1) の組が変わるため別々に作る）。
+WITHOUT_BLOCKING = "native-blocking-wait"
+WITHOUT_INTEROP = "ext-interop"
 TARGET_PACKAGES = ("fandhe-silicon-core", "fandhe-silicon-contract")
 SECTIONS = ("blocking-words",)
 # 内容の (2) の照合の名前（構造の事実なので語の一覧の conf には持たない）。
@@ -79,6 +105,13 @@ PIPELINE_INPUT = "PipelineInput"
 REQUIRED_VARIANT = "Wgsl"
 PIPELINE_WORDS = ("pipeline",)
 CREATE_WORDS = ("create", "build", "compile", "load", "make", "new")
+# 内容の (3) の照合の名前（構造の事実なので語の一覧の conf には持たない）。
+EXTERNAL_INTEROP = "ExternalInterop"
+SEMAPHORE_HANDLE = "ImportedSemaphoreHandle"
+HANDLE_PATH = (CORE_CRATE, "execution", SEMAPHORE_HANDLE)
+SUBMIT_WORDS = ("submit",)
+WAIT_PARAM = "wait"
+INTEROP_OPS = ("export_memory", "import_memory", "export_semaphore", "import_semaphore")
 
 
 class Misuse(Exception):
@@ -254,6 +287,82 @@ def inspect(doc, words):
     return root["name"], fv, public, functions, hits, pdefs, pfuncs
 
 
+def item_names(it):
+    """アイテムの名前と、再公開の局所名（use.name）。重複は 1 つにまとめる。"""
+    names = []
+    if isinstance(it.get("name"), str):
+        names.append(it["name"])
+    inner = it["inner"]
+    if isinstance(inner.get("use"), dict) and isinstance(inner["use"].get("name"), str):
+        names.append(inner["use"]["name"])
+    return list(dict.fromkeys(names))
+
+
+def wait_param_reason(doc, wait_type):
+    """submit 系の関数の `wait` 引数の型を判定し、違反の reason（形が合えば None）を返す。
+    合う形は `&[ImportedSemaphoreHandle]`（共有参照の slice で、要素が core の execution の型）。"""
+    need(isinstance(wait_type, dict), "submit function lacks a valid sig")
+    ref = wait_type.get("borrowed_ref")
+    if not isinstance(ref, dict) or ref.get("is_mutable") is not False:
+        return "not-shared-slice"
+    target = ref.get("type")
+    if not isinstance(target, dict) or "slice" not in target:
+        return "not-shared-slice"
+    elem = target["slice"]
+    rpath = elem.get("resolved_path") if isinstance(elem, dict) else None
+    if not isinstance(rpath, dict) or not isinstance(rpath.get("path"), str) \
+            or rpath["path"].split("::")[-1] != SEMAPHORE_HANDLE:
+        return "not-semaphore-handle"
+    resolved = resolve_path(doc, rpath.get("id"), "unresolved wait parameter type")
+    return None if resolved == HANDLE_PATH else "outside-execution"
+
+
+def resolve_path(doc, iid, msg):
+    """`paths` から id の完全なパスを引く。引けなければ Misuse（成功扱いにしない）。"""
+    ent = doc["paths"].get(str(iid)) if is_int(iid) else None
+    need(isinstance(ent, dict) and isinstance(ent.get("path"), list)
+        and all(isinstance(x, str) for x in ent["path"]), msg)
+    return tuple(ent["path"])
+
+
+def inspect_interop(doc):
+    """(3) 用に、inspect を通った JSON 1 本から次を集める。
+    (ExternalInterop のアイテム [(名前, 種類)], 拡張の操作の名前 [(名前, 種類)],
+    ImportedSemaphoreHandle の定義 [アイテム], submit 系の関数の数, wait 引数の判定 [(関数名, reason|None)])。"""
+    ext, ops, hdefs, wait_results = [], [], [], []
+    submits = 0
+    for it in doc["index"].values():
+        if it["crate_id"] != 0 or it.get("visibility") not in ("public", "default"):
+            continue
+        inner = it["inner"]
+        names = item_names(it)
+        is_use = isinstance(inner.get("use"), dict)
+        is_fn = "function" in inner
+        kind = "use" if is_use else "function" if is_fn else clean(next(iter(inner), "item"))
+        if EXTERNAL_INTEROP in names:
+            ext.append((clean(EXTERNAL_INTEROP), kind))
+        if is_use or is_fn:
+            for nm in names:
+                if nm in INTEROP_OPS:
+                    ops.append((clean(nm), kind))
+        if it.get("name") == SEMAPHORE_HANDLE and not any(
+                k in inner for k in ("use", "variant", "function", "struct_field")):
+            hdefs.append(it)
+        nm = it.get("name")
+        if is_fn and isinstance(nm, str) and any(w in SUBMIT_WORDS for w in nm.lower().split("_")):
+            submits += 1
+            fn = inner["function"]
+            sig = fn.get("sig") if isinstance(fn, dict) else None
+            need(isinstance(sig, dict) and isinstance(sig.get("inputs"), list),
+                    "submit function lacks a valid sig")
+            for ent in sig["inputs"]:
+                need(isinstance(ent, list) and len(ent) == 2 and isinstance(ent[0], str),
+                        "submit function lacks a valid sig")
+                if ent[0] == WAIT_PARAM:
+                    wait_results.append((clean(nm), wait_param_reason(doc, ent[1])))
+    return ext, ops, hdefs, submits, wait_results
+
+
 def _git(root, args):
     env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
     try:
@@ -277,12 +386,12 @@ def source_commit(root):
     return sha + ("-dirty" if st.strip() else "")
 
 
-def emit_docs(root, tmp):
-    """public-api-check.sh --emit-json --without-feature で JSON を作り、対象 crate の (crate, 組, パス) を返す。"""
+def emit_docs(root, tmp, without):
+    """public-api-check.sh --emit-json --without-feature <without> で JSON を作り、対象 crate の (crate, 組, パス) を返す。"""
     script = os.path.join(root, "scripts", "public-api-check.sh")
     try:
         done = subprocess.run(
-            ["bash", script, "--emit-json", tmp, "--without-feature", WITHOUT_FEATURE],
+            ["bash", script, "--emit-json", tmp, "--without-feature", without],
             cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, check=False)
     except OSError:
         raise Misuse("cannot run public-api-check.sh")
@@ -306,33 +415,69 @@ def load_json(path):
         raise Misuse("cannot read JSON input")
 
 
-def run_docs(inputs, words):
-    total = {"public": 0, "functions": 0, "hits": 0, "pcreate": 0, "pchecked": 0, "pviol": 0}
+def run_docs(inputs, words, mode):
+    """文書ごとに規則をかける。mode "A" は (1)(2) と G2・G3、mode "B"（ext-interop を外した組）は G1・G2・G3。"""
+    total = {"public": 0, "functions": 0, "hits": 0, "pcreate": 0, "pchecked": 0, "pviol": 0,
+            "ei": 0, "handle_core": 0, "waits": 0, "iviol": 0}
     results = []
     for _crate, label, path in inputs:
         doc = load_json(path)
         name, fv, public, functions, hits, pdefs, pfuncs = inspect(doc, words)
-        # (2) の違反を、この文書に属するものとして集める（(行に出す属性, 理由) の並び）。
+        ext, ops, hdefs, submits, waits = inspect_interop(doc)
+        # (2) の違反を、この文書に属するものとして集める（(行に出す属性, 理由) の並び）。mode B では (1)(2) をかけない。
         pv = []
-        for fname, ok in pfuncs:
-            if not ok:
-                pv.append(("pipeline-create", fname, "no-pipeline-input"))
-        if name == CORE_CRATE:
-            total["pchecked"] = 1
-            if not pdefs:
-                pv.append(("pipeline-input", None, "missing"))
-            elif len(pdefs) > 1:
-                pv.append(("pipeline-input", None, "duplicate"))
-            else:
-                for reason in evaluate_pipeline_enum(doc, pdefs[0]):
-                    pv.append(("pipeline-input", None, reason))
-        elif pdefs:
-            pv.append(("pipeline-input", None, "outside-core"))
-        results.append((name, label, fv, public, functions, hits, len(pfuncs), pv))
-    for name, label, fv, public, functions, hits, pcreate, pv in results:
-        print("scanned: crate=%s features=%s format_version=%d public_items=%d public_functions=%d blocking_wait_names=%d"
-              " pipeline_create_functions=%d pipeline_input_violations=%d"
-              % (clean(name), clean(label), fv, public, functions, len(hits), pcreate, len(pv)))
+        if mode == "A":
+            for fname, ok in pfuncs:
+                if not ok:
+                    pv.append(("pipeline-create", fname, "no-pipeline-input"))
+            if name == CORE_CRATE:
+                total["pchecked"] = 1
+                if not pdefs:
+                    pv.append(("pipeline-input", None, "missing"))
+                elif len(pdefs) > 1:
+                    pv.append(("pipeline-input", None, "duplicate"))
+                else:
+                    for reason in evaluate_pipeline_enum(doc, pdefs[0]):
+                        pv.append(("pipeline-input", None, reason))
+            elif pdefs:
+                pv.append(("pipeline-input", None, "outside-core"))
+        else:
+            hits = []
+        # (3) の違反（(check, 項目名|None, 種類, reason) の並び）。
+        iv = []
+        if mode == "B":
+            for nm, kind in ext:
+                iv.append(("ext-interop", nm, kind, "visible-without-feature"))
+            for nm, kind in ops:
+                iv.append(("ext-interop", nm, kind, "interop-op-without-feature"))
+        if name != CORE_CRATE:
+            for _ in hdefs:
+                iv.append(("semaphore-handle", None, None, "outside-core"))
+        elif len(hdefs) > 1:
+            iv.append(("semaphore-handle", None, None, "duplicate"))
+        elif len(hdefs) == 1:
+            got = resolve_path(doc, hdefs[0].get("id"), "unresolved path for " + SEMAPHORE_HANDLE)
+            if got != HANDLE_PATH:
+                iv.append(("semaphore-handle", None, None, "outside-execution"))
+        for fname, reason in waits:
+            if reason is not None:
+                iv.append(("submit-wait", fname, "function", reason))
+        results.append((name, label, fv, public, functions, hits, len(pfuncs), pv,
+                        len(ext), len(ops), len(hdefs), submits, len(waits), iv))
+    for (name, label, fv, public, functions, hits, pcreate, pv,
+        n_ext, n_ops, n_hdefs, submits, n_waits, iv) in results:
+        if mode == "A":
+            print("scanned: crate=%s features=%s format_version=%d public_items=%d public_functions=%d blocking_wait_names=%d"
+                  " pipeline_create_functions=%d pipeline_input_violations=%d"
+                  " external_interop_items=%d semaphore_handle_defs=%d submit_functions=%d submit_wait_params=%d"
+                  " interop_violations=%d"
+                  % (clean(name), clean(label), fv, public, functions, len(hits), pcreate, len(pv),
+                    n_ext, n_hdefs, submits, n_waits, len(iv)))
+        else:
+            print("scanned: crate=%s features=%s format_version=%d public_items=%d external_interop_items=%d"
+                  " interop_op_names=%d semaphore_handle_defs=%d submit_functions=%d submit_wait_params=%d"
+                  " interop_violations=%d"
+                  % (clean(name), clean(label), fv, public, n_ext, n_ops, n_hdefs, submits, n_waits, len(iv)))
         for item, kind, word in hits:
             print("violation: crate=%s features=%s item=%s kind=%s word=%s"
                   % (clean(name), clean(label), item, kind, word), file=sys.stderr)
@@ -343,11 +488,23 @@ def run_docs(inputs, words):
             else:
                 print("violation: crate=%s features=%s item=%s kind=function check=%s reason=%s"
                       % (clean(name), clean(label), item, check, reason), file=sys.stderr)
+        for check, item, kind, reason in iv:
+            if item is None:
+                print("violation: crate=%s features=%s check=%s reason=%s"
+                      % (clean(name), clean(label), check, reason), file=sys.stderr)
+            else:
+                print("violation: crate=%s features=%s item=%s kind=%s check=%s reason=%s"
+                      % (clean(name), clean(label), item, kind, check, reason), file=sys.stderr)
         total["public"] += public
         total["functions"] += functions
         total["hits"] += len(hits)
         total["pcreate"] += pcreate
         total["pviol"] += len(pv)
+        total["ei"] += n_ext
+        total["waits"] += n_waits
+        total["iviol"] += len(iv)
+        if mode == "A" and name == CORE_CRATE:
+            total["handle_core"] += n_hdefs
     return total
 
 
@@ -356,27 +513,40 @@ def main():
     parser = argparse.ArgumentParser(prog="public-api-webgpu-check.sh")
     parser.add_argument("--config", required=True, metavar="PATH")
     parser.add_argument("--json", nargs="+", metavar="PATH")
+    parser.add_argument("--interop-json", nargs="+", metavar="PATH")
     args = parser.parse_args(sys.argv[2:])
+    need(args.interop_json is None or args.json is not None, "--interop-json requires --json")
 
     words = load_config(args.config)["blocking-words"]
     if args.json is not None:
         commit = "-"
         inputs = [("-", "-", p) for p in args.json]
-        total = run_docs(inputs, words)
+        total = run_docs(inputs, words, "A")
+        b_inputs = [("-", "-", p) for p in (args.interop_json or [])]
+        btotal = run_docs(b_inputs, words, "B") if b_inputs else None
     else:
         commit = source_commit(root)
         with tempfile.TemporaryDirectory() as tmp:
-            inputs = emit_docs(root, tmp)
-            total = run_docs(inputs, words)
+            os.mkdir(os.path.join(tmp, "a"))
+            os.mkdir(os.path.join(tmp, "b"))
+            inputs = emit_docs(root, os.path.join(tmp, "a"), WITHOUT_BLOCKING)
+            b_inputs = emit_docs(root, os.path.join(tmp, "b"), WITHOUT_INTEROP)
+            total = run_docs(inputs, words, "A")
+            btotal = run_docs(b_inputs, words, "B")
 
+    iviol = total["iviol"] + (btotal["iviol"] if btotal else 0)
     print("record: commit=%s documents=%d public_items_total=%d public_functions_total=%d blocking_wait_names_total=%d"
           " pipeline_create_functions_total=%d pipeline_input_checked=%d pipeline_input_violations_total=%d"
+          " interop_documents=%d ext_interop_checked=%d external_interop_items_total=%d semaphore_handle_defined=%d"
+          " submit_wait_params_total=%d interop_violations_total=%d"
           % (commit, len(inputs), total["public"], total["functions"], total["hits"],
-              total["pcreate"], total["pchecked"], total["pviol"]))
-    if total["hits"] or total["pviol"]:
-        print("FAILED: %d item(s)" % (total["hits"] + total["pviol"]), file=sys.stderr)
+              total["pcreate"], total["pchecked"], total["pviol"],
+              len(b_inputs), 1 if btotal else 0, total["ei"], total["handle_core"], total["waits"], iviol))
+    failed = total["hits"] + total["pviol"] + iviol
+    if failed:
+        print("FAILED: %d item(s)" % failed, file=sys.stderr)
         return 1
-    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok" % len(inputs))
+    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok" % len(inputs))
     return 0
 
 
