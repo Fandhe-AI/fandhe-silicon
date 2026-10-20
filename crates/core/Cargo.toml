@@ -15,6 +15,8 @@ publish.workspace = true
 test-support = []
 # 故障の差し込み口（テスト専用。default にも本番の組にも入れない。説明は docs/contract-fault-injection.md）。
 fault-injection = []
+# download_blocking（ブロッキング待ちの取り出し）を MemoryOps に載せる。native 向けで、既定にも本番の組にも入れない。
+native-blocking-wait = []
 
 [[test]]
 name = "fault_hooks_types"

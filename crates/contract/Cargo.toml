@@ -20,7 +20,7 @@ default = ["contract-core", "cpu-isa", "cpu-ops"]
 contract-core = []
 cpu-isa = []
 cpu-ops = []
-native-blocking-wait = []
+native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
 graphics = []
 ext-interop = []
 # backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。

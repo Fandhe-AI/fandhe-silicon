@@ -39,7 +39,7 @@ fandhe-silicon/
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`memory`〔バッファの引数検査の純粋関数〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型〕・`device`〔device の要求・所有形態の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`、`fault-injection` の裏に `fault`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `memory`〔`BufferUsage`・`BufferHandle`・`MemoryOps`〔`download_blocking` は feature `native-blocking-wait` の裏〕・バッファの引数検査の純粋関数〕。条件なしの `hash`〔SHA-256〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型〕・`device`〔device の要求・所有形態の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`、`fault-injection` の裏に `fault`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   ├── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -55,7 +55,7 @@ fandhe-silicon/
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
 ├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）（TASK-136）
-├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実（TASK-308）
+├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）（TASK-308）
 ├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）
 ├── docs/capability-query-rules.md  # 能力の問合せの共通の規則の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）（TASK-273）
 ├── docs/artifact-cache-check.md  # 成果物キャッシュの照合の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8）（TASK-483）
