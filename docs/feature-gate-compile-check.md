@@ -34,6 +34,27 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 - 単独の組の出力の見え方: `native-blocking-wait` 単独では `native_blocking_wait_gate_is_visible` と `NativeBlockingWaitGate` の doctest が通り、他の 2 つの doctest は `compile fail ... ok`。`ext-interop` 単独では `ext_interop_gate_is_visible` と `ExtInteropGate` が通り、他の 2 つが `compile fail ... ok`
 - 手元の確かめ: `cargo test -p fandhe-silicon-contract --no-default-features --features native-blocking-wait`（`ext-interop` も同様）、全体は `make build-profiles`
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#3931）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-233）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | feature の範囲 | `cargo test -p fandhe-silicon-contract --test feature_gate_scope` | 終了コード 0。3 passed / 0 failed（宣言済み・`default` に無い・他の feature から含意されない） |
+| A2 | 無効側の失敗 | `cargo test -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops --doc` | 終了コード 0。3 つの門の doctest がすべて `compile fail ... ok` |
+| A3 | `native-blocking-wait` 単独 | `cargo test -p fandhe-silicon-contract --no-default-features --features native-blocking-wait` | 終了コード 0。`native_blocking_wait_gate_is_visible` と `NativeBlockingWaitGate` の doctest が通り、他の 2 つの doctest は `compile fail ... ok` |
+| A4 | `ext-interop` 単独 | `cargo test -p fandhe-silicon-contract --no-default-features --features ext-interop` | 終了コード 0。`ext_interop_gate_is_visible` と `ExtInteropGate` の doctest が通り、他の 2 つの doctest は `compile fail ... ok` |
+| A5 | 全 feature | `cargo test -p fandhe-silicon-contract --all-features --doc`、`--all-features --test feature_gate_enabled` | 終了コード 0。doctest 3 件と有効側の試験 2 件がすべて通常の成功 |
+| B1 | 流れる場所 | `scripts/build-profiles.sh` の組（`native-blocking-wait` 単独・`ext-interop` 単独の行と、core の `--all-features` の行） | 単独の 2 組は feature ごとに build / clippy / test を流す。`verify` ジョブの `make build-profiles` が呼ぶ |
+| B2 | `ext-interop` を有効にする組 | `grep -n ext-interop scripts/build-profiles.sh` | 現れるのは BUILD-4 の組と単独の組だけ。`default` と含意に無いことは A1 が担保 |
+| C1 | 依存 | `grep -c trybuild Cargo.lock`、`[[approval]]` の件数 | 0 件のまま。外部 crate は足していない |
+| E1 | main の CI | main の push の run（`6950c28`。run `39425952330`）の `make verify` ジョブ | `make verify` の step と `make build-profiles` の step がともに success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny` | 本 PR の作成時にいずれも終了コード 0 |
+
+- 確かめたのは門の目印の対による枠の範囲で、対象のアイテム自体の確かめではない。対象の機能を使うコードの snippet は、そのコードを持つ PR で足す
+- wasm32 の組は doctest が流れないので含めない
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-233）
+
 ## 本リポでの反映の方針
 
 - 対象の機能を使うコードの snippet は、そのコードを持つ PR で `cfg_gate_doctest.rs` に同じ形で足す（コードより先に具体を書かない）
