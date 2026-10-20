@@ -39,7 +39,8 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 2/8 | #4051 | 形の設計（「現状の形（2/8）」の節） |
 | 3/8 | #4052 | 模擬のロストと完了不明の差し込み（「現状の形（3/8）」の節） |
 | 4/8 | #4053 | 能力不足と能力の取得の失敗の差し込み（「現状の形（4/8）」の節） |
-| 5/8〜6/8 | #4054〜#4055 | 実装 |
+| 5/8 | #4054 | 投入の回数の計数と模擬の OOM の差し込み（「現状の形（5/8）」の節） |
+| 6/8 | #4055 | 実装 |
 | 7/8 | #4056 | テスト |
 | 8/8 | #4057 | 手順書の作成 |
 
@@ -72,6 +73,16 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `FaultInjecting<D: Capabilities>` は `Capabilities` を実装する。`CapabilityQueryFails` では `query` が全機能で `S0`、`query_ex` が `S0`（理由・根拠なし）で、内側を呼ばず、`Unsupported` は返さない。`CapabilityInsufficient` では対象の機能だけ `query` が `Unsupported`、`query_ex` が `Unsupported` と `NotSupported` で、内側を呼ばない。対象外の機能と他の筋書きは内側の `query`・`query_ex` へそのまま渡す
 - `create_pipeline_with`: `CapabilityInsufficient` で内側を呼ばず `Err(CapabilityInsufficient { feature, required, actual: Unsupported })` を返す。それ以外は内側の値をそのまま返す。`wait_blocking_with`・`poll_ex_with` は新しい 2 つの筋書きでは内側の値をそのまま返す
 - 試験: `crates/core/tests/fault_decorator_capability.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
+
+## 現状の形（5/8）
+
+型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
+
+- `FaultInjecting::submit_with`: 内側を呼ぶときに計数をちょうど 1 増やし、内側の値（`Ok`・`Err` とも）をそのまま返す。どの筋書きでも内側へ渡して数える。`submit_call_count()` が回数を返す（初期値 0。`Send + Sync` を保つ）
+- `FaultScript::AllocationFails`: `allocate_with(requested_bytes, ..)` が内側を呼ばず `Err(AllocationFailed { requested_bytes })` を返す。要求の大きさは引数の値をそのまま載せる。他の筋書きは内側へ同じ大きさで渡し、値をそのまま返す。実際の確保は行わない
+- `wait_blocking_with`・`poll_ex_with`・`create_pipeline_with`・`query`・`query_ex` は新しい筋書きでも内側の値をそのまま返す
+- 試験: `crates/core/tests/fault_decorator_submit_count.rs`・`fault_decorator_oom.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
 ## 本リポでの反映の方針

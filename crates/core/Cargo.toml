@@ -37,6 +37,14 @@ name = "fault_decorator_capability"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_decorator_submit_count"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "fault_decorator_oom"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "parity_cpu_reference"
 required-features = ["test-support"]
 
