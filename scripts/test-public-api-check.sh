@@ -330,6 +330,18 @@ judge "manifest_not_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside
 run_check --manifest-path
 judge "manifest_without_value" 2 "!ok: " "!record: "
 
+# --without-feature: --emit-json と組でだけ受け付ける。誤用は cargo を呼ばず終了コード 2
+run_check --without-feature native-blocking-wait
+judge "without_no_emit" 2 "e:--without-feature requires --emit-json" "!emitted: " "!ok: "
+run_check --emit-json "${work}" --without-feature native-blocking-wait --json "${work}/ok_noref.json"
+judge "without_with_json" 2 "e:error: " "!emitted: " "!ok: "
+run_check --emit-json "${work}" --without-feature native-blocking-wait --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml"
+judge "without_with_manifest" 2 "e:error: " "!emitted: " "!ok: "
+run_check --emit-json "${work}" --without-feature native-blocking-wait --without-feature graphics
+judge "without_twice" 2 "e:--without-feature can be given only once" "!emitted: " "!ok: "
+run_check --emit-json "${work}" --without-feature no-such-feature
+judge "without_unknown_name" 2 "e:--without-feature name is not in the production feature list" "!emitted: " "!ok: "
+
 # 2 本のうち 1 本が読めなければ、先に合格した分があっても全体は 2（途中の scanned は出るが record は出ない）
 run_check --json "${work}/ok_noref.json" "${work}/notjson.json"
 if [ "$(grep -c '^scanned: ' "${OUT_F}")" = "1" ] && [ "$(grep -c '^record: ' "${OUT_F}")" = "0" ]; then
@@ -501,6 +513,12 @@ pub fn f() -> Vec<Own> { Vec::new() }'
   else
     report_fail "real_emit_json_files" "emitted files are missing"
   fi
+
+  # --without-feature: 契約の crate の無い workspace は終了コード 2（引いた結果が効かないまま通さない）
+  rc=0
+  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/public-api-check.sh --emit-json "${rw}/emit" --without-feature native-blocking-wait) \
+    >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  judge "real_without_no_contract" 2 "e:contract package is not in the workspace" "!emitted: " "!ok: "
 
   real_lib 'pub fn g() -> plain_dummy::Thing { plain_dummy::Thing }'
   run_real
