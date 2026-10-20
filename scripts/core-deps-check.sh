@@ -3,7 +3,7 @@
 # 共通の crate の feature が契約の crate（`crates/contract`）の同じ名前の feature から転送されていることを、
 # cargo metadata から機械で確かめる（spec TASK-258・BUILD-54・U-30 のポインタ。親 Issue #473 の 1/2）。
 # 呼び出し元: `make core-deps-check`（直接実行も可）。回帰テストは `scripts/test-core-deps-check.sh`
-# （`make test-core-deps-check`）。CI のジョブからはまだ呼ばない。
+# （`make test-core-deps-check`）。CI の `deny` ジョブも実行する。
 # 隣の検査 `scripts/public-api-sdk-check.sh`（チップの SDK の crate が無いことの検査）は「入ってはいけない名前」を数える。
 # こちらは「入ってよい名前の一覧」との完全一致を見る。チップの crate の名前の一覧はここに持たない
 # （チップの crate は期待の一覧に入らないので、unexpected の違反として出る）。

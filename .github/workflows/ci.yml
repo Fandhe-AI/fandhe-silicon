@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-node-check` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
@@ -190,6 +190,7 @@ jobs:
   # 公開 API の wgpu 系の参照の検査（`make public-api-check`。走査した公開アイテムの数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 公開 API の名前の検査（`make public-name-check`。`--source` は渡さない。走査の件数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-name-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 公開 API と共通の crate の依存へのチップの SDK の crate の検査（`make public-api-sdk-check`。走査の件数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-sdk-check`。合成 JSON・合成 metadata・偽のコマンドと一時 workspace の実物）も同様に追加実行する。
+  # 共通の crate の依存の検査（`make core-deps-check`。`scanned:` / `record:` の行がジョブのログに残る）とその回帰テスト（`make test-core-deps-check`。合成 metadata・偽のコマンド・一時 workspace の実物・TASK-13 の検査との突き合わせ）も同様に追加実行する。
   # 製品の依存グラフの wgpu 系 crate の検査は `make deny` の中で流れる（件数は `record:` の行としてジョブのログに残る）。その回帰テスト（`make test-dep-graph-wgpu-check`。一時 workspace の実物の cargo metadata / cargo tree）も同様に追加実行する。
   # 比較基準の別 workspace への陽性対照（`make baseline-positive-control`。検出の件数が `record:` の行としてジョブのログに残る）は `make deny` の後のステップで流し、その回帰テスト（`make test-baseline-positive-control`。偽の検査と一時 workspace の実物の出力）も同様に追加実行する。
   # 上の層の検査（`make upper-layer-check`。数えた件数が `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-upper-layer-check`。合成の入力と一時 workspace の実物の cargo metadata）も同様に追加実行する。
@@ -320,6 +321,12 @@ jobs:
 
       - name: make test-public-api-sdk-check
         run: make test-public-api-sdk-check
+
+      - name: make core-deps-check
+        run: make core-deps-check
+
+      - name: make test-core-deps-check
+        run: make test-core-deps-check
 
       - name: make test-public-api-diff
         run: make test-public-api-diff
