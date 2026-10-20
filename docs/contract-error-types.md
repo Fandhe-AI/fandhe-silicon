@@ -32,7 +32,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `exec`・`upper` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec crates/upper` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`・`tests/error_debug_format.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -90,6 +90,15 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/error_fields.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --test error_fields`
 - 残る試験は 6/8〜7/8（書式・`Display`/`Error` と wasm32）
+
+## 現状の形（6/8）
+
+- 確かめの対象は `ContractError` の 15 値の `{:?}` と、`ValidationFailed(String)` の定義。型の形は 2/8 のまま変えていない
+- 仕組み: 別の crate（統合テスト）で、`{:?}` の出力に境界つきの値の名前の前置と `名前: 値の {:?}` の部分文字列があることを見る（派生の `Debug` の出力全体は照合しない。ERR-54。ポインタのみ）。`ValidationFailed` は `fn(String) -> ContractError` への強制と、同じ文字列のほかの値と等しくならないことで固定する（ERR-8。ポインタのみ）
+- 対象外: `Display`/`Error` と wasm32（7/8）、`capability.rs` の 3 型（TASK-136。ポインタ）
+- 対応するテスト: `crates/core/tests/error_debug_format.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --test error_debug_format`
+- 残る試験は 7/8（`Display`/`Error` と wasm32）
 
 ## 本リポでの反映の方針
 
