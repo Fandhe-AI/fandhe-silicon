@@ -1,4 +1,4 @@
-# wasm-abi: wasm32 向けの cdylib の入口（spec TASK-237・BUILD-19 のポインタ）。
+# wasm-abi: wasm32 向けの cdylib の入口（spec TASK-237・BUILD-19・BUILD-20 のポインタ）。
 # 依存は契約の crate だけ。置き場は spec TASK-6 の決定の記録に従う（ポインタのみ）。
 [package]
 name = "fandhe-silicon-wasm-abi"
