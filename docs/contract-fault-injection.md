@@ -26,7 +26,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities` と、`test-support` の裏の `rerun` の `Check` の 2 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | `contract` の形 | `#![deny(unsafe_code)]`。`unsafe` は `backend_*` だけに置く | `crates/contract/src/lib.rs`、[unsafe-policy](unsafe-policy.md) |
-| workspace | member は `crates/` 配下の 4 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
+| workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core`・`contract` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md` だけ | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
