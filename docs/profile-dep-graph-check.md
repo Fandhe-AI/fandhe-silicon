@@ -1,6 +1,6 @@
 # 依存グラフのプロファイルごとの検査（TASK-228・TASK-229）の所在と現状の事実
 
-契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数え、Graphics（Vulkan）の組では SDK のうち `ash`・`libloading` だけを、Graphics と相互運用の組では `ash`・`cudarc`・`libloading` だけを許す検査について、本リポのスクリプトから説明できる振る舞いを記録する。
+契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数え、Graphics（Vulkan）の組では SDK のうち `ash`・`libloading` だけを、Graphics と相互運用の組では `ash`・`cudarc`・`libloading` だけを許し、ComputeOnly（Metal）の組では SDK のうち `objc2-metal` だけを許す検査、および比較基準の単一ビルド（`--all-features`）の SDK の件数と各プロファイルとの差の記録について、本リポのスクリプトから説明できる振る舞いを記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-228。対象は BUILD-1・BUILD-2。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
@@ -22,6 +22,7 @@
 | 引数なし | プロファイルごとに cargo を流して数える | 直接実行 |
 | `--tree-text <path> --profile <name>` | 渡した tree だけを数える（cargo・git を呼ばない）。2 つは組でだけ受け付ける | 直接実行 |
 | `--features-text <path>` | 上に足す。per-header feature を数えるプロファイルでは必須、数えないプロファイルや単独では誤用（終了コード 2）。順方向と逆向きの出力をつないで渡してよい | 直接実行 |
+| `--baseline-text <path>` | 上に足す。`--tree-text`・`--profile` と組でだけ受け付け、単独は誤用（終了コード 2）。渡したときだけ比較基準の `baseline:`・`baseline-count:` とそのプロファイルの `diff:` を出す。読めない入力・crate が 0 件・検査対象の crate 自身が無い tree は終了コード 2 | 直接実行 |
 | `--extra-judged-crate <name>` | 確かめ用の opt-in。上のどちらの経路とも併用でき、全プロファイルの判定の名前の一覧の末尾に 1 件だけ足して数える（足す向きにしか働かず、定義の一覧は書き換えない）。英数字・`_`・`-` で 1〜64 文字。すでに判定の名前にあるもの（小文字にして `_` を `-` にそろえて比べる）・2 回の指定・不正な文字は誤用（終了コード 2）。cargo の引数は変わらない | 直接実行 |
 
 | コード | 意味 | 確かめ方 |
@@ -42,6 +43,9 @@
 | `count:`（feature） | 標準出力 | per-header feature ごとに 1 行（`feature=` と `judged=yes` または `judged=no`）。0 件も出す。`judged=no` は数えて記録するだけで落とさない | `scripts/profile-dep-graph-check.sh \| grep 'feature='` |
 | `record:` の追加欄 | 標準出力 | per-header feature を数えるプロファイルだけ、末尾に `header_crate_n`（crate の tree に載る `objc2-metal` の版の数）・`features_judged_total`・`features_recorded_total` | 同上 |
 | `violation:` / `FAILED:` / `error:` | 標準エラー | 違反の crate と版・feature / crate と feature それぞれの合計 / 終了コード 2 の理由 | 同スクリプトの先頭コメント |
+| `baseline:` | 標準出力 | 比較基準（`cargo tree` に `--all-features` を渡した 1 回）の `commit`・`profile`・`crates_total`・`sdk_total`（tree に載る `BASELINE_SDK_NAMES` の一意の package の数）。判定はしない。`--extra-judged-crate` の影響を受けない | `scripts/profile-dep-graph-check.sh \| grep '^baseline:'` |
+| `baseline-count:` | 標準出力 | `BASELINE_SDK_NAMES` の名前ごとに 1 行。0 件も出す | `scripts/profile-dep-graph-check.sh \| grep '^baseline-count:'` |
+| `diff:` | 標準出力 | 判定するプロファイルごとに 1 行。`sdk_baseline`・`sdk_profile`・`diff`（比較基準との差）。`record:`・`count:` とは接頭辞が別で、陽性対照の読み方に影響しない | `scripts/profile-dep-graph-check.sh \| grep '^diff:'` |
 | `ok:` | 標準出力 | 合格のとき 1 行 | 直接実行 |
 | `extra_judged_crate=` | 標準出力 | `--extra-judged-crate` を渡したときだけ、`record:` と `ok:` の末尾に付く。足した名前の `count:` も判定の名前の後ろに出る。渡さないときの出力は変わらない | `scripts/profile-dep-graph-check.sh --extra-judged-crate <name>` |
 | `positive-control:` | 標準出力（陽性対照） | プロファイルごとに 1 行。`n` は足した名前の件数で、1 件以上なら `result=detected`。0 件は標準エラーの `positive-control-failed: … result=no-detection`（終了コード 1）。読めない入力・想定外の終了・件数の食い違いは `positive-control-failed: … result=<理由>`（終了コード 2） | `make profile-dep-graph-positive-control` |
@@ -59,6 +63,8 @@
 | `SDK_LOADER_NAMES`・`SURFACE_NAMES` | 判定に使う名前 | `grep -nE '_NAMES =' scripts/profile-dep-graph-check.sh` |
 | `GRAPHICS_VULKAN_ALLOWED_SDK` | Graphics（Vulkan）の組で許す SDK・ローダ | `grep -n '^GRAPHICS_VULKAN_ALLOWED_SDK' scripts/profile-dep-graph-check.sh` |
 | `GRAPHICS_INTEROP_ALLOWED_SDK` | Graphics と相互運用の組で許す SDK・ローダ | `grep -n '^GRAPHICS_INTEROP_ALLOWED_SDK' scripts/profile-dep-graph-check.sh` |
+| `COMPUTE_ONLY_METAL_ALLOWED_SDK` | ComputeOnly（Metal）の組で許す SDK・ローダ | `grep -n '^COMPUTE_ONLY_METAL_ALLOWED_SDK' scripts/profile-dep-graph-check.sh` |
+| `BASELINE_NAME`・`BASELINE_FEATURES`・`BASELINE_SDK_NAMES` | 比較基準の名前・cargo の feature の引数・差を数える SDK | `grep -n '^BASELINE_' scripts/profile-dep-graph-check.sh` |
 | `HEADER_CRATE`・`RENDER_HEADER_FEATURES`・`RECORD_ONLY_HEADER_FEATURES` | per-header feature を数える crate と、判定に使う feature / 数えるだけの feature | `grep -nE '^(HEADER_CRATE\|RENDER_HEADER\|RECORD_ONLY)' scripts/profile-dep-graph-check.sh` |
 | `PROFILES` | プロファイル名 → feature の引数・判定の名前・per-header feature の設定 | `grep -n -A30 '^PROFILES' scripts/profile-dep-graph-check.sh` |
 
@@ -70,7 +76,8 @@
 | ---- | ---- |
 | ほかのプロファイル | `PROFILES` の表にあるプロファイルだけを数える |
 | 件数の増減 | 0 件かどうかだけを判定する |
-| SDK の crate の有無 | ComputeOnly の組では `objc2-metal` が入っていてよい（SDK を除く判定は対象外）。今の製品の crate には `objc2-metal` が無く、tree に載らないので per-header feature の件数は 0 件で、`header_crate_n=0` として出る |
+| 比較基準の判定 | 比較基準（`--all-features`）は記録だけで、落とさない。今の製品の crate には SDK の依存が無く、3 つとも 0 件と出るため。「3 つが載り、分けたプロファイルでは差が出る」ことは回帰テストの一時 workspace の節が示す |
+| SDK の crate の有無 | ComputeOnly の組では `objc2-metal` だけが入っていてよい（ほかの SDK・ローダは判定に残る）。今の製品の crate には `objc2-metal` が無く、tree に載らないので per-header feature の件数は 0 件で、`header_crate_n=0` として出る |
 | per-header feature の一覧へ足す経路 | 無い。`--extra-judged-crate` は crate 名の一覧にだけ足す。今の製品の crate には `objc2-metal` が無く、実物で「落ちる」ことを示せないため。feature の判定が働くことは回帰テストの一時 workspace の節が示す |
 | 製品の workspace 全体の依存 | 契約の crate だけを `-p` で数える（全体は [dep-graph-wgpu-check.md](dep-graph-wgpu-check.md)） |
 
@@ -177,7 +184,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | 1/6 現状と前提の確認 | #7358 |
 | 2/6 Graphics（Vulkan）の組の検査 | #7359 |
 | 3/6 Graphics と相互運用の組の検査 | #7360 |
-| 4/6 | #7361 |
+| 4/6 選んでいない SDK と比較基準の差の検査 | #7361 |
 | 5/6 | #7362 |
 | 6/6 | #7363 |
 
@@ -277,3 +284,45 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-4）の 3/6（#7
 | `graphics-interop` の `record:` | `judged_total=0`。判定の名前 4 件の `count:` はすべて `n=0` |
 
 確かめた base は `e4bbdb41ab64eb7bf88512be89d56a4e13b19797`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 選んでいない SDK と比較基準の差（4/6）（TASK-229）
+
+TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-5）の 4/6（#7361）で、ComputeOnly（Metal）の組の判定に選んでいない SDK を足し、比較基準の単一ビルドの記録を足した。試験の広い網羅・完了の条件の確かめ・件数の記録は後の段の PR が足す。
+
+### 足したもの
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| ComputeOnly（Metal）の判定の名前 | `SDK_LOADER_NAMES` から `COMPUTE_ONLY_METAL_ALLOWED_SDK` を除いたものに `SURFACE_NAMES` を足したもの。これで 4 プロファイルとも、選んでいない SDK・ローダの crate が判定に入る。`objc2-metal` の per-header feature の設定は変えない | `grep -n -A8 '"compute-only-metal"' scripts/profile-dep-graph-check.sh` |
+| 比較基準の走査 | 4 プロファイルの後に `cargo tree` へ `BASELINE_FEATURES` を渡して 1 回流す（features の辺は取らない）。判定はせず、`baseline:`・`baseline-count:`・`diff:` の行に記録する。終了コード 0/1 には影響しない | `make profile-dep-graph-check` |
+| `--tree-text` の経路 | `--baseline-text <path>` を渡したときだけ比較基準を読む。渡さないときの出力は変わらない | 「使い方と終了コード」 |
+| CI | `make deny` の中で流れる。ワークフローは変えない | `grep -n profile-dep-graph scripts/deny.sh` |
+
+### 対応する回帰テスト
+
+`make test-profile-dep-graph-check` と `make test-profile-dep-graph-positive-control`。
+
+| 区分 | ケース | 確かめること |
+| ---- | ------ | ------------ |
+| 合成の tree | `cm_ash`・`cm_cudarc`・`cm_libloading`・`cm_metal_ok` | ComputeOnly の組で `objc2-metal` 以外の SDK・ローダは違反（終了コード 1）、`objc2-metal` は違反にならない |
+| 合成の tree | `bl_three`・`bl_diff_compute_only`・`bl_none` | 比較基準に 3 つの SDK が載るときの `baseline:`・`baseline-count:`・`diff:` の値 |
+| 合成の tree | `bl_extra_not_in_baseline`・`bl_absent_without_flag` | `--extra-judged-crate` の名前は比較基準に出ない・`--baseline-text` を渡さなければ比較基準の行は出ない |
+| 合成の tree | `bl_misuse_alone`・`bl_empty`・`bl_no_package`・`bl_unreadable` | `--baseline-text` の単独・0 件・検査対象の欠落・読めない入力は終了コード 2 |
+| 偽のコマンド | `fake_tree_args_baseline`・`fake_no_features_edges_baseline`・`fake_baseline_lines` | 比較基準で渡す cargo の引数、features の辺を流さないこと、出力の行 |
+| 一時 workspace | `real_baseline` | `backend-metal`・`backend-vulkan`・`backend-cuda` の裏に SDK があるとき、比較基準に 3 つが載り、4 プロファイルは合格し、`diff:` はプロファイルごとに期待どおり |
+| 一時 workspace | `real_feature_selected`・`real_dev_dep`・`real_cpu_ops_cudarc` | 違反になるプロファイルに `compute-only-metal` が加わる |
+| 実物のリポジトリ | `repo_real` | 4 プロファイルで合格し、`baseline:` 1 行・`baseline-count:` 3 行・`diff:` 4 行が出る |
+| 陽性対照 | `repo_real`（`test-profile-dep-graph-positive-control`） | 接頭辞を分けたので、基準と足した組の件数の比べ方は変わらず通る |
+
+### 実測
+
+結果は GPU の実機なしで、`make profile-dep-graph-check` を流した値。
+
+| 項目 | 値 |
+| ---- | -- |
+| 終了コード | 0（`ok: 4 profile(s) checked, no judged crates (judged=0)`） |
+| `compute-only-metal` の crate の `count:` | 6 行、すべて `n=0` |
+| `baseline:` | `crates_total=2`・`sdk_total=0`（今の製品の crate には SDK の依存が無い） |
+| `baseline-count:` / `diff:` | 3 行すべて `n=0` / 4 行すべて `diff=0` |
+
+確かめた base は `1249d2eab8a69df0c1b2b4182a27e27fc8736f67`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。

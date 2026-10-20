@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# profile-dep-graph-check.sh の回帰テスト（spec TASK-228、TASK-229・BUILD-3・BUILD-4 のポインタ）。
+# profile-dep-graph-check.sh の回帰テスト（spec TASK-228、TASK-229・BUILD-3〜BUILD-5 のポインタ）。
 # 一時ディレクトリの合成 cargo tree のテキスト（ダミーの名前）を --tree-text / --profile で渡し、
 # 終了コード・標準出力・標準エラーの文言を確かめる。合成の節は cargo を呼ばない。
 # Graphics（Vulkan）の組は SDK のうち ash・libloading だけを許し、それ以外の SDK と描画・surface の名前を数える。
 # Graphics と相互運用の組は SDK のうち ash・cudarc・libloading だけを許し、それ以外の SDK と描画・surface の名前を数える。
-# ComputeOnly（Metal）の組は、features の辺を含む tree（--features-text）も渡して per-header feature を数える。
+# ComputeOnly（Metal）の組は SDK のうち objc2-metal だけを許し、features の辺を含む tree（--features-text）も渡して per-header feature を数える。
+# 比較基準の単一ビルド（--all-features）は判定せず、baseline:・baseline-count:・diff: の行で記録する。
 # 「偽のコマンド」の節は、PATH の先頭に置いた偽の cargo / git で引数なしの経路を通す。
 # 「実物」の節は、実行時に一時ディレクトリへ作る合成 path crate の一時 workspace に検査を写し、
 # 実物の cargo tree の出力で通す（feature の組と全 target が効いていることもここで確かめる）。
@@ -218,7 +219,7 @@ run_tree --tree-text "${work}/cm_plain.tree" --profile compute-only-metal --feat
 judge "cm_ok" 0 "o:ok: " "o:scanned: profile=compute-only-metal crates=2" \
   "o:record: commit=- profile=compute-only-metal crates_total=2 judged_total=0 header_crate_n=0 features_judged_total=0 features_recorded_total=0" \
   "!violation" "!FAILED" "!error:" "!${work}"
-count_is "cm_ok_crate_counts" "${OUT_F}" "count: profile=compute-only-metal crate=" 3
+count_is "cm_ok_crate_counts" "${OUT_F}" "count: profile=compute-only-metal crate=" 6
 count_is "cm_ok_feature_counts" "${OUT_F}" "count: profile=compute-only-metal feature=" 8
 count_is "cm_ok_feature_judged" "${OUT_F}" " judged=yes n=0" 5
 count_is "cm_ok_feature_recorded" "${OUT_F}" " judged=no n=0" 3
@@ -350,6 +351,48 @@ judge "gi_extra_already_judged" 2 "e:error: --extra-judged-crate is already judg
 run_tree --tree-text "${work}/gi_ok.tree" --profile graphics-interop --features-text "${work}/cm_f_none.tree"
 judge "gi_misuse_with_features_text" 2 "e:error: --features-text is required" "!ok: " "!record: "
 
+# ---- 合成の節（compute-only-metal: 選んでいない SDK）----
+mk_tree cm_ash "${BASE1}" "ash v0.38.0"
+mk_tree cm_cudarc "${BASE1}" "cudarc v0.12.0"
+mk_tree cm_libloading "${BASE1}" "libloading v0.8.1"
+mk_tree cm_metal_ok "${BASE1}" "objc2-metal v0.3.0"
+for n in ash cudarc libloading; do
+  run_tree --tree-text "${work}/cm_${n}.tree" --profile compute-only-metal --features-text "${work}/cm_f_none.tree"
+  judge "cm_${n}" 1 "e:violation: profile=compute-only-metal crate=${n} version=" "e:FAILED: 1 judged crate(s) found" "!ok: "
+done
+run_tree --tree-text "${work}/cm_metal_ok.tree" --profile compute-only-metal --features-text "${work}/cm_f_none.tree"
+judge "cm_metal_ok" 0 "o:ok: " "o:judged_total=0" "!violation"
+
+# ---- 合成の節（比較基準 --all-features: 判定せず記録する）----
+mk_tree bl_three "${BASE1}" "objc2-metal v0.3.0" "ash v0.38.0" "cudarc v0.12.0" "libloading v0.8.1"
+mk_tree bl_none "${BASE1}" "${BASE2}"
+mk_tree bl_empty
+mk_tree bl_no_package "${BASE2}"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/bl_three.tree"
+judge "bl_three" 0 "o:ok: " \
+  "o:baseline: commit=- profile=all-features crates_total=5 sdk_total=3" \
+  "o:baseline-count: profile=all-features crate=objc2-metal n=1" "o:baseline-count: profile=all-features crate=ash n=1" \
+  "o:baseline-count: profile=all-features crate=cudarc n=1" \
+  "o:diff: profile=cpu-only baseline=all-features sdk_baseline=3 sdk_profile=0 diff=3" "!violation" "!error:" "!${work}"
+count_is "bl_three_count_lines" "${OUT_F}" "baseline-count: " 3
+count_is "bl_three_diff_lines" "${OUT_F}" "diff: " 1
+run_tree --tree-text "${work}/cm_metal_ok.tree" --profile compute-only-metal --features-text "${work}/cm_f_none.tree" --baseline-text "${work}/bl_three.tree"
+judge "bl_diff_compute_only" 0 "o:diff: profile=compute-only-metal baseline=all-features sdk_baseline=3 sdk_profile=1 diff=2"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/bl_none.tree"
+judge "bl_none" 0 "o:baseline: commit=- profile=all-features crates_total=2 sdk_total=0" "o:diff: profile=cpu-only baseline=all-features sdk_baseline=0 sdk_profile=0 diff=0"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/bl_three.tree" --extra-judged-crate fandhe-silicon-core
+judge "bl_extra_not_in_baseline" 1 "e:violation: profile=cpu-only crate=fandhe-silicon-core" "o:baseline-count: profile=all-features crate=ash n=1" "!baseline-count: profile=all-features crate=fandhe-silicon-core"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only
+judge "bl_absent_without_flag" 0 "o:ok: " "!baseline" "!diff:"
+run_tree --baseline-text "${work}/bl_three.tree"
+judge "bl_misuse_alone" 2 "e:error: --baseline-text needs" "!ok: " "!baseline:"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/bl_empty.tree"
+judge "bl_empty" 2 "e:error: no crates found" "!ok: " "!baseline:"
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/bl_no_package.tree"
+judge "bl_no_package" 2 "e:error: the checked crate is missing" "!ok: "
+run_tree --tree-text "${work}/ok_basic.tree" --profile cpu-only --baseline-text "${work}/nonexistent.tree"
+judge "bl_unreadable" 2 "e:error: cannot read input file" "!ok: " "!${work}"
+
 # ---- 偽の cargo / git（引数なしの経路。PATH の先頭に置く）----
 fakebin="${work}/fakebin"
 mkdir -p "${fakebin}"
@@ -407,6 +450,9 @@ rc=0
 PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok FAKE_ARGS_LOG="${args_log}" FAKE_TREE="${work}/ok_basic.tree" \
   "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 judge "fake_ok" 0 "o:record: commit=0123456789abcdef0123456789abcdef01234567 profile=cpu-only crates_total=2 " "o:ok: " "!-dirty"
+judge "fake_baseline_lines" 0 "o:baseline: commit=0123456789abcdef0123456789abcdef01234567 profile=all-features crates_total=2 sdk_total=0" \
+  "o:diff: profile=cpu-only baseline=all-features sdk_baseline=0 sdk_profile=0 diff=0" \
+  "o:diff: profile=graphics-interop baseline=all-features sdk_baseline=0 sdk_profile=0 diff=0"
 count_is "fake_tree_args" "${args_log}" \
   "tree --locked -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops -e normal,build,dev --target all --prefix none" 1
 count_is "fake_tree_args_compute_only" "${args_log}" \
@@ -419,6 +465,9 @@ count_is "fake_tree_args_graphics_interop" "${args_log}" \
 count_is "fake_no_features_edges_graphics_interop" "${args_log}" "ext-interop -e normal,build,dev,features" 0
 count_is "fake_features_args" "${args_log}" \
   "tree --locked -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops,backend-metal -e normal,build,dev,features --target all --prefix none" 1
+count_is "fake_tree_args_baseline" "${args_log}" \
+  "tree --locked -p fandhe-silicon-contract --all-features -e normal,build,dev --target all --prefix none" 1
+count_is "fake_no_features_edges_baseline" "${args_log}" "--all-features -e normal,build,dev,features" 0
 count_is "fake_no_inverse_without_header_crate" "${args_log}" " -i " 0
 
 # objc2-metal が載る tree では版ごとに逆向きの tree を 1 回流し、逆向きにだけある判定の feature を数える
@@ -569,7 +618,7 @@ if real_git init -q >/dev/null 2>"${ERR_F}" && real_contract "${BASE_FEATURES}";
   # (b) 選んだ feature の裏の依存は数える
   real_contract "${BASE_FEATURES/cpu-ops = []/cpu-ops = [\"dep:ash\"]}" || report_fail "real_feature_setup" "cannot prepare"
   run_real
-  judge "real_feature_selected" 1 "e:violation: profile=cpu-only crate=ash version=0.1.0" "e:FAILED: 1 judged crate(s) found" "!violation: profile=graphics-vulkan" "!violation: profile=graphics-interop" "!ok: " "!${rw}"
+  judge "real_feature_selected" 1 "e:violation: profile=cpu-only crate=ash version=0.1.0" "e:violation: profile=compute-only-metal crate=ash version=0.1.0" "e:FAILED: 2 judged crate(s) found" "!violation: profile=graphics-vulkan" "!violation: profile=graphics-interop" "!ok: " "!${rw}"
 
   # (c) 別 target に限った依存も数える（--target all）
   real_contract "[target.'cfg(target_os = \"windows\")'.dependencies]
@@ -601,7 +650,7 @@ backend-cuda = []
 ext-interop = []
 graphics = []" || report_fail "real_dev_setup" "cannot prepare"
   run_real
-  judge "real_dev_dep" 1 "e:violation: profile=cpu-only crate=ash" "e:FAILED: 1 judged crate(s) found" "!violation: profile=graphics-vulkan" "!violation: profile=graphics-interop" "!ok: " "!${rw}"
+  judge "real_dev_dep" 1 "e:violation: profile=cpu-only crate=ash" "e:violation: profile=compute-only-metal crate=ash" "e:FAILED: 2 judged crate(s) found" "!violation: profile=graphics-vulkan" "!violation: profile=graphics-interop" "!ok: " "!${rw}"
 
   # (e)〜(i) の契約の crate の後半。objc2-metal の依存の宣言と feature の表を引数で差し替える
   METAL_COMMON='[features]
@@ -715,7 +764,7 @@ graphics = []" || report_fail "real_vulkan_sdk_setup" "cannot prepare"
   judge "real_vulkan_judged_sdk" 1 "e:violation: profile=graphics-vulkan crate=objc2-metal version=0.1.0" "e:violation: profile=graphics-interop crate=objc2-metal version=0.1.0" "e:FAILED: 2 judged crate(s) found" \
     "!violation: profile=cpu-only" "!violation: profile=compute-only-metal" "!ok: " "!${rw}"
 
-  # (l) cpu-ops の裏に cudarc があれば cpu-only と graphics-vulkan で違反になる（graphics-interop は cudarc を許す）
+  # (l) cpu-ops の裏に cudarc があれば cpu-only・compute-only-metal・graphics-vulkan で違反になる（graphics-interop は cudarc を許す）
   real_contract "cudarc = { path = \"../../../ext/cudarc\", optional = true }
 
 [features]
@@ -729,7 +778,7 @@ ext-interop = []
 graphics = []" || report_fail "real_cpu_ops_cudarc_setup" "cannot prepare"
   run_real
   judge "real_cpu_ops_cudarc" 1 "e:violation: profile=cpu-only crate=cudarc version=0.1.0" "e:violation: profile=graphics-vulkan crate=cudarc version=0.1.0" \
-    "e:FAILED: 2 judged crate(s) found" "!violation: profile=graphics-interop" "!violation: profile=compute-only-metal" "!ok: " "!${rw}"
+    "e:violation: profile=compute-only-metal crate=cudarc version=0.1.0" "e:FAILED: 3 judged crate(s) found" "!violation: profile=graphics-interop" "!ok: " "!${rw}"
 
   # (m) ext-interop の裏に判定の SDK（objc2-metal）があれば graphics-interop だけで違反になる
   real_contract "[dependencies.objc2-metal]
@@ -749,6 +798,35 @@ graphics = []" || report_fail "real_interop_only_setup" "cannot prepare"
   run_real
   judge "real_interop_only" 1 "e:violation: profile=graphics-interop crate=objc2-metal version=0.1.0" "e:FAILED: 1 judged crate(s) found" \
     "!violation: profile=cpu-only" "!violation: profile=compute-only-metal" "!violation: profile=graphics-vulkan" "!ok: " "!${rw}"
+
+  # (n) 各 backend の feature の裏に SDK があれば、比較基準（--all-features）に 3 つが載り、4 プロファイルは合格して差が出る
+  real_contract "ash = { path = \"../../../ext/ash\", optional = true }
+cudarc = { path = \"../../../ext/cudarc\", optional = true }
+
+[dependencies.objc2-metal]
+path = \"../../../ext/objc2-metal\"
+optional = true
+default-features = false
+
+[features]
+contract-core = []
+cpu-isa = []
+cpu-ops = []
+backend-metal = [\"dep:objc2-metal\"]
+backend-vulkan = [\"dep:ash\"]
+backend-cuda = [\"dep:cudarc\"]
+ext-interop = []
+graphics = []" || report_fail "real_baseline_setup" "cannot prepare"
+  run_real
+  judge "real_baseline" 0 "o:ok: 4 profile(s) checked" \
+    "o:baseline: commit=" "o:profile=all-features crates_total=5 sdk_total=3" \
+    "o:baseline-count: profile=all-features crate=objc2-metal n=1" "o:baseline-count: profile=all-features crate=ash n=1" \
+    "o:baseline-count: profile=all-features crate=cudarc n=1" \
+    "o:diff: profile=cpu-only baseline=all-features sdk_baseline=3 sdk_profile=0 diff=3" \
+    "o:diff: profile=compute-only-metal baseline=all-features sdk_baseline=3 sdk_profile=1 diff=2" \
+    "o:diff: profile=graphics-vulkan baseline=all-features sdk_baseline=3 sdk_profile=1 diff=2" \
+    "o:diff: profile=graphics-interop baseline=all-features sdk_baseline=3 sdk_profile=2 diff=1" \
+    "!violation" "!error:" "!${rw}"
 else
   report_fail "real_fixture_setup" "cannot prepare the temporary workspace"
 fi
@@ -756,7 +834,9 @@ fi
 # ---- 実物のリポジトリ（引数なしの本物の検査）----
 rc=0
 "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
-judge "repo_real" 0 "o:ok: " "o:record: commit=" "o:profile=cpu-only" "o:profile=compute-only-metal" "o:profile=graphics-vulkan" "o:profile=graphics-interop" "o:header_crate_n=0" "!violation" "!error:" "!${ROOT_DIR}"
+judge "repo_real" 0 "o:ok: " "o:record: commit=" "o:profile=cpu-only" "o:profile=compute-only-metal" "o:profile=graphics-vulkan" "o:profile=graphics-interop" "o:header_crate_n=0" "o:baseline: commit=" "o:profile=all-features" "!violation" "!error:" "!${ROOT_DIR}"
+count_is "repo_real_baseline_count_lines" "${OUT_F}" "baseline-count: " 3
+count_is "repo_real_diff_lines" "${OUT_F}" "diff: profile=" 4
 
 rc=0
 "${CHECK}" --extra-judged-crate fandhe-silicon-core >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?

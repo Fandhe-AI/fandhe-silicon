@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 契約の crate（fandhe-silicon-contract）をプロファイルごとの feature の組にしたときの依存グラフに、
-# 判定に使う crate 名が載っていないことを数えて確かめる（spec TASK-228・BUILD-1・BUILD-2、TASK-229・BUILD-3・BUILD-4 のポインタ）。
+# 判定に使う crate 名が載っていないことを数えて確かめる（spec TASK-228・BUILD-1・BUILD-2、TASK-229・BUILD-3〜BUILD-5 のポインタ）。
+# ComputeOnly（Metal）の組では objc2-metal だけを許す。
 # Graphics（Vulkan）の組では ash・libloading だけを許す。
 # Graphics と相互運用の組では ash・cudarc・libloading だけを許す。
 # ComputeOnly（Metal）の組では、`objc2-metal` の per-header feature も `cargo tree -e features` で数える。
@@ -27,6 +28,11 @@
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--tree-text の経路では `-`。
 #   --extra-judged-crate を渡したときだけ、`record:` と `ok:` の末尾に ` extra_judged_crate=<name>` が付き、その名前の `count:` も出る
 #   （渡さないときの出力は変わらない）。
+# 比較基準の単一ビルド（`--all-features`）は判定せず記録する（出力の行の接頭辞は record: / count: と分ける）。
+#   `baseline: commit=<rev|-> profile=<名前> crates_total=<n> sdk_total=<k>`
+#   `baseline-count: profile=<名前> crate=<名前> n=<k>`（比較基準が含むはずの SDK ごと。0 件も出す）
+#   `diff: profile=<p> baseline=<名前> sdk_baseline=<K> sdk_profile=<k> diff=<K-k>`（判定するプロファイルごとに 1 行）
+#   --tree-text の経路では `--baseline-text <path>` を渡したときだけ出す（--tree-text と --profile の組でだけ受け付ける）。
 # 標準エラー: `violation:`・`FAILED:`（crate / feature ごと）・`error:`。
 #
 # 数え方: プロファイル・feature の組・依存の種類・target・名前の一覧は、Python 部の先頭の
@@ -63,6 +69,8 @@ TARGET = "all"
 # 判定に使う名前（GPU の SDK・ローダ / 描画・surface）。
 SDK_LOADER_NAMES = ("objc2-metal", "ash", "cudarc", "libloading")
 SURFACE_NAMES = ("objc2-quartz-core", "raw-window-handle", "winit")
+# ComputeOnly（Metal）の組で許す SDK・ローダ（判定の名前からこれを除いたものが、その組の判定になる）。
+COMPUTE_ONLY_METAL_ALLOWED_SDK = ("objc2-metal",)
 # Graphics（Vulkan）の組で許す SDK・ローダ（判定の名前からこれを除いたものが、その組の判定になる）。
 GRAPHICS_VULKAN_ALLOWED_SDK = ("ash", "libloading")
 # Graphics と相互運用の組で許す SDK・ローダ（判定の名前からこれを除いたものが、その組の判定になる）。
@@ -89,7 +97,7 @@ PROFILES = {
     },
     "compute-only-metal": {
         "features": ("--no-default-features", "--features", "contract-core,cpu-isa,cpu-ops,backend-metal"),
-        "names": SURFACE_NAMES,
+        "names": tuple(n for n in SDK_LOADER_NAMES if n not in COMPUTE_ONLY_METAL_ALLOWED_SDK) + SURFACE_NAMES,
         "header_crate": HEADER_CRATE,
         "judged_features": RENDER_HEADER_FEATURES,
         "recorded_features": RECORD_ONLY_HEADER_FEATURES,
@@ -113,6 +121,11 @@ PROFILES = {
         "recorded_features": (),
     },
 }
+# 比較基準の単一ビルド（判定せず、件数と各プロファイルとの差だけを記録する）。
+BASELINE_NAME = "all-features"
+BASELINE_FEATURES = ("--all-features",)
+# 比較基準が含むはずの SDK（差を数える対象）。
+BASELINE_SDK_NAMES = ("objc2-metal", "ash", "cudarc")
 # ==== 数え方の定義ここまで ====
 
 TREE_LINE = re.compile(r"^(\S+) v(\S+)( .*)?$")
@@ -258,12 +271,26 @@ def judge(profile, crates, extra=None):
     return sorted(k for k in crates if fold(k[0]) in wanted)
 
 
+def baseline_crates(crates):
+    """比較基準の tree を検査する（空や検査対象の欠落は Misuse）。判定はしないので crates をそのまま返す。"""
+    need(crates, "no crates found in the dependency graph")
+    need(any(fold(n) == fold(PACKAGE) for n, _ in crates), "the checked crate is missing from the dependency graph")
+    return crates
+
+
+def sdk_count(crates):
+    """tree に載る BASELINE_SDK_NAMES の一意の package の数。"""
+    wanted = {fold(n) for n in BASELINE_SDK_NAMES}
+    return sum(1 for (n, _v) in crates if fold(n) in wanted)
+
+
 def main():
     ap = argparse.ArgumentParser(prog="profile-dep-graph-check.sh", add_help=True)
     ap.add_argument("root")
     ap.add_argument("--tree-text")
     ap.add_argument("--profile")
     ap.add_argument("--features-text")
+    ap.add_argument("--baseline-text")
     ap.add_argument("--extra-judged-crate", action="append")
     a = ap.parse_args()
     need(a.extra_judged_crate is None or len(a.extra_judged_crate) == 1, "--extra-judged-crate takes exactly one name")
@@ -278,6 +305,10 @@ def main():
     if a.features_text is not None and a.tree_text is None:
         raise Misuse("--features-text needs --tree-text and --profile")
 
+    if a.baseline_text is not None and a.tree_text is None:
+        raise Misuse("--baseline-text needs --tree-text and --profile")
+
+    baseline = None  # 比較基準の (crates, commit)
     inputs = []  # (profile, crates, feature の集合 | None, commit)
     if a.tree_text is not None:
         need(a.profile in PROFILES, "unknown profile")
@@ -286,6 +317,8 @@ def main():
         crates = parse_tree(read_text(a.tree_text))
         feats = parse_feature_tree(read_text(a.features_text))[1] if has_header else None
         inputs.append((a.profile, crates, feats, "-"))
+        if a.baseline_text is not None:
+            baseline = (baseline_crates(parse_tree(read_text(a.baseline_text))), "-")
     else:
         commit = source_commit(a.root)
         run_cargo(a.root, ["cargo", "--version"])
@@ -295,6 +328,7 @@ def main():
             if cfg["header_crate"] is not None:
                 feats = parse_feature_tree(cargo_features(a.root, profile, crates))[1]
             inputs.append((profile, crates, feats, commit))
+        baseline = (baseline_crates(parse_tree(run_cargo(a.root, tree_cmd(BASELINE_FEATURES)))), commit)
 
     results = [(p, c, f, rev, judge(p, c, extra_name)) for (p, c, f, rev) in inputs]
     crate_total = 0
@@ -328,6 +362,18 @@ def main():
                       file=sys.stderr)
                 feature_total += 1
         crate_total += len(hits)
+    if baseline is not None:
+        bcrates, bcommit = baseline
+        total = sdk_count(bcrates)
+        print("baseline: commit=%s profile=%s crates_total=%d sdk_total=%d"
+              % (bcommit, clean(BASELINE_NAME), len(bcrates), total))
+        for n in BASELINE_SDK_NAMES:
+            k = sum(1 for (bn, _v) in bcrates if fold(bn) == fold(n))
+            print("baseline-count: profile=%s crate=%s n=%d" % (clean(BASELINE_NAME), clean(n), k))
+        for profile, crates, _f, _c, _h in results:
+            k = sdk_count(crates)
+            print("diff: profile=%s baseline=%s sdk_baseline=%d sdk_profile=%d diff=%d"
+                  % (profile, clean(BASELINE_NAME), total, k, total - k))
     if crate_total:
         print("FAILED: %d judged crate(s) found" % crate_total, file=sys.stderr)
     if feature_total:

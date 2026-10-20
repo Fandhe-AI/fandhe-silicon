@@ -125,7 +125,7 @@ dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crat
 test-dep-graph-wgpu-check: ## dep-graph-wgpu-check の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-dep-graph-wgpu-check.sh
 	@scripts/test-dep-graph-wgpu-check.sh
 
-profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（CpuOnly・ComputeOnly の Metal・Graphics の Vulkan の組・Graphics と相互運用の組。ComputeOnly の Metal の組は objc2-metal の per-header feature も数え、Graphics の Vulkan の組は ash・libloading だけを許し、Graphics と相互運用の組は ash・cudarc・libloading だけを許す）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/profile-dep-graph-check.sh
+profile-dep-graph-check: ## 契約の crate のプロファイルごとの依存グラフ（CpuOnly・ComputeOnly の Metal・Graphics の Vulkan の組・Graphics と相互運用の組。ComputeOnly の Metal の組は objc2-metal の per-header feature も数え、Graphics の Vulkan の組は ash・libloading だけを許し、Graphics と相互運用の組は ash・cudarc・libloading だけを許し、ComputeOnly の Metal の組は objc2-metal だけを許す。比較基準の単一ビルド（--all-features）は判定せず baseline: / baseline-count: / diff: の行で記録する）で判定に使う crate 名を数えて検査し、件数を record: / count: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/profile-dep-graph-check.sh
 	@scripts/profile-dep-graph-check.sh
 
 test-profile-dep-graph-check: ## profile-dep-graph-check の回帰テスト（合成 tree・偽の cargo / git と、実行時に作る一時 workspace の実物の cargo tree。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-check.sh
