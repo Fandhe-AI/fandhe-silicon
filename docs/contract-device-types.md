@@ -104,6 +104,50 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - 確かめた base: `d1b1563`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`
 - 残る段: 6/6
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#3658）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-136）。結果は GPU の実機なしで実行した値で、件数は実測。本体のコード（`src/`）と試験は変えていない。
+
+### 成果物と本書の置き場の対応
+
+| 成果物 | 置き場 | 本書の節 |
+| ------ | ------ | -------- |
+| 実装（型の定義） | `crates/core/src/device.rs`・`crates/core/src/capability.rs` | 「現状の形（2/6）」 |
+| テスト（型の試験） | `crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`device_lost_reason_values.rs` | 「現状の形（2/6）」「現状の形（3/6）」「確かめ（5/6）」 |
+| CI への組み込み | `scripts/public-api-check.sh`・`scripts/test-public-api-check.sh`（`deny` ジョブ）と、変えていない `scripts/dep-graph-wgpu-check.sh` | 「現状の形（4/6）」 |
+| 確かめ（エラー側の 3 型と 3 値の照合） | `crates/core/tests/device_lost_reason_values.rs` と TASK-269 の `error_non_exhaustive.rs`・`error_fields.rs`（変えていない） | 「確かめ（5/6）」と本節 |
+
+### 確かめの表
+
+各項目と DEV の ID の対応は「現状の形（3/6）」と「確かめ（5/6）」の行のとおり（ここでは節を指すだけにする）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | 統合テスト（feature なし） | `cargo test -p fandhe-silicon-core --test <名>` | `device_capability_types` 4 件・`device_request_fields` 2 件・`device_capability_non_exhaustive` 6 件・`capability_query_default` 3 件・`device_lost_reason_values` 3 件が通る。各 0 failed / 0 ignored |
+| B2 | 照合に使った TASK-269 の試験 | `--test error_non_exhaustive --test error_fields` | 6 件・13 件が通る（5/6 の記録と同じ）。0 failed / 0 ignored |
+| B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1・B2 の 7 本が同じ件数で通る |
+| B4 | 拡張性の試験が実在する | `grep -n '^fn ' crates/core/tests/device_capability_non_exhaustive.rs` | 先頭に `#![deny(unreachable_patterns)]`。`*_stays_non_exhaustive` が 5 本（ほかに値の個数の試験 1 本） |
+| C1 | `#[non_exhaustive]` の付き方 | `grep -n -A1 'non_exhaustive' crates/core/src/device.rs crates/core/src/capability.rs` | `BackendKind`・`Profile`・`DeviceOwnership`・`CapabilityLevel`・`CapabilityEvidence` の 5 型に付く。`DeviceRequest`・`CapabilityQuery`・`NativeDeviceHandle`・`FeatureId` には付かない |
+| C2 | 置き場と制約 | `lib.rs` の `pub mod device;`・`pub mod capability;`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` の記録の数 | 2 つの `mod` に feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
+| C3 | 他の経路からの参照 | `crates/exec`・`crates/contract`・`crates/upper`・`wasm`・`measure`・`baseline-wgpu` を `DeviceRequest`・`NativeDeviceHandle`・`CapabilityEvidence`・`CapabilityQuery` で検索 | 0 件 |
+| C4 | wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` 付きも）・`make build-profiles` | いずれも終了コード 0 |
+| C5 | 公開 API・依存グラフの検査 | `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`・`make public-name-check`・`make public-api-sdk-check` | すべて終了コード 0。`scanned: crate=fandhe_silicon_core` は production が `public_items=1097`・all-features が `public_items=4243`、いずれも `wgpu_type_refs=0`・`wgpu_other_refs=0`（DEV-21） |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml` | 確かめた base のコミットの run `39491463730` が completed / success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+- 実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない。
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-136）。
+
+### 再実行の契機
+
+- `crates/core/src/device.rs`・`capability.rs` の型・値・フィールド・derive・`#[non_exhaustive]`・既定の実装を変えたとき
+- B1 の 5 本の試験のファイル、または照合に使った `error_non_exhaustive.rs`・`error_fields.rs`・`crates/core/src/error.rs` を変えたとき
+- `scripts/public-api-check.sh`・`scripts/test-public-api-check.sh`・`scripts/dep-graph-wgpu-check.sh`、CI の `deny` ジョブの手順を変えたとき
+- `core` の feature・依存・wasm32 のビルドの経路（`scripts/build-profiles.sh`・`scripts/wasm-verify.sh`）を変えたとき
+- `docs/spec` の gitlink が進んだとき
+
+確かめた base は `c279b3007d773eb122dc32debe9e450e2555244b`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -113,7 +157,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | 3/6 | #3655 | テスト |
 | 4/6 | #3656 | CI への組み込み |
 | 5/6 | #3657 | 確かめ |
-| 6/6 | #3658 | 記録 |
+| 6/6 | #3658 | 記録（本書の「完了の条件の確かめ（6/6）」） |
 
 ## 本リポでの反映の方針
 
