@@ -42,7 +42,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 5/8 | #4054 | 投入の回数の計数と模擬の OOM の差し込み（「現状の形（5/8）」の節） |
 | 6/8 | #4055 | 模擬の実行時エラーと上限の差し替えの口（「現状の形（6/8）」の節） |
 | 7/8 | #4056 | テスト（「試験（7/8）」の節） |
-| 8/8 | #4057 | 手順書の作成 |
+| 8/8 | #4057 | 手順書の作成（「使い分けの手順（8/8）」の節） |
 
 ## 現状の形（2/8）
 
@@ -105,6 +105,77 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `crates/contract/tests/fault_injection_parts.rs`: contract の feature `fault-injection` だけで、デコレータとスタブが組み上がって働くことを確かめる
 - `CompletionUnknown` の筋書きでの `poll_with` の値と、スタブの `simulate_runtime_error` は、本段の試験では現状の値を固めない
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`・`cargo test -p fandhe-silicon-contract --no-default-features --features fault-injection`
+
+## 使い分けの手順（8/8）
+
+試験を書く人が、どの部品をどう使うかの手順。型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。差し込むのは模擬であって、実際の故障ではない。
+
+### 有効にする
+
+- 試験の crate の dev-dependency で feature `fault-injection` を有効にする（`core` に直接、または `contract` の `fault-injection` 経由）。`default` と本番の組には入らない
+- 統合テストには `[[test]]` に `required-features = ["fault-injection"]` を付ける（`crates/core/Cargo.toml` の既存の `fault_*` の宣言と同じ）
+- 確かめ: `crates/contract/tests/fault_injection_forwarding.rs`・`fault_injection_parts.rs`
+
+### 2 系統の使い分け
+
+| したいこと | 使う部品 | 例の試験 |
+| ---------- | -------- | -------- |
+| 内側を呼ばずに合成の失敗を返させる（`Timeout`・`Unknown`・`CapabilityInsufficient`・`S0`・`AllocationFailed`・実行時エラー） | (A) `decorator::FaultInjecting` と `FaultScript` | `fault_decorator_*.rs`・`fault_parts_matrix.rs` |
+| 内側の投入の回数を数える | (A) `submit_with` と `submit_call_count()` | `fault_decorator_submit_count.rs` |
+| 上限を差し替える | (A) `with_limits_override` と `limits_with` | `fault_decorator_limits.rs` |
+| 背後実装なしで模擬のロスト・コールバックの計数・門の状態を扱う | (A) `stub::FaultStub` | `fault_stub_lost.rs` |
+| 背後実装自身をロストさせる・門で止める・実行時エラーにする | (B) `FaultHooks` の口を `inject(Option<&dyn FaultHooks>, HookFault)` で呼ぶ | `fault_hooks_inject.rs`・`fault_parts_composition.rs` |
+
+### (A) デコレータの使い方
+
+1. 偽の内側を用意する（`Device` のトレイトはまだ無いので、包む値は型引数 `D`）
+2. `FaultInjecting::new(inner, script)` で包む。筋書きは `PassThrough`・`CompletionUnknown`・`CapabilityInsufficient { feature, required }`・`CapabilityQueryFails`・`AllocationFails`・`RuntimeError { backend, detail }`
+3. 対象の `*_with(|| 内側の呼び出し)` を呼び、戻り値と内側を呼んだ回数を見る
+4. `D: Capabilities` なら `Capabilities`、`D: FaultHooks` なら `FaultHooks` を実装する（口は内側へそのまま渡す）。`Send + Sync` は保たれる
+
+筋書きごとの働き（内側を呼ばない差し込みだけ。ほかは内側の値をそのまま返す。詳細は 3/8〜6/8 の節）:
+
+| 筋書き | 働き |
+| ------ | ---- |
+| `CompletionUnknown` | `wait_blocking_with` は `Err(Timeout)`、`poll_ex_with` は `Unknown` |
+| `CapabilityInsufficient` | 対象の機能だけ `query` が `Unsupported`、`create_pipeline_with` が `Err(CapabilityInsufficient)` |
+| `CapabilityQueryFails` | `query` が全機能で `S0` |
+| `AllocationFails` | `allocate_with` が `Err(AllocationFailed { requested_bytes })` |
+| `RuntimeError` | `wait_blocking_with` が `Err(BackendFailure)`、`poll_ex_with` が `RuntimeError`、`poll_with` が `Lost` |
+
+試験: `crates/core/tests/fault_parts_matrix.rs`（筋書きと差し込みの全組）と段ごとの `fault_decorator_*.rs`。
+
+### (A) スタブの使い方
+
+`FaultStub::new()` → `set_lost_callback` → `inject(Some(&stub), HookFault::DeviceLost(..))` → `is_lost`・`lost_reason`・`lost_callback_count`・`gate_armed` で見る。2 回目のロストは無視され、コールバックは 1 回だけ呼ばれる。試験: `crates/core/tests/fault_stub_lost.rs`。
+
+### (B) 口の使い方
+
+- 口を返す側の戻り値（`Option<&dyn FaultHooks>`）を `inject` に渡す。`None` なら `UnsupportedExtensionDefault { op: "fault_hooks" }`、口を実装していなければ既定の実装がメソッド名の `op` で `UnsupportedExtensionDefault` を返す（黙って成功しない）。試験: `fault_hooks_inject.rs`・`fault_parts_composition.rs`
+- 背後実装ごとの実装の持ち主は、TASK-2932〜TASK-2934（`simulate_device_lost`）、TASK-319・TASK-332・TASK-345（門）、TASK-280（実行時エラーの完了）、TASK-157（上限の型）のポインタに従う
+
+### 2 系統を合わせる
+
+デコレータは内側の `FaultHooks` をそのまま通すため、デコレータで包んだスタブにも `inject` が届く。筋書きと口は互いに干渉しない。試験: `fault_parts_composition.rs` の `inject_reaches_stub_through_decorator_accessor`・`script_and_hooks_work_independently`、`crates/contract/tests/fault_injection_parts.rs` の `decorator_over_stub_routes_simulated_loss_to_stub`。
+
+`CompletionUnknown` の筋書きでの `poll_with` の値と、スタブの `simulate_runtime_error` は、試験で値を固めていない。
+
+### 確かめ方
+
+`cargo test -p fandhe-silicon-core --features fault-injection`・`cargo test -p fandhe-silicon-contract --no-default-features --features fault-injection`
+
+### 完了の条件の確かめ
+
+確かめた base は `origin/main` の `f1b0054`、`docs/spec` の gitlink は `f603cba4`。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | (A) が背後実装の種類に依らず働く | `fault_parts_composition.rs` | `core` の試験 236 passed / 0 failed / 0 ignored |
+| 2 | (A) の差し込みが指定した失敗を返す | `fault_parts_matrix.rs`・`fault_decorator_*.rs`・`fault_stub_lost.rs` | 同上 |
+| 3 | `FaultHooks` の口の型がコンパイルでき、(B) を呼ぶ部品が組み上がる | `fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_parts.rs`・`fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` | `contract` の試験 57 passed / 0 failed / 0 ignored |
+| 4 | 制約 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身のみ、`grep -c '^\[\[' deps-approved.toml` が 0 | 外部依存 0・承認 0 件 |
+
+(B) 経由で実際の背後実装の無効化・門の働きを確かめる項目は、上の持ち主のタスクの持ち分で、本タスクの試験の範囲外。
 
 ## 本リポでの反映の方針
 
