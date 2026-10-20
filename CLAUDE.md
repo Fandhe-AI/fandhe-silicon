@@ -72,7 +72,7 @@ fandhe-silicon/
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）
-├── docs/wasm32-backend-check.md  # 背後実装の feature を付けた wasm32 の検査の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方（TASK-238 の 1/2）
+├── docs/wasm32-backend-check.md  # 背後実装の feature を付けた wasm32 の検査の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方（TASK-238 の 1/2）・依存グラフの記録と完了の条件の確かめ（2/2）
 ├── docs/wasm32-node-foundation.md  # wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）
 ├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）

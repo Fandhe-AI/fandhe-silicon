@@ -1,7 +1,7 @@
 # wasm32 の背後実装の feature の検査
 
 背後実装の feature を付けたまま wasm32 向けに契約の crate が `cargo check` を通ること、Vulkan・CUDA のモジュールが外れて Metal のモジュールが公開のアイテムを持たないこと、wasm32 の依存グラフにチップの SDK の crate が載らないことを、行ごとに出す検査の所在と読み方。
-private spec の TASK-238・BUILD-22・BUILD-23 のポインタ（内容は転記しない。決定の記録は private spec 側の記録に従う）。親 Issue は #1155 で、この文書は 1/2（#7353）の範囲。
+private spec の TASK-238・BUILD-22・BUILD-23 のポインタ（内容は転記しない。決定の記録は private spec 側の記録に従う）。親 Issue は #1155 で、この文書は 1/2（#7353）と 2/2（#7354）の範囲。
 
 ## 所在
 
@@ -64,4 +64,65 @@ rustdoc JSON は `RUSTC_BOOTSTRAP=1` をその子プロセスにだけ渡して�
 | `deny` ジョブに足したステップ | `grep -n "wasm-backend-check" .github/workflows/ci.yml` |
 | 既存の wasm32 の組が不変 | `make build-profiles` |
 
-依存グラフの記録と TASK-238 の完了の条件の確かめは 2/2（#7354）の範囲で、この文書には書かない。
+## 依存グラフの記録（2/2）
+
+2/2（#7354）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-238。BUILD-22・BUILD-23）。
+結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。数え方は「検査する構成と行」の節のとおり。
+
+| 成果物 | この文書の中の置き場 |
+| ------ | -------------------- |
+| wasm32 の cargo check の CI のジョブ | 「所在」と「完了の条件の確かめ（2/2）」 |
+| 依存グラフの記録 | 本節 |
+
+`check:` と `module:`（3 構成）。
+
+| feature | check（target） | check result | module | expect | found | public_items | module result |
+| ------- | --------------- | ------------ | ------ | ------ | ----- | ------------ | ------------- |
+| `backend-metal` | `wasm32-unknown-unknown` | match | `backend_metal` | present-empty | present | 0 | match |
+| `backend-vulkan` | `wasm32-unknown-unknown` | match | `backend_vulkan` | absent | absent | - | match |
+| `backend-cuda` | `wasm32-unknown-unknown` | match | `backend_cuda` | absent | absent | - | match |
+
+`deps:`（3 構成 × 3 SDK）。全 9 行が次の値だった。
+
+| feature | name | wasm32_n | native_n | result |
+| ------- | ---- | -------- | -------- | ------ |
+| `backend-metal`・`backend-vulkan`・`backend-cuda` の各々 | `objc2-metal` | 0 | 0 | match |
+| 同上 | `ash` | 0 | 0 | match |
+| 同上 | `cudarc` | 0 | 0 | match |
+
+`record:` の行（`commit=` は末尾の base の先頭 12 桁と一致し、`-dirty` は付かない）。
+
+```text
+record: commit=6950c283b286 configs=3 check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=0
+```
+
+- `objc2-metal`・`ash`・`cudarc` はどの crate にも宣言されていないので、`native_n` も 0 件。`wasm32_n` の 0 は、target で外れた結果ではなく、そもそも載っていないことによる
+- SDK が依存に足されたときは、同じ検査が `wasm32_n` と `native_n` の差を出す
+- CI: base の push の `ci.yml` の run 39425952330、`deny` ジョブ（job 118638434970）が success。ログに同じ値の `record:` の行と `ok: all 3 configurations match` が出ており、続く `make test-wasm-backend-check` は `passed=42 failed=0`
+
+## 完了の条件の確かめ（2/2）
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-238）。結果の欄は実測の値。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 本体が全行 match | `make wasm-backend-check` の終了コード | 0 |
+| A2 | 3 構成の `check:` が match | `check:` の 3 行 | 3/3 match |
+| A3 | Vulkan・CUDA のモジュールが外れ、Metal のモジュールが公開のアイテムを持たない | `module:` の 3 行 | 3/3 match |
+| A4 | wasm32 の依存グラフでチップの SDK が 0 件 | `deps:` の 9 行がすべて `wasm32_n=0`、`sdk_wasm32_total=0` | 9/9 で 0 件（`native_n` も 0 件） |
+| A5 | 回帰テストが通る | `make test-wasm-backend-check` | passed=42 failed=0 |
+| A6 | CI の機材の要らないジョブで通る | run 39425952330 の `deny` ジョブ（job 118638434970） | success。同じ値の `record:` と `ok:` がログに出た |
+| A7 | 既存の wasm32 の組が不変 | `make build-profiles` の終了コード | 0 |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` の終了コード | すべて 0 |
+
+A4 の 0 件は、3 つの SDK がどの crate にも宣言されていないことによる。target の条件で外れる振る舞いそのものは、本リポの現状では観測していない。
+
+再実行の契機。次を変えたときは表を流し直す。
+
+- `scripts/wasm-backend-check.sh`（特に「定義」のブロック）と `scripts/test-wasm-backend-check.sh`
+- `crates/contract/Cargo.toml` の feature と依存、`Cargo.lock`
+- `crates/contract/src` の背後実装のモジュールの wasm32 の cfg ゲート
+- `.github/workflows/ci.yml` の `deny` ジョブ
+- `docs/spec` のサブモジュールの指す版
+
+確かめた base は `6950c283b2867d2a1790385209dc523472a2553e`、`docs/spec` のサブモジュールの指す版は `f603cba40283866ca89338a66a85a9bde085a0d9`。
