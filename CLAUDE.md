@@ -39,7 +39,7 @@ fandhe-silicon/
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型〕・`device`〔device の要求・所有形態の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`、`fault-injection` の裏に `fault`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`memory`〔バッファの引数検査の純粋関数〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型〕・`device`〔device の要求・所有形態の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`、`fault-injection` の裏に `fault`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   ├── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -68,6 +68,7 @@ fandhe-silicon/
 ├── docs/gemm-test-inputs.md  # GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-1005）
 ├── docs/parity-case-inputs.md  # 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）（TASK-977）
 ├── docs/parity-fallback-inputs.md  # 代わりの実行の試験の入力と CPU の参照の所在・`f16-fma`・`subgroup-sum`・`atomic-add` の入力と CPU の参照の振る舞い・出力の形の規則の試験・対応するテスト・本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-929）
+├── docs/buffer-range-check.md  # バッファの引数検査の純粋関数の所在・現状の振る舞い・対応するテスト・確かめ方（TASK-309 の 1/4）
 ├── docs/unsafe-policy.md     # unsafe の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9）
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-16・TASK-17）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と本リポの現状の事実（TASK-43）
