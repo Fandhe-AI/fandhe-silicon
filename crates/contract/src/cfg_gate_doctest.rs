@@ -8,9 +8,12 @@
 //!
 //! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など）の `cargo test`、
 //! 有効側は `make verify`（`--all-features`）の doctest。
-//! spec との対応: TASK-233 の 1/4、BUILD-11〜13（ポインタ表記）。`native-blocking-wait`・`ext-interop`
+//! 有効側の確かめは `tests/feature_gate_enabled.rs` が受け持つ。
+//! spec との対応: TASK-233 の 1/4・2/4、BUILD-11〜13（ポインタ表記）。`native-blocking-wait`・`ext-interop`
 //! を使うコードの snippet は、対象のアイテムが入った時点で同じ形でここに足す。
-//! 現状は仕組みの確認として、実在の feature ゲート `backend-metal` で対を置く。
+//! 現状は仕組みの確認として、実在の feature ゲート `backend-metal` の対と、
+//! `native-blocking-wait`・`ext-interop` それぞれの「門の目印」の対を置く。
+//! 目印は枠の確かめにとどまり、対象のアイテム自体の確かめではない。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
 #[cfg_attr(not(feature = "backend-metal"), doc = "```compile_fail")]
@@ -19,3 +22,27 @@
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct BackendMetalGate;
+
+/// `native-blocking-wait` を有効にした構成にだけ存在する門の目印。無効側の doctest が解決に失敗することの根拠になる。
+#[cfg(feature = "native-blocking-wait")]
+pub struct NativeBlockingWaitEnabled;
+
+/// `native-blocking-wait` を有効にしない構成では目印が解決できずコンパイルエラーになる。
+#[cfg_attr(not(feature = "native-blocking-wait"), doc = "```compile_fail")]
+#[cfg_attr(feature = "native-blocking-wait", doc = "```")]
+#[doc = "use fandhe_silicon_contract::cfg_gate_doctest::NativeBlockingWaitEnabled;"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct NativeBlockingWaitGate;
+
+/// `ext-interop` を有効にした構成にだけ存在する門の目印。無効側の doctest が解決に失敗することの根拠になる。
+#[cfg(feature = "ext-interop")]
+pub struct ExtInteropEnabled;
+
+/// `ext-interop` を有効にしない構成では目印が解決できずコンパイルエラーになる。
+#[cfg_attr(not(feature = "ext-interop"), doc = "```compile_fail")]
+#[cfg_attr(feature = "ext-interop", doc = "```")]
+#[doc = "use fandhe_silicon_contract::cfg_gate_doctest::ExtInteropEnabled;"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct ExtInteropGate;
