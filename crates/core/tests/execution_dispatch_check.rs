@@ -6,6 +6,7 @@
 //! 宣言に無い束縛の `slot`、束縛の `slot` の重複、定数の `slot` の重複が `InvalidArgument`（先頭 `C7`）で拒否され、1 回だけの対照は通ることを確かめる（TASK-2952）。
 //! 定数の `slot` が宣言に無い入力と、定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通ることを確かめる（TASK-424・BIND-40・BIND-57 のポインタ）。
 //! 戻り値の型の照合は契約のエラー型 `ContractError`（TASK-2951 のポインタ）。
+//! 戻り値の型の固定と、C4〜C8 の拒否がどれも `InvalidArgument` であることは `contract_error_` で始まる試験で確かめる（TASK-2951 の 2/2）。
 //! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
 
 use fandhe_silicon_core::error::ContractError;
@@ -468,4 +469,100 @@ fn c7_const_slot_overlapping_binding_slot_is_rejected() {
     let r = run(&declared, &[b(0), b(1)], &c(1), None);
     assert!(is_rejected_by(&r, "C7"), "{r:?}");
     assert_eq!(run(&declared, &[b(0)], &c(1), None), Ok(()));
+}
+
+/// 戻り値の型が契約のエラー型 `Result<(), ContractError>` であることを署名ごとコンパイル時に固定する（TASK-2951 の 2/2 のポインタ）。
+/// 別の型に戻すとこの試験がコンパイルできなくなる。
+#[test]
+fn contract_error_return_type_is_pinned() {
+    type Capacity = fn(&OperandBinding) -> Option<u64>;
+    type Signature = fn(
+        &[OperandSpec<'_>],
+        &[OperandBinding],
+        &[OperandConstant<'_>],
+        Capacity,
+        u64,
+    ) -> Result<(), ContractError>;
+    let f: Signature = validate_dispatch_operands::<Capacity>;
+    let r: Result<(), ContractError> = f(&[], &[], &[], |_| None, u64::MAX);
+    assert_eq!(r, Ok(()));
+}
+
+/// C4〜C8 のどの拒否も `ContractError::InvalidArgument` で、文言の先頭が各検査名になる（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。
+/// 入力は各検査の既存の試験と同じ値。
+#[test]
+fn contract_error_every_check_returns_invalid_argument() {
+    let zero = [0u64];
+    let overflow = [u64::MAX / 2, 4];
+    let thousand = [1000u64];
+    let hundred = [100u64];
+    let one = [1u64];
+    let three = [3u64];
+    let aligned = OperandSpec {
+        alignment: 16,
+        ..spec(0, DType::F32, &one)
+    };
+    let cases: Vec<(&str, Result<(), ContractError>)> = vec![
+        ("C8:", check(&[spec(0, DType::F32, &zero)], u64::MAX)),
+        ("C8:", check(&[spec(0, DType::F32, &overflow)], u64::MAX)),
+        ("C8:", check(&[spec(0, DType::F32, &thousand)], 3999)),
+        (
+            "C7:",
+            run(
+                &[spec(0, DType::F32, &one)],
+                &[OperandBinding { slot: 5, offset: 0 }],
+                &[],
+                None,
+            ),
+        ),
+        (
+            "C4:",
+            run(
+                &[spec(0, DType::F32, &hundred)],
+                &[OperandBinding { slot: 0, offset: 0 }],
+                &[],
+                Some(16),
+            ),
+        ),
+        (
+            "C5:",
+            run(
+                &[aligned],
+                &[OperandBinding { slot: 0, offset: 4 }],
+                &[],
+                None,
+            ),
+        ),
+        (
+            "C6:",
+            run(
+                &[spec(0, DType::U32, &three)],
+                &[],
+                &[OperandConstant {
+                    slot: 0,
+                    bytes: &[0u8; 8],
+                }],
+                None,
+            ),
+        ),
+    ];
+    for (prefix, r) in &cases {
+        assert!(
+            matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(prefix)),
+            "{prefix} {r:?}"
+        );
+    }
+}
+
+/// 拒否は契約の型自身の `Display`（先頭 `invalid argument: `）と `std::error::Error` を使う。文言の全体は照合しない。
+#[test]
+fn contract_error_display_is_contract_type_display() {
+    let zero = [0u64];
+    let err = check(&[spec(0, DType::F32, &zero)], u64::MAX).unwrap_err();
+    assert!(
+        err.to_string().starts_with("invalid argument: C8:"),
+        "{err}"
+    );
+    let boxed: Box<dyn std::error::Error> = Box::new(err);
+    assert!(boxed.to_string().starts_with("invalid argument: C8:"));
 }

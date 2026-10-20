@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）、TASK-2951 の 1/2（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）、TASK-2951 の 1/2・2/2（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -35,6 +35,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 - 同じファイルの `c5_zero_alignment_` で始まる名前の統合テスト。alignment 0 の宣言は offset 4・16・1,000・2,000 でも C5 を判定せずに通り（対照の alignment 16 は offset 4・1,000 で `C5`）、alignment 0 でも C4・C6 は判定される（TASK-425 の 3/4）
 - 同じファイルの `c7_` で始まる名前の統合テスト。宣言に無い束縛の `slot`・束縛の `slot` の重複・定数の `slot` の重複（束縛は空）が `C7` で拒否され、1 回だけの対照は通る（TASK-2952 の 2/2）
 - 同じファイルの `c7_undeclared_slot_in_consts_is_rejected`・`c7_const_slot_overlapping_binding_slot_is_rejected`。定数の `slot` が宣言に無い入力・定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通る（TASK-424 の 1/2）
+- 同じファイルの `contract_error_` で始まる名前の統合テスト。戻り値の型を `Result<(), ContractError>` に署名ごと固定し、C4〜C8 の拒否がどれも `InvalidArgument`（先頭 `C4:`〜`C8:`）であることと、契約の型自身の `Display` の先頭を確かめる（TASK-2951 の 2/2）
 
 ## 確かめ方
 
@@ -320,3 +321,36 @@ TASK-424（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-40・BIND-57）�
 - 変えたもの: `validate_dispatch_operands` の戻り値を `Result<(), ContractError>` にした。暫定の型 `OperandCheckError` と `execution` からの再公開を外した。既存の試験は型の照合だけを `ContractError` に直した（単体 20・統合 22 のまま）
 - 変えていないもの: 理由の文（英語）、先頭の検査名（`C4:`〜`C8:`）、判定の順
 - 段: 1/2（#7323）が戻り値の置き換え。2/2（#7324）が戻り値の型を固定する公開テストと確かめ
+
+## 完了の条件の確かめ（2/2）（TASK-2951。以下は当時の base の記録）
+
+2/2（#7324）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-2951。関連: COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85）。GPU の実機なしで、末尾の base で実行した値。件数は実測。完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| H1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib dispatch_check` | 20 passed / 0 failed / 0 ignored |
+| H2 | 統合テスト | `cargo test -p fandhe-silicon-core --test execution_dispatch_check` | 25 passed / 0 failed / 0 ignored |
+| H3 | 追加した関数の数 | `grep -c -E '^fn contract_error_' crates/core/tests/execution_dispatch_check.rs` | 3 |
+| H4 | 暫定の型が残っていない | `git grep -n OperandCheckError -- crates` | 0 件 |
+| H5 | 2/2 で実装を変えていない | 2/2 の差分の `crates/core/src` | 空 |
+| H6 | feature の条件がない | feature なしの `cargo test -p fandhe-silicon-core`、`make public-api-check` | 全 passed、終了コード 0 |
+| H7 | base の CI | `gh run list`（base の push の run、ID 39478558256） | 記録時点は in_progress。直前の commit `ec8779d` の run（ID 39478173287）も in_progress。その前の commit `7cc933c` の run（ID 39473457530）は success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+
+試験の関数名と確かめる振る舞い:
+
+- `contract_error_return_type_is_pinned`。戻り値の型を `Result<(), ContractError>` に署名ごと固定する
+- `contract_error_every_check_returns_invalid_argument`。C4〜C8 の拒否がどれも `ContractError::InvalidArgument` で、文言の先頭が `C4:`〜`C8:` であることを確かめる
+- `contract_error_display_is_contract_type_display`。契約の型自身の `Display` の先頭が `invalid argument: ` であることを確かめる
+- 受け付ける入力は従来どおり `Ok(())` を返す（`c4_`〜`c8_` で始まる既存の統合テスト）
+
+試験が照合するのは `Ok(())` と、`ContractError::InvalidArgument` の variant・文言の先頭 `C4:`〜`C8:`（と `Display` の先頭 `invalid argument: `）まで。
+
+範囲の外: 文言の全体の照合（TASK-473）、背後実装の入口・Metal の実機を通した確かめ（TASK-494・TASK-495）、配列を持つ宣言の数え方（TASK-422・TASK-1146）は本書の範囲の外。
+
+### 再実行の契機
+
+- `dispatch_check.rs`・`execution_dispatch_check.rs`・`error.rs` の `ContractError`（`InvalidArgument`・`Display`）を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `e0f6276655c0fb10cee88b9ad9113f5a6d609a7d`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
