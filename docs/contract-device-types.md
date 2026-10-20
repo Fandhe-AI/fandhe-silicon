@@ -4,7 +4,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 
 ## 記録の所在
 
-記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-136。対象の項目は `docs/spec/04-behavior/api-device-capability.md` の DEV-4・DEV-21・DEV-65・DEV-81・DEV-82・DEV-86・DEV-142。ポインタのみ）。内容・理由・経緯は本書に置かない。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-136。ポインタのみ）。内容・理由・経緯は本書に置かない。
 `docs/spec` は submodule（`update = none`）で、指している版は `git ls-tree origin/main docs/spec` で確かめる。
 
 前提のタスクと、それに当たる本リポの物は次のとおり。
