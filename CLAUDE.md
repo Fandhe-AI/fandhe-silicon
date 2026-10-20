@@ -85,7 +85,7 @@ fandhe-silicon/
 ├── docs/public-api-contract-check.md  # 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧のまとめと完了の条件の確かめ（4/4）（TASK-253）
 ├── docs/public-api-webgpu-check.md  # 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6）
 ├── docs/dep-graph-wgpu-check.md  # 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11）
-├── docs/profile-dep-graph-check.md  # 依存グラフのプロファイルごとの検査（CpuOnly・ComputeOnly の Metal の組と per-header feature）の所在・出力の読み方・数え方の定義の所在・陽性対照（一覧に 1 件足すと落ちることの確かめ）・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）（TASK-229）
+├── docs/profile-dep-graph-check.md  # 依存グラフのプロファイルごとの検査（CpuOnly・ComputeOnly の Metal の組と per-header feature）の所在・出力の読み方・数え方の定義の所在・陽性対照（一覧に 1 件足すと落ちることの確かめ）・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）（TASK-229）
 ├── docs/public-api-diff.md   # 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実（TASK-28）
 ├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせと完了の条件の確かめ（TASK-2947）
