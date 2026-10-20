@@ -1,7 +1,7 @@
 # 依存グラフのプロファイルごとの検査（TASK-228・TASK-229）の所在と現状の事実
 
 契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数え、Graphics（Vulkan）の組では SDK のうち `ash`・`libloading` だけを、Graphics と相互運用の組では `ash`・`cudarc`・`libloading` だけを許し、ComputeOnly（Metal）の組では SDK のうち `objc2-metal` だけを許す検査、および比較基準の単一ビルド（`--all-features`）の SDK の件数と各プロファイルとの差の記録について、本リポのスクリプトから説明できる振る舞いを記録する。
-記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-228。対象は BUILD-1・BUILD-2。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-228・TASK-229。対象は BUILD-1・BUILD-2 と BUILD-3〜BUILD-5。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
 
@@ -91,7 +91,7 @@ make test-profile-dep-graph-positive-control
 make deny
 ```
 
-`make deny` のログに、`profile-dep-graph-check (contract profiles)` の行とプロファイルごとの `record:`、`profile-dep-graph-positive-control` の行とプロファイルごとの `positive-control:` の行が出て、終了コード 0 で終わることを見る。
+`make deny` のログに、`profile-dep-graph-check (contract profiles)` の行とプロファイルごとの `record:`・`baseline:`・`diff:`、`profile-dep-graph-positive-control` の行とプロファイルごとの `positive-control:` の行が出て、終了コード 0 で終わることを見る。
 
 ## 完了の条件の確かめ（5/6）
 
@@ -186,7 +186,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | 3/6 Graphics と相互運用の組の検査 | #7360 |
 | 4/6 選んでいない SDK と比較基準の差の検査 | #7361 |
 | 5/6 試験 | #7362 |
-| 6/6 | #7363 |
+| 6/6 完了の条件の確かめと件数・差の記録 | #7363 |
 
 後の段で足す振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。守る規約は [spec-confidentiality](../.claude/rules/spec-confidentiality.md) と [makefile](../.claude/rules/makefile.md)。
 
@@ -356,3 +356,43 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 ### 実測
 
 `make test-profile-dep-graph-check` は `passed: 241`・`failed: 0`、`make test-profile-dep-graph-positive-control` は `passed: 25`・`failed: 0`。確かめた base は `32a9cb4`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 完了の条件の確かめとプロファイルごとの件数と差の記録（6/6）（TASK-229）
+
+6/6（#7363）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-229。BUILD-3〜BUILD-5）。結果は GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の置き場 |
+| ------ | ------------ |
+| 依存グラフの検査と CI への組み込み | 「所在」と 2/6〜5/6 の各節 |
+| プロファイルごとの件数と差の記録 | 本節 |
+
+### 完了の条件の確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 検査が 4 プロファイルで通る | `make profile-dep-graph-check` | 終了コード 0。`scanned:` は 4 プロファイル（各 `crates=2`）。各 `record:` は `judged_total=0`、`commit=` は base（`-dirty` 無し）。末尾は `ok: 4 profile(s) checked, no judged crates (judged=0)` |
+| A2 | 比較基準の行が出る | 同上 | `baseline:` が 1 行、`baseline-count:` が 3 行、`diff:` が 4 行 |
+| A3 | 陽性対照が 4 プロファイルで検出する | `make profile-dep-graph-positive-control` | 終了コード 0。`positive-control:` が 4 行で、すべて `n=1 result=detected` |
+| A4 | 回帰テストが通る | `make test-profile-dep-graph-check`、`make test-profile-dep-graph-positive-control` | `passed: 241`・`failed: 0`、`passed: 25`・`failed: 0` |
+| A5 | CI の機材の要らないジョブで通る | main の push の `ci.yml` の run 39443025322（base と同じコミット）の `make deny (cargo-deny)` ジョブ（job 118697570135） | run は success。ログに `profile-dep-graph-check (contract profiles)`、4 プロファイルの `record:`、`baseline:`、`diff:` の 4 行、`ok: 4 profile(s) checked, no judged crates (judged=0)`、`positive-control:` の 4 行（すべて `result=detected`）が出ている |
+| D | 品質ゲート | `make check`、`make verify`、`make deny`、`make deps-check` | すべて終了コード 0 |
+
+### 件数と差の記録
+
+| プロファイル | `crates_total` | `judged_total` | crate の `count:` の行 | `header_crate_n` | `features_judged_total` | `features_recorded_total` | feature の `count:` の行 | `diff:` の `diff` |
+| ------------ | -------------- | -------------- | ---------------------- | ---------------- | ----------------------- | ------------------------- | ------------------------ | ----------------- |
+| `cpu-only` | 2 | 0 | 7 行（すべて `n=0`） | — | — | — | — | 0 |
+| `compute-only-metal` | 2 | 0 | 6 行（すべて `n=0`） | 0 | 0 | 0 | judged=yes が 5 行・judged=no が 3 行（すべて `n=0`） | 0 |
+| `graphics-vulkan` | 2 | 0 | 5 行（すべて `n=0`） | — | — | — | — | 0 |
+| `graphics-interop` | 2 | 0 | 4 行（すべて `n=0`） | — | — | — | — | 0 |
+
+比較基準（`--all-features`）は `baseline:` が `crates_total=2`・`sdk_total=0`、`baseline-count:` の 3 行がすべて `n=0`。`diff:` は 4 行すべてが `sdk_baseline=0`・`sdk_profile=0`・`diff=0`。
+
+- 今の製品の crate には SDK の依存が無いので、比較基準も各プロファイルも 0 件で、差は出ない。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
+- 名前の一覧は定数名（`SDK_LOADER_NAMES`・`SURFACE_NAMES`・`*_ALLOWED_SDK`・`BASELINE_SDK_NAMES`）で指し、値は本書に写さない
+
+再実行の契機は「完了の条件の確かめ（5/6）」の「再実行の契機」と同じ。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-229）。
+
+確かめた base は `d6531b75f28b0c503b69c4422176ab206f12b33a`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
