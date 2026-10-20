@@ -13,6 +13,16 @@ publish.workspace = true
 # 置き場と feature 名の説明は docs/parity-tool.md の「所在」。
 [features]
 test-support = []
+# 故障の差し込み口（テスト専用。default にも本番の組にも入れない。説明は docs/contract-fault-injection.md）。
+fault-injection = []
+
+[[test]]
+name = "fault_hooks_types"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "fault_hooks_inject"
+required-features = ["fault-injection"]
 
 [[test]]
 name = "parity_cpu_reference"

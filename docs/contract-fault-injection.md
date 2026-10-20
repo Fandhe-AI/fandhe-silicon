@@ -19,27 +19,39 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `fault-injection` の宣言 | `crates/contract/Cargo.toml` に `fault-injection = []` だけ（含意なし・ほかの crate への転送なし）。`crates/core` の feature は `test-support` だけ。テスト・診断専用の feature を `core` へ転送する既存の形は `test-support = ["fandhe-silicon-core/test-support"]` | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml crates/core/Cargo.toml` |
+| `fault-injection` の宣言 | `crates/core/Cargo.toml` に `fault-injection = []`、`crates/contract/Cargo.toml` に `fault-injection = ["fandhe-silicon-core/fault-injection"]`。どちらも `default` と本番の組に入らず、`test-support` とは含意しあわない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml crates/core/Cargo.toml` |
 | `fault-injection` を囲む既存の検査 | `crates/contract/tests/feature_default_scope.rs` の `TEST_ONLY`（`default` と本番の組に入らない）、`scripts/upper-layer-check.sh` の `FORBIDDEN_FEATURES`（測定の workspace から有効にさせない）、公開 API の検査の本番の組から除く扱い（[public-api-contract-check](public-api-contract-check.md)）、[contract-feature-check](contract-feature-check.md) | `git grep -n fault-injection -- crates scripts docs ':!docs/spec'` |
-| feature の裏の中身 | `fault-injection` の `cfg` で隠したコードは `crates/`・`wasm/` に 0 件 | `git grep -n 'feature = "fault-injection"' -- crates wasm` |
+| feature の裏の中身 | `fault-injection` の `cfg` で隠したコードは `crates/core/src/lib.rs` の `fault` モジュール 1 件 | `git grep -n 'feature = "fault-injection"' -- crates wasm` |
 | 共通の型 | TASK-269 のエラー・完了状態・理由の型と、TASK-136 の能力問合せの型は `crates/core` に条件なしで公開済み | [contract-error-types](contract-error-types.md)・[contract-device-types](contract-device-types.md) |
-| 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities` と、`test-support` の裏の `rerun` の `Check` の 2 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
-| `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
+| 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities`、`test-support` の裏の `rerun` の `Check`、`fault-injection` の裏の `fault` の `FaultHooks` の 3 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
+| `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun`、`fault-injection` の裏のモジュールは `fault` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | `contract` の形 | `#![deny(unsafe_code)]`。`unsafe` は `backend_*` だけに置く | `crates/contract/src/lib.rs`、[unsafe-policy](unsafe-policy.md) |
 | workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core`・`contract` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md` だけ | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、その試験、`crates/contract/` の転送の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
 | 段 | イシュー | 内容 |
 | -- | -------- | ---- |
 | 1/8 | #4050 | 現状と前提の確認（本書） |
-| 2/8 | #4051 | 形の設計 |
+| 2/8 | #4051 | 形の設計（「現状の形（2/8）」の節） |
 | 3/8〜6/8 | #4052〜#4055 | 実装 |
 | 7/8 | #4056 | テスト |
 | 8/8 | #4057 | 手順書の作成 |
+
+## 現状の形（2/8）
+
+型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
+
+- feature: `core` の `fault-injection` と、`contract` の `fault-injection`（`core` の同名 feature へ転送）。`core` では `fault` モジュールが feature の裏にある。外部依存は足していない
+- 口 `fault::FaultHooks`: 背後実装が実装するトレイト。メソッドは `simulate_device_lost(DeviceLostReason)`・`arm_gate`・`open_gate`・`simulate_runtime_error(String)` の 4 つで、戻り値は `Result<(), ContractError>`。`dyn` で使え、すべて既定の実装を持つ。既定の実装は黙って成功せず、`UnsupportedExtensionDefault` を自分のメソッド名の `op` で返す
+- 種類 `fault::HookFault`（`non_exhaustive`）: `DeviceLost`・`ArmGate`・`OpenGate`・`RuntimeError`
+- 差し込みの部品 `fault::inject(Option<&dyn FaultHooks>, HookFault)`: 種類に対応する口を 1 回だけ呼び、戻り値をそのまま返す。`None` のときは何も呼ばず `UnsupportedExtensionDefault { op: "fault_hooks" }` を返す
+- 試験: `crates/core/tests/fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` の対（無効の構成では `core` の `fault` が解決できず compile_fail、有効の構成では通る）
+- 組: `scripts/build-profiles.sh` の `NATIVE_SETS` に `fault-injection` 単独の組がある
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`、`cargo test -p fandhe-silicon-contract --features fault-injection`、`make build-profiles`
 
 ## 本リポでの反映の方針
 
