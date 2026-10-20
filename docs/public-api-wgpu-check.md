@@ -24,6 +24,8 @@
 | `--json <path>...` | 渡した JSON だけを検査する（cargo を呼ばない） |
 | `--manifest-path <path>` | `<path>`（リポジトリ内の `Cargo.toml`）の workspace の lib crate に同じ検査を当てる（例: `baseline-wgpu/Cargo.toml`）。`--json`・`--emit-json` とは併用できない。`make public-api-check` が呼ぶのは製品の workspace だけ |
 
+検査の経路（引数なし・`--manifest-path`）だけ、rustdoc に `--document-hidden-items` を渡して `#[doc(hidden)]` の公開アイテムも走査する（既定の JSON には入らないため。TASK-136 のポインタ）。`--emit-json` の経路は渡さず、emit を共有する他の検査の入力は変えない。対応するケースは `real_hidden_*`・`build_hidden_flag`・`emit_no_hidden_flag`・`real_emit_json_no_hidden`。
+
 production の組で contract に渡す feature 列は、スクリプトの `CONTRACT_PRODUCTION` を正とする（本書には列挙しない）。
 
 `--emit-json <dir> --without-feature <名前>` は、契約の production の feature 列から名前を除いた組を lib crate ごとに 1 組だけ作る opt-in の口（ラベル `without-<名前>`。誤用は終了コード 2）。使うのは [public-api-webgpu-check](public-api-webgpu-check.md)。対応する回帰テストのケースは `scripts/test-public-api-check.sh` の `without_*`・`real_without_no_contract`。
@@ -74,6 +76,8 @@ production の組で contract に渡す feature 列は、スクリプトの `CON
 | 実物の rustdoc JSON で参照 0 件なら通る | `real_clean`・`real_plain_dep` |
 | 実物の rustdoc JSON で 1 件（feature の裏だけを含む）あれば落ちる | `real_type_leak_feature`・`real_type_leak_feature_production_clean`・`real_type_leak` |
 | 再エクスポートも落ちる | `real_reexport` |
+| `#[doc(hidden)]` の公開アイテム（アイテム・モジュール）の参照も走査し、1 件あれば落ちる。参照が無ければ通る | `real_hidden_erased_clean`・`real_hidden_leak`・`real_hidden_module_leak` |
+| 隠したアイテムの走査は検査の経路だけ（rustdoc の引数と `--emit-json` の JSON で確かめる） | `build_hidden_flag`・`emit_no_hidden_flag`・`real_emit_json_no_hidden` |
 
 回帰テストは一時 workspace の合成 crate で落ちることを確かめる。製品の workspace に陽性対照は置かない（TASK-12 のポインタ）。
 

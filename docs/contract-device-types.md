@@ -70,6 +70,21 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - 確かめ方: `cargo test -p fandhe-silicon-core --test device_request_fields --test device_capability_non_exhaustive --test capability_query_default`
 - 残る段: 4/6 以降
 
+## 現状の形（4/6）
+
+型の形は 2/6 のまま変えていない。`NativeDeviceHandle` を含めた公開 API・依存グラフの検査を、CI の `deny` ジョブの既存の検査に組み込んだ。
+
+| 確かめるもの | 仕組み | CI での走り方 |
+| ------------ | ------ | ------------- |
+| 公開 API の wgpu 系の参照の検査が、`NativeDeviceHandle` と `new` に加えて `#[doc(hidden)]` の読む口 `__backend_downcast_ref` も走査する | `scripts/public-api-check.sh` の検査の経路（引数なし・`--manifest-path`）が rustdoc に `--document-hidden-items` を渡す | `deny` ジョブの `make public-api-check`（`scanned: crate=fandhe_silicon_core` の行） |
+| 隠した公開アイテムの署名やモジュールに wgpu 系の型が出ても見逃さない。`--emit-json` の経路は隠したアイテムを足さない | `scripts/test-public-api-check.sh` の `real_hidden_*`・`build_hidden_flag`・`emit_no_hidden_flag`・`real_emit_json_no_hidden`（合成 crate の一時 workspace。陽性対照は TASK-12 のポインタ） | `deny` ジョブの `make test-public-api-check` |
+| 依存グラフの wgpu 系 crate の検査が、`NativeDeviceHandle` を定義する `core` と背後実装の `contract` を数える | `scripts/dep-graph-wgpu-check.sh` の数え方の定義（全 feature・全 target・製品の 4 crate）。スクリプトは変えていない | `deny` ジョブの `make deny`（`record:` の `workspace_members`） |
+
+- 対象外: `--emit-json` を共有する検査（名前・SDK・WebGPU）の隠したアイテム、`Box<dyn Any>` に実行時に入る値の型（型検査では見えない。背後実装の持ち分）。エラー側の 3 型は [contract-error-types](contract-error-types.md) の持ち分で、照合は 5/6
+- 確かめ方: `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`
+- 詳細: [public-api-wgpu-check](public-api-wgpu-check.md)・[dep-graph-wgpu-check](dep-graph-wgpu-check.md)
+- 残る段: 5/6 以降
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
