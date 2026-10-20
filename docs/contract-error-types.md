@@ -41,7 +41,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 1/8 | #4040 | 現状と前提の確認（本書） |
 | 2/8〜3/8 | #4041・#4042 | 実装 |
 | 4/8〜7/8 | #4043〜#4046 | テスト |
-| 8/8 | #4047 | 確かめ |
+| 8/8 | #4047 | 確かめ（本書の「完了の条件の確かめ（8/8）」） |
 
 ## 現状の形（2/8）
 
@@ -108,6 +108,48 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/error_display.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --test error_display`、`cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）、`make build-profiles`
 - 残る段は 8/8（確かめ）
+
+## 完了の条件の確かめ（8/8）
+
+8/8（#4047）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-269）。
+結果は GPU の実機なしで実行した値で、件数は実測。本体のコード（`src/`）と試験は変えていない。
+
+### 成果物と本書の置き場の対応
+
+| 成果物 | 置き場 | 本書の節 |
+| ------ | ------ | -------- |
+| 型の定義 | `crates/core/src/error.rs`・`capability.rs` | 「現状の形（2/8）」「現状の形（3/8）」 |
+| 試験 | `crates/core/tests/error_types.rs`・`completion_state_closed.rs`・`error_non_exhaustive.rs`・`error_fields.rs`・`error_debug_format.rs`・`error_display.rs` と `error.rs` の単体テスト | 「現状の形（2/8）」〜「現状の形（7/8）」 |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | 統合テスト（feature なし） | `cargo test -p fandhe-silicon-core --test <名前>` を `error_types`・`completion_state_closed`・`error_non_exhaustive`・`error_fields`・`error_debug_format`・`error_display` で | 順に 2・1・6・13・6・9 件。いずれも 0 failed / 0 ignored |
+| B2 | モジュール内の試験 | `cargo test -p fandhe-silicon-core --lib error` | `completion_state_ex_has_five_values` の 1 件が通る。0 failed / 0 ignored |
+| B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1 の 6 本は同じ件数が通る。`--lib` 全体は feature なしで 26 件、`--all-features` で 36 件。0 failed |
+| B4 | 拡張性の試験の実在 | `grep -n '^fn ' crates/core/tests/error_non_exhaustive.rs`、ファイル先頭の `#![deny(unreachable_patterns)]` | 6 型ごとの 6 本（`contract_error_`・`device_lost_reason_`・`completion_state_ex_`・`retry_policy_`・`identity_mismatch_reason_`・`unsupported_reason_` の `…_stays_non_exhaustive`）が実在し、B1 の 6 passed に含まれる。説明は「現状の形（4/8）」に従う |
+| B5 | `ValidationFailed` と書式の試験の実在 | `crates/core/tests/error_debug_format.rs` | `validation_failed_is_a_string_constructor`・`validation_failed_is_distinct_from_other_string_values`・`debug_output_has_name_prefix_and_fields` が実在し、B1 の 6 passed に含まれる。説明は「現状の形（6/8）」に従う |
+| B6 | `Display`・`Error` の試験の実在 | `crates/core/tests/error_display.rs` | `source_is_none_for_all_values`・`coerces_to_dyn_error`・`display_carries_fields_verbatim` が実在し、B1 の 9 passed に含まれる。説明は「現状の形（7/8）」に従う |
+| B7 | 閉じた `CompletionState` | `crates/core/tests/completion_state_closed.rs`、`grep -n -B2 'pub enum CompletionState\b' crates/core/src/error.rs` | `_` なしの網羅の `match` が通る。`#[non_exhaustive]` は付いていない |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^\[\[' deps-approved.toml` | `pub mod error;`・`pub mod capability;` は feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
+| C2 | `#[non_exhaustive]` の付き方 | `grep -n -A1 'non_exhaustive' crates/core/src/error.rs` | `error.rs` の 6 型（`ContractError`・`DeviceLostReason`・`CompletionStateEx`・`RetryPolicy`・`IdentityMismatchReason`・`UnsupportedReason`）に付き、`CompletionState` には付いていない |
+| C3 | 製品の経路からの参照 | `git grep -n -e ContractError -e CompletionState -e DeviceLostReason -e RetryPolicy -- crates/exec crates/contract crates/upper wasm measure baseline-wgpu` | 0 件 |
+| C4 | wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）、`make build-profiles`、`make wasm-verify` | いずれも終了コード 0 |
+| C5 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml` | base のコミットの run（id 39470945757）が completed / success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+### 再実行の契機
+
+- `crates/core/src/error.rs`・`capability.rs` の型・値・欄・derive・`#[non_exhaustive]`・`Display` を変えたとき
+- 上の 6 本の試験のファイルを変えたとき
+- `docs/spec` の gitlink が進んだとき
+- `core` の feature・依存・wasm32 のビルドの経路（`scripts/build-profiles.sh`・`scripts/wasm-verify.sh`）を変えたとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-269）。
+
+確かめた base は `555c2fdfd47a3d61a34a31e46434e945408fa832`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
 
 ## 本リポでの反映の方針
 
