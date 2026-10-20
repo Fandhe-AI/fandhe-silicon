@@ -5,11 +5,12 @@
 //! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
 //! 宣言に無い束縛の `slot`、束縛の `slot` の重複、定数の `slot` の重複が `InvalidArgument`（先頭 `C7`）で拒否され、1 回だけの対照は通ることを確かめる（TASK-2952）。
 //! 定数の `slot` が宣言に無い入力と、定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通ることを確かめる（TASK-424・BIND-40・BIND-57 のポインタ）。
+//! 戻り値の型の照合は契約のエラー型 `ContractError`（TASK-2951 のポインタ）。
 //! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
 
+use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
-    DType, OperandBinding, OperandCheckError, OperandConstant, OperandSpec, required_bytes,
-    validate_dispatch_operands,
+    DType, OperandBinding, OperandConstant, OperandSpec, required_bytes, validate_dispatch_operands,
 };
 
 fn spec(slot: u32, dtype: DType, shape: &[u64]) -> OperandSpec<'_> {
@@ -22,13 +23,13 @@ fn spec(slot: u32, dtype: DType, shape: &[u64]) -> OperandSpec<'_> {
     }
 }
 
-fn check(declared: &[OperandSpec<'_>], max: u64) -> Result<(), OperandCheckError> {
+fn check(declared: &[OperandSpec<'_>], max: u64) -> Result<(), ContractError> {
     validate_dispatch_operands(declared, &[], &[], |_| None, max)
 }
 
-/// variant と文言の先頭が検査名 `name` であることだけを見る（`OperandCheckError` は `non_exhaustive`）。
-fn is_rejected_by(r: &Result<(), OperandCheckError>, name: &str) -> bool {
-    matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with(name))
+/// variant と文言の先頭が検査名 `name` であることだけを見る（`ContractError` は `non_exhaustive`）。
+fn is_rejected_by(r: &Result<(), ContractError>, name: &str) -> bool {
+    matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(name))
 }
 
 /// 束縛・定数・束縛の容量を渡せる呼び出し（容量はどの束縛にも同じ値を返す）。
@@ -37,12 +38,12 @@ fn run(
     bindings: &[OperandBinding],
     consts: &[OperandConstant<'_>],
     cap: Option<u64>,
-) -> Result<(), OperandCheckError> {
+) -> Result<(), ContractError> {
     validate_dispatch_operands(declared, bindings, consts, |_| cap, u64::MAX)
 }
 
 /// variant と文言の先頭 `C8` だけを見る。
-fn is_c8(r: &Result<(), OperandCheckError>) -> bool {
+fn is_c8(r: &Result<(), ContractError>) -> bool {
     is_rejected_by(r, "C8")
 }
 
@@ -148,7 +149,7 @@ fn c4_buffer_capacity_sufficient_is_accepted() {
 }
 
 /// slot 0 に F32 `[n]` を宣言して `offset` で束縛し、容量 `cap` で C4 を流す（alignment 4 で offset は 4 の倍数なので C5 には当たらない）。
-fn run_c4(n: u64, offset: u64, cap: Option<u64>) -> Result<(), OperandCheckError> {
+fn run_c4(n: u64, offset: u64, cap: Option<u64>) -> Result<(), ContractError> {
     let shape = [n];
     let s = spec(0, DType::F32, &shape);
     assert_eq!(required_bytes(&s), Some(n * 4));
