@@ -1,6 +1,6 @@
 # バッファの引数検査
 
-TASK-309 の 1/4（MEM-70・MEM-74〜MEM-76 のポインタ）。private spec の本文は写さない。
+TASK-309 の 1/4〜4/4（MEM-70・MEM-74〜MEM-76 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -49,3 +49,42 @@ cargo test -p fandhe-silicon-core --test memory_buffer_check
 cargo test -p fandhe-silicon-core --test memory_upload_reject
 make verify
 ```
+
+## 完了の条件の確かめ（4/4）（TASK-309）
+
+4/4（#4292）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-309。関連: MEM-70・MEM-74〜MEM-76）。GPU の実機なしで、末尾の base で実行した値。件数は実測。コードは変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 単体テスト | `cargo test -p fandhe-silicon-core --lib buffer_check_` | 4 passed・0 failed・0 ignored |
+| A2 | 境界の入力の統合テスト | `cargo test -p fandhe-silicon-core --test memory_buffer_check` | 8 passed・0 failed・0 ignored |
+| A3 | 拒否のときの内容の不変の統合テスト | `cargo test -p fandhe-silicon-core --test memory_upload_reject` | 8 passed・0 failed・0 ignored |
+| A4 | 統合テストの関数の数 | `grep -c -E '^fn (buffer_range_boundary_\|allocation_size_boundary_)' crates/core/tests/memory_buffer_check.rs`・`grep -c -E '^fn upload_' crates/core/tests/memory_upload_reject.rs` | 8・8（A2・A3 の件数と一致） |
+| A5 | 本体に panic・確保・unsafe が無い | `sed -n '1,/#\[cfg(test)\]/p' crates/core/src/memory/buffer_check.rs \| grep -nE 'unwrap\|expect\|panic\|Vec\|Box\|unsafe'`・`crates/core/src/lib.rs` の `#![forbid(unsafe_code)]` | 0 件・`forbid(unsafe_code)` あり |
+| A6 | feature の条件が無い | feature なしの `cargo test -p fandhe-silicon-core`・`make public-api-check` | 190 passed・0 failed・0 ignored・終了コード 0 |
+| C1 | 依存 | `crates/core/Cargo.toml` の `[dependencies]` の数・`grep -c '^\[\[approval' deps-approved.toml` | 0 件・0 件（外部 crate の追加なし） |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml --commit <base>` | run 39513132267（push）。記録時点では実行中で、結論は未確認 |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`（本節を足した状態） | すべて終了コード 0 |
+
+### ビヘイビア ID と試験の対応
+
+関数名だけを挙げる。試験は境界の格子であり、全入力の網羅ではない。
+
+| ID | 試験 |
+| -- | ---- |
+| MEM-70 | `upload_reject_keeps_contents_partial_overlap`・`upload_reject_keeps_contents_end_one_past`・`upload_reject_keeps_contents_offset_past_end_zero_len`・`upload_reject_keeps_contents_zero_length_buffer`・`upload_reject_keeps_contents_grid_matches_u128_reference`・`upload_reject_keeps_contents_after_accepted_upload`・`upload_accept_writes_only_range`・`buffer_range_boundary_end_one_over_allocation_is_rejected`・`buffer_range_boundary_grid_matches_u128_reference`・`buffer_check_range_one_byte_over_is_rejected` |
+| MEM-74〜MEM-76 | `buffer_check_range_end_overflow_is_rejected`・`buffer_range_boundary_offset_max`・`buffer_range_boundary_overflow_is_judged_before_exceed`・`upload_reject_keeps_contents_offset_max` |
+| 範囲内が通ること | `buffer_check_range_within_allocation_passes`・`buffer_range_boundary_end_equals_allocation_passes`・`buffer_range_boundary_len_zero`・`upload_accept_writes_only_range` |
+| 確保の上限 | `buffer_check_allocation_size_boundary`・`allocation_size_boundary_grid`・`allocation_size_boundary_named_cases` |
+
+### 試験が照合するもの
+
+拒否は `InvalidArgument` で返ること、あふれの枝と超過の枝があり、両方成り立つ入力はあふれの枝で返ることを、境界の格子と名前つきのケースで確かめる。
+
+### 範囲の外
+
+背後実装の `upload`・`download_blocking`・`allocate` が実際にこの検査を呼ぶことの確かめは本書の範囲の外（背後実装ごとのタスクのポインタに従う）。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+確かめた base は `eede585e7b88b0a75f9ce162f49287b1ccfa7a81`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
