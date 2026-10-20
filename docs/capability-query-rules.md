@@ -35,7 +35,7 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | workspace | member は `crates/` 配下の 5 つ（`core`・`contract`・`exec`・`upper`・`wasm-abi`）。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-273 の言及は本書、`CLAUDE.md`、`README.md` の 3 つだけ | `git grep -n TASK-273 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-273 の言及は本書、`CLAUDE.md`、`README.md` と、2/6 の試験用の部品の `crates/core/src/capability_rule.rs`、`crates/core/tests/capability_rule_stub.rs`、`crates/core/tests/capability_rule_two_step.rs` の 6 つだけ | `git grep -l TASK-273 -- . ':!docs/spec' ':!.agents'` |
 
 ## 現状の形（2/6）
 
