@@ -29,7 +29,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core`・`contract` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、`crates/core/src/fault/`、その試験、`crates/contract/` の転送の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、`crates/core/src/fault/`、その試験、`crates/contract/` の転送の試験・部品の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -41,7 +41,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 4/8 | #4053 | 能力不足と能力の取得の失敗の差し込み（「現状の形（4/8）」の節） |
 | 5/8 | #4054 | 投入の回数の計数と模擬の OOM の差し込み（「現状の形（5/8）」の節） |
 | 6/8 | #4055 | 模擬の実行時エラーと上限の差し替えの口（「現状の形（6/8）」の節） |
-| 7/8 | #4056 | テスト |
+| 7/8 | #4056 | テスト（「試験（7/8）」の節） |
 | 8/8 | #4057 | 手順書の作成 |
 
 ## 現状の形（2/8）
@@ -95,6 +95,16 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `FaultInjecting::with_limits_override` / `limits_with`: 上限の型 `L` に依らず、型を消した置き換えを持つ。置き換えが無ければ内側を 1 回呼んでその値を返し、`L` の置き換えがあれば内側を呼ばずその複製を返す。型が `L` でなければ内側を呼ばず `Err(InvalidArgument)` を返す。筋書きとは独立で、`Send + Sync` を保つ。上限の型は本リポにまだ無い（TASK-157 のポインタ）。行ごとの確かめは別の段の持ち分
 - 試験: `crates/core/tests/fault_decorator_runtime_error.rs`・`fault_decorator_limits.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
+
+## 試験（7/8）
+
+`src` は変えず、段をまたぐ確かめの試験だけを足した。コードと公開テストが示す事実だけを置く。
+
+- `crates/core/tests/fault_parts_matrix.rs`: デコレータの 6 つの筋書きと全ての差し込み（`submit_with`・`allocate_with`・`wait_blocking_with`・`poll_ex_with`・`poll_with`・`create_pipeline_with`・`query`・`query_ex`・上限の差し替え・`FaultHooks` の 4 つの口）の組で、内側を呼んだ回数（0 回か 1 回）と返す値を、内側の値と合成の値が必ず違う偽の内側で確かめる。内側の `Err` が通す組でそのまま返ること、合成の失敗（`Timeout`・`BackendFailure`・`AllocationFailed`・`CapabilityInsufficient`・`InvalidArgument`）が互いに値で区別できることも見る
+- `crates/core/tests/fault_parts_composition.rs`: 内側の型（`!Sync` の偽物・`Send + Sync` の偽物・型を消した内側）と背後実装の種類（`BackendKind` の 4 種）に依らず同じに働くこと、デコレータが `Send + Sync` で `&dyn FaultHooks`・`&dyn Capabilities` に強制変換できること、`inject` が口を返す側（試験の中だけの見立ての trait）・デコレータ越し・スタブ越しに届くこと、筋書きと口の 2 系統が独立に働くことを確かめる
+- `crates/contract/tests/fault_injection_parts.rs`: contract の feature `fault-injection` だけで、デコレータとスタブが組み上がって働くことを確かめる
+- `CompletionUnknown` の筋書きでの `poll_with` の値と、スタブの `simulate_runtime_error` は、本段の試験では現状の値を固めない
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`・`cargo test -p fandhe-silicon-contract --no-default-features --features fault-injection`
 
 ## 本リポでの反映の方針
 

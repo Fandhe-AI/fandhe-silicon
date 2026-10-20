@@ -53,6 +53,14 @@ name = "fault_decorator_limits"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_parts_matrix"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "fault_parts_composition"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "parity_cpu_reference"
 required-features = ["test-support"]
 
