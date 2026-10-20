@@ -9,6 +9,9 @@
 // （方針: docs/unsafe-policy.md、spec TASK-9 のポインタ）。
 #![deny(unsafe_code)]
 
+// feature ゲートのコンパイル失敗の試験（doctest のみ。公開面には出さない）。
+mod cfg_gate_doctest;
+
 // 背後実装のモジュール。
 // Metal は feature のみでゲートする（spec BUILD-22）。
 #[cfg(feature = "backend-metal")]
