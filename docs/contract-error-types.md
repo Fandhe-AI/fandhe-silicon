@@ -28,11 +28,11 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 拡張性の試験の既存の形 | 別の crate（統合テスト）から `#![deny(unreachable_patterns)]` と `_` の腕で `#[non_exhaustive]` を固定する形がある | `crates/core/tests/execution_type_coverage.rs` |
 | `core` の形 | 公開モジュールは `artifact_cache`・`capability`・`error`・`execution`・`hash`（条件なし）と、`test-support` の裏の `parity`・`test_frame`・`rerun`。feature は `test-support` だけ。外部依存 0。`#![forbid(unsafe_code)]` | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
 | 依存の向き | contract → core、exec → core、upper → core・exec。`wasm/crates/glue` が `contract` に path で依存する | 各 `Cargo.toml`、`wasm/crates/glue/Cargo.toml` |
-| wasm32 での `core` | `scripts/build-profiles.sh` が wasm32 向けのビルドを流し、`wasm/` の `make wasm-verify` も `contract` 経由で `core` を wasm32 でビルドする。`core` に足すものは std だけで wasm32 でも通る必要がある | `scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
+| wasm32 での `core` | `scripts/build-profiles.sh` が wasm32 向けのビルドを流し、`wasm/` の `make wasm-verify` も `contract` 経由で `core` を wasm32 でビルドする。`core` に足すものは std だけで wasm32 でも通る必要がある。`core` 単体は `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）で確かめられる | `scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `exec`・`upper` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec crates/upper` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`・`tests/error_debug_format.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`・`tests/error_debug_format.rs`・`tests/error_display.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -99,6 +99,15 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/error_debug_format.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --test error_debug_format`
 - 残る試験は 7/8（`Display`/`Error` と wasm32）
+
+## 現状の形（7/8）
+
+- 確かめの対象は `ContractError` の `Display` と `std::error::Error`（この段で実装した。2/8 の節の「持たないもの」はその段の記録）。値とフィールドの形は 2/8 のまま変えていない。ほかの型には `Display` を実装していない
+- 仕組み: 値ごとに英語の決まった句で始まり、フィールドが続く（ERR-54。ポインタのみ）。文字列のフィールドは載せられたまま出すので、改行や非 ASCII を含みうる（エスケープしない）。`FeatureId` は名前の文字列だけを出す。`source()` は `None`。試験は前置とフィールドの部分文字列を見て、文言の全体は固定しない。`core` は診断のためにホスト情報を集めない（`detail`・`reason` に何を載せるかは背後実装の責任）
+- 対象外: 失敗の種類の入口（TASK-554。ポインタ）、`CompletionStateEx`・`DeviceLostReason` の `Display`、`capability.rs` の 3 型（TASK-136。ポインタ）、完了の条件の確かめ（8/8）
+- 対応するテスト: `crates/core/tests/error_display.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --test error_display`、`cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）、`make build-profiles`
+- 残る段は 8/8（確かめ）
 
 ## 本リポでの反映の方針
 
