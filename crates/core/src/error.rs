@@ -4,6 +4,10 @@
 //! enum は `#[non_exhaustive]` で、別の crate の `match` は `_` の腕を要る（ERR-18）。
 //! variant には付けないので、別の crate からも値を構築できる。
 //! `Display`・`std::error::Error` はここでは実装しない。
+//!
+//! ここにはエラーに関する型だけを置き、その定義と `#[non_exhaustive]` の確かめは TASK-269 が持つ。
+//! 能力・診断・device の型は TASK-136 の持ち分（ポインタ）。
+//! `CompletionState`・`CompletionStateEx` の値の一覧は TASK-306 の決定に従う（ポインタのみ）。
 
 use crate::capability::{BackendKind, CapabilityLevel, FeatureId};
 
@@ -157,4 +161,34 @@ pub enum UnsupportedReason {
     NotSupported,
     /// 機能の識別子が未知。
     UnknownFeature,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `CompletionStateEx` の 5 値の一覧を固定する。定義した crate の内側なので
+    /// `#[non_exhaustive]` でも `_` なしで網羅できる。値を足すときはこの試験も直す。
+    #[test]
+    fn completion_state_ex_has_five_values() {
+        let all = [
+            CompletionStateEx::Pending,
+            CompletionStateEx::Complete,
+            CompletionStateEx::RuntimeError,
+            CompletionStateEx::Lost,
+            CompletionStateEx::Unknown,
+        ];
+        let mut seen = [false; 5];
+        for v in all {
+            let i = match v {
+                CompletionStateEx::Pending => 0,
+                CompletionStateEx::Complete => 1,
+                CompletionStateEx::RuntimeError => 2,
+                CompletionStateEx::Lost => 3,
+                CompletionStateEx::Unknown => 4,
+            };
+            seen[i] = true;
+        }
+        assert!(seen.iter().all(|b| *b));
+    }
 }
