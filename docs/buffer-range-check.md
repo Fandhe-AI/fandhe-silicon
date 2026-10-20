@@ -32,10 +32,20 @@ TASK-309 の 1/4（MEM-70・MEM-74〜MEM-76 のポインタ）。private spec �
 - 確保の上限（接頭辞 `allocation_size_boundary_`）: 上限 `{0, 64, u64::MAX}` に対し、バイト数 `{0, 1, 上限, 上限 + 1, u64::MAX}` の組を回す。上限ちょうどは通り、超えれば拒否
 - 拒否はどれも `InvalidArgument`
 
+## 拒否のときの内容の不変の試験（3/4）
+
+`crates/core/tests/memory_upload_reject.rs`（feature なしの統合テスト。公開のパスだけを使う）。
+
+- 試験用の最小の実装: バイト列を持つ非公開の型 `MinimalBuffer` が、コピーの前に `validate_buffer_range` を呼び、通ったときだけ書き込む。テストファイルの中だけの型で、公開 API ではない
+- 拒否の試験（接頭辞 `upload_reject_keeps_contents_`）: 一部が重なる超過・終端が確保長 + 1・offset が確保長を超える長さ 0・offset が `u64::MAX`・確保長 0 のバッファ、および確保長 `{0, 1, 16}` の境界の格子を回し、`InvalidArgument`（あふれ／超過の枝）が返ることと、呼ぶ前後で内容が全バイト一致することを確かめる。直前に通った upload の結果が保たれることも確かめる
+- 陽性対照（試験名 `upload_accept_writes_only_range`）: 範囲内では `[offset, offset + len)` だけが書き換わり、その外は元のまま残る
+- 背後実装の `upload` が実際にこの検査を呼ぶことは、ここでは確かめない（背後実装ごとのタスクのポインタに従う）
+
 ## 確かめ方
 
 ```bash
 cargo test -p fandhe-silicon-core buffer_check_
 cargo test -p fandhe-silicon-core --test memory_buffer_check
+cargo test -p fandhe-silicon-core --test memory_upload_reject
 make verify
 ```
