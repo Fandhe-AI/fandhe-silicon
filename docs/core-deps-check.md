@@ -9,9 +9,9 @@
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 検査 | `scripts/core-deps-check.sh`（bash + `python3 -I`、標準ライブラリのみ） | `scripts/core-deps-check.sh` |
-| 呼び出し元 | `make core-deps-check`（直接実行も可）。CI のジョブからはまだ呼ばない | `grep -n core-deps .github/workflows/ci.yml` |
+| 呼び出し元 | `make core-deps-check`（直接実行も可）。CI の deny ジョブも実行する | `grep -n core-deps .github/workflows/ci.yml` |
 | 入力 | `cargo metadata --locked --offline --no-deps --format-version 1 --all-features` | 同スクリプトの `METADATA_CMD` |
-| 回帰テスト | `scripts/test-core-deps-check.sh`（`make test-core-deps-check`）。合成 metadata・偽のコマンド・PATH を絞った環境・一時 workspace の実物の出力で確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI のジョブからはまだ呼ばない | `make test-core-deps-check` |
+| 回帰テスト | `scripts/test-core-deps-check.sh`（`make test-core-deps-check`）。合成 metadata・偽のコマンド・PATH を絞った環境・一時 workspace の実物の出力で確かめる。リポジトリのファイルを変更しない・ネットワーク不要。CI の deny ジョブも実行する | `make test-core-deps-check` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
@@ -67,3 +67,30 @@
 | 誤用 | 壊れた JSON・metadata、対象の crate が 0 件または 2 件、契約の crate の共通の crate への依存が 0 件または 2 件、数えない kind、`--metadata-json` の二重指定、cargo・git・python3 の不足 |
 | 一時 workspace の実物 | 実物の `cargo metadata` で合格。workspace の外の path crate を共通の crate に足すと落ちる |
 | 実物のリポジトリ | 引数なしで合格し `record:` が出る |
+| TASK-13 の検査との突き合わせ | 同じ metadata を両方へ渡して差と一致を固定する（下の節。ケース名は `cross_*`） |
+
+## TASK-13 の検査との突き合わせ
+
+[public-api-sdk-check](./public-api-sdk-check.md) の依存側（`--metadata-json`）と本検査は、同じ共通の crate の依存の宣言を別の見方で数える。回帰テストの節 5 が同じ metadata を両方へ渡し、次を固定する。
+
+| 見方 | 事実 | 対応するケース |
+| ---- | ---- | -------------- |
+| 両方が落とすもの | チップの SDK の crate は両方が終了コード 1 で落とす | `cross_bad_chip` |
+| 本検査だけが落とすもの | チップではない外部の crate は、public-api-sdk-check は合格し本検査は落とす | `cross_bad_ext` |
+| 両方が合格するもの | 宣言なしは両方が合格し、件数 0 で一致する | `cross_ok` |
+| 宣言数の一致 | 名前の重複が無い入力では、public-api-sdk-check の `declared_deps` が本検査の通常 + build + dev の名前の数と一致する | `cross_count_*`・`cross_bad_multi` |
+| 数え方の違い | public-api-sdk-check は重複を除かず、本検査は種類ごとに名前の重複を除く | `cross_bad_dup`・`cross_count_dup` |
+| 実物のリポジトリ | 同じ `cargo metadata` を両方へ渡して両方が合格し、同じ package を読み、宣言数が一致する | `cross_repo` |
+
+確かめ方: `make test-core-deps-check`（出力の `ok: cross_` の行）。
+
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側の TASK-258（ポインタのみ）。本リポの事実として確かめられること。
+
+| 確かめること | 事実 | 確かめ方 |
+| ------------ | ---- | -------- |
+| CI に組み込まれている | CI の `deny` ジョブが `make core-deps-check` と `make test-core-deps-check` を呼ぶ（`continue-on-error` なし） | `grep -n core-deps .github/workflows/ci.yml`・`make ci-frame-check` |
+| 実物のリポジトリで合格する | 引数なしで合格し `scanned:`・`record:` が出る | `make core-deps-check`・回帰テストの `repo_ok` |
+| 外部の crate を 1 つ足すと落ちる | 合成 metadata と一時 workspace の実物のどちらでも終了コード 1 | 回帰テストの `bad_*`・`real_added_dependency` |
+| TASK-13 の検査と突き合わせている | 両方が落とすもの・片方だけが落とすもの・数え方の違いを固定している | 回帰テストの `cross_*` |
