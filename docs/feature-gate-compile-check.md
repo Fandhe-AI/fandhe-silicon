@@ -14,8 +14,9 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | ---- | ---- | -------- |
 | feature の宣言 | `native-blocking-wait`・`ext-interop` は `crates/contract/Cargo.toml` に宣言済み。`default` には入らず、他の feature の有効化リストにも現れない | `cargo test -p fandhe-silicon-contract --test feature_gate_scope` |
 | コンパイル失敗の仕組み | 外部 crate を足さず、rustdoc の doctest の fence を `cfg_attr` で切り替える（feature なしは `compile_fail`、ありは通る）。置き場は `crates/contract/src/cfg_gate_doctest.rs`（doctest の収集のため `pub mod` にし、`#[doc(hidden)]` で文書の表示だけを隠している。外部 crate から参照はできる） | `cargo test -p fandhe-silicon-contract --doc` と `--features backend-metal` の両方 |
-| 仕組みの対照 | 現状の対は実在の feature ゲート `backend-metal` の `backend_metal` モジュール | 同上 |
-| 流れる場所 | feature なし側は `scripts/build-profiles.sh` の組、ありの側は `make verify`（`--all-features`） | `make build-profiles`、`make verify` |
+| 仕組みの対照 | 実在の feature ゲート `backend-metal` の `backend_metal` モジュールの対と、`native-blocking-wait`・`ext-interop` それぞれの門の目印（値を持たない型）の対。目印は枠の確かめにとどまり、対象のアイテム自体の確かめではない | 同上と `--features native-blocking-wait`・`--features ext-interop` |
+| 有効側の試験 | feature を有効にした構成で目印が見えること。置き場は `crates/contract/tests/feature_gate_enabled.rs` | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
+| 流れる場所 | feature なし側は `scripts/build-profiles.sh` の組、ありの側は `make verify`（`--all-features`）。`native-blocking-wait` を含む組は、いまは `--all-features` だけ | `make build-profiles`、`make verify` |
 | wasm32 の組 | `cargo check` のみで doctest は流れない | `scripts/build-profiles.sh` |
 
 ## 段
