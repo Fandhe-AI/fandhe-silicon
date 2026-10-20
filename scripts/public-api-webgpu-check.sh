@@ -13,7 +13,7 @@
 # 終了コード: 0 一致が 0 件 / 1 一致が 1 件以上（違反） / 2 誤用・前提の不足・入力を読み切れない（成功扱いにしない）
 #   2 になるもの: 引数の誤用、設定の欠落・書式違反、指定のファイルが無い・読めない、JSON の形の不一致
 #   （public-api-check.sh の V1〜V3 と同じ形の検査）、JSON 1 本あたりの公開アイテムが 0 件、JSON を作る段の失敗
-#   （core と contract の文書がそろわない場合を含む）、想定外の例外。除外の印・対象を外す口は持たない。
+#   （core と contract の文書がそろわない場合を含む）、参照先が外部 crate または解決できない glob の再公開、想定外の例外。除外の印・対象を外す口は持たない。
 #
 # 照合の規則:
 #   対象は crate_id が 0 で visibility が public / default のアイテム（public-api-check.sh の公開アイテムと同じ数え方）のうち、
@@ -145,6 +145,14 @@ def inspect(doc, words):
             kind = "use"
             if isinstance(inner["use"].get("name"), str):
                 names.append(inner["use"]["name"])
+            if inner["use"].get("is_glob") is True:
+                # glob の再公開は use.name が `*` で名前を照合できない。参照先が同じ crate の中なら
+                # その中のアイテムを直接数えるので足りる。外部 crate や解決できない参照先は、
+                # 禁止名の公開を見落とさないよう成功扱いにせず止める（fail-closed）。
+                target = doc["index"].get(str(inner["use"].get("id")))
+                need(
+                    isinstance(target, dict) and target.get("crate_id") == 0,
+                    "glob re-export target is external or unresolved")
         if kind is None:
             continue
         # 非 glob の再公開は name と use.name が同じ局所名になる。1 件の再公開を 2 回数えない。
