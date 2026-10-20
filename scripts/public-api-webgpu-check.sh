@@ -2,6 +2,7 @@
 # feature `native-blocking-wait` を外した構成で、契約のコア（`crates/core` と `crates/contract`）の公開面に
 # ブロッキング待ちの名前の公開アイテムが 0 件であることを、rustdoc の JSON から数えて確かめる
 # （spec TASK-241・BUILD-29・BUILD-11・BUILD-12 のポインタ。親 Issue #465 の 2/6。内容の (1)）。
+# あわせて、パイプライン生成の入力の形（spec BUILD-31 のポインタ。親 Issue #465 の 4/6。内容の (2)）も同じ JSON から確かめる。
 # 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI にはまだ組み込まない）。回帰テストは `make test-public-api-webgpu-check`
 # （`scripts/test-public-api-webgpu-check.sh`。合成 JSON と一時 workspace の実物の rustdoc の JSON を通す）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json <dir> --without-feature native-blocking-wait` を呼んで共有し、
@@ -21,13 +22,32 @@
 #   inner が function のもの（自由関数・inherent と trait のメソッド）と再公開（use）。
 #   名前を `_` で区切って小文字にした語のどれかが [blocking-words] の語に等しければ違反（部分一致では当てない）。
 #
+# 内容の (2) の照合の規則（対象は (1) と同じ組の JSON。cargo rustdoc は 1 回で済ませる）:
+#   E1 crate_id 0・公開の `PipelineInput` という名前のアイテム（再公開は数えない）が、core の文書（root の名前が
+#      `fandhe_silicon_core`）にちょうど 1 つあり、inner が enum で、attrs に non_exhaustive の印があること。
+#      0 件・2 件以上・enum でない・印が無い・core 以外の文書にある定義は違反。
+#   E2 その enum が `Wgsl` の variant を持つこと。
+#   F1 公開の関数・メソッドのうち、名前を `_` で区切って小文字にした語に pipeline と生成の語（create / build / compile / load /
+#      make / new）が 1 つずつ以上あるものは、引数の型か generics に `PipelineInput`（パスの最後の区切りで照合。参照・入れ子・
+#      `impl Into<..>` の中を含む）を持つこと。持たない関数は違反（ネイティブの成果物だけを受け付ける口を作らない）。
+#   形の崩れ（attrs・variants が並びでない、variant の id が解決できない、名前が当たった関数の sig が読めない）は終了コード 2。
+#   `--json` の経路で core の文書が無いときは E1・E2 をかけず、`record:` の pipeline_input_checked=0 で明示する（F1 と
+#   core 以外の文書にある定義の検出はかける）。既定の経路は core と contract がそろわなければ終了コード 2 なので常に 1。
+#
 # 標準出力: 文書ごとの `scanned:`、全部を検査し終えたとき（終了コード 0 と 1）だけ締めの `record:`、合格時の `ok:`。
 #   標準エラー: `violation:`・`FAILED:`・`error:`。
 #   `record: commit=<rev> documents=<n> public_items_total=<n> public_functions_total=<n> blocking_wait_names_total=<n>`
+#   (2) の欄は末尾に足す: scanned に `pipeline_create_functions=<n> pipeline_input_violations=<n>`、
+#   record に `pipeline_create_functions_total=<n> pipeline_input_checked=<0|1> pipeline_input_violations_total=<n>`、
+#   ok の末尾に `, pipeline input ok`。(2) の違反の行は `violation: crate=<c> features=<f> check=pipeline-input reason=<..>` と
+#   `violation: crate=<c> features=<f> item=<名前> kind=function check=pipeline-create reason=no-pipeline-input`。
+#   FAILED の件数は (1) と (2) の合計。
 #   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
 #
 # 検査しないもの: 語を含まない名前のブロッキング待ち、完了の通知に非ブロッキングの形があるか、exec・upper の公開面、
-#   production から 1 つ外した組以外の feature の組、doc コメント・シグネチャの中の文字列。
+#   production から 1 つ外した組以外の feature の組、doc コメント・シグネチャの中の文字列。(2) では、名前に pipeline と
+#   生成の語の両方を含まない生成の口、再公開の名前、外部 crate の関数、variant の中身の形、`Wgsl` 以外の variant の有無、
+#   生成の関数が実際に WGSL を受け付けるか（実行時の振る舞い）。
 # ホストの絶対パス・環境変数の値は出力に出さない。ソースを変更しない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,6 +73,12 @@ if sys.version_info < (3, 8):
 WITHOUT_FEATURE = "native-blocking-wait"
 TARGET_PACKAGES = ("fandhe-silicon-core", "fandhe-silicon-contract")
 SECTIONS = ("blocking-words",)
+# 内容の (2) の照合の名前（構造の事実なので語の一覧の conf には持たない）。
+CORE_CRATE = "fandhe_silicon_core"
+PIPELINE_INPUT = "PipelineInput"
+REQUIRED_VARIANT = "Wgsl"
+PIPELINE_WORDS = ("pipeline",)
+CREATE_WORDS = ("create", "build", "compile", "load", "make", "new")
 
 
 class Misuse(Exception):
@@ -109,8 +135,59 @@ def match_words(name, words):
     return [w for w in words if w in parts]
 
 
+def mentions_pipeline_input(node):
+    """型・generics の入れ子の中に、パスの最後の区切りが PipelineInput のものがあるか。"""
+    if isinstance(node, dict):
+        p = node.get("path")
+        if isinstance(p, str) and p.split("::")[-1] == PIPELINE_INPUT:
+            return True
+        return any(mentions_pipeline_input(v) for v in node.values())
+    if isinstance(node, list):
+        return any(mentions_pipeline_input(v) for v in node)
+    return False
+
+
+def is_pipeline_create(name):
+    parts = name.lower().split("_")
+    return any(w in parts for w in PIPELINE_WORDS) and any(w in parts for w in CREATE_WORDS)
+
+
+def has_non_exhaustive(attrs):
+    for a in attrs:
+        vals = [a] if isinstance(a, str) else list(a.values()) if isinstance(a, dict) else []
+        for v in vals:
+            if isinstance(v, str) and v.strip() in ("non_exhaustive", "#[non_exhaustive]"):
+                return True
+    return False
+
+
+def evaluate_pipeline_enum(doc, item):
+    """core の文書にある PipelineInput の定義 1 件を E1・E2 で判定し、違反の reason の一覧を返す。"""
+    inner = item["inner"]
+    if "enum" not in inner:
+        return ["not-enum"]
+    reasons = []
+    attrs = item.get("attrs")
+    need(isinstance(attrs, list), "malformed attrs on PipelineInput")
+    if not has_non_exhaustive(attrs):
+        reasons.append("not-non-exhaustive")
+    en = inner["enum"]
+    need(isinstance(en, dict) and isinstance(en.get("variants"), list), "malformed variants on PipelineInput")
+    names = []
+    for vid in en["variants"]:
+        v = doc["index"].get(str(vid))
+        need(
+            isinstance(v, dict) and isinstance(v.get("inner"), dict) and "variant" in v["inner"],
+            "unresolved variant id on PipelineInput")
+        names.append(v.get("name"))
+    if REQUIRED_VARIANT not in names:
+        reasons.append("no-wgsl")
+    return reasons
+
+
 def inspect(doc, words):
-    """JSON 1 本を検査して (crate 名, format_version, 公開アイテム数, 公開の関数数, 違反の一覧) を返す。"""
+    """JSON 1 本を検査して (crate 名, format_version, 公開アイテム数, 公開の関数数, 違反の一覧,
+    PipelineInput の定義の一覧, パイプライン生成の関数の (名前, 入力を持つか) の一覧) を返す。"""
     need(isinstance(doc, dict), "top level is not an object")
     for k in ("index", "paths", "external_crates"):
         need(isinstance(doc.get(k), dict), "missing or malformed '%s'" % k)
@@ -129,6 +206,8 @@ def inspect(doc, words):
     public = 0
     functions = 0
     hits = []
+    pdefs = []
+    pfuncs = []
     for it in doc["index"].values():
         if it["crate_id"] != 0 or it.get("visibility") not in ("public", "default"):
             continue
@@ -139,9 +218,20 @@ def inspect(doc, words):
         if isinstance(it.get("name"), str):
             names.append(it["name"])
         kind = None
+        if it.get("name") == PIPELINE_INPUT and not any(k in inner for k in ("use", "variant", "function", "struct_field")):
+            pdefs.append(it)
         if "function" in inner:
             kind = "function"
             functions += 1
+            nm = it.get("name")
+            if isinstance(nm, str) and is_pipeline_create(nm):
+                fn = inner["function"]
+                sig = fn.get("sig") if isinstance(fn, dict) else None
+                need(
+                    isinstance(sig, dict) and isinstance(sig.get("inputs"), list),
+                    "pipeline-creating function lacks a valid sig")
+                ok = mentions_pipeline_input(sig["inputs"]) or mentions_pipeline_input(fn.get("generics"))
+                pfuncs.append((clean(nm), ok))
         elif isinstance(inner.get("use"), dict):
             kind = "use"
             if isinstance(inner["use"].get("name"), str):
@@ -161,7 +251,7 @@ def inspect(doc, words):
             for w in match_words(nm, words):
                 hits.append((clean(nm), kind, clean(w)))
     need(public >= 1, "no public items found")
-    return root["name"], fv, public, functions, hits
+    return root["name"], fv, public, functions, hits, pdefs, pfuncs
 
 
 def _git(root, args):
@@ -217,17 +307,47 @@ def load_json(path):
 
 
 def run_docs(inputs, words):
-    total = {"public": 0, "functions": 0, "hits": 0}
+    total = {"public": 0, "functions": 0, "hits": 0, "pcreate": 0, "pchecked": 0, "pviol": 0}
+    results = []
     for _crate, label, path in inputs:
-        name, fv, public, functions, hits = inspect(load_json(path), words)
+        doc = load_json(path)
+        name, fv, public, functions, hits, pdefs, pfuncs = inspect(doc, words)
+        # (2) の違反を、この文書に属するものとして集める（(行に出す属性, 理由) の並び）。
+        pv = []
+        for fname, ok in pfuncs:
+            if not ok:
+                pv.append(("pipeline-create", fname, "no-pipeline-input"))
+        if name == CORE_CRATE:
+            total["pchecked"] = 1
+            if not pdefs:
+                pv.append(("pipeline-input", None, "missing"))
+            elif len(pdefs) > 1:
+                pv.append(("pipeline-input", None, "duplicate"))
+            else:
+                for reason in evaluate_pipeline_enum(doc, pdefs[0]):
+                    pv.append(("pipeline-input", None, reason))
+        elif pdefs:
+            pv.append(("pipeline-input", None, "outside-core"))
+        results.append((name, label, fv, public, functions, hits, len(pfuncs), pv))
+    for name, label, fv, public, functions, hits, pcreate, pv in results:
         print("scanned: crate=%s features=%s format_version=%d public_items=%d public_functions=%d blocking_wait_names=%d"
-              % (clean(name), clean(label), fv, public, functions, len(hits)))
+              " pipeline_create_functions=%d pipeline_input_violations=%d"
+              % (clean(name), clean(label), fv, public, functions, len(hits), pcreate, len(pv)))
         for item, kind, word in hits:
             print("violation: crate=%s features=%s item=%s kind=%s word=%s"
                   % (clean(name), clean(label), item, kind, word), file=sys.stderr)
+        for check, item, reason in pv:
+            if item is None:
+                print("violation: crate=%s features=%s check=%s reason=%s"
+                      % (clean(name), clean(label), check, reason), file=sys.stderr)
+            else:
+                print("violation: crate=%s features=%s item=%s kind=function check=%s reason=%s"
+                      % (clean(name), clean(label), item, check, reason), file=sys.stderr)
         total["public"] += public
         total["functions"] += functions
         total["hits"] += len(hits)
+        total["pcreate"] += pcreate
+        total["pviol"] += len(pv)
     return total
 
 
@@ -250,11 +370,13 @@ def main():
             total = run_docs(inputs, words)
 
     print("record: commit=%s documents=%d public_items_total=%d public_functions_total=%d blocking_wait_names_total=%d"
-          % (commit, len(inputs), total["public"], total["functions"], total["hits"]))
-    if total["hits"]:
-        print("FAILED: %d item(s)" % total["hits"], file=sys.stderr)
+          " pipeline_create_functions_total=%d pipeline_input_checked=%d pipeline_input_violations_total=%d"
+          % (commit, len(inputs), total["public"], total["functions"], total["hits"],
+              total["pcreate"], total["pchecked"], total["pviol"]))
+    if total["hits"] or total["pviol"]:
+        print("FAILED: %d item(s)" % (total["hits"] + total["pviol"]), file=sys.stderr)
         return 1
-    print("ok: %d public API document(s) checked, no blocking-wait names" % len(inputs))
+    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok" % len(inputs))
     return 0
 
 
