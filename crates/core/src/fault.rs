@@ -4,7 +4,12 @@
 //! 差し込むのは模擬であって、実際の故障ではない。口は下-1（背後実装）が実装し、試験の部品が `inject` 経由で呼ぶ。
 //! 口ごとに実装の持ち主が違うため、すべて既定の実装を持つ。既定の実装は黙って成功せず、
 //! `ContractError::UnsupportedExtensionDefault` を返す。
+//! 使い分け: (A) 試験側の部品は `decorator`（内側を包む）と `stub`（背後実装を持たない見本）、
+//! (B) 背後実装が実装するのは `FaultHooks`。
 //! 型・メソッド・種類の名前は仮。spec との対応は TASK-271（ポインタ表記）。
+
+pub mod decorator;
+pub mod stub;
 
 use crate::error::{ContractError, DeviceLostReason};
 

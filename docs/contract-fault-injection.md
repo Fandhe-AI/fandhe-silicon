@@ -21,7 +21,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | `fault-injection` の宣言 | `crates/core/Cargo.toml` に `fault-injection = []`、`crates/contract/Cargo.toml` に `fault-injection = ["fandhe-silicon-core/fault-injection"]`。どちらも `default` と本番の組に入らず、`test-support` とは含意しあわない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml crates/core/Cargo.toml` |
 | `fault-injection` を囲む既存の検査 | `crates/contract/tests/feature_default_scope.rs` の `TEST_ONLY`（`default` と本番の組に入らない）、`scripts/upper-layer-check.sh` の `FORBIDDEN_FEATURES`（測定の workspace から有効にさせない）、公開 API の検査の本番の組から除く扱い（[public-api-contract-check](public-api-contract-check.md)）、[contract-feature-check](contract-feature-check.md) | `git grep -n fault-injection -- crates scripts docs ':!docs/spec'` |
-| feature の裏の中身 | `fault-injection` の `cfg` で隠したコードは `crates/core/src/lib.rs` の `fault` モジュール 1 件 | `git grep -n 'feature = "fault-injection"' -- crates wasm` |
+| feature の裏の中身 | `fault-injection` の `cfg` で隠したコードは `crates/core/src/lib.rs` の `fault` モジュール 1 件（その下の `stub`・`decorator` は同モジュールの子で、別の `cfg` は持たない） | `git grep -n 'feature = "fault-injection"' -- crates wasm` |
 | 共通の型 | TASK-269 のエラー・完了状態・理由の型と、TASK-136 の能力問合せの型は `crates/core` に条件なしで公開済み | [contract-error-types](contract-error-types.md)・[contract-device-types](contract-device-types.md) |
 | 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities`、`test-support` の裏の `rerun` の `Check`、`fault-injection` の裏の `fault` の `FaultHooks` の 3 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun`、`fault-injection` の裏のモジュールは `fault` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
@@ -29,7 +29,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core`・`contract` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、その試験、`crates/contract/` の転送の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、`crates/core/src/fault/`、その試験、`crates/contract/` の転送の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -37,7 +37,8 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | -- | -------- | ---- |
 | 1/8 | #4050 | 現状と前提の確認（本書） |
 | 2/8 | #4051 | 形の設計（「現状の形（2/8）」の節） |
-| 3/8〜6/8 | #4052〜#4055 | 実装 |
+| 3/8 | #4052 | 模擬のロストと完了不明の差し込み（「現状の形（3/8）」の節） |
+| 4/8〜6/8 | #4053〜#4055 | 実装 |
 | 7/8 | #4056 | テスト |
 | 8/8 | #4057 | 手順書の作成 |
 
@@ -52,6 +53,15 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - 試験: `crates/core/tests/fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` の対（無効の構成では `core` の `fault` が解決できず compile_fail、有効の構成では通る）
 - 組: `scripts/build-profiles.sh` の `NATIVE_SETS` に `fault-injection` 単独の組がある
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`、`cargo test -p fandhe-silicon-contract --features fault-injection`、`make build-profiles`
+
+## 現状の形（3/8）
+
+型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
+
+- `fault::stub::FaultStub`: 背後実装を持たない試験用のスタブ。`FaultHooks` を実装し、`Send + Sync`。`simulate_device_lost` は 1 回目だけ理由を記録し、登録済みのコールバックを lock の外で 1 回呼ぶ。2 回目以降は `Ok` を返すだけで、理由も回数も変えない。コールバックが未登録のとき `lost_callback_count` は 0 のまま。`arm_gate`・`open_gate` は門の状態の記録だけで、何度呼んでも `Ok`。`simulate_runtime_error` は既定の実装のまま
+- `fault::decorator::FaultInjecting<D>` と `FaultScript`（`non_exhaustive`。`PassThrough`・`CompletionUnknown`）: `Device` のトレイトが無いため、包む型を型引数にし、内側の呼び出しはクロージャで受ける。`wait_blocking_with` は `CompletionUnknown` で内側を呼ばず `Err(ContractError::Timeout)`、`poll_ex_with` は内側を呼ばず `CompletionStateEx::Unknown` を返す。`PassThrough` は内側の値をそのまま返す。`FaultHooks` の 4 つの口は内側へそのまま渡す
+- 試験: `crates/core/tests/fault_stub_lost.rs`・`fault_decorator_completion_unknown.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
 ## 本リポでの反映の方針
 
