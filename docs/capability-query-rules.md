@@ -5,7 +5,7 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 記録の所在
 
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-273。ポインタのみ）。内容・理由・経緯は本書に置かない。
-1/6 の範囲は、TASK-273 の内容の 1 文目に当たる部分の現状の確認だけである。2/6 の範囲は、その (1)・(2) に当たる試験用の部品（「現状の形（2/6）」節）である。3/6 の範囲は、その (1)・(2) の契約テストの組み合わせ（「現状の形（3/6）」節）である。4/6 の範囲は、その (3)・(4) の検査関数と部品の試験（「現状の形（4/6）」節）である。5/6 の範囲は、その (3)・(4) の組み合わせの契約テスト（「現状の形（5/6）」節）である。
+1/6 の範囲は、TASK-273 の内容の 1 文目に当たる部分の現状の確認だけである。2/6 の範囲は、その (1)・(2) に当たる試験用の部品（「現状の形（2/6）」節）である。3/6 の範囲は、その (1)・(2) の契約テストの組み合わせ（「現状の形（3/6）」節）である。4/6 の範囲は、その (3)・(4) の検査関数と部品の試験（「現状の形（4/6）」節）である。5/6 の範囲は、その (3)・(4) の組み合わせの契約テスト（「現状の形（5/6）」節）である。6/6 の範囲は、成果物の確かめ（「完了の条件の確かめ（6/6）」節）である。
 持ち込みの区分は TASK-6 の決定の記録に従う（ポインタのみ）。
 `docs/spec` は submodule（`update = none`）で、指している版は `git ls-tree origin/main docs/spec` で確かめる。
 
@@ -120,6 +120,61 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 
 確かめ方: `cargo test -p fandhe-silicon-core --features test-support,fault-injection --test capability_rule_check_contract`
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#4069）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-273）。
+結果は GPU の実機なしで実行した値で、件数は実測。本体のコード（`src/`）と試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 | 本書の節 |
+| ------ | ------ | -------- |
+| 検査関数 | `crates/core/src/capability_rule.rs` の `check_query`・`check_query_ex`・`level_requires_evidence`・`CapabilityRuleViolation`（`test-support` の裏） | 「現状の形（4/6）」 |
+| 試験 | 試験用の部品 `CapabilityTable`・`StepLog`・`Step`・`query_after_acquire` と、`crates/core/tests/` の 5 本（`capability_rule_stub.rs`・`capability_rule_two_step.rs`・`capability_rule_contract.rs`・`capability_rule_check.rs`・`capability_rule_check_contract.rs`） | 「現状の形（2/6）」〜「現状の形（5/6）」 |
+
+- 置き場は別の crate ではなく `core` の中の `test-support` の裏のモジュール（TASK-273 の決定の記録に従う。ポインタのみ）
+
+### 規則と試験の対応
+
+| 規則（TASK-273 の内容の番号） | 試験（関数名） |
+| ----------------------------- | -------------- |
+| (1) 取得の失敗の `S0` と確認済みの `Unsupported` の区別 | `table_returns_registered_values_and_distinguishes_s0_from_unsupported`（stub）、`confirmed_unsupported_differs_from_failed_query_via_decorator`（two_step）、`failed_acquisition_s0_is_not_confirmed_unsupported`・`query_ex_separates_failed_query_from_confirmed_unsupported`・`dyn_device_keeps_unsupported_and_s0_distinct`（contract）、`query_fails_masks_inner_and_passes_check`・`dyn_wrappers_give_same_results`（check_contract） |
+| (2) 2 段の手順の順序 | `enumerate_failure_returns_s0_and_stops`・`acquire_failure_returns_s0_without_reading`・`success_reads_value_after_both_steps`（two_step）、`enumerate_failure_yields_s0_for_every_error_and_feature`・`acquire_failure_yields_s0_for_every_error_and_feature`・`success_returns_inner_value_in_order`（contract）、`acquire_then_check_in_order`（check_contract） |
+| (3) 理由 | `unsupported_with_any_reason_passes`・`unsupported_without_reason_is_violation`・`reason_on_non_unsupported_is_violation`・`non_unsupported_without_reason_passes`・`default_query_ex_on_unsupported_fails_missing_reason`（check）、`default_query_ex_violation_survives_decorator`（check_contract） |
+| (4) 根拠 | `high_levels_without_evidence_are_violations`・`high_levels_with_each_evidence_pass`・`evidence_on_low_levels_is_accepted`・`level_requires_evidence_table`（check）、`levels_without_runtime_data_through_wrappers`（check_contract） |
+
+- (3) は理由の値を問わない（`UnknownFeature` も通る）。各規則の説明は「現状の形」の各節に従う
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | `test-support` だけで流す試験 | `cargo test -p fandhe-silicon-core --features test-support --test capability_rule_stub --test capability_rule_check` | 順に 5・14 件。0 failed / 0 ignored |
+| B2 | `test-support,fault-injection` で流す試験 | `cargo test -p fandhe-silicon-core --features test-support,fault-injection --test capability_rule_two_step --test capability_rule_contract --test capability_rule_check_contract` | 順に 4・9・8 件。0 failed / 0 ignored |
+| B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` に 5 本の `--test` を並べた形 | B1・B2 と同じ件数。0 failed / 0 ignored |
+| B4 | モジュール内の試験 | `cargo test -p fandhe-silicon-core --features test-support --lib capability_rule` | 0 件（`capability_rule.rs` に単体テストは無い） |
+| B5 | `required-features` の宣言 | `crates/core/Cargo.toml` の `[[test]]` | `capability_rule_stub`・`capability_rule_check` は `test-support`、残る 3 本は `test-support` と `fault-injection`。B1・B2 の分け方と一致 |
+| B6 | feature なしでは走らない | `cargo test -p fandhe-silicon-core --test capability_rule_stub` | `requires the features: test-support` で止まる |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^\[\[' deps-approved.toml` | `capability_rule` は `test-support` の裏。`forbid(unsafe_code)`。`capability_rule.rs` の `crate::fault` は先頭コメントの 1 件だけ（参照ではない）。外部依存 0。承認の記録 0 件 |
+| C2 | 製品の経路からの参照 | `git grep -n -e capability_rule -e check_query -e CapabilityTable -e query_after_acquire -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` | 0 件 |
+| C3 | `Capabilities` の実装の所在 | `git grep -n -E 'impl.* Capabilities for' -- crates wasm` | `core` の `src/` に 2 件（`CapabilityTable`・`FaultInjecting<D>`）、残りは `crates/core/tests/`。`contract`・`exec`・`upper`・`wasm/` は 0 件 |
+| C4 | wasm32 と本番の組 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --features test-support,fault-injection --test <5 本>`、`make build-profiles`、`make wasm-verify` | 5 本とも終了コード 0、後の 2 つも 0。`--tests` で全部を一度に検査する形は、本件と別の `test_frame_decide` が wasm32 でコンパイルできず落ちる（本件の範囲外。直していない） |
+| C5 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
+| C6 | 対象外の事実 | 「現状の形（4/6）」「現状の形（5/6）」の対象外 | `query` と `query_ex` の level が一致するかの検査は無い。背後実装の実機での確かめは TASK-173〜TASK-175 のポインタ。直さず事実として引き継ぐ |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml` | 確かめた base の 1 つ前のコミット `487d857` の run（id 39510016363）は completed / success。base `a2ba112` の run（id 39510518348）は記録時に in_progress で、未確認 |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | 4 つとも終了コード 0 |
+
+### 再実行の契機
+
+- `crates/core/src/capability_rule.rs` の公開アイテム・規則・違反の返し方を変えたとき
+- 上の 5 本の試験のファイル、または `Cargo.toml` の `[[test]]` の宣言を変えたとき
+- `crates/core/src/capability.rs`・`error.rs` の能力の型と `UnsupportedReason`、`fault/decorator.rs` の `Capabilities` の実装を変えたとき
+- 背後実装の `query`・`query_ex` が入ったとき（TASK-173〜TASK-175 のポインタ）、列挙・device の本物の口が入ったとき（TASK-157 のポインタ）
+- `docs/spec` の gitlink が進んだとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-273）。
+確かめた base は `a2ba112ecab49c380b1dda7e5f159fca6e55f670`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -129,7 +184,7 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | 3/6 | #4066 | テスト |
 | 4/6 | #4067 | 実装 |
 | 5/6 | #4068 | テスト |
-| 6/6 | #4069 | 確かめ |
+| 6/6 | #4069 | 確かめ（本書の「完了の条件の確かめ（6/6）」） |
 
 ## 本リポでの反映の方針
 
