@@ -1,9 +1,10 @@
-//! `execution` の C8・C7・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423・TASK-425・TASK-2952 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44・BIND-58）。
+//! `execution` の C8・C7・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423・TASK-424・TASK-425・TASK-2952 のポインタ。BIND-35〜BIND-44・BIND-57・BIND-58）。
 //!
 //! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
 //! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
 //! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
 //! 宣言に無い束縛の `slot`、束縛の `slot` の重複、定数の `slot` の重複が `InvalidArgument`（先頭 `C7`）で拒否され、1 回だけの対照は通ることを確かめる（TASK-2952）。
+//! 定数の `slot` が宣言に無い入力と、定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通ることを確かめる（TASK-424・BIND-40・BIND-57 のポインタ）。
 //! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
 
 use fandhe_silicon_core::execution::{
@@ -421,4 +422,49 @@ fn c7_duplicate_slot_in_consts_is_rejected() {
         bytes: &[0u8; 4],
     }];
     assert_eq!(run(&declared, &[], &one, None), Ok(()));
+}
+
+/// 定数の `slot` が宣言に無ければ（束縛の有無によらず）C7 で拒否され、宣言にある `slot` なら通る（TASK-424・BIND-40 のポインタ）。
+#[test]
+fn c7_undeclared_slot_in_consts_is_rejected() {
+    let declared = [spec(0, DType::F32, &[1]), spec(1, DType::F32, &[1])];
+    let bad = [OperandConstant {
+        slot: 5,
+        bytes: &[0u8; 4],
+    }];
+    let r = run(&declared, &[], &bad, None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let b0 = [OperandBinding { slot: 0, offset: 0 }];
+    let r = run(&declared, &b0, &bad, None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let good = [OperandConstant {
+        slot: 1,
+        bytes: &[0u8; 4],
+    }];
+    assert_eq!(run(&declared, &b0, &good, None), Ok(()));
+    let only0 = [OperandConstant {
+        slot: 0,
+        bytes: &[0u8; 4],
+    }];
+    assert_eq!(run(&declared, &[], &only0, None), Ok(()));
+}
+
+/// 定数の `slot` が束縛の `slot` と重なれば C7 で拒否され、重ならなければ通る（TASK-424・BIND-57 のポインタ）。
+#[test]
+fn c7_const_slot_overlapping_binding_slot_is_rejected() {
+    let declared = [spec(0, DType::F32, &[1]), spec(1, DType::F32, &[1])];
+    let c = |slot: u32| {
+        [OperandConstant {
+            slot,
+            bytes: &[0u8; 4],
+        }]
+    };
+    let b = |slot: u32| OperandBinding { slot, offset: 0 };
+    let r = run(&declared, &[b(0)], &c(0), None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let r = run(&declared, &[b(1)], &c(1), None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let r = run(&declared, &[b(0), b(1)], &c(1), None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    assert_eq!(run(&declared, &[b(0)], &c(1), None), Ok(()));
 }
