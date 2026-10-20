@@ -34,12 +34,17 @@ backend-dx12-compute = ["contract-core"]
 # テスト・診断専用（本番ビルドに含めない）
 # test-support は core の同名 feature（検証用の道具）へ転送する（説明は docs/parity-tool.md の「所在」）。
 test-support = ["fandhe-silicon-core/test-support"]
-fault-injection = []
+# fault-injection は core の同名 feature（故障の差し込み口）へ転送する（説明は docs/contract-fault-injection.md）。
+fault-injection = ["fandhe-silicon-core/fault-injection"]
 artifact-inspection = ["backend-metal"]
 
 [[test]]
 name = "backend_vulkan_spirv_operands"
 required-features = ["backend-vulkan", "test-support"]
+
+[[test]]
+name = "fault_injection_forwarding"
+required-features = ["fault-injection"]
 
 [[test]]
 name = "test_support_case_inputs"

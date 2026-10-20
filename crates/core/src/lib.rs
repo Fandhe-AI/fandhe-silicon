@@ -13,6 +13,8 @@
 //! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
 //! 流し直しの照合の型と実行の口（`rerun` モジュール）が公開される。
 //! これら `test-support` の裏のモジュールは製品の経路からは使わない。
+//!
+//! feature `fault-injection` を有効にしたときだけ、テスト専用の故障の差し込み口（`fault` モジュール）が公開される。
 #![forbid(unsafe_code)]
 
 pub mod artifact_cache;
@@ -30,3 +32,6 @@ pub mod test_frame;
 
 #[cfg(feature = "test-support")]
 pub mod rerun;
+
+#[cfg(feature = "fault-injection")]
+pub mod fault;
