@@ -89,7 +89,7 @@ public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の cra
 public-name-check: ## 製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことを、rustdoc の JSON から数えて検査する。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/public-name-check.sh --config public-name-check.conf [--json <path>...] [--source <path>...]
 	@scripts/public-name-check.sh --config public-name-check.conf
 
-public-api-webgpu-check: ## feature native-blocking-wait を外した構成で、契約のコアの公開面にブロッキング待ちの名前の公開アイテムが無いこと（内容の (1)）と、パイプライン生成の入力の形（PipelineInput の定義・Wgsl の variant・生成の関数の入力。内容の (2)）を、rustdoc の JSON から検査する（TASK-241。語は public-api-webgpu-check.conf。bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json --without-feature で作る。CI にはまだ組み込まない）
+public-api-webgpu-check: ## feature native-blocking-wait を外した構成で、契約のコアの公開面にブロッキング待ちの名前の公開アイテムが無いこと（内容の (1)）と、パイプライン生成の入力の形（PipelineInput の定義・Wgsl の variant・生成の関数の入力。内容の (2)）と、拡張 trait の feature ext-interop への閉じ込めと submit 系の wait 引数の形（内容の (3)）を、rustdoc の JSON から検査する（TASK-241。語は public-api-webgpu-check.conf。bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json --without-feature で外す feature ごとに 2 回作る。CI にはまだ組み込まない）
 	@scripts/public-api-webgpu-check.sh --config public-api-webgpu-check.conf
 
 test-public-api-webgpu-check: ## public-api-webgpu-check の回帰テスト（ダミーの語の一覧の合成 JSON と、一時 workspace の実物の rustdoc の JSON。TASK-241。bash + python3 + cargo + git。CI のジョブからは呼ばず手元で流す）

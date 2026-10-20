@@ -115,3 +115,35 @@
 | (1) と (2) の違反は合計し、(1) の行の形は変わらない | 「(1) と (2) の違反の合計」「(1) の違反の行の形は変わらない」 |
 | 形の崩れは終了コード 2 で、締めの行を出さない | 「attrs が並びでない」から「sig の inputs が並びでない」まで |
 | 実物の rustdoc の JSON で、印を外す・`Wgsl` を外す・2 つ目の定義・定義が無い・`PipelineInput` を取らない生成の関数・メソッドを足すと落ちる。取る関数は通る。外した feature の裏の関数は 0 件 | `real_pi_no_attr`・`real_pi_no_wgsl`・`real_pi_dup`・`real_pi_missing`・`real_pipeline_bytes`・`real_pipeline_method`・`real_pipeline_input`・`real_pipeline_gated` |
+
+## (3) の検査の実装と試験（5/6）（TASK-241）
+
+内容の (3)（拡張 trait の feature への閉じ込めと、submit 系の `wait` 引数の形。対象は BUILD-32 のポインタ）の機械検査と回帰テストを、(1)(2) と同じスクリプトに足した。コードと公開テストから観測できる事実だけを記録する。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 検査本体 | `scripts/public-api-webgpu-check.sh` に同居する（新しいスクリプトは無い）。rustdoc の JSON は、(1)(2) 用の `native-blocking-wait` を外した組 A に加えて、`ext-interop` を外した組 B を作る。このため `public-api-check.sh --emit-json` は 2 回呼ばれる（4/6 の節の「`cargo rustdoc` は 1 回」は組 A だけの事実）。CI にはまだ組み込まない | スクリプトの先頭コメント |
+| G1（組 B） | `ExternalInterop` という名前の公開アイテム（種類を問わない。再公開を含む）と、名前が `export_memory`・`import_memory`・`export_semaphore`・`import_semaphore` に完全一致する公開の関数・再公開が、`ext-interop` を外した組に 1 件も無いこと。組 A では `ExternalInterop` の数を `external_interop_items` として数えるだけで、合否に使わない | `make test-public-api-webgpu-check` |
+| G2（組 A・B） | 公開の `ImportedSemaphoreHandle` の定義（再公開・variant・field・関数は数えない）は core の文書に 1 件までで、完全なパスが `fandhe_silicon_core::execution::ImportedSemaphoreHandle`。core 以外の文書にある・2 件以上・execution の外は違反。0 件は違反にせず、`semaphore_handle_defined=0` で示す | 同上 |
+| G3（組 A・B） | 名前を `_` で区切って小文字にした語に `submit` を含む公開の関数・メソッドのうち、`wait` という名前の引数を持つものは、その型が共有参照の slice で、要素が G2 と同じパスの型であること。違反は `not-shared-slice`・`not-semaphore-handle`・`outside-execution`。`wait` を持たない submit 系は `submit_functions` に数えるだけ | 同上 |
+| 形の崩れ | 定義の `paths` が引けない・`path` が文字列の並びでない、名前が当たった関数の `sig` や引数の要素が読めない、`wait` の型が object でない、要素の id が引けない場合は終了コード 2。名前が当たらない関数の `sig` は読まない | 同上 |
+| `--json` の経路 | `--interop-json <path>...` に組 B の JSON を渡す。`--json` と一緒にだけ使え、単独は終了コード 2。渡さなければ G1 をかけず、`record:` の `ext_interop_checked=0` で明示する。既定の経路は常に `ext_interop_checked=1` で、2 回目の JSON を作る段の失敗や core と contract がそろわない場合は終了コード 2 | 同上 |
+| 出力 | 組 A の `scanned:` の末尾に `external_interop_items=`・`semaphore_handle_defs=`・`submit_functions=`・`submit_wait_params=`・`interop_violations=`。組 B の `scanned:` は (1)(2) の欄を持たず `interop_op_names=` を持つ。`record:` の末尾に `interop_documents=`・`ext_interop_checked=`・`external_interop_items_total=`・`semaphore_handle_defined=`・`submit_wait_params_total=`・`interop_violations_total=`、`ok:` の末尾に `, ext-interop ok`（`--interop-json` 無しで G1 をかけないときは `, ext-interop skipped`）。違反は `check=ext-interop`・`check=semaphore-handle`・`check=submit-wait` の行で、`FAILED:` の件数は (1)(2)(3) の合計。(1)(2) の行の形は変えていない | スクリプトの先頭コメント |
+| 検査しないもの | `ExternalInterop` 以外の拡張 trait の名前、4 操作以外の名前の拡張の操作（語の照合はしない）、`wait` を持たない submit 系、`submit` の語を含まない名前の待ちを取る口、exec・upper の公開面、外した feature の裏に置いた submit の `wait` の形（その feature を外した組で見えるものに限る）、実行時に WebGPU 側の実装が `wait` を空として扱うか | 同上 |
+| 現状 | 手元で `make public-api-webgpu-check` が終了コード 0（件数の値は時点で変わるので書かない） | `make public-api-webgpu-check` |
+
+### 振る舞いとテストの対応
+
+| 振る舞い | テストのケース |
+| -------- | -------------- |
+| `--interop-json` の有無で `ext_interop_checked` が 1 / 0 になり、単独指定は終了コード 2 | 「--interop-json が無ければ G1 をかけない」「--interop-json があれば検査済み」「--interop-json の単独指定」 |
+| 組 B に拡張 trait・その再公開・4 操作の名前（関数・再公開）があれば終了コード 1。部分一致・他 crate・非公開は当てない | 「組 B の拡張 trait は違反」から「組 B の操作名の再公開は違反」まで・「操作名は完全一致だけ」 |
+| 組 A の拡張 trait は数えるだけで違反にならない | 「組 A の拡張 trait は違反にならない」 |
+| 定義が core の `execution` にあれば通り、core の直下・他のモジュール・core 以外の文書・2 件は違反。再公開・variant・関数は数えない | 「定義が core の execution にある」・「core の外の定義」から「定義が 2 件」まで・「再公開・variant・関数は定義に数えない」 |
+| `wait` が `&[ImportedSemaphoreHandle]` なら通り、`&mut`・`Vec`・`&H`・配列・`&[u32]`・別の名前・execution の外は終了コード 1 | 「wait が &[ImportedSemaphoreHandle]」・「wait が &mut [..]」から「wait の要素が core の直下」まで |
+| `submit_render`・メソッド・大文字の名前も対象。`wait` を持たない submit・`submit` の語を含まない名前・非公開は違反にしない | 「submit_render も対象」から「非公開の submit は数えない」まで |
+| (1)(2)(3) の違反は合計し、(1) の行の形は変わらない | 「(1)(2)(3) の違反が FAILED に合計される」「(1) の違反の行の形は変わらない」 |
+| 形の崩れは終了コード 2 で、締めの行を出さない | 「定義の paths が無い」から「組 B の wait の要素の id が引けない」まで |
+| 実物の rustdoc の JSON で、`ext-interop` の裏の拡張 trait は 0 件、裏から出す・操作名の自由関数を足すと落ちる | `real_interop_gated`・`real_interop_open`・`real_interop_op_fn` |
+| 実物で、`execution` の型と `&[..]` の `submit`・`submit_render` は通り、型の置き場や `wait` の形が違うと落ちる | `real_submit_ok`・`real_handle_root`・`real_handle_contract`・`real_wait_vec`・`real_wait_mut`・`real_wait_u32`・`real_submit_nowait` |
+| 2 回目の JSON を作る段だけの失敗、2 回目だけ contract の文書が出ない場合は終了コード 2 | `real_second_emit_fail`・`real_second_core_only` |
