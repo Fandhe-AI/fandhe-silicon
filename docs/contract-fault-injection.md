@@ -38,7 +38,8 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 1/8 | #4050 | 現状と前提の確認（本書） |
 | 2/8 | #4051 | 形の設計（「現状の形（2/8）」の節） |
 | 3/8 | #4052 | 模擬のロストと完了不明の差し込み（「現状の形（3/8）」の節） |
-| 4/8〜6/8 | #4053〜#4055 | 実装 |
+| 4/8 | #4053 | 能力不足と能力の取得の失敗の差し込み（「現状の形（4/8）」の節） |
+| 5/8〜6/8 | #4054〜#4055 | 実装 |
 | 7/8 | #4056 | テスト |
 | 8/8 | #4057 | 手順書の作成 |
 
@@ -61,6 +62,16 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `fault::stub::FaultStub`: 背後実装を持たない試験用のスタブ。`FaultHooks` を実装し、`Send + Sync`。`simulate_device_lost` は 1 回目だけ理由を記録し、登録済みのコールバックを lock の外で 1 回呼ぶ。2 回目以降は `Ok` を返すだけで、理由も回数も変えない。コールバックが未登録のとき `lost_callback_count` は 0 のまま。`arm_gate`・`open_gate` は門の状態の記録だけで、何度呼んでも `Ok`。`simulate_runtime_error` は既定の実装のまま
 - `fault::decorator::FaultInjecting<D>` と `FaultScript`（`non_exhaustive`。`PassThrough`・`CompletionUnknown`）: `Device` のトレイトが無いため、包む型を型引数にし、内側の呼び出しはクロージャで受ける。`wait_blocking_with` は `CompletionUnknown` で内側を呼ばず `Err(ContractError::Timeout)`、`poll_ex_with` は内側を呼ばず `CompletionStateEx::Unknown` を返す。`PassThrough` は内側の値をそのまま返す。`FaultHooks` の 4 つの口は内側へそのまま渡す
 - 試験: `crates/core/tests/fault_stub_lost.rs`・`fault_decorator_completion_unknown.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
+
+## 現状の形（4/8）
+
+型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
+
+- `FaultScript` に `CapabilityInsufficient { feature, required }` と `CapabilityQueryFails` を足した
+- `FaultInjecting<D: Capabilities>` は `Capabilities` を実装する。`CapabilityQueryFails` では `query` が全機能で `S0`、`query_ex` が `S0`（理由・根拠なし）で、内側を呼ばず、`Unsupported` は返さない。`CapabilityInsufficient` では対象の機能だけ `query` が `Unsupported`、`query_ex` が `Unsupported` と `NotSupported` で、内側を呼ばない。対象外の機能と他の筋書きは内側の `query`・`query_ex` へそのまま渡す
+- `create_pipeline_with`: `CapabilityInsufficient` で内側を呼ばず `Err(CapabilityInsufficient { feature, required, actual: Unsupported })` を返す。それ以外は内側の値をそのまま返す。`wait_blocking_with`・`poll_ex_with` は新しい 2 つの筋書きでは内側の値をそのまま返す
+- 試験: `crates/core/tests/fault_decorator_capability.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
 ## 本リポでの反映の方針
