@@ -3,15 +3,21 @@
 //! 背後実装（下-1）が値を作り、下-2・上が `match` で受ける。`CompletionState` 以外の
 //! enum は `#[non_exhaustive]` で、別の crate の `match` は `_` の腕を要る（ERR-18）。
 //! variant には付けないので、別の crate からも値を構築できる。
-//! `Display`・`std::error::Error` はここでは実装しない。
+//! `ContractError` には `Display` と `std::error::Error` を実装する（他の型には実装しない）。
 //!
 //! ここにはエラーに関する型だけを置き、その定義と `#[non_exhaustive]` の確かめは TASK-269 が持つ。
 //! 能力・診断・device の型は TASK-136 の持ち分（ポインタ）。
 //! `CompletionState`・`CompletionStateEx` の値の一覧は TASK-306 の決定に従う（ポインタのみ）。
 
+use std::fmt;
+
 use crate::capability::{BackendKind, CapabilityLevel, FeatureId};
 
 /// 契約の操作が返すエラー。
+///
+/// `Display` は値ごとに英語の決まった句で始まり、フィールドが続く（ERR-54。ポインタのみ）。
+/// 文字列のフィールドは背後実装が載せたものを変えずに出すので、改行や非 ASCII を含みうる
+/// （1 行のログにしたい利用側は `{:?}` を使うか自分でエスケープする）。`source()` は持たない。
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ContractError {
@@ -89,6 +95,57 @@ pub enum ContractError {
         capacity: u32,
     },
 }
+
+impl fmt::Display for ContractError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCombination(s) => write!(f, "invalid combination: {s}"),
+            Self::DeviceUnavailable(s) => write!(f, "device unavailable: {s}"),
+            Self::DeviceLost { generation } => write!(f, "device lost (generation {generation})"),
+            Self::DeviceMismatch => f.write_str("handle belongs to a different device"),
+            Self::InvalidArgument(s) => write!(f, "invalid argument: {s}"),
+            Self::AllocationFailed { requested_bytes } => {
+                write!(f, "allocation failed ({requested_bytes} bytes requested)")
+            }
+            Self::ArtifactRejected { kind, reason } => {
+                write!(f, "artifact rejected ({kind}): {reason}")
+            }
+            Self::ValidationFailed(s) => write!(f, "validation failed: {s}"),
+            Self::Timeout => f.write_str("timed out waiting for completion"),
+            Self::Unsupported { op, backend } => write!(f, "unsupported on {backend:?}: {op}"),
+            Self::CapabilityInsufficient {
+                feature,
+                required,
+                actual,
+            } => write!(
+                f,
+                "capability insufficient for {}: requires {required:?}, actual {actual:?}",
+                feature.0
+            ),
+            Self::DeviceIdentityMismatch { reason } => {
+                write!(f, "physical device identity mismatch ({reason:?})")
+            }
+            Self::UnsupportedExtensionDefault { op } => {
+                write!(f, "extension operation not implemented: {op}")
+            }
+            Self::BackendFailure {
+                op,
+                backend,
+                detail,
+            } => write!(f, "{backend:?} call failed: {op}: {detail}"),
+            Self::CapacityExceeded {
+                op,
+                backend,
+                capacity,
+            } => write!(
+                f,
+                "capacity exceeded on {backend:?}: {op} (capacity {capacity})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ContractError {}
 
 /// device が失われた理由。
 #[derive(Debug, Clone, PartialEq, Eq)]
