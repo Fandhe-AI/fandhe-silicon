@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2（BIND-40・BIND-57 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -34,6 +34,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 - 同じファイルの `c4_` で始まる名前のうち、容量が不明の束縛（C4 を判定しない）と、offset 0・4・16・1,000・2,000 の束縛（容量から offset を引いた残り。容量以上の offset では 0）を流す試験（TASK-425 の 2/4）
 - 同じファイルの `c5_zero_alignment_` で始まる名前の統合テスト。alignment 0 の宣言は offset 4・16・1,000・2,000 でも C5 を判定せずに通り（対照の alignment 16 は offset 4・1,000 で `C5`）、alignment 0 でも C4・C6 は判定される（TASK-425 の 3/4）
 - 同じファイルの `c7_` で始まる名前の統合テスト。宣言に無い束縛の `slot`・束縛の `slot` の重複・定数の `slot` の重複（束縛は空）が `C7` で拒否され、1 回だけの対照は通る（TASK-2952 の 2/2）
+- 同じファイルの `c7_undeclared_slot_in_consts_is_rejected`・`c7_const_slot_overlapping_binding_slot_is_rejected`。定数の `slot` が宣言に無い入力・定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通る（TASK-424 の 1/2）
 
 ## 確かめ方
 
@@ -259,3 +260,25 @@ TASK-2952（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-38・BIND-39・
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `f11c2c23e7b1ed66ffdd9c407ecec54c514c354b`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 定数の C7 の試験（1/2）（TASK-424）
+
+TASK-424（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-40・BIND-57）の 1/2（#4751）で、`crates/core/tests/execution_dispatch_check.rs` に定数の C7 の統合テストを足した。実装（`dispatch_check.rs`）は変えていない。宣言は slot 0・1（F32、shape `[1]`、alignment 4）で、容量は不明（C4 を判定しない）、offset は 0、定数は 4 バイトなので、拒否の原因は `slot` だけになる。
+
+| 関数 | 流す入力 | 結果 |
+| ---- | -------- | ---- |
+| `c7_undeclared_slot_in_consts_is_rejected` | 定数 slot 5（束縛は空）、束縛 slot 0 と定数 slot 5 | どちらも `C7` |
+| 同上（対照） | 束縛 slot 0 と定数 slot 1、定数 slot 0 だけ | どちらも `Ok(())` |
+| `c7_const_slot_overlapping_binding_slot_is_rejected` | 束縛 slot 0 と定数 slot 0、束縛 slot 1 と定数 slot 1、束縛 slot 0・1 と定数 slot 1 | すべて `C7` |
+| 同上（対照） | 束縛 slot 0 と定数 slot 1 | `Ok(())` |
+
+観測した文言の全体（コードの `format!` のとおり）は `C7: slot 5: constant slot is not declared` と `C7: slot 0: constant slot is passed more than once`。試験が照合するのは `Ok(())` と、`InvalidArgument` の variant・文言の先頭 `C7` まで。
+
+実測: `cargo test -p fandhe-silicon-core --test execution_dispatch_check` は 22 passed / 0 failed。`c7_` で始まる関数は 3 から 5 になった。
+
+| 段 | Issue |
+| -- | ----- |
+| 1/2 | #4751 |
+| 2/2 | #4752 |
+
+確かめた base は `c0fb390`。
