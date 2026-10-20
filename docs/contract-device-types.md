@@ -32,7 +32,26 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support` だけ。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`error.rs`、`crates/core/tests/error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
+
+## 現状の形（2/6）
+
+型は `crates/core` に置く（外部依存 0・`forbid(unsafe_code)` のまま）。置き場と形は TASK-136 の決定の記録に従う（ポインタのみ）。
+
+| 型 | 置き場 | 値・フィールド | `#[non_exhaustive]` |
+| -- | ------ | -------------- | ------------------- |
+| `DeviceRequest` | `crates/core/src/device.rs` | `backend`・`profile`・`ownership` の 3 つ（`Debug` のみ） | なし |
+| `Profile` | 同上 | `CpuOnly`・`ComputeOnly`・`Graphics` | あり |
+| `DeviceOwnership` | 同上 | `ProductIndependent`・`Shared`・`Imported { native }` | あり |
+| `NativeDeviceHandle` | 同上 | 非公開の 1 フィールド。safe な `new`、`doc(hidden)` の `__backend_downcast_ref`。`Debug` は中身を出さない | なし |
+| `CapabilityEvidence` | `crates/core/src/capability.rs` | 6 値（`RuntimeApi`・`StaticVendorTable`・`ProbeCompile`・`ImplementationLedger`・`FieldRecord`・`PerformanceComparison`） | あり |
+| `CapabilityQuery` | 同上 | `level`・`unsupported_reason`・`evidence` | なし |
+| `Capabilities`（トレイト） | 同上 | 必須の `query`、既定の実装つきの `query_ex`。オブジェクト安全 | — |
+
+- `limits()`・`Device`・`DeviceProvider` はここに無い（別の持ち分。ポインタ: TASK-157）
+- 対応するテスト: `crates/core/tests/device_capability_types.rs`（構築と呼び出しだけを見る最小の試験）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test device_capability_types`
+- 残る段: フィールド・`#[non_exhaustive]`・既定の実装の値の試験は 3/6 以降
 
 ## 段の表
 
