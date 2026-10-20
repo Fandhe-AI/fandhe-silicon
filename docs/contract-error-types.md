@@ -32,7 +32,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `exec`・`upper` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec crates/upper` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`tests/error_types.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -64,6 +64,14 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 - 持たないもの: `Display`・`Error` の実装、失敗の種類の入口、`DeviceRequest` ほかの device・能力問合せの型
 - 対応するテスト: `crates/core/tests/error_types.rs`（全 value を構築して `Clone` と `PartialEq` で自分と等しいことだけを見る）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test error_types`
+
+## 現状の形（3/8）
+
+- 値の一覧は 2/8 のまま。投入状態の観測のための値は `CompletionState`・`CompletionStateEx` に足していない（値の一覧は TASK-306 の決定に従う。ポインタのみ）。`CompletionState` は閉じた 3 値、`CompletionStateEx` は 5 値
+- 持ち分の境界: `error.rs` はエラーに関する 7 型。`capability.rs` は `ContractError` のフィールドが参照する最小の 3 型だけで、device・能力問合せ・診断の型は置かない（TASK-136。ポインタ）。`#[non_exhaustive]` の確かめの対象は `error.rs` の 6 型で、`CompletionState` には付けない
+- 対応するテスト: `crates/core/tests/completion_state_closed.rs`（`CompletionState` を `_` なしで網羅する `match`）と、`error.rs` の単体テスト（`CompletionStateEx` の 5 値の一覧）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test completion_state_closed`・`cargo test -p fandhe-silicon-core --lib error`
+- 残る試験は 4/8〜7/8（`#[non_exhaustive]` な型の `_` の試験・フィールドの読み戻し・書式・`Display`/`Error` と wasm32）
 
 ## 本リポでの反映の方針
 
