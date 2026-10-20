@@ -32,7 +32,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support` だけ。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
 
 ## 現状の形（2/6）
 
@@ -52,6 +52,23 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/device_capability_types.rs`（構築と呼び出しだけを見る最小の試験）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test device_capability_types`
 - 残る段: フィールド・`#[non_exhaustive]`・既定の実装の値の試験は 3/6 以降
+
+## 現状の形（3/6）
+
+型の形は 2/6 のまま変えていない。別の crate（統合テスト）から、次を固定する。
+
+| 確かめるもの | 仕組み | 対応する項目（ポインタ） |
+| ------------ | ------ | ------------------------ |
+| `DeviceRequest` のフィールドが `backend`・`profile`・`ownership` の 3 つで、型が `BackendKind`・`Profile`・`DeviceOwnership` | `..` なしの分解と型注釈（フィールドが増えるとコンパイルが落ちる） | DEV-4 |
+| `BackendKind`・`Profile`・`DeviceOwnership`・`CapabilityLevel`・`CapabilityEvidence` の 5 型が `#[non_exhaustive]` | `#![deny(unreachable_patterns)]` のもとで全値を並べた後に `_` の腕（属性が外れると落ちる） | DEV-65 |
+| `CapabilityLevel` が 8 値（`S0`〜`S6`・`Unsupported`）で互いに別の値 | 全組の比較。`S0` と `Unsupported` も別 | DEV-81 |
+| 機能 ID を鍵にして `query` が段階を返す | 機能 ID ごとに別の段階を返すスタブ | DEV-82 |
+| `query_ex` を上書きしない実装がコンパイルでき、`level` は `query` の値、`unsupported_reason`・`evidence` は `None` | `query` だけを実装するスタブ。`dyn` 越しでも同じ | DEV-86 |
+
+- 対象外: `NativeDeviceHandle` を含めた公開 API・依存グラフの検査は 4/6。エラー側の 3 型は [contract-error-types](contract-error-types.md) の持ち分で、照合は 5/6
+- 対応するテスト: `crates/core/tests/device_request_fields.rs`（`device_request_has_exactly_three_fields`・`device_request_fields_read_back`）、`device_capability_non_exhaustive.rs`（`*_stays_non_exhaustive` の 5 本・`capability_level_has_eight_distinct_values`）、`capability_query_default.rs`（`query_returns_level_keyed_by_feature_id`・`query_ex_default_passes_query_level_through`・`query_ex_default_works_through_dyn`）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test device_request_fields --test device_capability_non_exhaustive --test capability_query_default`
+- 残る段: 4/6 以降
 
 ## 段の表
 
