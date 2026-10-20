@@ -40,7 +40,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 3/8 | #4052 | 模擬のロストと完了不明の差し込み（「現状の形（3/8）」の節） |
 | 4/8 | #4053 | 能力不足と能力の取得の失敗の差し込み（「現状の形（4/8）」の節） |
 | 5/8 | #4054 | 投入の回数の計数と模擬の OOM の差し込み（「現状の形（5/8）」の節） |
-| 6/8 | #4055 | 実装 |
+| 6/8 | #4055 | 模擬の実行時エラーと上限の差し替えの口（「現状の形（6/8）」の節） |
 | 7/8 | #4056 | テスト |
 | 8/8 | #4057 | 手順書の作成 |
 
@@ -83,6 +83,17 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `FaultScript::AllocationFails`: `allocate_with(requested_bytes, ..)` が内側を呼ばず `Err(AllocationFailed { requested_bytes })` を返す。要求の大きさは引数の値をそのまま載せる。他の筋書きは内側へ同じ大きさで渡し、値をそのまま返す。実際の確保は行わない
 - `wait_blocking_with`・`poll_ex_with`・`create_pipeline_with`・`query`・`query_ex` は新しい筋書きでも内側の値をそのまま返す
 - 試験: `crates/core/tests/fault_decorator_submit_count.rs`・`fault_decorator_oom.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
+
+## 現状の形（6/8）
+
+型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
+
+- `FaultScript::RuntimeError { backend, detail }`: 投入（`submit_with`）は内側へ通して数える。`wait_blocking_with` は内側を呼ばず `Err(BackendFailure { op: "wait_blocking", backend, detail })` を返し、`poll_ex_with` は `CompletionStateEx::RuntimeError`、`poll_with`（閉じた完了状態）は `CompletionState::Lost` を返す。`Timeout`・`Unknown` とは戻り値で区別できる。`backend` は筋書きが持つ。実際の故障は起こさない（TASK-264 (3) のポインタ）
+- `poll_with`: `RuntimeError` 以外は（`CompletionUnknown` を含め）内側の値をそのまま返す
+- `create_pipeline_with`・`allocate_with`・`query`・`query_ex`・`FaultHooks` の口は `RuntimeError` でも内側へそのまま渡す
+- `FaultInjecting::with_limits_override` / `limits_with`: 上限の型 `L` に依らず、型を消した置き換えを持つ。置き換えが無ければ内側を 1 回呼んでその値を返し、`L` の置き換えがあれば内側を呼ばずその複製を返す。型が `L` でなければ内側を呼ばず `Err(InvalidArgument)` を返す。筋書きとは独立で、`Send + Sync` を保つ。上限の型は本リポにまだ無い（TASK-157 のポインタ）。行ごとの確かめは別の段の持ち分
+- 試験: `crates/core/tests/fault_decorator_runtime_error.rs`・`fault_decorator_limits.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
 ## 本リポでの反映の方針
