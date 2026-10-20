@@ -41,3 +41,29 @@
 親は #1152。後の段で足す振る舞いは、その PR のコードと公開テストが示し、その PR で本書に節を足す。
 
 確かめた base は `32a9cb4`、`docs/spec` の gitlink は `f603cba`。
+
+## 実装（2/4）（TASK-231）
+
+上の「組ごとの build / clippy / test」の行は `32a9cb4` 時点の記録で、本節がその後の状態を示す。
+
+`scripts/build-profiles.sh` の `NATIVE_SETS` に、片方の背後実装だけに `ext-interop` を足した 2 組を加えた。既存の両方の組（BUILD-4 の行）と合わせて、`ext-interop` を含む背後実装つきの構成は 3 つになる。
+
+| 構成 | `NATIVE_SETS` の行 | 各組で流れるコマンド |
+| ---- | ------------------ | -------------------- |
+| 両方 | `contract-core,cpu-isa,cpu-ops,backend-vulkan,backend-cuda,graphics,ext-interop`（既存の BUILD-4 の行） | `cargo build`・`cargo clippy --all-targets -- -D warnings`・`cargo test`（いずれも `-p fandhe-silicon-contract --no-default-features --features <組>`） |
+| Vulkan のみ | `backend-vulkan,ext-interop`（追加） | 同上 |
+| CUDA のみ | `backend-cuda,ext-interop`（追加） | 同上 |
+
+- 流れる場所は CI の `verify` ジョブの `make build-profiles` で、新しいジョブは無い
+- 追加した 2 組は `backend-vulkan`・`backend-cuda` の含意で `contract-core` が入り、`cpu-isa`・`cpu-ops` は入らない（`backend-vulkan` 単独・`backend-cuda` 単独の行と同じ扱い）
+- 背後実装の中の `ext-interop` の条件付きコンパイルは 0 件のまま（相互運用の実装が無いため）。門で囲むのは相互運用の実装を持つ PR で、その PR で本書に節を足す（BUILD-14 のポインタのみ）
+- 手元の結果: 追加した 2 組の `cargo test` はいずれも終了コード 0（`feature_gate_enabled` の `ext_interop_gate_is_visible` と各 doctest を含む）
+- 行の存在を固定する試験は 3/4、3 構成の結果の記録と完了の条件の照合は 4/4 で扱う
+
+確かめ方:
+
+- `grep -n 'ext-interop' scripts/build-profiles.sh`（3 構成の行が現れる）
+- `cargo test -p fandhe-silicon-contract --no-default-features --features backend-vulkan,ext-interop`（`backend-cuda,ext-interop` でも同様）
+- `cargo test -p fandhe-silicon-contract --test feature_default_scope`（追加行が本番の組の照合に影響しないこと）
+
+確かめた base は `9f2a5fc`、`docs/spec` の gitlink は `f603cba`。

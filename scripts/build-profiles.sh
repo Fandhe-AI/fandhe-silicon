@@ -41,6 +41,8 @@ NATIVE_SETS=(
   "backend-cuda,test-support"                                                      # spec TASK-24
   "native-blocking-wait"                                                           # spec TASK-233（BUILD-11・BUILD-12。ゲートの feature 単独の組）
   "ext-interop"                                                                    # spec TASK-233（BUILD-13。ゲートの feature 単独の組）
+  "backend-vulkan,ext-interop"                                                     # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
+  "backend-cuda,ext-interop"                                                       # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
 )
 
 # wasm32 の組

@@ -51,6 +51,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | E1 | main の CI | main の push の run（`6950c28`。run `39425952330`）の `make verify` ジョブ | `make verify` の step と `make build-profiles` の step がともに success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny` | 本 PR の作成時にいずれも終了コード 0 |
 
+- B2 は記録の時点の値。TASK-231 の 2/4 で `backend-vulkan,ext-interop`・`backend-cuda,ext-interop` の組が加わった（[ext-interop-build-check](ext-interop-build-check.md)）
 - 確かめたのは門の目印の対による枠の範囲で、対象のアイテム自体の確かめではない。対象の機能を使うコードの snippet は、そのコードを持つ PR で足す
 - wasm32 の組は doctest が流れないので含めない
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-233）
