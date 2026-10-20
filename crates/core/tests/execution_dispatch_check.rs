@@ -1,8 +1,9 @@
-//! `execution` の C8・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423・TASK-425 のポインタ。BIND-35〜BIND-37・BIND-42〜BIND-44・BIND-58）。
+//! `execution` の C8・C7・C4・C5・C6 の検査を外の crate から公開のパスで呼ぶ統合テスト（TASK-421・TASK-423・TASK-425・TASK-2952 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44・BIND-58）。
 //!
 //! 長さ 0 の次元・`u64` のあふれ・上限超過（C8）、バッファの残容量不足（C4）、offset の alignment 違反（C5）、
 //! 定数の長さが宣言の必要バイト数と違う場合（C6）が `InvalidArgument`（文言の先頭が各検査名）で拒否され、
 //! 境界ちょうど・同じ長さは通ることを確かめる。feature なしで動く。
+//! 宣言に無い束縛の `slot`、束縛の `slot` の重複、定数の `slot` の重複が `InvalidArgument`（先頭 `C7`）で拒否され、1 回だけの対照は通ることを確かめる（TASK-2952）。
 //! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
 
 use fandhe_silicon_core::execution::{
@@ -375,4 +376,49 @@ fn c6_constant_size_match_is_accepted() {
         bytes: &[0u8; 12],
     }];
     assert_eq!(run(&declared, &[], &consts, None), Ok(()));
+}
+
+/// 宣言に無い `slot` の束縛は C7 で拒否され、宣言の `slot` なら通る（TASK-2952・BIND-38 のポインタ）。
+#[test]
+fn c7_undeclared_slot_in_bindings_is_rejected() {
+    let declared = [spec(0, DType::F32, &[1])];
+    let bad = [OperandBinding { slot: 5, offset: 0 }];
+    assert!(is_rejected_by(&run(&declared, &bad, &[], None), "C7"));
+    let ok = [OperandBinding { slot: 0, offset: 0 }];
+    assert_eq!(run(&declared, &ok, &[], None), Ok(()));
+}
+
+/// 同じ `slot` の束縛が 2 件あれば C7 で拒否され、1 件なら通る（TASK-2952・BIND-39 のポインタ）。
+#[test]
+fn c7_duplicate_slot_in_bindings_is_rejected() {
+    let declared = [spec(0, DType::F32, &[1])];
+    let dup = [
+        OperandBinding { slot: 0, offset: 0 },
+        OperandBinding { slot: 0, offset: 4 },
+    ];
+    assert!(is_rejected_by(&run(&declared, &dup, &[], None), "C7"));
+    let one = [OperandBinding { slot: 0, offset: 0 }];
+    assert_eq!(run(&declared, &one, &[], None), Ok(()));
+}
+
+/// 同じ `slot` の定数が 2 件あれば（束縛は空）C7 で拒否され、1 件なら通る（TASK-2952・BIND-41 のポインタ）。
+#[test]
+fn c7_duplicate_slot_in_consts_is_rejected() {
+    let declared = [spec(0, DType::F32, &[1])];
+    let dup = [
+        OperandConstant {
+            slot: 0,
+            bytes: &[0u8; 4],
+        },
+        OperandConstant {
+            slot: 0,
+            bytes: &[0u8; 4],
+        },
+    ];
+    assert!(is_rejected_by(&run(&declared, &[], &dup, None), "C7"));
+    let one = [OperandConstant {
+        slot: 0,
+        bytes: &[0u8; 4],
+    }];
+    assert_eq!(run(&declared, &[], &one, None), Ok(()));
 }
