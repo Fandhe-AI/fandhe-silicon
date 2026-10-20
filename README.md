@@ -100,7 +100,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実（どのジョブに足すか・失敗の扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check` の規則とテストの対応・足す手順）（TASK-112） |
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4） |
-| `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・現状の事実（TASK-237 の 1/4・2/4） |
+| `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実（TASK-237 の 1/4〜3/4） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実（TASK-23） |
 | `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14・TASK-113） |
