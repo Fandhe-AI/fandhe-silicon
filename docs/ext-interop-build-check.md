@@ -67,3 +67,28 @@
 - `cargo test -p fandhe-silicon-contract --test feature_default_scope`（追加行が本番の組の照合に影響しないこと）
 
 確かめた base は `9f2a5fc`、`docs/spec` の gitlink は `f603cba`。
+
+## テスト（3/4）（TASK-231）
+
+`crates/contract/tests/ext_interop_build_sets.rs` を足した。`scripts/build-profiles.sh` の `NATIVE_SETS` の区画を読み、2/4 で足した 2 行の存在を固定する。
+
+| 確かめること | 内容 |
+| ------------ | ---- |
+| 2 組の存在 | `backend-vulkan,ext-interop` と `backend-cuda,ext-interop` が `NATIVE_SETS` の中にそれぞれちょうど 1 件あり、注記に `# spec TASK-231` がある |
+| タグの件数 | 注記にそのタグを持つ行がちょうど 2 件 |
+| 期待の表 | 各組が背後実装をちょうど 1 つと `ext-interop` を持つ |
+| 読み取り | 空行とコメント行を飛ばし、注記を取り出す。開き・閉じの欠落と引用符の無い行は失敗にする |
+
+- 陽性対照は、実物の本文を 1 か所だけ変えた入力が落ちること: 行の削除・複製・コメント化、組から `ext-interop` を外す、注記からタグを外す、`WASM_SETS` へ移す（各 Vulkan・CUDA の両方。変更が実際に起きたことも確かめる）
+- 両方の背後実装を含む本番の組（BUILD-4）の行は `feature_default_scope.rs` が受け持つ。本試験はそれを作り直さない
+- 条件のない試験で、`make verify` の `cargo test` と `make build-profiles` の各組で流れる。新しいジョブは無い
+- 手元の結果: 既定・`backend-vulkan,ext-interop`・`backend-cuda,ext-interop` のいずれも 9 件成功（終了コード 0）。`feature_default_scope` も成功
+- 3 構成の結果の記録と完了の条件の照合は 4/4 で扱う
+
+確かめ方:
+
+- `cargo test -p fandhe-silicon-contract --test ext_interop_build_sets`
+- `cargo test -p fandhe-silicon-contract --no-default-features --features backend-vulkan,ext-interop --test ext_interop_build_sets`（`backend-cuda,ext-interop` でも同様）
+- `cargo test -p fandhe-silicon-contract --test feature_default_scope`
+
+確かめた base は `732aee8`、`docs/spec` の gitlink は `f603cba`。
