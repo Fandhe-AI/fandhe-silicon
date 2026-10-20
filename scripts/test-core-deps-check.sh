@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# core-deps-check.sh の回帰テスト（spec TASK-258 のポインタ。親 Issue #473 の 1/2）。
+# core-deps-check.sh の回帰テスト（spec TASK-258 のポインタ。親 Issue #473 の 1/2・2/2）。
 # 共通の crate（`crates/core`）に外部の crate の宣言が増えたとき、または共通の crate の feature が契約の crate
 # （`crates/contract`）から転送されなくなったときに、検査が失敗することを機械で確かめ続ける。
 #
@@ -9,7 +9,8 @@
 #   3. 実物: 実行時に一時ディレクトリへ作る最小の一時 workspace で、実物の cargo metadata を通す。依存は path だけで
 #      ネットワークを使わず、リポジトリのファイルを変更しない
 #   4. 実物のリポジトリ: 引数なしで合格し `record:` の行が出る
-# 呼び出し元: `make test-core-deps-check`（直接実行も可）。CI のジョブからはまだ呼ばない。
+#   5. TASK-13 の検査（public-api-sdk-check.sh）との突き合わせ: 同じ metadata を両方へ渡して差と一致を固定する
+# 呼び出し元: `make test-core-deps-check`（直接実行も可）。CI の `deny` ジョブも実行する。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う。終了コードだけでは別の理由で落ちても
@@ -417,6 +418,95 @@ rc=0
 judge "repo_ok" 0 "o:scanned: check=core-deps manifest=crates/core/Cargo.toml package=fandhe-silicon-core " \
   "o:scanned: check=feature-forward manifest=crates/contract/Cargo.toml package=fandhe-silicon-contract " "o:record: commit=" "o:unexpected=0 missing=0 " \
   "o:forward_violations=0" "o:ok: " "!violation:" "!FAILED"
+
+# ================= 5. TASK-13 の検査との突き合わせ =================
+# 同じ metadata を共通の crate の依存の検査（TASK-13 の依存側。public-api-sdk-check.sh）と本検査の両方へ渡して比べる。
+# 数え方が違う（TASK-13 側は全種類の宣言のエントリ数で重複を除かず、本検査は種類ごとに名前の重複を除く）ので、
+# 件数の全一致は主張しない。主張するのは、(a) チップの crate は両方が落とす、(b) チェックの範囲の差（チップでない
+# 外部の crate は本検査だけが落とす）、(c) 重複の無い入力では宣言数が一致、(d) 重複の扱いの違い、の 4 つだけ。
+SDK="${DIR}/public-api-sdk-check.sh"
+SDK_OUT_F="${work}/sdk_stdout.txt"
+SDK_ERR_F="${work}/sdk_stderr.txt"
+
+# sdk_run <metadata のパス>: TASK-13 の検査を metadata だけで流し rc・出力を ${SDK_OUT_F} / ${SDK_ERR_F} に控える。
+sdk_rc=0
+sdk_run() {
+  sdk_rc=0
+  "${SDK}" --metadata-json "$1" >"${SDK_OUT_F}" 2>"${SDK_ERR_F}" </dev/null || sdk_rc=$?
+}
+
+# declared_total <本検査の出力>: record: の行の declared_normal の名前の数 + declared_build + declared_dev を返す。
+declared_total() {
+  python3 -I -c '
+import re, sys
+line = [l for l in open(sys.argv[1], encoding="utf-8") if l.startswith("record: ")][0]
+f = dict(x.split("=", 1) for x in line.split()[1:] if "=" in x)
+n = 0 if f["declared_normal"] == "-" else len(f["declared_normal"].split(","))
+print(n + int(f["declared_build"]) + int(f["declared_dev"]))
+' "$1"
+}
+
+# cross <ケース名> <TASK-13 側の期待コード> <本検査の期待コード> <TASK-13 側の declared_deps の値> <TASK-13 側の chip_deps の値>
+cross() {
+  local c="$1" want_sdk="$2" want_core="$3" decl="$4" chip="$5"
+  sdk_run "${work}/m_${c}.json"
+  run_check --metadata-json "${work}/m_${c}.json"
+  if [ "${sdk_rc}" -ne "${want_sdk}" ]; then
+    report_fail "cross_${c}" "public-api-sdk-check expected exit ${want_sdk}, got ${sdk_rc}"
+  elif ! grep -qF -e "declared_deps=${decl} chip_deps=${chip}" "${SDK_OUT_F}"; then
+    report_fail "cross_${c}" "public-api-sdk-check lacks: declared_deps=${decl} chip_deps=${chip}"
+  elif grep -qF -e "${work}" "${SDK_OUT_F}" "${SDK_ERR_F}"; then
+    report_fail "cross_${c}" "public-api-sdk-check output must not contain the work directory"
+  else
+    judge "cross_${c}" "${want_core}" "!${work}"
+  fi
+}
+
+cross ok 0 0 0 0
+cross bad_chip 1 1 1 1
+cross bad_ext 0 1 1 0
+cross bad_multi 0 1 3 0
+cross bad_dup 0 1 2 0
+
+# 重複の無い入力では、本検査の通常 + build + dev の名前の数が TASK-13 側の declared_deps と一致する
+for c in ok bad_chip bad_ext bad_multi; do
+  sdk_run "${work}/m_${c}.json"
+  run_check --metadata-json "${work}/m_${c}.json"
+  sdk_n="$(sed -n 's/.* declared_deps=\([0-9][0-9]*\) .*/\1/p' "${SDK_OUT_F}" | head -n 1)"
+  core_n="$(declared_total "${OUT_F}")"
+  if [ -n "${sdk_n}" ] && [ "${sdk_n}" = "${core_n}" ]; then
+    report_ok "cross_count_${c}"
+  else
+    report_fail "cross_count_${c}" "declaration counts differ: sdk=${sdk_n:-?} core=${core_n:-?}"
+  fi
+done
+# 重複は TASK-13 側が 2、本検査は名前の重複を除いて 1（数え方の違いを固定する）
+sdk_run "${work}/m_bad_dup.json"
+run_check --metadata-json "${work}/m_bad_dup.json"
+if [ "$(declared_total "${OUT_F}")" = "1" ] && grep -qF -e "declared_deps=2 " "${SDK_OUT_F}"; then
+  report_ok "cross_count_dup"
+else
+  report_fail "cross_count_dup" "duplicate handling differs from the pinned counting"
+fi
+
+# 実物のリポジトリ: 同じ cargo metadata を 1 回だけ作って両方へ渡す。両方が合格し、同じ package を読み、宣言数が一致する
+real_meta="${work}/repo_metadata.json"
+if ( cd "${DIR}/.." && cargo metadata --locked --offline --no-deps --format-version 1 --all-features >"${real_meta}" 2>/dev/null ); then
+  sdk_run "${real_meta}"
+  run_check --metadata-json "${real_meta}"
+  sdk_n="$(sed -n 's/.* declared_deps=\([0-9][0-9]*\) .*/\1/p' "${SDK_OUT_F}" | head -n 1)"
+  sdk_pkg="$(sed -n 's/.* package=\([^ ]*\) declared_deps=.*/\1/p' "${SDK_OUT_F}" | head -n 1)"
+  core_pkg="$(sed -n 's/^scanned: check=core-deps manifest=crates\/core\/Cargo.toml package=\([^ ]*\) .*/\1/p' "${OUT_F}" | head -n 1)"
+  core_n="$(declared_total "${OUT_F}")"
+  if [ "${sdk_rc}" -eq 0 ] && [ "${rc}" -eq 0 ] && [ -n "${sdk_pkg}" ] && [ "${sdk_pkg}" = "${core_pkg}" ] \
+    && [ -n "${sdk_n}" ] && [ "${sdk_n}" = "${core_n}" ]; then
+    report_ok "cross_repo"
+  else
+    report_fail "cross_repo" "repository results differ: sdk rc=${sdk_rc} core rc=${rc} sdk_pkg=${sdk_pkg:-?} core_pkg=${core_pkg:-?} sdk_n=${sdk_n:-?} core_n=${core_n:-?}"
+  fi
+else
+  report_fail "cross_repo" "cannot run cargo metadata for the repository"
+fi
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]

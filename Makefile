@@ -107,10 +107,10 @@ public-api-sdk-check: ## 製品の 4 crate の公開 API と共通の crate（cr
 test-public-api-sdk-check: ## public-api-sdk-check の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-sdk-check.sh
 	@scripts/test-public-api-sdk-check.sh
 
-core-deps-check: ## 共通の crate（crates/core）が宣言する外部の crate の一覧が決められた一覧と完全に一致することと、その feature が契約の crate（crates/contract）から転送されていることを cargo metadata から検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI のジョブからはまだ呼ばない）。直接: scripts/core-deps-check.sh [--metadata-json <path>]
+core-deps-check: ## 共通の crate（crates/core）が宣言する外部の crate の一覧が決められた一覧と完全に一致することと、その feature が契約の crate（crates/contract）から転送されていることを cargo metadata から検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/core-deps-check.sh [--metadata-json <path>]
 	@scripts/core-deps-check.sh
 
-test-core-deps-check: ## core-deps-check の回帰テスト（合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI のジョブからはまだ呼ばない）。直接: scripts/test-core-deps-check.sh
+test-core-deps-check: ## core-deps-check の回帰テスト（合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-core-deps-check.sh
 	@scripts/test-core-deps-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
