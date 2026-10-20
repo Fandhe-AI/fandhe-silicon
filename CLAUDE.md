@@ -39,7 +39,7 @@ fandhe-silicon/
 ├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
-│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔そのフィールドが参照する最小の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`）
+│   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型〕・`device`〔device の要求・所有形態の型〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
 │   ├── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
@@ -54,7 +54,7 @@ fandhe-silicon/
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
-├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実（TASK-136）
+├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6）（TASK-136）
 ├── docs/artifact-cache-check.md  # 成果物キャッシュの照合の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8）（TASK-483）
 ├── docs/dispatch-operand-check.md  # 引数の宣言の C4〜C8 を判定する純粋関数の所在・現状の振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（4/4）（TASK-421・TASK-423）・現状と前提の確認（1/4）・C4 の容量不明・offset の試験（2/4）・alignment 0 の C5 の試験（3/4）・完了の条件の確かめ（4/4）（TASK-425）・C7 の実装（1/2）・統合テストと完了の条件の確かめ（2/2）（TASK-2952）・定数の C7 の試験（1/2）・完了の条件の確かめ（2/2）（TASK-424）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方（TASK-24）
