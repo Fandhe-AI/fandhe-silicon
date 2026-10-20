@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）、TASK-2951 の 1/2（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -10,7 +10,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 | ---- | ---- |
 | `validate_dispatch_operands` | C8 → C7 → C4 → C5 → C6 の順に判定する。最初の違反で `Err`、全部通れば `Ok(())` |
 | `required_bytes` | 宣言 1 件の必要バイト数。`u64` であふれたら `None` |
-| `OperandCheckError` | 暫定のエラー型（`#[non_exhaustive]`、`InvalidArgument(String)`）。契約のエラー型そのものではない |
+| `fandhe_silicon_core::error::ContractError` | 違反はこの契約のエラー型の `InvalidArgument(String)` で返す。暫定の型 `OperandCheckError` は外した |
 | `OperandBinding`・`OperandConstant` | 検査の入力のための形。背後実装へ渡す束縛の型ではない |
 
 ## 現状の振る舞い
@@ -314,3 +314,9 @@ TASK-424（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-40・BIND-57）�
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `b77e2133f7eebb58c25d45f6271a782c4cd5543a`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 契約のエラー型への置き換え（1/2）（TASK-2951）
+
+- 変えたもの: `validate_dispatch_operands` の戻り値を `Result<(), ContractError>` にした。暫定の型 `OperandCheckError` と `execution` からの再公開を外した。既存の試験は型の照合だけを `ContractError` に直した（単体 20・統合 22 のまま）
+- 変えていないもの: 理由の文（英語）、先頭の検査名（`C4:`〜`C8:`）、判定の順
+- 段: 1/2（#7323）が戻り値の置き換え。2/2（#7324）が戻り値の型を固定する公開テストと確かめ

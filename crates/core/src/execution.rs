@@ -8,7 +8,7 @@
 mod dispatch_check;
 
 pub use dispatch_check::{
-    OperandBinding, OperandCheckError, OperandConstant, required_bytes, validate_dispatch_operands,
+    OperandBinding, OperandConstant, required_bytes, validate_dispatch_operands,
 };
 
 /// MSL の算術関数の扱い（数学モード）。

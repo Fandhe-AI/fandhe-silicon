@@ -1,22 +1,14 @@
-//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423・TASK-2952 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44）。
+//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423・TASK-2952・TASK-2951 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44）。
 //!
 //! `execution` から再公開される。上や下-2 が組み立てた宣言を、下-1 の背後実装へ渡す前に
 //! 共通の層で拒否するために置く。C4（残容量）・C5（offset の境界）・C6（定数の長さ）・C7（宣言に無い `slot`・`slot` の重複）・C8（長さ 0・`u64` のあふれ・上限超過）を判定する。
+//! 違反は契約のエラー型 `ContractError` の `InvalidArgument` で返す。文言は英語で、先頭は `C4:`〜`C8:` のいずれか
+//! （COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。
 //! 配列を持つ宣言（束縛の配列）の数え方は TASK-422・TASK-1146 のポインタ。
 //! 背後実装・ファイル・時刻には触れず、バッファも確保しない（確保が起きるのはエラーの文字列だけ）。
 
 use super::OperandSpec;
-
-/// 宣言の検査が返すエラー。
-///
-/// 検査の入力の不正を表す暫定の型で、契約のエラー型そのものではない。
-/// 文言は英語で、違反は先頭が `C4:`・`C5:`・`C6:`・`C7:`・`C8:` のいずれかになる。
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum OperandCheckError {
-    /// 入力の宣言が不正（文言を持つ）。
-    InvalidArgument(String),
-}
+use crate::error::ContractError;
 
 /// 検査に使う束縛 1 件（slot と offset）。
 ///
@@ -70,31 +62,31 @@ pub fn required_bytes(spec: &OperandSpec<'_>) -> Option<u64> {
 ///
 /// # Errors
 ///
-/// 上記のいずれかに当たると [`OperandCheckError::InvalidArgument`]（先頭 `C8:`・`C7:`・`C4:`・`C5:`・`C6:`）を返す。
+/// 上記のいずれかに当たると [`ContractError::InvalidArgument`]（先頭 `C8:`・`C7:`・`C4:`・`C5:`・`C6:`）を返す。
 pub fn validate_dispatch_operands<F>(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
     consts: &[OperandConstant<'_>],
     binding_capacity: F,
     max_buffer_bytes: u64,
-) -> Result<(), OperandCheckError>
+) -> Result<(), ContractError>
 where
     F: Fn(&OperandBinding) -> Option<u64>,
 {
     for spec in declared {
         let slot = spec.slot;
         if spec.shape.contains(&0) {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C8: slot {slot}: shape contains a zero-length dimension"
             )));
         }
         let Some(req) = required_bytes(spec) else {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C8: slot {slot}: required byte size overflows u64"
             )));
         };
         if req > max_buffer_bytes {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C8: slot {slot}: required bytes ({req}) exceed max_buffer_bytes ({max_buffer_bytes})"
             )));
         }
@@ -113,16 +105,16 @@ fn check_slots(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
     consts: &[OperandConstant<'_>],
-) -> Result<(), OperandCheckError> {
+) -> Result<(), ContractError> {
     for (i, b) in bindings.iter().enumerate() {
         let slot = b.slot;
         if !declared.iter().any(|s| s.slot == slot) {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C7: slot {slot}: binding slot is not declared"
             )));
         }
         if bindings.iter().take(i).any(|p| p.slot == slot) {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C7: slot {slot}: binding slot is passed more than once"
             )));
         }
@@ -130,13 +122,13 @@ fn check_slots(
     for (i, c) in consts.iter().enumerate() {
         let slot = c.slot;
         if !declared.iter().any(|s| s.slot == slot) {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C7: slot {slot}: constant slot is not declared"
             )));
         }
         if consts.iter().take(i).any(|p| p.slot == slot) || bindings.iter().any(|p| p.slot == slot)
         {
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C7: slot {slot}: constant slot is passed more than once"
             )));
         }
@@ -151,7 +143,7 @@ fn check_capacity<F>(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
     binding_capacity: &F,
-) -> Result<(), OperandCheckError>
+) -> Result<(), ContractError>
 where
     F: Fn(&OperandBinding) -> Option<u64>,
 {
@@ -168,7 +160,7 @@ where
         let remaining = cap.saturating_sub(b.offset);
         if req > remaining {
             let slot = b.slot;
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C4: slot {slot}: required bytes ({req}) exceed remaining buffer capacity ({remaining})"
             )));
         }
@@ -182,7 +174,7 @@ where
 fn check_alignment(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
-) -> Result<(), OperandCheckError> {
+) -> Result<(), ContractError> {
     for b in bindings {
         let Some(spec) = declared.iter().find(|s| s.slot == b.slot) else {
             continue;
@@ -193,7 +185,7 @@ fn check_alignment(
         let alignment = u64::from(spec.alignment);
         if b.offset % alignment != 0 {
             let (slot, offset) = (b.slot, b.offset);
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C5: slot {slot}: offset ({offset}) is not a multiple of alignment ({alignment})"
             )));
         }
@@ -205,7 +197,7 @@ fn check_alignment(
 fn check_constant_sizes(
     declared: &[OperandSpec<'_>],
     consts: &[OperandConstant<'_>],
-) -> Result<(), OperandCheckError> {
+) -> Result<(), ContractError> {
     for c in consts {
         let Some(spec) = declared.iter().find(|s| s.slot == c.slot) else {
             continue;
@@ -215,7 +207,7 @@ fn check_constant_sizes(
         };
         if u64::try_from(c.bytes.len()) != Ok(req) {
             let (slot, len) = (c.slot, c.bytes.len());
-            return Err(OperandCheckError::InvalidArgument(format!(
+            return Err(ContractError::InvalidArgument(format!(
                 "C6: slot {slot}: constant byte length ({len}) differs from expected bytes ({req})"
             )));
         }
@@ -238,12 +230,12 @@ mod tests {
         }
     }
 
-    fn check(declared: &[OperandSpec<'_>], max: u64) -> Result<(), OperandCheckError> {
+    fn check(declared: &[OperandSpec<'_>], max: u64) -> Result<(), ContractError> {
         validate_dispatch_operands(declared, &[], &[], |_| None, max)
     }
 
-    fn is_c8(r: &Result<(), OperandCheckError>) -> bool {
-        matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C8:"))
+    fn is_c8(r: &Result<(), ContractError>) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C8:"))
     }
 
     #[test]
@@ -297,12 +289,12 @@ mod tests {
             },
         ];
         let r = check(&declared, u64::MAX);
-        assert!(matches!(&r, Err(OperandCheckError::InvalidArgument(m)) if m.contains("slot 2")));
+        assert!(matches!(&r, Err(ContractError::InvalidArgument(m)) if m.contains("slot 2")));
     }
 
-    fn code(r: &Result<(), OperandCheckError>) -> String {
+    fn code(r: &Result<(), ContractError>) -> String {
         match r {
-            Err(OperandCheckError::InvalidArgument(m)) => m.chars().take(2).collect(),
+            Err(ContractError::InvalidArgument(m)) => m.chars().take(2).collect(),
             _ => String::new(),
         }
     }
@@ -312,7 +304,7 @@ mod tests {
         bindings: &[OperandBinding],
         consts: &[OperandConstant<'_>],
         cap: Option<u64>,
-    ) -> Result<(), OperandCheckError> {
+    ) -> Result<(), ContractError> {
         validate_dispatch_operands(declared, bindings, consts, |_| cap, u64::MAX)
     }
 
@@ -470,7 +462,7 @@ mod tests {
         }];
         let r = run(&s, &b, &c, None);
         assert!(
-            matches!(&r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C7:") && m.contains("binding"))
+            matches!(&r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C7:") && m.contains("binding"))
         );
     }
 
@@ -506,6 +498,6 @@ mod tests {
         // C5: 先頭の alignment 16 を採るので offset 4 は拒否される。
         let b = [OperandBinding { slot: 0, offset: 4 }];
         let r = validate_dispatch_operands(&s, &b, &[], |_| None, 1024);
-        assert!(matches!(r, Err(OperandCheckError::InvalidArgument(m)) if m.starts_with("C5:")));
+        assert!(matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C5:")));
     }
 }
