@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし（試験の枠の
 # test-support を外した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
-# native では build / clippy（-D warnings）/ test、wasm32 では check のみを回す。
+# native では build / clippy（-D warnings）/ test、wasm32 では contract の check と wasm-abi の 2 版（scalar・simd128）の release ビルドを回す。
 # 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
 # feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
 # 組の spec 対応は ID のポインタだけを添える（本文は転記しない）。
@@ -22,6 +22,8 @@ unset FANDHE_SILICON_TEST_RECORD_DIR
 readonly PKG="fandhe-silicon-contract"
 readonly CORE_PKG="fandhe-silicon-core"
 readonly WASM_TARGET="wasm32-unknown-unknown"
+readonly WASM_ABI_PKG="fandhe-silicon-wasm-abi"
+readonly WASM_ABI_LIB="fandhe_silicon_wasm_abi"
 
 # native の組（--no-default-features に付ける feature 列）
 NATIVE_SETS=(
@@ -85,5 +87,30 @@ run cargo test -p "${PKG}" --all-features
 for feats in "${WASM_SETS[@]}"; do
   run cargo check -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${feats}"
 done
+
+# wasm-abi の cdylib の 2 版の release ビルド（spec BUILD-19・BUILD-20 のポインタ。TASK-237 の 4/4）。
+# 利用者の環境の rustflags 系を外し、simd128 版だけ CARGO_ENCODED_RUSTFLAGS で命令を足す（値は wasm-build-check.sh の SIMD_FLAGS と同じ）。
+# 2 版の判別（target_features）は wasm-build-check.sh の受け持ちで、ここでは成果物の在りかと wasm の先頭 4 バイトだけを確かめる。
+wasm_abi_build() {
+  local variant="$1" encoded_flags="$2" target_dir="$3"
+  local artifact="${target_dir}/${WASM_TARGET}/release/${WASM_ABI_LIB}.wasm"
+  log "wasm-abi ${variant}: cargo build -p ${WASM_ABI_PKG} --target ${WASM_TARGET} --release --locked --target-dir ${target_dir}"
+  env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
+    ${encoded_flags:+CARGO_ENCODED_RUSTFLAGS="${encoded_flags}"} \
+    cargo build -p "${WASM_ABI_PKG}" --no-default-features --features contract-core,cpu-isa,cpu-ops \
+    --target "${WASM_TARGET}" --release --locked --target-dir "${target_dir}"
+  if [ ! -s "${artifact}" ]; then
+    echo "error: wasm-abi ${variant}: artifact missing or empty" >&2
+    exit 1
+  fi
+  if [ "$(od -An -tx1 -N4 "${artifact}" | tr -d ' \n')" != "0061736d" ]; then
+    echo "error: wasm-abi ${variant}: artifact does not start with the wasm magic" >&2
+    exit 1
+  fi
+}
+
+wasm_target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+wasm_abi_build scalar "" "${wasm_target_dir}"
+wasm_abi_build simd128 "$(printf -- '-C\037target-feature=+simd128')" "${wasm_target_dir}/wasm32-simd128"
 
 log "build-profiles: all feature sets passed"

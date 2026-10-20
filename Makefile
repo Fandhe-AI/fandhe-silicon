@@ -32,7 +32,7 @@ check: ## editorconfig-checker + shellcheck（ソースは変更しない）。�
 verify: ## cargo fmt --check + clippy（-D warnings）+ test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）。直接: scripts/verify.sh
 	@scripts/verify.sh
 
-build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の check（ソースは変更しない）。直接: scripts/build-profiles.sh
+build-profiles: ## feature の組ごとの build / clippy / test と wasm32 の check・wasm-abi の 2 版の release ビルド（ソースは変更しない）。直接: scripts/build-profiles.sh
 	@scripts/build-profiles.sh
 
 deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検査 + 依存グラフの wgpu 系の検査（dep-graph-wgpu-check。python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照（profile-dep-graph-check・profile-dep-graph-positive-control）+ 別 workspace の監査。直接: scripts/deny.sh
@@ -149,10 +149,10 @@ upper-layer-check: ## 上の層（crates/upper）と測定の workspace（measur
 test-upper-layer-check: ## upper-layer-check の回帰テスト（合成の入力・ツールが無いとき・偽のコマンドと、一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-upper-layer-check.sh
 	@scripts/test-upper-layer-check.sh
 
-wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。手元用で CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
+wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
 	@scripts/wasm-build-check.sh
 
-test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない・手元用で CI からは呼ばない）。直接: scripts/test-wasm-build-check.sh
+test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-build-check.sh
 	@scripts/test-wasm-build-check.sh
 
 test-wasm-size: ## wasm-size の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-wasm-size.sh

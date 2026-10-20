@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wasm32 向けの cdylib（crates/wasm-abi）の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを確かめる
-# （spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4）。
-# 呼び出し元: `make wasm-build-check`（手元で流す。CI への組み込みは後続の sub-issue）。
+# （spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4・4/4）。
+# 呼び出し元: `make wasm-build-check`（手元で流す。CI からは呼ばない。理由は docs/wasm32-build.md の「CI への組み込み（4/4）」）。
 # 回帰テストは `make test-wasm-build-check`（`scripts/test-wasm-build-check.sh`）。
 #
 # 使い方:

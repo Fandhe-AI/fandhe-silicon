@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# wasm-build-check.sh の回帰テスト（spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4）。
+# wasm-build-check.sh の回帰テスト（spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4・4/4）。
 # 合成の wasm・合成の rustdoc JSON・合成のソース・PATH の先頭に置く偽の cargo で各行の判定を確かめ、
 # 最後に一時 workspace（本体と lib.sh を写したもの）で実物の cargo による 2 版のビルドと rustdoc を通す。
 # 型の名前はダミーだけを使い、リポジトリのファイルは変更しない・ネットワーク不要。
-# 呼び出し元: `make test-wasm-build-check`（直接実行も可。手元で流す。CI への組み込みは後続の sub-issue）。
+# 呼び出し元: `make test-wasm-build-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
 # 前提: python3・cargo・wasm32-unknown-unknown の target（無ければ失敗にし、skip しない）。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」で行う（先頭が `!` の語は含まれないことの確認）。
