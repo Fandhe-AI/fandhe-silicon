@@ -39,6 +39,8 @@ NATIVE_SETS=(
   "backend-metal,test-support"                                                     # spec TASK-24
   "backend-vulkan,test-support"                                                    # spec TASK-24
   "backend-cuda,test-support"                                                      # spec TASK-24
+  "native-blocking-wait"                                                           # spec TASK-233（BUILD-11・BUILD-12。ゲートの feature 単独の組）
+  "ext-interop"                                                                    # spec TASK-233（BUILD-13。ゲートの feature 単独の組）
 )
 
 # wasm32 の組
