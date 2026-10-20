@@ -4,7 +4,7 @@
 # （spec TASK-241・BUILD-29・BUILD-11・BUILD-12 のポインタ。親 Issue #465 の 2/6。内容の (1)）。
 # あわせて、パイプライン生成の入力の形（spec BUILD-31 のポインタ。親 Issue #465 の 4/6。内容の (2)）も同じ JSON から確かめる。
 # さらに、拡張の trait の閉じ込めと submit 系の `wait` 引数の形（spec BUILD-32 のポインタ。親 Issue #465 の 5/6。内容の (3)）を確かめる。
-# 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI にはまだ組み込まない）。回帰テストは `make test-public-api-webgpu-check`
+# 呼び出し元: `make public-api-webgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。回帰テストは `make test-public-api-webgpu-check`
 # （`scripts/test-public-api-webgpu-check.sh`。合成 JSON と一時 workspace の実物の rustdoc の JSON を通す）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json <dir> --without-feature <名前>` を呼んで共有し、
 # 抽出の実体と feature 列をここに持たない。(1)(2) は `native-blocking-wait` を外した組 A、(3) の G1 は `ext-interop` を外した組 B で、
