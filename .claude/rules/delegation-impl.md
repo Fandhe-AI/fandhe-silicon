@@ -8,7 +8,7 @@
 
 | 対象パス・内容 | 委譲先 Agent | model |
 | -------------- | ------------ | ----- |
-| `crates/core/`（共通型）・`crates/exec/`（下-2: 共通操作・代わりの実行）・`crates/upper/`（上: wgpu 風の層） | core-builder | sonnet |
+| `crates/core/`（共通型）・`crates/exec/`（下-2: 共通操作・代わりの実行）・`crates/upper/`（上: wgpu 風の層）・`crates/wasm-abi/`（wasm32 向けの cdylib） | core-builder | sonnet |
 | `crates/contract/`（下-1: Metal / Vulkan / CUDA の背後実装・FFI・シェーダ / カーネル・CPU ISA） | backend-builder | sonnet |
 | `baseline-wgpu/`（比較基準の別 workspace。依存追加は承認制）・`measure/`（測定専用の別 workspace。依存追加は承認制） | core-builder | sonnet |
 | `scripts/`・`Makefile`・`lefthook.yml`・`.github/workflows/`・`.editorconfig`・`deny.toml` | core-builder（小規模なら main 直接可） | sonnet |

@@ -12,7 +12,7 @@
 
 ## 設計
 
-- crate 構成（spec D-33）: `core`（共通型）/ `contract`（下-1: チップごとの薄い呼び出し）/ `exec`（下-2: 共通操作・代わりの実行）/ `upper`（上: wgpu 風の層）
+- crate 構成（spec D-33）: `core`（共通型）/ `contract`（下-1: チップごとの薄い呼び出し）/ `exec`（下-2: 共通操作・代わりの実行）/ `upper`（上: wgpu 風の層）、加えて wasm32 向けの cdylib `wasm-abi`（依存は contract だけ）
 - 依存の向きは contract → core / exec → core / upper → core, exec を守る（spec BUILD-54〜58）。core はチップ crate に依存しない
 - backend の選択は `contract` の cargo feature（`backend-metal` 等）/ `cfg` で行い、対象外プラットフォームでもビルドが壊れないようにする。プロファイルは feature で切り替え、crate を分けない
 - 上位（fandhe-ai・vector-db・fandhe-3d）へは backend 固有型を漏らさない。wgpu を依存から外せる状態を維持する
@@ -20,7 +20,7 @@
 
 ## unsafe と FFI
 
-- `unsafe` は `contract` の backend モジュール（FFI 境界）に閉じ込め、公開 API は safe なラッパーとして提供する。`core`・`exec`・`upper` は `#![forbid(unsafe_code)]`
+- `unsafe` は `contract` の backend モジュール（FFI 境界）に閉じ込め、公開 API は safe なラッパーとして提供する。`core`・`exec`・`upper`・`wasm-abi` は `#![forbid(unsafe_code)]`
 - すべての `unsafe` ブロック・`unsafe fn` に `// SAFETY:`（`unsafe fn` は `/// # Safety`）で、成立させている不変条件と根拠を書く（clippy `undocumented_unsafe_blocks` / `missing_safety_doc` を deny で強制）
 - FFI から受け取るポインタ・長さ・ハンドルは null / 範囲 / 生存期間を検証してから使う
 - GPU リソース（バッファ・コマンドキュー・イベント等）の所有権と解放責務を型で表現し、二重解放・解放後使用を作らない

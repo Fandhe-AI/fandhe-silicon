@@ -40,6 +40,7 @@
 | metal / vulkan / cuda | `crates/contract` 内の各 backend 実装 |
 | exec | `crates/exec`（下-2） |
 | upper | `crates/upper`（上） |
+| wasm-abi | `crates/wasm-abi`（wasm32 向けの cdylib） |
 | deps | `Cargo.toml` の依存・`Cargo.lock`・`deny.toml` |
 | spec | `docs/spec` submodule 参照の更新 |
 | skills | `.claude/skills`・`.agents/skills`・`skills-lock.json` |

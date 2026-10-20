@@ -5,12 +5,13 @@
 #   contract 下-1: チップごとの薄い呼び出し（backend-* feature で背後実装を持つ）
 #   exec     下-2: 共通の操作と代わりの実行（core のみに依存）
 #   upper    上: wgpu 風の層（#![forbid(unsafe_code)]）
-# 依存の向き: contract → core / exec → core / upper → core, exec（spec BUILD-54〜58）。
+# 加えて wasm32 向けの cdylib wasm-abi（依存は contract だけ。置き場は spec TASK-6 のポインタ）。
+# 依存の向き: contract → core / exec → core / upper → core, exec / wasm-abi → contract（spec BUILD-54〜58）。
 # 公開名・MSRV は未決（spec TASK-1516 / TASK-1523）のため全 crate を publish = false とする。
 # 依存の追加はユーザー承認制・=x.y.z 完全固定（.claude/rules/dependency-policy.md）。
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/contract", "crates/exec", "crates/upper"]
+members = ["crates/core", "crates/contract", "crates/exec", "crates/upper", "crates/wasm-abi"]
 # 比較基準の wgpu は基盤の外の別 workspace に置く（spec TASK-7 / BUILD-50 のポインタ）。
 # 基盤の依存グラフに入れないため、baseline-wgpu/ は member にせず切り離す。
 # 測定専用の別 workspace は measure/（spec TASK-6・TASK-27 のポインタ）。同じく製品の依存グラフに入れない。

@@ -12,7 +12,7 @@ spec の本文・候補の一覧・項目 ID の範囲や件数・理由は転�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 製品 workspace の member | `crates/core`・`crates/contract`・`crates/exec`・`crates/upper` の 4 つ | ルート `Cargo.toml` の `members` |
+| 製品 workspace の member | `crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi` の 5 つ | ルート `Cargo.toml` の `members` |
 | 背後実装の feature | `fandhe-silicon-contract` に `backend-metal` / `backend-vulkan` / `backend-cuda` があり、対応するモジュールは `src/lib.rs` で feature によりゲートされる | `crates/contract/Cargo.toml` の `[features]`、`crates/contract/src/lib.rs` |
 | 中身の無い置き場 | `backend-dx12-compute` は中身の無い仮の置き場。GL（GLES）は feature を足す位置のコメントだけがあり、feature 自体は無い。どちらもコメントに受け持つタスクのポインタが付いている | `crates/contract/Cargo.toml` |
 | crate の公開 | 全 crate が `publish = false` | ルート `Cargo.toml` の `[workspace.package]` |

@@ -27,3 +27,10 @@ dependencies = [
  "fandhe-silicon-core",
  "fandhe-silicon-exec",
 ]
+
+[[package]]
+name = "fandhe-silicon-wasm-abi"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-contract",
+]
