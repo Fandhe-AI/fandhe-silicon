@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -106,6 +106,12 @@ public-api-sdk-check: ## 製品の 4 crate の公開 API と共通の crate（cr
 
 test-public-api-sdk-check: ## public-api-sdk-check の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-sdk-check.sh
 	@scripts/test-public-api-sdk-check.sh
+
+core-deps-check: ## 共通の crate（crates/core）が宣言する外部の crate の一覧が決められた一覧と完全に一致することと、その feature が契約の crate（crates/contract）から転送されていることを cargo metadata から検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI のジョブからはまだ呼ばない）。直接: scripts/core-deps-check.sh [--metadata-json <path>]
+	@scripts/core-deps-check.sh
+
+test-core-deps-check: ## core-deps-check の回帰テスト（合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI のジョブからはまだ呼ばない）。直接: scripts/test-core-deps-check.sh
+	@scripts/test-core-deps-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
 	@scripts/dep-graph-wgpu-check.sh
