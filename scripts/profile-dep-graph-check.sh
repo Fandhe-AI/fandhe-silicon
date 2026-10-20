@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 契約の crate（fandhe-silicon-contract）をプロファイルごとの feature の組にしたときの依存グラフに、
-# 判定に使う crate 名が載っていないことを数えて確かめる（spec TASK-228・BUILD-1・BUILD-2 のポインタ）。
+# 判定に使う crate 名が載っていないことを数えて確かめる（spec TASK-228・BUILD-1・BUILD-2、TASK-229・BUILD-3 のポインタ）。
+# Graphics（Vulkan）の組では ash・libloading だけを許す。
 # ComputeOnly（Metal）の組では、`objc2-metal` の per-header feature も `cargo tree -e features` で数える。
 # 呼び出し元: `make profile-dep-graph-check` と `make deny`（`scripts/deny.sh`）。直接実行も可。
 # CI の `deny` ジョブは `make deny` の中で流す（別ステップにしない）。
@@ -50,7 +51,7 @@ if sys.version_info < (3, 8):
     sys.exit(2)
 
 # ==== 数え方の定義（数え方を変えるときはここだけを変える） ====
-# 名前の一覧の決定は private spec 側の記録に従う（TASK-228・BUILD-1・BUILD-2 のポインタのみ）。
+# 名前の一覧の決定は private spec 側の記録に従う（TASK-228・BUILD-1・BUILD-2、TASK-229・BUILD-3 のポインタのみ）。
 # コマンドの組み立て・走査・判定はこのブロックの値から作るので、値はこのブロックの外に書かない。
 
 # 検査する crate（cargo の -p に渡す package 名）。
@@ -61,6 +62,8 @@ TARGET = "all"
 # 判定に使う名前（GPU の SDK・ローダ / 描画・surface）。
 SDK_LOADER_NAMES = ("objc2-metal", "ash", "cudarc", "libloading")
 SURFACE_NAMES = ("objc2-quartz-core", "raw-window-handle", "winit")
+# Graphics（Vulkan）の組で許す SDK・ローダ（判定の名前からこれを除いたものが、その組の判定になる）。
+GRAPHICS_VULKAN_ALLOWED_SDK = ("ash", "libloading")
 # 名前の比べ方: 小文字にしたあとに適用する置換。完全一致で比べる（接頭辞には広げない）。
 NAME_REPLACE = (("_", "-"),)
 # --extra-judged-crate の値として受け付ける形。
@@ -87,6 +90,13 @@ PROFILES = {
         "header_crate": HEADER_CRATE,
         "judged_features": RENDER_HEADER_FEATURES,
         "recorded_features": RECORD_ONLY_HEADER_FEATURES,
+    },
+    "graphics-vulkan": {
+        "features": ("--no-default-features", "--features", "contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics"),
+        "names": tuple(n for n in SDK_LOADER_NAMES if n not in GRAPHICS_VULKAN_ALLOWED_SDK) + SURFACE_NAMES,
+        "header_crate": None,
+        "judged_features": (),
+        "recorded_features": (),
     },
 }
 # ==== 数え方の定義ここまで ====
