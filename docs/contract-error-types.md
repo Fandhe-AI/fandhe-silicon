@@ -32,7 +32,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `exec`・`upper` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec crates/upper` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -81,6 +81,15 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/error_non_exhaustive.rs`（型ごとに 1 本、計 6 本）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test error_non_exhaustive`
 - 残る試験は 5/8〜7/8（フィールドの読み戻し・書式・`Display`/`Error` と wasm32）
+
+## 現状の形（5/8）
+
+- 確かめの対象は `ContractError` のフィールドを持つ 13 値と、`DeviceLostReason` の文字列を持つ 2 値。型の形は 2/8 のまま変えていない
+- 仕組み: 別の crate（統合テスト）で全フィールドを `..` なしで束縛して読み戻し、構築時の値と照合する。複数フィールドを持つ値は、1 フィールドだけ変えた値と等しくならないことも見る
+- 対象外: `{:?}` の書式と `ValidationFailed` の定義の確かめ（6/8）、`Display`/`Error` と wasm32（7/8）、`capability.rs` の 3 型（TASK-136。ポインタ）
+- 対応するテスト: `crates/core/tests/error_fields.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --test error_fields`
+- 残る試験は 6/8〜7/8（書式・`Display`/`Error` と wasm32）
 
 ## 本リポでの反映の方針
 
