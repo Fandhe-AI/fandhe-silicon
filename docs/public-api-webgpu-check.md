@@ -55,5 +55,34 @@
 | 検査しないもの | 語を含まない名前、非ブロッキングの形の有無、exec・upper、他の feature の組 | スクリプトの先頭コメント |
 | 現状 | 手元で `make public-api-webgpu-check` が終了コード 0（件数の値は時点で変わるので書かない） | `make public-api-webgpu-check` |
 
-振る舞いとテストの対応の表は、テストを足す段で本書に足す。
+振る舞いとテストの対応は、次の節（3/6）にまとめた。
+
+## (1) の検査の試験（3/6）（TASK-241）
+
+(1) の検査の回帰テストを入れた。コードと公開テストから観測できる事実だけを記録する。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `scripts/test-public-api-webgpu-check.sh`（`make test-public-api-webgpu-check`）。前提は python3・cargo・git で、無ければ失敗する（skip しない）。CI のジョブからは呼ばず、手元で流す | スクリプトの先頭コメント |
+| 構成 | 前半は合成 JSON を `--json` で渡す経路（cargo・git を呼ばない）。後半は package 名が `fandhe-silicon-core`・`fandhe-silicon-contract` の依存なしの一時 workspace に検査本体・`public-api-check.sh`・`lib.sh` を写し、実物の rustdoc の JSON で既定の経路を通す | 同上 |
+| 副作用 | リポジトリのファイルを変更しない・ネットワーク不要（一時ディレクトリは終了時に消す） | 同上 |
+| 判定 | 終了コード + 標準出力 + 標準エラーの部分一致。終了コード 2 のケースは `ok:`・`record:` が無いことも見る | `check` 関数 |
+| 確かめ方 | 件数の値は時点で変わるので書かない | `make test-public-api-webgpu-check` |
+
+### 振る舞いとテストの対応
+
+| 振る舞い | テストのケース |
+| -------- | -------------- |
+| 語の照合は `_` 区切りの語の等号で、大文字小文字を区別せず、部分一致では当てない | 「大文字小文字を区別しない」「部分一致には当てない」 |
+| 数えるのは公開の関数・メソッド・再公開だけ（非公開・他 crate・関数でも再公開でもないものは数えない） | 「非公開・他 crate の関数は数えない」「関数でも再公開でもないアイテムは数えない」「trait の impl のメソッド（default）も当たる」 |
+| 再公開は 1 件を 2 回数えず、name と use.name が別の語なら両方数える | 「name と use.name が同じ再公開は 1 回」「name と use.name が別の語なら両方数える」 |
+| 違反は終了コード 1 で `violation:`・`FAILED:` を出し、`ok:` を出さない。複数 JSON は合計する | 「自由関数の語の一致」「FAILED の行」「複数 JSON の合計」 |
+| 出力の値は無害化する | 「違反の出力の値の無害化」 |
+| 設定・JSON・glob の再公開の誤用は終了コード 2 で、締めの行を出さない | 「未知の節」から「解決できない glob の再公開」までの終了コード 2 の各ケース |
+| 実物の設定の各語が当たる | 「実物の語が当たる」（語は設定から実行時に作る） |
+| feature `native-blocking-wait` を外した構成では、その feature の裏にある語の名前の関数は 0 件 | `real_feature_gated` |
+| 同じ関数を feature の裏から出すと終了コード 1 になる（違反を 1 件足すと落ちる）。core・メソッド・再公開も対象 | `real_contract_fn`・`real_core_fn`・`real_method`・`real_reexport` |
+| 作業ツリーに変更があれば commit に `-dirty` が付く。ホストの絶対パスを標準出力に出さない | `real_clean_commit`・`real_feature_gated_dirty`・`real` 関数の判定 |
+| JSON を作る段の失敗・契約の crate が無い workspace・core と contract がそろわない出力・重複・commit が取れない場合は終了コード 2 | `real_build_fail`・`real_no_contract`・`real_no_emit`・`real_core_only`・`real_duplicate_emit`・`real_emit_exit1`・`real_no_commit` |
+| 一時 workspace の準備に失敗したら失敗として数える | `real_fixture_setup` |
 

@@ -107,7 +107,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-api-sdk-check.md` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧のまとめと完了の条件の確かめ（4/4）（TASK-253） |
-| `docs/public-api-webgpu-check.md` | 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6） |
+| `docs/public-api-webgpu-check.md` | 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
 | `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228） |
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
@@ -199,6 +199,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make upper-layer-check` | `scripts/upper-layer-check.sh` | 上の層（`crates/upper`）と測定の workspace に、unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定のビルドで検証用の feature が有効でないことの 4 つの検査を当てる（件数は `record:` の行。bash + python3 + cargo + git・ネットワーク不要。`make deny` には含めず、CI の `deny` ジョブが呼ぶ） |
 | `make test-upper-layer-check` | `scripts/test-upper-layer-check.sh` | `make upper-layer-check` の回帰テスト（合成の入力・偽のコマンド・一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-dep-graph-wgpu-check` | `scripts/test-dep-graph-wgpu-check.sh` | `scripts/dep-graph-wgpu-check.sh` の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make test-public-api-webgpu-check` | `scripts/test-public-api-webgpu-check.sh` | `make public-api-webgpu-check` の回帰テスト（ダミーの語の合成 JSON と、一時 workspace の実物の rustdoc の JSON。リポジトリを変更しない・ネットワーク不要。bash + python3 + cargo + git。CI のジョブからは呼ばず手元で流す） |
 | `make test-public-name-check` | `scripts/test-public-name-check.sh` | `make public-name-check` の回帰テスト（ダミーの語の合成 JSON・合成ソースと、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make test-public-api-diff` | `scripts/test-public-api-diff.sh` | `scripts/public-api-diff.sh`（同じ crate の 2 つの版の rustdoc の JSON から公開 API の差分を出す）の回帰テスト（合成 JSON だけ。bash + python3。cargo・ネットワーク不要。CI の `deny` ジョブも実行する）。本体は比べる JSON のパスが要るため make ターゲットを持たず、`scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>` を直接実行する（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足） |
 | `make test-rerun-compare` | `scripts/test-rerun-compare.sh` | `scripts/rerun-compare.sh`（試験の枠の記録の部品の 2 つのディレクトリ、前の記録と新しい記録を比べる）の回帰テスト（合成の記録の部品だけ。bash + python3。cargo・ネットワーク不要。CI の `deny` ジョブも実行する）。本体は比べる記録のパスが要るため make ターゲットを持たず、`scripts/rerun-compare.sh <前の記録のディレクトリ> <新しい記録のディレクトリ>` を直接実行する（終了コード 0 差分なし・1 差分あり・2 誤用・前提の不足・読めない記録） |

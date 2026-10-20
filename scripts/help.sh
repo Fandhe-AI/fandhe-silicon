@@ -49,6 +49,7 @@ cat <<'EOF'
   test-upper-layer-check scripts/test-upper-layer-check.sh  upper-layer-check の回帰テスト（合成の入力・ツールが無いとき・偽のコマンドと、一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
   public-name-check scripts/public-name-check.sh   製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことの検査。--source でソースの単語・呼び出しの形も数える（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。--json <path>... で差し替え可。CI の deny ジョブも実行する）
   public-api-webgpu-check scripts/public-api-webgpu-check.sh  feature native-blocking-wait を外した構成で、契約のコアの公開面にブロッキング待ちの名前の公開アイテムが無いことの検査（TASK-241。語は public-api-webgpu-check.conf。bash + python3 + cargo + git。CI にはまだ組み込まない）
+  test-public-api-webgpu-check scripts/test-public-api-webgpu-check.sh  public-api-webgpu-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON と、一時 workspace の実物の rustdoc の JSON。TASK-241。bash + python3 + cargo + git。CI のジョブからは呼ばず手元で流す）
   test-public-name-check scripts/test-public-name-check.sh  public-name-check 自体の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。CI の deny ジョブも実行する）
   test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）
