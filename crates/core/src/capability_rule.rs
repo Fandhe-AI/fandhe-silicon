@@ -1,8 +1,10 @@
 //! 能力の問合せの共通の規則を確かめるための試験用の部品（`test-support` の裏）。
 //!
-//! 背後実装に依らない規則（TASK-273 の (1)・(2)、ERR-50・ERR-62 のポインタ）を、
+//! 背後実装に依らない規則（TASK-273 の (1)〜(4)、ERR-50・ERR-51・ERR-52・ERR-62 のポインタ）を、
 //! 表で値を返すスタブ（`CapabilityTable`）と、呼び出しの順の記録（`StepLog`）、
 //! 「列挙・取得が成功してから機能の値を読む」2 段の手順（`query_after_acquire`）で確かめられるようにする。
+//! (3)・(4) は `query_ex` の戻り値 1 件の検査（`check_query`・`check_query_ex`）で、
+//! 背後実装の試験（TASK-173〜TASK-175 のポインタ）から呼ぶ。
 //! 製品の経路からは使わない。ここに出てくる名前は仮で、列挙・device の本物の口が入る段
 //! （TASK-157 のポインタ）で形を合わせる。
 //!
@@ -147,4 +149,86 @@ where
         Ok(d) => d.query(feature),
         Err(_) => CapabilityLevel::S0,
     }
+}
+
+/// 能力の問合せの戻り値が共通の規則を破っている 1 件。
+///
+/// どの値も、検査に渡した機能と戻り値を持つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CapabilityRuleViolation {
+    /// `Unsupported` なのに理由が無い。
+    MissingUnsupportedReason {
+        /// 検査した機能。
+        feature: FeatureId,
+        /// 違反した戻り値。
+        query: CapabilityQuery,
+    },
+    /// `Unsupported` でないのに理由がある。
+    UnexpectedUnsupportedReason {
+        /// 検査した機能。
+        feature: FeatureId,
+        /// 違反した戻り値。
+        query: CapabilityQuery,
+    },
+    /// S3 以上なのに根拠が無い。
+    MissingEvidence {
+        /// 検査した機能。
+        feature: FeatureId,
+        /// 違反した戻り値。
+        query: CapabilityQuery,
+    },
+}
+
+/// 根拠を必ず載せるべき段階か。`S3`〜`S6` が `true`、それ以外は `false`。
+///
+/// `CapabilityLevel` に大小の比較が無いため、明示の `match` で判定する。
+/// 段階が足されたらここがコンパイルエラーになり、更新を強制する。
+pub fn level_requires_evidence(level: CapabilityLevel) -> bool {
+    match level {
+        CapabilityLevel::S0
+        | CapabilityLevel::S1
+        | CapabilityLevel::S2
+        | CapabilityLevel::Unsupported => false,
+        CapabilityLevel::S3 | CapabilityLevel::S4 | CapabilityLevel::S5 | CapabilityLevel::S6 => {
+            true
+        }
+    }
+}
+
+/// `query_ex` の戻り値 1 件を検査する。
+///
+/// 理由の規則（`Unsupported` のときだけ理由が要る。理由の値は問わない）→ 根拠の規則
+/// （S3 以上は根拠が要る。それ未満に根拠が付いていても受け入れる）の順で、違反を全部返す。
+pub fn check_query(
+    feature: FeatureId,
+    query: CapabilityQuery,
+) -> Result<(), Vec<CapabilityRuleViolation>> {
+    let mut violations = Vec::new();
+    let is_unsupported = query.level == CapabilityLevel::Unsupported;
+    if is_unsupported && query.unsupported_reason.is_none() {
+        violations.push(CapabilityRuleViolation::MissingUnsupportedReason { feature, query });
+    }
+    if !is_unsupported && query.unsupported_reason.is_some() {
+        violations.push(CapabilityRuleViolation::UnexpectedUnsupportedReason { feature, query });
+    }
+    if level_requires_evidence(query.level) && query.evidence.is_none() {
+        violations.push(CapabilityRuleViolation::MissingEvidence { feature, query });
+    }
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
+}
+
+/// `device.query_ex(feature)` を 1 回呼んで検査し、通れば得た値を返す。
+///
+/// 背後実装の試験から 1 行で呼ぶための口。
+pub fn check_query_ex<D: Capabilities + ?Sized>(
+    device: &D,
+    feature: FeatureId,
+) -> Result<CapabilityQuery, Vec<CapabilityRuleViolation>> {
+    let query = device.query_ex(feature);
+    check_query(feature, query).map(|()| query)
 }
