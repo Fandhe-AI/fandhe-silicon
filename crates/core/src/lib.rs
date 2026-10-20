@@ -6,6 +6,7 @@
 //!
 //! 外部依存なしの SHA-256（`hash` モジュール）は feature の条件なしで公開され、製品の経路から使える。
 //! 実行まわりの共通の型（`execution` モジュール。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型・引数の宣言の C4〜C8 を判定する純粋関数）も feature の条件なしで公開される。
+//! バッファの引数検査の純粋関数（`memory` モジュール）も feature の条件なしで公開される。
 //! 成果物キャッシュのエントリの型・読み込み時の照合・台帳（`artifact_cache` モジュール）も feature の条件なしで公開される。
 //! エラー・完了状態・理由の型（`error` モジュール）と、能力問合せの型（`capability` モジュール）、device の要求・所有形態の型（`device` モジュール）も feature の条件なしで公開される。
 //!
@@ -23,6 +24,7 @@ pub mod device;
 pub mod error;
 pub mod execution;
 pub mod hash;
+pub mod memory;
 
 #[cfg(feature = "test-support")]
 pub mod capability_rule;
