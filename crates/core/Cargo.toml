@@ -178,3 +178,11 @@ required-features = ["test-support"]
 [[test]]
 name = "parity_case_inputs"
 required-features = ["test-support"]
+
+[[test]]
+name = "capability_rule_stub"
+required-features = ["test-support"]
+
+[[test]]
+name = "capability_rule_two_step"
+required-features = ["test-support", "fault-injection"]

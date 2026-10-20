@@ -11,7 +11,7 @@
 //!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
 //! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
-//! 流し直しの照合の型と実行の口（`rerun` モジュール）が公開される。
+//! 流し直しの照合の型と実行の口（`rerun` モジュール）と、能力の問合せの共通の規則の試験の部品（`capability_rule` モジュール）が公開される。
 //! これら `test-support` の裏のモジュールは製品の経路からは使わない。
 //!
 //! feature `fault-injection` を有効にしたときだけ、テスト専用の故障の差し込み口（`fault` モジュール）が公開される。
@@ -23,6 +23,9 @@ pub mod device;
 pub mod error;
 pub mod execution;
 pub mod hash;
+
+#[cfg(feature = "test-support")]
+pub mod capability_rule;
 
 #[cfg(feature = "test-support")]
 pub mod parity;
