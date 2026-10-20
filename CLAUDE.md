@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` と実行まわりの型 `execution` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` と実行まわりの型 `execution` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -42,7 +42,8 @@ fandhe-silicon/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `hash`〔SHA-256〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`）
 │   ├── contract/             # fandhe-silicon-contract: 下-1（backend-metal / vulkan / cuda feature。backend-dx12-compute は中身のない仮の置き場で既定では無効）
 │   ├── exec/                 # fandhe-silicon-exec: 下-2（共通操作・代わりの実行）
-│   └── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
+│   ├── upper/                # fandhe-silicon-upper: 上（wgpu 風の層。forbid(unsafe_code)）
+│   └── wasm-abi/             # fandhe-silicon-wasm-abi: wasm32 向けの cdylib（依存は contract だけ。forbid(unsafe_code)。`docs/wasm32-build.md`）
 ├── .github/workflows/        # ci.yml / ai-review.yml / update-external.yml
 ├── docs/contract/            # 契約の明文のまとめと、形を決める作業の手順書（書式・更新の順は README）
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）
@@ -71,6 +72,7 @@ fandhe-silicon/
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）
 ├── docs/wasm32-node-foundation.md  # wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）
+├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版のビルド・現状の事実（TASK-237 の 1/4）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）
@@ -110,7 +112,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | ---- | ------ |
 | コード・構成の横断調査、`docs/spec` 参照（ポインタ表記） | explorer |
 | Metal / Vulkan / CUDA / wgpu・依存候補の外部調査 | reference-researcher |
-| `crates/core`・`crates/exec`・`crates/upper`・`baseline-wgpu/`・開発基盤（scripts / Makefile / CI） | core-builder |
+| `crates/core`・`crates/exec`・`crates/upper`・`crates/wasm-abi`・`baseline-wgpu/`・開発基盤（scripts / Makefile / CI） | core-builder |
 | `crates/contract`（Metal / Vulkan / CUDA backend・FFI・CPU ISA） | backend-builder |
 | テスト / 静的検査の実行と失敗解析 | test-runner |
 | ベンチマーク・性能回帰 | bench-runner |
