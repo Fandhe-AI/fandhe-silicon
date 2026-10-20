@@ -7,9 +7,9 @@
 //! エラーコードを照合しないので、この対で失敗の理由の取り違えを防ぐ）。
 //!
 //! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など）の `cargo test`、
-//! 有効側は `make verify`（`--all-features`）の doctest。
+//! 有効側は `make verify`（`--all-features`）の doctest と、`scripts/build-profiles.sh` の feature 単独の組。
 //! 有効側の確かめは `tests/feature_gate_enabled.rs` が受け持つ。
-//! spec との対応: TASK-233 の 1/4・2/4、BUILD-11〜13（ポインタ表記）。`native-blocking-wait`・`ext-interop`
+//! spec との対応: TASK-233 の 1/4・2/4・3/4、BUILD-11〜13（ポインタ表記）。`native-blocking-wait`・`ext-interop`
 //! を使うコードの snippet は、対象のアイテムが入った時点で同じ形でここに足す。
 //! 現状は仕組みの確認として、実在の feature ゲート `backend-metal` の対と、
 //! `native-blocking-wait`・`ext-interop` それぞれの「門の目印」の対を置く。

@@ -16,7 +16,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | コンパイル失敗の仕組み | 外部 crate を足さず、rustdoc の doctest の fence を `cfg_attr` で切り替える（feature なしは `compile_fail`、ありは通る）。置き場は `crates/contract/src/cfg_gate_doctest.rs`（doctest の収集のため `pub mod` にし、`#[doc(hidden)]` で文書の表示だけを隠している。外部 crate から参照はできる） | `cargo test -p fandhe-silicon-contract --doc` と `--features backend-metal` の両方 |
 | 仕組みの対照 | 実在の feature ゲート `backend-metal` の `backend_metal` モジュールの対と、`native-blocking-wait`・`ext-interop` それぞれの門の目印（値を持たない型）の対。目印は枠の確かめにとどまり、対象のアイテム自体の確かめではない | 同上と `--features native-blocking-wait`・`--features ext-interop` |
 | 有効側の試験 | feature を有効にした構成で目印が見えること。置き場は `crates/contract/tests/feature_gate_enabled.rs` | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
-| 流れる場所 | feature なし側は `scripts/build-profiles.sh` の組、ありの側は `make verify`（`--all-features`）。`native-blocking-wait` を含む組は、いまは `--all-features` だけ | `make build-profiles`、`make verify` |
+| 流れる場所 | feature なし側は `scripts/build-profiles.sh` の組、ありの側は `make verify`（`--all-features`）と、`scripts/build-profiles.sh` の `native-blocking-wait` 単独・`ext-interop` 単独の組（build / clippy / test）。どちらも `verify` ジョブが呼ぶ | `make build-profiles`、`make verify` |
 | wasm32 の組 | `cargo check` のみで doctest は流れない | `scripts/build-profiles.sh` |
 
 ## 段
@@ -27,6 +27,12 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | 2/4 | #3929 | 有効側の試験 |
 | 3/4 | #3930 | CI への組み込み |
 | 4/4 | #3931 | 完了の条件の確かめ |
+
+## CI への組み込み（3/4）
+
+- `scripts/build-profiles.sh` の組に `native-blocking-wait` 単独と `ext-interop` 単独を足し、feature ごとに build / clippy（`-D warnings`）/ test（doctest を含む）を流す。新しいジョブ・ターゲットは足さず、`verify` ジョブの `make build-profiles` が呼ぶ
+- 単独の組の出力の見え方: `native-blocking-wait` 単独では `native_blocking_wait_gate_is_visible` と `NativeBlockingWaitGate` の doctest が通り、他の 2 つの doctest は `compile fail ... ok`。`ext-interop` 単独では `ext_interop_gate_is_visible` と `ExtInteropGate` が通り、他の 2 つが `compile fail ... ok`
+- 手元の確かめ: `cargo test -p fandhe-silicon-contract --no-default-features --features native-blocking-wait`（`ext-interop` も同様）、全体は `make build-profiles`
 
 ## 本リポでの反映の方針
 
