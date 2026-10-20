@@ -127,6 +127,9 @@ srcs = {
     "good_multiline": '#[cfg(\n    all(target_arch = "wasm32",\n        target_feature = "simd128")\n)]\npub fn a() {}\n',
     "not_form": '#[%s]\npub fn a() {}\n#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]\npub fn a() {}\n' % GOOD,
     "only_feature": '#[cfg(target_feature = "simd128")]\npub fn a() {}\n',
+    "raw_feature": '#[%s]\npub fn a() {}\n#[cfg(target_feature = r"simd128")]\npub fn b() {}\n' % GOOD,
+    "raw_hash_feature": '#[%s]\npub fn a() {}\n#[cfg(target_feature = r#"simd128"#)]\npub fn b() {}\n' % GOOD,
+    "raw_runtime": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected!(r#"simd128"#) {} }\n' % GOOD,
     "any_form": '#[cfg(any(target_arch = "wasm32", target_feature = "simd128"))]\npub fn a() {}\n',
     "runtime_spaced": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected\n  ! (\n"simd128") {} }\n' % GOOD,
     "debug_cfg": '#[%s]\npub fn a() {}\n#[cfg(debug_assertions)]\npub struct Alpha;\n' % GOOD,
@@ -385,6 +388,12 @@ cfg_case not_form
 expect "cfg-not-all-form-ok" 0 "cfg: sites=2 label=match" "ok:"
 cfg_case only_feature
 expect "cfg-only-feature" 1 "cfg: sites=1 label=mismatch reason=unsupported-cfg-form" "violation: file=" "x.rs line=1 reason=unsupported-cfg-form"
+cfg_case raw_feature
+expect "cfg-raw-string" 1 "cfg: sites=2 label=mismatch reason=unsupported-cfg-form" "line=3 reason=unsupported-cfg-form"
+cfg_case raw_hash_feature
+expect "cfg-raw-hash-string" 1 "cfg: sites=2 label=mismatch reason=unsupported-cfg-form" "line=3 reason=unsupported-cfg-form"
+cfg_case raw_runtime
+expect "cfg-raw-runtime-detection" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
 cfg_case any_form
 expect "cfg-any-form" 1 "cfg: sites=1 label=mismatch" "reason=unsupported-cfg-form"
 cfg_case runtime

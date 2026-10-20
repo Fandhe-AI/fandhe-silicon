@@ -414,7 +414,8 @@ def strip_comments(text):
     return "".join(out), mark
 
 
-SITE = re.compile(r'target_feature\s*=\s*"simd128"')
+# 値は通常の文字列に加え raw string（r"..." / r#"..."#。# の個数は開きと閉じで同じ）も拾う。raw 表記は GOOD に当たらず不正な形になる。
+SITE = re.compile(r'target_feature\s*=\s*(?:"simd128"|r(#*)"simd128"\1)')
 ALL = r'all\s*\(\s*target_arch\s*=\s*"wasm32"\s*,\s*target_feature\s*=\s*"simd128"\s*,?\s*\)'
 GOOD = re.compile(r'cfg!?\s*\(\s*(?:' + ALL + r'|not\s*\(\s*' + ALL + r'\s*\))\s*\)')
 # cfg / cfg_attr（の条件）/ cfg! の括弧の中。rustdoc は --release でも -C の指定を見ず cfg(debug_assertions) を常に有効とし、
@@ -449,7 +450,7 @@ def cfg_conditions(text, mark):
         yield blank[start:end], start
 
 
-RUNTIME = re.compile(r'_feature_detected\s*!\s*\(\s*"simd128"')
+RUNTIME = re.compile(r'_feature_detected\s*!\s*\(\s*(?:"simd128"|r(#*)"simd128"\1)')
 
 
 def cfg_rows(root, src_root):
