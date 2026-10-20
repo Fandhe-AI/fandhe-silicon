@@ -215,6 +215,7 @@ rc=0
 judge "repo_real" 0 "o:positive-control: profile=cpu-only crate=fandhe-silicon-core n=1 result=detected" \
   "o:positive-control: profile=compute-only-metal crate=fandhe-silicon-core n=1 result=detected" \
   "o:positive-control: profile=graphics-vulkan crate=fandhe-silicon-core n=1 result=detected" \
+  "o:positive-control: profile=graphics-interop crate=fandhe-silicon-core n=1 result=detected" \
   "o:ok: positive control detected" "!positive-control-failed" "!error:" "!${ROOT_DIR}"
 
 echo "passed: ${passed}, failed: ${failed}"

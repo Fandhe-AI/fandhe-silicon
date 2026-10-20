@@ -1,6 +1,6 @@
 # 依存グラフのプロファイルごとの検査（TASK-228・TASK-229）の所在と現状の事実
 
-契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数え、Graphics（Vulkan）の組では SDK のうち `ash`・`libloading` だけを許す検査について、本リポのスクリプトから説明できる振る舞いを記録する。
+契約の crate（`fandhe-silicon-contract`）をプロファイルの feature の組にしたときの依存グラフに、判定に使う crate 名が載っていないこと、ComputeOnly（Metal）の組では加えて `objc2-metal` の per-header feature の件数を数え、Graphics（Vulkan）の組では SDK のうち `ash`・`libloading` だけを、Graphics と相互運用の組では `ash`・`cudarc`・`libloading` だけを許す検査について、本リポのスクリプトから説明できる振る舞いを記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-228。対象は BUILD-1・BUILD-2。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
@@ -58,8 +58,9 @@
 | `DEP_KINDS`・`TARGET` | 数える依存の種類と target | `grep -nE '^(DEP_KINDS\|TARGET)' scripts/profile-dep-graph-check.sh` |
 | `SDK_LOADER_NAMES`・`SURFACE_NAMES` | 判定に使う名前 | `grep -nE '_NAMES =' scripts/profile-dep-graph-check.sh` |
 | `GRAPHICS_VULKAN_ALLOWED_SDK` | Graphics（Vulkan）の組で許す SDK・ローダ | `grep -n '^GRAPHICS_VULKAN_ALLOWED_SDK' scripts/profile-dep-graph-check.sh` |
+| `GRAPHICS_INTEROP_ALLOWED_SDK` | Graphics と相互運用の組で許す SDK・ローダ | `grep -n '^GRAPHICS_INTEROP_ALLOWED_SDK' scripts/profile-dep-graph-check.sh` |
 | `HEADER_CRATE`・`RENDER_HEADER_FEATURES`・`RECORD_ONLY_HEADER_FEATURES` | per-header feature を数える crate と、判定に使う feature / 数えるだけの feature | `grep -nE '^(HEADER_CRATE\|RENDER_HEADER\|RECORD_ONLY)' scripts/profile-dep-graph-check.sh` |
-| `PROFILES` | プロファイル名 → feature の引数・判定の名前・per-header feature の設定 | `grep -n -A22 '^PROFILES' scripts/profile-dep-graph-check.sh` |
+| `PROFILES` | プロファイル名 → feature の引数・判定の名前・per-header feature の設定 | `grep -n -A30 '^PROFILES' scripts/profile-dep-graph-check.sh` |
 
 名前の一覧の決定は private spec 側の記録に従う（ポインタのみ）。crate 名は小文字にして `_` を `-` にそろえた完全一致で比べ、接頭辞には広げない。per-header feature 名は大文字と小文字を区別した完全一致で比べる。
 
@@ -92,7 +93,7 @@ make deny
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
 | A1 | 検査が通り、判定の件数がプロファイルごとに 0 件 | `make profile-dep-graph-check` | 終了コード 0。`scanned:` は 2 プロファイル（各 `crates=2`）。各 `record:` は `judged_total=0`、`commit=` は base（`-dirty` 無し）。`count:` の全行が `n=0`。ComputeOnly の組の `record:` は `header_crate_n=0`・`features_judged_total=0`・`features_recorded_total=0`。feature ごとの `count:` は judged=yes が 5 行・judged=no が 3 行で、すべて `n=0` |
-| A2 | ComputeOnly の組が描画系の feature を含まない定義であること | `grep -n -A22 '^PROFILES' scripts/profile-dep-graph-check.sh` | `--no-default-features` で、描画系の feature を渡す引数が無いことを確認 |
+| A2 | ComputeOnly の組が描画系の feature を含まない定義であること | `grep -n -A30 '^PROFILES' scripts/profile-dep-graph-check.sh` | `--no-default-features` で、描画系の feature を渡す引数が無いことを確認 |
 | A3 | 判定の一覧に 1 件足すと落ちること | `make profile-dep-graph-positive-control` | 終了コード 0。`positive-control:` はプロファイルごとに 1 行（2 行）で、すべて `n=1 result=detected`。内側の検査は `FAILED: 2 judged crate(s) found` |
 | A4 | 回帰テストが通ること | `make test-profile-dep-graph-check`、`make test-profile-dep-graph-positive-control` | どちらも終了コード 0。合格 94 件・不合格 0 件、合格 23 件・不合格 0 件。per-header feature の判定が働くことは、前者の一時 workspace の節が示す（本書「検査しないもの」の記述どおり） |
 | A5 | CI の機材の要らないジョブで通ること | main の push の `ci.yml` の run 39132697062（base と同じコミット）の `make deny (cargo-deny)` ジョブ（`ubuntu-latest`）のログ | ジョブの conclusion は success。ログに `profile-dep-graph-check (contract profiles)`・`ok: 2 profile(s) checked, no judged crates (judged=0)`・`profile-dep-graph-positive-control`・`positive-control: ... result=detected` が 2 行・`ok: positive control detected ...` が出ている |
@@ -157,7 +158,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 検査のプロファイル | `PROFILES` は `cpu-only`・`compute-only-metal` の 2 件だけ | `grep -n -A22 '^PROFILES' scripts/profile-dep-graph-check.sh` |
+| 検査のプロファイル | `PROFILES` は `cpu-only`・`compute-only-metal` の 2 件だけ | `grep -n -A30 '^PROFILES' scripts/profile-dep-graph-check.sh` |
 | 判定の名前 | `compute-only-metal` の判定の名前は `SURFACE_NAMES` だけで、`SDK_LOADER_NAMES` は入っていない（`cpu-only` は両方） | 同上 |
 | 判定の形 | 0 件かどうかだけ。プロファイル間の差を出す出力は無く、`record:` はプロファイルごとの件数だけ | 本書「検査しないもの」の「件数の増減」の行 |
 | `--extra-judged-crate` | crate 名の一覧の末尾にだけ足す。feature 側の経路は無い | 本書「検査しないもの」 |
@@ -175,7 +176,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | -- | ----- |
 | 1/6 現状と前提の確認 | #7358 |
 | 2/6 Graphics（Vulkan）の組の検査 | #7359 |
-| 3/6 | #7360 |
+| 3/6 Graphics と相互運用の組の検査 | #7360 |
 | 4/6 | #7361 |
 | 5/6 | #7362 |
 | 6/6 | #7363 |
@@ -215,7 +216,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3）の 2/6（#7
 | 合成の tree | `gv_prefix_only`・`gv_extra`・`gv_extra_already_judged`・`gv_misuse_with_features_text` | 接頭辞に広げない・`--extra-judged-crate` の足す向き・既に判定にある名前と `--features-text` は誤用（終了コード 2） |
 | 偽のコマンド | `fake_tree_args_graphics_vulkan`・`fake_no_features_edges_graphics_vulkan`・`fake_extra`・`fake_violation` | 渡す cargo の引数、features の辺を流さないこと、`ash` が違反にならないこと |
 | 一時 workspace | `real_clean` | `backend-vulkan` が引く `ash` が tree に載っても合格する |
-| 一時 workspace | `real_graphics_selected`・`real_vulkan_judged_sdk` | `graphics` の裏の `winit`、`backend-vulkan` の裏の `objc2-metal` は `graphics-vulkan` だけの違反になる |
+| 一時 workspace | `real_graphics_selected`・`real_vulkan_judged_sdk` | `graphics` の裏の `winit`、`backend-vulkan` の裏の `objc2-metal` は Graphics の組（`graphics-vulkan`・`graphics-interop`）の違反になり、`cpu-only`・`compute-only-metal` では違反にならない |
 | 一時 workspace | `real_extra_fails`・`real_other_target`・`real_dev_dep` | 3 プロファイル分の違反の件数、別 target、dev の依存 |
 | 実物のリポジトリ | `repo_real`・`repo_real_extra_fails` | 3 プロファイルで合格し、足した名前は 3 プロファイルで違反になる |
 | 陽性対照 | `repo_real`（`test-profile-dep-graph-positive-control`） | `graphics-vulkan` でも検出される |
@@ -231,3 +232,48 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3）の 2/6（#7
 | `graphics-vulkan` の `record:` | `judged_total=0`。判定の名前 5 件の `count:` はすべて `n=0` |
 
 確かめた base は `33414f2f6c1d65ec86999406b9ac3091c0a9102f`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## Graphics と相互運用の組の検査（3/6）（TASK-229）
+
+TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-4）の 3/6（#7360）で、`PROFILES` に Graphics と相互運用の組を足した。以降の段（BUILD-5・完了の条件の確かめ・件数の記録）は後の段の PR が足す。
+
+### 足したもの
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| プロファイル名 | `graphics-interop` | `grep -n '"graphics-interop"' scripts/profile-dep-graph-check.sh` |
+| feature の引数 | 定義のブロックの `PROFILES` に置く（`scripts/build-profiles.sh` の `NATIVE_SETS` の BUILD-4 の行と同じ組）。値は本書に写さない | `grep -n -A12 '"graphics-interop"' scripts/profile-dep-graph-check.sh` |
+| 判定の名前 | `SDK_LOADER_NAMES` から `GRAPHICS_INTEROP_ALLOWED_SDK` を除いたものに `SURFACE_NAMES` を足したもの。許す名前を判定から外すだけで、固定した一覧の外の SDK は判定に残る | 同上 |
+| per-header feature | 数えない（`header_crate` は `None`。`--features-text` は受け付けない） | `scripts/test-profile-dep-graph-check.sh` の `gi_misuse_with_features_text` |
+| 出力 | プロファイルが 4 件になり、`scanned:`・`record:`・`count:` が 1 組増える。出力の形は変えない | `make profile-dep-graph-check` |
+| CI | `make deny` の中で流れる。ワークフローは変えない | `grep -n profile-dep-graph scripts/deny.sh` |
+
+### 対応する回帰テスト
+
+`make test-profile-dep-graph-check` と `make test-profile-dep-graph-positive-control`。
+
+| 区分 | ケース | 確かめること |
+| ---- | ------ | ------------ |
+| 合成の tree | `gi_ok` | `ash`・`cudarc`・`libloading` が載っても 0 件で合格し、その 3 件の `count:` は出ない |
+| 合成の tree | `gi_cudarc_allowed` | `graphics-vulkan` では違反になる `cudarc` の tree が、この組では合格する |
+| 合成の tree | `gi_metal`・`gi_surface_folded` | 許さない SDK と描画・surface の名前（`_` の折りたたみを含む）は違反（終了コード 1） |
+| 合成の tree | `gi_prefix_only`・`gi_extra`・`gi_extra_already_judged`・`gi_misuse_with_features_text` | 接頭辞に広げない・`--extra-judged-crate` の足す向き・既に判定にある名前と `--features-text` は誤用（終了コード 2） |
+| 偽のコマンド | `fake_tree_args_graphics_interop`・`fake_no_features_edges_graphics_interop`・`fake_extra`・`fake_violation` | 渡す cargo の引数、features の辺を流さないこと、`ash` が違反にならないこと |
+| 一時 workspace | `real_clean` | `backend-vulkan` が引く `ash` と `backend-cuda` が引く `cudarc` が tree に載っても合格する |
+| 一時 workspace | `real_cpu_ops_cudarc` | `cpu-ops` の裏の `cudarc` は `cpu-only`・`graphics-vulkan` の違反になり、`graphics-interop` では違反にならない |
+| 一時 workspace | `real_interop_only` | `ext-interop` の裏の `objc2-metal` は `graphics-interop` だけの違反になる |
+| 一時 workspace | `real_extra_fails`・`real_other_target`・`real_dev_dep` | 4 プロファイル分の違反の件数、別 target、dev の依存 |
+| 実物のリポジトリ | `repo_real`・`repo_real_extra_fails` | 4 プロファイルで合格し、足した名前は 4 プロファイルで違反になる |
+| 陽性対照 | `repo_real`（`test-profile-dep-graph-positive-control`） | `graphics-interop` でも検出される |
+
+### 実測
+
+結果は GPU の実機なしで、末尾の base で `make profile-dep-graph-check` を流した値。
+
+| 項目 | 値 |
+| ---- | -- |
+| 終了コード | 0（`ok: 4 profile(s) checked, no judged crates (judged=0)`） |
+| `graphics-interop` の `scanned:` | `crates=2`（`fandhe-silicon-contract` と `fandhe-silicon-core`） |
+| `graphics-interop` の `record:` | `judged_total=0`。判定の名前 4 件の `count:` はすべて `n=0` |
+
+確かめた base は `e4bbdb41ab64eb7bf88512be89d56a4e13b19797`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
