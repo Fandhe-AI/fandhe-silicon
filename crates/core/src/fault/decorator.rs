@@ -137,7 +137,9 @@ impl<D> FaultInjecting<D> {
     }
 
     /// 完了待ちの差し込み。`CompletionUnknown` なら `call_inner` を呼ばず `Err(Timeout)` を返す。
-    /// それ以外は内側の値をそのまま返す。
+    /// `RuntimeError` なら `call_inner` を呼ばず、筋書きの `backend`・`detail` を載せた
+    /// `Err(BackendFailure { op: "wait_blocking", .. })` を返す。
+    /// それ以外の筋書きは内側の値をそのまま返す。
     pub fn wait_blocking_with<F>(&self, call_inner: F) -> Result<(), ContractError>
     where
         F: FnOnce(&D) -> Result<(), ContractError>,
@@ -157,7 +159,8 @@ impl<D> FaultInjecting<D> {
     }
 
     /// 拡張の完了状態の差し込み。`CompletionUnknown` なら `call_inner` を呼ばず `Unknown` を返す。
-    /// それ以外は内側の値をそのまま返す。
+    /// `RuntimeError` なら `call_inner` を呼ばず `RuntimeError` を返す。
+    /// それ以外の筋書きは内側の値をそのまま返す。
     pub fn poll_ex_with<F>(&self, call_inner: F) -> CompletionStateEx
     where
         F: FnOnce(&D) -> CompletionStateEx,
