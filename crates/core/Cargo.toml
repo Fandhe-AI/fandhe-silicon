@@ -202,3 +202,7 @@ required-features = ["test-support"]
 [[test]]
 name = "capability_rule_two_step"
 required-features = ["test-support", "fault-injection"]
+
+[[test]]
+name = "capability_rule_contract"
+required-features = ["test-support", "fault-injection"]
