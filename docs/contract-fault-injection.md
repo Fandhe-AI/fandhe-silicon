@@ -113,7 +113,10 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 ### 有効にする
 
 - 試験の crate の dev-dependency で feature `fault-injection` を有効にする（`core` に直接、または `contract` の `fault-injection` 経由）。`default` と本番の組には入らない
-- 統合テストには `[[test]]` に `required-features = ["fault-injection"]` を付ける（`crates/core/Cargo.toml` の既存の `fault_*` の宣言と同じ）
+- 依存先の feature と、試験 crate 自身の feature は別物。dev-dependency で依存先の `fault-injection` を有効にしても、試験 crate に同名の feature は定義されない。`required-features` は試験を所有する package の feature だけを参照する
+    - 依存先の feature を常時有効にする dev-dependency なら、`required-features` は要らない
+    - 条件付きにする（`cargo test --features fault-injection` で切り替える）なら、試験 crate 側にも `fault-injection = ["<依存先>/fault-injection"]` の転送用 feature を定義し、統合テストの `[[test]]` に `required-features = ["fault-injection"]` を付ける
+    - `crates/core/Cargo.toml` の既存の `fault_*` の宣言は、`core` 自身が持つ feature を参照する形
 - 確かめ: `crates/contract/tests/fault_injection_forwarding.rs`・`fault_injection_parts.rs`
 
 ### 2 系統の使い分け
@@ -130,7 +133,9 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 
 1. 偽の内側を用意する（`Device` のトレイトはまだ無いので、包む値は型引数 `D`）
 2. `FaultInjecting::new(inner, script)` で包む。筋書きは `PassThrough`・`CompletionUnknown`・`CapabilityInsufficient { feature, required }`・`CapabilityQueryFails`・`AllocationFails`・`RuntimeError { backend, detail }`
-3. 対象の `*_with(|| 内側の呼び出し)` を呼び、戻り値と内側を呼んだ回数を見る
+3. 対象の `*_with(クロージャ)` を呼び、戻り値と内側を呼んだ回数を見る。クロージャは内側 `&D` を受け取る
+    - `submit_with`・`wait_blocking_with`・`poll_ex_with`・`poll_with`・`create_pipeline_with`・`limits_with`: `|inner| ...`
+    - `allocate_with(requested_bytes, ..)`: `|inner, requested_bytes| ...`（`&D` と要求の大きさを受け取る）
 4. `D: Capabilities` なら `Capabilities`、`D: FaultHooks` なら `FaultHooks` を実装する（口は内側へそのまま渡す）。`Send + Sync` は保たれる
 
 筋書きごとの働き（内側を呼ばない差し込みだけ。ほかは内側の値をそのまま返す。詳細は 3/8〜6/8 の節）:
