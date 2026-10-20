@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# public-api-check.sh の回帰テスト（spec TASK-10 のポインタ。親 Issue #363 の 2/6・3/6）。
+# public-api-check.sh の回帰テスト（spec TASK-10 のポインタ。親 Issue #363 の 2/6・3/6。隠したアイテムの走査は TASK-136 の 4/6 のポインタ）。
 # 一時ディレクトリの合成 rustdoc JSON（ダミーの名前）を --json で渡し、終了コード・標準出力・標準エラーの文言を
 # 確かめる。合成 JSON の節は cargo を呼ばない。
 # 末尾の「実物」の節は、実行時に一時ディレクトリへ作る wgpu 系の名前の合成 path crate（比較基準の baseline-wgpu/
@@ -363,6 +363,9 @@ case "$1" in
     printf '{"workspace_members":["fake 0.0.0"],"target_directory":"%s","packages":[{"id":"fake 0.0.0","name":"fake","targets":[{"kind":["lib"],"name":"dummy"}]}]}\n' "${FAKE_TARGET}"
     exit 0 ;;
   rustdoc)
+    if [ -n "${FAKE_ARGS_LOG:-}" ]; then
+      printf '%s\n' "$*" >>"${FAKE_ARGS_LOG}"
+    fi
     src="${FAKE_PROD}"
     for a in "$@"; do
       if [ "$a" = "--all-features" ]; then src="${FAKE_ALL}"; fi
@@ -422,6 +425,27 @@ judge "build_counts_per_set" 0 \
 # 変更が在れば -dirty が付く
 run_fake "${work}/ok_noref.json" "${work}/ok_noref.json" dirty
 judge "build_dirty" 0 "o:record: commit=${fake_sha}-dirty documents=2 "
+# 検査の経路だけ rustdoc に --document-hidden-items を渡し（doc(hidden) の公開アイテムも走査する。TASK-136 のポインタ）、
+# --emit-json の経路は渡さない（emit を共有する他の検査の入力を変えない）。
+args_log="${work}/rustdoc-args.log"
+: >"${args_log}"
+PATH="${fakebin}:${PATH}" FAKE_TARGET="${work}/faketarget" FAKE_PROD="${work}/ok_noref.json" FAKE_ALL="${work}/ok_noref.json" \
+  FAKE_ARGS_LOG="${args_log}" "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || true
+if [ "$(wc -l <"${args_log}" | tr -d ' ')" = "2" ] \
+  && [ "$(grep -c -- '--output-format json --document-hidden-items' "${args_log}")" = "2" ]; then
+  report_ok "build_hidden_flag"
+else
+  report_fail "build_hidden_flag" "both rustdoc calls must pass --document-hidden-items after --output-format json"
+fi
+: >"${args_log}"
+mkdir -p "${work}/emit_fake"
+PATH="${fakebin}:${PATH}" FAKE_TARGET="${work}/faketarget" FAKE_PROD="${work}/ok_noref.json" FAKE_ALL="${work}/ok_noref.json" \
+  FAKE_ARGS_LOG="${args_log}" "${CHECK}" --emit-json "${work}/emit_fake" >"${OUT_F}" 2>"${ERR_F}" </dev/null || true
+if [ "$(wc -l <"${args_log}" | tr -d ' ')" = "2" ] && ! grep -q -- '--document-hidden-items' "${args_log}"; then
+  report_ok "emit_no_hidden_flag"
+else
+  report_fail "emit_no_hidden_flag" "--emit-json must not pass --document-hidden-items"
+fi
 # コミットが取れなければビルドの前に終了コード 2 で止まる
 for mode in fail-rev fail-status garbage; do
   run_fake "${work}/ok_noref.json" "${work}/ok_noref.json" "${mode}"
@@ -544,6 +568,52 @@ pub fn leak() -> wgpu_dummy::Handle { wgpu_dummy::Handle }'
   real_lib 'pub use wgpu_dummy::Tr;'
   run_real
   judge "real_reexport" 1 "e:kind=other references=wgpu_dummy" "!ok: "
+
+  # doc(hidden) の公開アイテム（型を消したハンドルの読む口と同じ形。合成の名前）も走査に入ること（TASK-136 のポインタ）。
+  hidden_base='pub struct Erased { inner: Box<dyn core::any::Any + Send + Sync> }
+impl Erased {
+    pub fn new<T: core::any::Any + Send + Sync>(v: T) -> Self { Self { inner: Box::new(v) } }
+    #[doc(hidden)]
+    pub fn __downcast_ref<T: core::any::Any>(&self) -> Option<&T> { self.inner.downcast_ref::<T>() }'
+  real_lib "${hidden_base}
+}"
+  run_real
+  judge "real_hidden_erased_clean" 0 "o:ok: 2 public API document(s)" "o:wgpu_type_refs_total=0 wgpu_other_refs_total=0" "!violation"
+
+  real_lib "${hidden_base}
+    #[doc(hidden)]
+    pub fn __raw(&self) -> wgpu_dummy::Handle { wgpu_dummy::Handle }
+}"
+  run_real
+  judge "real_hidden_leak" 1 "e:features=production item=__raw kind=type references=wgpu_dummy" \
+    "e:features=all-features item=__raw kind=type references=wgpu_dummy" "e:FAILED: 2 reference(s)" "!ok: "
+
+  real_lib '#[doc(hidden)]
+pub mod hm {
+    pub fn leak() -> wgpu_dummy::Handle { wgpu_dummy::Handle }
+}'
+  run_real
+  judge "real_hidden_module_leak" 1 "e:item=leak kind=type references=wgpu_dummy" "!ok: "
+
+  # --emit-json の経路は隠したアイテムを足さない（emit を共有する他の検査の入力を変えない）
+  real_lib "${hidden_base}
+    #[doc(hidden)]
+    pub fn __raw(&self) -> wgpu_dummy::Handle { wgpu_dummy::Handle }
+}"
+  rc=0
+  (cd "${rw}/ws" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR ./scripts/public-api-check.sh --emit-json "${rw}/emit") \
+    >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  if [ "${rc}" -eq 0 ] && python3 -I - "${rw}/emit/api.production.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+names = [i.get("name") for i in d["index"].values()]
+sys.exit(1 if "__raw" in names else 0)
+PY
+  then
+    report_ok "real_emit_json_no_hidden"
+  else
+    report_fail "real_emit_json_no_hidden" "--emit-json output must not contain doc(hidden) items"
+  fi
 else
   report_fail "real_fixture_setup" "cannot prepare the temporary workspace"
 fi
