@@ -1,4 +1,4 @@
-//! feature ゲートの有無でコンパイルの成否が切り替わることを rustdoc の doctest で確かめる置き場（非公開）。
+//! feature ゲートの有無でコンパイルの成否が切り替わることを rustdoc の doctest で確かめる置き場（`doc(hidden)`）。
 //!
 //! 外部 crate（trybuild 等）を足さずに「feature を有効にしない構成ではコンパイルエラー、
 //! 有効にした構成では通る」を 1 つの snippet の対で確かめる。同じ snippet の fence を
@@ -18,4 +18,4 @@
 #[doc = "use fandhe_silicon_contract::backend_metal;"]
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
-pub(crate) struct BackendMetalGate;
+pub struct BackendMetalGate;
