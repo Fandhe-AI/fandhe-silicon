@@ -32,7 +32,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support` だけ。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
-| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`device_lost_reason_values.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
 
 ## 現状の形（2/6）
 
@@ -83,7 +83,26 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対象外: `--emit-json` を共有する検査（名前・SDK・WebGPU）の隠したアイテム、`Box<dyn Any>` に実行時に入る値の型（型検査では見えない。背後実装の持ち分）。エラー側の 3 型は [contract-error-types](contract-error-types.md) の持ち分で、照合は 5/6
 - 確かめ方: `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`
 - 詳細: [public-api-wgpu-check](public-api-wgpu-check.md)・[dep-graph-wgpu-check](dep-graph-wgpu-check.md)
-- 残る段: 5/6 以降
+- 残る段: 6/6
+
+## 確かめ（5/6）
+
+5/6（#3657）で記録した。GPU の実機なしで実行した値で、件数は実測。型の定義と TASK-269 の試験（`error.rs`・`error_*.rs`）は変えていない（ポインタ: DEV-65・DEV-142）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| D1 | エラー側の 3 型（`UnsupportedReason`・`DeviceLostReason`・`ContractError`）の `#[non_exhaustive]` | `grep -n -A1 'non_exhaustive' crates/core/src/error.rs` | 3 型に付いている |
+| D2 | 3 型の拡張性の試験 | `cargo test -p fandhe-silicon-core --test error_non_exhaustive`（`contract_error_stays_non_exhaustive`・`device_lost_reason_stays_non_exhaustive`・`unsupported_reason_stays_non_exhaustive`。先頭に `#![deny(unreachable_patterns)]`） | 6 件が通る。0 failed / 0 ignored |
+| D3 | `DeviceLostReason` の `Destroyed`・`Unknown`・`ValidationError(String)` | `error.rs` の定義と `cargo test -p fandhe-silicon-core --test device_lost_reason_values` | 3 値が定義にあり、新しい試験 3 件が通る。0 failed / 0 ignored |
+| D4 | `ValidationError(String)` の中身 | `device_lost_reason_values.rs` と `error_fields.rs::device_lost_reason_strings_round_trip` | 文字列を読み戻せる（`error_fields` は 13 件が通る） |
+| D5 | 定義の持ち主 | `error.rs` と `error_*.rs` に差分が無いこと | 変更なし |
+| D6 | wasm32 でのビルド | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --tests` | 通る |
+
+- `DeviceLostReason` には上の 3 値のほかに `Unrecoverable(String)` がある。定義と試験は TASK-269 の持ち分（ポインタ）。新しい試験は `_` の腕を持ち、値の個数は見ない
+- 対象外: ERR-64〜ERR-66 の扱い（`error-format.md` のタスクの持ち分。ポインタ）、spec 側の記録（6/6）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test device_lost_reason_values --test error_non_exhaustive --test error_fields`
+- 確かめた base: `d1b1563`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`
+- 残る段: 6/6
 
 ## 段の表
 
