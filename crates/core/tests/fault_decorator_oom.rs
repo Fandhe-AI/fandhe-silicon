@@ -2,7 +2,9 @@
 
 use std::cell::Cell;
 
-use fandhe_silicon_core::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureId};
+use fandhe_silicon_core::capability::{
+    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId,
+};
 use fandhe_silicon_core::error::{CompletionStateEx, ContractError};
 use fandhe_silicon_core::fault::decorator::{FaultInjecting, FaultScript};
 
@@ -52,6 +54,10 @@ fn other_scripts_call_inner_once_with_same_size() {
             required: CapabilityLevel::S2,
         },
         FaultScript::CapabilityQueryFails,
+        FaultScript::RuntimeError {
+            backend: BackendKind::Metal,
+            detail: String::new(),
+        },
     ];
     for s in others {
         let d = FaultInjecting::new(Fake::default(), s.clone());
