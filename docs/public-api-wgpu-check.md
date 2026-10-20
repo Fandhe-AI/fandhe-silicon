@@ -1,6 +1,6 @@
 # 公開 API に wgpu の型が無いことの検査（TASK-10）の所在と現状の事実
 
-4 crate の公開 API に wgpu 系の型・経路が出ていないことを rustdoc の JSON から機械で確かめる検査について、本リポのスクリプトと回帰テストから説明できる振る舞いを記録する。
+製品の workspace の各 crate の公開 API に wgpu 系の型・経路が出ていないことを rustdoc の JSON から機械で確かめる検査について、本リポのスクリプトと回帰テストから説明できる振る舞いを記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-10。ポインタのみ）。spec の本文・決定の内容は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
@@ -83,7 +83,7 @@ worktree のルートで実行する。
 
 | 確かめること | コマンド |
 | ------------ | -------- |
-| 4 crate × 2 組の `scanned:` の行と、`record:`・`ok:` の行が出る | `make public-api-check` |
+| crate ごとに 2 組の `scanned:` の行と、`record:`・`ok:` の行が出る | `make public-api-check` |
 | 回帰テストが通る | `make test-public-api-check` |
 | CI のログに走査の行が残る | `deny` ジョブのログで `scanned:` / `record:` を探す（例: `gh run view <id> --log \| grep -E 'scanned: crate\|record: commit'`） |
 | 文書と編集ファイルの書式 | `make check` |

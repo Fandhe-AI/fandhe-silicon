@@ -1,0 +1,26 @@
+# wasm-abi: wasm32 向けの cdylib の入口（spec TASK-237・BUILD-19 のポインタ）。
+# 依存は契約の crate だけ。置き場は spec TASK-6 の決定の記録に従う（ポインタのみ）。
+[package]
+name = "fandhe-silicon-wasm-abi"
+version = "0.0.0"
+description = "wasm32 cdylib entry of fandhe-silicon"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib が wasm32 の成果物。lib は公開 API の検査の枠（lib target を要る）のために入れる。
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+fandhe-silicon-contract = { path = "../contract", default-features = false }
+
+[features]
+default = ["contract-core", "cpu-isa", "cpu-ops"]
+contract-core = ["fandhe-silicon-contract/contract-core"]
+cpu-isa = ["fandhe-silicon-contract/cpu-isa"]
+cpu-ops = ["fandhe-silicon-contract/cpu-ops"]
+
+[lints]
+workspace = true

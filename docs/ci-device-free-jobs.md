@@ -70,9 +70,9 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `ci.yml` が枠の事実を保っているかの検査 |
 | `deny` | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | 上の回帰テスト（合成 fixture） |
 | `deny` | `make test-metal-session` | `scripts/test-metal-session.sh` | 上記 `test-hooks` と同じ回帰テスト |
-| `deny` | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（走査した公開アイテムの数が `scanned:` / `record:` の行としてログに残る） |
+| `deny` | `make public-api-check` | `scripts/public-api-check.sh` | 製品の workspace の crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（走査した公開アイテムの数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-api-check` | `scripts/test-public-api-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
-| `deny` | `make public-name-check` | `scripts/public-name-check.sh` | 4 crate の公開アイテムの名前に語の一覧の語が出ていないことの検査（走査の件数が `scanned:` / `record:` の行としてログに残る） |
+| `deny` | `make public-name-check` | `scripts/public-name-check.sh` | 製品の workspace の crate の公開アイテムの名前に語の一覧の語が出ていないことの検査（走査の件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-name-check` | `scripts/test-public-name-check.sh` | 上の回帰テスト（ダミーの語の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make public-api-sdk-check` | `scripts/public-api-sdk-check.sh` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査（件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-api-sdk-check` | `scripts/test-public-api-sdk-check.sh` | 上の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、一時 workspace の実物） |
