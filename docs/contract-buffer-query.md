@@ -53,6 +53,34 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 試験用の実装はファイルの中だけにあり、背後実装（Metal / Vulkan / CUDA）には依らない。背後実装の `allocate` が用途をハンドルへ渡すことの確かめは、この試験の範囲の外で、private spec 側の記録に従う（ポインタのみ）
 - 対応するテスト: `crates/core/tests/memory_buffer_usage_combinations.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_usage_combinations`（`--all-features` 付きでも流す）
-- 残る段: 5/6〜6/6
 
-確かめた base は `930f319`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
+## 方針の整理（5/6）
+
+この段でコード・公開 API は変えていない。範囲の正は private spec 側の記録にある（`docs/spec/05-tasks.md` の TASK-310・TASK-297。ポインタのみ）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 用途を読んで操作を拒む処理 | 製品の `src/` に無い（`.usage()`・`.size()` は `crates/core/src/memory/buffer.rs` の定義 2 行だけがヒットし、呼び出し元は試験だけ） | `git grep -n -E '(fn \|\.)(usage\|size)\(' -- crates/core/src crates/contract/src crates/exec/src crates/upper/src` |
+| 背後実装の `impl MemoryOps` | `crates/contract`・`exec`・`upper` に無い | `git grep -n 'impl MemoryOps' -- crates/contract crates/exec crates/upper` |
+| `import_memory` | 本リポに無い | `git grep -n import_memory -- crates wasm measure` |
+| `docs/contract/` の項目ファイル | 項目ごとのファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` のみ） | `ls docs/contract` |
+
+方針:
+
+- この TASK が `core` で受け持つのは、`size`・`usage` の 2 つの関数、`allocate` の rustdoc の契約、試験用の実装による試験だけ
+- 用途と操作の対応の検査は、この TASK の段では足さない。扱いは private spec 側の記録に従う（ポインタのみ。MEM-109、TASK-1779・TASK-1796）
+- 背後実装の `allocate` が `byte_len`・`usage` をハンドルへ渡すことの確かめは、この TASK の試験の範囲の外。扱いは private spec 側の記録に従う（ポインタのみ。TASK-314・TASK-327・TASK-340）。この TASK の試験は、試験用の実装で契約を確かめるところまで
+- `docs/contract/` の項目ファイルは、この TASK の段では作らない。背後実装ごとの提供・非提供を裏づける公開テストが本リポに無く、[docs/contract/README.md](contract/README.md) の「テストの無い約束は書かない」に当たる。作る時期は private spec 側の記録に従う（ポインタのみ）
+- 公開する名前の `size`・`usage` は `make public-name-check` の対象に入っていて、通っている
+
+6/6 で完了の条件（MEM-3・MEM-44・MEM-45。ポインタのみ）を確かめるときに流すもの。合否の判定は 6/6 で行い、この段では書かない。
+
+| 試験ファイル | 指す項目 |
+| ------------ | -------- |
+| `crates/core/tests/memory_buffer_query.rs` | MEM-44・MEM-45 |
+| `crates/core/tests/memory_buffer_query_dyn.rs` | MEM-44・MEM-45 |
+| `crates/core/tests/memory_buffer_usage_combinations.rs` | MEM-44・MEM-45 |
+
+- コマンド: `cargo test -p fandhe-silicon-core --test memory_buffer_query --test memory_buffer_query_dyn --test memory_buffer_usage_combinations --all-features` と `make verify`
+- 残る段: 6/6
+- 確かめた base は `8ac9997`、`docs/spec` の gitlink は `0a802d7` を指す。
