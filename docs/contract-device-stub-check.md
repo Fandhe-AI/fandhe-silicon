@@ -162,6 +162,47 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 
 「実装（3/6）」の「再開の条件」に従う。部品が main に入って契約テストを足す PR で、要る組と CI での流れ方をその PR のコードと公開テストで示し、本書に書き足す。段の表は変えない。残る段: 6/6。
 
+## 確かめ（6/6）
+
+6/6（#3664）で記録した。範囲は `docs/spec/05-tasks.md` の TASK-137 の内容の 3〜4 文目（ポインタのみ）。結果は GPU の実機なしで観測した値で、件数は実測。コード・試験・CI は変えていない。
+
+### 成果物と本リポの物の対応
+
+| 成果物 | 本リポ | 本書の節 |
+| ------ | ------ | -------- |
+| スタブの実装の契約テスト | 無い（前提の部品が無いため） | 「実装（3/6）」の「契約テストが要る部品の所在」 |
+| feature の組ごとのビルド検査 | 組ごとのビルドの土台は `scripts/build-profiles.sh`（`NATIVE_SETS`・`WASM_SETS`）にあり、CI の `verify` ジョブの `make build-profiles` が流す。契約テストを組ごとに流す部分は、契約テストと一緒に入る | 「CI への組み込み（5/6）」 |
+
+### 持ち分のポインタ
+
+中身は書かない（ポインタのみ）。
+
+- 背後実装の実体の振る舞いの試験: TASK-195（#1126）・TASK-196（#447）・TASK-197（#448）・TASK-720（#1305）
+- プロファイルごとの本数の照合: TASK-227（#1149）
+
+### 確かめの表
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| F1 | 公開のトレイト | `git grep -nE 'pub trait' -- crates wasm` | 4 件（`Capabilities`・`FaultHooks`・`MemoryOps`・`Check`） |
+| F2 | device まわりの口 | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Queue\|Stub)' -- crates wasm` | `DeviceRequest`・`NativeDeviceHandle`・`FaultStub` の 3 件だけ |
+| F3 | feature の裏のアイテム | `git grep -n 'feature = "graphics"' -- crates`・`git grep -n 'feature = "artifact-inspection"' -- crates` | いずれも 0 件 |
+| F4 | 背後実装のモジュールの公開の項目 | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_metal.rs crates/contract/src/backend_vulkan.rs crates/contract/src/backend_cuda.rs` | `backend_vulkan.rs` の `pub mod spirv_operands` だけ（4/6 の記録と同じ） |
+| F5 | CI での組ごとの検査 | `grep -n 'run: make' .github/workflows/ci.yml` | `verify` ジョブで `make verify` の後に `make build-profiles` |
+| F6 | 前提と持ち分の Issue | `gh issue view <番号> --json state`（#696・#784・#1100・#1126・#447・#448・#1305・#1149） | 8 件とも OPEN |
+| F7 | 言及の範囲 | `git grep -nE 'TASK-137([^0-9]\|$)' -- . ':!docs/spec' ':!.agents'` | 本書・`CLAUDE.md`・`README.md` だけ |
+| E1 | base の直前の CI | `gh run list --branch main --workflow ci.yml --limit 5` | 確かめた base のコミットの run は取得時点で実行中。1 つ前の run `39527629926` は completed / success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+- 実機の run と `make inventory-trace-check`（`docs/spec` の取得が要る）は含めない。
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-137）。
+
+### 再開の条件
+
+「実装（3/6）」の「再開の条件」に従う。部品が main に入って契約テストを足す PR で、そのコードと公開テストに照らして本書の各段の記録を書き足す。段の表は変えない。残る段: なし。
+
+- 確かめた base: `229803f`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28`
+
 ## 本リポでの反映の方針
 
 本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
