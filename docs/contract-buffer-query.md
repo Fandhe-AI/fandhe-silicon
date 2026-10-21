@@ -55,4 +55,42 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_usage_combinations`（`--all-features` 付きでも流す）
 - 残る段: 5/6〜6/6
 
-確かめた base は `930f319`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
+## 完了の条件の確かめ（6/6）
+
+6/6（#4298）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-310）。GPU の実機なしで実行し、件数は実測。本体のコードと試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 |
+| ------ | ------ |
+| 大きさ・用途の問合せ（`size()`・`usage()`）と `allocate` の契約 | `crates/core/src/memory/buffer.rs`・`ops.rs`（上の 2/6・3/6 の節） |
+| 往復の試験 | `crates/core/tests/memory_buffer_query.rs`・`memory_buffer_query_dyn.rs` |
+| 用途の組み合わせの網羅の試験 | `crates/core/tests/memory_buffer_usage_combinations.rs`（上の 4/6 の節） |
+| 7 値の土台の試験と `free` の doctest | `crates/core/tests/memory_usage_values.rs`・`crates/contract/src/memory_free_doctest.rs`（[contract-memory-types](contract-memory-types.md)） |
+
+### 確かめ
+
+| 項目 | 方法 | 結果 |
+| ---- | ---- | ---- |
+| 4 本の試験 | `cargo test -p fandhe-silicon-core` に `--test` で 4 本（`memory_buffer_query`・`memory_buffer_query_dyn`・`memory_buffer_usage_combinations`・`memory_usage_values`）を指定 | 4・5・4・6 件が passed、failed・ignored は 0（終了コード 0） |
+| 同じ（`--features native-blocking-wait`） | 同上 | 同じ件数で終了コード 0 |
+| 同じ（`--all-features`） | 同上 | 同じ件数で終了コード 0 |
+| feature なしで走ること | `crates/core/Cargo.toml` に上の 4 本の `[[test]]` 宣言が無い | 0 件 |
+| `free` の doctest | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc memory_free_doctest` | 4 件が passed（正常 1・compile_fail 3） |
+| 外部依存と unsafe | `core` の `#![forbid(unsafe_code)]`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | forbid あり、外部依存 0 |
+| wasm32 | 4 本それぞれ `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test <名前>` | 終了コード 0 |
+| 検査 | `make build-profiles`・`make wasm-verify`・`make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | どれも終了コード 0 |
+| 背後実装 | `impl MemoryOps` を `crates`・`wasm`・`measure`・`baseline-wgpu` で検索 | 試験の中の試験用の実装だけで、背後実装は無い |
+| base の CI | `ci.yml` の main の push の run | 直前の `930f319` の run（39534529883）は completed・success。`8ac9997` の run（39535613659）は記録時点で in_progress |
+
+- 対象外（本リポにコードが無い、または別タスクの範囲）: 背後実装の `allocate` が値をハンドルへ渡すことの確かめ、用途と操作の対応の検査、`import_memory`。いずれも private spec 側の記録に従う（ポインタのみ）
+
+### 再実行の契機
+
+- `buffer.rs`・`ops.rs` の `size`・`usage`・`__backend_new`・`allocate` の契約を変えたとき
+- 上の 4 本の試験か `memory_free_doctest.rs` を変えたとき
+- `BufferUsage` の値が増えたとき
+- 背後実装の `MemoryOps` が入ったとき
+- `docs/spec` の gitlink が進んだとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-310）。確かめた base は `8ac999765331c3006db8daffa9ea9d8d140f3fa3`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
