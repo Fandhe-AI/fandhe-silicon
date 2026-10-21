@@ -80,6 +80,24 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - 背後実装（Metal / Vulkan / CUDA）の `allocate` が実際に受け付けることは、この試験の範囲の外
 - 残る段: 4/6〜6/6
 
+## 試験（4/6）
+
+`crates/core` の `src/` は変えず、`crates/contract/src/` に doctest だけのモジュール `memory_free_doctest`（`doc(hidden)`・feature `test-support` の裏）を足した。
+1/6 の表の「`contract` の公開面」の行は、この節の時点で `doc(hidden)` のモジュールが 1 つ増えた。
+
+| 確かめること | 事実 |
+| ------------ | ---- |
+| 2 回目の `free` | 同じ `BufferHandle` の変数に `MemoryOps::free` を 2 回呼ぶコードは、値の move の後の使用（E0382）でコンパイルできない（`compile_fail`） |
+| 通る対照 | 2 回目の `free` の有無だけが違う、1 回だけ呼ぶ例は通る |
+| `Clone`・`Copy` | `BufferHandle` に `clone()` を呼ぶ例（E0599）と `Copy` の境界を課す例（E0277）はコンパイルできない |
+
+- 実装は書かず、`&dyn MemoryOps` を受ける関数で確かめる。背後実装（Metal / Vulkan / CUDA）には依らない
+- stable の rustdoc は `compile_fail` のエラーコードを照合しないため、通る対照を対にしている
+- 対応するテスト: `crates/contract/src/memory_free_doctest.rs` の doctest
+- 確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc`
+- 実行時の二重解放の検査は、この試験の範囲の外
+- 残る段: 5/6〜6/6
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（型・値・メソッド・置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
@@ -98,4 +116,4 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
-確かめた base は `1faad54`、`docs/spec` の gitlink は `f603cba` を指す。
+確かめた base は `1e8979b`、`docs/spec` の gitlink は `f603cba` を指す。

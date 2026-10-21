@@ -14,6 +14,11 @@
 #[doc(hidden)]
 pub mod cfg_gate_doctest;
 
+// 二重の `free` が型で拒否されることの試験（doctest のみ）。core の型へは `test-support` の構成で届くため、その裏に置く。
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod memory_free_doctest;
+
 // 背後実装のモジュール。
 // Metal は feature のみでゲートする（spec BUILD-22）。
 #[cfg(feature = "backend-metal")]
