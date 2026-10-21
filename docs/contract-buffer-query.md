@@ -53,7 +53,6 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 試験用の実装はファイルの中だけにあり、背後実装（Metal / Vulkan / CUDA）には依らない。背後実装の `allocate` が用途をハンドルへ渡すことの確かめは、この試験の範囲の外で、private spec 側の記録に従う（ポインタのみ）
 - 対応するテスト: `crates/core/tests/memory_buffer_usage_combinations.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_usage_combinations`（`--all-features` 付きでも流す）
-- 残る段: 5/6〜6/6
 
 ## 完了の条件の確かめ（6/6）
 
