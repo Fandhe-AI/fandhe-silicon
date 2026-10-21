@@ -128,16 +128,6 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 
 - 置き場が `core` であることは TASK-308 の決定の記録に従う（ポインタのみ）
 
-### 規則と試験の対応
-
-| 規則（TASK-308 の内容の番号） | 項目 ID（ポインタ） | 試験（関数名） |
-| ----------------------------- | ------------------- | -------------- |
-| (1) | MEM-3 | `memory_usage_values` の `usage_constants_have_defined_bits`・`usage_constants_are_single_disjoint_bits`・`usage_all_combinations_round_trip`・`allocate_accepts_every_combination_through_dyn`・`allocate_accepts_each_single_usage`・`mismatch_check_detects_wrong_expectation`、`memory_types` の `buffer_usage_combines_with_bitor` |
-| (2) | MEM-7 | `memory_free_doctest` の doctest 4 本（通る対照の `FreeOnce`、`compile_fail` の `FreeTwice`・`NoClone`・`NoCopy`） |
-| (3) | MEM-82 | `memory_pending_release` の `default_impl_returns_none_direct`・`default_impl_returns_none_through_dyn`・`default_impl_returns_none_through_generic`・`default_impl_stays_none_after_allocate_and_free`・`default_none_is_distinct_from_some_zero`・`override_reports_some_values`・`classify_detects_wrong_expectation` |
-
-- 各規則の中身は、対応する「試験」の節に書いてある。ここでは繰り返さない
-
 ### 確かめ
 
 | # | 確かめる項目 | 方法 | 結果 |
