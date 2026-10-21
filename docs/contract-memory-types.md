@@ -43,7 +43,7 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | 3/6 | #4285 | テスト |
 | 4/6 | #4286 | テスト |
 | 5/6 | #4287 | テスト |
-| 6/6 | #4288 | 確かめ |
+| 6/6 | #4288 | 確かめ（本書の「完了の条件の確かめ（6/6）」） |
 
 ## 現状の形（2/6）
 
@@ -114,6 +114,53 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - 背後実装（Metal / Vulkan / CUDA）が返す実際の値と、実行時の解放の振る舞いは、この試験の範囲の外
 - 残る段: 6/6
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#4288）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-308）。結果は GPU の実機なしで実行した値で、件数は実測。本体のコード（`src/`）と試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 | 本書の節 |
+| ------ | ------ | -------- |
+| 型の実装 | `crates/core/src/memory.rs`・`crates/core/src/memory/buffer.rs`・`crates/core/src/memory/ops.rs` | 現状の形（2/6） |
+| 型の試験 | `crates/core/tests/memory_types.rs`・`memory_usage_values.rs`・`memory_pending_release.rs` | 現状の形（2/6）・試験（3/6）・試験（5/6） |
+| `compile_fail` の doctest | `crates/contract/src/memory_free_doctest.rs`（`doc(hidden)`・`test-support` の裏） | 試験（4/6） |
+
+- 置き場が `core` であることは TASK-308 の決定の記録に従う（ポインタのみ）
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| B1 | feature なしの統合テスト | `cargo test -p fandhe-silicon-core --test memory_types --test memory_usage_values --test memory_pending_release` | `memory_types` 3 件・`memory_usage_values` 6 件・`memory_pending_release` 7 件が passed。0 failed・0 ignored |
+| B2 | `native-blocking-wait` 付き | B1 に `--features native-blocking-wait` を付ける | 同じ 3・6・7 件が passed |
+| B3 | `--all-features` | B1 に `--all-features` を付ける | 同じ 3・6・7 件が passed |
+| B4 | `required-features` の宣言 | `crates/core/Cargo.toml` の `[[test]]` | 3 本とも `[[test]]` の宣言が無く、feature なしでも走る |
+| B5 | `compile_fail` の doctest | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc memory_free_doctest` | 4 件（通る例 1・`compile_fail` 3）が passed。0 failed |
+| B6 | doctest を feature の組み合わせで流す | `--features test-support,native-blocking-wait` と `--all-features` で B5 を流す | どちらも同じ 4 件が passed |
+| B7 | `test-support` なしの陰性対照 | `cargo test -p fandhe-silicon-contract --no-default-features --doc memory_free_doctest` | 集まる件数が 0（モジュールが `cfg(feature = "test-support")` の裏にある） |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`・`cargo tree -p fandhe-silicon-core -e normal --depth 1`・`deps-approved.toml` | `pub mod memory;` に feature の条件が無い。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
+| C2 | 製品の経路からの参照 | `git grep -E 'BufferUsage\|BufferHandle\|MemoryOps' -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` | 当たりは `crates/contract/src/memory_free_doctest.rs` だけ |
+| C3 | TASK-308 の言及の今の一覧 | `git grep -l TASK-308 -- . ':!docs/spec' ':!.agents'` | 本書・`CLAUDE.md`・`README.md`・`crates/core/src/memory.rs`・`memory/buffer.rs`・`memory/ops.rs`・`crates/core/src/execution/dispatch_check.rs`・`crates/contract/src/memory_free_doctest.rs`・試験 3 本の 11 ファイル。「本リポの現状」の表の行より増えている（その表は書き換えず、ここを今の事実とする） |
+| C4 | wasm32 と本番の組 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test memory_types --test memory_usage_values --test memory_pending_release`（`--features native-blocking-wait` 付きも）・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+| C5 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | 3 つとも終了コード 0 |
+| C6 | 対象外の事実 | 各「試験」の節の対象外 | 実行時の二重解放の検査、背後実装の `allocate` が実際に受け付けること、背後実装が返す `pending_release_count` の値は範囲の外（背後実装ごとのタスクのポインタ） |
+| E1 | base の CI | `gh run list --branch main --workflow ci.yml` | base の run 39522744374 は completed・success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | 4 つとも終了コード 0 |
+
+- C4 で `--tests` により全部の試験を一度に検査する形は使っていない。別件の `test_frame_decide` が wasm32 でコンパイルできないため（本件では直さない）
+- 実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない
+
+### 再実行の契機
+
+- `crates/core/src/memory/buffer.rs`・`ops.rs` の型・定数・derive・メソッド・既定の実装・`cfg` を変えたとき
+- 上の 3 本の試験か `memory_free_doctest.rs` を変えたとき
+- `core`・`contract` の feature（`test-support`・`native-blocking-wait`）の宣言か転送を変えたとき
+- 背後実装の `MemoryOps` が入ったとき（TASK-314・TASK-327・TASK-340 など、背後実装ごとのタスクのポインタ）
+- `docs/spec` の gitlink が進んだとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-308）。確かめた base は `e87f4edb1e8c15f95c06ee23adf6d6763e3e4258`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（型・値・メソッド・置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
@@ -131,5 +178,3 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [test-frame](test-frame.md)
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
-
-確かめた base は `f525653`、`docs/spec` の gitlink は `0a802d7` を指す。
