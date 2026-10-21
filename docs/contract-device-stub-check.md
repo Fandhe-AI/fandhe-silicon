@@ -41,9 +41,62 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 5/6 | #3663 | CI への組み込み |
 | 6/6 | #3664 | 確かめ |
 
+## 形の設計（2/6）
+
+本段の範囲は `docs/spec/05-tasks.md` の TASK-137 の内容の 1 文目（ポインタのみ）。
+具体の形（型・名前・置き場・試験の名前・本数の数え方）は 3/6（#3661）以降のコードと公開テストが示し、本節には先に書かない。
+
+### 決定の記録に従う点
+
+形は TASK-137 と `docs/spec/04-behavior/api-device-capability.md` の DEV-15・DEV-59・DEV-60・DEV-63・DEV-66・DEV-80 から辿る決定の記録に従う（ポインタのみ。内容は書かない）。
+関連のポインタ: アクセサの共通の形は TASK-134、試験用の device の置き場は TASK-126、投入の列のトレイトは TASK-588、compute の型は TASK-769、故障の差し込み口は TASK-271、プロファイルごとの本数の照合は TASK-227。
+決定の記録から一意に決まらない点は [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md) の経路で扱う。
+
+### 形が乗る既存のコード・検査の事実
+
+「本リポの現状」の表と重なる行は、そちらを参照する。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| feature | `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait` だけで、`graphics` は `crates/contract` にしか無い | 両 crate の `Cargo.toml` の `[features]` |
+| `artifact-inspection` | contract では `backend-metal` を要求する。core に同名の feature は無い | `crates/contract/Cargo.toml` |
+| `fault-injection` | contract から core へ転送される | `crates/contract/tests/fault_injection_forwarding.rs` |
+| 試験と feature | core の試験はファイルごとに `required-features` で feature に結び付けている | `crates/core/Cargo.toml` の `[[test]]` |
+| 組ごとのビルド | `NATIVE_SETS`・`WASM_SETS`（`make build-profiles`、CI の `verify` ジョブ） | `scripts/build-profiles.sh` |
+| コンパイル失敗の枠 | `crates/contract/src/cfg_gate_doctest.rs`（[feature-gate-compile-check](feature-gate-compile-check.md)） | 同左 |
+
+### 前提の部品と持ち主
+
+| 部品 | 本リポ | 持ち主（ポインタ） | 公開側の Issue |
+| ---- | ------ | ------------------ | -------------- |
+| 投入の列のトレイト | 無い | TASK-588 | #696 |
+| compute の口 | 無い | TASK-769 | #784 |
+| 試験用の device の置き場 | 無い | TASK-126 | #1100 |
+| device のトレイト・device を返す入口 | 無い | TASK-137 の記録に従う | なし |
+| メモリの操作のトレイト | ある（`crates/core/src/memory/ops.rs`） | なし | なし |
+
+確かめ方: `git grep -nE 'pub trait' -- crates wasm`、`gh issue view <番号> --json state`。
+
+### どの形でも守る本リポの規約
+
+| 項目 | 規約 | 所在 |
+| ---- | ---- | ---- |
+| 依存 | 外部 crate 0。`deps-approved.toml` の範囲 | [dependency-policy](../.claude/rules/dependency-policy.md) |
+| unsafe | core・exec・upper は `forbid(unsafe_code)`。スタブは unsafe を持たない | [coding-rust](../.claude/rules/coding-rust.md)、[unsafe-policy](unsafe-policy.md) |
+| wasm32 | core に足す物は wasm32 でも通す | `WASM_SETS` |
+| 試験用の物 | 本番の feature の組に入れない（`test-support`・`fault-injection` の前例） | `crates/core/Cargo.toml` |
+| 本数の観測 | プロファイルごとの成功の本数は TASK-227 が照合する。試験は feature の組ごとに本数が数えられる置き方にする | 同左 |
+| PoC からの持ち込み | 複製せず、本リポの規約に沿って書き直す | [poc-carry-over](../.claude/rules/poc-carry-over.md) |
+| spec との対応 | ID のポインタだけ | [spec-confidentiality](../.claude/rules/spec-confidentiality.md) |
+
+### 3/6 以降で扱うこと
+
+3/6 実装・4/6 テスト・5/6 CI への組み込み・6/6 確かめ（段の表のとおり）。
+上の表で「無い」の部品が本リポに入る前に、3/6 で持ち主の TASK の型を先取りして定義しない。
+
 ## 本リポでの反映の方針
 
-本書には現状の事実だけを置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
+本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
 置き場と形は TASK-137 の記録に従う（ポインタのみ）。`core` に足す場合は外部依存 0・`forbid(unsafe_code)`・wasm32 でも通る形を保つ。
 
 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[code-comment-style](../.claude/rules/code-comment-style.md)。
