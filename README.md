@@ -93,7 +93,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-error-types.md` | 契約のエラー・完了状態の型（TASK-269）の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8） |
 | `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6） |
 | `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）（TASK-137） |
-| `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6） |
+| `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6） |
 | `docs/contract-fault-injection.md` | 故障の差し込みの部品（TASK-271）の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8） |
 | `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6） |
 | `docs/artifact-cache-check.md` | 成果物キャッシュの照合（TASK-483）の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8） |
