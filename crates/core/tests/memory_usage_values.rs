@@ -35,11 +35,11 @@ struct RecordingOps {
 }
 
 impl MemoryOps for RecordingOps {
-    fn allocate(&self, _byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
+    fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         let mut seen = self.seen.borrow_mut();
         seen.push(usage);
         let id = u64::try_from(seen.len()).expect("count fits u64");
-        Ok(BufferHandle::__backend_new(0, id, 1))
+        Ok(BufferHandle::__backend_new(0, id, 1, byte_len, usage))
     }
 
     fn upload(&self, _dst: &BufferHandle, _off: u64, _bytes: &[u8]) -> Result<(), ContractError> {

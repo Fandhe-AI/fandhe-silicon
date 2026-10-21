@@ -62,6 +62,7 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/memory_types.rs`（構築と呼び出しだけを見る最小の試験）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_types`（`--features native-blocking-wait` 付きでも流す）
 - 残る段: 3/6〜6/6
+- `BufferHandle` のフィールドと `__backend_new` の引数は TASK-310 の 2/6 で増えた。今の形は [contract-buffer-query](contract-buffer-query.md) を見る
 
 ## 試験（3/6）
 

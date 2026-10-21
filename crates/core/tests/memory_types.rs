@@ -21,12 +21,12 @@ impl Stub {
 }
 
 impl MemoryOps for Stub {
-    fn allocate(&self, byte_len: u64, _usage: BufferUsage) -> Result<BufferHandle, ContractError> {
+    fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         let id = self.store.borrow().len() as u64 + 1;
         self.store
             .borrow_mut()
             .insert(id, vec![0; byte_len as usize]);
-        Ok(BufferHandle::__backend_new(0, id, 1))
+        Ok(BufferHandle::__backend_new(0, id, 1, byte_len, usage))
     }
 
     fn upload(
@@ -126,8 +126,10 @@ fn buffer_usage_combines_with_bitor() {
 
 #[test]
 fn buffer_handle_backend_accessors_round_trip() {
-    let h = BufferHandle::__backend_new(3, 5, 7);
+    let h = BufferHandle::__backend_new(3, 5, 7, 64, BufferUsage::STORAGE);
     assert_eq!(h.__backend_generation(), 3);
     assert_eq!(h.__backend_id(), 5);
     assert_eq!(h.__backend_device_id(), 7);
+    assert_eq!(h.size(), 64);
+    assert_eq!(h.usage(), BufferUsage::STORAGE);
 }

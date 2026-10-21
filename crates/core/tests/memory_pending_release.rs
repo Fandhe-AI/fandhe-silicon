@@ -91,18 +91,18 @@ macro_rules! stub_required_methods {
 }
 
 impl MemoryOps for DefaultOps {
-    fn allocate(&self, _byte_len: u64, _usage: BufferUsage) -> Result<BufferHandle, ContractError> {
+    fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         let id = self.next_id.get().checked_add(1).expect("id fits u64");
         self.next_id.set(id);
-        Ok(BufferHandle::__backend_new(0, id, 1))
+        Ok(BufferHandle::__backend_new(0, id, 1, byte_len, usage))
     }
 
     stub_required_methods!();
 }
 
 impl MemoryOps for OverrideOps {
-    fn allocate(&self, _byte_len: u64, _usage: BufferUsage) -> Result<BufferHandle, ContractError> {
-        Ok(BufferHandle::__backend_new(0, 1, 1))
+    fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
+        Ok(BufferHandle::__backend_new(0, 1, 1, byte_len, usage))
     }
 
     fn pending_release_count(&self) -> Option<u64> {

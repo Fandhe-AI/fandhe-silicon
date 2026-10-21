@@ -8,6 +8,7 @@ use core::ops::{BitOr, BitOrAssign};
 /// 確保のときに申告する用途のビットの集まり（MEM-3 のポインタ）。
 ///
 /// 内部のビットは非公開で、7 つの定数と `|` で組み立てる。
+/// 確保した用途は `BufferHandle::usage` で読める。
 /// 用途と操作の対応の検査は、この型の責務ではない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferUsage(u32);
@@ -67,7 +68,8 @@ impl BitOrAssign for BufferUsage {
 
 /// 背後実装が払い出す不透明なバッファのハンドル（MEM-7 のポインタ）。
 ///
-/// フィールドは非公開で、`Clone`・`Copy` を実装しない。解放は `MemoryOps::free` が値で受け取って消費する。
+/// フィールドは非公開（世代・識別子・device の識別子・確保した大きさ・用途）で、`Clone`・`Copy` を実装しない。
+/// 大きさと用途は `size`・`usage` で読める（TASK-310 のポインタ）。解放は `MemoryOps::free` が値で受け取って消費する。
 /// 下の `__backend_*` は背後実装（下-1）だけが使う口で、上・下-2 は使わない。
 /// `__backend_new` は safe で誰でも値を作れるため、背後実装は device・id・世代を照合して拒否すること（MEM-79・MEM-80 のポインタ）。
 #[derive(Debug)]
@@ -75,16 +77,41 @@ pub struct BufferHandle {
     generation: u64,
     id: u64,
     device_id: u64,
+    byte_len: u64,
+    usage: BufferUsage,
 }
 
 impl BufferHandle {
-    /// 背後実装がハンドルを作る。
+    /// 確保した大きさ（バイト）を返す（MEM-44 のポインタ）。
+    ///
+    /// `__backend_new` に渡された値をそのまま返す。背後実装を呼ばず、失敗しない。
+    /// 範囲の検査の正は背後実装が持つ記録で、この値を正にしない。
+    pub fn size(&self) -> u64 {
+        self.byte_len
+    }
+
+    /// 確保のときに申告した用途を返す（MEM-45 のポインタ）。
+    ///
+    /// `__backend_new` に渡された値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn usage(&self) -> BufferUsage {
+        self.usage
+    }
+
+    /// 背後実装がハンドルを作る。`byte_len`・`usage` は `allocate` に渡された値を渡す。
     #[doc(hidden)]
-    pub fn __backend_new(generation: u64, id: u64, device_id: u64) -> Self {
+    pub fn __backend_new(
+        generation: u64,
+        id: u64,
+        device_id: u64,
+        byte_len: u64,
+        usage: BufferUsage,
+    ) -> Self {
         Self {
             generation,
             id,
             device_id,
+            byte_len,
+            usage,
         }
     }
 
