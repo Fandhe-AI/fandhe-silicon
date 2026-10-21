@@ -9,6 +9,10 @@ use crate::error::ContractError;
 /// バッファの確保・書き込み・読み出し・解放の口。
 pub trait MemoryOps {
     /// `byte_len` バイトのバッファを `usage` の用途で確保する。
+    ///
+    /// 返すハンドルは、受けた `byte_len`・`usage` を `BufferHandle::__backend_new` にそのまま渡して作る。
+    /// 呼び出し側は返ったハンドルの `size()`・`usage()` で同じ値を読める（TASK-310・MEM-44・MEM-45 のポインタ）。
+    /// `size()` は範囲の検査の正にしない。
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError>;
 
     /// `bytes` を `dst` の `dst_offset` から書き込む。
