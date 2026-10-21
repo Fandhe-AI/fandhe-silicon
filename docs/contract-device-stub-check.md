@@ -141,6 +141,27 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 
 「実装（3/6）」の「再開の条件」に従う。段の表は変えない。残る段: 5/6〜6/6。
 
+## CI への組み込み（5/6）
+
+本段の範囲は `docs/spec/05-tasks.md` の TASK-137 の成果物の 2 つ目（ポインタのみ）。
+本段でも CI の設定・スクリプト・コード・試験を変えない（専用のジョブ・step・make ターゲット・組は足していない）。「実装（3/6）」の「契約テストが要る部品の所在」の表の部品が、今も `crates/`・`wasm/` に無いため（表は繰り返さない）。
+
+### CI での走り方の事実
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 組ごとの検査の step | CI の `verify` ジョブで、`make verify`（`--all-features`）の後に `make build-profiles` が流れる | `grep -n 'run: make' .github/workflows/ci.yml` |
+| 流れる組 | 既定の組、`NATIVE_SETS` の各組、core を feature なしで流す行、`--all-features`、`WASM_SETS` の `cargo check` | `grep -n '_SETS' scripts/build-profiles.sh` |
+| 試験の拾われ方 | `crates/contract/tests/` の試験は、各組の `cargo test -p fandhe-silicon-contract` で自動で流れる（前例: [contract-feature-check](contract-feature-check.md) の「CI への組み込み（3/3）」）。core の試験は `crates/core/Cargo.toml` の `[[test]]` の `required-features` で feature に結び付く | `scripts/build-profiles.sh`、`crates/core/Cargo.toml` |
+| コンパイル失敗の枠 | `crates/contract/src/cfg_gate_doctest.rs` の doctest は組ごとの test で流れる（[feature-gate-compile-check](feature-gate-compile-check.md) の「CI への組み込み（3/4）」） | 同左 |
+| feature の裏のアイテム | `graphics`・`artifact-inspection` で切られたアイテムは今も 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
+| 公開のトレイト | 4 件のまま（「本リポの現状」の表と同じ） | `git grep -nE 'pub trait' -- crates wasm` |
+| 前提の部品の Issue | #696・#784・#1100 は OPEN | `gh issue view <番号> --json state` |
+
+### 再開の条件
+
+「実装（3/6）」の「再開の条件」に従う。部品が main に入って契約テストを足す PR で、要る組と CI での流れ方をその PR のコードと公開テストで示し、本書に書き足す。段の表は変えない。残る段: 6/6。
+
 ## 本リポでの反映の方針
 
 本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
