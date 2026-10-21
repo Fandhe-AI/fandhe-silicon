@@ -22,3 +22,22 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/memory_buffer_query.rs`（大きさの往復・用途の往復・ほかのフィールドが変わらないこと・共有参照越しの呼び出し）。既存の `memory_types.rs`・`memory_usage_values.rs`・`memory_pending_release.rs` は 5 引数に追従
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_query`（`--all-features` 付きでも流す）
 - 残る段: 3/6〜6/6
+
+## 試験（4/6）
+
+`crates/core` の `src/` は変えず、試験ファイルを 1 つ足した。公開 API の変化は無い。
+
+| 確かめること | 内容 |
+| ------------ | ---- |
+| 全 128 通り | 空を含む 7 値の全組み合わせで、`&dyn MemoryOps` 越しの `allocate` に渡した用途と、返ったハンドルの `usage()` が等しい（`bits()` の一致・7 定数それぞれの `contains` を含む） |
+| 大きさ | 同じハンドルの `size()` が `allocate` に渡した `byte_len` と等しい |
+| 7 値を 1 つずつ | 失敗時に定数名が分かる形で、`usage()` が渡した定数と等しい |
+| 共有参照 | 同じハンドルの `usage()` を繰り返し呼んでも同じ値 |
+| 陽性対照 | 渡された用途に 1 ビット足す試験用の実装を、照合が検出する（正しい実装では食い違いが空） |
+
+- 試験用の実装はファイルの中だけにあり、背後実装（Metal / Vulkan / CUDA）には依らない。背後実装の `allocate` が用途をハンドルへ渡すことの確かめは、この試験の範囲の外で、private spec 側の記録に従う（ポインタのみ）
+- 対応するテスト: `crates/core/tests/memory_buffer_usage_combinations.rs`
+- 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_usage_combinations`（`--all-features` 付きでも流す）
+- 残る段: 5/6〜6/6
+
+確かめた base は `5991c78`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
