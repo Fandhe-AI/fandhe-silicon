@@ -16,7 +16,9 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 | TASK-308 | `crates/core/src/memory/buffer.rs`（`BufferUsage`・`BufferHandle`）・`crates/core/src/memory/ops.rs`（`MemoryOps`） | [contract-memory-types](contract-memory-types.md) |
 | TASK-309 | `crates/core/src/memory/buffer_check.rs`（`validate_buffer_range`・`validate_allocation_size`） | [buffer-range-check](buffer-range-check.md) |
 
-## 本リポの現状
+## 本リポの現状（着手前の 1/6 の時点の記録）
+
+本節の表は、着手前（1/6）の時点の事実の記録で、その後の段の実装で変わった（例: `BufferHandle` は大きさ・用途を持ち `size`・`usage` を返す）。表の値は書き換えず残す。いまの実態は [contract-buffer-query](contract-buffer-query.md) と `crates/core/src/memory/buffer.rs`・`crates/core/tests/` の実物で確かめる。
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
@@ -61,4 +63,4 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
-確かめた base は `e1623ee`、`docs/spec` の gitlink は `0a802d7` を指す。
+1/6 の時点で確かめた base は `e1623ee`、`docs/spec` の gitlink は `0a802d7` を指していた（いまの gitlink は上の `git ls-tree origin/main docs/spec` で確かめる）。
