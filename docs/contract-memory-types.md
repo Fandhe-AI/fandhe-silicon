@@ -63,6 +63,23 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_types`（`--features native-blocking-wait` 付きでも流す）
 - 残る段: 3/6〜6/6
 
+## 試験（3/6）
+
+本体のコード（`src/`）は変えず、試験だけを足した。
+
+| 確かめること | 事実 |
+| ------------ | ---- |
+| ビット値 | `STORAGE`・`UPLOAD`・`DOWNLOAD`・`VERTEX`・`INDEX`・`UNIFORM`・`EXPORTABLE` の `bits()` が順に `1 << 0` から `1 << 6` |
+| 互いに重ならない | 各値は 1 ビットだけで、7 値の和は `0x7F` |
+| 組み合わせ | 空でない 127 通りで、`bits` と `contains` が合う |
+| `allocate` の受け付け | 試験用の最小の実装を `&dyn MemoryOps` 越しに呼ぶと、127 通りと 7 値の単独のすべてで `Ok` が返り、受け取った `usage` が渡した値と等しい |
+| 陽性対照 | 期待を 1 つずらした表を、照合が検出する |
+
+- 対応するテスト: `crates/core/tests/memory_usage_values.rs`（`usage_constants_have_defined_bits`・`usage_constants_are_single_disjoint_bits`・`usage_all_combinations_round_trip`・`allocate_accepts_every_combination_through_dyn`・`allocate_accepts_each_single_usage`・`mismatch_check_detects_wrong_expectation`）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test memory_usage_values`（`--features native-blocking-wait` 付きでも流せる）
+- 背後実装（Metal / Vulkan / CUDA）の `allocate` が実際に受け付けることは、この試験の範囲の外
+- 残る段: 4/6〜6/6
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（型・値・メソッド・置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
@@ -81,4 +98,4 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
-確かめた base は `eede585`、`docs/spec` の gitlink は `f603cba` を指す。
+確かめた base は `1faad54`、`docs/spec` の gitlink は `f603cba` を指す。
