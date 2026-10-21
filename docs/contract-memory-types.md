@@ -98,6 +98,22 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - 実行時の二重解放の検査は、この試験の範囲の外
 - 残る段: 5/6〜6/6
 
+## 試験（5/6）
+
+`crates/core` の `src/` は変えず、試験だけを足した。
+
+| 確かめること | 事実 |
+| ------------ | ---- |
+| 既定の値 | `pending_release_count` を上書きしない最小の実装は、直接・`&dyn MemoryOps` 越し・総称の関数越しのどれでも `None` を返す |
+| 操作の前後 | `allocate`・`free` の前後でも `None` のまま |
+| `Some(0)` との区別 | `Some(0)` を返すよう上書きした実装と比べると、値が違い、分類も「観測できない」と「0 個」で分かれる |
+| 陽性対照 | 分類の関数が `Some(0)` を「観測できない」と見なさない |
+
+- 対応するテスト: `crates/core/tests/memory_pending_release.rs`（`default_impl_returns_none_direct`・`default_impl_returns_none_through_dyn`・`default_impl_returns_none_through_generic`・`default_impl_stays_none_after_allocate_and_free`・`default_none_is_distinct_from_some_zero`・`override_reports_some_values`・`classify_detects_wrong_expectation`）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test memory_pending_release`（`--features native-blocking-wait` 付きでも流せる）
+- 背後実装（Metal / Vulkan / CUDA）が返す実際の値と、実行時の解放の振る舞いは、この試験の範囲の外
+- 残る段: 6/6
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（型・値・メソッド・置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
@@ -116,4 +132,4 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
-確かめた base は `1e8979b`、`docs/spec` の gitlink は `f603cba` を指す。
+確かめた base は `f525653`、`docs/spec` の gitlink は `0a802d7` を指す。
