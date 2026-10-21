@@ -45,10 +45,10 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 用途を読んで操作を拒む処理 | 製品の `src/` に無い（`.usage()`・`.size()` の呼び出し元は試験だけ） | `git grep -n -E '\.usage\(\)\|\.size\(\)' -- crates/core/src crates/contract/src crates/exec/src crates/upper/src` |
+| 用途を読んで操作を拒む処理 | 製品の `src/` に無い（`.usage()`・`.size()` は `crates/core/src/memory/buffer.rs` の定義 2 行だけがヒットし、呼び出し元は試験だけ） | `git grep -n -E '(fn \|\.)(usage\|size)\(' -- crates/core/src crates/contract/src crates/exec/src crates/upper/src` |
 | 背後実装の `impl MemoryOps` | `crates/contract`・`exec`・`upper` に無い | `git grep -n 'impl MemoryOps' -- crates/contract crates/exec crates/upper` |
 | `import_memory` | 本リポに無い | `git grep -n import_memory -- crates wasm measure` |
-| `docs/contract/` の項目ファイル | 無い（`README.md`・`TEMPLATE.md` だけ） | `ls docs/contract` |
+| `docs/contract/` の項目ファイル | 項目ごとのファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` のみ） | `ls docs/contract` |
 
 方針:
 
