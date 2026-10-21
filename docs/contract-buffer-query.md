@@ -21,7 +21,22 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - どちらも `Result` を返さず、背後実装を呼ばず、panic の経路も無い。`size()` は範囲の検査の正にしない
 - 対応するテスト: `crates/core/tests/memory_buffer_query.rs`（大きさの往復・用途の往復・ほかのフィールドが変わらないこと・共有参照越しの呼び出し）。既存の `memory_types.rs`・`memory_usage_values.rs`・`memory_pending_release.rs` は 5 引数に追従
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_query`（`--all-features` 付きでも流す）
-- 残る段: 3/6〜6/6
+
+## 現状の形（3/6）
+
+2/6 から変えていないもの: `BufferHandle` の形と `__backend_new` の 5 引数。足したのは `MemoryOps::allocate` の rustdoc の契約と、そのテストだけ。
+
+| 項目 | 事実 |
+| ---- | ---- |
+| `MemoryOps::allocate` の契約 | 返すハンドルは受けた `byte_len`・`usage` を `__backend_new` にそのまま渡して作る。呼び出し側は `size()`・`usage()` で同じ値を読める。`size()` は範囲の検査の正にしない |
+
+- 対応するテスト: `crates/core/tests/memory_buffer_query_dyn.rs`
+    - `allocate_through_dyn_returns_given_size`: `&dyn MemoryOps` 越しの `allocate` の大きさが `size()` で読める
+    - `allocate_through_dyn_returns_given_usage`: 同じく用途が `usage()` で読める
+    - `allocate_through_generic_matches_dyn`: ジェネリクス越しでも同じ値になる
+    - `size_usage_survive_until_free`: `upload` の後も値が変わらず、`free` に値で渡せる
+    - `mismatch_detects_wrong_pass_through`: 渡す値をずらした実装を照合の関数が検出する（陽性対照）
+- 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_query_dyn`（`--all-features` 付きでも流す）
 
 ## 試験（4/6）
 
@@ -40,4 +55,4 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 確かめ方: `cargo test -p fandhe-silicon-core --test memory_buffer_usage_combinations`（`--all-features` 付きでも流す）
 - 残る段: 5/6〜6/6
 
-確かめた base は `5991c78`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
+確かめた base は `930f319`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28` を指す。
