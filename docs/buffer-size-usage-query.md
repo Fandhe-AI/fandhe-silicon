@@ -25,7 +25,6 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 | `MemoryOps::allocate` | `allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError>` | `grep -n 'fn allocate' crates/core/src/memory/ops.rs` |
 | `__backend_new` の呼び出し元 | `crates/core/tests/` の `memory_types.rs`（2 か所）・`memory_pending_release.rs`（2 か所）・`memory_usage_values.rs`（1 か所）だけ | `git grep -n __backend_new -- crates wasm measure baseline-wgpu` |
 | `MemoryOps` の実装 | 実装は上の試験ファイルの中だけ（4 つ）。`crates/contract`・`exec`・`upper`・`wasm-abi`・`wasm/`・`measure/`・`baseline-wgpu/` に `impl MemoryOps` は無い。`contract` の参照は `doc(hidden)` の `memory_free_doctest.rs` だけ | `git grep -n 'impl MemoryOps' -- crates wasm measure baseline-wgpu`・`git grep -n -E 'BufferUsage\|BufferHandle\|MemoryOps' -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` |
-| 本書の対象の言及 | TASK-310 の言及は本書、`CLAUDE.md`、`README.md` だけ。TASK-297 の言及は [contract-memory-types](contract-memory-types.md) の「本リポでの反映の方針」と本書だけ | `git grep -n -E 'TASK-310\b\|TASK-297\b' -- . ':!docs/spec' ':!.agents'` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support`・`fault-injection`・`native-blocking-wait`。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `docs/contract/` | 項目ファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` だけ） | `ls docs/contract` |
@@ -48,7 +47,7 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - 本書には現状の事実だけを置く。具体の形（置き場・名前・返す値・ハンドルの中身）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
 - 形は TASK-310 の決定の記録に従う（関係: TASK-297・TASK-308。ポインタのみ）。`core` に足す場合は、外部依存 0・`forbid(unsafe_code)`・wasm32 でも通る形を保つ
 - 公開する名前は `make public-name-check` を通す
-- 範囲の外はポインタだけ書く。用途と操作の対応の検査（MEM-109）は TASK-1779・TASK-1796、背後実装の確保が用途を保つことは背後実装ごとの確保のタスク（TASK-314 など）
+- 範囲の外は private spec 側の記録に従う（ポインタのみ。MEM-109、TASK-1779・TASK-1796・TASK-314）
 - `docs/contract/` の項目ファイルは、対応するコードと公開テストを入れる段で作る（[docs/contract/README.md](contract/README.md)）
 - 守る規約: [poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[coding-rust](../.claude/rules/coding-rust.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[code-comment-style](../.claude/rules/code-comment-style.md)
 
