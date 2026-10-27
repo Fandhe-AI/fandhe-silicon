@@ -1,6 +1,6 @@
 # 引数の宣言の C4〜C8 の検査
 
-TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）、TASK-2951 の 1/2・2/2（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。private spec の本文は写さない。
+TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポインタ）、TASK-423 の 1/4〜4/4（BIND-42〜BIND-44、ART-84・ART-64・ART-65 のポインタ）、TASK-425 の 1/4〜4/4（BIND-58・BIND-59 のポインタ）、TASK-2952 の 1/2・2/2（BIND-38・BIND-39・BIND-41 のポインタ）、TASK-424 の 1/2・2/2（BIND-40・BIND-57 のポインタ）、TASK-476（ART-90・ART-92 のポインタ）、TASK-2951 の 1/2・2/2（COVL-8・ART-64・ART-65・ART-67・ART-68・ART-84・ART-85 のポインタ）。private spec の本文は写さない。
 
 ## 所在
 
@@ -35,6 +35,7 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 - 同じファイルの `c5_zero_alignment_` で始まる名前の統合テスト。alignment 0 の宣言は offset 4・16・1,000・2,000 でも C5 を判定せずに通り（対照の alignment 16 は offset 4・1,000 で `C5`）、alignment 0 でも C4・C6 は判定される（TASK-425 の 3/4）
 - 同じファイルの `c7_` で始まる名前の統合テスト。宣言に無い束縛の `slot`・束縛の `slot` の重複・定数の `slot` の重複（束縛は空）が `C7` で拒否され、1 回だけの対照は通る（TASK-2952 の 2/2）
 - 同じファイルの `c7_undeclared_slot_in_consts_is_rejected`・`c7_const_slot_overlapping_binding_slot_is_rejected`。定数の `slot` が宣言に無い入力・定数の `slot` が束縛の `slot` と重なる入力も `C7` で拒否され、対照は通る（TASK-424 の 1/2）
+- 同じファイルの `c7_const_rejection_messages_name_constant_slot`・`c5_nonzero_alignment_other_than_16_checks_multiples`。定数の側の C7 の文言の全体（束縛の側と主語の語で区別できる）と、alignment 4・8・64 の C5 の倍数の判定（TASK-476）
 - 同じファイルの `contract_error_` で始まる名前の統合テスト。戻り値の型を `Result<(), ContractError>` に署名ごと固定し、C4〜C8 の拒否がどれも `InvalidArgument`（先頭 `C4:`〜`C8:`）であることと、契約の型自身の `Display` の先頭を確かめる（TASK-2951 の 2/2）
 
 ## 確かめ方
@@ -354,3 +355,20 @@ TASK-424（ポインタ: `docs/spec/05-tasks.md`。関連: BIND-40・BIND-57）�
 - `docs/spec` の gitlink を進めたとき
 
 確かめた base は `e0f6276655c0fb10cee88b9ad9113f5a6d609a7d`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## C7 の定数の文言と alignment の値の試験（TASK-476）
+
+ART-90・ART-92 のポインタ。実装（`crates/core/src`）は変えず、統合テストを 2 件足した。照合の結果と完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
+
+| 試験 | 入力 | 結果 |
+| ---- | ---- | ---- |
+| `c7_const_rejection_messages_name_constant_slot` | 定数 slot 5（未宣言。束縛なし／束縛 slot 0） | `InvalidArgument("C7: slot 5: constant slot is not declared")` |
+| 同上 | 束縛 slot 0 と定数 slot 0、束縛 slot 1 と定数 slot 1 | `InvalidArgument("C7: slot N: constant slot is passed more than once")` |
+| 同上（対照） | 束縛 slot 5（未宣言）、束縛 slot 0 の 2 回 | 先頭 `C7:` で `constant` を含まない |
+| `c5_nonzero_alignment_other_than_16_checks_multiples` | alignment 4・8・64 × offset 0・4・16・1,000・2,000 | 4 は全部通る。8 は offset 4 だけ `C5`。64 は offset 0 だけ通る |
+
+- 文言は文字列の全体を `assert_eq!` で照合する。C5 は先頭の `C5` を照合し、期待はリテラルの表（剰余の式を使わない）
+- alignment 0・16 は TASK-423・TASK-425 の試験が持つ
+- 束縛の側の文言の全体は TASK-473 の範囲で、ここでは照合しない
+- 確かめ方: `cargo test -p fandhe-silicon-core --test execution_dispatch_check`（27 passed）、`cargo test -p fandhe-silicon-core --lib dispatch_check`（20 passed）
+- 確かめた base: `2b742a2`。`git diff origin/main -- crates/core/src` は空
