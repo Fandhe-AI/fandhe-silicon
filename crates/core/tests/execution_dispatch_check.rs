@@ -8,6 +8,7 @@
 //! 戻り値の型の照合は契約のエラー型 `ContractError`（TASK-2951 のポインタ）。
 //! 戻り値の型の固定と、C4〜C8 の拒否がどれも `InvalidArgument` であることは `contract_error_` で始まる試験で確かめる（TASK-2951 の 2/2）。
 //! alignment 0 の宣言は C5 を判定せず、C4・C6 は判定することも確かめる（TASK-425・BIND-59 のポインタ）。
+//! 定数の側の C7 の文言の全体と、alignment 4・8・64 の C5 の倍数の判定も確かめる（TASK-476・ART-90・ART-92 のポインタ）。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
@@ -565,4 +566,79 @@ fn contract_error_display_is_contract_type_display() {
     );
     let boxed: Box<dyn std::error::Error> = Box::new(err);
     assert!(boxed.to_string().starts_with("invalid argument: C8:"));
+}
+
+/// 定数の側の C7 は文言の全体で拒否され、束縛の側と主語の語（`constant`）で区別できる（TASK-476・ART-90 のポインタ）。
+#[test]
+fn c7_const_rejection_messages_name_constant_slot() {
+    let declared = [spec(0, DType::F32, &[1]), spec(1, DType::F32, &[1])];
+    let c = |slot: u32| {
+        [OperandConstant {
+            slot,
+            bytes: &[0u8; 4],
+        }]
+    };
+    let b = |slot: u32| OperandBinding { slot, offset: 0 };
+    let msg = |m: &str| Err(ContractError::InvalidArgument(m.to_owned()));
+
+    assert_eq!(
+        run(&declared, &[], &c(5), None),
+        msg("C7: slot 5: constant slot is not declared")
+    );
+    assert_eq!(
+        run(&declared, &[b(0)], &c(5), None),
+        msg("C7: slot 5: constant slot is not declared")
+    );
+    assert_eq!(
+        run(&declared, &[b(0)], &c(0), None),
+        msg("C7: slot 0: constant slot is passed more than once")
+    );
+    assert_eq!(
+        run(&declared, &[b(1)], &c(1), None),
+        msg("C7: slot 1: constant slot is passed more than once")
+    );
+
+    // 対照: 束縛の側の C7 には `constant` の語が付かない。
+    for bindings in [vec![b(5)], vec![b(0), b(0)]] {
+        let r = run(&declared, &bindings, &[], None);
+        assert!(
+            matches!(&r, Err(ContractError::InvalidArgument(m))
+                if m.starts_with("C7:") && !m.contains("constant")),
+            "{r:?}"
+        );
+    }
+}
+
+/// alignment が 0 でも 16 でもない宣言（4・8・64）は、offset が倍数なら通り、倍数でなければ C5 で拒否される（TASK-476・ART-92 のポインタ）。
+/// alignment 0・16 は TASK-423・TASK-425 の試験が持つ。期待はリテラルの表で、剰余の式を使わない。
+#[test]
+fn c5_nonzero_alignment_other_than_16_checks_multiples() {
+    let offsets = [0u64, 4, 16, 1_000, 2_000];
+    // (alignment, 各 offset が通るか)
+    let table: [(u32, [bool; 5]); 3] = [
+        (4, [true, true, true, true, true]),
+        (8, [true, false, true, true, true]),
+        (64, [true, false, false, false, false]),
+    ];
+    for (alignment, expected) in table {
+        for (offset, ok) in offsets.into_iter().zip(expected) {
+            let shape = [1u64];
+            let declared = [OperandSpec {
+                slot: 0,
+                dtype: DType::F32,
+                shape: &shape,
+                stride: &[],
+                alignment,
+            }];
+            let r = run(&declared, &[OperandBinding { slot: 0, offset }], &[], None);
+            if ok {
+                assert_eq!(r, Ok(()), "alignment={alignment} offset={offset}");
+            } else {
+                assert!(
+                    is_rejected_by(&r, "C5"),
+                    "alignment={alignment} offset={offset}: {r:?}"
+                );
+            }
+        }
+    }
 }
