@@ -25,7 +25,7 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | 足りない型 | バッファの用途・ハンドル・メモリ操作のトレイトに当たる公開の型は `crates/`・`wasm/`・`measure/`・`baseline-wgpu/` に無い | `git grep -n -E 'pub (trait\|struct\|enum) [A-Za-z]*(Buffer\|Memory)' -- crates wasm measure baseline-wgpu`（0 件） |
 | 本書の対象の言及 | TASK-308 の言及は本書、`CLAUDE.md`、`README.md` のほかは `crates/core/src/execution/dispatch_check.rs` のポインタ（背後実装へ渡す束縛の型の持ち分）だけ | `git grep -n TASK-308 -- . ':!docs/spec' ':!.agents'` |
 | エラー側の型 | `ContractError`（`InvalidArgument` を含む）は `crates/core/src/error.rs` にある。TASK-269 の持ち分 | `grep -n 'InvalidArgument' crates/core/src/error.rs` |
-| device 側 | device の識別子・世代を表す専用の型は無い（`DeviceLost` にフィールドがあるだけ）。`limits()` も無い（TASK-157 の持ち分） | `grep -n 'limits' crates/core/src/capability.rs` |
+| device 側 | device の識別子・世代を表す専用の型は無い（`DeviceLost` にフィールドがあるだけ）。`limits()` と `LimitsTable` は `capability.rs` にあり、[contract-limits-table](contract-limits-table.md) に書く（TASK-157） | `grep -n 'limits' crates/core/src/capability.rs` |
 | `contract` の公開面 | 公開モジュールは feature の裏の `backend_*` と `doc(hidden)` の `cfg_gate_doctest` だけ。契約の共通の公開型は無い | `grep -n 'pub mod' crates/contract/src/lib.rs` |
 | `compile_fail` の既存の形 | `crates/contract/src/cfg_gate_doctest.rs`・`crates/contract/tests/feature_gate_enabled.rs`・`crates/core/src/parity/tolerance.rs`・`pixel.rs` に前例がある。コメントのとおり stable の rustdoc は失敗の理由を照合しないので、通る例を並べて import の正しさを担保している | `git grep -ln compile_fail -- crates` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support`・`fault-injection`。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |

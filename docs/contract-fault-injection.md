@@ -92,7 +92,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `FaultScript::RuntimeError { backend, detail }`: 投入（`submit_with`）は内側へ通して数える。`wait_blocking_with` は内側を呼ばず `Err(BackendFailure { op: "wait_blocking", backend, detail })` を返し、`poll_ex_with` は `CompletionStateEx::RuntimeError`、`poll_with`（閉じた完了状態）は `CompletionState::Lost` を返す。`Timeout`・`Unknown` とは戻り値で区別できる。`backend` は筋書きが持つ。実際の故障は起こさない（TASK-264 (3) のポインタ）
 - `poll_with`: `RuntimeError` 以外は（`CompletionUnknown` を含め）内側の値をそのまま返す
 - `create_pipeline_with`・`allocate_with`・`query`・`query_ex`・`FaultHooks` の口は `RuntimeError` でも内側へそのまま渡す
-- `FaultInjecting::with_limits_override` / `limits_with`: 上限の型 `L` に依らず、型を消した置き換えを持つ。置き換えが無ければ内側を 1 回呼んでその値を返し、`L` の置き換えがあれば内側を呼ばずその複製を返す。型が `L` でなければ内側を呼ばず `Err(InvalidArgument)` を返す。筋書きとは独立で、`Send + Sync` を保つ。上限の型は本リポにまだ無い（TASK-157 のポインタ）。行ごとの確かめは別の段の持ち分
+- `FaultInjecting::with_limits_override` / `limits_with`: 上限の型 `L` に依らず、型を消した置き換えを持つ。置き換えが無ければ内側を 1 回呼んでその値を返し、`L` の置き換えがあれば内側を呼ばずその複製を返す。型が `L` でなければ内側を呼ばず `Err(InvalidArgument)` を返す。筋書きとは独立で、`Send + Sync` を保つ。上限の表（TASK-157 のポインタ）: `LimitsTable` の置き換えは `Capabilities::limits()` にも効く（`FaultScript` の 6 種類すべてで確かめた）。別の型の置き換えは `limits()` に効かず内側の表を返し、`limits_with::<LimitsTable>` は `Err(InvalidArgument)` のまま。対応するテストは `fault_decorator_limits.rs`、詳細は [contract-limits-table](contract-limits-table.md)。行ごとの確かめは別の段の持ち分
 - 試験: `crates/core/tests/fault_decorator_runtime_error.rs`・`fault_decorator_limits.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 

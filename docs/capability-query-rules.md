@@ -186,6 +186,12 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | 5/6 | #4068 | テスト |
 | 6/6 | #4069 | 確かめ（本書の「完了の条件の確かめ（6/6）」） |
 
+## 上限の表（TASK-157）
+
+- `CapabilityTable`（`test-support` の裏）は `limits()` を持ち、初期値は `max_buffer_bytes`・`max_dispatch_dims`・`max_texture_size` の 3 項目とも 0。`with_limits(LimitsTable)` で差し替える。`new()` の引数は変えていない
+- 対応するテスト: `crates/core/tests/capability_rule_stub.rs`
+- `Capabilities` の実装は必須の `limits()` を持つ。詳細は [contract-limits-table](contract-limits-table.md)
+
 ## 本リポでの反映の方針
 
 - 本書には現状の事実だけを置く。具体の形（検査関数・スタブ・試験用の crate の名前と置き場）は、受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す
