@@ -26,7 +26,20 @@ const B: FeatureId = FeatureId("feature:B");
 struct CellInner {
     queries: Cell<u32>,
 }
+
+/// `Capabilities::limits` の試験用の表。値は試験用の小さな数で、意味は持たない。
+static TEST_LIMITS: fandhe_silicon_core::capability::LimitsTable =
+    fandhe_silicon_core::capability::LimitsTable {
+        max_buffer_bytes: 1,
+        max_dispatch_dims: [1, 1, 1],
+        max_texture_size: 1,
+    };
+
 impl Capabilities for CellInner {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, _f: FeatureId) -> CapabilityLevel {
         self.queries.set(self.queries.get() + 1);
         CapabilityLevel::S2
@@ -46,6 +59,10 @@ impl fmt::Debug for StubDevice {
     }
 }
 impl Capabilities for StubDevice {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, _f: FeatureId) -> CapabilityLevel {
         self.queries.fetch_add(1, Ordering::SeqCst);
         CapabilityLevel::S2
@@ -73,6 +90,10 @@ impl<T: Capabilities + FaultHooks + Send + Sync> Dev for T {}
 /// 型を消した内側。`Capabilities`・`FaultHooks` を委譲する。
 struct BoxInner(Box<dyn Dev>);
 impl Capabilities for BoxInner {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        self.0.limits()
+    }
+
     fn query(&self, f: FeatureId) -> CapabilityLevel {
         self.0.query(f)
     }
@@ -196,6 +217,10 @@ fn works_over_type_erased_inner() {
 /// `Sync` な、`CellInner` と同じ振る舞いの内側（型を消す内側用）。
 struct CellInnerSync;
 impl Capabilities for CellInnerSync {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, _f: FeatureId) -> CapabilityLevel {
         CapabilityLevel::S2
     }

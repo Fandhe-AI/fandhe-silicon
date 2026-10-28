@@ -1,6 +1,6 @@
 //! `Capabilities` の機能 ID を鍵にした段階の返りと、`query_ex` の既定の実装の値を固定する公開テスト（TASK-136 の 3/6）。
 //!
-//! 試験用のスタブは `query` だけを実装し `query_ex` を上書きしない。これがそのままコンパイルできることが、
+//! 試験用のスタブは必須の `query`・`limits` だけを実装し `query_ex` を上書きしない。これがそのままコンパイルできることが、
 //! 既定の実装つきであることの確かめになる（DEV-86。ポインタのみ）。
 //! `query` は機能 ID ごとに別の段階を返し、値がそのまま渡ることを見る（DEV-82。ポインタのみ）。
 
@@ -8,7 +8,19 @@ use fandhe_silicon_core::capability::{Capabilities, CapabilityLevel, CapabilityQ
 
 struct Table;
 
+/// `Capabilities::limits` の試験用の表。値は試験用の小さな数で、意味は持たない。
+static TEST_LIMITS: fandhe_silicon_core::capability::LimitsTable =
+    fandhe_silicon_core::capability::LimitsTable {
+        max_buffer_bytes: 1,
+        max_dispatch_dims: [1, 1, 1],
+        max_texture_size: 1,
+    };
+
 impl Capabilities for Table {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, feature: FeatureId) -> CapabilityLevel {
         match feature.0 {
             "feature:SUBGROUP" => CapabilityLevel::S3,

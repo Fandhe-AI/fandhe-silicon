@@ -2,7 +2,7 @@
 //!
 //! 背後実装の種類・機能の識別子・能力の段階・判定の根拠・問合せの結果・問合せのトレイトを置く。
 //! `error` モジュールの `ContractError` もこれらを参照する。
-//! 定義の持ち主は TASK-136（ポインタ）。`limits()` は TASK-157 の持ち分でここには置かない。
+//! 定義の持ち主は TASK-136（ポインタ）。上限の表 `LimitsTable` と `Capabilities::limits()` もここに置く（TASK-157・DEV-110・DEV-114・DEV-115。ポインタ）。
 //! 背後実装（下-1）が値を作り、上・下-2 が受け取って比べる。
 
 use crate::error::UnsupportedReason;
@@ -76,12 +76,28 @@ pub struct CapabilityQuery {
     pub evidence: Option<CapabilityEvidence>,
 }
 
+/// 上限の表。バッファの大きさ・dispatch の次元・テクスチャの大きさの 3 項目を持つ（TASK-157。ポインタ）。
+///
+/// 背後実装が値を作り、`Capabilities::limits()` で上・下-2 へ渡す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LimitsTable {
+    /// バッファ 1 本の大きさの上限（バイト）。
+    pub max_buffer_bytes: u64,
+    /// dispatch の各次元の上限。
+    pub max_dispatch_dims: [u32; 3],
+    /// テクスチャの 1 辺の大きさの上限。
+    pub max_texture_size: u32,
+}
+
 /// 能力問合せの口。背後実装が実装し、上・下-2 が呼ぶ。
 ///
-/// `limits()` は別の持ち分（TASK-157。ポインタ）でここには無い。
+/// `limits()` は必須の操作で、既定の実装は無い（TASK-157。ポインタ）。
 pub trait Capabilities {
     /// 機能の能力の段階を返す。
     fn query(&self, feature: FeatureId) -> CapabilityLevel;
+
+    /// 上限の表を返す。
+    fn limits(&self) -> &LimitsTable;
 
     /// 段階に理由と根拠を添えて返す。既定の実装は理由・根拠なしで `query` の値を返す。
     fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {

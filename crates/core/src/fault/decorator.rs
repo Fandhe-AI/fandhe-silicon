@@ -8,7 +8,8 @@
 //! (6) 模擬の OOM は、確保を内側に渡さず `AllocationFailed` に要求の大きさを載せて返す。
 //! (7) 模擬の実行時エラーは、投入は通したまま完了の報告だけを実行時エラーにする（閉じた状態は `Lost`、
 //! `wait_blocking` の戻りは TASK-264 (3) に従い `BackendFailure`）。
-//! (8) 上限の差し替えは、`LimitsTable`（TASK-157）の型に依らず、型を消した値で内側の上限を置き換える口。
+//! (8) 上限の差し替えは、型を消した値で内側の上限を置き換える口。`LimitsTable`（TASK-157）の置き換えは
+//! `Capabilities::limits()` にも効く。別の型の置き換えは `limits()` に効かず、内側の表を返す。
 //!
 //! `Device` のトレイトはまだ無いため、包む型を型引数にし、内側の呼び出しはクロージャで受ける。
 //! `Device` が入る段で、そのメソッドがここの `*_with` を呼ぶ形にする。差し込むのは模擬であって、
@@ -18,7 +19,9 @@ use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::FaultHooks;
-use crate::capability::{BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId};
+use crate::capability::{
+    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
+};
 use crate::error::{
     CompletionState, CompletionStateEx, ContractError, DeviceLostReason, UnsupportedReason,
 };
@@ -71,8 +74,9 @@ impl<D> FaultInjecting<D> {
         }
     }
 
-    /// 上限（`limits()` の値）の置き換えを持たせる。筋書きとは独立で、同時に使える。
-    /// 上限の型 `L` は TASK-157 の持ち分のため、ここでは型を消して持つ。
+    /// 上限の置き換えを持たせる。筋書きとは独立で、同時に使える。
+    /// 型を消して持つ。`L` が `LimitsTable` なら `limits()` と `limits_with::<LimitsTable>` の両方に効く。
+    /// 別の型なら `limits()` には効かず内側の表を返し、`limits_with::<LimitsTable>` は `InvalidArgument` を返す。
     pub fn with_limits_override<L: Any + Send + Sync>(mut self, limits: L) -> Self {
         self.limits_override = Some(Box::new(limits));
         self
@@ -217,6 +221,13 @@ impl<D> FaultInjecting<D> {
 /// 能力問合せの差し込み。`CapabilityQueryFails` は `S0`、対象の機能の `CapabilityInsufficient` は
 /// `Unsupported` を内側を呼ばずに返す。それ以外は内側へそのまま渡す。
 impl<D: Capabilities> Capabilities for FaultInjecting<D> {
+    fn limits(&self) -> &LimitsTable {
+        self.limits_override
+            .as_ref()
+            .and_then(|o| o.downcast_ref::<LimitsTable>())
+            .unwrap_or_else(|| self.inner.limits())
+    }
+
     fn query(&self, feature: FeatureId) -> CapabilityLevel {
         match &self.script {
             FaultScript::CapabilityQueryFails => CapabilityLevel::S0,

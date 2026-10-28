@@ -13,7 +13,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureId};
+use crate::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable};
 use crate::error::ContractError;
 
 /// 2 段の手順で起きた呼び出し 1 件。
@@ -65,11 +65,14 @@ impl StepLog {
 }
 
 /// 機能ごとの値を表で返すスタブ。確認済みの非対応（`Unsupported`）を作る用途を持つ。
+///
+/// 上限の表（`limits()`）の初期値は 3 項目とも 0。`with_limits` で差し替える（TASK-157。ポインタ）。
 #[derive(Debug, Clone)]
 pub struct CapabilityTable {
     entries: Vec<(FeatureId, CapabilityQuery)>,
     default: CapabilityQuery,
     log: Option<Arc<StepLog>>,
+    limits: LimitsTable,
 }
 
 impl Default for CapabilityTable {
@@ -89,7 +92,18 @@ impl CapabilityTable {
                 evidence: None,
             },
             log: None,
+            limits: LimitsTable {
+                max_buffer_bytes: 0,
+                max_dispatch_dims: [0, 0, 0],
+                max_texture_size: 0,
+            },
         }
+    }
+
+    /// `limits()` が返す上限の表を決める。
+    pub fn with_limits(mut self, limits: LimitsTable) -> Self {
+        self.limits = limits;
+        self
     }
 
     /// 機能の値を表に足す。同じ機能は後から足した方が先に当たる。
@@ -123,6 +137,10 @@ impl CapabilityTable {
 }
 
 impl Capabilities for CapabilityTable {
+    fn limits(&self) -> &LimitsTable {
+        &self.limits
+    }
+
     fn query(&self, feature: FeatureId) -> CapabilityLevel {
         self.lookup(feature).level
     }

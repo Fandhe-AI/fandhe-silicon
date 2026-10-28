@@ -39,7 +39,19 @@ struct Fake {
     hook_log: RefCell<Vec<String>>,
 }
 
+/// `Capabilities::limits` の試験用の表。値は試験用の小さな数で、意味は持たない。
+static TEST_LIMITS: fandhe_silicon_core::capability::LimitsTable =
+    fandhe_silicon_core::capability::LimitsTable {
+        max_buffer_bytes: 1,
+        max_dispatch_dims: [1, 1, 1],
+        max_texture_size: 1,
+    };
+
 impl Capabilities for Fake {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, _f: FeatureId) -> CapabilityLevel {
         self.query_calls.set(self.query_calls.get() + 1);
         CapabilityLevel::S2
