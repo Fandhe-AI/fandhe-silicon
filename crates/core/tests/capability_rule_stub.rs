@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use fandhe_silicon_core::capability::{
-    Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
+    Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
 };
 use fandhe_silicon_core::capability_rule::{CapabilityTable, Step, StepLog};
 use fandhe_silicon_core::error::UnsupportedReason;
@@ -74,4 +74,20 @@ fn types_are_send_sync_and_dyn_usable() {
     let t = CapabilityTable::new().with(A, unsupported());
     let d: &dyn Capabilities = &t;
     assert_eq!(d.query(A), CapabilityLevel::Unsupported);
+}
+
+#[test]
+fn table_limits_start_at_zero_and_with_limits_replaces() {
+    let zero = LimitsTable {
+        max_buffer_bytes: 0,
+        max_dispatch_dims: [0, 0, 0],
+        max_texture_size: 0,
+    };
+    assert_eq!(*CapabilityTable::new().limits(), zero);
+    let t = LimitsTable {
+        max_buffer_bytes: 5,
+        max_dispatch_dims: [4, 5, 6],
+        max_texture_size: 7,
+    };
+    assert_eq!(*CapabilityTable::new().with_limits(t).limits(), t);
 }
