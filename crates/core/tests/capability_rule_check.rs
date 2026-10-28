@@ -236,7 +236,19 @@ fn check_query_ex_returns_violations_for_bad_value() {
 /// `query` だけを実装し、既定の `query_ex` を使うスタブ。
 struct QueryOnly(CapabilityLevel);
 
+/// `Capabilities::limits` の試験用の表。値は試験用の小さな数で、意味は持たない。
+static TEST_LIMITS: fandhe_silicon_core::capability::LimitsTable =
+    fandhe_silicon_core::capability::LimitsTable {
+        max_buffer_bytes: 1,
+        max_dispatch_dims: [1, 1, 1],
+        max_texture_size: 1,
+    };
+
 impl Capabilities for QueryOnly {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        &TEST_LIMITS
+    }
+
     fn query(&self, _feature: FeatureId) -> CapabilityLevel {
         self.0
     }

@@ -230,6 +230,10 @@ fn query_ex_separates_failed_query_from_confirmed_unsupported() {
 struct DynDevice(Box<dyn Capabilities + Send + Sync>);
 
 impl Capabilities for DynDevice {
+    fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
+        self.0.limits()
+    }
+
     fn query(&self, feature: FeatureId) -> CapabilityLevel {
         self.0.query(feature)
     }
