@@ -1181,6 +1181,36 @@ mod precheck_tests {
         SubmitToken::__backend_new(generation, 1, device_id)
     }
 
+    /// `host_range` の境界。device に触らない。
+    #[test]
+    fn host_range_passes_in_range_and_rejects_the_rest() {
+        assert_eq!(host_range(0, 16, 16).unwrap(), (0, 16));
+        assert_eq!(host_range(8, 8, 16).unwrap(), (8, 8));
+        assert_eq!(host_range(16, 0, 16).unwrap(), (16, 0));
+        assert_eq!(host_range(0, 0, 16).unwrap(), (0, 0));
+        for (offset, len) in [
+            (8, 9),
+            (0, 17),
+            (17, 0),
+            (u64::MAX, 1),
+            (1, u64::MAX),
+            (u64::MAX, u64::MAX),
+        ] {
+            let r = host_range(offset, len, 16);
+            assert!(
+                matches!(r, Err(ContractError::InvalidArgument(_))),
+                "offset={offset} len={len}: {r:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn host_range_rejects_an_overflowing_end_even_for_the_largest_allocation() {
+        let r = host_range(u64::MAX, 1, u64::MAX);
+        assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        assert_eq!(host_range(0, 0, 0).unwrap(), (0, 0));
+    }
+
     #[test]
     fn empty_wait_passes_and_non_empty_wait_is_unsupported() {
         assert!(precheck_submit(&[]).is_ok());
