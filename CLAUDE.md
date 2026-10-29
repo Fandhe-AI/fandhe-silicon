@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（ほぼ空の公開面・依存なし・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` と実行まわりの型 `execution` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存だけ・全 crate `publish = false`。`core` は条件なしで SHA-256 の `hash` と実行まわりの型 `execution` を公開し、feature `test-support` の裏に検証用の道具 `parity` を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 

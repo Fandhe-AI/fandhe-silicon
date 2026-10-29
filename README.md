@@ -5,7 +5,7 @@ fandhe-ai・vector-db・fandhe-3d で共用する、独立した低レイヤー�
 Metal・Vulkan・CUDA を背後実装とし、wgpu を依存関係から外せる状態を目指します。
 
 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) から作成しています。
-実装言語は Rust（edition 2024・stable）で、現在は workspace と crate の骨格（空の公開面・依存なし）のみです。
+実装言語は Rust（edition 2024・stable）で、workspace と crate の骨格の上に、共通の型と Metal の背後実装の一部を置いています（外部依存は `crates/contract` の macOS 向けの Metal の依存だけ）。
 
 ## 仕様（`docs/spec`）
 
@@ -175,7 +175,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 
 ビルド成果物（`target/`）は肥大化しやすいため、ルート `Cargo.toml` の `[profile.dev.package."*"]` で依存クレート
 （workspace 外）のデバッグ情報を行番号のみにしています（`dev`・`test` に効き、本リポの crate は full debuginfo のままです。
-現在は外部依存が無いため実効は無く、依存を追加した時点から効きます）。溜まった古い成果物は `cargo install cargo-sweep` のうえ
+`crates/contract` の macOS 向けの Metal の依存などの外部依存に効きます）。溜まった古い成果物は `cargo install cargo-sweep` のうえ
 `cargo sweep --time 14`（14 日以上使われていない成果物を削除）で消せます。
 
 ## コマンド
