@@ -11,7 +11,9 @@ use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel, CapabilityQu
 use fandhe_silicon_core::device::{
     Device, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
-use fandhe_silicon_core::error::{CompletionState, ContractError, UnsupportedReason};
+use fandhe_silicon_core::error::{
+    CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
+};
 use fandhe_silicon_core::execution::ImportedSemaphoreHandle;
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -521,4 +523,64 @@ fn on_complete_with_a_foreign_or_unissued_token_calls_back_lost_once() {
         );
         assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Lost]);
     }
+}
+
+/// CMD-23 のポインタ。完了を待った後の `poll_ex` は `Complete`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn poll_ex_is_complete_after_waiting() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let queue = device.queue();
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    assert_eq!(queue.poll_ex(token), CompletionStateEx::Complete);
+}
+
+/// CMD-24 のポインタ。回収された後の番号は `poll` も `poll_ex` も `Complete`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn reclaimed_tokens_poll_as_complete() {
+    let device = new_device();
+    let queue = device.queue();
+    let tokens: Vec<_> = (0..8).map(|_| submit_empty(device.as_ref())).collect();
+    for token in &tokens {
+        queue.wait_blocking(*token, None).expect("wait_blocking");
+    }
+    for token in &tokens {
+        assert_eq!(queue.poll(*token), CompletionState::Complete);
+        assert_eq!(queue.poll_ex(*token), CompletionStateEx::Complete);
+    }
+}
+
+/// CMD-88 のポインタ。払い出していない番号（0 を含む）は `Unknown`、別 device の印は `Lost`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn poll_ex_of_unissued_is_unknown_and_of_a_foreign_token_is_lost() {
+    let first = new_device();
+    let second = new_device();
+    let issued = submit_empty(first.as_ref());
+    for sequence in [0, issued.sequence + 1, 99] {
+        let token = fandhe_silicon_core::execution::SubmitToken::__backend_new(
+            first.generation(),
+            sequence,
+            issued.__backend_device_id(),
+        );
+        assert_eq!(first.queue().poll_ex(token), CompletionStateEx::Unknown);
+    }
+    assert_eq!(second.queue().poll_ex(issued), CompletionStateEx::Lost);
+    // 5 値のうち、この device の入力で作れる 3 値が互いに異なる。
+    let known = [
+        first.queue().poll_ex(issued),
+        first
+            .queue()
+            .poll_ex(fandhe_silicon_core::execution::SubmitToken::__backend_new(
+                first.generation(),
+                99,
+                issued.__backend_device_id(),
+            )),
+        second.queue().poll_ex(issued),
+    ];
+    assert_ne!(known[0], known[1]);
+    assert_ne!(known[1], known[2]);
+    assert_ne!(known[0], known[2]);
 }

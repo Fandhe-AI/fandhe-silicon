@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use fandhe_silicon_core::capability::BackendKind;
-use fandhe_silicon_core::error::{CompletionState, ContractError};
+use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, ImportedSemaphoreHandle, SubmitToken,
 };
@@ -150,6 +150,29 @@ impl<G> Submissions<G> {
             CompletionState::Complete
         } else {
             CompletionState::Lost
+        }
+    }
+
+    /// 通し番号の拡張した完了状態。呼ぶ前に `reclaim` しておく。
+    ///
+    /// 表にあれば列の状態（失敗は `RuntimeError`）、失敗の集合にあるものは `RuntimeError`、
+    /// watermark 以下の他は `Complete`。表にも集合にも無く watermark を超える番号（0 と未払い出しを含む）は
+    /// `Unknown` で、`Complete` とは返さない。
+    fn state_ex_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionStateEx {
+        if let Some(group) = self.pending.get(&sequence) {
+            return match classify(group) {
+                GroupState::Pending => CompletionStateEx::Pending,
+                GroupState::Completed => CompletionStateEx::Complete,
+                GroupState::Failed => CompletionStateEx::RuntimeError,
+            };
+        }
+        if self.failed.contains(&sequence) {
+            return CompletionStateEx::RuntimeError;
+        }
+        if sequence >= 1 && sequence <= self.watermark {
+            CompletionStateEx::Complete
+        } else {
+            CompletionStateEx::Unknown
         }
     }
 }
@@ -313,7 +336,9 @@ mod imp {
     use fandhe_silicon_core::device::{
         Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
     };
-    use fandhe_silicon_core::error::{CompletionState, ContractError, UnsupportedReason};
+    use fandhe_silicon_core::error::{
+        CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
+    };
     use fandhe_silicon_core::execution::{
         __BackendSharedEncoderCloser, __backend_next_encoder_id, CommandEncoder, CommandQueue,
         ImportedSemaphoreHandle, SubmitToken,
@@ -876,6 +901,19 @@ mod imp {
             subs.state_of(token.sequence, group_state)
         }
 
+        /// `poll` の詳しい版。未完了は `Pending`、完了は `Complete`、`Error` で終わった列は `RuntimeError`。
+        ///
+        /// 別 device の印・世代違いの印は `poll` と同じく `Lost`。払い出していない番号（0 を含む）は `Unknown`。
+        /// 回収済みの番号は watermark と失敗の集合で答える（失敗した投入を `Complete` とは返さない）。
+        fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
+            if check_token_owner(&token, self.id, self.generation).is_err() {
+                return CompletionStateEx::Lost;
+            }
+            let mut subs = self.lock_submissions();
+            subs.reclaim(group_state);
+            subs.state_ex_of(token.sequence, group_state)
+        }
+
         /// 完了まで呼び出し元のスレッドで待ってから、終端の状態（`Complete` か `Lost`）で `callback` を 1 回だけ呼ぶ。
         ///
         /// 回収した `poll` の値が終端ならその場で呼ぶ。別 device の印・世代違いの印・表に無い番号は待たずに `Lost`。
@@ -1255,6 +1293,74 @@ mod precheck_tests {
         assert_eq!(subs.state_of(2, classify), CompletionState::Lost);
         let fresh: Submissions<Vec<BufState>> = Submissions::new();
         assert_eq!(fresh.state_of(0, classify), CompletionState::Lost);
+    }
+
+    #[test]
+    fn poll_ex_covers_pending_complete_runtime_error_and_unknown_as_distinct_values() {
+        let mut subs = table(&[vec![Running], vec![Done], vec![Done, Failed]]);
+        subs.reclaim(classify);
+        let all = [
+            subs.state_ex_of(1, classify),
+            subs.state_ex_of(2, classify),
+            subs.state_ex_of(3, classify),
+            subs.state_ex_of(4, classify),
+        ];
+        assert_eq!(
+            all,
+            [
+                CompletionStateEx::Pending,
+                CompletionStateEx::Complete,
+                CompletionStateEx::RuntimeError,
+                CompletionStateEx::Unknown,
+            ]
+        );
+    }
+
+    #[test]
+    fn poll_ex_of_a_reclaimed_group_is_complete_and_of_a_reclaimed_failure_is_runtime_error() {
+        let mut subs = table(&[vec![Done], vec![Failed], vec![Done]]);
+        subs.reclaim(classify);
+        assert!(subs.pending.is_empty());
+        assert_eq!(subs.state_ex_of(1, classify), CompletionStateEx::Complete);
+        assert_eq!(
+            subs.state_ex_of(2, classify),
+            CompletionStateEx::RuntimeError
+        );
+        assert_eq!(subs.state_ex_of(3, classify), CompletionStateEx::Complete);
+    }
+
+    #[test]
+    fn poll_ex_of_zero_and_unissued_sequences_is_unknown_never_complete() {
+        let mut subs = table(&[vec![Done]]);
+        subs.reclaim(classify);
+        assert_eq!(subs.state_ex_of(0, classify), CompletionStateEx::Unknown);
+        assert_eq!(subs.state_ex_of(2, classify), CompletionStateEx::Unknown);
+        assert_eq!(
+            subs.state_ex_of(u64::MAX, classify),
+            CompletionStateEx::Unknown
+        );
+        let fresh: Submissions<Vec<BufState>> = Submissions::new();
+        assert_eq!(fresh.state_ex_of(1, classify), CompletionStateEx::Unknown);
+    }
+
+    #[test]
+    fn poll_ex_agrees_with_poll_except_for_the_two_extra_values() {
+        let mut subs = table(&[vec![Running], vec![Done], vec![Failed]]);
+        subs.reclaim(classify);
+        for seq in 0..=4u64 {
+            let ex = subs.state_ex_of(seq, classify);
+            match subs.state_of(seq, classify) {
+                CompletionState::Pending => assert_eq!(ex, CompletionStateEx::Pending),
+                CompletionState::Complete => assert_eq!(ex, CompletionStateEx::Complete),
+                CompletionState::Lost => assert!(
+                    matches!(
+                        ex,
+                        CompletionStateEx::RuntimeError | CompletionStateEx::Unknown
+                    ),
+                    "{seq}: {ex:?}"
+                ),
+            }
+        }
     }
 
     #[test]
