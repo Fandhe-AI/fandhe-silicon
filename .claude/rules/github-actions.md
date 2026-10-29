@@ -14,6 +14,7 @@ description: >
 - 本リポは **public**。runner は GitHub ホステッド（`ubuntu-latest`）を使う
 - 例外: `ci.yml` の `test-hooks` は macOS の BSD 系挙動と標準 bash 3.2 を検証するため `macos-latest` も matrix に含める
 - 例外: `ci.yml` の `wasm-macos` は、wasm32 のビルド・glue 込みの量・Node での照合を、版固定の Node と wasm-bindgen の CLI を入れた arm64 の `macos-latest` で流す（後続の段でネイティブの参照とも比べるため）。キャッシュは使わない
+- 例外: `ci.yml` の `verify-macos`（check 名 `make verify + build-profiles (macos-latest)`）は、macOS でだけ有効になる Metal の背後実装をビルド・lint・device の要らない試験で確かめる。device の要る試験は流さない。標準の `macos-latest` だけを使い（larger runner のラベルは書かない）、キャッシュは使わない。`ci-complete` の `needs` には入れているが、ruleset の必須チェックには登録していない
 - 例外: `ai-review.yml` の `codex / review` は組織の reusable workflow（`Fandhe-AI/actions`）が codex 専用 self-hosted runner で動かす。
   fork PR では reusable workflow 側が fail-closed で実行を拒否する。public で self-hosted を使うと fork PR 経由で任意コードが実行されるため、
   新たに self-hosted を追加しない（`preflight` / `post_feedback` は ubuntu-latest）

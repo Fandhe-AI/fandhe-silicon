@@ -76,9 +76,9 @@
 | ---- | ---- |
 | ほかのプロファイル | `PROFILES` の表にあるプロファイルだけを数える |
 | 件数の増減 | 0 件かどうかだけを判定する |
-| 比較基準の判定 | 比較基準（`--all-features`）は記録だけで、落とさない。今の製品の crate には SDK の依存が無く、3 つとも 0 件と出るため。「3 つが載り、分けたプロファイルでは差が出る」ことは回帰テストの一時 workspace の節が示す |
-| SDK の crate の有無 | ComputeOnly の組では `objc2-metal` だけが入っていてよい（ほかの SDK・ローダは判定に残る）。今の製品の crate には `objc2-metal` が無く、tree に載らないので per-header feature の件数は 0 件で、`header_crate_n=0` として出る |
-| per-header feature の一覧へ足す経路 | 無い。`--extra-judged-crate` は crate 名の一覧にだけ足す。今の製品の crate には `objc2-metal` が無く、実物で「落ちる」ことを示せないため。feature の判定が働くことは回帰テストの一時 workspace の節が示す |
+| 比較基準の判定 | 比較基準（`--all-features`）は記録だけで、落とさない。今の製品の crate が載せる SDK は `objc2-metal` の 1 件で（`sdk_total=1`）、`ash`・`cudarc` は 0 件と出る。「3 つが載り、分けたプロファイルでは差が出る」ことは回帰テストの一時 workspace の節が示す |
+| SDK の crate の有無 | ComputeOnly の組では `objc2-metal` だけが入っていてよい（ほかの SDK・ローダは判定に残る）。今の製品の crate は feature `backend-metal` で `objc2-metal` を載せるので、ComputeOnly の組の tree に 1 版が載り、`header_crate_n=1` として出る。有効な feature に描画系が無いので、判定の件数は 0 件（`features_judged_total=0`・`features_recorded_total=0`）になる |
+| per-header feature の一覧へ足す経路 | 無い。`--extra-judged-crate` は crate 名の一覧にだけ足す。実物の有効な feature に描画系が無く、実物で「落ちる」ことは示せないため。feature の判定が働くことは回帰テストの一時 workspace の節と、末尾の「現状の件数」が示す |
 | 製品の workspace 全体の依存 | 契約の crate だけを `-p` で数える（全体は [dep-graph-wgpu-check.md](dep-graph-wgpu-check.md)） |
 
 ## 確かめ方
@@ -92,6 +92,8 @@ make deny
 ```
 
 `make deny` のログに、`profile-dep-graph-check (contract profiles)` の行とプロファイルごとの `record:`・`baseline:`・`diff:`、`profile-dep-graph-positive-control` の行とプロファイルごとの `positive-control:` の行が出て、終了コード 0 で終わることを見る。
+
+以降の「完了の条件の確かめ」「プロファイルごとの件数の記録」「実測」「件数と差の記録」の表は、各段を記録した時点の値（製品の crate に SDK の依存が無かった時点）で、書き換えない。今の件数は末尾の「現状の件数」を見る。
 
 ## 完了の条件の確かめ（5/6）
 
@@ -171,7 +173,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | `--extra-judged-crate` | crate 名の一覧の末尾にだけ足す。feature 側の経路は無い | 本書「検査しないもの」 |
 | feature の組のビルド | `scripts/build-profiles.sh` の `NATIVE_SETS` に `backend-vulkan,graphics` の組（BUILD-3）と `backend-vulkan,backend-cuda,graphics,ext-interop` の組（BUILD-4）があり、契約の crate の `--all-features` の build / clippy / test も同スクリプトが回す | `grep -n -E 'BUILD-[34]\|all-features' scripts/build-profiles.sh` |
 | 依存グラフの実測 | 上の 2 組と `--all-features` の `cargo tree` は、どれも `fandhe-silicon-contract` と `fandhe-silicon-core` の 2 crate だけ。`SDK_LOADER_NAMES`・`SURFACE_NAMES` の名前は 0 件 | `cargo tree --locked -p fandhe-silicon-contract --all-features -e normal,build,dev --target all --prefix none`（組は `--no-default-features --features <組>`） |
-| 外部依存 | 契約の crate が依存するのは `fandhe-silicon-core` だけ。`deps-approved.toml` の記録は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| 外部依存 | 契約の crate が依存するのは `fandhe-silicon-core` だけ。`deps-approved.toml` の記録は 0 件（記録時点の値。今は `crates/contract` の macOS 向けの 4 件） | `grep -c '^\[\[' deps-approved.toml`（記録時点は 0。今は 4） |
 | feature の宣言 | `graphics`・`ext-interop`・`backend-vulkan`・`backend-cuda` は `crates/contract/Cargo.toml` に宣言がある。`cfg(feature = ...)` の参照は `ext-interop` が `src/cfg_gate_doctest.rs` と `tests/feature_gate_enabled.rs` にあり、`graphics` には無い | `git grep -n -E 'feature = "(graphics\|ext-interop)"' -- crates` |
 | 同じ語彙の既存検査 | 公開 API 側は `scripts/public-api-sdk-check.sh` の `CHIP_SDK`、wasm32 の依存グラフは `scripts/wasm-backend-check.sh`（[wasm32-backend-check.md](wasm32-backend-check.md)） | 各スクリプトの先頭コメント |
 | CI | 本検査は CI の `deny` ジョブの `make deny`（`scripts/deny.sh`）の中で流れる | `grep -n profile-dep-graph scripts/deny.sh` |
@@ -322,7 +324,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-5）の 4/6（#7
 | ---- | -- |
 | 終了コード | 0（`ok: 4 profile(s) checked, no judged crates (judged=0)`） |
 | `compute-only-metal` の crate の `count:` | 6 行、すべて `n=0` |
-| `baseline:` | `crates_total=2`・`sdk_total=0`（今の製品の crate には SDK の依存が無い） |
+| `baseline:` | `crates_total=2`・`sdk_total=0`（記録時点の値。この時点の製品の crate には SDK の依存が無かった） |
 | `baseline-count:` / `diff:` | 3 行すべて `n=0` / 4 行すべて `diff=0` |
 
 確かめた base は `1249d2eab8a69df0c1b2b4182a27e27fc8736f67`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
@@ -388,7 +390,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 
 比較基準（`--all-features`）は `baseline:` が `crates_total=2`・`sdk_total=0`、`baseline-count:` の 3 行がすべて `n=0`。`diff:` は 4 行すべてが `sdk_baseline=0`・`sdk_profile=0`・`diff=0`。
 
-- 今の製品の crate には SDK の依存が無いので、比較基準も各プロファイルも 0 件で、差は出ない。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
+- 記録時点の製品の crate には SDK の依存が無かったので、比較基準も各プロファイルも 0 件で、差は出なかった。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
 - 名前の一覧は定数名（`SDK_LOADER_NAMES`・`SURFACE_NAMES`・`*_ALLOWED_SDK`・`BASELINE_SDK_NAMES`）で指し、値は本書に写さない
 
 再実行の契機は「完了の条件の確かめ（5/6）」の「再実行の契機」と同じ。
@@ -396,3 +398,18 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-229）。
 
 確かめた base は `d6531b75f28b0c503b69c4422176ab206f12b33a`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 現状の件数
+
+結果は GPU の実機なしで、`make profile-dep-graph-check` を流した値（終了コード 0。`ok: 4 profile(s) checked, no judged crates (judged=0)`）。製品の crate が feature `backend-metal` で `objc2-metal` を載せる状態の件数で、段ごとの記録は書き換えずにここへ並べる。
+
+| プロファイル | `crates_total` | `judged_total` | `header_crate_n` | `features_judged_total` | `features_recorded_total` | `diff:` の `sdk_profile` / `diff` |
+| ------------ | -------------- | -------------- | ---------------- | ----------------------- | ------------------------- | --------------------------------- |
+| `cpu-only` | 2 | 0 | — | — | — | 0 / 1 |
+| `compute-only-metal` | 9 | 0 | 1 | 0 | 0 | 1 / 0 |
+| `graphics-vulkan` | 2 | 0 | — | — | — | 0 / 1 |
+| `graphics-interop` | 2 | 0 | — | — | — | 0 / 1 |
+
+- 比較基準（`--all-features`）は `baseline:` が `crates_total=9`・`sdk_total=1`、`baseline-count:` は `objc2-metal` が `n=1`、`ash`・`cudarc` が `n=0`。`diff:` の `sdk_baseline` は 4 行すべて 1
+- `compute-only-metal` の crate の `count:` は 6 行（すべて `n=0`）、feature の `count:` は judged=yes が 5 行・judged=no が 3 行（すべて `n=0`）
+- 実物の `objc2-metal` で per-header feature の判定が働くことの確かめ: 実物の `cargo tree`（`-e normal,build,dev` と、`-e normal,build,dev,features -i objc2-metal@<版>`）の出力を `--tree-text` と `--features-text` で渡すと、有効な feature の行を読み、`header_crate_n=1`・`features_judged_total=0` と出る。同じ入力に判定の feature の行（`MTLTexture`）を 1 行足すと、`violation: ... feature=MTLTexture` と `FAILED: 1 judged feature(s) found` で落ち、`features_judged_total=1` になる

@@ -114,7 +114,7 @@
 | A4 | 組の行を固定する試験・本番の組の照合 | `cargo test -p fandhe-silicon-contract --test ext_interop_build_sets`、`--test feature_default_scope`。A1〜A3 の `cargo test` の出力に `feature_gate_enabled` の `ext_interop_gate_is_visible` が `ok` で出ること | 前者 9 件・後者 15 件成功。`ext_interop_gate_is_visible` は A1〜A3 のいずれも `ok` で 1 件 |
 | B1 | 3 構成の行が流れる場所にある | `grep -n 'ext-interop' scripts/build-profiles.sh` | `NATIVE_SETS` に BUILD-4 の行（33 行目）、単独の行（43 行目）、Vulkan のみ（44 行目）、CUDA のみ（45 行目）の 4 行が出る。`WASM_SETS` には出ない |
 | B2 | 背後実装の中の `ext-interop` の条件付きコンパイル | `grep -rn 'ext-interop\|ext_interop' crates/contract/src/backend_vulkan.rs crates/contract/src/backend_vulkan crates/contract/src/backend_cuda.rs` | 0 件。相互運用の実装が無いので条件付きコンパイルの箇所は無い。門で囲むのは相互運用の実装を持つ PR で、その PR で本書に節を足す。本項は「無いこと」の記録で、囲んだ結果の確かめではない |
-| C1 | 依存 | `sed -n '/\[dependencies\]/,/^$/p' crates/contract/Cargo.toml`、`grep -c '^\[\[approval' deps-approved.toml` | 契約の crate の依存は `fandhe-silicon-core`（path）だけ。`[[approval]]` は 0 件のまま |
+| C1 | 依存 | `sed -n '/\[dependencies\]/,/^$/p' crates/contract/Cargo.toml`、`grep -c '^\[\[approval' deps-approved.toml` | 記録時点の値: 契約の crate の依存は `fandhe-silicon-core`（path）だけ、`[[approval]]` は 0 件のまま。今は macOS 向けの `objc2` 系 4 件の記録がある |
 | E1 | main の CI | main の push の `ci.yml` の run `39448637386`（対象 `1b70c789274badbe031219170aa0e96fc0ca3e43`）の `verify` ジョブ `118717187826` の `make build-profiles` の step のログ | run・`verify` ジョブとも success。ログに BUILD-4 の組・`backend-vulkan,ext-interop`・`backend-cuda,ext-interop`（と単独の `ext-interop`）それぞれの build / clippy / test の行が計 12 行ある |
 | D | 品質ゲート | `make check`・`make verify`・`make deny` | 下の「品質ゲート」に記録 |
 

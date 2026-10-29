@@ -18,7 +18,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu` と `measure`。外部依存の承認の記録は 0 件 | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
+| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu` と `measure`。外部依存の承認の記録は 4 件（契約の crate の macOS 向け optional 依存） | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
 | 性能を測る道具 | 時間を測る標準ライブラリの型の使用は `measure/` にだけあり、`crates/`・`baseline-wgpu/` には無い | `grep -rn -e Instant -e SystemTime -e 'std::time' crates baseline-wgpu`（0 件）、`grep -rln 'std::time' measure --include=*.rs` |
 
 既にある関連の部品（名前とリンクのみ）:
@@ -53,7 +53,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | path の検査 | `scripts/deny.sh` の `ALLOWED_ROOT` は `crates/`。測定専用の crate の置き場が決まったら見直す、とコメントにある | `scripts/deny.sh` |
 | 別 workspace の前例 | `baseline-wgpu/` はルートの `exclude`。9/11 で `make deny` の対象に入った（下の「現状の形（9/11）」） | [baseline-wgpu](baseline-wgpu.md) |
 | CI の `deny` ジョブ | `make deny`、`make deps-check`、各回帰テストの順に呼ぶ | `.github/workflows/ci.yml` |
-| 外部依存 | 製品の workspace の承認の記録は 0 件 | `deps-approved.toml` |
+| 外部依存 | 製品の workspace の承認の記録は `crates/contract` の macOS 向けの 4 件。測定の道具のための記録（`measure-perf` を `used_by` に持つもの）は無い | `grep -c '^used_by = .*measure-perf' deps-approved.toml`（0 が返る） |
 
 ### どの形でも守る本リポの規約
 
@@ -194,7 +194,7 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | B1 | 記録を読む側の検査の回帰テスト | `make test-perf-record-check` | 終了コード 0 |
 | B2 | 記録の書き出しの部品のテスト | `measure/crates/perf/tests/` の `record.rs`（24 件）・`sample.rs`（5 件）・`stats.rs`（7 件）・`across.rs`（5 件）・`ratio.rs`（6 件）・`repeat.rs`（6 件）・`across_runs_cmd.rs`（14 件） | 全件通過 |
 | C1 | 製品の workspace が変わっていない | `cargo metadata --format-version 1 --no-deps` の `workspace_members`、ルート `Cargo.toml` の `exclude` | 4 crate・`exclude` に `measure` |
-| C2 | 外部依存がない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[` の数、`measure/Cargo.lock` の `[[package]]` の数、`make deps-check` | 0 件・0 件・1 件（`measure-perf` 自身）・終了コード 0 |
+| C2 | 外部依存がない | ルートの `deps-approved.toml` の `used_by` に `measure-perf` を持つ記録の数（`grep -c '^used_by = .*measure-perf' deps-approved.toml`）・`measure/deps-approved.toml` の `[[` の数、`measure/Cargo.lock` の `[[package]]` の数、`make deps-check` | 0 件・0 件・1 件（`measure-perf` 自身）・終了コード 0 |
 | C3 | `unsafe` を持たない | `measure/` 配下を `unsafe` で検索 | `measure/Cargo.toml` の lint 設定の行のみ（`forbid`・`deny`） |
 | C4 | 時間を測る型が製品側にない | `crates`・`baseline-wgpu` を `Instant`・`SystemTime`・`std::time` で検索 | 0 件 |
 | C5 | 製品の crate が測定の道具を参照しない | `crates/` を `measure` で検索 | 一致は `crates/core/tests` の関数名 2 件のみ（依存ではない） |

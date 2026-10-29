@@ -963,7 +963,7 @@ fi
 # ---- 実物のリポジトリ（引数なしの本物の検査）----
 rc=0
 "${CHECK}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
-judge "repo_real" 0 "o:ok: " "o:record: commit=" "o:profile=cpu-only" "o:profile=compute-only-metal" "o:profile=graphics-vulkan" "o:profile=graphics-interop" "o:header_crate_n=0" "o:baseline: commit=" "o:profile=all-features" "!violation" "!error:" "!${ROOT_DIR}"
+judge "repo_real" 0 "o:ok: " "o:record: commit=" "o:profile=cpu-only" "o:profile=compute-only-metal" "o:profile=graphics-vulkan" "o:profile=graphics-interop" "o:crates_total=9 judged_total=0 header_crate_n=1 features_judged_total=0 features_recorded_total=0" "o:baseline: commit=" "o:profile=all-features crates_total=9 sdk_total=1" "o:baseline-count: profile=all-features crate=objc2-metal n=1" "o:diff: profile=compute-only-metal baseline=all-features sdk_baseline=1 sdk_profile=1 diff=0" "!violation" "!error:" "!${ROOT_DIR}"
 count_is "repo_real_baseline_count_lines" "${OUT_F}" "baseline-count: " 3
 count_is "repo_real_diff_lines" "${OUT_F}" "diff: profile=" 4
 # 行の数は名前の一覧から決まる（値は固定しない。SDK の依存が後で入っても変わらない形だけを確かめる）

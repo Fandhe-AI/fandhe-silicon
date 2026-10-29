@@ -12,6 +12,15 @@ publish.workspace = true
 [dependencies]
 fandhe-silicon-core = { path = "../core" }
 
+# Metal の背後実装の FFI 境界（device の取得・診断・確保）。macOS 向けにだけ宣言し、backend-metal から dep: で有効にする
+# （ほかの target・feature の依存グラフには入らない）。承認の記録は deps-approved.toml（approval_ref #421）。
+# block2・dispatch2 を引き込まないよう default-features = false とし、使う header・型の feature だけを列挙する。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.5", optional = true }
+objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSString"] }
+objc2-metal = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandQueue", "MTLDevice", "MTLResource"] }
+objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false }
+
 # feature 名は spec BUILD-47 / BUILD-8 / BUILD-65 に合わせる。
 # backend-* は src/backend_*.rs のモジュールを有効にする（Vulkan・CUDA は wasm32 で外す。spec TASK-5）。
 # default は CpuOnly プロファイル（contract-core・cpu-isa・cpu-ops）のみ。
@@ -24,7 +33,7 @@ native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
 graphics = []
 ext-interop = []
 # backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
-backend-metal = ["contract-core"]
+backend-metal = ["contract-core", "dep:objc2", "dep:objc2-foundation", "dep:objc2-metal", "dep:objc2-core-graphics"]
 backend-vulkan = ["contract-core"]
 backend-cuda = ["contract-core"]
 # DX12 の compute の背後実装の置き場（中身なし・名前は仮。形は spec TASK-222、
@@ -37,6 +46,18 @@ test-support = ["fandhe-silicon-core/test-support"]
 # fault-injection は core の同名 feature（故障の差し込み口）へ転送する（説明は docs/contract-fault-injection.md）。
 fault-injection = ["fandhe-silicon-core/fault-injection"]
 artifact-inspection = ["backend-metal"]
+
+[[test]]
+name = "backend_metal_device"
+required-features = ["backend-metal", "native-blocking-wait"]
+
+[[test]]
+name = "backend_metal_fault"
+required-features = ["backend-metal", "fault-injection"]
+
+[[test]]
+name = "backend_metal_request"
+required-features = ["backend-metal"]
 
 [[test]]
 name = "backend_vulkan_spirv_operands"

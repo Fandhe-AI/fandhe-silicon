@@ -4,9 +4,10 @@
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
 # 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-node-check` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
+# macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（TASK-158・TASK-18 の記録のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
-# runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks と wasm-macos のみ macos-latest も）を使う。
+# runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks・wasm-macos・verify-macos のみ macos-latest も）を使う。
 name: CI
 
 on:
@@ -431,6 +432,41 @@ jobs:
       - name: make wasm-node-check
         run: make wasm-node-check
 
+  # macOS でだけ有効になる Metal の背後実装（`backend-metal`）を、ビルド・lint・device の要らない試験で確かめる（TASK-158・TASK-18 の記録のポインタ）。
+  # `make verify` の `--all-features` に `backend-metal` が入るので、Linux の `verify` ジョブと同じ make ターゲットを macOS の標準の runner で流す。
+  # `make build-profiles` は feature の組ごとの確かめで、`backend-metal` 単独の組と `--all-features` の組を含む（Linux では macOS 向けの依存がビルドされないため、ここで初めて流れる）。
+  # `--ignored`・`--include-ignored` は付けず、device の要る試験（`#[ignore]`）とシェーダーのコンパイラ（`xcrun metal`）は流さない。
+  # larger runner のラベルは使わない。キャッシュは使わない。python3 は runner 同梱のものを使う（`make verify` の集計が 3.8 以上を要る）。
+  # ruleset の必須チェックには登録していない（登録はユーザー判断。`ci-complete` の `needs` には入れている）。
+  verify-macos:
+    name: "make verify + build-profiles (macos-latest)"
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        # rust-toolchain.toml の targets に wasm32 があるので target もここで入る（`make build-profiles` は target が無いと失敗する）
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: Show python3 version
+        # 判定はしない（版を記録に残すだけ。3.8 未満・欠落は集計の道具が終了コード 2 で失敗させる）
+        run: python3 --version
+
+      - name: make verify
+        run: make verify
+
+      - name: make build-profiles
+        run: make build-profiles
+
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
   # PR タイトルは任意文字列のため、${{ }} を run へ直接展開せず env 経由でファイルへ書き出す
@@ -473,6 +509,7 @@ jobs:
       - deny
       - test-hooks
       - wasm-macos
+      - verify-macos
       - pr-title
     steps:
       - name: 全ジョブ結果の検証

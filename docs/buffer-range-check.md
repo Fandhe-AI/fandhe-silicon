@@ -62,7 +62,7 @@ make verify
 | A4 | 統合テストの関数の数 | `grep -c -E '^fn (buffer_range_boundary_\|allocation_size_boundary_)' crates/core/tests/memory_buffer_check.rs`・`grep -c -E '^fn upload_' crates/core/tests/memory_upload_reject.rs` | 8・8（A2・A3 の件数と一致） |
 | A5 | 本体に panic・確保・unsafe が無い | `sed -n '1,/#\[cfg(test)\]/p' crates/core/src/memory/buffer_check.rs \| grep -nE 'unwrap\|expect\|panic\|Vec\|Box\|unsafe'`・`crates/core/src/lib.rs` の `#![forbid(unsafe_code)]` | 0 件・`forbid(unsafe_code)` あり |
 | A6 | feature の条件が無い | feature なしの `cargo test -p fandhe-silicon-core`・`make public-api-check` | 190 passed・0 failed・0 ignored・終了コード 0 |
-| C1 | 依存 | `crates/core/Cargo.toml` の `[dependencies]` の数・`grep -c '^\[\[approval' deps-approved.toml` | 0 件・0 件（外部 crate の追加なし） |
+| C1 | 依存 | `crates/core/Cargo.toml` の `[dependencies]` の数・`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | 0 件・0 件（`core` に外部 crate の追加なし。記録は `crates/contract` の macOS 向けの 4 件だけ） |
 | E1 | base の CI | `gh run list --branch main --workflow ci.yml --commit <base>` | run 39513132267（push）。記録時点では実行中で、結論は未確認 |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`（本節を足した状態） | すべて終了コード 0 |
 

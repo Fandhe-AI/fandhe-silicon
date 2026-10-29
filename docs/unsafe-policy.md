@@ -15,7 +15,7 @@
 | `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） | `crates/contract/src/lib.rs` |
 | cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")` | `crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs` |
 | 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `common_unsafe_count_samples.rs` と `common_scanner_regression.rs` | `ls crates/contract/tests` |
-| 外部依存 | 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） | `Cargo.lock` |
+| 外部依存 | `crates/contract` の Metal の背後実装だけが、macOS 向けに `objc2` 系の 4 件を持つ（`deps-approved.toml`）。ほかの crate は 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） | `Cargo.lock`・`deps-approved.toml` |
 
 ## `unsafe` を置ける場所
 

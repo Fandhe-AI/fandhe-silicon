@@ -363,7 +363,10 @@ expect "real-all-match" 0 "check: feature=backend-metal target=wasm32-unknown-un
   "module: feature=backend-metal module=backend_metal expect=present-empty found=present public_items=0 result=match" \
   "module: feature=backend-vulkan module=backend_vulkan expect=absent found=absent public_items=- result=match" \
   "module: feature=backend-cuda module=backend_cuda expect=absent found=absent public_items=- result=match" \
-  "record: commit=" "check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=0" "ok:" "!violation:"
+  "deps: feature=backend-metal name=objc2-metal wasm32_n=0 native_n=1 result=match" \
+  "deps: feature=backend-vulkan name=objc2-metal wasm32_n=0 native_n=0 result=match" \
+  "deps: feature=backend-cuda name=objc2-metal wasm32_n=0 native_n=0 result=match" \
+  "record: commit=" "check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=1" "ok:" "!violation:"
 # ホストの絶対パスが出力に出ない。
 if cat "${OUT_F}" "${ERR_F}" | grep -q -F -e "${work}"; then
   failed=$((failed + 1))
