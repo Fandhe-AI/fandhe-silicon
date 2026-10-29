@@ -35,6 +35,10 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | テスト | 内容 |
 | ------ | ---- |
 | `crates/core/tests/submit_types.rs` | ダミーの queue、`dyn CommandQueue`、`CommandEncoder` の `Send + Sync`・`Clone` なし・`Drop` と `__backend_disarm_closer`、`SubmitToken`・`GpuTiming` の derive、feature ごとのメソッド |
+| `crates/core/tests/poll_ex_default.rs` | `poll_ex` を上書きしない queue で `poll` の `Pending`・`Complete`・`Lost` が対応する `CompletionStateEx` に写り、`RuntimeError`・`Unknown` が出ないこと（ERR-27。TASK-270） |
+| `crates/core/tests/submit_default_impls.rs`（`submit_ex`） | `RetryPolicy` の両方の値で、内側の `submit` がちょうど 1 回呼ばれ `Ok`・`Err` をそのまま返すこと（CMD-12。TASK-589。`fault-injection` の裏） |
+| `crates/core/tests/submit_default_impls.rs`（`submit_exportable`） | `exportable` の真・偽の両方で、内側の `submit` が 1 回呼ばれ戻り値をそのまま返すこと（CMD-20。TASK-589。`fault-injection` と `ext-interop` の裏） |
+| `crates/core/tests/gpu_timing_default.rs` | `gpu_timing` を上書きしない queue がどの印でも `GpuTiming::Unavailable` を返すこと（TASK-589） |
 | `SubmitToken`・`CommandEncoder`・`CommandQueue::on_complete` の rustdoc（`compile_fail`） | 外からの構造体式の構築、`Clone`、native で `Send` でない callback が拒まれること |
 
 ## 確かめ方
