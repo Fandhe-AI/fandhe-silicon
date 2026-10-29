@@ -159,6 +159,35 @@ fn upload_to_a_freed_handle_is_rejected_as_invalid_argument() {
 
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn download_async_of_a_freed_handle_calls_back_once_with_invalid_argument() {
+    let device = new_device();
+    let memory = device.memory();
+    let handle = memory.allocate(16, usage()).expect("allocate");
+    let stale = forged_copy(&handle);
+    memory.free(handle);
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let received = Arc::new(Mutex::new(None));
+    let (c, r) = (Arc::clone(&calls), Arc::clone(&received));
+    memory.download_async(
+        &stale,
+        0,
+        16,
+        Box::new(move |result| {
+            c.fetch_add(1, Ordering::SeqCst);
+            *r.lock().unwrap() = Some(result);
+        }),
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let got = received.lock().unwrap().take().expect("callback ran");
+    assert!(
+        matches!(got, Err(ContractError::InvalidArgument(_))),
+        "{got:?}"
+    );
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn freeing_another_devices_handle_keeps_the_buffer_with_the_same_id() {
     let first = new_device();
     let second = new_device();
@@ -250,7 +279,11 @@ fn download_async_calls_back_once_with_the_same_bytes() {
 fn allocate_past_the_buffer_limit_is_invalid_argument() {
     let device = new_device();
     let limit = device.limits().max_buffer_bytes;
-    let r = device.memory().allocate(limit + 1, usage());
+    // 上限が u64 の最大なら、それを超える大きさは作れない。あふれさせずに抜ける。
+    let Some(past_limit) = limit.checked_add(1) else {
+        return;
+    };
+    let r = device.memory().allocate(past_limit, usage());
     assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
 }
 
