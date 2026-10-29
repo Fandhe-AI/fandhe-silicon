@@ -11,6 +11,8 @@
 //!
 //! 投入の列・compute の口・ロストの通知はこの段では持たない（コマンドバッファを積まない）。
 //! したがって device のメモリへの CPU からの読み書きと GPU の読み書きが重なることはない。
+//! 読み書きの `unsafe` ブロックの同期の根拠は、この前提に頼る。
+//! 投入（コマンドバッファ）を足す変更では、これらのブロックの同期の根拠を必ず書き直す。
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -54,9 +56,16 @@ mod imp {
 
     /// 源から次の値を取る。あふれたら `None` を返し、源は動かさない。
     fn take_next(counter: &AtomicU64) -> Option<u64> {
-        counter
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
-            .ok()
+        // toolchain の版に依らず警告の出ない、比較交換のループで払い出す。
+        let mut current = counter.load(Ordering::Relaxed);
+        loop {
+            let next = current.checked_add(1)?;
+            match counter.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Some(current),
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     /// `request` の中の呼び出しの結果を `None` に差し替える指示。
@@ -193,7 +202,7 @@ mod imp {
     impl DeviceProvider for MetalDeviceProvider {
         /// 要求を照らしてから Metal の既定の device を取り、device を作る。
         ///
-        /// - 背後実装が Metal でない、`CpuOnly`、`graphics` が無効での `Graphics`、未知のプロファイル・所有形態:
+        /// - 背後実装が Metal でない、`CpuOnly`、`graphics` が無効での `Graphics`:
         ///   `InvalidCombination`（device を作る前）。
         /// - `Shared`・`Imported`: `Unsupported`（device を作る前）。
         /// - 既定の device またはコマンドキューが得られない: `DeviceUnavailable`。
@@ -339,13 +348,20 @@ mod imp {
                         "buffer range does not fit usize".into(),
                     ));
                 };
-                let mut out = vec![0u8; len];
+                // 確保できなければ abort せず `AllocationFailed` で返す。
+                let mut out: Vec<u8> = Vec::new();
+                out.try_reserve_exact(len)
+                    .map_err(|_| ContractError::AllocationFailed {
+                        requested_bytes: byte_len,
+                    })?;
+                out.resize(len, 0);
                 if len > 0 {
                     let base = buffer.contents().as_ptr().cast::<u8>().cast_const();
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から読める
                     // `buffer.length()` バイトの領域を指す。`validate_buffer_range` が
-                    // `offset + len <= length()` を保証している。この背後実装はコマンドバッファを
-                    // 投入しないので GPU の書き込みと重ならない。`with_buffer` が表の錠を持ったまま
+                    // `offset + len <= length()` を保証している。GPU の書き込みと重ならないことは、
+                    // この背後実装がコマンドバッファを投入しないことに根拠を置く（投入を足す変更では、
+                    // このブロックの同期の根拠を必ず書き直す）。`with_buffer` が表の錠を持ったまま
                     // `f` を呼ぶため、コピーの間は `free` でバッファが落ちない。`out` は新しく確保した
                     // `len` バイトの領域で、Metal の領域とは重ならない。
                     unsafe {
@@ -405,9 +421,8 @@ mod imp {
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
-        /// 上限（`limits().max_buffer_bytes`）を超えると `InvalidArgument`。Metal が確保できないと
-        /// `AllocationFailed`。返すハンドルは、この device の識別子・世代・払い出した識別子と、
-        /// 受けた `byte_len`・`usage` で作る。
+        /// 上限（`limits().max_buffer_bytes`）を超えると `InvalidArgument`。返すハンドルの `size`・`usage` は、
+        /// 受けた `byte_len`・`usage`。
         fn allocate(
             &self,
             byte_len: u64,
@@ -459,8 +474,9 @@ mod imp {
                     let base = buffer.contents().as_ptr().cast::<u8>();
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
                     // `buffer.length()` バイトの領域を指す。`validate_buffer_range` が
-                    // `offset + bytes.len() <= length()` を保証している。この背後実装はコマンドバッファを
-                    // 投入しないので GPU の読み書きと重ならない。`with_buffer` が表の錠を持ったまま
+                    // `offset + bytes.len() <= length()` を保証している。GPU の読み書きと重ならないことは、
+                    // この背後実装がコマンドバッファを投入しないことに根拠を置く（投入を足す変更では、
+                    // このブロックの同期の根拠を必ず書き直す）。`with_buffer` が表の錠を持ったまま
                     // `f` を呼ぶため、コピーの間は `free` でバッファが落ちない。`bytes` は呼び出し側の
                     // 借用した領域で、Metal の領域とは重ならない。
                     unsafe {
@@ -497,10 +513,9 @@ mod imp {
             callback(self.read_range(src, src_offset, byte_len));
         }
 
-        /// ハンドルが、この device の表にある同じ世代のものなら、表から外してバッファを解放する。
+        /// この device のハンドルなら、表から外してバッファを解放する。
         ///
-        /// 別の device のハンドル・表に無い識別子・世代が違うものは、何も解放しない
-        /// （同じ識別子を持つ自 device のバッファを巻き込まない）。
+        /// 別の device のハンドルは何も解放しない（同じ識別子を持つ自 device のバッファを巻き込まない）。
         fn free(&self, buffer: BufferHandle) {
             if buffer.__backend_device_id() != self.id
                 || buffer.__backend_generation() != self.generation

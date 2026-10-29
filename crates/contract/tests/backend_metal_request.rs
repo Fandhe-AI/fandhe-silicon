@@ -110,10 +110,27 @@ fn request_reports_imported_as_unsupported_on_metal() {
 }
 
 #[test]
-fn request_checks_backend_before_profile_and_ownership() {
-    // 3 つとも当たる要求では、最初の背後実装の検査の値が返る。
+fn request_reports_the_backend_mismatch_when_profile_and_ownership_also_fail() {
+    // 3 つとも当たる要求では、背後実装の検査の値が返る。プロファイルの検査の文言は
+    // 要求の背後実装ではなく Metal を名指すので、`Vulkan` を含む値は背後実装の検査から来たものと区別できる。
     let e = expect_err(MetalDeviceProvider::request(request(
         BackendKind::Vulkan,
+        Profile::CpuOnly,
+        DeviceOwnership::Shared,
+    )));
+    match &e {
+        ContractError::InvalidCombination(msg) => {
+            assert!(msg.contains("Vulkan"), "{msg}");
+        }
+        other => panic!("expected InvalidCombination, got {other:?}"),
+    }
+}
+
+#[test]
+fn request_checks_profile_before_ownership() {
+    // `Metal` + `CpuOnly` + `Shared` は、所有形態の `Unsupported` ではなくプロファイルの `InvalidCombination`。
+    let e = expect_err(MetalDeviceProvider::request(request(
+        BackendKind::Metal,
         Profile::CpuOnly,
         DeviceOwnership::Shared,
     )));

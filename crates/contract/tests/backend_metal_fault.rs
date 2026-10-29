@@ -2,12 +2,12 @@
 //! DEV-67・DEV-68・DEV-206・DEV-210・DEV-211・TASK-265。失敗の種類の区別は TASK-272 の流儀）。
 //!
 //! 検査が device を作る前であることを、既定の device に触らない差し込みの入口で確かめる。
-//! device に触る試験は `#[ignore]` を付け、専用の Mac の回でだけ流す。macOS 以外では 0 件になる。
+//! device に触る試験は `#[ignore]` を付け、専用の実機の回でだけ流す。macOS 以外では 0 件になる。
 
 #![cfg(target_os = "macos")]
 
 use fandhe_silicon_contract::backend_metal::{
-    MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider,
+    MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider, MetalDeviceProvider,
 };
 use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel, FeatureId};
 use fandhe_silicon_core::device::{
@@ -101,6 +101,40 @@ fn checks_run_before_the_device_is_created_for_ownership() {
 }
 
 #[test]
+fn injected_provider_reports_the_backend_mismatch_first() {
+    // 背後実装・プロファイル・所有形態の 3 つが当たる要求でも、`DeviceUnavailable` にはならず、
+    // 本物の入口と同じ値（`Vulkan` を名指す `InvalidCombination`）が返る。
+    let req = || DeviceRequest {
+        backend: BackendKind::Vulkan,
+        profile: Profile::CpuOnly,
+        ownership: DeviceOwnership::Shared,
+    };
+    let injected = expect_err(MetalDefaultDeviceNoneProvider::request(req()));
+    let real = expect_err(MetalDeviceProvider::request(req()));
+    assert_eq!(injected, real);
+    match &injected {
+        ContractError::InvalidCombination(msg) => assert!(msg.contains("Vulkan"), "{msg}"),
+        other => panic!("expected InvalidCombination, got {other:?}"),
+    }
+}
+
+#[test]
+fn injected_provider_checks_profile_before_ownership() {
+    let req = || DeviceRequest {
+        backend: BackendKind::Metal,
+        profile: Profile::CpuOnly,
+        ownership: DeviceOwnership::Shared,
+    };
+    let injected = expect_err(MetalDefaultDeviceNoneProvider::request(req()));
+    let real = expect_err(MetalDeviceProvider::request(req()));
+    assert_eq!(injected, real);
+    assert!(
+        matches!(injected, ContractError::InvalidCombination(_)),
+        "{injected:?}"
+    );
+}
+
+#[test]
 fn default_device_none_is_an_initialization_failure_distinct_from_the_other_kinds() {
     let e = expect_err(MetalDefaultDeviceNoneProvider::request(compute_request(
         BackendKind::Metal,
@@ -141,7 +175,7 @@ fn default_device_none_is_an_initialization_failure_distinct_from_the_other_kind
 }
 
 #[test]
-#[ignore = "touches the Metal device; run only in a dedicated Mac mini session"]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn command_queue_none_is_an_initialization_failure() {
     let e = expect_err(MetalCommandQueueNoneProvider::request(compute_request(
         BackendKind::Metal,
