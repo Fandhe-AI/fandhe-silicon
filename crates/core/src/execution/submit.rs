@@ -3,7 +3,7 @@
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が記録先を作って投入し、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が `CommandQueue` を実装して受け取る。
 //! ここには型と trait の形だけを置き、チップ固有の型・unsafe は持たない。
-//! `dispatch` 系・束縛の検査・一括投入などは本モジュールの範囲の外。
+//! `dispatch` 系・束縛の検査などは本モジュールの範囲の外。
 
 use super::ImportedSemaphoreHandle;
 use crate::error::{CompletionState, CompletionStateEx, ContractError, RetryPolicy};
@@ -180,6 +180,7 @@ impl Drop for CommandEncoder {
 /// `create_encoder` は `Result` を返さず、その時点では何も投入しない（CMD-1）。
 /// 既定の本体を持つメソッドは、背後実装が上書きしなければ次のように振る舞う:
 /// `poll_ex` は `poll` の 3 値を写し、`submit_ex`・`submit_exportable` は `submit` に委ね、`gpu_timing` は `Unavailable`。
+/// `submit_many` は既定の本体を持たず、背後実装が必ず実装する。
 pub trait CommandQueue {
     /// 記録先を作る。何も投入しない。
     fn create_encoder(&self) -> CommandEncoder;
@@ -188,6 +189,15 @@ pub trait CommandQueue {
     fn submit(
         &self,
         commands: CommandEncoder,
+        wait: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError>;
+
+    /// 複数の記録先を値で消費して 1 回で投入し、結果を指す印を 1 つ返す（CMD-67）。
+    /// `after` は先に完了を待つ投入の印、`wait` は `submit` と同じく先に待つ取り込み済みセマフォ。
+    fn submit_many(
+        &self,
+        commands: Vec<CommandEncoder>,
+        after: &[SubmitToken],
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError>;
 

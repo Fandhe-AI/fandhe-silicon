@@ -23,11 +23,12 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `create_encoder` | `Result` でなく `CommandEncoder` を返す。必須のメソッドは `create_encoder`・`submit`・`poll`・`on_complete` | `crates/core/tests/submit_types.rs` |
+| `create_encoder` | `Result` でなく `CommandEncoder` を返す。必須のメソッドは `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete` | `crates/core/tests/submit_types.rs` |
 | `on_complete` | native では callback に `Send` を要求し、`target_arch = "wasm32"` では外す | 同上、wasm32 向けのビルド |
 | 既定の本体 | `poll_ex`（`poll` の 3 値を写す）・`submit_ex`・`submit_exportable`（`submit` に委ねる）・`gpu_timing`（`Unavailable`） | 同上（呼べることまで） |
 | feature | `wait_blocking` は `native-blocking-wait`、`submit_exportable` は `ext-interop` の裏。`ext-interop` は `core` にも置き、`contract` の同名 feature が転送する | `crates/core/Cargo.toml`、`crates/contract/Cargo.toml`、`make core-deps-check` |
-| 範囲の外 | `dispatch` 系・束縛の検査・一括投入・`Device` からの取り出しは本書の範囲に含まれない。`Device` は変えていない | `crates/core/src/device.rs` |
+| 範囲の外 | `dispatch` 系・束縛の検査・`Device` からの取り出しは本書の範囲に含まれない。`Device` は変えていない | `crates/core/src/device.rs` |
+| 一括投入 | `submit_many(Vec<CommandEncoder>, &[SubmitToken], &[ImportedSemaphoreHandle])` を足した（TASK-592）。既定の本体を持たない必須のメソッドで、共通の crate は宣言だけを持つ | `crates/core/tests/submit_types.rs`（`dyn CommandQueue` 越しに呼べることまで） |
 | 外部依存 | 足していない（`Cargo.lock`・`deps-approved.toml` は変更なし） | `make deps-check` |
 
 ## 対応するテスト

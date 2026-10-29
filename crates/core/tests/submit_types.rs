@@ -31,6 +31,19 @@ impl CommandQueue for DummyQueue {
         Ok(SubmitToken::__backend_new(1, commands.__backend_id(), 3))
     }
 
+    fn submit_many(
+        &self,
+        commands: Vec<CommandEncoder>,
+        _after: &[SubmitToken],
+        _wait: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        if commands.is_empty() {
+            return Err(ContractError::InvalidArgument("empty commands".into()));
+        }
+        drop(commands);
+        Ok(SubmitToken::__backend_new(0, 0, 0))
+    }
+
     fn poll(&self, _token: SubmitToken) -> CompletionState {
         CompletionState::Complete
     }
@@ -70,6 +83,16 @@ fn usable_as_dyn_command_queue() {
     assert_eq!(token.sequence, 7);
     assert_eq!(token.__backend_device_id(), 3);
     assert_eq!(queue.poll(token), CompletionState::Complete);
+}
+
+#[test]
+fn submit_many_is_callable_via_dyn() {
+    // 共通の crate は宣言だけを持つ。下の Err・Ok はこの試験のダミーの実装の値で、背後実装の振る舞いではない。
+    let queue: Box<dyn CommandQueue> = Box::new(DummyQueue);
+    let r = queue.submit_many(Vec::new(), &[], &[]);
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+    let r = queue.submit_many(vec![queue.create_encoder()], &[], &[]);
+    assert!(r.is_ok(), "{r:?}");
 }
 
 #[test]
