@@ -128,7 +128,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1・B2 の 7 本が同じ件数で通る |
 | B4 | 拡張性の試験が実在する | `grep -n '^fn ' crates/core/tests/device_capability_non_exhaustive.rs` | 先頭に `#![deny(unreachable_patterns)]`。`*_stays_non_exhaustive` が 5 本（ほかに値の個数の試験 1 本） |
 | C1 | `#[non_exhaustive]` の付き方 | `grep -n -A1 'non_exhaustive' crates/core/src/device.rs crates/core/src/capability.rs` | `BackendKind`・`Profile`・`DeviceOwnership`・`CapabilityLevel`・`CapabilityEvidence` の 5 型に付く。`DeviceRequest`・`CapabilityQuery`・`NativeDeviceHandle`・`FeatureId` には付かない |
-| C2 | 置き場と制約 | `lib.rs` の `pub mod device;`・`pub mod capability;`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（`core` を `used_by` に持つ記録の数） | 2 つの `mod` に feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
+| C2 | 置き場と制約 | `lib.rs` の `pub mod device;`・`pub mod capability;`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` の記録の数 | 2 つの `mod` に feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
 | C3 | 他の経路からの参照 | `crates/exec`・`crates/contract`・`crates/upper`・`wasm`・`measure`・`baseline-wgpu` を `DeviceRequest`・`NativeDeviceHandle`・`CapabilityEvidence`・`CapabilityQuery` で検索 | 0 件 |
 | C4 | wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` 付きも）・`make build-profiles` | いずれも終了コード 0 |
 | C5 | 公開 API・依存グラフの検査 | `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`・`make public-name-check`・`make public-api-sdk-check` | すべて終了コード 0。`scanned: crate=fandhe_silicon_core` は production が `public_items=1097`・all-features が `public_items=4243`、いずれも `wgpu_type_refs=0`・`wgpu_other_refs=0`（DEV-21） |
@@ -174,3 +174,11 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - [test-frame](test-frame.md)
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

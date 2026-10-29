@@ -177,7 +177,7 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | A3 | 前段の振る舞いの裏付け（2/8〜5/8） | A1 の出力で `order_nan_pairs_are_both_nan`・`order_infinity_requires_the_same_sign`・`order_signed_zeros_are_both_zero`・`order_distance_neighbours`・`relative_sum_boundary_is_inclusive`・`reference_flush_replaces_rounded_result` が `ok` | 6 本とも `ok` |
 | A4 | 閾値の固定（7/8） | A1 の出力で 7/8 の節の 4 本（`threshold_` で始まる）が `ok` | 4 本とも `ok` |
 | C1 | 本体の範囲 | `grep -n 'unsafe\|std::fs\|println!\|env::var\|process::Command' crates/core/src/parity/fallback_compare.rs`、`grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src` | どちらも 0 件 |
-| C2 | 依存 | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`、`crates/core/Cargo.toml` の依存 | `core` を `used_by` に持つ承認は 0 件、`core` の外部依存は 0 |
+| C2 | 依存 | `deps-approved.toml` の承認の件数、`crates/core/Cargo.toml` の依存 | 承認は 0 件、`core` の外部依存は 0 |
 | E | main の CI | base の push run の `make verify (fmt + clippy + test)` と `make deny (cargo-deny)` のジョブの step | `make verify`・`make deny`・`make deps-check` の conclusion は success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0。`make verify` の出力に `parity_fallback_compare` の 53 本の実行が出る |
 
@@ -213,3 +213,11 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 関連
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-element-rules](parity-element-rules.md)・[test-frame](test-frame.md)・[parity-fallback-inputs](parity-fallback-inputs.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

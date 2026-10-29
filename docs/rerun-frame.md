@@ -185,7 +185,7 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | B1 | 前の記録と比べる道具の回帰テスト（5/8） | `make test-rerun-compare` | 終了コード 0・`passed=30 failed=0` |
 | B2 | 集計とスクリプト側の欠けの規則・綴りの一致（4/8） | `make test-record-summary`・`make test-wasm-node-check` | 終了コード 0・`passed: 92, failed: 0`・`passed: 80, failed: 0` |
 | C1 | 製品の経路から参照しない・副作用と `unsafe` が無い | `crates/contract/src`・`crates/exec/src`・`crates/upper/src` の `rerun` の grep と、`crates/core/src/rerun*` の `std::fs`・`println!`・`env::var`・`unsafe`・`process::Command` の grep | 0 件・0 件 |
-| C2 | 依存と workspace が変わっていない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[approval]]` の件数と、ルート `Cargo.toml` の members / exclude | ルートは `crates/contract` の macOS 向けの 4 件（`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0）・`measure/` 0 件・members は 4 crate・exclude は 3（`baseline-wgpu`・`measure`・`wasm`） |
+| C2 | 依存と workspace が変わっていない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[approval]]` の件数と、ルート `Cargo.toml` の members / exclude | 0 件・0 件・members は 4 crate・exclude は 3（`baseline-wgpu`・`measure`・`wasm`） |
 | E1 | main の CI の `verify` ジョブ | main の CI（`151141f` の push run）の `make verify (fmt + clippy + test)` ジョブの step | `make verify`・`make build-profiles` とも conclusion は success |
 | E2 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make deny`・`make deps-check`・`make test-record-summary`・`make test-wasm-node-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check`・`make test-rerun-compare` とも conclusion は success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check` | すべて終了コード 0 |
@@ -224,3 +224,11 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 ## 関連
 
 [test-frame](test-frame.md)・[measurement-tool](measurement-tool.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

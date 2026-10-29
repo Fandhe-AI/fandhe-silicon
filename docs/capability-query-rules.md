@@ -155,7 +155,7 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | B4 | モジュール内の試験 | `cargo test -p fandhe-silicon-core --features test-support --lib capability_rule` | 0 件（`capability_rule.rs` に単体テストは無い） |
 | B5 | `required-features` の宣言 | `crates/core/Cargo.toml` の `[[test]]` | `capability_rule_stub`・`capability_rule_check` は `test-support`、残る 3 本は `test-support` と `fault-injection`。B1・B2 の分け方と一致 |
 | B6 | feature なしでは走らない | `cargo test -p fandhe-silicon-core --test capability_rule_stub` | `requires the features: test-support` で止まる |
-| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | `capability_rule` は `test-support` の裏。`forbid(unsafe_code)`。`capability_rule.rs` の `crate::fault` は先頭コメントの 1 件だけ（参照ではない）。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^\[\[' deps-approved.toml` | `capability_rule` は `test-support` の裏。`forbid(unsafe_code)`。`capability_rule.rs` の `crate::fault` は先頭コメントの 1 件だけ（参照ではない）。外部依存 0。承認の記録 0 件 |
 | C2 | 製品の経路からの参照 | `git grep -n -e capability_rule -e check_query -e CapabilityTable -e query_after_acquire -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` | 0 件 |
 | C3 | `Capabilities` の実装の所在 | `git grep -n -E 'impl.* Capabilities for' -- crates wasm` | `core` の `src/` に 2 件（`CapabilityTable`・`FaultInjecting<D>`）、残りは `crates/core/tests/`。`contract`・`exec`・`upper`・`wasm/` は 0 件 |
 | C4 | wasm32 と本番の組 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --features test-support,fault-injection --test <5 本>`、`make build-profiles`、`make wasm-verify` | 5 本とも終了コード 0、後の 2 つも 0。`--tests` で全部を一度に検査する形は、本件と別の `test_frame_decide` が wasm32 でコンパイルできず落ちる（本件の範囲外。直していない） |
@@ -204,3 +204,13 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 関連
 
 [contract-error-types](contract-error-types.md)・[contract-device-types](contract-device-types.md)・[contract-fault-injection](contract-fault-injection.md)・[contract-feature-check](contract-feature-check.md)・[public-api-contract-check](public-api-contract-check.md)・[workspace-boundary](workspace-boundary.md)・[docs/contract/README.md](contract/README.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+device の取得の口は、今は `crates/core/src/device.rs` の `DeviceProvider::request` がある。列挙の口は `crates/`・`wasm/` に無い（確かめ方は上の「2 段の手順に当たる口」の行の検索と同じ）。
