@@ -12,6 +12,8 @@
 //! エラー・完了状態・理由の型（`error` モジュール）と、能力問合せの型（`capability` モジュール）、device の要求・所有形態の型（`device` モジュール）も feature の条件なしで公開される。
 //! 検証レイヤーの不正を利用側へ届ける受け口（`validation` モジュール）と、失敗の種類を返す入口（`error` モジュールの `FailureClass`）も同じく条件なしで公開される。
 //!
+//! feature `ext-interop` を有効にしたときだけ、相互運用の公開の型と `ExternalInterop` の trait（`interop` モジュール）が公開される。
+//!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
 //! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
 //! 流し直しの照合の型と実行の口（`rerun` モジュール）と、能力の問合せの共通の規則の試験の部品（`capability_rule` モジュール）が公開される。
@@ -26,6 +28,8 @@ pub mod device;
 pub mod error;
 pub mod execution;
 pub mod hash;
+#[cfg(feature = "ext-interop")]
+pub mod interop;
 pub mod memory;
 pub mod validation;
 
