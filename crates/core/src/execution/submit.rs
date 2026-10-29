@@ -1,4 +1,4 @@
-//! 投入まわりの公開の型と `CommandQueue` の trait（TASK-588 のポインタ。項目は CMD-1・CMD-5・CMD-9・CMD-12・CMD-36・CMD-44・CMD-80）。
+//! 投入まわりの公開の型と `CommandQueue` の trait（TASK-588 のポインタ）。
 //!
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が記録先を作って投入し、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が `CommandQueue` を実装して受け取る。
@@ -69,7 +69,8 @@ pub enum GpuTiming {
 
 /// 背後実装が `CommandEncoder` の破棄時に呼ぶ後始末の hook（1 つの記録先ごとに持つ版）。
 ///
-/// `close` は複数回呼ばれても安全でなければならない（投入の内部で片付けた後、`Drop` でも呼ばれるため）。
+/// 共通の crate は `CommandEncoder` の `Drop` で高々 1 回だけ `close` を呼ぶ。
+/// 実装する背後実装は、投入の内部で記録先を先に片付けていても `close` が無害であるようにする（二重の後始末にならない）。
 /// `Send + Sync` を要求するのは `CommandEncoder` の `Send + Sync` を保つため。
 #[doc(hidden)]
 #[allow(non_camel_case_types)]
@@ -80,8 +81,8 @@ pub trait __BackendEncoderCloser: Send + Sync {
 
 /// 背後実装が `CommandEncoder` の破棄時に呼ぶ後始末の hook（device で 1 つを共有する版）。
 ///
-/// `Arc` の複製で各記録先に渡すので、記録先ごとの確保が起きない。`close` の安全性の条件は
-/// `__BackendEncoderCloser` と同じ。
+/// `Arc` の複製で各記録先に渡すので、記録先ごとの確保が起きない。共通の crate が呼ぶ回数と
+/// 実装側に求める条件は `__BackendEncoderCloser` と同じ。
 #[doc(hidden)]
 #[allow(non_camel_case_types)]
 pub trait __BackendSharedEncoderCloser: Send + Sync {
@@ -145,10 +146,10 @@ impl CommandEncoder {
     /// 背後実装向けの口。記録した件数を 1 つ増やす。
     #[doc(hidden)]
     pub fn __backend_record(&mut self) {
-        self.recorded += 1;
+        self.recorded = self.recorded.saturating_add(1);
     }
 
-    /// 背後実装向けの口。`Drop` で呼ぶ hook を外す（投入の内部で片付けた後に使う）。
+    /// 背後実装向けの口。`Drop` で呼ぶ hook を外す。呼ぶ側が記録先を先に片付けていること。
     #[doc(hidden)]
     pub fn __backend_disarm_closer(&mut self) {
         self.closer = EncoderCloser::None;
@@ -194,6 +195,17 @@ pub trait CommandQueue {
     fn poll(&self, token: SubmitToken) -> CompletionState;
 
     /// 完了したら `callback` に状態を渡す。
+    ///
+    /// native では callback が `Send` でなければならない。`Send` でない値を持つ callback は渡せない:
+    ///
+    /// ```compile_fail
+    /// use fandhe_silicon_core::error::CompletionState;
+    /// use fandhe_silicon_core::execution::{CommandQueue, SubmitToken};
+    /// fn f(queue: &dyn CommandQueue, token: SubmitToken) {
+    ///     let not_send = std::rc::Rc::new(0);
+    ///     queue.on_complete(token, Box::new(move |_: CompletionState| drop(not_send)));
+    /// }
+    /// ```
     #[cfg(not(target_arch = "wasm32"))]
     fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>);
 
@@ -218,7 +230,7 @@ pub trait CommandQueue {
         }
     }
 
-    /// 再試行可否の宣言付きの投入。既定は `retry` を見ずに `submit` に委ねる。
+    /// 再試行可否の宣言付きの投入。既定は `retry` を見ずに `submit` を 1 回呼ぶ。再試行はしない。
     fn submit_ex(
         &self,
         commands: CommandEncoder,
@@ -228,7 +240,8 @@ pub trait CommandQueue {
         self.submit(commands, wait)
     }
 
-    /// セマフォを export する意図の宣言付きの投入。既定は `exportable` を見ずに `submit` に委ねる。
+    /// セマフォを export する意図の宣言付きの投入。既定は `exportable` を見ずに `submit` を呼ぶ。
+    /// `exportable` は宣言であり、この既定の実装は export できるセマフォを作らない。
     /// feature `ext-interop` の裏にある。
     #[cfg(feature = "ext-interop")]
     fn submit_exportable(

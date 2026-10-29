@@ -4,7 +4,7 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 
 ## 記録の所在
 
-記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-588。対象の項目は `docs/spec/04-behavior/api-command-submit.md` の CMD-1・CMD-5・CMD-9・CMD-12・CMD-36・CMD-44・CMD-80。ポインタのみ）。内容・理由・経緯は本書に置かない。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-588。ポインタのみ）。内容・理由・経緯は本書に置かない。
 
 ## 公開に足した名前
 
@@ -35,7 +35,7 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | テスト | 内容 |
 | ------ | ---- |
 | `crates/core/tests/submit_types.rs` | ダミーの queue、`dyn CommandQueue`、`CommandEncoder` の `Send + Sync`・`Clone` なし・`Drop` と `__backend_disarm_closer`、`SubmitToken`・`GpuTiming` の derive、feature ごとのメソッド |
-| `SubmitToken`・`CommandEncoder` の rustdoc（`compile_fail`） | 外からの構造体式の構築と `Clone` が拒まれること |
+| `SubmitToken`・`CommandEncoder`・`CommandQueue::on_complete` の rustdoc（`compile_fail`） | 外からの構造体式の構築、`Clone`、native で `Send` でない callback が拒まれること |
 
 ## 確かめ方
 

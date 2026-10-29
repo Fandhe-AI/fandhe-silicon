@@ -1,4 +1,4 @@
-//! 投入まわりの型と `CommandQueue` の形を別の crate から固定する公開テスト（TASK-588 のポインタ。CMD-1・CMD-5・CMD-9・CMD-12・CMD-36・CMD-44・CMD-80 のポインタのみ）。
+//! 投入まわりの型と `CommandQueue` の形を別の crate から固定する公開テスト（TASK-588 のポインタ）。
 //!
 //! 試験用のダミーの queue はこのファイルの中だけにあり、公開 API ではない。機材には触れない。
 //! 確かめるもの: 必須のメソッドだけで実装できること、`create_encoder` が `Result` でなく `CommandEncoder` を返すこと、
@@ -125,23 +125,15 @@ fn on_complete_runs_callback() {
     assert_eq!(seen.load(Ordering::SeqCst), 1);
 }
 
-/// `Rc` のように `Send` でない値を持つ callback は native では渡せない（doc の compile_fail が確かめる）。
-/// ここでは `Send` を満たす callback の型が受け付けられることだけを固定する。
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn on_complete_callback_type_is_send() {
-    fn assert_send<T: Send + ?Sized>() {}
-    assert_send::<dyn FnOnce(CompletionState) + Send>();
-}
-
 #[test]
 fn command_encoder_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<CommandEncoder>();
 }
 
-/// `Clone` を持たない型には、`.clone()` が型の `Clone` ではなく参照の複製へ解決される曖昧さの回避で調べる。
-/// ここでは `CommandEncoder: Clone` が成り立たないことを、トレイトの有無の判定で固定する。
+/// `CommandEncoder: Clone` が成り立たないことを定数で判定する。
+/// 全ての型に実装した trait の定数 `IS_CLONE = false` と、`T: Clone` のときだけ使える固有の定数 `IS_CLONE = true` を用意する。
+/// 固有の定数が優先されるので、`Clone` を持つ型では true、持たない型では trait の false になる（`u64` は true になることで判定の確認を兼ねる）。
 #[test]
 fn command_encoder_is_not_clone() {
     trait NotClone {
@@ -234,8 +226,8 @@ fn gpu_timing_variants_and_partial_eq() {
     };
     assert_eq!(t, t);
     assert_ne!(t, GpuTiming::Pending);
-    // `f64` を持つので `PartialEq` だけで `Eq` は持たない（`Eq` を足すとここは型エラーにならないため、
-    // NaN が自分自身と等しくないことで `PartialEq` の意味を確かめる）。
+    // NaN を持つ値が自分自身と等しくないことで、`PartialEq` が `f64` の比べ方に従うことを確かめる。
+    // `Eq` を持たないことは下の `gpu_timing_has_no_eq` が確かめる。
     let nan = GpuTiming::Available {
         start_seconds: f64::NAN,
         end_seconds: 0.0,
