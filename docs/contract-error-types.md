@@ -29,7 +29,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | `core` の形 | 公開モジュールは `artifact_cache`・`capability`・`error`・`execution`・`hash`（条件なし）と、`test-support` の裏の `parity`・`test_frame`・`rerun`。feature は `test-support` だけ。外部依存 0。`#![forbid(unsafe_code)]` | `crates/core/src/lib.rs`、`crates/core/Cargo.toml` |
 | 依存の向き | contract → core、exec → core、upper → core・exec。`wasm/crates/glue` が `contract` に path で依存する | 各 `Cargo.toml`、`wasm/crates/glue/Cargo.toml` |
 | wasm32 での `core` | `scripts/build-profiles.sh` が wasm32 向けのビルドを流し、`wasm/` の `make wasm-verify` も `contract` 経由で `core` を wasm32 でビルドする。`core` に足すものは std だけで wasm32 でも通る必要がある。`core` 単体は `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）で確かめられる | `scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
-| 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| 依存の承認 | `deps-approved.toml` に `fandhe-silicon-core` を `used_by` に持つ記録は無い（記録は `crates/contract` の macOS 向けの 4 件だけ） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | `exec`・`upper` の現状 | `Cargo.toml` と `src/lib.rs` だけの骨格 | `git ls-files crates/exec crates/upper` |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`・`tests/error_debug_format.rs`・`tests/error_display.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
@@ -132,7 +132,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | B5 | `ValidationFailed` と書式の試験の実在 | `crates/core/tests/error_debug_format.rs` | `validation_failed_is_a_string_constructor`・`validation_failed_is_distinct_from_other_string_values`・`debug_output_has_name_prefix_and_fields` が実在し、B1 の 6 passed に含まれる。説明は「現状の形（6/8）」に従う |
 | B6 | `Display`・`Error` の試験の実在 | `crates/core/tests/error_display.rs` | `source_is_none_for_all_values`・`coerces_to_dyn_error`・`display_carries_fields_verbatim` が実在し、B1 の 9 passed に含まれる。説明は「現状の形（7/8）」に従う |
 | B7 | 閉じた `CompletionState` | `crates/core/tests/completion_state_closed.rs`、`grep -n -B2 'pub enum CompletionState\b' crates/core/src/error.rs` | `_` なしの網羅の `match` が通る。`#[non_exhaustive]` は付いていない |
-| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^\[\[' deps-approved.toml` | `pub mod error;`・`pub mod capability;` は feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | `pub mod error;`・`pub mod capability;` は feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
 | C2 | `#[non_exhaustive]` の付き方 | `grep -n -A1 'non_exhaustive' crates/core/src/error.rs` | `error.rs` の 6 型（`ContractError`・`DeviceLostReason`・`CompletionStateEx`・`RetryPolicy`・`IdentityMismatchReason`・`UnsupportedReason`）に付き、`CompletionState` には付いていない |
 | C3 | 製品の経路からの参照 | `git grep -n -e ContractError -e CompletionState -e DeviceLostReason -e RetryPolicy -- crates/exec crates/contract crates/upper wasm measure baseline-wgpu` | 0 件 |
 | C4 | wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` を付けた形も）、`make build-profiles`、`make wasm-verify` | いずれも終了コード 0 |

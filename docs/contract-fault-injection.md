@@ -27,7 +27,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun`、`fault-injection` の裏のモジュールは `fault` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | `contract` の形 | `#![deny(unsafe_code)]`。`unsafe` は `backend_*` だけに置く | `crates/contract/src/lib.rs`、[unsafe-policy](unsafe-policy.md) |
 | workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
-| 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| 依存の承認 | `deps-approved.toml` に `fandhe-silicon-core` を `used_by` に持つ記録は無い（記録は `crates/contract` の macOS 向けの 4 件だけ） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | 走る場所 | `core`・`contract` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-271 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/fault.rs`、`crates/core/src/fault/`、その試験、`crates/contract/` の転送の試験・部品の試験・doctest、`scripts/build-profiles.sh` | `git grep -n TASK-271 -- . ':!docs/spec' ':!.agents'` |
 
@@ -179,7 +179,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 1 | (A) が背後実装の種類に依らず働く | `fault_parts_composition.rs` | `core` の試験 236 passed / 0 failed / 0 ignored |
 | 2 | (A) の差し込みが指定した失敗を返す | `fault_parts_matrix.rs`・`fault_decorator_*.rs`・`fault_stub_lost.rs` | 同上 |
 | 3 | `FaultHooks` の口の型がコンパイルでき、(B) を呼ぶ部品が組み上がる | `fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_parts.rs`・`fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` | `contract` の試験 57 passed / 0 failed / 0 ignored |
-| 4 | 制約 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身のみ、`grep -c '^\[\[' deps-approved.toml` が 0 | 外部依存 0・承認 0 件 |
+| 4 | 制約 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身のみ、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` が 0 | 外部依存 0・`core` を `used_by` に持つ承認 0 件 |
 
 (B) 経由で実際の背後実装の無効化・門の働きを確かめる項目は、上の持ち主のタスクの持ち分で、本タスクの試験の範囲外。
 

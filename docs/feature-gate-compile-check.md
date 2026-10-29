@@ -47,7 +47,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | A5 | 全 feature | `cargo test -p fandhe-silicon-contract --all-features --doc`、`--all-features --test feature_gate_enabled` | 終了コード 0。doctest 3 件と有効側の試験 2 件がすべて通常の成功 |
 | B1 | 流れる場所 | `scripts/build-profiles.sh` の組（`native-blocking-wait` 単独・`ext-interop` 単独の行と、core の `--all-features` の行） | 単独の 2 組は feature ごとに build / clippy / test を流す。`verify` ジョブの `make build-profiles` が呼ぶ |
 | B2 | `ext-interop` を有効にする組 | `grep -n ext-interop scripts/build-profiles.sh` | 現れるのは BUILD-4 の組と単独の組だけ。`default` と含意に無いことは A1 が担保 |
-| C1 | 依存 | `grep -c trybuild Cargo.lock`、`[[approval]]` の件数 | 0 件のまま。外部 crate は足していない |
+| C1 | 依存 | `grep -c trybuild Cargo.lock`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | どちらも 0 件。この TASK は外部 crate を足していない（`deps-approved.toml` の記録は `crates/contract` の macOS 向けの 4 件だけ） |
 | E1 | main の CI | main の push の run（`6950c28`。run `39425952330`）の `make verify` ジョブ | `make verify` の step と `make build-profiles` の step がともに success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny` | 本 PR の作成時にいずれも終了コード 0 |
 

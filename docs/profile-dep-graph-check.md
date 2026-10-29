@@ -173,7 +173,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | `--extra-judged-crate` | crate 名の一覧の末尾にだけ足す。feature 側の経路は無い | 本書「検査しないもの」 |
 | feature の組のビルド | `scripts/build-profiles.sh` の `NATIVE_SETS` に `backend-vulkan,graphics` の組（BUILD-3）と `backend-vulkan,backend-cuda,graphics,ext-interop` の組（BUILD-4）があり、契約の crate の `--all-features` の build / clippy / test も同スクリプトが回す | `grep -n -E 'BUILD-[34]\|all-features' scripts/build-profiles.sh` |
 | 依存グラフの実測 | 上の 2 組と `--all-features` の `cargo tree` は、どれも `fandhe-silicon-contract` と `fandhe-silicon-core` の 2 crate だけ。`SDK_LOADER_NAMES`・`SURFACE_NAMES` の名前は 0 件 | `cargo tree --locked -p fandhe-silicon-contract --all-features -e normal,build,dev --target all --prefix none`（組は `--no-default-features --features <組>`） |
-| 外部依存 | 契約の crate が依存するのは `fandhe-silicon-core` だけ。`deps-approved.toml` の記録は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| 外部依存 | 契約の crate が依存するのは `fandhe-silicon-core` だけ。`deps-approved.toml` の記録は 0 件（記録時点の値。今は `crates/contract` の macOS 向けの 4 件） | `grep -c '^\[\[' deps-approved.toml`（記録時点は 0。今は 4） |
 | feature の宣言 | `graphics`・`ext-interop`・`backend-vulkan`・`backend-cuda` は `crates/contract/Cargo.toml` に宣言がある。`cfg(feature = ...)` の参照は `ext-interop` が `src/cfg_gate_doctest.rs` と `tests/feature_gate_enabled.rs` にあり、`graphics` には無い | `git grep -n -E 'feature = "(graphics\|ext-interop)"' -- crates` |
 | 同じ語彙の既存検査 | 公開 API 側は `scripts/public-api-sdk-check.sh` の `CHIP_SDK`、wasm32 の依存グラフは `scripts/wasm-backend-check.sh`（[wasm32-backend-check.md](wasm32-backend-check.md)） | 各スクリプトの先頭コメント |
 | CI | 本検査は CI の `deny` ジョブの `make deny`（`scripts/deny.sh`）の中で流れる | `grep -n profile-dep-graph scripts/deny.sh` |
@@ -324,7 +324,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-5）の 4/6（#7
 | ---- | -- |
 | 終了コード | 0（`ok: 4 profile(s) checked, no judged crates (judged=0)`） |
 | `compute-only-metal` の crate の `count:` | 6 行、すべて `n=0` |
-| `baseline:` | `crates_total=2`・`sdk_total=0`（今の製品の crate には SDK の依存が無い） |
+| `baseline:` | `crates_total=2`・`sdk_total=0`（記録時点の値。この時点の製品の crate には SDK の依存が無かった） |
 | `baseline-count:` / `diff:` | 3 行すべて `n=0` / 4 行すべて `diff=0` |
 
 確かめた base は `1249d2eab8a69df0c1b2b4182a27e27fc8736f67`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
@@ -390,7 +390,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 
 比較基準（`--all-features`）は `baseline:` が `crates_total=2`・`sdk_total=0`、`baseline-count:` の 3 行がすべて `n=0`。`diff:` は 4 行すべてが `sdk_baseline=0`・`sdk_profile=0`・`diff=0`。
 
-- 今の製品の crate には SDK の依存が無いので、比較基準も各プロファイルも 0 件で、差は出ない。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
+- 記録時点の製品の crate には SDK の依存が無かったので、比較基準も各プロファイルも 0 件で、差は出なかった。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
 - 名前の一覧は定数名（`SDK_LOADER_NAMES`・`SURFACE_NAMES`・`*_ALLOWED_SDK`・`BASELINE_SDK_NAMES`）で指し、値は本書に写さない
 
 再実行の契機は「完了の条件の確かめ（5/6）」の「再実行の契機」と同じ。

@@ -27,7 +27,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
 | コンパイル失敗の既存の仕組み | feature の有無でコンパイルが落ちることを確かめる枠が `crates/contract/src/cfg_gate_doctest.rs` にある | [feature-gate-compile-check](feature-gate-compile-check.md) |
 | 走る場所 | `make verify`（`--all-features`）と `make build-profiles`。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
-| 依存の承認 | 外部 crate は足さない。`deps-approved.toml` の記録の範囲に収める | `grep -c '^\[\[' deps-approved.toml` |
+| 依存の承認 | 外部 crate は足さない。`deps-approved.toml` の記録の範囲に収める（`core` を `used_by` に持つ記録は無い） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | 本書の対象の言及 | TASK-137 の言及は本書、`CLAUDE.md`、`README.md` だけ | `git grep -nE 'TASK-137([^0-9]\|$)' -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表

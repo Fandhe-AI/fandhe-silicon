@@ -30,7 +30,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | 依存グラフの検査 | `scripts/dep-graph-wgpu-check.sh` は製品の 4 crate の依存グラフを全 feature・全 target で数える | `scripts/dep-graph-wgpu-check.sh` |
 | 拡張性の試験の既存の形 | 別の crate（統合テスト）から `#![deny(unreachable_patterns)]` と `_` の腕で `#[non_exhaustive]` を固定する形がある | `crates/core/tests/error_non_exhaustive.rs`、`crates/core/tests/execution_type_coverage.rs` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support` だけ。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
-| 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
+| 依存の承認 | `deps-approved.toml` に `fandhe-silicon-core` を `used_by` に持つ記録は無い（記録は `crates/contract` の macOS 向けの 4 件だけ） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`device_lost_reason_values.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
 
@@ -128,7 +128,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1・B2 の 7 本が同じ件数で通る |
 | B4 | 拡張性の試験が実在する | `grep -n '^fn ' crates/core/tests/device_capability_non_exhaustive.rs` | 先頭に `#![deny(unreachable_patterns)]`。`*_stays_non_exhaustive` が 5 本（ほかに値の個数の試験 1 本） |
 | C1 | `#[non_exhaustive]` の付き方 | `grep -n -A1 'non_exhaustive' crates/core/src/device.rs crates/core/src/capability.rs` | `BackendKind`・`Profile`・`DeviceOwnership`・`CapabilityLevel`・`CapabilityEvidence` の 5 型に付く。`DeviceRequest`・`CapabilityQuery`・`NativeDeviceHandle`・`FeatureId` には付かない |
-| C2 | 置き場と制約 | `lib.rs` の `pub mod device;`・`pub mod capability;`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` の記録の数 | 2 つの `mod` に feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
+| C2 | 置き場と制約 | `lib.rs` の `pub mod device;`・`pub mod capability;`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（`core` を `used_by` に持つ記録の数） | 2 つの `mod` に feature の条件なし。`#![forbid(unsafe_code)]`。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
 | C3 | 他の経路からの参照 | `crates/exec`・`crates/contract`・`crates/upper`・`wasm`・`measure`・`baseline-wgpu` を `DeviceRequest`・`NativeDeviceHandle`・`CapabilityEvidence`・`CapabilityQuery` で検索 | 0 件 |
 | C4 | wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown`（`--tests` 付きも）・`make build-profiles` | いずれも終了コード 0 |
 | C5 | 公開 API・依存グラフの検査 | `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`・`make public-name-check`・`make public-api-sdk-check` | すべて終了コード 0。`scanned: crate=fandhe_silicon_core` は production が `public_items=1097`・all-features が `public_items=4243`、いずれも `wgpu_type_refs=0`・`wgpu_other_refs=0`（DEV-21） |

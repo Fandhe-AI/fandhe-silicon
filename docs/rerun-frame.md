@@ -25,7 +25,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 測定の道具 | `measure/crates/perf` に bin `across-runs` と統合テスト 7 本。`tests/repeat.rs` が書き出しの実物を `scripts/perf-record-check.sh` に通す | `ls measure/crates/perf/src/bin measure/crates/perf/tests`、`grep -n perf-record-check measure/crates/perf/tests/repeat.rs` |
 | 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh`・`scripts/rerun-compare.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary`・`make test-rerun-compare` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
 | 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu`・`measure`・`wasm` | `grep -n -e members -e exclude Cargo.toml` |
-| deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml` |
+| deps-approved.toml の件数 | ルートは `crates/contract` の macOS 向けの 4 件（`core` を `used_by` に持つ記録は 0 件）・`measure/` 0 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` |
 | CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`verify-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z0-9-]+:$' .github/workflows/ci.yml` |
 
 既にある関連の部品（名前とリンクのみ）:
@@ -185,7 +185,7 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | B1 | 前の記録と比べる道具の回帰テスト（5/8） | `make test-rerun-compare` | 終了コード 0・`passed=30 failed=0` |
 | B2 | 集計とスクリプト側の欠けの規則・綴りの一致（4/8） | `make test-record-summary`・`make test-wasm-node-check` | 終了コード 0・`passed: 92, failed: 0`・`passed: 80, failed: 0` |
 | C1 | 製品の経路から参照しない・副作用と `unsafe` が無い | `crates/contract/src`・`crates/exec/src`・`crates/upper/src` の `rerun` の grep と、`crates/core/src/rerun*` の `std::fs`・`println!`・`env::var`・`unsafe`・`process::Command` の grep | 0 件・0 件 |
-| C2 | 依存と workspace が変わっていない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[approval]]` の件数と、ルート `Cargo.toml` の members / exclude | 0 件・0 件・members は 4 crate・exclude は 3（`baseline-wgpu`・`measure`・`wasm`） |
+| C2 | 依存と workspace が変わっていない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[approval]]` の件数と、ルート `Cargo.toml` の members / exclude | ルートは `crates/contract` の macOS 向けの 4 件（`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0）・`measure/` 0 件・members は 4 crate・exclude は 3（`baseline-wgpu`・`measure`・`wasm`） |
 | E1 | main の CI の `verify` ジョブ | main の CI（`151141f` の push run）の `make verify (fmt + clippy + test)` ジョブの step | `make verify`・`make build-profiles` とも conclusion は success |
 | E2 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make deny`・`make deps-check`・`make test-record-summary`・`make test-wasm-node-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check`・`make test-rerun-compare` とも conclusion は success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make ci-frame-check`・`make test-ci-frame-check`・`make public-api-check`・`make public-name-check` | すべて終了コード 0 |
