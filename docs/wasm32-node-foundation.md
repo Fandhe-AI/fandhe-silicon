@@ -41,7 +41,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 構成 | `wasm/Cargo.toml`（workspace）・`wasm/crates/glue/`（package `wasm-glue`。`crate-type = ["cdylib"]`）・`wasm/Cargo.lock`・`wasm/deps-approved.toml` | `ls wasm wasm/crates/glue` |
-| 依存の向き | `wasm-glue` が `crates/contract` に path で依存する。製品の crate は `wasm/` を参照しない（参照すると `make deny` の path の検査が落ちる） | `grep -n path wasm/crates/glue/Cargo.toml` |
+| 依存の向き | `wasm-glue` が `crates/contract` に path で依存し、試験用（dev-dependencies）に `crates/core` にも path で依存する。製品の crate は `wasm/` を参照しない（参照すると `make deny` の path の検査が落ちる） | `grep -n path wasm/crates/glue/Cargo.toml`（`contract` と、dev-dependencies の `core`） |
 | 製品側の feature | `contract-core`・`cpu-isa`・`cpu-ops` だけを明示する（`default-features = false`）。Vulkan・CUDA は入れない | `grep -n features wasm/crates/glue/Cargo.toml` |
 | 外部依存 | `wasm-bindgen = "=0.2.128"` を wasm32 の target 向けにだけ宣言する。承認の記録は `wasm/deps-approved.toml`（`approval_ref` は #368）。製品の 4 crate には無い | `grep -n -B1 wasm-bindgen wasm/crates/glue/Cargo.toml`、`make deps-check` |
 | 推移的依存 | wasm32 の依存グラフにある外部の crate は 12 件（`bumpalo`・`cfg-if`・`once_cell`・`proc-macro2`・`quote`・`rustversion`・`syn`・`unicode-ident`・`wasm-bindgen` 本体と `-macro`・`-macro-support`・`-shared`）。ライセンスは `MIT OR Apache-2.0`（`unicode-ident` は加えて `Unicode-3.0`）。wgpu 系・naga は含まない | `cargo tree --manifest-path wasm/Cargo.toml --locked --target wasm32-unknown-unknown --prefix none -e normal,build`、`make deny` |
