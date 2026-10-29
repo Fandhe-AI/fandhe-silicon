@@ -41,6 +41,9 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | `crates/core/tests/submit_default_impls.rs`（`submit_exportable`） | `exportable` の真・偽の両方で、内側の `submit` が 1 回呼ばれ戻り値をそのまま返すこと（CMD-20。TASK-589。`fault-injection` と `ext-interop` の裏） |
 | `crates/core/tests/gpu_timing_default.rs` | `gpu_timing` を上書きしない queue がどの印でも `GpuTiming::Unavailable` を返すこと（TASK-589） |
 | `SubmitToken`・`CommandEncoder`・`CommandQueue::on_complete` の rustdoc（`compile_fail`） | 外からの構造体式の構築、`Clone`、native で `Send` でない callback が拒まれること |
+| `CommandQueue::submit` の rustdoc（`compile_fail,E0382`） | `submit` に渡した `CommandEncoder` の変数を再び使うと所有権の移動のエラーになること（CMD-5。TASK-590） |
+| `CommandEncoder` の rustdoc（`compile_fail`） | `Send + Sync` でない型（`Rc<()>`）が同じ境界で拒まれること。`Send + Sync` を確かめる検査が外れると落ちることの陽性対照（CMD-9。TASK-590） |
+| `crates/core/tests/encoder_send_sync.rs` | `CommandEncoder` が `Send + Sync` の境界を満たすこと、別スレッドへ移せること、複数スレッドから共有参照できること（CMD-9。TASK-590。スレッドを使う部分は wasm32 を除く） |
 
 ## 確かめ方
 
