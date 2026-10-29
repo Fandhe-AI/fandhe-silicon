@@ -29,6 +29,8 @@ pub trait ValidationIntake {
 #[derive(Default)]
 struct State {
     callback: Option<ValidationCallback>,
+    /// `set_callback` のたびに増える登録の世代。
+    generation: u64,
     delivered: u64,
     undelivered: u64,
 }
@@ -51,8 +53,14 @@ impl ValidationReporter {
     }
 
     /// 関数を登録する。登録済みなら置き換える。
+    /// 置き換えられた古い関数は lock を手放してから破棄するので、その Drop から同じ部品を呼んでもデッドロックしない。
     pub fn set_callback(&self, callback: ValidationCallback) {
-        self.lock().callback = Some(callback);
+        let old = {
+            let mut st = self.lock();
+            st.generation += 1;
+            st.callback.replace(callback)
+        };
+        drop(old);
     }
 
     /// 検証の報告を 1 件受ける。`ValidationFailed(detail)` を作り、登録された関数があれば 1 回呼ぶ。
@@ -62,7 +70,7 @@ impl ValidationReporter {
     /// 関数の実行中に起きた報告と、関数が未登録のときの報告は届けず、`undelivered_count` に数える。
     pub fn report(&self, detail: impl Into<String>) -> ContractError {
         let err = ContractError::ValidationFailed(detail.into());
-        let cb = {
+        let (cb, generation) = {
             let mut st = self.lock();
             let cb = st.callback.take();
             if cb.is_some() {
@@ -70,11 +78,12 @@ impl ValidationReporter {
             } else {
                 st.undelivered += 1;
             }
-            cb
+            (cb, st.generation)
         };
         if let Some(cb) = cb {
             let mut guard = RestoreGuard {
                 reporter: self,
+                generation,
                 cb: Some(cb),
             };
             if let Some(cb) = guard.cb.as_mut() {
@@ -96,18 +105,26 @@ impl ValidationReporter {
 }
 
 /// 呼んでいる間だけ取り出した関数を、抜けるとき（panic の巻き戻しを含む）に登録へ戻す。
-/// 呼んでいる間に新しい関数が登録されていたら、そちらを残す。
+/// 取り出した時点から登録の世代が変わっていたら（呼んでいる間に再登録があった）戻さず、
+/// 新しい登録を残す。戻さなかった関数は lock を手放してから破棄する。
 struct RestoreGuard<'a> {
     reporter: &'a ValidationReporter,
+    generation: u64,
     cb: Option<ValidationCallback>,
 }
 
 impl Drop for RestoreGuard<'_> {
     fn drop(&mut self) {
-        let mut st = self.reporter.lock();
-        if st.callback.is_none() {
-            st.callback = self.cb.take();
-        }
+        let leftover = {
+            let mut st = self.reporter.lock();
+            if st.generation == self.generation && st.callback.is_none() {
+                st.callback = self.cb.take();
+                None
+            } else {
+                self.cb.take()
+            }
+        };
+        drop(leftover);
     }
 }
 
