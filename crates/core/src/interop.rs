@@ -16,7 +16,10 @@ use crate::execution::{ImportedSemaphoreHandle, SubmitToken};
 use crate::memory::{BufferHandle, BufferUsage};
 
 mod same_gpu;
-pub use same_gpu::{check_same_physical_gpu, import_memory_checked};
+pub use same_gpu::{
+    check_same_physical_gpu, import_image_checked, import_memory_checked, import_semaphore_checked,
+    import_semaphore_timeline_checked,
+};
 
 /// 物理 GPU の識別子。同じ物理 GPU かどうかを背後実装をまたいで照らすために `Device::physical_gpu_id` が返す。
 ///
