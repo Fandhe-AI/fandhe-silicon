@@ -201,6 +201,16 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
+## 上限の差し替えの行ごとの確かめ
+
+コードと公開テストが示す事実だけを置く（TASK-2935 のポインタ）。試験は `crates/core/tests/fault_decorator_limits_rows.rs`（`fault-injection`）。
+
+- 差し替えられる行: `Capabilities::limits()` が返す `LimitsTable` の 3 項目（`max_buffer_bytes`・`max_dispatch_dims`・`max_texture_size`）。置き換えの表を `with_limits_override` で渡すと `limits()` に効く
+- `max_buffer_bytes` を小さくした置き換えで、`validate_allocation_size` に上限を 1 だけ超える大きさを渡すと拒否され、内側の上限では同じ大きさが通る。確保は行わず、数だけで作る
+- `LimitsTable` の外の行の型: その型で置き換えても `limits()` は内側の表のまま変わらず、`limits_with::<LimitsTable>` は `Err` を返す。その型を指定した `limits_with` では取り出せる
+- `LimitsTable` の項目の数は分解の試験で固定している。項目が増えると試験がコンパイルで落ち、行の一覧を照らし直す
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_limits_rows`
+
 ## 後から足した口
 
 検証レイヤーの報告を模す口 `simulate_validation_report` と種類 `HookFault::ValidationReport` は TASK-554 が足した。所在は [validation-intake](validation-intake.md)。

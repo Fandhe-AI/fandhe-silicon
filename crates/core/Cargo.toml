@@ -57,6 +57,10 @@ name = "fault_decorator_limits"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_decorator_limits_rows"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "fault_parts_matrix"
 required-features = ["fault-injection"]
 
