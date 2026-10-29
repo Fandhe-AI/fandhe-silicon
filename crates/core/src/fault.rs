@@ -40,6 +40,15 @@ pub trait FaultHooks {
             op: "simulate_runtime_error",
         })
     }
+
+    /// 検証レイヤーの報告を模して、受け口（`ValidationIntake`）へ `ValidationFailed(detail)` を届けさせる（ERR-8。TASK-554）。
+    /// 報告だけを模し、device はロストさせない。
+    fn simulate_validation_report(&self, detail: String) -> Result<(), ContractError> {
+        let _ = detail;
+        Err(ContractError::UnsupportedExtensionDefault {
+            op: "simulate_validation_report",
+        })
+    }
 }
 
 /// `inject` が呼ぶ口の種類。
@@ -54,6 +63,8 @@ pub enum HookFault {
     OpenGate,
     /// `FaultHooks::simulate_runtime_error` を呼ぶ。説明を持つ。
     RuntimeError(String),
+    /// `FaultHooks::simulate_validation_report` を呼ぶ。説明を持つ。
+    ValidationReport(String),
 }
 
 /// 種類に対応する口を 1 回だけ呼び、戻り値をそのまま返す。
@@ -69,5 +80,6 @@ pub fn inject(hooks: Option<&dyn FaultHooks>, fault: HookFault) -> Result<(), Co
         HookFault::ArmGate => hooks.arm_gate(),
         HookFault::OpenGate => hooks.open_gate(),
         HookFault::RuntimeError(detail) => hooks.simulate_runtime_error(detail),
+        HookFault::ValidationReport(detail) => hooks.simulate_validation_report(detail),
     }
 }

@@ -8,6 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::FaultHooks;
 use crate::error::{ContractError, DeviceLostReason};
+use crate::validation::{ValidationCallback, ValidationIntake, ValidationReporter};
 
 /// ロストのコールバック。最初のロストで 1 回だけ呼ばれる。
 pub type LostCallback = Box<dyn FnOnce(DeviceLostReason) + Send>;
@@ -24,6 +25,14 @@ struct State {
 #[derive(Default)]
 pub struct FaultStub {
     state: Mutex<State>,
+    validation: ValidationReporter,
+}
+
+/// 検証の報告の受け口。登録した関数へ `simulate_validation_report` の報告が届く。
+impl ValidationIntake for FaultStub {
+    fn set_validation_callback(&self, callback: ValidationCallback) {
+        self.validation.set_callback(callback);
+    }
 }
 
 impl FaultStub {
@@ -58,6 +67,11 @@ impl FaultStub {
         self.lock().callback_count
     }
 
+    /// 受け口へ届けた検証の報告の数。
+    pub fn validation_delivered_count(&self) -> u64 {
+        self.validation.delivered_count()
+    }
+
     /// 門が仕込まれているか。
     pub fn gate_armed(&self) -> bool {
         self.lock().gate_armed
@@ -83,6 +97,12 @@ impl FaultHooks for FaultStub {
         if let Some(cb) = cb {
             cb(reason);
         }
+        Ok(())
+    }
+
+    /// 受け口へ `ValidationFailed(detail)` を届ける。ロストには移さない（`is_lost` は変わらない）。
+    fn simulate_validation_report(&self, detail: String) -> Result<(), ContractError> {
+        self.validation.report(detail);
         Ok(())
     }
 
