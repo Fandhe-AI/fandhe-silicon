@@ -97,7 +97,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 
 - `test-hooks` の macOS だけで、`/bin/bash` による直接実行のステップ（`scripts/hooks/test-hooks.sh` と、`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`・`scripts/test-record-summary.sh`）がある
 - `wasm-macos` ジョブには、make ターゲットのほかに Node と wasm-bindgen の CLI の導入（版固定・SHA256 検証）と版の確認のステップがある
-- `verify-macos` ジョブには、make ターゲットのほかに toolchain の導入と python3 の版の表示のステップがある（版の判定はせず、3.8 未満・欠落は `make verify` の集計の道具が終了コード 2 で失敗させる）。ruleset の必須チェックには登録していない
+- `verify-macos` ジョブには、make ターゲットのほかに toolchain の導入と python3 の版の表示のステップがある（版の判定はせず、3.8 未満・欠落は `make verify` の集計の道具が終了コード 2 で失敗させる）。ruleset の必須チェックに登録している
 - `deny` ジョブには、上の make ターゲットのほかに cargo-deny の導入・版の確認・jq / python3 の版の表示のステップがある（枠の検査ではないため表から外した）
 
 ### CI が呼ばない make ターゲット
