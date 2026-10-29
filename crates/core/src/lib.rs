@@ -4,6 +4,8 @@
 //! 下-2（`fandhe-silicon-exec`）・上（`fandhe-silicon-upper`）の 3 段で受け渡す型を定義する。
 //! チップ固有の型はここへ持ち込まない。
 //!
+//! 能力の段階・データ規模・常駐位置・数値型から経路の候補を返す決定表の純関数と型（`decision` モジュール）も feature の条件なしで公開される。
+//!
 //! 外部依存なしの SHA-256（`hash` モジュール）は feature の条件なしで公開され、製品の経路から使える。
 //! 実行まわりの共通の型（`execution` モジュール。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型・引数の宣言の C4〜C8 を判定する純粋関数）も feature の条件なしで公開される。
 //! バッファの用途・ハンドル・メモリ操作のトレイトとバッファの引数検査の純粋関数（`memory` モジュール）も feature の条件なしで公開される。
@@ -24,6 +26,7 @@
 
 pub mod artifact_cache;
 pub mod capability;
+pub mod decision;
 pub mod device;
 pub mod error;
 pub mod execution;
