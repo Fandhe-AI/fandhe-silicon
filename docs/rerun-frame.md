@@ -26,7 +26,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 引数が要る道具の扱い | `scripts/perf-record-check.sh`・`scripts/record-summary.sh`・`scripts/rerun-compare.sh` は make ターゲットを持たず、回帰テストの `make test-perf-record-check`・`make test-record-summary`・`make test-rerun-compare` だけがある | `sed -n 1,15p scripts/perf-record-check.sh scripts/record-summary.sh`、`grep -n -e test-perf-record-check -e test-record-summary Makefile` |
 | 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu`・`measure`・`wasm` | `grep -n -e members -e exclude Cargo.toml` |
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml` |
-| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z0-9-]+:$' .github/workflows/ci.yml` |
+| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`verify-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z0-9-]+:$' .github/workflows/ci.yml` |
 
 既にある関連の部品（名前とリンクのみ）:
 

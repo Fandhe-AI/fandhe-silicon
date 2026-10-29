@@ -32,8 +32,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 別 workspace の依存の検査 | `scripts/deny.sh` が `measure/`・`baseline-wgpu/`・`wasm/` に cargo-deny をかけ、`baseline-wgpu/`・`wasm/` の deps-check も呼ぶ。`measure/` と `wasm/` の deps-check は、それぞれ `scripts/measure-verify.sh`・`scripts/wasm-verify.sh` も呼ぶ | `grep -n -e 'cargo deny' -e deps-check scripts/deny.sh scripts/measure-verify.sh scripts/wasm-verify.sh` |
 | deps-check の対象 | `scripts/deps-check.sh` は manifest のパスを引数で受け、その workspace ルート直下の `deps-approved.toml` と突き合わせる。`--allow-path-root <dir>` を付けたときだけ、`<dir>` 配下への path 依存を免除する（`wasm/` の検査だけが `crates/` を渡す） | `sed -n 1,20p scripts/deps-check.sh` |
 | deps-approved.toml の件数 | ルート 0 件・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件 | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml` |
-| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
-| CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`。arm64）。`ci-frame-check.sh` の許可ラベルは `ubuntu-latest`・`macos-latest` | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
+| CI のジョブ | `check`・`test-hooks`・`verify`・`deny`・`wasm-macos`・`verify-macos`・`pr-title`・`ci-complete` | `grep -n -E '^  [a-z-]+:$' .github/workflows/ci.yml` |
+| CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`。arm64）、`verify-macos`（`macos-latest`）。`ci-frame-check.sh` の許可ラベルは `ubuntu-latest`・`macos-latest` | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
 | CI の Node | `wasm-macos` ジョブが版固定・SHA256 検証済みの Node と wasm-bindgen の CLI を入れ、`make wasm-verify`・`make wasm-size`・`make wasm-node-check` を実物で流す。`deny` ジョブの `make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れる。`make build-profiles` は wasm32 の check（`verify` ジョブ） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
 ## 別 workspace `wasm/` の所在と検査の入口

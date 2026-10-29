@@ -7,7 +7,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 ## 枠の対象
 
 - GitHub ホステッドの runner の上で完結する検査。入力は本リポの追跡ファイルと合成 fixture で、ソースを変更しない
-- `ci.yml` の `runs-on` は `ubuntu-latest` と、`test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`）だけ。self-hosted の指定は無い
+- `ci.yml` の `runs-on` は `ubuntu-latest` と、`test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`・`verify-macos`（`macos-latest`）だけ。self-hosted の指定は無い
 
 ## 分類（どのジョブに足すか）
 
@@ -20,6 +20,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | toolchain、版固定の cargo-deny、runner 同梱の jq・python3 | 依存グラフ・manifest・`ci.yml` を読む検査、検査スクリプト自体の回帰テスト |
 | `test-hooks` | bash + git、runner 同梱の python3（ubuntu・macOS） | `scripts/hooks/` と、macOS の上で直接実行する手順のスクリプトの回帰テスト |
 | `wasm-macos` | toolchain、版固定・SHA256 検証済みの Node と wasm-bindgen の CLI（arm64）、runner 同梱の jq・python3 | wasm32 のビルド・glue 込みの量・Node での照合（実物の道具が要るもの） |
+| `verify-macos` | `rust-toolchain.toml` の toolchain（macOS arm64 の標準の runner）、runner 同梱の python3 | macOS でだけ有効になる Metal の背後実装（`backend-metal`）の workspace のビルド・lint・device の要らない試験、feature の組ごとの確かめ。device の要る試験（`#[ignore]`）とシェーダーのコンパイラ（`xcrun metal`）は流さない |
 | `pr-title` | `pull_request` のときだけ動く | PR の題の検査だけ |
 
 - 当てはまるジョブが無い（別の OS・別の toolchain・別の時間の上限が要る）ときだけ、新しいジョブを検討する
@@ -54,6 +55,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `test-hooks` | `make test-metal-session` | `scripts/test-metal-session.sh` | Metal の実機の回の手順のスクリプトの回帰テスト |
 | `verify` | `make verify` | `scripts/verify.sh` | fmt・clippy・workspace の試験。試験の枠の記録から集計の表をジョブのログに出す（[test-frame](./test-frame.md)） |
 | `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check、`crates/wasm-abi` の scalar 版・simd128 版の release ビルド（成果物の在りかと wasm の先頭 4 バイトの確かめ）、core の feature なしの clippy・test |
+| `verify-macos` | `make verify` | `scripts/verify.sh` | `verify` と同じ fmt・clippy・workspace の試験を macOS で流す（`--all-features` に `backend-metal` が入る。`--ignored` は付けない） |
+| `verify-macos` | `make build-profiles` | `scripts/build-profiles.sh` | `verify` と同じ feature の組ごとの確かめを macOS で流す（`backend-metal` 単独の組と `--all-features` の組を含む。Linux では macOS 向けの依存がビルドされない） |
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
@@ -94,6 +97,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 
 - `test-hooks` の macOS だけで、`/bin/bash` による直接実行のステップ（`scripts/hooks/test-hooks.sh` と、`scripts/test-session-record-check.sh`・`scripts/test-metal-session.sh`・`scripts/test-record-summary.sh`）がある
 - `wasm-macos` ジョブには、make ターゲットのほかに Node と wasm-bindgen の CLI の導入（版固定・SHA256 検証）と版の確認のステップがある
+- `verify-macos` ジョブには、make ターゲットのほかに toolchain の導入と python3 の版の表示のステップがある（版の判定はせず、3.8 未満・欠落は `make verify` の集計の道具が終了コード 2 で失敗させる）。ruleset の必須チェックには登録していない
 - `deny` ジョブには、上の make ターゲットのほかに cargo-deny の導入・版の確認・jq / python3 の版の表示のステップがある（枠の検査ではないため表から外した）
 
 ### CI が呼ばない make ターゲット
@@ -191,7 +195,7 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 
 ## 関連
 
-- 関連: TASK-18（[ci-job-split](./ci-job-split.md)）、TASK-23（[test-frame](./test-frame.md)）
+- 関連: TASK-18（[ci-job-split](./ci-job-split.md)。`verify-macos` は TASK-18 の記録の 2-2 節の条件 (1)・(2)・(4) と TASK-158 のポインタ）、TASK-23（[test-frame](./test-frame.md)）
 - [unsafe-policy](./unsafe-policy.md)
 - [github-actions](../.claude/rules/github-actions.md)・[makefile](../.claude/rules/makefile.md)・[git-hooks](../.claude/rules/git-hooks.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
