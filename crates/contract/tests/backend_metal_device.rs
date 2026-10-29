@@ -48,6 +48,8 @@ fn request_returns_a_device_that_reports_diagnostics_and_round_trips_bytes() {
         .name()
         .to_string();
     assert_eq!(diag.adapter_name, expected_name);
+    // 実機の回の記録に残すため、得た値を標準出力に出す（`--show-output` で見える。照合はしない）。
+    println!("adapter_name={}", diag.adapter_name);
 
     let feature = FeatureId("feature:any");
     assert_eq!(device.query(feature), CapabilityLevel::Unsupported);
