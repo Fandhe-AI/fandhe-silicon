@@ -455,7 +455,7 @@ fn submit_many_rejects_an_after_token_of_another_device() {
     assert_eq!(submit_empty(second.as_ref()).sequence, 1);
 }
 
-/// CMD-1 のポインタ。`on_complete` は 1 回だけ、その場で `poll` の値を渡す。
+/// `on_complete` は 1 回だけ、その場で `poll` の値を渡す。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn on_complete_calls_back_once_with_the_polled_state() {
@@ -483,7 +483,7 @@ fn submit_many_with_one_hundred_encoders_returns_and_completes() {
     assert_eq!(queue.poll(token), CompletionState::Complete);
 }
 
-/// CMD-1 のポインタ。`submit` の直後の `on_complete` は完了を待たず、callback を 1 回だけ呼ぶ。
+/// `submit` の直後の `on_complete` は完了を待たず、callback を 1 回だけ呼ぶ。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn on_complete_right_after_submit_calls_back_once_without_waiting() {
