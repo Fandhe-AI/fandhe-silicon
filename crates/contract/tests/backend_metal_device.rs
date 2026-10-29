@@ -581,7 +581,7 @@ fn submit_many_rejects_an_after_token_of_another_device() {
     assert_eq!(submit_empty(second.as_ref()).sequence, 1);
 }
 
-/// `on_complete` は 1 回だけ、その場で `poll` の値を渡す。
+/// 完了済みの印への `on_complete` は、登録の呼び出しの中でその場で `Complete` を 1 回だけ渡す。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn on_complete_calls_back_once_with_the_polled_state() {
@@ -609,10 +609,10 @@ fn submit_many_with_one_hundred_encoders_returns_and_completes() {
     assert_eq!(queue.poll(token), CompletionState::Complete);
 }
 
-/// `submit` の直後に `on_complete` を呼んでも、完了まで待ってから callback が 1 回だけ `Complete` で呼ばれる。
+/// 完了を待たずに登録した callback は、基盤の呼び出し（`poll`）の中で終端になったと分かった時に、`Complete` で 1 回だけ呼ばれる。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
-fn on_complete_right_after_submit_calls_back_once_with_complete() {
+fn on_complete_registered_right_after_submit_is_driven_by_poll_and_called_once() {
     let device = new_device();
     let token = submit_empty(device.as_ref());
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -621,7 +621,83 @@ fn on_complete_right_after_submit_calls_back_once_with_complete() {
         token,
         Box::new(move |state| sink.lock().expect("lock").push(state)),
     );
+    let started = std::time::Instant::now();
+    while seen.lock().expect("lock").is_empty() {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "callback was not called"
+        );
+        device.queue().poll(token);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // 呼ばれた後の駆動では、もう呼ばれない。
+    for _ in 0..3 {
+        device.queue().poll(token);
+    }
     assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+}
+
+/// `wait_blocking` の中でも登録済みの callback が `Complete` で 1 回呼ばれる。登録の呼び出しはブロックしない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn wait_blocking_drives_a_registered_callback() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device.queue().on_complete(
+        token,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    device.queue().wait_blocking(token, None).expect("wait");
+    assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+}
+
+/// 登録が残ったまま device を落とすと、`Drop` の中で完了を待ってから、残りの callback を 1 回だけ呼ぶ。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dropping_the_device_calls_remaining_callbacks_once() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device.queue().on_complete(
+        token,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    drop(device);
+    assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+}
+
+/// callback が panic しても残りの callback は呼ばれ、panic は駆動の呼び出しから伝わる。device は使い続けられる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn a_panicking_callback_does_not_starve_the_others_or_break_the_device() {
+    let device = new_device();
+    let first = submit_empty(device.as_ref());
+    let second = submit_empty(device.as_ref());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device
+        .queue()
+        .on_complete(first, Box::new(|_| panic!("callback failed")));
+    device.queue().on_complete(
+        second,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    let started = std::time::Instant::now();
+    while seen.lock().expect("lock").is_empty() {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "callback was not called"
+        );
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            device.queue().poll(second);
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+    assert_eq!(device.queue().poll(first), CompletionState::Complete);
 }
 
 /// 別 device の印と払い出していない番号では、`on_complete` は待たずに `Lost` で 1 回だけ呼ぶ。
