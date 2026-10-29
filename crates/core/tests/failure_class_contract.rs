@@ -5,8 +5,8 @@
 //! 種類は戻り値の `failure_class` と、`_` を持つ `match`（別 crate の利用側と同じ形）の両方で得て、
 //! 2 つが一致することも見る。
 //!
-//! - ERR-20: 初期化失敗・実行時エラーとロスト・完了不明・能力不足の 4 組が互いに異なる値になる
-//! - ERR-58: 4 組の試験が通さなかった値（`InvalidCombination` など）も 4 組と区別できる
+//! - ERR-20: 初期化失敗・実行時エラーとロスト・完了不明・能力不足の各組の代表が、互いに異なる値・異なる `FailureClass` になる
+//! - ERR-58: ERR-20 の組に入らない値（`InvalidCombination` など）も、ERR-20 の各組の代表と区別できる
 //! - ERR-21: 入口が 2 つの型の全部の値で種類を返し、両方の型で同じ組が同じ種類になる
 
 use std::sync::{Arc, Mutex};
@@ -80,7 +80,7 @@ fn class_by_match_ex(s: &CompletionStateEx) -> Option<FailureClass> {
     }
 }
 
-// ---- 値の作り方（ERR-20 の 4 組の出どころ） ----
+// ---- 値の作り方（ERR-20 の各組の出どころ） ----
 
 /// device に結び付かない合成の関数が返す初期化失敗。
 fn synthetic_init_failure() -> Result<(), ContractError> {
@@ -98,7 +98,7 @@ fn runtime_error_ex() -> CompletionStateEx {
     .poll_ex_with(|_| CompletionStateEx::Complete)
 }
 
-/// ロスト（拡張）: スタブに模擬のロストを入れ、スタブを内側にしたデコレータが内側の状態を返す。
+/// ロスト（拡張）: `poll_ex` 側の `CompletionStateEx::Lost`（`lost_closed` の `poll` 側の `CompletionState::Lost` とは別の型の値）。スタブに模擬のロストを入れ、スタブを内側にしたデコレータが内側の状態を返す。
 fn lost_ex() -> CompletionStateEx {
     let stub = FaultStub::new();
     inject(
@@ -115,7 +115,7 @@ fn lost_ex() -> CompletionStateEx {
     })
 }
 
-/// ロスト（閉じた状態）: 筋書き `RuntimeError` の `poll_with`。
+/// ロスト（閉じた状態）: `poll` 側の `CompletionState::Lost`（`lost_ex` の `poll_ex` 側の `CompletionStateEx::Lost` とは別の型の値で、出どころも別）。筋書き `RuntimeError` の `poll_with`。
 fn lost_closed() -> CompletionState {
     wrap(FaultScript::RuntimeError {
         backend: BackendKind::Cuda,
@@ -210,7 +210,7 @@ fn artifact_rejected() -> ContractError {
 
 // ---- ERR-20 ----
 
-/// ERR-20 の 4 組の代表（実行時エラーとロストの組は 2 値）と期待の種類。
+/// ERR-20 の各組の代表（実行時エラーとロストの組は 2 値）と期待の種類。
 fn err20_observations() -> Vec<(&'static str, Observed, FailureClass)> {
     vec![
         (
@@ -260,6 +260,9 @@ fn err20_sources_return_the_expected_values() {
     ));
 }
 
+// 型の違う値（`ContractError`・`CompletionStateEx`・`CompletionState`）の比較を含むので、
+// 型の違いだけで通る組もある。主張の主体は種類の比較（`err20_groups_get_distinct_classes`）で、
+// ここは値そのものが取り違えられていないことの補助。
 #[test]
 fn err20_four_groups_are_pairwise_distinct_values() {
     let mut all = err20_observations();
@@ -441,6 +444,7 @@ const ALL_STATES: [CompletionStateEx; 5] = [
 #[test]
 fn err21_entry_returns_a_class_for_every_contract_error_and_agrees_with_match() {
     let all = all_contract_errors();
+    // `ContractError` は `#[non_exhaustive]` で外から網羅を取れない。値が増えたら一覧と件数を足す。
     assert_eq!(all.len(), 15);
     for e in &all {
         assert_eq!(Some(e.failure_class()), class_by_match(e), "{e:?}");
