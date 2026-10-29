@@ -179,7 +179,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 1 | (A) が背後実装の種類に依らず働く | `fault_parts_composition.rs` | `core` の試験 236 passed / 0 failed / 0 ignored |
 | 2 | (A) の差し込みが指定した失敗を返す | `fault_parts_matrix.rs`・`fault_decorator_*.rs`・`fault_stub_lost.rs` | 同上 |
 | 3 | `FaultHooks` の口の型がコンパイルでき、(B) を呼ぶ部品が組み上がる | `fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_parts.rs`・`fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` | `contract` の試験 57 passed / 0 failed / 0 ignored |
-| 4 | 制約 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身のみ、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` が 0 | 外部依存 0・`core` を `used_by` に持つ承認 0 件 |
+| 4 | 制約 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身のみ、`grep -c '^\[\[' deps-approved.toml` が 0 | 外部依存 0・承認 0 件 |
 
 (B) 経由で実際の背後実装の無効化・門の働きを確かめる項目は、上の持ち主のタスクの持ち分で、本タスクの試験の範囲外。
 
@@ -204,3 +204,11 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 後から足した口
 
 検証レイヤーの報告を模す口 `simulate_validation_report` と種類 `HookFault::ValidationReport` は TASK-554 が足した。所在は [validation-intake](validation-intake.md)。
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

@@ -194,7 +194,7 @@ run ごとの記録を読む側の形の検査 `scripts/perf-record-check.sh` �
 | B1 | 記録を読む側の検査の回帰テスト | `make test-perf-record-check` | 終了コード 0 |
 | B2 | 記録の書き出しの部品のテスト | `measure/crates/perf/tests/` の `record.rs`（24 件）・`sample.rs`（5 件）・`stats.rs`（7 件）・`across.rs`（5 件）・`ratio.rs`（6 件）・`repeat.rs`（6 件）・`across_runs_cmd.rs`（14 件） | 全件通過 |
 | C1 | 製品の workspace が変わっていない | `cargo metadata --format-version 1 --no-deps` の `workspace_members`、ルート `Cargo.toml` の `exclude` | 4 crate・`exclude` に `measure` |
-| C2 | 外部依存がない | ルートの `deps-approved.toml` の `used_by` に `measure-perf` を持つ記録の数（`grep -c '^used_by = .*measure-perf' deps-approved.toml`）・`measure/deps-approved.toml` の `[[` の数、`measure/Cargo.lock` の `[[package]]` の数、`make deps-check` | 0 件・0 件・1 件（`measure-perf` 自身）・終了コード 0 |
+| C2 | 外部依存がない | `deps-approved.toml`・`measure/deps-approved.toml` の `[[` の数、`measure/Cargo.lock` の `[[package]]` の数、`make deps-check` | 0 件・0 件・1 件（`measure-perf` 自身）・終了コード 0 |
 | C3 | `unsafe` を持たない | `measure/` 配下を `unsafe` で検索 | `measure/Cargo.toml` の lint 設定の行のみ（`forbid`・`deny`） |
 | C4 | 時間を測る型が製品側にない | `crates`・`baseline-wgpu` を `Instant`・`SystemTime`・`std::time` で検索 | 0 件 |
 | C5 | 製品の crate が測定の道具を参照しない | `crates/` を `measure` で検索 | 一致は `crates/core/tests` の関数名 2 件のみ（依存ではない） |
@@ -292,3 +292,13 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 - [perf-gate-rule](perf-gate-rule.md)
 - [perf-variation-rule](perf-variation-rule.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+測定の道具に関わる件数は、`grep -c '^used_by = .*measure-perf' deps-approved.toml` が 0 を返す（ルートに `measure-perf` を `used_by` に持つ記録は無い）。

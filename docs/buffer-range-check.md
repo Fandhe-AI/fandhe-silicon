@@ -62,7 +62,7 @@ make verify
 | A4 | 統合テストの関数の数 | `grep -c -E '^fn (buffer_range_boundary_\|allocation_size_boundary_)' crates/core/tests/memory_buffer_check.rs`・`grep -c -E '^fn upload_' crates/core/tests/memory_upload_reject.rs` | 8・8（A2・A3 の件数と一致） |
 | A5 | 本体に panic・確保・unsafe が無い | `sed -n '1,/#\[cfg(test)\]/p' crates/core/src/memory/buffer_check.rs \| grep -nE 'unwrap\|expect\|panic\|Vec\|Box\|unsafe'`・`crates/core/src/lib.rs` の `#![forbid(unsafe_code)]` | 0 件・`forbid(unsafe_code)` あり |
 | A6 | feature の条件が無い | feature なしの `cargo test -p fandhe-silicon-core`・`make public-api-check` | 190 passed・0 failed・0 ignored・終了コード 0 |
-| C1 | 依存 | `crates/core/Cargo.toml` の `[dependencies]` の数・`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | 0 件・0 件（`core` に外部 crate の追加なし。記録は `crates/contract` の macOS 向けの 4 件だけ） |
+| C1 | 依存 | `crates/core/Cargo.toml` の `[dependencies]` の数・`grep -c '^\[\[approval' deps-approved.toml` | 0 件・0 件（外部 crate の追加なし） |
 | E1 | base の CI | `gh run list --branch main --workflow ci.yml --commit <base>` | run 39513132267（push）。記録時点では実行中で、結論は未確認 |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`（本節を足した状態） | すべて終了コード 0 |
 
@@ -88,3 +88,11 @@ make verify
 完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
 
 確かめた base は `eede585e7b88b0a75f9ce162f49287b1ccfa7a81`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

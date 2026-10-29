@@ -106,7 +106,7 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 | C1 | 2 本のテストに背後実装での分岐が無い | `grep -c 'cfg(' crates/core/tests/parity_element_rules.rs crates/core/tests/parity_element_inputs.rs` | 両方 0 件 |
 | C2 | `unsafe` を使わない | `crates/core/src/lib.rs` の `#![forbid(unsafe_code)]` と、2 本のテストの `unsafe` の grep | `forbid` あり。テストは両方 0 件 |
 | C3 | 製品の経路から `parity` を参照しない | `grep -rn parity crates/contract/src crates/exec/src crates/upper/src` | 0 件 |
-| C4 | 依存が変わっていない | `core` の外部依存、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`、`make deps-check` | 外部依存 0、`core` を `used_by` に持つ承認 0 件、終了コード 0 |
+| C4 | 依存が変わっていない | `core` の外部依存、`deps-approved.toml` の `[[approval]]` の件数、`make deps-check` | 外部依存 0、承認 0 件、終了コード 0 |
 | E1 | main の CI の `verify` ジョブ | base の push run の `make verify (fmt + clippy + test)` ジョブの step | `make verify`・`make build-profiles` とも success |
 | E2 | main の CI の `deny` ジョブ | 同じ run の `make deny (cargo-deny)` ジョブの step | `make deny` と続く全 step が success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0 |
@@ -133,3 +133,11 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 ## 関連
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[test-frame](test-frame.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

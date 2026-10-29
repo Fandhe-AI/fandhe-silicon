@@ -83,7 +83,7 @@ rustdoc JSON は `RUSTC_BOOTSTRAP=1` をその子プロセスにだけ渡して�
 | `backend-vulkan` | `wasm32-unknown-unknown` | match | `backend_vulkan` | absent | absent | - | match |
 | `backend-cuda` | `wasm32-unknown-unknown` | match | `backend_cuda` | absent | absent | - | match |
 
-`deps:`（3 構成 × 3 SDK）。全 9 行が次の値だった（この段を記録した時点の値。製品の crate に SDK の依存が無かった時点で、現状は上の「本リポの現状での実行結果」を見る）。
+`deps:`（3 構成 × 3 SDK）。全 9 行が次の値だった。
 
 | feature | name | wasm32_n | native_n | result |
 | ------- | ---- | -------- | -------- | ------ |
@@ -97,7 +97,7 @@ rustdoc JSON は `RUSTC_BOOTSTRAP=1` をその子プロセスにだけ渡して�
 record: commit=6950c283b286 configs=3 check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=0
 ```
 
-- 記録時点では `objc2-metal`・`ash`・`cudarc` はどの crate にも宣言されておらず、`native_n` も 0 件だった。`wasm32_n` の 0 は、target で外れた結果ではなく、そもそも載っていないことによる（今は `backend-metal` で `objc2-metal` が `native_n=1`・`wasm32_n=0`。上の「本リポの現状での実行結果」を見る）
+- `objc2-metal`・`ash`・`cudarc` はどの crate にも宣言されていないので、`native_n` も 0 件。`wasm32_n` の 0 は、target で外れた結果ではなく、そもそも載っていないことによる
 - SDK が依存に足されたときは、同じ検査が `wasm32_n` と `native_n` の差を出す
 - CI: base の push の `ci.yml` の run 39425952330、`deny` ジョブ（job 118638434970）が success。ログに同じ値の `record:` の行と `ok: all 3 configurations match` が出ており、続く `make test-wasm-backend-check` は `passed=42 failed=0`
 
@@ -110,13 +110,13 @@ record: commit=6950c283b286 configs=3 check=3/3 module=3/3 sdk_wasm32_total=0 sd
 | A1 | 本体が全行 match | `make wasm-backend-check` の終了コード | 0 |
 | A2 | 3 構成の `check:` が match | `check:` の 3 行 | 3/3 match |
 | A3 | Vulkan・CUDA のモジュールが外れ、Metal のモジュールが公開のアイテムを持たない | `module:` の 3 行 | 3/3 match |
-| A4 | wasm32 の依存グラフでチップの SDK が 0 件 | `deps:` の 9 行がすべて `wasm32_n=0`、`sdk_wasm32_total=0` | 記録時点で 9/9 が 0 件（`native_n` も 0 件）。今の値は上の「本リポの現状での実行結果」を見る |
+| A4 | wasm32 の依存グラフでチップの SDK が 0 件 | `deps:` の 9 行がすべて `wasm32_n=0`、`sdk_wasm32_total=0` | 9/9 で 0 件（`native_n` も 0 件） |
 | A5 | 回帰テストが通る | `make test-wasm-backend-check` | passed=42 failed=0 |
 | A6 | CI の機材の要らないジョブで通る | run 39425952330 の `deny` ジョブ（job 118638434970） | success。同じ値の `record:` と `ok:` がログに出た |
 | A7 | 既存の wasm32 の組が不変 | `make build-profiles` の終了コード | 0 |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` の終了コード | すべて 0 |
 
-A4 の 0 件は、記録時点で 3 つの SDK がどの crate にも宣言されていなかったことによる。target の条件で外れる振る舞いは、この時点では観測していなかった。今は `backend-metal` で `objc2-metal` が `native_n=1`・`wasm32_n=0` で、macOS 向けの依存が wasm32 で外れる振る舞いを `make wasm-backend-check` が示す。
+A4 の 0 件は、3 つの SDK がどの crate にも宣言されていないことによる。target の条件で外れる振る舞いそのものは、本リポの現状では観測していない。
 
 再実行の契機。次を変えたときは表を流し直す。
 
@@ -127,3 +127,5 @@ A4 の 0 件は、記録時点で 3 つの SDK がどの crate にも宣言さ�
 - `docs/spec` のサブモジュールの指す版
 
 確かめた base は `6950c283b2867d2a1790385209dc523472a2553e`、`docs/spec` のサブモジュールの指す版は `f603cba40283866ca89338a66a85a9bde085a0d9`。
+
+記録の行（`deps:` の 9 行の値・A4・「そもそも載っていない」という趣旨の文）は記録時点の値で、書き換えない。今の値は「本リポの現状での実行結果」の節に書いてある（`backend-metal` の構成で `objc2-metal` が `native_n=1`・`wasm32_n=0`）。

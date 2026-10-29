@@ -149,7 +149,7 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 | A6 | binary16 の既存の変換の回帰 | 同 `--test parity_binary16` | 7 passed; 0 failed |
 | A7 | feature なしで外れること | `cargo test -p fandhe-silicon-core`（feature なし）・`make build-profiles` | どちらも終了コード 0 |
 | C1 | 本体の範囲 | `fallback_inputs.rs`・`fallback_reference.rs` を `unsafe`・`std::fs`・`println!`・`env::var`・`process::Command` で grep。`crates/contract`・`crates/exec`・`crates/upper` の `src` を `fallback_inputs`・`fallback_reference` で grep | 前者は 1 件（`fallback_reference.rs` 冒頭のコメントで「`unsafe` を持たない」と述べる行。コードではない）、後者は 0 件 |
-| C2 | 依存 | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`、`crates/core/Cargo.toml` の依存 | `core` を `used_by` に持つ承認 0 件、`core` の外部依存 0 |
+| C2 | 依存 | `deps-approved.toml` の承認の件数、`crates/core/Cargo.toml` の依存 | 承認 0 件、`core` の外部依存 0 |
 | D | 品質ゲート | `make verify` | 終了コード 0。出力に 3 本の試験ファイルの実行が出る |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ）。
@@ -183,3 +183,11 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 関連
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-fallback-compare](parity-fallback-compare.md)・[parity-case-inputs](parity-case-inputs.md)・[gemm-test-inputs](gemm-test-inputs.md)・[test-frame](test-frame.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

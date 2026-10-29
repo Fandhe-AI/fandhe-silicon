@@ -123,7 +123,7 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | A3 | `--all-features` | 同じ 5 つと `--lib`（`cargo test -p fandhe-silicon-core --all-features`） | A1 と同じ件数がすべて通る（`--lib` 全体は 21 passed） |
 | A4 | 5/8 の流れの試験の名前 | `grep -n '^fn ' crates/core/tests/artifact_cache_ledger_flow.rs` | 「試験（5/8）」の 7 つの試験関数が実在し、7 passed |
 | A5 | 6/8 の流れの試験の名前 | `grep -n '^fn ' crates/core/tests/artifact_cache_key_rewrite.rs` | 5 つの試験関数が実在し、5 passed |
-| A6 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | `pub mod artifact_cache;` は feature の条件なし。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
+| A6 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` | `pub mod artifact_cache;` は feature の条件なし。外部依存 0。承認の記録 0 件 |
 | A7 | wasm32 | `make wasm-verify` | 終了コード 0 |
 | A8 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
 | A9 | base の CI | `gh run list --branch main --workflow ci.yml` | base のコミットの run 39154798476 が completed / success |
@@ -169,7 +169,7 @@ ART-52 に当たる試験関数（複数 ID をまたぐ索引は作らない。
 | B3 | `--all-features` | `cargo test -p fandhe-silicon-core --all-features` | B1 と同じ件数がすべて通る（`--lib` 全体は 21 passed。feature なしは 11 passed） |
 | B4 | 台帳の全記録との照合と対照 | `artifact_cache_ledger_flow.rs` の `corrupted_sha256_is_absent_from_every_record`・`check_detects_ledger_that_recorded_corrupted_bytes`（陽性対照）・`equal_counts_do_not_rule_out_corrupted_record`（件数だけでは足りない対照）・`counts_before_reject_after_reject_and_after_rebuild` | 4 つとも実在し、同ファイルの 7 passed に含まれる |
 | B5 | キーの書き換えと作り直し | `artifact_cache_key_rewrite.rs` の `rebuilt_entry_has_same_sha256_and_one_matching_record`・`hash_mismatch_differs_but_key_rewrite_does_not`・`bypassing_load_gives_equal_records_but_load_tells_them_apart` | 3 つとも実在し、同ファイルの 5 passed に含まれる。説明は「試験（6/8）」に従う |
-| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | `pub mod artifact_cache;` は feature の条件なし。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件。`#![forbid(unsafe_code)]` |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1`、`deps-approved.toml` | `pub mod artifact_cache;` は feature の条件なし。外部依存 0。承認の記録 0 件。`#![forbid(unsafe_code)]` |
 | C2 | 製品の経路からの参照 | `git grep -n -e artifact_cache -e CacheStore -e CacheEntry -e Ledger -e verify_entry -- crates/exec crates/contract crates/upper wasm measure baseline-wgpu` | 0 件。置き場は TASK-460 の決定の記録に従う（ポインタのみ） |
 | C3 | wasm32 | `make wasm-verify` | 終了コード 0 |
 | C4 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
@@ -194,3 +194,11 @@ ART-52 に当たる試験関数（複数 ID をまたぐ索引は作らない。
 ## 関連
 
 [artifact-input-types](artifact-input-types.md)・[sha256-hash](sha256-hash.md)・[test-frame](test-frame.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

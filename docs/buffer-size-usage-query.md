@@ -28,7 +28,7 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 | `__backend_new` の呼び出し元 | `crates/core/tests/` の `memory_types.rs`（2 か所）・`memory_pending_release.rs`（2 か所）・`memory_usage_values.rs`（1 か所）だけ | `git grep -n __backend_new -- crates wasm measure baseline-wgpu` |
 | `MemoryOps` の実装 | 実装は上の試験ファイルの中だけ（4 つ）。`crates/contract`・`exec`・`upper`・`wasm-abi`・`wasm/`・`measure/`・`baseline-wgpu/` に `impl MemoryOps` は無い。`contract` の参照は `doc(hidden)` の `memory_free_doctest.rs` だけ | `git grep -n 'impl MemoryOps' -- crates wasm measure baseline-wgpu`・`git grep -n -E 'BufferUsage\|BufferHandle\|MemoryOps' -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。feature は `test-support`・`fault-injection`・`native-blocking-wait`。wasm32 でもビルドされる | `crates/core/Cargo.toml`、`crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
-| 依存の承認 | `deps-approved.toml` に `fandhe-silicon-core` を `used_by` に持つ記録は無い（記録は `crates/contract` の macOS 向けの 4 件だけ） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
+| 依存の承認 | `deps-approved.toml` の承認は 0 件 | `grep -c '^\[\[' deps-approved.toml` |
 | `docs/contract/` | 項目ファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` だけ） | `ls docs/contract` |
 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` は workspace の lib crate を全部走査する。`core` に口を足せば対象に入る | `scripts/public-api-check.sh`、`scripts/public-name-check.sh` |
 | 走る場所 | `make verify` は全 feature で試験と doctest を流す。GPU の実機は要らない | `scripts/verify.sh` |
@@ -64,3 +64,11 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 - [docs/contract/README.md](contract/README.md)
 
 1/6 の時点で確かめた base は `e1623ee`、`docs/spec` の gitlink は `0a802d7` を指していた（いまの gitlink は上の `git ls-tree origin/main docs/spec` で確かめる）。
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）

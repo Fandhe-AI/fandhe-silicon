@@ -140,7 +140,7 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | B5 | `compile_fail` の doctest | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc memory_free_doctest` | 4 件（通る例 1・`compile_fail` 3）が passed。0 failed |
 | B6 | doctest を feature の組み合わせで流す | `--features test-support,native-blocking-wait` と `--all-features` で B5 を流す | どちらも同じ 4 件が passed |
 | B7 | `test-support` なしの陰性対照 | `cargo test -p fandhe-silicon-contract --no-default-features --doc memory_free_doctest` | 集まる件数が 0（モジュールが `cfg(feature = "test-support")` の裏にある） |
-| C1 | 置き場と制約 | `crates/core/src/lib.rs`・`cargo tree -p fandhe-silicon-core -e normal --depth 1`・`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` | `pub mod memory;` に feature の条件が無い。`#![forbid(unsafe_code)]`。外部依存 0。`core` を `used_by` に持つ承認の記録 0 件 |
+| C1 | 置き場と制約 | `crates/core/src/lib.rs`・`cargo tree -p fandhe-silicon-core -e normal --depth 1`・`deps-approved.toml` | `pub mod memory;` に feature の条件が無い。`#![forbid(unsafe_code)]`。外部依存 0。承認の記録 0 件 |
 | C2 | 製品の経路からの参照 | `git grep -E 'BufferUsage\|BufferHandle\|MemoryOps' -- crates/contract crates/exec crates/upper crates/wasm-abi wasm measure baseline-wgpu` | 当たりは `crates/contract/src/memory_free_doctest.rs` だけ |
 | C3 | TASK-308 の言及の今の一覧 | `git grep -l TASK-308 -- . ':!docs/spec' ':!.agents'` | 本書・`CLAUDE.md`・`README.md`・`crates/core/src/memory.rs`・`memory/buffer.rs`・`memory/ops.rs`・`crates/core/src/execution/dispatch_check.rs`・`crates/contract/src/memory_free_doctest.rs`・試験 3 本の 11 ファイル。「本リポの現状」の表の行より増えている（その表は書き換えず、ここを今の事実とする） |
 | C4 | wasm32 と本番の組 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test memory_types --test memory_usage_values --test memory_pending_release`（`--features native-blocking-wait` 付きも）・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
@@ -179,3 +179,11 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [test-frame](test-frame.md)
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
+
+## 依存の承認の件数の現状
+
+上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
+- `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
+- `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
