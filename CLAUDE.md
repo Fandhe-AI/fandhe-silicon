@@ -36,7 +36,7 @@ fandhe-silicon/
 │   │   └── implement-issue-tree.js  # → ../skills/implement-issue-tree/scripts/ への symlink
 │   └── settings.json         # SessionStart / PostToolUse hooks
 ├── measure/                  # 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`: 標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・性能値を採る前の門の規則・PoC ごとの変動の幅の規則・記録済みの行からラベルを再現して期待と突き合わせる `replay`・記録を読んで run 間の集計を出すコマンド `across-runs` と記録のパスを受ける再現のコマンド `variation-replay`）。製品の workspace の外（ルート `exclude`）。検査は `make measure-verify`（CI の `deny` ジョブも呼ぶ）
-├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
+├── wasm/                     # wasm32 向けの別 workspace（TASK-22）。member `wasm/crates/glue`（package `wasm-glue`・cdylib）が `crates/contract` に path で依存し、試験用に `crates/core` にも path で依存する（向きは wasm/ → 製品だけ）。製品の workspace の外（ルート `exclude`）。wasm-bindgen は wasm32 向けにだけ宣言。検査は `make wasm-verify`（CI の `deny` ジョブも呼ぶ）。`wasm/node/` は Node での照合の土台の入力（`cases.json`）とスクリプト（`run-glue.cjs`。Cargo の member ではない）
 ├── baseline-wgpu/            # 比較基準の wgpu を置く別 workspace（基盤の依存グラフの外。`make deny` が cargo-deny〔`baseline-wgpu/deny.toml`〕と deps-check をかける。wgpu は `=30.0.1` で固定、アダプタ列挙の smoke bin と公開 API に wgpu の型を出す lib crate）
 ├── crates/
 │   ├── core/                 # fandhe-silicon-core: 3 段で受け渡す共通型（外部依存なし。条件なしの `memory`〔`BufferUsage`・`BufferHandle`・`MemoryOps`〔`download_blocking` は feature `native-blocking-wait` の裏〕・バッファの引数検査の純粋関数〕。条件なしの `hash`〔SHA-256〕・`error`〔エラー・完了状態・理由の型〕・`capability`〔能力問合せの型・上限の表 `LimitsTable`〕・`device`〔device の要求・所有形態の型・device の口の trait `Device`/`DeviceProvider` と診断の型 `DeviceDiagnostics`〕・`validation`〔検証レイヤーの不正の受け口〕・`artifact_cache`〔成果物キャッシュのエントリの型・読み込み時の照合・台帳〕。`test-support` の裏に `parity`・`test_frame`・`rerun`、`fault-injection` の裏に `fault`）
@@ -63,6 +63,7 @@ fandhe-silicon/
 ├── docs/contract-buffer-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6）（TASK-310）
 ├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）
 ├── docs/validation-intake.md  # 検証レイヤーの不正の受け口と失敗の種類の入口の所在と、本リポの現状の事実・現状の形・段の表・確かめ方（TASK-554）
+├── docs/device-lost-notify.md  # ロストの通知先の関数の型を native と wasm32 で確かめる試験の所在と、本リポの現状の事実・確かめ方（TASK-138）
 ├── docs/failure-class-contract-test.md  # 失敗の種類を戻り値だけで区別する共通の契約テストの所在と、本リポの現状の事実・値の出どころ・対応する試験・段の表・確かめ方（TASK-272）
 ├── docs/contract-limits-table.md  # 能力の問合せの上限の表の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ（TASK-157）
 ├── docs/capability-query-rules.md  # 能力の問合せの共通の規則の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）（TASK-273）

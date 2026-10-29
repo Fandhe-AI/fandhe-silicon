@@ -1,6 +1,6 @@
 # wasm32-unknown-unknown 向けの glue の cdylib を置く、製品の workspace の外の別 workspace
 # （spec TASK-22・TASK-6 のポインタ）。
-# 依存の向きは wasm/ → 製品（crates/contract への path）の一方向だけにする。製品の crate は本 workspace に依存しない
+# 依存の向きは wasm/ → 製品（crates/contract と、試験用の crates/core への path）の一方向だけにする。製品の crate は本 workspace に依存しない
 # （製品の workspace の path の検査〔make deny〕が、crates/ の外を指す path を落とす）。
 # wasm-bindgen は wasm32 の target 向けにだけ、本 workspace の cdylib に宣言する（製品の 4 crate には入れない）。
 # 依存の追加はユーザー承認制・=x.y.z 完全固定（.claude/rules/dependency-policy.md。記録は wasm/deps-approved.toml）。

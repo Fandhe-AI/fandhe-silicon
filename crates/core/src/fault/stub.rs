@@ -7,11 +7,12 @@
 use std::sync::{Mutex, MutexGuard};
 
 use super::FaultHooks;
+use crate::device_lost::DeviceLostNotify;
 use crate::error::{ContractError, DeviceLostReason};
 use crate::validation::{ValidationCallback, ValidationIntake, ValidationReporter};
 
-/// ロストのコールバック。最初のロストで 1 回だけ呼ばれる。
-pub type LostCallback = Box<dyn FnOnce(DeviceLostReason) + Send>;
+/// ロストのコールバック。最初のロストで 1 回だけ呼ばれる。型は `device_lost::LostCallback` と同じ。
+pub use crate::device_lost::LostCallback;
 
 #[derive(Default)]
 struct State {
@@ -32,6 +33,14 @@ pub struct FaultStub {
 impl ValidationIntake for FaultStub {
     fn set_validation_callback(&self, callback: ValidationCallback) {
         self.validation.set_callback(callback);
+    }
+}
+
+/// ロストの通知先の口。`FaultStub::set_lost_callback` と同じ働き。
+impl DeviceLostNotify for FaultStub {
+    fn set_lost_callback(&self, callback: LostCallback) {
+        // 固有メソッドを明示して呼ぶ（同名のこの trait メソッドへ戻る再帰にしない）。
+        FaultStub::set_lost_callback(self, callback);
     }
 }
 

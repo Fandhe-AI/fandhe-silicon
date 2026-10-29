@@ -28,6 +28,7 @@ pub mod artifact_cache;
 pub mod capability;
 pub mod decision;
 pub mod device;
+pub mod device_lost;
 pub mod error;
 pub mod execution;
 pub mod hash;

@@ -1,8 +1,8 @@
-# glue: wasm32 向けの cdylib。製品の crate（crates/contract）に path で依存する。
+# glue: wasm32 向けの cdylib。製品の crate（crates/contract）に path で依存し、試験だけが crates/core にも path で依存する。
 [package]
 name = "wasm-glue"
 version = "0.0.0"
-description = "wasm32 glue cdylib that links the fandhe-silicon contract crate"
+description = "wasm32 glue cdylib that links the fandhe-silicon contract crate (tests also use the core crate)"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -17,6 +17,10 @@ fandhe-silicon-contract = { path = "../../../crates/contract", default-features 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.128"
+
+[dev-dependencies]
+# 製品の core の型（device_lost の関数の型）を wasm32 で型検査する試験だけが使う path 依存。
+fandhe-silicon-core = { path = "../../../crates/core" }
 
 [lints]
 workspace = true

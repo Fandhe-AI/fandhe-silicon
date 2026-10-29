@@ -1,7 +1,7 @@
 //! wasm32 向けの glue の cdylib（spec TASK-22 のポインタ）。
 //!
 //! 別 workspace `wasm/` の唯一の member。製品の crate `fandhe-silicon-contract`
-//! （feature は `contract-core`・`cpu-isa`・`cpu-ops` のみ）に path で依存し、
+//! （feature は `contract-core`・`cpu-isa`・`cpu-ops` のみ）に path で依存し（試験だけが `fandhe-silicon-core` にも path で依存する）、
 //! wasm32-unknown-unknown でビルドした `.wasm` の入口になる。
 //! 依存の向きは「本 crate → 製品」だけで、製品の crate は本 crate を知らない。
 //!
@@ -43,5 +43,31 @@ mod tests {
     fn non_finite_values_and_negative_zero_keep_their_bits() {
         let input = [f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -0.0_f32];
         assert_eq!(bits(&roundtrip_f32(&input)), bits(&input));
+    }
+
+    /// ロストの通知先の関数の型（DEV-136）。wasm32 では `Send` でない関数（`Rc` を捕まえる）が登録でき、
+    /// ホストでは `Send` が要る。wasm32 の clippy（`--all-targets`）が型検査として通す。
+    mod lost_callback_type {
+        use fandhe_silicon_core::device_lost::{DeviceLostNotify, LostCallback};
+
+        struct Sink;
+        impl DeviceLostNotify for Sink {
+            fn set_lost_callback(&self, _callback: LostCallback) {}
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        #[test]
+        fn wasm32_accepts_a_closure_that_is_not_send() {
+            let seen = std::rc::Rc::new(std::cell::Cell::new(0_u32));
+            Sink.set_lost_callback(Box::new(move |_| seen.set(1)));
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        #[test]
+        fn host_requires_a_send_callback() {
+            fn assert_send<T: Send>() {}
+            assert_send::<LostCallback>();
+            Sink.set_lost_callback(Box::new(|_| {}));
+        }
     }
 }
