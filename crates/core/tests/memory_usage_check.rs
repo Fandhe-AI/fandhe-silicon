@@ -1,7 +1,7 @@
 //! 用途と操作の対応の検査を、別の crate から全入力の網羅で確かめる（TASK-1796。MEM-109 のポインタ）。
 //!
 //! 公開のパスだけを使う。13 個の用途の定数を OR した 8192 通りの申告 × 全役割を回し、
-//! 期待は定数で書き下した「役割 → 要る用途」の表と集合の包含で求める。
+//! 期待は定数で書き下した「役割 → 要る用途」の定数の並びと集合の包含で求める。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::memory::{BufferUsage, UsageRole, validate_usage_for_role};
@@ -22,7 +22,7 @@ const ALL_USAGES: [BufferUsage; 13] = [
     BufferUsage::TLAS_INPUT,
 ];
 
-/// 役割ごとに要る用途（実装の表とは別に書き下す）。
+/// 役割ごとに要る用途（実装の `required_usage` とは別に書き下す）。
 const REQUIRED: [(UsageRole, BufferUsage); 14] = [
     (UsageRole::MapRead, BufferUsage::MAP_READ),
     (UsageRole::MapWrite, BufferUsage::MAP_WRITE),
@@ -53,7 +53,7 @@ fn combo(mask: u32) -> BufferUsage {
     u
 }
 
-/// 実装の表が期待の表と同じ役割を同じ順で持つ。
+/// 実装の `UsageRole::ALL` が期待の並びと同じ役割を同じ順で持つ。
 #[test]
 fn usage_check_role_table_matches_expected() {
     assert_eq!(UsageRole::ALL.len(), REQUIRED.len());
@@ -87,7 +87,7 @@ fn usage_check_exhaustive_pass_iff_contains() {
 
 #[test]
 fn usage_check_empty_usage_is_rejected_for_every_role() {
-    for role in UsageRole::ALL {
+    for role in UsageRole::ALL.iter().copied() {
         assert!(
             matches!(
                 validate_usage_for_role(BufferUsage::empty(), role),
@@ -101,7 +101,7 @@ fn usage_check_empty_usage_is_rejected_for_every_role() {
 #[test]
 fn usage_check_over_declaration_passes() {
     let everything = combo((1 << ALL_USAGES.len()) - 1);
-    for role in UsageRole::ALL {
+    for role in UsageRole::ALL.iter().copied() {
         assert!(
             validate_usage_for_role(everything, role).is_ok(),
             "{role:?}"

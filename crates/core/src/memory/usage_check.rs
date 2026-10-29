@@ -1,4 +1,4 @@
-//! 用途と操作の対応の検査の純粋関数（TASK-1796 の 2 つ目の部品。MEM-109 のポインタ）。
+//! 用途と操作の対応の検査の純粋関数（TASK-1796・MEM-109 のポインタ）。
 //!
 //! `memory` モジュールの一部。背後実装が、役割の操作を自分の記録に基づいて実行する前に
 //! 通す検査で、確保した時点で背後実装が記録に残した用途（`BufferUsage`）を受け取って判定する。
@@ -49,7 +49,7 @@ pub enum UsageRole {
 
 impl UsageRole {
     /// 検査の対象の役割のすべて。
-    pub const ALL: [Self; 14] = [
+    pub const ALL: &'static [Self] = &[
         Self::MapRead,
         Self::MapWrite,
         Self::CopyBufferSource,
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn usage_check_roles_require_single_bit() {
-        for role in UsageRole::ALL {
+        for role in UsageRole::ALL.iter().copied() {
             assert_eq!(role.required_usage().bits().count_ones(), 1, "{role:?}");
         }
     }

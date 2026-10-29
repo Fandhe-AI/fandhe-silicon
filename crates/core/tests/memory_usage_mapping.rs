@@ -1,6 +1,6 @@
 //! 上の層の用途の 12 値と契約の `BufferUsage` の対応表を、別の crate から確かめる（TASK-1796。MEM-96 のポインタ）。
 //!
-//! 公開のパスだけを使う。表の値は期待を定数で書き下し、実装の表を写さない。
+//! 公開のパスだけを使う。期待は定数で書き下し、実装の対応表を写さない。
 
 use fandhe_silicon_core::memory::{BufferUsage, BufferUsageKind};
 
@@ -120,7 +120,7 @@ fn usage_mapping_thirteen_contract_values_are_disjoint() {
 
 #[test]
 fn usage_mapping_exportable_is_not_an_output_of_the_table() {
-    for kind in BufferUsageKind::ALL {
+    for kind in BufferUsageKind::ALL.iter().copied() {
         assert_ne!(kind.contract_usage(), BufferUsage::EXPORTABLE, "{kind:?}");
         assert!(!kind.contract_usage().is_empty(), "{kind:?}");
     }
@@ -128,8 +128,8 @@ fn usage_mapping_exportable_is_not_an_output_of_the_table() {
 
 #[test]
 fn usage_mapping_is_injective() {
-    for a in BufferUsageKind::ALL {
-        for b in BufferUsageKind::ALL {
+    for a in BufferUsageKind::ALL.iter().copied() {
+        for b in BufferUsageKind::ALL.iter().copied() {
             assert_eq!(a == b, a.contract_usage() == b.contract_usage());
         }
     }

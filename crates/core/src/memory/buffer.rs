@@ -7,10 +7,10 @@ use core::ops::{BitOr, BitOrAssign};
 
 /// 確保のときに申告する用途のビットの集まり（MEM-3 のポインタ）。
 ///
-/// 内部のビットは非公開で、13 個の定数と `|` で組み立てる。生のビットからの公開コンストラクタは無い。
+/// 内部のビットは非公開で、定数と `|` で組み立てる。生のビットからの公開コンストラクタは無い。
 /// 確保した用途は `BufferHandle::usage` で読める。
-/// 用途と操作の対応の検査は、この型の責務ではない（`usage_check` の `validate_usage_for_role` が持つ。
-/// 上の層の 12 値との対応は `BufferUsageKind`）。
+/// 用途と操作の対応の検査は、この型の責務ではない（[`validate_usage_for_role`](super::validate_usage_for_role) が持つ。
+/// 上の層の 12 値との対応は [`BufferUsageKind`](super::BufferUsageKind)）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferUsage(u32);
 

@@ -1,15 +1,15 @@
-//! 上の層の用途の 12 値と契約の `BufferUsage` の対応表（TASK-1796 の 1 つ目の部品。MEM-96 のポインタ）。
+//! 上の層の用途の 12 値と契約の `BufferUsage` の対応表（TASK-1796・MEM-96 のポインタ）。
 //!
 //! `memory` モジュールの一部。上の層（`fandhe-silicon-upper`）が利用者の用途の指定を `allocate` の
-//! `usage` へ写すときに引く表で、背後実装の API は呼ばず、確保もしない。
+//! `usage` へ写すときに引く対応表で、背後実装の API は呼ばず、確保もしない。
 //! 写しは名前（`BufferUsageKind` の variant）で行い、ビットの値では行わない。
-//! 背後実装ごとの提供の有無は能力の問合せの持ち分で、この表には載せない。
+//! この型は背後実装ごとの提供の有無を持たない。
 
 use super::buffer::BufferUsage;
 
 /// 上の層の用途の 12 値。`BufferUsage` への写しは [`BufferUsageKind::contract_usage`]。
 ///
-/// variant の順は表の行の順で、[`BufferUsageKind::ALL`] の並びと一致する。
+/// variant の順は[`BufferUsageKind::ALL`] の並びと同じ。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BufferUsageKind {
@@ -40,8 +40,8 @@ pub enum BufferUsageKind {
 }
 
 impl BufferUsageKind {
-    /// 12 値のすべて（表の行の順）。
-    pub const ALL: [Self; 12] = [
+    /// 12 値のすべて（variant の順）。
+    pub const ALL: &'static [Self] = &[
         Self::MapRead,
         Self::MapWrite,
         Self::CopySrc,
@@ -78,8 +78,6 @@ impl BufferUsageKind {
     }
 
     /// この値がホストからの読み書きの経路（`upload`・`download`・対応付け）を持つとき `true`。
-    ///
-    /// 背後実装が確保をホストから見える領域に置く判断の入力になる。
     pub const fn has_host_path(self) -> bool {
         matches!(
             self,
@@ -95,7 +93,7 @@ mod tests {
     #[test]
     fn usage_mapping_all_rows_have_single_distinct_bit() {
         let mut seen = 0u32;
-        for kind in BufferUsageKind::ALL {
+        for kind in BufferUsageKind::ALL.iter().copied() {
             let bits = kind.contract_usage().bits();
             assert_eq!(bits.count_ones(), 1, "{kind:?}");
             assert_eq!(seen & bits, 0, "{kind:?} reuses a bit");
