@@ -3,7 +3,7 @@
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が記録先を作って投入し、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が `CommandQueue` を実装して受け取る。
 //! ここには型と trait の形だけを置き、チップ固有の型・unsafe は持たない。
-//! `dispatch` 系・束縛の検査・一括投入などは本モジュールの範囲の外。
+//! `dispatch` 系・束縛の検査などは本モジュールの範囲の外。
 
 use super::ImportedSemaphoreHandle;
 use crate::error::{CompletionState, CompletionStateEx, ContractError, RetryPolicy};
@@ -188,6 +188,26 @@ pub trait CommandQueue {
     fn submit(
         &self,
         commands: CommandEncoder,
+        wait: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError>;
+
+    /// 複数の記録先をまとめて 1 回で投入し、1 つの `SubmitToken` を返す（CMD-67）。
+    ///
+    /// 既定の本体は置かない。`submit` の繰り返しでは「全部を投入するか、何も投入しないか」を守れないため、
+    /// 実装する背後実装が次の契約を満たす。
+    ///
+    /// - 全部を投入するか、何も投入しない。途中まで投入された状態を残さない。
+    /// - `commands` が空なら `ContractError::InvalidArgument`。
+    /// - この queue が作った記録先でないものを含めば `ContractError::InvalidArgument`。
+    /// - `after` の各トークンの完了の後に実行する。別の device のトークンは `ContractError::DeviceMismatch`、
+    ///   ロストの前の世代のトークンは `ContractError::DeviceLost`。
+    /// - 失敗したとき、渡した記録先は `Drop` で閉じる（値で受けるので呼び出し側には戻らない）。
+    ///
+    /// `wait` は `submit` と同じく、先に待つ取り込み済みセマフォ。
+    fn submit_many(
+        &self,
+        commands: Vec<CommandEncoder>,
+        after: &[SubmitToken],
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError>;
 

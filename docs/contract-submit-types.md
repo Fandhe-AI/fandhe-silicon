@@ -28,6 +28,7 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | 既定の本体 | `poll_ex`（`poll` の 3 値を写す）・`submit_ex`・`submit_exportable`（`submit` に委ねる）・`gpu_timing`（`Unavailable`） | 同上（呼べることまで） |
 | feature | `wait_blocking` は `native-blocking-wait`、`submit_exportable` は `ext-interop` の裏。`ext-interop` は `core` にも置き、`contract` の同名 feature が転送する | `crates/core/Cargo.toml`、`crates/contract/Cargo.toml`、`make core-deps-check` |
 | 範囲の外 | `dispatch` 系・束縛の検査・一括投入・`Device` からの取り出しは本書の範囲に含まれない。`Device` は変えていない | `crates/core/src/device.rs` |
+| 一括投入 | 一括投入 `submit_many` を足した（TASK-592）。`submit_many(Vec<CommandEncoder>, &[SubmitToken], &[ImportedSemaphoreHandle])` は既定の本体を持たない必須のメソッドで、契約は rustdoc に書く。共通の crate は宣言だけで実装は背後実装が持つ | `crates/core/tests/submit_types.rs` |
 | 外部依存 | 足していない（`Cargo.lock`・`deps-approved.toml` は変更なし） | `make deps-check` |
 
 ## 対応するテスト

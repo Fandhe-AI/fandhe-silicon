@@ -24,6 +24,19 @@ impl CommandQueue for Plain {
         Ok(SubmitToken::__backend_new(0, 0, 0))
     }
 
+    fn submit_many(
+        &self,
+        commands: Vec<CommandEncoder>,
+        _after: &[SubmitToken],
+        _wait: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        if commands.is_empty() {
+            return Err(ContractError::InvalidArgument("empty commands".into()));
+        }
+        drop(commands);
+        Ok(SubmitToken::__backend_new(0, 0, 0))
+    }
+
     fn poll(&self, _token: SubmitToken) -> CompletionState {
         self.0
     }
