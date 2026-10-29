@@ -685,19 +685,108 @@ fn a_panicking_callback_does_not_starve_the_others_or_break_the_device() {
         second,
         Box::new(move |state| sink.lock().expect("lock").push(state)),
     );
+    // 登録のあと、`first` が終端になって最初に駆動した呼び出しから panic が伝わる。伝わるまで 10 秒まで駆動する。
+    let started = std::time::Instant::now();
+    let mut propagated = false;
+    while !propagated {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "the callback's panic did not propagate"
+        );
+        propagated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            device.queue().poll(second);
+        }))
+        .is_err();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // panic のあとも、後ろの callback は 1 回呼ばれる（同じ駆動で呼ばれるか、次の駆動で呼ばれる）。
+    drive_until_called(&seen, || {
+        device.queue().poll(second);
+    });
+    assert_eq!(device.queue().poll(first), CompletionState::Complete);
+}
+
+fn registered_recorder(
+    device: &dyn Device,
+    token: fandhe_silicon_core::execution::SubmitToken,
+) -> Arc<Mutex<Vec<CompletionState>>> {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device.queue().on_complete(
+        token,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    seen
+}
+
+/// `drive` を、callback が呼ばれるまで（10 秒まで）繰り返す。`poll` は呼ばない。
+fn drive_until_called(seen: &Arc<Mutex<Vec<CompletionState>>>, mut drive: impl FnMut()) {
     let started = std::time::Instant::now();
     while seen.lock().expect("lock").is_empty() {
         assert!(
             started.elapsed() < std::time::Duration::from_secs(10),
             "callback was not called"
         );
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            device.queue().poll(second);
-        }));
+        drive();
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+    drive();
     assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
-    assert_eq!(device.queue().poll(first), CompletionState::Complete);
+}
+
+/// 登録のあと `poll` を呼ばずに、後続の `submit` の中で callback が `Complete` で 1 回呼ばれる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_drives_a_registered_callback_without_poll() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = registered_recorder(device.as_ref(), token);
+    drive_until_called(&seen, || {
+        submit_empty(device.as_ref());
+    });
+}
+
+/// 登録のあと `poll` を呼ばずに、後続の `submit_many` の中で callback が呼ばれる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_many_drives_a_registered_callback_without_poll() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = registered_recorder(device.as_ref(), token);
+    drive_until_called(&seen, || {
+        let queue = device.queue();
+        queue
+            .submit_many(vec![queue.create_encoder()], &[], &[])
+            .expect("submit_many");
+    });
+}
+
+/// 登録のあと `poll` を呼ばずに、後続の `allocate` の中で callback が呼ばれる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn allocate_drives_a_registered_callback_without_poll() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = registered_recorder(device.as_ref(), token);
+    drive_until_called(&seen, || {
+        let buffer = device
+            .memory()
+            .allocate(16, BufferUsage::STORAGE)
+            .expect("allocate");
+        device.memory().free(buffer);
+    });
+}
+
+/// 登録のあと `poll_ex` の中で callback が呼ばれる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn poll_ex_drives_a_registered_callback() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = registered_recorder(device.as_ref(), token);
+    drive_until_called(&seen, || {
+        device.queue().poll_ex(token);
+    });
 }
 
 /// 別 device の印と払い出していない番号では、`on_complete` は待たずに `Lost` で 1 回だけ呼ぶ。
