@@ -28,7 +28,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 事実 | 確かめ方 |
 | ---- | -------- |
 | `ci.yml` の `runs-on` は GitHub ホステッドの `ubuntu-latest` と、`test-hooks` の matrix と `wasm-macos`・`verify-macos` の `macos-latest` だけ。self-hosted の指定は無い | `grep -n -E "runs-on|self-hosted" .github/workflows/ci.yml` |
-| `verify-macos` は ruleset の必須チェックに登録していない（`ci-complete` の `needs` には入っている） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
+| `verify-macos` は ruleset の必須チェックに登録している（`ci-complete` の `needs` にも入っている） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
 | GPU・実機を要るジョブは `ci.yml` に無い | `grep -n -i gpu .github/workflows/ci.yml`（0 件） |
 | `ci-complete` は集約ジョブで、`needs` の結果が success でなければ失敗にする（`pr-title` は `pull_request` 以外でだけ skipped を許す） | `sed -n '/^  ci-complete:/,$p' .github/workflows/ci.yml` |
 | wasm32 のビルドの確かめは `verify` ジョブの `make build-profiles` が呼ぶ `scripts/build-profiles.sh` にある（`wasm32-unknown-unknown` に対する `cargo check` と、`crates/wasm-abi` の scalar 版・simd128 版の release ビルド。target が無ければ skip せず失敗する） | `grep -n -E "WASM_TARGET|WASM_SETS|WASM_ABI_PKG" scripts/build-profiles.sh` |

@@ -437,7 +437,7 @@ jobs:
   # `make build-profiles` は feature の組ごとの確かめで、`backend-metal` 単独の組と `--all-features` の組を含む（Linux では macOS 向けの依存がビルドされないため、ここで初めて流れる）。
   # `--ignored`・`--include-ignored` は付けず、device の要る試験（`#[ignore]`）とシェーダーのコンパイラ（`xcrun metal`）は流さない。
   # larger runner のラベルは使わない。キャッシュは使わない。python3 は runner 同梱のものを使う（`make verify` の集計が 3.8 以上を要る）。
-  # ruleset の必須チェックには登録していない（登録はユーザー判断。`ci-complete` の `needs` には入れている）。
+  # ruleset の必須チェックに登録している（`ci-complete` の `needs` にも入れている）。
   verify-macos:
     name: "make verify + build-profiles (macos-latest)"
     runs-on: macos-latest
