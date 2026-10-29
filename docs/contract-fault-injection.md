@@ -199,3 +199,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - [upper-layer-check](upper-layer-check.md)
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
+
+## 後から足した口
+
+検証レイヤーの報告を模す口 `simulate_validation_report` と種類 `HookFault::ValidationReport` は TASK-554 が足した。所在は [validation-intake](validation-intake.md)。
