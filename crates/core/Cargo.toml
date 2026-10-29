@@ -226,3 +226,7 @@ required-features = ["fault-injection"]
 [[test]]
 name = "failure_class_contract"
 required-features = ["fault-injection"]
+
+[[test]]
+name = "submit_default_impls"
+required-features = ["fault-injection"]
