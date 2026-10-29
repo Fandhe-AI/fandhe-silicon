@@ -9,21 +9,39 @@ use std::cell::Cell;
 use fandhe_silicon_core::error::{ContractError, IdentityMismatchReason};
 use fandhe_silicon_core::execution::{ImportedSemaphoreHandle, SubmitToken};
 use fandhe_silicon_core::interop::{
-    ExternalInterop, ExternalMemoryHandle, ExternalSemaphoreHandle, PhysicalGpuId,
-    check_same_physical_gpu, import_memory_checked,
+    ExternalImageDescriptor, ExternalImageFormat, ExternalImageHandle, ExternalImageLayout,
+    ExternalImageTiling, ExternalInterop, ExternalMemoryHandle, ExternalSemaphoreHandle,
+    ImportedImageHandle, PhysicalGpuId, check_same_physical_gpu, import_image_checked,
+    import_memory_checked, import_semaphore_checked, import_semaphore_timeline_checked,
 };
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 
-/// `import_memory` の呼び出しを数えるスタブ。
+/// 取り込み 4 操作（`import_memory`・`import_image`・`import_semaphore`・`import_semaphore_timeline`）の呼び出しを数えるスタブ。
 struct CountingBackend {
     import_calls: Cell<u32>,
+    image_calls: Cell<u32>,
+    semaphore_calls: Cell<u32>,
+    timeline_calls: Cell<u32>,
 }
 
 impl CountingBackend {
     fn new() -> Self {
         Self {
             import_calls: Cell::new(0),
+            image_calls: Cell::new(0),
+            semaphore_calls: Cell::new(0),
+            timeline_calls: Cell::new(0),
         }
+    }
+
+    /// 4 つの取り込みの呼び出し回数を `[memory, image, semaphore, timeline]` の順で返す。
+    fn counts(&self) -> [u32; 4] {
+        [
+            self.import_calls.get(),
+            self.image_calls.get(),
+            self.semaphore_calls.get(),
+            self.timeline_calls.get(),
+        ]
     }
 }
 
@@ -54,9 +72,32 @@ impl ExternalInterop for CountingBackend {
 
     fn import_semaphore(
         &self,
-        _: ExternalSemaphoreHandle,
+        external: ExternalSemaphoreHandle,
     ) -> Result<ImportedSemaphoreHandle, ContractError> {
-        unimplemented!()
+        self.semaphore_calls.set(self.semaphore_calls.get() + 1);
+        Ok(ImportedSemaphoreHandle::__backend_new(
+            external.__backend_id(),
+        ))
+    }
+
+    fn import_image(
+        &self,
+        external: ExternalImageHandle,
+        _: ExternalImageDescriptor,
+    ) -> Result<ImportedImageHandle, ContractError> {
+        self.image_calls.set(self.image_calls.get() + 1);
+        Ok(ImportedImageHandle::__backend_new(external.__backend_id()))
+    }
+
+    fn import_semaphore_timeline(
+        &self,
+        external: ExternalSemaphoreHandle,
+        _: u64,
+    ) -> Result<ImportedSemaphoreHandle, ContractError> {
+        self.timeline_calls.set(self.timeline_calls.get() + 1);
+        Ok(ImportedSemaphoreHandle::__backend_new(
+            external.__backend_id(),
+        ))
     }
 }
 
@@ -232,4 +273,172 @@ fn rejected_handle_closes_its_fd() {
     let mut buf = [0u8; 1];
     assert_eq!(reader.read(&mut buf).expect("read"), 0);
     assert_eq!(backend.import_calls.get(), 0);
+}
+
+fn desc() -> ExternalImageDescriptor {
+    ExternalImageDescriptor {
+        format: ExternalImageFormat::Rgba8Unorm,
+        extent: [4, 4, 1],
+        tiling: ExternalImageTiling::Optimal,
+        initial_layout: ExternalImageLayout::Undefined,
+        dedicated: None,
+    }
+}
+
+/// 4 つの取り込みの入口を、同じ識別子の組で順に呼び、戻りの `Result` の `Err` の値を 4 つ集める。
+/// 戻りは `[memory, image, semaphore, timeline]` の順。
+fn call_all_entries(
+    backend: &CountingBackend,
+    source: Option<&PhysicalGpuId>,
+    target: Option<&PhysicalGpuId>,
+) -> [Result<(), ContractError>; 4] {
+    let memory = ExternalMemoryHandle::__backend_new(1, false, source.copied());
+    [
+        import_memory_checked(backend, target, memory, 32, BufferUsage::STORAGE).map(|_| ()),
+        import_image_checked(
+            backend,
+            source,
+            target,
+            ExternalImageHandle::__backend_new(2, false),
+            desc(),
+        )
+        .map(|_| ()),
+        import_semaphore_checked(
+            backend,
+            source,
+            target,
+            ExternalSemaphoreHandle::__backend_new(3, false),
+        )
+        .map(|_| ()),
+        import_semaphore_timeline_checked(
+            backend,
+            source,
+            target,
+            ExternalSemaphoreHandle::__backend_new(4, true),
+            7,
+        )
+        .map(|_| ()),
+    ]
+}
+
+/// ERR-59: `Mismatch` の拒否では、4 つの取り込みの入口がすべて同じ `Err` を返し、4 つの操作とも 0 回。
+#[test]
+fn mismatch_rejects_before_all_four_imports() {
+    let backend = CountingBackend::new();
+    let source = gpu();
+    let mut target = gpu();
+    target.device_uuid[0] ^= 1;
+    let results = call_all_entries(&backend, Some(&source), Some(&target));
+    for result in results {
+        assert_eq!(
+            result.unwrap_err(),
+            mismatch(IdentityMismatchReason::Mismatch)
+        );
+    }
+    assert_eq!(backend.counts(), [0, 0, 0, 0]);
+}
+
+/// ERR-59: 取り込み先が `None` の `Undeterminable` の拒否でも、4 つの操作とも 0 回。
+#[test]
+fn undeterminable_target_rejects_before_all_four_imports() {
+    let backend = CountingBackend::new();
+    let source = gpu();
+    let results = call_all_entries(&backend, Some(&source), None);
+    for result in results {
+        assert_eq!(
+            result.unwrap_err(),
+            mismatch(IdentityMismatchReason::Undeterminable)
+        );
+    }
+    assert_eq!(backend.counts(), [0, 0, 0, 0]);
+}
+
+/// ERR-59: export 元が `None` の `Undeterminable` の拒否でも、4 つの操作とも 0 回。
+#[test]
+fn undeterminable_source_rejects_before_all_four_imports() {
+    let backend = CountingBackend::new();
+    let target = gpu();
+    let results = call_all_entries(&backend, None, Some(&target));
+    for result in results {
+        assert_eq!(
+            result.unwrap_err(),
+            mismatch(IdentityMismatchReason::Undeterminable)
+        );
+    }
+    assert_eq!(backend.counts(), [0, 0, 0, 0]);
+}
+
+/// ERR-59: 一致なら、3 つの入口がそれぞれ自分の取り込みを 1 回だけ呼び、渡したハンドルがそのまま取り込みに渡る（戻りの id で確かめる）。
+#[test]
+fn match_calls_each_entry_once() {
+    let backend = CountingBackend::new();
+    let g = gpu();
+    let image = import_image_checked(
+        &backend,
+        Some(&g),
+        Some(&g),
+        ExternalImageHandle::__backend_new(2, false),
+        desc(),
+    )
+    .expect("image");
+    assert_eq!(image.__backend_id(), 2);
+    assert_eq!(backend.counts(), [0, 1, 0, 0]);
+    let semaphore = import_semaphore_checked(
+        &backend,
+        Some(&g),
+        Some(&g),
+        ExternalSemaphoreHandle::__backend_new(3, false),
+    )
+    .expect("semaphore");
+    assert_eq!(semaphore.__backend_id(), 3);
+    assert_eq!(backend.counts(), [0, 1, 1, 0]);
+    let timeline = import_semaphore_timeline_checked(
+        &backend,
+        Some(&g),
+        Some(&g),
+        ExternalSemaphoreHandle::__backend_new(4, true),
+        7,
+    )
+    .expect("timeline");
+    assert_eq!(timeline.__backend_id(), 4);
+    assert_eq!(backend.counts(), [0, 1, 1, 1]);
+}
+
+/// ERR-59: 拒否された image・semaphore・timeline semaphore のハンドルの fd が閉じる（pipe の読み側が EOF）。
+#[cfg(unix)]
+#[test]
+fn rejected_image_and_semaphore_handles_close_their_fds() {
+    use std::io::Read;
+    use std::os::fd::OwnedFd;
+
+    fn assert_closed(mut reader: std::io::PipeReader) {
+        let mut buf = [0u8; 1];
+        assert_eq!(reader.read(&mut buf).expect("read"), 0);
+    }
+
+    let backend = CountingBackend::new();
+    let source = gpu();
+    let mut target = gpu();
+    target.device_uuid[0] ^= 1;
+
+    let (reader, writer) = std::io::pipe().expect("pipe");
+    let image =
+        ExternalImageHandle::__backend_new(2, false).__backend_with_fd(OwnedFd::from(writer));
+    import_image_checked(&backend, Some(&source), Some(&target), image, desc()).unwrap_err();
+    assert_closed(reader);
+
+    let (reader, writer) = std::io::pipe().expect("pipe");
+    let sem =
+        ExternalSemaphoreHandle::__backend_new(3, false).__backend_with_fd(OwnedFd::from(writer));
+    import_semaphore_checked(&backend, Some(&source), Some(&target), sem).unwrap_err();
+    assert_closed(reader);
+
+    let (reader, writer) = std::io::pipe().expect("pipe");
+    let timeline =
+        ExternalSemaphoreHandle::__backend_new(4, true).__backend_with_fd(OwnedFd::from(writer));
+    import_semaphore_timeline_checked(&backend, Some(&source), Some(&target), timeline, 7)
+        .unwrap_err();
+    assert_closed(reader);
+
+    assert_eq!(backend.counts(), [0, 0, 0, 0]);
 }

@@ -54,12 +54,21 @@ feature `ext-interop` の裏。場所は `crates/core/src/interop/same_gpu.rs`�
 | ---- | -------- |
 | `check_same_physical_gpu(left, right)` | `Option<&PhysicalGpuId>` を 2 つ受ける。どちらかが `None` は `DeviceIdentityMismatch { reason: Undeterminable }`。`device_uuid` が違う、または両方の `driver_uuid` が `Some` で違うと `Mismatch`。`driver_uuid` が片方でも `None` なら比べず `device_uuid` の一致で `Ok(())` |
 | `import_memory_checked(interop, target_gpu, handle, byte_len, usage)` | ハンドルが運ぶ export 元の識別子と `target_gpu` を `check_same_physical_gpu` で照らし、`Ok` のときだけ `interop.import_memory` を呼ぶ。拒否のときは呼ばず、ハンドルは消費される |
+| `import_image_checked(interop, source_gpu, target_gpu, external, desc)` | `ExternalImageHandle` は export 元の識別子を運ばないので、export 元の識別子 `source_gpu` を引数で受ける（export 元 device の `Device::physical_gpu_id` の値を渡す前提）。`check_same_physical_gpu(source_gpu, target_gpu)` が `Ok` のときだけ `interop.import_image` を呼ぶ。拒否のときは呼ばず、ハンドルは消費される |
+| `import_semaphore_checked(interop, source_gpu, target_gpu, external)` | 同じ形で `interop.import_semaphore` の前に照らす |
+| `import_semaphore_timeline_checked(interop, source_gpu, target_gpu, external, wait_value)` | 同じ形で `interop.import_semaphore_timeline` の前に照らす |
 
-`import_memory_checked` を使わずに `ExternalInterop::import_memory` を直接呼ぶ呼び出しは、判定されない。`source_gpu` は export 元が付けた値で、真正性は確かめない。`driver_uuid` が片方でも `None` の組は driver の違いを検出しない。`device_uuid` は全ゼロでも一致として扱う。
+判定されない経路と信頼の水準は入口ごとに違う。
+- `import_memory_checked`: 照らす export 元の識別子は、ハンドルが運ぶ値（export 元が付けた値）。この関数は真正性を確かめない。
+- `import_image_checked`・`import_semaphore_checked`・`import_semaphore_timeline_checked`: 照らす export 元の識別子は、呼び出し側が引数で渡す申告の値。取り込み先と同じ値を渡せば常に通り、真正性は確かめない。export 元 device の `Device::physical_gpu_id` の値を渡す前提で、ハンドルの側に裏づけはない。
+- どの入口も使わずに `ExternalInterop` の取り込みを直接呼ぶ呼び出しは、判定されない。
+- `driver_uuid` が片方でも `None` の組は driver の違いを検出しない。`device_uuid` は全ゼロでも一致として扱う。
 
 対応するテスト: `crates/core/tests/interop_same_gpu.rs`（UUID を 1 バイト変えた組、`None` の組、計数つきのスタブで一致 1 回・拒否 0 回、`driver_uuid` の規則、unix での拒否後の fd の閉鎖）。
 
 同じファイルの追加の試験（TASK-719）: `device_uuid` の 16 バイトすべてが違う組が引数の順によらず `Mismatch` になること（INTEROP-7）、第 1 引数だけ・第 2 引数だけ・両方が `None` の 3 通りがそれぞれ `Undeterminable` になること（INTEROP-10）。`driver_uuid` の組（INTEROP-8・INTEROP-9・INTEROP-65）は上の行の試験が受け持つ。
+
+同じファイルの追加の試験（ERR-59）: 計数つきのスタブが 4 つの取り込み（`import_memory`・`import_image`・`import_semaphore`・`import_semaphore_timeline`）を数え、`Mismatch`・取り込み先が `None`・export 元が `None` の拒否のそれぞれで、4 つの入口が同じ `DeviceIdentityMismatch { reason }` を返し 4 つとも 0 回であること、一致では 3 つの入口がそれぞれ自分の取り込みを 1 回だけ呼ぶこと、unix で拒否された image・semaphore・timeline semaphore のハンドルの fd が閉じること。
 
 ```bash
 cargo test -p fandhe-silicon-core --features ext-interop --test interop_same_gpu
