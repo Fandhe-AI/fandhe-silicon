@@ -3,10 +3,10 @@
 //! 背後実装（下-1）が検証レイヤーの報告を受けたとき、`ValidationReporter::report` に説明を渡す。
 //! 利用側（下-2・上）は `ValidationIntake::set_validation_callback` で登録した関数から
 //! `ContractError::ValidationFailed(String)` として受け取る。
-//! `on_complete` の引数（`CompletionState`）は変えない。登録の単位・呼ぶ回数・関数の型・名前は仮。
+//! `on_complete` の引数（`CompletionState`）は変えない。名前は仮。
 //!
-//! 報告は device のロストへは移さない。ロストの理由 `DeviceLostReason::ValidationError(String)` は、
-//! 理由を指定した模擬のロスト（`fault` モジュール）でだけ渡る。
+//! 報告だけでは device はロストしない。`DeviceLostReason::ValidationError(String)` は、
+//! `fault` モジュールの `simulate_device_lost` が、指定された理由として渡す。
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -72,12 +72,13 @@ impl ValidationReporter {
             }
             cb
         };
-        if let Some(mut cb) = cb {
-            cb(err.clone());
-            let mut st = self.lock();
-            // 呼んでいる間に新しい関数が登録されていたら、そちらを残す。
-            if st.callback.is_none() {
-                st.callback = Some(cb);
+        if let Some(cb) = cb {
+            let mut guard = RestoreGuard {
+                reporter: self,
+                cb: Some(cb),
+            };
+            if let Some(cb) = guard.cb.as_mut() {
+                cb(err.clone());
             }
         }
         err
@@ -91,6 +92,22 @@ impl ValidationReporter {
     /// 届けなかった報告の数（未登録、または関数の実行中に起きたもの）。
     pub fn undelivered_count(&self) -> u64 {
         self.lock().undelivered
+    }
+}
+
+/// 呼んでいる間だけ取り出した関数を、抜けるとき（panic の巻き戻しを含む）に登録へ戻す。
+/// 呼んでいる間に新しい関数が登録されていたら、そちらを残す。
+struct RestoreGuard<'a> {
+    reporter: &'a ValidationReporter,
+    cb: Option<ValidationCallback>,
+}
+
+impl Drop for RestoreGuard<'_> {
+    fn drop(&mut self) {
+        let mut st = self.reporter.lock();
+        if st.callback.is_none() {
+            st.callback = self.cb.take();
+        }
     }
 }
 

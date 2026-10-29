@@ -1,7 +1,7 @@
 //! 検証の報告を模す差し込みと、ロストの理由 `ValidationError` の経路の確認（ERR-8。TASK-554 のポインタ）。
 //!
 //! 報告は受け口へ `ValidationFailed` として届き、device をロストさせない。
-//! `ValidationError` は、理由を指定した模擬のロストでだけ渡る（実際の報告からは作らない）。
+//! `ValidationError` は、理由を指定した模擬のロストでだけ渡る（試験 `report_alone_does_not_lose_the_device` が、報告だけではロストしないことを見る）。
 
 use std::sync::{Arc, Mutex};
 

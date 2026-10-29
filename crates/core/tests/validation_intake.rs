@@ -111,3 +111,24 @@ fn completion_state_is_unchanged_by_the_intake() {
     }
     assert_eq!(name(CompletionState::Pending), "pending");
 }
+
+/// 登録した関数が panic しても登録は外れず、次の報告がその関数に届く。
+#[test]
+fn panicking_callback_stays_registered() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    let r = ValidationReporter::new();
+    let calls = Arc::new(Mutex::new(0u32));
+    let calls2 = Arc::clone(&calls);
+    r.set_validation_callback(Box::new(move |_| {
+        let mut n = calls2.lock().unwrap();
+        *n += 1;
+        if *n == 1 {
+            drop(n);
+            panic!("callback failure");
+        }
+    }));
+    let first = catch_unwind(AssertUnwindSafe(|| r.report("one")));
+    assert!(first.is_err());
+    r.report("two");
+    assert_eq!(*calls.lock().unwrap(), 2);
+}

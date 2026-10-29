@@ -151,7 +151,7 @@ impl std::error::Error for ContractError {}
 
 /// 失敗の種類。`ContractError` と `CompletionStateEx` の値から `failure_class` で得る（ERR-21。TASK-554 のポインタ）。
 ///
-/// 名前は仮。回復の軸（呼び出しの誤りかどうか）とは別の軸で、この型には含めない。
+/// 名前は仮。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FailureClass {
