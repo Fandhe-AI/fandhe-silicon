@@ -7,9 +7,10 @@ use core::ops::{BitOr, BitOrAssign};
 
 /// 確保のときに申告する用途のビットの集まり（MEM-3 のポインタ）。
 ///
-/// 内部のビットは非公開で、7 つの定数と `|` で組み立てる。
+/// 内部のビットは非公開で、13 個の定数と `|` で組み立てる。生のビットからの公開コンストラクタは無い。
 /// 確保した用途は `BufferHandle::usage` で読める。
-/// 用途と操作の対応の検査は、この型の責務ではない。
+/// 用途と操作の対応の検査は、この型の責務ではない（`usage_check` の `validate_usage_for_role` が持つ。
+/// 上の層の 12 値との対応は `BufferUsageKind`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferUsage(u32);
 
@@ -28,6 +29,18 @@ impl BufferUsage {
     pub const UNIFORM: Self = Self(1 << 5);
     /// 確保のときに export の意図を申告する。
     pub const EXPORTABLE: Self = Self(1 << 6);
+    /// 読みの対応付けの対象にする。
+    pub const MAP_READ: Self = Self(1 << 7);
+    /// 書きの対応付けの対象にする。
+    pub const MAP_WRITE: Self = Self(1 << 8);
+    /// 間接実行の引数として使う。
+    pub const INDIRECT: Self = Self(1 << 9);
+    /// 問合せの解決先として使う。
+    pub const QUERY_RESOLVE: Self = Self(1 << 10);
+    /// 下位の加速構造の構築の入力として使う。
+    pub const BLAS_INPUT: Self = Self(1 << 11);
+    /// 上位の加速構造の構築の入力として使う。
+    pub const TLAS_INPUT: Self = Self(1 << 12);
 
     /// どの用途も含まない値。
     pub const fn empty() -> Self {
