@@ -11,7 +11,8 @@ use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel, CapabilityQu
 use fandhe_silicon_core::device::{
     Device, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
-use fandhe_silicon_core::error::{ContractError, UnsupportedReason};
+use fandhe_silicon_core::error::{CompletionState, ContractError, UnsupportedReason};
+use fandhe_silicon_core::execution::ImportedSemaphoreHandle;
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -308,4 +309,200 @@ fn limits_report_the_dispatch_and_texture_bounds() {
         .expect("the default Metal device must exist in this session")
         .maxBufferLength();
     assert_eq!(limits.max_buffer_bytes, u64::try_from(native_max).unwrap());
+}
+
+/// 投入の試験が使う、最初の通し番号を確かめる補助。空の記録先を投入して印を返す。
+fn submit_empty(device: &dyn Device) -> fandhe_silicon_core::execution::SubmitToken {
+    let queue = device.queue();
+    queue.submit(queue.create_encoder(), &[]).expect("submit")
+}
+
+/// CMD-1 のポインタ。記録先を作る・破棄するだけでは投入されず、最初の投入の通し番号は 1 のまま。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn creating_and_dropping_encoders_does_not_advance_the_sequence() {
+    let device = new_device();
+    let queue = device.queue();
+    drop(queue.create_encoder());
+    drop(queue.create_encoder());
+    let token = submit_empty(device.as_ref());
+    assert_eq!(token.sequence, 1);
+}
+
+/// CMD-11 のポインタ。空の `wait` の投入は成功し、`wait_blocking(None)` の後の `poll` は `Complete`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_with_empty_wait_completes_after_wait_blocking() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let queue = device.queue();
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    assert_eq!(queue.poll(token), CompletionState::Complete);
+}
+
+/// CMD-11 のポインタ。`Some(期限)` の待ちも完了で `Ok` を返す。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn wait_blocking_with_a_timeout_returns_ok_when_the_work_completes() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let queue = device.queue();
+    queue
+        .wait_blocking(token, Some(std::time::Duration::from_secs(10)))
+        .expect("wait_blocking");
+    assert_eq!(queue.poll(token), CompletionState::Complete);
+}
+
+/// CMD-12 のポインタ。空でない `wait` は、`submit`・`submit_ex` のどちらでも `Unsupported` で何も投入しない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn non_empty_wait_is_unsupported_and_submits_nothing() {
+    let device = new_device();
+    let queue = device.queue();
+    let r = queue.submit(
+        queue.create_encoder(),
+        &[ImportedSemaphoreHandle::__backend_new(1)],
+    );
+    assert!(matches!(r, Err(ContractError::Unsupported { .. })), "{r:?}");
+    let r = queue.submit_ex(
+        queue.create_encoder(),
+        &[ImportedSemaphoreHandle::__backend_new(1)],
+        fandhe_silicon_core::error::RetryPolicy::NotIdempotent,
+    );
+    assert!(matches!(r, Err(ContractError::Unsupported { .. })), "{r:?}");
+    assert_eq!(submit_empty(device.as_ref()).sequence, 1);
+}
+
+/// CMD-12 のポインタ。別 device の記録先は `InvalidArgument` で投入されず、元の device でも投入できる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn foreign_encoder_is_invalid_argument_and_submits_nothing() {
+    let first = new_device();
+    let second = new_device();
+    let foreign = first.queue().create_encoder();
+    let r = second.queue().submit(foreign, &[]);
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+    assert_eq!(submit_empty(second.as_ref()).sequence, 1);
+    assert_eq!(submit_empty(first.as_ref()).sequence, 1);
+}
+
+/// CMD-13 のポインタ。通し番号は device ごとに 1 から数え、2 つの device の最初はどちらも 1。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn sequences_start_at_one_per_device() {
+    let first = new_device();
+    let second = new_device();
+    let a = submit_empty(first.as_ref());
+    let b = submit_empty(second.as_ref());
+    assert_eq!(a.sequence, 1);
+    assert_eq!(b.sequence, 1);
+    assert_eq!(submit_empty(first.as_ref()).sequence, 2);
+    // 別 device の印は、通し番号が同じでも `poll` では `Lost`。
+    assert_eq!(second.queue().poll(a), CompletionState::Lost);
+}
+
+/// CMD-87 のポインタ。印の世代は device の世代と一致し、投入直後の `poll` は `Pending` か `Complete`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn token_generation_matches_the_device_and_poll_is_not_lost() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    assert_eq!(token.generation, device.generation());
+    let state = device.queue().poll(token);
+    assert!(
+        matches!(state, CompletionState::Pending | CompletionState::Complete),
+        "{state:?}"
+    );
+}
+
+/// CMD-67 のポインタ。`submit_many` は印を 1 つ返し、完了まで待てる。空の列は `InvalidArgument`。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_many_returns_one_token_and_rejects_an_empty_list() {
+    let device = new_device();
+    let queue = device.queue();
+    let first = submit_empty(device.as_ref());
+    let commands = vec![
+        queue.create_encoder(),
+        queue.create_encoder(),
+        queue.create_encoder(),
+    ];
+    let token = queue
+        .submit_many(commands, &[first], &[])
+        .expect("submit_many");
+    assert_eq!(token.sequence, 2);
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    assert_eq!(queue.poll(token), CompletionState::Complete);
+    // 先の印も回収済みで `Complete`。
+    assert_eq!(queue.poll(first), CompletionState::Complete);
+
+    let r = queue.submit_many(Vec::new(), &[], &[]);
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+    // 失敗した呼び出しは通し番号を進めない。
+    assert_eq!(submit_empty(device.as_ref()).sequence, 3);
+}
+
+/// CMD-67 のポインタ。別 device の印を `after` に渡すと `DeviceMismatch` で、何も投入しない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_many_rejects_an_after_token_of_another_device() {
+    let first = new_device();
+    let second = new_device();
+    let foreign = submit_empty(first.as_ref());
+    let queue = second.queue();
+    let r = queue.submit_many(vec![queue.create_encoder()], &[foreign], &[]);
+    assert_eq!(r, Err(ContractError::DeviceMismatch));
+    assert_eq!(submit_empty(second.as_ref()).sequence, 1);
+}
+
+/// CMD-1 のポインタ。`on_complete` は 1 回だけ、その場で `poll` の値を渡す。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn on_complete_calls_back_once_with_the_polled_state() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    device.queue().wait_blocking(token, None).expect("wait");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device.queue().on_complete(
+        token,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+}
+
+/// CMD-67 のポインタ。キューの未完了の上限（既定 64）を超える件数を渡しても、戻って完了まで待てる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_many_with_one_hundred_encoders_returns_and_completes() {
+    let device = new_device();
+    let queue = device.queue();
+    let commands: Vec<_> = (0..100).map(|_| queue.create_encoder()).collect();
+    let token = queue.submit_many(commands, &[], &[]).expect("submit_many");
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    assert_eq!(queue.poll(token), CompletionState::Complete);
+}
+
+/// CMD-1 のポインタ。`submit` の直後の `on_complete` は完了を待たず、callback を 1 回だけ呼ぶ。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn on_complete_right_after_submit_calls_back_once_without_waiting() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    device.queue().on_complete(
+        token,
+        Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    let seen = seen.lock().expect("lock");
+    assert_eq!(seen.len(), 1);
+    assert!(
+        matches!(
+            seen[0],
+            CompletionState::Pending | CompletionState::Complete
+        ),
+        "{:?}",
+        seen[0]
+    );
 }

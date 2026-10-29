@@ -27,8 +27,10 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | `on_complete` | native では callback に `Send` を要求し、`target_arch = "wasm32"` では外す | 同上、wasm32 向けのビルド |
 | 既定の本体 | `poll_ex`（`poll` の 3 値を写す）・`submit_ex`・`submit_exportable`（`submit` に委ねる）・`gpu_timing`（`Unavailable`） | 同上（呼べることまで） |
 | feature | `wait_blocking` は `native-blocking-wait`、`submit_exportable` は `ext-interop` の裏。`ext-interop` は `core` にも置き、`contract` の同名 feature が転送する | `crates/core/Cargo.toml`、`crates/contract/Cargo.toml`、`make core-deps-check` |
-| 範囲の外 | `dispatch` 系・束縛の検査・`Device` からの取り出しは本書の範囲に含まれない。`Device` は変えていない | `crates/core/src/device.rs` |
+| 範囲の外 | `dispatch` 系・束縛の検査は本書の範囲に含まれない。`Device` は `queue(&self) -> &dyn CommandQueue` を持ち、投入の窓口を取り出せる | `crates/core/src/device.rs` |
 | 一括投入 | `submit_many(Vec<CommandEncoder>, &[SubmitToken], &[ImportedSemaphoreHandle])` を足した（TASK-592）。既定の本体を持たない必須のメソッドで、共通の crate は宣言だけを持つ | `crates/core/tests/submit_types.rs`（`dyn CommandQueue` 越しに呼べることまで） |
+| `Device::queue` | `Device` の必須のメソッドとして `queue(&self) -> &dyn CommandQueue` を足した（TASK-592）。既定の本体は無い | `crates/core/tests/device_trait_shape.rs`（`device_exposes_the_command_queue`） |
+| 記録先の識別子の源 | 背後実装向けの隠した口 `__backend_next_encoder_id() -> Option<u64>` を足した（1 から、背後実装・device をまたいで重ならず、0 を返さず、尽きたら `None`） | `crates/core/tests/submit_types.rs`（`backend_encoder_ids_are_unique_and_never_zero_across_threads`） |
 | 外部依存 | 足していない（`Cargo.lock`・`deps-approved.toml` は変更なし） | `make deps-check` |
 
 ## 対応するテスト
