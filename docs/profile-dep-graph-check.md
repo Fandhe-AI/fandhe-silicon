@@ -329,6 +329,8 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-5）の 4/6（#7
 
 確かめた base は `1249d2eab8a69df0c1b2b4182a27e27fc8736f67`、`docs/spec` の gitlink は `f603cba40283866ca89338a66a85a9bde085a0d9`。
 
+上の表の「今の製品の crate」は記録時点の製品の crate を指す（記録時点の値で、書き換えない）。今の値は「現状の件数」の節に書いてある。
+
 ## 試験（5/6）（TASK-229）
 
 TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）の 5/6（#7362）で、回帰テストを足した。完了の条件の確かめと件数の記録は後の段の PR が足す。検査の本体は変えていない。
@@ -391,6 +393,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 比較基準（`--all-features`）は `baseline:` が `crates_total=2`・`sdk_total=0`、`baseline-count:` の 3 行がすべて `n=0`。`diff:` は 4 行すべてが `sdk_baseline=0`・`sdk_profile=0`・`diff=0`。
 
 - 今の製品の crate には SDK の依存が無いので、比較基準も各プロファイルも 0 件で、差は出ない。SDK が載って差が出る場合の出力は、回帰テストの一時 workspace の `real_baseline`・`real_all_backends` が示す
+- 上の行の「今の製品の crate」は記録時点の製品の crate を指す（記録時点の値で、書き換えない）。今の値は「現状の件数」の節に書いてある
 - 名前の一覧は定数名（`SDK_LOADER_NAMES`・`SURFACE_NAMES`・`*_ALLOWED_SDK`・`BASELINE_SDK_NAMES`）で指し、値は本書に写さない
 
 再実行の契機は「完了の条件の確かめ（5/6）」の「再実行の契機」と同じ。
