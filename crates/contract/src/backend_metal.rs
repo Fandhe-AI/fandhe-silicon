@@ -418,17 +418,34 @@ mod imp {
         }
     }
 
+    /// `allocate` が Metal のバッファを作る前に通す検査。
+    ///
+    /// 共通の `validate_allocation_size` は上限だけを見て 0 を通す。長さ 0 を Metal に渡したときの
+    /// 振る舞いには頼らず、呼び出し側の引数の誤りとして、この背後実装では 0 を先に
+    /// `InvalidArgument` で拒む。
+    fn validate_allocation_request(
+        byte_len: u64,
+        max_buffer_bytes: u64,
+    ) -> Result<(), ContractError> {
+        if byte_len == 0 {
+            return Err(ContractError::InvalidArgument(
+                "allocation size must be greater than zero".into(),
+            ));
+        }
+        validate_allocation_size(byte_len, max_buffer_bytes)
+    }
+
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
-        /// 上限（`limits().max_buffer_bytes`）を超えると `InvalidArgument`。返すハンドルの `size`・`usage` は、
-        /// 受けた `byte_len`・`usage`。
+        /// 長さ 0 と上限（`limits().max_buffer_bytes`）超えは `InvalidArgument`。
+        /// 返すハンドルの `size`・`usage` は、受けた `byte_len`・`usage`。
         fn allocate(
             &self,
             byte_len: u64,
             usage: BufferUsage,
         ) -> Result<BufferHandle, ContractError> {
-            validate_allocation_size(byte_len, self.limits.max_buffer_bytes)?;
+            validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
                 requested_bytes: byte_len,
             };
@@ -525,6 +542,38 @@ mod imp {
             let removed = self.lock_buffers().map.remove(&buffer.__backend_id());
             // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
             drop(removed);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// `allocate` の前段の検査の境界。device には触らない。
+        const LIMIT: u64 = 1024;
+
+        #[test]
+        fn zero_length_is_invalid_argument() {
+            let r = validate_allocation_request(0, LIMIT);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        }
+
+        #[test]
+        fn zero_length_is_rejected_even_when_the_limit_is_zero() {
+            let r = validate_allocation_request(0, 0);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        }
+
+        #[test]
+        fn one_byte_and_the_limit_itself_pass() {
+            assert!(validate_allocation_request(1, LIMIT).is_ok());
+            assert!(validate_allocation_request(LIMIT, LIMIT).is_ok());
+        }
+
+        #[test]
+        fn one_past_the_limit_is_invalid_argument() {
+            let r = validate_allocation_request(LIMIT + 1, LIMIT);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
         }
     }
 }

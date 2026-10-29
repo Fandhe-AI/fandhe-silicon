@@ -291,6 +291,14 @@ fn allocate_past_the_buffer_limit_is_invalid_argument() {
 
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn allocate_of_zero_bytes_is_invalid_argument() {
+    let device = new_device();
+    let r = device.memory().allocate(0, usage());
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn limits_report_the_dispatch_and_texture_bounds() {
     let device = new_device();
     let limits = device.limits();
