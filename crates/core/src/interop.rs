@@ -15,6 +15,9 @@ use crate::error::ContractError;
 use crate::execution::{ImportedSemaphoreHandle, SubmitToken};
 use crate::memory::{BufferHandle, BufferUsage};
 
+mod same_gpu;
+pub use same_gpu::{check_same_physical_gpu, import_memory_checked};
+
 /// 物理 GPU の識別子。同じ物理 GPU かどうかを背後実装をまたいで照らすために `Device::physical_gpu_id` が返す。
 ///
 /// `driver_uuid` は、背後実装が値を持たないとき `None`。

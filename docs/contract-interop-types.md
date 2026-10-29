@@ -46,6 +46,23 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | `crates/core/tests/interop_extension_defaults.rs`（ERR-17） | 拡張 4 操作の返し。上書きしない型は操作ごとに `UnsupportedExtensionDefault { op: <操作の名前> }`、上書きした試験用の型は `Unsupported { op, backend }`、一部だけ上書きした型は上書きした操作だけが変わること。実際の背後実装の返しは含まない |
 | `crates/core/tests/interop_extension_defaults.rs`（INTEROP-43） | 必須の 4 操作だけの型が `Box<dyn ExternalInterop>` 越しで、拡張 4 操作に既定の値を返すこと |
 
+## 同一 GPU の判定（TASK-145）
+
+feature `ext-interop` の裏。場所は `crates/core/src/interop/same_gpu.rs`（`interop` から再公開）。どちらも SDK を呼ばない純粋な関数。
+
+| 名前 | 振る舞い |
+| ---- | -------- |
+| `check_same_physical_gpu(left, right)` | `Option<&PhysicalGpuId>` を 2 つ受ける。どちらかが `None` は `DeviceIdentityMismatch { reason: Undeterminable }`。`device_uuid` が違う、または両方の `driver_uuid` が `Some` で違うと `Mismatch`。`driver_uuid` が片方でも `None` なら比べず `device_uuid` の一致で `Ok(())` |
+| `import_memory_checked(interop, target_gpu, handle, byte_len, usage)` | ハンドルが運ぶ export 元の識別子と `target_gpu` を `check_same_physical_gpu` で照らし、`Ok` のときだけ `interop.import_memory` を呼ぶ。拒否のときは呼ばず、ハンドルは消費される |
+
+`import_memory_checked` を使わずに `ExternalInterop::import_memory` を直接呼ぶ呼び出しは、判定されない。`source_gpu` は export 元が付けた値で、真正性は確かめない。`driver_uuid` が片方でも `None` の組は driver の違いを検出しない。`device_uuid` は全ゼロでも一致として扱う。
+
+対応するテスト: `crates/core/tests/interop_same_gpu.rs`（UUID を 1 バイト変えた組、`None` の組、計数つきのスタブで一致 1 回・拒否 0 回、`driver_uuid` の規則、unix での拒否後の fd の閉鎖）。
+
+```bash
+cargo test -p fandhe-silicon-core --features ext-interop --test interop_same_gpu
+```
+
 ## 確かめ方
 
 ```bash
