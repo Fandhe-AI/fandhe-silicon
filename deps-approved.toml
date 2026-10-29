@@ -20,4 +20,36 @@
 #   approval_ref = "#0"
 #   purpose = "例示用のダミー"
 #
-# 現在、承認済みの外部依存は 0 件（別 workspace の baseline-wgpu/ の記録は baseline-wgpu/deps-approved.toml に分けて持つ）。
+# 別 workspace の baseline-wgpu/ の記録は baseline-wgpu/deps-approved.toml に分けて持つ。
+
+[[approval]]
+name = "objc2"
+version = "=0.6.5"
+used_by = ["fandhe-silicon-contract"]
+approved_on = "2026-10-20"
+approval_ref = "#421"
+purpose = "Metal の背後実装の Objective-C の呼び出し（macOS 向けだけ）"
+
+[[approval]]
+name = "objc2-foundation"
+version = "=0.3.2"
+used_by = ["fandhe-silicon-contract"]
+approved_on = "2026-10-20"
+approval_ref = "#421"
+purpose = "Metal の背後実装で使う Foundation の型（macOS 向けだけ）"
+
+[[approval]]
+name = "objc2-metal"
+version = "=0.3.2"
+used_by = ["fandhe-silicon-contract"]
+approved_on = "2026-10-20"
+approval_ref = "#421"
+purpose = "Metal の背後実装の device の取得・確保の FFI（macOS 向けだけ）"
+
+[[approval]]
+name = "objc2-core-graphics"
+version = "=0.3.2"
+used_by = ["fandhe-silicon-contract"]
+approved_on = "2026-10-27"
+approval_ref = "#421"
+purpose = "コマンドラインのプログラムで既定の Metal の device を得るための Core Graphics のリンク（macOS 向けだけ）"

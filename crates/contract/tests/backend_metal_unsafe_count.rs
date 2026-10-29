@@ -11,7 +11,10 @@ use common::{ExpectedFile, UnsafeCounts, check_backend};
 const EXPECTED: &[ExpectedFile] = &[ExpectedFile {
     path: "src/backend_metal.rs",
     source: include_str!("../src/backend_metal.rs"),
-    expected: UnsafeCounts::ZERO,
+    expected: UnsafeCounts {
+        block: 2,
+        ..UnsafeCounts::ZERO
+    },
 }];
 
 #[test]

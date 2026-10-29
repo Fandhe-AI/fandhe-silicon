@@ -44,7 +44,7 @@ missing_safety_doc = "deny"
 # - `"*"` はメンバー以外にだけ効くため、本リポのクレートは full debuginfo のまま
 # - 依存のビルドスクリプト・proc-macro にも適用される（`build-override` より優先）
 # - `test` と `inherits = "dev"` のプロファイルにも継承される。`release`・`bench` は不変
-# - 2026-10-11 時点で外部依存は 0 のため実効は無く、依存を追加した時点から効く
+# - 外部依存（`crates/contract` の macOS 向けの Metal の依存など）の debuginfo に効く
 # - profile は workspace ルートにだけ書ける（メンバーの `[profile]` は無視される）。
 #   変更時は CI キャッシュへの影響を確認する（.claude/rules/github-actions.md「キーの設計」）
 [profile.dev.package."*"]
