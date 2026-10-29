@@ -12,7 +12,7 @@ pub use dispatch_check::{
     OperandBinding, OperandConstant, required_bytes, validate_dispatch_operands,
 };
 #[doc(hidden)]
-pub use submit::{__BackendEncoderCloser, __BackendSharedEncoderCloser};
+pub use submit::{__BackendEncoderCloser, __BackendSharedEncoderCloser, __backend_next_encoder_id};
 pub use submit::{CommandEncoder, CommandQueue, GpuTiming, SubmitToken};
 
 /// 相互運用で取り込んだセマフォを `submit` に結び付ける不透明なハンドル。

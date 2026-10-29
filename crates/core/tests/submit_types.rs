@@ -286,3 +286,27 @@ fn gpu_timing_has_no_eq() {
     const { assert!(!<Probe<GpuTiming>>::HAS_EQ) };
     const { assert!(<Probe<SubmitToken>>::HAS_EQ) };
 }
+
+#[test]
+fn backend_encoder_ids_are_unique_and_never_zero_across_threads() {
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            std::thread::spawn(|| {
+                (0..100)
+                    .map(|_| {
+                        fandhe_silicon_core::execution::__backend_next_encoder_id().expect("id")
+                    })
+                    .collect::<Vec<u64>>()
+            })
+        })
+        .collect();
+    let mut all = Vec::new();
+    for handle in handles {
+        all.extend(handle.join().expect("thread"));
+    }
+    assert!(all.iter().all(|id| *id >= 1));
+    let total = all.len();
+    all.sort_unstable();
+    all.dedup();
+    assert_eq!(all.len(), total);
+}

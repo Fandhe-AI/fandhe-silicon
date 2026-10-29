@@ -8,6 +8,30 @@
 use super::ImportedSemaphoreHandle;
 use crate::error::{CompletionState, CompletionStateEx, ContractError, RetryPolicy};
 
+/// 記録先の識別子の源。背後実装をまたいで、プロセス全体で通し番号にする。0 は払い出さない。
+static NEXT_ENCODER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// 背後実装向けの口。記録先の識別子を 1 つ払い出す。
+///
+/// プロセスの中で背後実装・device をまたいで重ならず、1 から増え、0 は返さない。尽きたら `None`（源は動かさない）。
+#[doc(hidden)]
+pub fn __backend_next_encoder_id() -> Option<u64> {
+    use std::sync::atomic::Ordering;
+    let mut current = NEXT_ENCODER_ID.load(Ordering::Relaxed);
+    loop {
+        let next = current.checked_add(1)?;
+        match NEXT_ENCODER_ID.compare_exchange_weak(
+            current,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Some(current),
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 /// 投入の結果を指す印。`CommandQueue::submit` が返し、`poll`・`on_complete`・`gpu_timing` などに渡す。
 ///
 /// `#[non_exhaustive]` なので、crate の外からは構造体式で作れない。
