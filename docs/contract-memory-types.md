@@ -56,6 +56,8 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | `BufferHandle` | 同上 | 非公開の 3 フィールド（世代・識別子・device の識別子）。`Debug` のみ（`Clone`・`Copy` なし） | `__backend_new`・`__backend_generation`・`__backend_id`・`__backend_device_id` |
 | `MemoryOps`（トレイト） | `crates/core/src/memory/ops.rs` | `allocate`・`upload`・`download_blocking`・`download_async`・`free`・既定の実装つきの `pending_release_count`。オブジェクト安全 | なし |
 
+- `BufferUsage` は値が増えた。今の形は [buffer-usage-check](buffer-usage-check.md) を見る
+
 - core に feature `native-blocking-wait` を足し、`contract` の同名の feature から転送する。`download_blocking` はこの feature の裏にある
 - `download_async` は wasm32 とそれ以外で、コールバックの `Send` の境界だけが違う
 - 外部の crate は足していない
