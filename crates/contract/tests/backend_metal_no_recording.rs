@@ -68,7 +68,9 @@ fn code_lines() -> impl Iterator<Item = (usize, &'static str)> {
 
 const FIX_HINT: &str = "If you are adding recording operations (copy, clear, dispatch) to the Metal backend, \
 rewrite the synchronization rationale of the two `// SAFETY:` comments around `contents()` in \
-src/backend_metal.rs (and the module-level comment) first, then update the tables in this test.";
+src/backend_metal.rs (and the module-level comment) first, then update the tables in this test. \
+Also revisit how `free` hands buffers to the reuse pool (defer the release until no in-flight submission \
+references the buffer).";
 
 #[test]
 fn backend_metal_code_has_no_recording_words() {
