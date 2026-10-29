@@ -20,8 +20,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 既にある型 | device の要求・能力問合せの型は `crates/core` にある。定義と確かめは [contract-device-types](contract-device-types.md) を参照し、ここでは繰り返さない | `crates/core/src/device.rs`、`crates/core/src/capability.rs` |
-| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 4 件だけ（`Capabilities`、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕） | `git grep -nE 'pub trait' -- crates wasm` |
-| device まわりの口 | device のトレイト、device を返す入口、投入の列のトレイト、compute の口、試験用のスタブの device に当たる物は `crates/`・`wasm/` に無い（`pub trait` は上の 4 件だけ）。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求と生ハンドルの型、`Stub` を含む型は故障の差し込み用の `FaultStub` だけ。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
+| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 5 件だけ（`Capabilities`、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕） | `git grep -nE 'pub trait' -- crates wasm` |
+| device まわりの口 | device のトレイト、device を返す入口、投入の列のトレイト、compute の口、試験用のスタブの device に当たる物は `crates/`・`wasm/` に無い（`pub trait` は上の 5 件だけ）。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求と生ハンドルの型、`Stub` を含む型は故障の差し込み用の `FaultStub` だけ。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
 | 故障の差し込み口 | `FaultHooks` はある。それを返す公開のアクセサを持つ device のトレイトは無い（`crates/core/tests/fault_parts_composition.rs` の同名メソッドは試験内の局所トレイト） | `crates/core/src/fault.rs`、`crates/core/tests/fault_parts_composition.rs` |
 | feature の裏のアイテム | `graphics`・`artifact-inspection` は `Cargo.toml` に宣言済みだが、これらで切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
@@ -111,7 +111,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 
 確かめ方:
 
-- `git grep -nE 'pub trait' -- crates wasm`（4 件だけであること）
+- `git grep -nE 'pub trait' -- crates wasm`（5 件だけであること）
 - `git grep -nE 'pub (trait|struct) [A-Za-z]*(Device|Queue|Stub)' -- crates wasm`
 - `gh issue view 696 --json state`・`gh issue view 784 --json state`・`gh issue view 1100 --json state`
 
