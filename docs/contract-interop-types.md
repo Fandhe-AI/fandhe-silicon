@@ -59,6 +59,8 @@ feature `ext-interop` の裏。場所は `crates/core/src/interop/same_gpu.rs`�
 
 対応するテスト: `crates/core/tests/interop_same_gpu.rs`（UUID を 1 バイト変えた組、`None` の組、計数つきのスタブで一致 1 回・拒否 0 回、`driver_uuid` の規則、unix での拒否後の fd の閉鎖）。
 
+同じファイルの追加の試験（TASK-719）: `device_uuid` の 16 バイトすべてが違う組が引数の順によらず `Mismatch` になること（INTEROP-7）、第 1 引数だけ・第 2 引数だけ・両方が `None` の 3 通りがそれぞれ `Undeterminable` になること（INTEROP-10）。`driver_uuid` の組（INTEROP-8・INTEROP-9・INTEROP-65）は上の行の試験が受け持つ。
+
 ```bash
 cargo test -p fandhe-silicon-core --features ext-interop --test interop_same_gpu
 ```
