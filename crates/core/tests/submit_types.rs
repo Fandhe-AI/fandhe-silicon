@@ -86,7 +86,8 @@ fn usable_as_dyn_command_queue() {
 }
 
 #[test]
-fn submit_many_is_required_and_callable_via_dyn() {
+fn submit_many_is_callable_via_dyn() {
+    // 共通の crate は宣言だけを持つ。下の Err・Ok はこの試験のダミーの実装の値で、背後実装の振る舞いではない。
     let queue: Box<dyn CommandQueue> = Box::new(DummyQueue);
     let r = queue.submit_many(Vec::new(), &[], &[]);
     assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");

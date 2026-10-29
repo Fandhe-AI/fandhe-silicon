@@ -180,6 +180,7 @@ impl Drop for CommandEncoder {
 /// `create_encoder` は `Result` を返さず、その時点では何も投入しない（CMD-1）。
 /// 既定の本体を持つメソッドは、背後実装が上書きしなければ次のように振る舞う:
 /// `poll_ex` は `poll` の 3 値を写し、`submit_ex`・`submit_exportable` は `submit` に委ね、`gpu_timing` は `Unavailable`。
+/// `submit_many` は既定の本体を持たず、背後実装が必ず実装する。
 pub trait CommandQueue {
     /// 記録先を作る。何も投入しない。
     fn create_encoder(&self) -> CommandEncoder;
@@ -191,19 +192,8 @@ pub trait CommandQueue {
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError>;
 
-    /// 複数の記録先をまとめて 1 回で投入し、1 つの `SubmitToken` を返す（CMD-67）。
-    ///
-    /// 既定の本体は置かない。`submit` の繰り返しでは「全部を投入するか、何も投入しないか」を守れないため、
-    /// 実装する背後実装が次の契約を満たす。
-    ///
-    /// - 全部を投入するか、何も投入しない。途中まで投入された状態を残さない。
-    /// - `commands` が空なら `ContractError::InvalidArgument`。
-    /// - この queue が作った記録先でないものを含めば `ContractError::InvalidArgument`。
-    /// - `after` の各トークンの完了の後に実行する。別の device のトークンは `ContractError::DeviceMismatch`、
-    ///   ロストの前の世代のトークンは `ContractError::DeviceLost`。
-    /// - 失敗したとき、渡した記録先は `Drop` で閉じる（値で受けるので呼び出し側には戻らない）。
-    ///
-    /// `wait` は `submit` と同じく、先に待つ取り込み済みセマフォ。
+    /// 複数の記録先を値で消費して 1 回で投入し、結果を指す印を 1 つ返す（CMD-67）。
+    /// `after` は先に完了を待つ投入の印、`wait` は `submit` と同じく先に待つ取り込み済みセマフォ。
     fn submit_many(
         &self,
         commands: Vec<CommandEncoder>,
