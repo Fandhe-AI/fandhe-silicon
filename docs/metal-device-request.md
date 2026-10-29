@@ -37,7 +37,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `Capabilities`: `query` は常に `Unsupported`、`query_ex` は理由 `UnknownFeature` を添える（この段の問合せは、どの機能も未知として扱う）。`limits()` の `max_buffer_bytes` は `MTLDevice` の `maxBufferLength`、`max_dispatch_dims` は `[u32::MAX; 3]`、`max_texture_size` は 16384
 - `MemoryOps`: shared の storage で確保する。確保の上限（`limits().max_buffer_bytes`）を超えると `InvalidArgument`。バッファの識別子は device ごとに払い出す（別々の device の最初のバッファは同じ識別子を持つ）。返すハンドルの `size`・`usage` は確保で渡した値
 - `allocate` は長さ 0 を `InvalidArgument` で拒む（`imp` の非公開の関数 `validate_allocation_request` が 0 の判定のあとに共通の `validate_allocation_size` を呼ぶ。共通の関数は 0 を見ないままで、この拒否は Metal の背後実装の中だけ）
-- ハンドルの照合: 払い出し元の device が違えば `DeviceMismatch`、表に無い識別子は `InvalidArgument`。範囲の検査は `validate_buffer_range`（確保長は Metal のバッファの `length()`）。`free` は別の device のハンドルを何も解放せず、自 device の同じ識別子のバッファを残す。解放したハンドルでの `upload`・`download_*` は `InvalidArgument`。範囲外の `upload` は `InvalidArgument` で、バッファの内容を変えない
+- ハンドルの照合: 払い出し元の device が違えば `DeviceMismatch`、表に無い識別子は `InvalidArgument`。範囲の検査は非公開の関数 `host_range` が共通の `validate_buffer_range` を呼んで行い（確保長は Metal のバッファの `length()`）、検査を通った値を `usize` に直す。`upload` の宛先と `download_*` の元が同じ関数を通る。`free` は別の device のハンドルを何も解放せず、自 device の同じ識別子のバッファを残す。解放したハンドルでの `upload`・`download_*` は `InvalidArgument`。範囲外の `upload`・`download_*`（終端が確保長を超える、`offset` が `u64::MAX`、終端が `u64` であふれる）は `InvalidArgument` で、`upload` はバッファの内容を変えない。終端が確保長ちょうど、`len` が 0 で `offset` が確保長ちょうどの範囲は通る
 - `download_async` は読み出してからその場で `callback` を 1 回だけ呼ぶ（失敗も渡す）。`download_blocking` は feature `native-blocking-wait` の裏
 - 投入（`Device::queue()` が返す `CommandQueue`。ポインタ: TASK-592）:
     - `create_encoder` は記録先の識別子（プロセス全体の通し番号。device をまたいで重ならない）を払い出し、この device の「開いている集合」に入れるだけで、コマンドバッファを作らず何も投入しない。投入せずに破棄すると集合から外れる

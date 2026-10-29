@@ -30,6 +30,24 @@ use fandhe_silicon_core::error::{CompletionState, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, ImportedSemaphoreHandle, SubmitToken,
 };
+use fandhe_silicon_core::memory::validate_buffer_range;
+
+/// 部分範囲 `[offset, offset + len)` を確保長 `allocation_len` に照らし、ホストの `usize` の組にして返す。
+///
+/// `upload` の宛先と `download_*` の元が共有する。終端の `u64` のあふれと確保長の超過は共通の
+/// `validate_buffer_range` が `InvalidArgument` で拒む。検査を通った後でも `usize` に収まらない値は、
+/// 切り詰めずに `InvalidArgument` で返す。device に触らず、バッファの内容も変えない。
+/// `usize` が 64 bit 以上の環境では `u64` の値は必ず収まるので、この分岐は試験では通らない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn host_range(offset: u64, len: u64, allocation_len: u64) -> Result<(usize, usize), ContractError> {
+    validate_buffer_range(offset, len, allocation_len)?;
+    match (usize::try_from(offset), usize::try_from(len)) {
+        (Ok(offset), Ok(len)) => Ok((offset, len)),
+        _ => Err(ContractError::InvalidArgument(
+            "buffer range does not fit usize".into(),
+        )),
+    }
+}
 
 /// 源から次の値を取る。あふれたら `None` を返し、源は動かさない。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -300,6 +318,7 @@ mod imp {
     use std::sync::atomic::AtomicU64;
     use std::sync::{Arc, Mutex, MutexGuard};
 
+    use super::host_range;
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
@@ -319,7 +338,7 @@ mod imp {
         ImportedSemaphoreHandle, SubmitToken,
     };
     use fandhe_silicon_core::memory::{
-        BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
+        BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
     };
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
@@ -727,15 +746,8 @@ mod imp {
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
                 })?;
-                validate_buffer_range(src_offset, byte_len, allocation_len)?;
-                // 検査を通ったので、offset と len は確保長以下で usize に収まる。
-                let (Ok(offset), Ok(len)) =
-                    (usize::try_from(src_offset), usize::try_from(byte_len))
-                else {
-                    return Err(ContractError::InvalidArgument(
-                        "buffer range does not fit usize".into(),
-                    ));
-                };
+                // `host_range` が検査と `usize` への変換を行い、収まらなければ `InvalidArgument` を返す。
+                let (offset, len) = host_range(src_offset, byte_len, allocation_len)?;
                 // 確保できなければ abort せず `AllocationFailed` で返す。
                 let mut out: Vec<u8> = Vec::new();
                 out.try_reserve_exact(len)
@@ -746,7 +758,7 @@ mod imp {
                 if len > 0 {
                     let base = buffer.contents().as_ptr().cast::<u8>().cast_const();
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から読める
-                    // `buffer.length()` バイトの領域を指す。`validate_buffer_range` が
+                    // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
                     // `offset + len <= length()` を保証している。GPU の書き込みと重ならないことは、
                     // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
                     // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
@@ -987,16 +999,11 @@ mod imp {
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
                 })?;
-                validate_buffer_range(dst_offset, len, allocation_len)?;
-                let Ok(offset) = usize::try_from(dst_offset) else {
-                    return Err(ContractError::InvalidArgument(
-                        "buffer offset does not fit usize".into(),
-                    ));
-                };
+                let (offset, _) = host_range(dst_offset, len, allocation_len)?;
                 if !bytes.is_empty() {
                     let base = buffer.contents().as_ptr().cast::<u8>();
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
-                    // `buffer.length()` バイトの領域を指す。`validate_buffer_range` が
+                    // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
                     // `offset + bytes.len() <= length()` を保証している。GPU の読み書きと重ならないことは、
                     // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
                     // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
