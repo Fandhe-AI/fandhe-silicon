@@ -5,6 +5,8 @@
 //! 既定の本体が内側の `submit` をちょうど 1 回だけ呼び、`Ok`・`Err` をそのまま返す（再試行しない）ことを固定する。
 //! 再試行の decorator に固有の確認は範囲の外。機材には触れない。
 
+use std::sync::Mutex;
+
 use fandhe_silicon_core::error::{CompletionState, ContractError, RetryPolicy};
 use fandhe_silicon_core::execution::{
     CommandEncoder, CommandQueue, ImportedSemaphoreHandle, SubmitToken,
@@ -17,13 +19,20 @@ struct Outcome(Result<SubmitToken, ContractError>);
 /// `submit` を回数付きで内側へ渡す queue。`submit_ex`・`submit_exportable` は上書きしない。
 struct CountingQueue {
     gate: FaultInjecting<Outcome>,
+    /// 内側の `submit` が受け取った `wait` の各ハンドルの識別子（直近の 1 回分）。
+    seen_wait: Mutex<Vec<u64>>,
 }
 
 impl CountingQueue {
     fn new(result: Result<SubmitToken, ContractError>) -> Self {
         Self {
             gate: FaultInjecting::new(Outcome(result), FaultScript::PassThrough),
+            seen_wait: Mutex::new(Vec::new()),
         }
+    }
+
+    fn seen_wait_ids(&self) -> Vec<u64> {
+        self.seen_wait.lock().unwrap().clone()
     }
 
     fn inner_submit_calls(&self) -> u64 {
@@ -39,8 +48,9 @@ impl CommandQueue for CountingQueue {
     fn submit(
         &self,
         _commands: CommandEncoder,
-        _wait: &[ImportedSemaphoreHandle],
+        wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
+        *self.seen_wait.lock().unwrap() = wait.iter().map(|h| h.__backend_id()).collect();
         self.gate.submit_with(|inner| inner.0.clone())
     }
 
@@ -98,9 +108,14 @@ fn submit_ex_default_calls_submit_once_and_returns_err_without_retry() {
 #[test]
 fn submit_ex_default_passes_wait_semaphores_through() {
     let queue = CountingQueue::new(Ok(ok_token()));
-    let wait = [ImportedSemaphoreHandle::__backend_new(5)];
+    let wait = [
+        ImportedSemaphoreHandle::__backend_new(5),
+        ImportedSemaphoreHandle::__backend_new(8),
+    ];
     let got = queue.submit_ex(queue.create_encoder(), &wait, RetryPolicy::IdempotentSafe);
     assert_eq!(got, Ok(ok_token()));
+    // 渡した wait が本数も順序もそのまま内側の `submit` に届く。
+    assert_eq!(queue.seen_wait_ids(), vec![5, 8]);
     assert_eq!(queue.inner_submit_calls(), 1);
 }
 
@@ -133,4 +148,18 @@ fn submit_exportable_default_calls_submit_once_and_returns_err() {
         assert_eq!(got, Err(ContractError::Timeout), "exportable={exportable}");
         assert_eq!(queue.inner_submit_calls(), 1, "exportable={exportable}");
     }
+}
+
+#[cfg(feature = "ext-interop")]
+#[test]
+fn submit_exportable_default_passes_wait_semaphores_through() {
+    let queue = CountingQueue::new(Ok(ok_token()));
+    let wait = [
+        ImportedSemaphoreHandle::__backend_new(3),
+        ImportedSemaphoreHandle::__backend_new(6),
+    ];
+    let got = queue.submit_exportable(queue.create_encoder(), &wait, true);
+    assert_eq!(got, Ok(ok_token()));
+    assert_eq!(queue.seen_wait_ids(), vec![3, 6]);
+    assert_eq!(queue.inner_submit_calls(), 1);
 }
