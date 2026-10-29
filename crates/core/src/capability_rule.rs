@@ -5,6 +5,7 @@
 //! 「列挙・取得が成功してから機能の値を読む」2 段の手順（`query_after_acquire`）で確かめられるようにする。
 //! (3)・(4) は `query_ex` の戻り値 1 件の検査（`check_query`・`check_query_ex`）で、
 //! 背後実装の試験（TASK-173〜TASK-175 のポインタ）から呼ぶ。
+//! `check_webgpu_ports` は WebGPU の 2 つの口の鍵（DEV-35・DEV-36 のポインタ）の値の検査で、同じく背後実装の試験から呼べる。
 //! 製品の経路からは使わない。ここに出てくる名前は仮で、列挙・device の本物の口が入る段
 //! （TASK-157 のポインタ）で形を合わせる。
 //!
@@ -13,7 +14,10 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable};
+use crate::capability::{
+    Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable, WEBGPU_DEVICE_PORT,
+    WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
+};
 use crate::error::ContractError;
 
 /// 2 段の手順で起きた呼び出し 1 件。
@@ -196,6 +200,15 @@ pub enum CapabilityRuleViolation {
         /// 違反した戻り値。
         query: CapabilityQuery,
     },
+    /// WebGPU の口の行の値が決めた値（`WEBGPU_PORT_UNSUPPORTED`）と違う。
+    WebgpuPortMismatch {
+        /// 検査した機能。
+        feature: FeatureId,
+        /// `query` が返した段階。
+        level: CapabilityLevel,
+        /// `query_ex` が返した値。
+        query: CapabilityQuery,
+    },
 }
 
 /// 根拠を必ず載せるべき段階か。`S3`〜`S6` が `true`、それ以外は `false`。
@@ -249,4 +262,31 @@ pub fn check_query_ex<D: Capabilities + ?Sized>(
 ) -> Result<CapabilityQuery, Vec<CapabilityRuleViolation>> {
     let query = device.query_ex(feature);
     check_query(feature, query).map(|()| query)
+}
+
+/// WebGPU の 2 つの口の鍵（`WEBGPU_DEVICE_PORT`・`WEBGPU_HANDLE_PORT`）が、`query` でも `query_ex` でも
+/// `WEBGPU_PORT_UNSUPPORTED` の値を返すことを確かめる。背後実装に依らない共通の検査。
+///
+/// 背後実装の試験から 1 行で呼べる。表に行が無く `S0` や `UnknownFeature` を返す実装は違反になる。
+/// 違反は全部集めて返す。
+pub fn check_webgpu_ports<D: Capabilities + ?Sized>(
+    device: &D,
+) -> Result<(), Vec<CapabilityRuleViolation>> {
+    let mut violations = Vec::new();
+    for feature in [WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT] {
+        let level = device.query(feature);
+        let query = device.query_ex(feature);
+        if level != WEBGPU_PORT_UNSUPPORTED.level || query != WEBGPU_PORT_UNSUPPORTED {
+            violations.push(CapabilityRuleViolation::WebgpuPortMismatch {
+                feature,
+                level,
+                query,
+            });
+        }
+    }
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
 }

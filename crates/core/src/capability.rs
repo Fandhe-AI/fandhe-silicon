@@ -7,6 +7,25 @@
 
 use crate::error::UnsupportedReason;
 
+/// WebGPU の device を取り出す口に当たる行の鍵（DEV-35。ポインタ）。
+///
+/// この鍵に `WEBGPU_PORT_UNSUPPORTED` を求める規則を、`check_webgpu_ports` が確かめる。
+pub const WEBGPU_DEVICE_PORT: FeatureId = FeatureId("webgpu-device-port");
+
+/// WebGPU のハンドルからテクスチャを作る口に当たる行の鍵（DEV-36。ポインタ）。
+///
+/// 扱いは `WEBGPU_DEVICE_PORT` と同じ。
+pub const WEBGPU_HANDLE_PORT: FeatureId = FeatureId("webgpu-handle-port");
+
+/// WebGPU の 2 つの口の鍵に返す値。段階は `Unsupported`、理由は `NoApi`、根拠は無し。
+///
+/// 2 つの鍵の `query_ex` にこの値を、`query` に同じ段階を求める規則を、`check_webgpu_ports` が確かめる。
+pub const WEBGPU_PORT_UNSUPPORTED: CapabilityQuery = CapabilityQuery {
+    level: CapabilityLevel::Unsupported,
+    unsupported_reason: Some(UnsupportedReason::NoApi),
+    evidence: None,
+};
+
 /// 背後実装の種類。`ContractError` のフィールドで、どの背後実装の失敗かを示す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
