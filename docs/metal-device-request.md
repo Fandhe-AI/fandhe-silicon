@@ -44,7 +44,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
     - `submit` は、空でない `wait` を何も投入せず `Unsupported` で拒み（`submit_ex` も同じ経路）、記録先がこの device の開いている集合に無ければ（別 device の記録先を含む）`InvalidArgument` で何も投入しない。通れば、空のコマンドバッファを 1 つ作って確定し、device ごとに 1 から数える通し番号の印を返す
     - `submit_many` は、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、`after` の各印の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、全記録先の所属（`InvalidArgument`）の順に検査し、通れば空のコマンドバッファを 1 つだけ作って確定し（記録の操作が無いので 1 つで足りる。件数が多くてもキューの未完了の上限で詰まらない）、印を 1 つ返す。`after` は照合だけで、追加の待ちは入れない（単一の列で完了は投入順）
     - `poll` は、列の全部が完了なら `Complete`、どれかが `Error` なら `Lost`、他は `Pending`。別 device・世代違いの印は `Lost`。回収済みの番号は watermark と失敗の集合で答える（失敗の集合は watermark 以下の失敗した番号だけを持つので、増えるのは失敗の件数だけ）。失敗した投入を `Complete` とは返さない
-    - `wait_blocking` は、失敗した投入を `DeviceLost` ではなく `BackendFailure` で返す。`None` なら表の錠を放してからコマンドバッファの完了を待ち、`Some` なら 1 ms 間隔で `poll` を確かめて期限で `Timeout`。`on_complete` はその場で `poll` の値を 1 回渡し、完了を待たない
+    - `wait_blocking` は、失敗した投入を `DeviceLost` ではなく `BackendFailure` で返す。`None` なら表の錠を放してからコマンドバッファの完了を待ち、`Some` なら 1 ms 間隔で `poll` を確かめて期限で `Timeout`。`on_complete` は、回収した `poll` の値が終端ならその場で、未完了なら表の錠を放して呼び出し元のスレッドで完了を待ってから、終端の状態で callback を 1 回だけ呼ぶ（別 device の印・表に無い番号は待たずに `Lost`）
     - 投入済みの表は device の錠の中にあり、`MetalDevice` は `Send`・`Sync` ではない（`unsafe impl` は足していない）。ロストを返す経路は持たない
 - 投入するコマンドバッファは記録の操作（エンコーダの生成・コピー・クリア・dispatch）を持たない。読み書きの `unsafe` の同期の根拠がこの前提に頼るため、記録の操作を足す変更では根拠を書き直す
 

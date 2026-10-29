@@ -202,9 +202,19 @@ impl __BackendSharedEncoderCloser for OpenEncoders {
     }
 }
 
+/// `on_complete` が callback に渡す終端の状態。待ったあとでも `Pending` なら（起きないはずだが）失敗側の `Lost` にする。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn terminal_state(state: CompletionState) -> CompletionState {
+    match state {
+        CompletionState::Pending => CompletionState::Lost,
+        done => done,
+    }
+}
+
 /// `wait_blocking` が待ったあとの `poll` の値を結果に写す。
 ///
 /// 失敗した投入は `DeviceLost` ではなく `BackendFailure`（この背後実装は device のロストを返さない）。
+#[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn wait_result(state: CompletionState) -> Result<(), ContractError> {
     match state {
@@ -290,9 +300,11 @@ mod imp {
     use std::sync::atomic::AtomicU64;
     use std::sync::{Arc, Mutex, MutexGuard};
 
+    #[cfg(feature = "native-blocking-wait")]
+    use super::wait_result;
     use super::{
         BufState, GroupState, OpenEncoders, Submissions, check_token_owner, group_state_of,
-        precheck_submit, precheck_submit_many, take_next, wait_result,
+        precheck_submit, precheck_submit_many, take_next, terminal_state,
     };
 
     use fandhe_silicon_core::capability::{
@@ -649,6 +661,23 @@ mod imp {
             }
         }
 
+        /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`on_complete` と `wait_blocking(None)` が共有する。
+        ///
+        /// 列を clone して表の錠を放してから待つ。待つ間も同じ錠を取る `poll`・`submit` を妨げない（錠を握ったまま待たない）。
+        fn wait_for_completion(&self, token: SubmitToken) -> CompletionState {
+            let group = {
+                let mut subs = self.lock_submissions();
+                subs.reclaim(group_state);
+                subs.pending.get(&token.sequence).cloned()
+            };
+            if let Some(group) = group {
+                for buffer in &group {
+                    buffer.waitUntilCompleted();
+                }
+            }
+            self.poll(token)
+        }
+
         /// 試験専用。投入に成功した回数の通算。
         #[cfg(test)]
         fn test_submitted_count(&self) -> u64 {
@@ -847,13 +876,20 @@ mod imp {
             subs.state_of(token.sequence, group_state)
         }
 
-        /// その場で `poll` の値を `callback` に 1 回渡す。完了は待たないので、`Pending` を渡すことがある。
+        /// 完了まで呼び出し元のスレッドで待ってから、終端の状態（`Complete` か `Lost`）で `callback` を 1 回だけ呼ぶ。
+        ///
+        /// 回収した `poll` の値が終端ならその場で呼ぶ。別 device の印・世代違いの印・表に無い番号は待たずに `Lost`。
+        /// 未完了なら表の錠を放してから待つ。`callback` は錠の外で呼ぶ。
         fn on_complete(
             &self,
             token: SubmitToken,
             callback: Box<dyn FnOnce(CompletionState) + Send>,
         ) {
-            callback(self.poll(token));
+            let state = match self.poll(token) {
+                CompletionState::Pending => self.wait_for_completion(token),
+                done => done,
+            };
+            callback(terminal_state(state));
         }
 
         /// 完了まで待つ。`None` はコマンドバッファの完了を待ち、`Some` は 1 ms 間隔で `poll` を確かめる。
@@ -867,20 +903,7 @@ mod imp {
         ) -> Result<(), ContractError> {
             check_token_owner(&token, self.id, self.generation)?;
             match timeout {
-                None => {
-                    // 列を clone して錠を放してから待つ。待つ間も同じ錠を取る `poll`・`submit` を妨げない（錠を握ったまま待つと再入で詰まる）。
-                    let group = {
-                        let mut subs = self.lock_submissions();
-                        subs.reclaim(group_state);
-                        subs.pending.get(&token.sequence).cloned()
-                    };
-                    if let Some(group) = group {
-                        for buffer in &group {
-                            buffer.waitUntilCompleted();
-                        }
-                    }
-                    wait_result(self.poll(token))
-                }
+                None => wait_result(self.wait_for_completion(token)),
                 Some(limit) => {
                     let started = std::time::Instant::now();
                     loop {
@@ -1259,6 +1282,19 @@ mod precheck_tests {
         assert_eq!(group_state_of([Running, Failed]), GroupState::Failed);
         assert_eq!(group_state_of([Done, Running]), GroupState::Pending);
         assert_eq!(group_state_of([]), GroupState::Completed);
+    }
+
+    #[test]
+    fn on_complete_only_ever_sees_a_terminal_state() {
+        assert_eq!(
+            terminal_state(CompletionState::Complete),
+            CompletionState::Complete
+        );
+        assert_eq!(terminal_state(CompletionState::Lost), CompletionState::Lost);
+        assert_eq!(
+            terminal_state(CompletionState::Pending),
+            CompletionState::Lost
+        );
     }
 
     #[test]

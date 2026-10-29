@@ -483,10 +483,10 @@ fn submit_many_with_one_hundred_encoders_returns_and_completes() {
     assert_eq!(queue.poll(token), CompletionState::Complete);
 }
 
-/// `submit` の直後の `on_complete` は完了を待たず、callback を 1 回だけ呼ぶ。
+/// `submit` の直後に `on_complete` を呼んでも、完了まで待ってから callback が 1 回だけ `Complete` で呼ばれる。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
-fn on_complete_right_after_submit_calls_back_once_without_waiting() {
+fn on_complete_right_after_submit_calls_back_once_with_complete() {
     let device = new_device();
     let token = submit_empty(device.as_ref());
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -495,14 +495,28 @@ fn on_complete_right_after_submit_calls_back_once_without_waiting() {
         token,
         Box::new(move |state| sink.lock().expect("lock").push(state)),
     );
-    let seen = seen.lock().expect("lock");
-    assert_eq!(seen.len(), 1);
-    assert!(
-        matches!(
-            seen[0],
-            CompletionState::Pending | CompletionState::Complete
-        ),
-        "{:?}",
-        seen[0]
+    assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+}
+
+/// 別 device の印と払い出していない番号では、`on_complete` は待たずに `Lost` で 1 回だけ呼ぶ。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn on_complete_with_a_foreign_or_unissued_token_calls_back_lost_once() {
+    let first = new_device();
+    let second = new_device();
+    let foreign = submit_empty(first.as_ref());
+    let unissued = fandhe_silicon_core::execution::SubmitToken::__backend_new(
+        second.generation(),
+        99,
+        foreign.__backend_device_id() + 1000,
     );
+    for token in [foreign, unissued] {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        second.queue().on_complete(
+            token,
+            Box::new(move |state| sink.lock().expect("lock").push(state)),
+        );
+        assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Lost]);
+    }
 }
