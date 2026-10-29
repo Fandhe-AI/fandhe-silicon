@@ -48,7 +48,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | `CapabilityQuery` | 同上 | `level`・`unsupported_reason`・`evidence` | なし |
 | `Capabilities`（トレイト） | 同上 | 必須の `query`、既定の実装つきの `query_ex`。オブジェクト安全 | — |
 
-- `Device`・`DeviceProvider` はここに無い（別の持ち分。ポインタ: TASK-157）。`limits()` と `LimitsTable` は `capability.rs` にあり、[contract-limits-table](contract-limits-table.md) に書く
+- `Device`・`DeviceProvider`・`DeviceDiagnostics` は `crates/core/src/device.rs` にある（ポインタ: TASK-158）。`Device` は `Capabilities` を継ぎ、`backend`・`ownership`・`generation`・`memory`・`diagnostics` の 5 つの method を持つ。`DeviceProvider::request` は `Result<Box<dyn Device>, ContractError>` を返す。`DeviceDiagnostics` は `adapter_name: String` と `backend_name: &'static str` を持つ。対応するテストは `crates/core/tests/device_trait_shape.rs`（確かめ方: `cargo test -p fandhe-silicon-core --test device_trait_shape`）。`limits()` と `LimitsTable` は `capability.rs` にあり、[contract-limits-table](contract-limits-table.md) に書く
 - 対応するテスト: `crates/core/tests/device_capability_types.rs`（構築と呼び出しだけを見る最小の試験）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test device_capability_types`
 - 残る段: フィールド・`#[non_exhaustive]`・既定の実装の値の試験は 3/6 以降
