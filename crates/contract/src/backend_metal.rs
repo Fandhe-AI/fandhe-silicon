@@ -905,6 +905,8 @@ mod imp {
         ///
         /// 別 device の印・世代違いの印は `poll` と同じく `Lost`。払い出していない番号（0 を含む）は `Unknown`。
         /// 回収済みの番号は watermark と失敗の集合で答える（失敗した投入を `Complete` とは返さない）。
+        /// `poll` は失敗した列と払い出していない番号を `Lost` とし、`poll_ex` はこれを `RuntimeError`・`Unknown` に分ける。
+        /// `Pending`・`Complete` は `poll` と同じ。
         fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
             if check_token_owner(&token, self.id, self.generation).is_err() {
                 return CompletionStateEx::Lost;

@@ -14,7 +14,7 @@ use fandhe_silicon_core::device::{
 use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
-use fandhe_silicon_core::execution::ImportedSemaphoreHandle;
+use fandhe_silicon_core::execution::{ImportedSemaphoreHandle, SubmitToken};
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -552,35 +552,26 @@ fn reclaimed_tokens_poll_as_complete() {
     }
 }
 
-/// CMD-88 のポインタ。払い出していない番号（0 を含む）は `Unknown`、別 device の印は `Lost`。
+/// CMD-88 のポインタ。払い出していない番号（0 を含む）は `Unknown`、待った後の自分の印は `Complete`、別 device の印は `Lost`。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn poll_ex_of_unissued_is_unknown_and_of_a_foreign_token_is_lost() {
     let first = new_device();
     let second = new_device();
     let issued = submit_empty(first.as_ref());
+    first
+        .queue()
+        .wait_blocking(issued, None)
+        .expect("wait_blocking");
+    let forged = |sequence: u64| {
+        SubmitToken::__backend_new(first.generation(), sequence, issued.__backend_device_id())
+    };
     for sequence in [0, issued.sequence + 1, 99] {
-        let token = fandhe_silicon_core::execution::SubmitToken::__backend_new(
-            first.generation(),
-            sequence,
-            issued.__backend_device_id(),
+        assert_eq!(
+            first.queue().poll_ex(forged(sequence)),
+            CompletionStateEx::Unknown
         );
-        assert_eq!(first.queue().poll_ex(token), CompletionStateEx::Unknown);
     }
+    assert_eq!(first.queue().poll_ex(issued), CompletionStateEx::Complete);
     assert_eq!(second.queue().poll_ex(issued), CompletionStateEx::Lost);
-    // 5 値のうち、この device の入力で作れる 3 値が互いに異なる。
-    let known = [
-        first.queue().poll_ex(issued),
-        first
-            .queue()
-            .poll_ex(fandhe_silicon_core::execution::SubmitToken::__backend_new(
-                first.generation(),
-                99,
-                issued.__backend_device_id(),
-            )),
-        second.queue().poll_ex(issued),
-    ];
-    assert_ne!(known[0], known[1]);
-    assert_ne!(known[1], known[2]);
-    assert_ne!(known[0], known[2]);
 }
