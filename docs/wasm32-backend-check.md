@@ -49,10 +49,11 @@ rustdoc JSON は `RUSTC_BOOTSTRAP=1` をその子プロセスにだけ渡して�
 ## 本リポの現状での実行結果
 
 `make wasm-backend-check` を実行すると、3 構成とも `check:`・`module:`・`deps:` が match で終了コード 0 になる。
-`record:` は `check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=0` となる。
+`record:` は `check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=1` となる。
 
-- `objc2-metal`・`ash`・`cudarc` はどの crate にも宣言されていないので、`native_n` も 0 件。`wasm32_n` が 0 なのは、SDK の依存が wasm32 でだけ外れた結果ではなく、そもそも載っていないため
-- Metal のモジュール `backend_metal` は、本リポの現状ではネイティブでも公開のアイテムを持たない
+- `objc2-metal` は契約の crate に macOS 向けだけ・optional で宣言され、feature `backend-metal` が有効なときだけ載る。`backend-metal` の構成の `native_n`（`--target all`）は 1 件で、`wasm32_n` は 0 件（macOS 向けの依存が wasm32 で外れた結果）。`backend-vulkan`・`backend-cuda` の構成では 0 件
+- `ash`・`cudarc` はどの crate にも宣言されていないので、`native_n` も `wasm32_n` も 0 件
+- Metal のモジュール `backend_metal` は、wasm32 では公開のアイテムを持たない（`public_items=0`）。ネイティブ（macOS）の構成では公開の項目があり、wasm32 では出ない
 - SDK が依存に足されたときは、同じ検査がそのまま `wasm32_n` と `native_n` の差を出す
 
 ## 確かめ方
@@ -82,7 +83,7 @@ rustdoc JSON は `RUSTC_BOOTSTRAP=1` をその子プロセスにだけ渡して�
 | `backend-vulkan` | `wasm32-unknown-unknown` | match | `backend_vulkan` | absent | absent | - | match |
 | `backend-cuda` | `wasm32-unknown-unknown` | match | `backend_cuda` | absent | absent | - | match |
 
-`deps:`（3 構成 × 3 SDK）。全 9 行が次の値だった。
+`deps:`（3 構成 × 3 SDK）。全 9 行が次の値だった（この段を記録した時点の値。製品の crate に SDK の依存が無かった時点で、現状は上の「本リポの現状での実行結果」を見る）。
 
 | feature | name | wasm32_n | native_n | result |
 | ------- | ---- | -------- | -------- | ------ |

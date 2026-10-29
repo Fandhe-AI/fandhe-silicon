@@ -195,7 +195,7 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 
 ## 関連
 
-- 関連: TASK-18（[ci-job-split](./ci-job-split.md)。`verify-macos` は TASK-18 の記録の 2-2 節の条件 (1)・(2)・(4) と TASK-158 のポインタ）、TASK-23（[test-frame](./test-frame.md)）
+- 関連: TASK-18（[ci-job-split](./ci-job-split.md)。`verify-macos` は TASK-18 の記録と TASK-158 のポインタ）、TASK-23（[test-frame](./test-frame.md)）
 - [unsafe-policy](./unsafe-policy.md)
 - [github-actions](../.claude/rules/github-actions.md)・[makefile](../.claude/rules/makefile.md)・[git-hooks](../.claude/rules/git-hooks.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)

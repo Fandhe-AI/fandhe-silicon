@@ -21,7 +21,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | -------- |
 | 既にある型 | device の要求・能力問合せの型は `crates/core` にある。定義と確かめは [contract-device-types](contract-device-types.md) を参照し、ここでは繰り返さない | `crates/core/src/device.rs`、`crates/core/src/capability.rs` |
 | 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 7 件だけ（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕） | `git grep -nE 'pub trait' -- crates wasm` |
-| device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト、compute の口、試験用のスタブの device に当たる物は `crates/`・`wasm/` に無い（`pub trait` は上の 7 件だけ）。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、`Stub` を含む型は故障の差し込み用の `FaultStub` だけ。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
+| device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト、compute の口、試験用のスタブの device に当たる物は `crates/`・`wasm/` に無い（`pub trait` は上の 7 件だけ）。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、および `crates/contract/src/backend_metal.rs`（macOS だけ）の Metal の provider 3 件（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）、`Stub` を含む型は故障の差し込み用の `FaultStub` だけ。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
 | 故障の差し込み口 | `FaultHooks` はある。それを返す公開のアクセサを持つ device のトレイトは無い（`crates/core/tests/fault_parts_composition.rs` の同名メソッドは試験内の局所トレイト） | `crates/core/src/fault.rs`、`crates/core/tests/fault_parts_composition.rs` |
 | feature の裏のアイテム | `graphics`・`artifact-inspection` は `Cargo.toml` に宣言済みだが、これらで切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
@@ -129,8 +129,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 背後実装のモジュール | `crates/contract/src/backend_metal.rs`・`backend_cuda.rs` に `pub` の項目は無い。`backend_vulkan.rs` は `pub mod spirv_operands` だけで、device の実装に当たる公開の項目は無い | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_metal.rs crates/contract/src/backend_vulkan.rs crates/contract/src/backend_cuda.rs` |
-| 公開のトレイト | 4 件のまま（「本リポの現状」の表と同じ） | `git grep -nE 'pub trait' -- crates wasm` |
+| 背後実装のモジュール | `backend_cuda.rs` に `pub` の項目は無い。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。device を返す入口 `DeviceProvider` の Metal の実装 `MetalDeviceProvider` はあるが、スタブの device に当たる公開の項目は無い | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_metal.rs crates/contract/src/backend_vulkan.rs crates/contract/src/backend_cuda.rs` |
+| 公開のトレイト | 7 件のまま（「本リポの現状」の表と同じ） | `git grep -nE 'pub trait' -- crates wasm` |
 | 前提の部品の Issue | #696・#784・#1100 は OPEN | `gh issue view <番号> --json state` |
 
 ### 関連のポインタ
@@ -155,7 +155,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 | 試験の拾われ方 | `crates/contract/tests/` の試験は、各組の `cargo test -p fandhe-silicon-contract` で自動で流れる（前例: [contract-feature-check](contract-feature-check.md) の「CI への組み込み（3/3）」）。core の試験は `crates/core/Cargo.toml` の `[[test]]` の `required-features` で feature に結び付く | `scripts/build-profiles.sh`、`crates/core/Cargo.toml` |
 | コンパイル失敗の枠 | `crates/contract/src/cfg_gate_doctest.rs` の doctest は組ごとの test で流れる（[feature-gate-compile-check](feature-gate-compile-check.md) の「CI への組み込み（3/4）」） | 同左 |
 | feature の裏のアイテム | `graphics`・`artifact-inspection` で切られたアイテムは今も 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
-| 公開のトレイト | 4 件のまま（「本リポの現状」の表と同じ） | `git grep -nE 'pub trait' -- crates wasm` |
+| 公開のトレイト | 7 件のまま（「本リポの現状」の表と同じ） | `git grep -nE 'pub trait' -- crates wasm` |
 | 前提の部品の Issue | #696・#784・#1100 は OPEN | `gh issue view <番号> --json state` |
 
 ### 再開の条件
@@ -187,7 +187,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 | F1 | 公開のトレイト | `git grep -nE 'pub trait' -- crates wasm` | 4 件（`Capabilities`・`FaultHooks`・`MemoryOps`・`Check`） |
 | F2 | device まわりの口 | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Queue\|Stub)' -- crates wasm` | `DeviceRequest`・`NativeDeviceHandle`・`FaultStub` の 3 件だけ |
 | F3 | feature の裏のアイテム | `git grep -n 'feature = "graphics"' -- crates`・`git grep -n 'feature = "artifact-inspection"' -- crates` | いずれも 0 件 |
-| F4 | 背後実装のモジュールの公開の項目 | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_metal.rs crates/contract/src/backend_vulkan.rs crates/contract/src/backend_cuda.rs` | `backend_vulkan.rs` の `pub mod spirv_operands` だけ（4/6 の記録と同じ） |
+| F4 | 背後実装のモジュールの公開の項目 | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_metal.rs crates/contract/src/backend_vulkan.rs crates/contract/src/backend_cuda.rs` | `backend_vulkan.rs` の `pub mod spirv_operands` と、`backend_metal.rs` の `pub use`（3 件の provider）。この表の他の行は記録時点の値で、現状は 4/6 の表と「本リポの現状」の表を見る |
 | F5 | CI での組ごとの検査 | `grep -n 'run: make' .github/workflows/ci.yml` | `verify` ジョブで `make verify` の後に `make build-profiles` |
 | F6 | 前提と持ち分の Issue | `gh issue view <番号> --json state`（#696・#784・#1100・#1126・#447・#448・#1305・#1149） | 8 件とも OPEN |
 | F7 | 言及の範囲 | `git grep -nE 'TASK-137([^0-9]\|$)' -- . ':!docs/spec' ':!.agents'` | 本書・`CLAUDE.md`・`README.md` だけ |

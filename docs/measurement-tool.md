@@ -18,7 +18,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu` と `measure`。外部依存の承認の記録は 0 件 | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
+| 製品の workspace | `members` は 4 crate、`exclude` は `baseline-wgpu` と `measure`。外部依存の承認の記録は 4 件（契約の crate の macOS 向け optional 依存） | `grep -n -e members -e exclude Cargo.toml`、`grep -c '^\[\[' deps-approved.toml` |
 | 性能を測る道具 | 時間を測る標準ライブラリの型の使用は `measure/` にだけあり、`crates/`・`baseline-wgpu/` には無い | `grep -rn -e Instant -e SystemTime -e 'std::time' crates baseline-wgpu`（0 件）、`grep -rln 'std::time' measure --include=*.rs` |
 
 既にある関連の部品（名前とリンクのみ）:
