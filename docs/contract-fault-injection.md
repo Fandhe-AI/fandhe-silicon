@@ -23,7 +23,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | `fault-injection` を囲む既存の検査 | `crates/contract/tests/feature_default_scope.rs` の `TEST_ONLY`（`default` と本番の組に入らない）、`scripts/upper-layer-check.sh` の `FORBIDDEN_FEATURES`（測定の workspace から有効にさせない）、公開 API の検査の本番の組から除く扱い（[public-api-contract-check](public-api-contract-check.md)）、[contract-feature-check](contract-feature-check.md) | `git grep -n fault-injection -- crates scripts docs ':!docs/spec'` |
 | feature の裏の中身 | `fault-injection` の `cfg` で隠したコードは `crates/core/src/lib.rs` の `fault` モジュール 1 件（その下の `stub`・`decorator` は同モジュールの子で、別の `cfg` は持たない） | `git grep -n 'feature = "fault-injection"' -- crates wasm` |
 | 共通の型 | TASK-269 のエラー・完了状態・理由の型と、TASK-136 の能力問合せの型は `crates/core` に条件なしで公開済み | [contract-error-types](contract-error-types.md)・[contract-device-types](contract-device-types.md) |
-| 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities`、`test-support` の裏の `rerun` の `Check`、`fault-injection` の裏の `fault` の `FaultHooks` の 3 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
+| 公開のトレイト | `crates/`・`wasm/` にある `pub trait` は、`core` の `Capabilities`、`test-support` の裏の `rerun` の `Check`、`fault-injection` の裏の `fault` の `FaultHooks` 、`memory` の `MemoryOps`、`validation` の `ValidationIntake` の 5 件 | `git grep -n -E 'pub trait ' -- crates wasm` |
 | `core` の形 | 外部依存 0。`#![forbid(unsafe_code)]`。wasm32 でもビルドされる。`test-support` の裏のモジュールは `parity`・`test_frame`・`rerun`、`fault-injection` の裏のモジュールは `fault` | `crates/core/src/lib.rs`、`scripts/build-profiles.sh`、`scripts/wasm-verify.sh` |
 | `contract` の形 | `#![deny(unsafe_code)]`。`unsafe` は `backend_*` だけに置く | `crates/contract/src/lib.rs`、[unsafe-policy](unsafe-policy.md) |
 | workspace | member は `crates/` 配下の 5 つ。`make deny` が `crates/` の外を指す path を拒む | ルート `Cargo.toml`、[workspace-boundary](workspace-boundary.md) |
@@ -49,8 +49,8 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
 
 - feature: `core` の `fault-injection` と、`contract` の `fault-injection`（`core` の同名 feature へ転送）。`core` では `fault` モジュールが feature の裏にある。外部依存は足していない
-- 口 `fault::FaultHooks`: 背後実装が実装するトレイト。メソッドは `simulate_device_lost(DeviceLostReason)`・`arm_gate`・`open_gate`・`simulate_runtime_error(String)` の 4 つで、戻り値は `Result<(), ContractError>`。`dyn` で使え、すべて既定の実装を持つ。既定の実装は黙って成功せず、`UnsupportedExtensionDefault` を自分のメソッド名の `op` で返す
-- 種類 `fault::HookFault`（`non_exhaustive`）: `DeviceLost`・`ArmGate`・`OpenGate`・`RuntimeError`
+- 口 `fault::FaultHooks`: 背後実装が実装するトレイト。メソッドは `simulate_device_lost(DeviceLostReason)`・`arm_gate`・`open_gate`・`simulate_runtime_error(String)`・`simulate_validation_report(String)` の 5 つで、戻り値は `Result<(), ContractError>`。`dyn` で使え、すべて既定の実装を持つ。既定の実装は黙って成功せず、`UnsupportedExtensionDefault` を自分のメソッド名の `op` で返す
+- 種類 `fault::HookFault`（`non_exhaustive`）: `DeviceLost`・`ArmGate`・`OpenGate`・`RuntimeError`・`ValidationReport`
 - 差し込みの部品 `fault::inject(Option<&dyn FaultHooks>, HookFault)`: 種類に対応する口を 1 回だけ呼び、戻り値をそのまま返す。`None` のときは何も呼ばず `UnsupportedExtensionDefault { op: "fault_hooks" }` を返す
 - 試験: `crates/core/tests/fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` の対（無効の構成では `core` の `fault` が解決できず compile_fail、有効の構成では通る）
 - 組: `scripts/build-profiles.sh` の `NATIVE_SETS` に `fault-injection` 単独の組がある
@@ -60,7 +60,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 
 型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
 
-- `fault::stub::FaultStub`: 背後実装を持たない試験用のスタブ。`FaultHooks` を実装し、`Send + Sync`。`simulate_device_lost` は 1 回目だけ理由を記録し、登録済みのコールバックを lock の外で 1 回呼ぶ。2 回目以降は `Ok` を返すだけで、理由も回数も変えない。コールバックが未登録のとき `lost_callback_count` は 0 のまま。`arm_gate`・`open_gate` は門の状態の記録だけで、何度呼んでも `Ok`。`simulate_runtime_error` は既定の実装のまま
+- `fault::stub::FaultStub`: 背後実装を持たない試験用のスタブ。`FaultHooks` を実装し、`Send + Sync`。`simulate_device_lost` は 1 回目だけ理由を記録し、登録済みのコールバックを lock の外で 1 回呼ぶ。2 回目以降は `Ok` を返すだけで、理由も回数も変えない。コールバックが未登録のとき `lost_callback_count` は 0 のまま。`arm_gate`・`open_gate` は門の状態の記録だけで、何度呼んでも `Ok`。`simulate_runtime_error` は既定の実装のまま。`ValidationIntake` も実装し、`simulate_validation_report` は登録された関数へ `ValidationFailed` を届ける（device はロストしない）。届けた数は `validation_delivered_count` で読める
 - `fault::decorator::FaultInjecting<D>` と `FaultScript`（`non_exhaustive`。`PassThrough`・`CompletionUnknown`）: `Device` のトレイトが無いため、包む型を型引数にし、内側の呼び出しはクロージャで受ける。`wait_blocking_with` は `CompletionUnknown` で内側を呼ばず `Err(ContractError::Timeout)`、`poll_ex_with` は内側を呼ばず `CompletionStateEx::Unknown` を返す。`PassThrough` は内側の値をそのまま返す。`FaultHooks` の 4 つの口は内側へそのまま渡す
 - 試験: `crates/core/tests/fault_stub_lost.rs`・`fault_decorator_completion_unknown.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
@@ -102,6 +102,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 
 - `crates/core/tests/fault_parts_matrix.rs`: デコレータの 6 つの筋書きと全ての差し込み（`submit_with`・`allocate_with`・`wait_blocking_with`・`poll_ex_with`・`poll_with`・`create_pipeline_with`・`query`・`query_ex`・上限の差し替え・`FaultHooks` の 4 つの口）の組で、内側を呼んだ回数（0 回か 1 回）と返す値を、内側の値と合成の値が必ず違う偽の内側で確かめる。内側の `Err` が通す組でそのまま返ること、合成の失敗（`Timeout`・`BackendFailure`・`AllocationFailed`・`CapabilityInsufficient`・`InvalidArgument`）が互いに値で区別できることも見る
 - `crates/core/tests/fault_parts_composition.rs`: 内側の型（`!Sync` の偽物・`Send + Sync` の偽物・型を消した内側）と背後実装の種類（`BackendKind` の 4 種）に依らず同じに働くこと、デコレータが `Send + Sync` で `&dyn FaultHooks`・`&dyn Capabilities` に強制変換できること、`inject` が口を返す側（試験の中だけの見立ての trait）・デコレータ越し・スタブ越しに届くこと、筋書きと口の 2 系統が独立に働くことを確かめる
+- `crates/core/tests/fault_validation_report.rs`: 検証の報告を模す口 `simulate_validation_report` の試験（TASK-554。所在は [validation-intake](validation-intake.md)）
 - `crates/contract/tests/fault_injection_parts.rs`: contract の feature `fault-injection` だけで、デコレータとスタブが組み上がって働くことを確かめる
 - `CompletionUnknown` の筋書きでの `poll_with` の値と、スタブの `simulate_runtime_error` は、本段の試験では現状の値を固めない
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`・`cargo test -p fandhe-silicon-contract --no-default-features --features fault-injection`
@@ -199,3 +200,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - [upper-layer-check](upper-layer-check.md)
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
+
+## 後から足した口
+
+検証レイヤーの報告を模す口 `simulate_validation_report` と種類 `HookFault::ValidationReport` は TASK-554 が足した。所在は [validation-intake](validation-intake.md)。

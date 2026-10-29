@@ -216,3 +216,7 @@ required-features = ["test-support"]
 [[test]]
 name = "capability_rule_check_contract"
 required-features = ["test-support", "fault-injection"]
+
+[[test]]
+name = "fault_validation_report"
+required-features = ["fault-injection"]

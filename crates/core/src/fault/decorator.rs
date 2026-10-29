@@ -274,4 +274,8 @@ impl<D: FaultHooks> FaultHooks for FaultInjecting<D> {
     fn simulate_runtime_error(&self, detail: String) -> Result<(), ContractError> {
         self.inner.simulate_runtime_error(detail)
     }
+
+    fn simulate_validation_report(&self, detail: String) -> Result<(), ContractError> {
+        self.inner.simulate_validation_report(detail)
+    }
 }

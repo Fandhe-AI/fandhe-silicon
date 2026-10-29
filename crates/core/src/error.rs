@@ -5,6 +5,8 @@
 //! variant には付けないので、別の crate からも値を構築できる。
 //! `ContractError` には `Display` と `std::error::Error` を実装する（他の型には実装しない）。
 //!
+//! 失敗の種類 `FailureClass` は、`ContractError` と `CompletionStateEx` の `failure_class` から得る（ERR-21。TASK-554 のポインタ）。
+//!
 //! ここにはエラーに関する型だけを置き、その定義と `#[non_exhaustive]` の確かめは TASK-269 が持つ。
 //! 能力・診断・device の型は TASK-136 の持ち分（ポインタ）。
 //! `CompletionState`・`CompletionStateEx` の値の一覧は TASK-306 の決定に従う（ポインタのみ）。
@@ -146,6 +148,61 @@ impl fmt::Display for ContractError {
 }
 
 impl std::error::Error for ContractError {}
+
+/// 失敗の種類。`ContractError` と `CompletionStateEx` の値から `failure_class` で得る（ERR-21。TASK-554 のポインタ）。
+///
+/// 名前は仮。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FailureClass {
+    /// 初期化の失敗（device や成果物を用意できない）。
+    Initialization,
+    /// 実行時エラー（device は失われていない呼び出し・実行の失敗）。
+    Runtime,
+    /// device のロスト。
+    DeviceLost,
+    /// 完了不明（完了したかを確かめられない）。
+    CompletionUnknown,
+    /// 能力不足（その device・環境ではその操作を行えない）。
+    Capability,
+}
+
+impl ContractError {
+    /// この値の失敗の種類。すべての値が種類を持つ。
+    ///
+    /// 内側の `match` は `_` を持たない。値を足すときは同じ変更で種類も決める（コンパイルが落ちて気づける）。
+    pub fn failure_class(&self) -> FailureClass {
+        match self {
+            Self::InvalidCombination(_)
+            | Self::DeviceUnavailable(_)
+            | Self::ArtifactRejected { .. } => FailureClass::Initialization,
+            Self::InvalidArgument(_)
+            | Self::DeviceMismatch
+            | Self::AllocationFailed { .. }
+            | Self::ValidationFailed(_)
+            | Self::BackendFailure { .. }
+            | Self::DeviceIdentityMismatch { .. }
+            | Self::CapacityExceeded { .. } => FailureClass::Runtime,
+            Self::DeviceLost { .. } => FailureClass::DeviceLost,
+            Self::Timeout => FailureClass::CompletionUnknown,
+            Self::CapabilityInsufficient { .. }
+            | Self::Unsupported { .. }
+            | Self::UnsupportedExtensionDefault { .. } => FailureClass::Capability,
+        }
+    }
+}
+
+impl CompletionStateEx {
+    /// この完了状態が表す失敗の種類。失敗でない `Pending`・`Complete` は `None`。
+    pub fn failure_class(&self) -> Option<FailureClass> {
+        match self {
+            Self::Pending | Self::Complete => None,
+            Self::RuntimeError => Some(FailureClass::Runtime),
+            Self::Lost => Some(FailureClass::DeviceLost),
+            Self::Unknown => Some(FailureClass::CompletionUnknown),
+        }
+    }
+}
 
 /// device が失われた理由。
 #[derive(Debug, Clone, PartialEq, Eq)]
