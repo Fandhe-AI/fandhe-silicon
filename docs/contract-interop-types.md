@@ -43,6 +43,8 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | `ExternalSemaphoreHandle` の rustdoc（`compile_fail,E0599`） | `.clone()` が拒まれること（INTEROP-45） |
 | `crates/core/tests/interop_types.rs` | `dyn ExternalInterop`、必須の 4 操作だけの実装、拡張の操作の既定の値、`Copy` の有無、識別子の保持、unix の fd の所有 |
 | `crates/core/tests/interop_device_accessors.rs` | `Device` の 2 つの口の既定と上書き |
+| `crates/core/tests/interop_extension_defaults.rs`（ERR-17） | 拡張 4 操作の返し。上書きしない型は操作ごとに `UnsupportedExtensionDefault { op: <操作の名前> }`、上書きした試験用の型は `Unsupported { op, backend }`、一部だけ上書きした型は上書きした操作だけが変わること。実際の背後実装の返しは含まない |
+| `crates/core/tests/interop_extension_defaults.rs`（INTEROP-43） | 必須の 4 操作だけの型が `Box<dyn ExternalInterop>` 越しで、拡張 4 操作に既定の値を返すこと |
 
 ## 確かめ方
 
