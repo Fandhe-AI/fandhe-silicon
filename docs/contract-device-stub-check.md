@@ -216,7 +216,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 
 ## 現状の公開のトレイトと背後実装の公開の項目
 
-上の表の「device のトレイト・device を返す入口 無い」「公開のトレイト 7 件」「F4」は記録時点の値で、書き換えない。今の値は次のとおり。
+「実装（3/6）」の「5 件だけ」、「テスト（4/6）」・「CI への組み込み（5/6）」の「4 件のまま」、「確かめ（6/6）」の F1 の「4 件」・F4 など、各段の公開のトレイトと device の口の件数・有無は記録時点の値で、書き換えない。今の値は次のとおり（冒頭の「本リポの現状」の表と同じ）。
 
 - device のトレイトと device を返す入口は `crates/core/src/device.rs` にある（`Device`・`DeviceProvider`）
 - 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 7 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`）
