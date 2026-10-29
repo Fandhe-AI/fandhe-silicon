@@ -31,7 +31,7 @@ cpu-isa = []
 cpu-ops = []
 native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
 graphics = []
-ext-interop = []
+ext-interop = ["fandhe-silicon-core/ext-interop"]
 # backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
 backend-metal = ["contract-core", "dep:objc2", "dep:objc2-foundation", "dep:objc2-metal", "dep:objc2-core-graphics"]
 backend-vulkan = ["contract-core"]

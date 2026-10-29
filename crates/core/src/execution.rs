@@ -6,10 +6,38 @@
 //! 入力は借用で持つので、確保も所有権の移動も起きない。
 
 mod dispatch_check;
+mod submit;
 
 pub use dispatch_check::{
     OperandBinding, OperandConstant, required_bytes, validate_dispatch_operands,
 };
+#[doc(hidden)]
+pub use submit::{__BackendEncoderCloser, __BackendSharedEncoderCloser};
+pub use submit::{CommandEncoder, CommandQueue, GpuTiming, SubmitToken};
+
+/// 相互運用で取り込んだセマフォを `submit` に結び付ける不透明なハンドル。
+///
+/// `ext-interop` の有無によらず置く。投入の型（`submit` モジュール）が `wait` の引数にこの型を使う。
+/// 定義は `execution` の直下に置く（公開 API の検査が定義のパスを `execution` の中に限るため）。
+/// 背後実装は `__backend_` で始まる口で作り、読み出す。
+#[derive(Debug)]
+pub struct ImportedSemaphoreHandle {
+    id: u64,
+}
+
+impl ImportedSemaphoreHandle {
+    /// 背後実装向けの組み立ての口。
+    #[doc(hidden)]
+    pub fn __backend_new(id: u64) -> Self {
+        Self { id }
+    }
+
+    /// 背後実装向けの読み出しの口。
+    #[doc(hidden)]
+    pub fn __backend_id(&self) -> u64 {
+        self.id
+    }
+}
 
 /// MSL の算術関数の扱い（数学モード）。
 ///

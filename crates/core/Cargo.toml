@@ -17,6 +17,8 @@ test-support = []
 fault-injection = []
 # download_blocking（ブロッキング待ちの取り出し）を MemoryOps に載せる。native 向けで、既定にも本番の組にも入れない。
 native-blocking-wait = []
+# submit_exportable（セマフォを export する意図の宣言付きの投入）を CommandQueue に載せる。既定にも本番の組にも入れない。
+ext-interop = []
 
 [[test]]
 name = "fault_hooks_types"
