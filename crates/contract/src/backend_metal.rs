@@ -734,20 +734,20 @@ mod imp {
             self.open.lock().len()
         }
 
-        /// ハンドルを照合し、この device のバッファに対して `f` を呼ぶ。`f` の間は表の錠を持つ。
+        /// ハンドルを照合し、この device のバッファの表の項目を `&mut` で借りて `f` を呼ぶ。`f` の間は表の錠を持つ。
         ///
         /// 照合の順は、払い出し元の device の識別子（違えば `DeviceMismatch`）、表にある識別子、
         /// 世代の一致（表に無い・世代が違うものは偽造として `InvalidArgument`）。
         fn with_buffer<R>(
             &self,
             handle: &BufferHandle,
-            f: impl FnOnce(&ProtocolObject<dyn MTLBuffer>) -> Result<R, ContractError>,
+            f: impl FnOnce(&mut BufferEntry) -> Result<R, ContractError>,
         ) -> Result<R, ContractError> {
             if handle.__backend_device_id() != self.id {
                 return Err(ContractError::DeviceMismatch);
             }
-            let buffers = self.lock_buffers();
-            let Some(entry) = buffers.map.get(&handle.__backend_id()) else {
+            let mut buffers = self.lock_buffers();
+            let Some(entry) = buffers.map.get_mut(&handle.__backend_id()) else {
                 return Err(ContractError::InvalidArgument(
                     "buffer handle is not in this device's table".into(),
                 ));
@@ -757,7 +757,7 @@ mod imp {
                     "buffer handle generation does not match this device".into(),
                 ));
             }
-            f(&entry.buffer)
+            f(entry)
         }
 
         /// 範囲を検査してから `[offset, offset + len)` を読み出す。`download_*` が共有する。
@@ -767,7 +767,8 @@ mod imp {
             src_offset: u64,
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
-            self.with_buffer(src, |buffer| {
+            self.with_buffer(src, |entry| {
+                let buffer = &entry.buffer;
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
                 })?;
@@ -993,6 +994,41 @@ mod imp {
         validate_allocation_size(byte_len, max_buffer_bytes)
     }
 
+    /// 範囲を検査してから、`bytes` を `entry` のバッファの `offset` から書き込む。`upload` とゼロ化が共有する。
+    ///
+    /// 検査に当たると、バッファの内容を変えずに `InvalidArgument` を返す。
+    /// 書き込みの排他は `&mut BufferEntry` が型で示す。`upload` は表の錠の中の `get_mut` で借りた項目を、
+    /// ゼロ化は表から外して所有している項目を渡す。共有参照からは書けない。非公開。
+    fn write_range(
+        entry: &mut BufferEntry,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), ContractError> {
+        let buffer = &entry.buffer;
+        let len = u64::try_from(bytes.len())
+            .map_err(|_| ContractError::InvalidArgument("data length does not fit u64".into()))?;
+        let allocation_len = u64::try_from(buffer.length())
+            .map_err(|_| ContractError::InvalidArgument("buffer length does not fit u64".into()))?;
+        let (offset, _) = host_range(offset, len, allocation_len)?;
+        if !bytes.is_empty() {
+            let base = buffer.contents().as_ptr().cast::<u8>();
+            // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
+            // `buffer.length()` バイトの領域を指し、`entry` が `Retained` を持つので書き込みの間は生きている。
+            // `host_range`（`validate_buffer_range` を呼ぶ）が `offset + bytes.len() <= length()` を保証している。
+            // `&mut BufferEntry` を受けているので、この領域を CPU 側で読み書きする他の参照は同時に存在しない
+            // （表の項目は表の錠の中で、または表から外して単独で所有した状態でしか借りられない）。
+            // GPU の読み書きと重ならないことは、
+            // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
+            // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
+            // このブロックの同期の根拠を必ず書き直す）。`bytes` は呼び出し側の借用した領域で、
+            // Metal の領域とは重ならない。
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), base.add(offset), bytes.len());
+            }
+        }
+        Ok(())
+    }
+
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
@@ -1032,34 +1068,7 @@ mod imp {
             dst_offset: u64,
             bytes: &[u8],
         ) -> Result<(), ContractError> {
-            self.with_buffer(dst, |buffer| {
-                let len = u64::try_from(bytes.len()).map_err(|_| {
-                    ContractError::InvalidArgument("data length does not fit u64".into())
-                })?;
-                let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
-                    ContractError::InvalidArgument("buffer length does not fit u64".into())
-                })?;
-                let (offset, _) = host_range(dst_offset, len, allocation_len)?;
-                if !bytes.is_empty() {
-                    let base = buffer.contents().as_ptr().cast::<u8>();
-                    // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
-                    // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
-                    // `offset + bytes.len() <= length()` を保証している。GPU の読み書きと重ならないことは、
-                    // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
-                    // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
-                    // このブロックの同期の根拠を必ず書き直す）。`with_buffer` が表の錠を持ったまま
-                    // `f` を呼ぶため、コピーの間は `free` でバッファが落ちない。`bytes` は呼び出し側の
-                    // 借用した領域で、Metal の領域とは重ならない。
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            bytes.as_ptr(),
-                            base.add(offset),
-                            bytes.len(),
-                        );
-                    }
-                }
-                Ok(())
-            })
+            self.with_buffer(dst, |entry| write_range(entry, dst_offset, bytes))
         }
 
         /// `src` の `src_offset` から `byte_len` バイトを読み出す。記録の操作が無く GPU はバッファに触れないので、待たずに返る。
