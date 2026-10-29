@@ -4,7 +4,7 @@
 //! 型の持ち主は TASK-136（ポインタ）。
 //!
 //! 加えて、背後実装が実装する device の口 `Device` と、それを得る入口 `DeviceProvider`、診断の値 `DeviceDiagnostics` を置く
-//! （TASK-158 のポインタ）。投入の列・compute の口・ロストの通知の method は後の TASK で足す（TASK-588・TASK-769 のポインタ）。
+//! （TASK-158 のポインタ）。この段の `Device` は、投入の列・compute の口・ロストの通知の method を持たない（TASK-588・TASK-769 のポインタ）。
 
 use core::any::Any;
 use core::fmt;
@@ -94,7 +94,7 @@ pub struct DeviceDiagnostics {
 /// 背後実装が実装する device の口。
 ///
 /// 上と下-2 は `DeviceProvider::request` で `Box<dyn Device>` を得て、能力の問合せ（`Capabilities`）と
-/// メモリ操作（`memory`）を呼ぶ。投入の列・compute の口・ロストの通知の method は後の TASK で足す
+/// メモリ操作（`memory`）を呼ぶ。この段の `Device` は、投入の列・compute の口・ロストの通知の method を持たない
 /// （TASK-588・TASK-769 のポインタ）。ここに無い method を前提にしない。
 /// 対応する項目のポインタ: DEV-1・DEV-16。
 pub trait Device: Capabilities {
