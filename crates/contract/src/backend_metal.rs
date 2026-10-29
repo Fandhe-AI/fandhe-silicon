@@ -438,7 +438,7 @@ mod imp {
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
-        /// 長さ 0 と上限（`limits().max_buffer_bytes`）超えは、Metal のバッファを作る前に `InvalidArgument`。
+        /// 長さ 0 と上限（`limits().max_buffer_bytes`）超えは `InvalidArgument`。
         /// 返すハンドルの `size`・`usage` は、受けた `byte_len`・`usage`。
         fn allocate(
             &self,

@@ -36,7 +36,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `diagnostics()` は `adapter_name`（`MTLDevice` の名前）と `backend_name: "metal"`
 - `Capabilities`: `query` は常に `Unsupported`、`query_ex` は理由 `UnknownFeature` を添える（この段の問合せは、どの機能も未知として扱う）。`limits()` の `max_buffer_bytes` は `MTLDevice` の `maxBufferLength`、`max_dispatch_dims` は `[u32::MAX; 3]`、`max_texture_size` は 16384
 - `MemoryOps`: shared の storage で確保する。確保の上限（`limits().max_buffer_bytes`）を超えると `InvalidArgument`。バッファの識別子は device ごとに払い出す（別々の device の最初のバッファは同じ識別子を持つ）。返すハンドルの `size`・`usage` は確保で渡した値
-- `allocate` は長さ 0 を、Metal のバッファを作る前に `InvalidArgument` で拒む（`imp` の非公開の関数 `validate_allocation_request` が 0 の判定のあとに共通の `validate_allocation_size` を呼ぶ。共通の関数は 0 を見ないままで、この拒否は Metal の背後実装の中だけ）
+- `allocate` は長さ 0 を `InvalidArgument` で拒む（`imp` の非公開の関数 `validate_allocation_request` が 0 の判定のあとに共通の `validate_allocation_size` を呼ぶ。共通の関数は 0 を見ないままで、この拒否は Metal の背後実装の中だけ）
 - ハンドルの照合: 払い出し元の device が違えば `DeviceMismatch`、表に無い識別子は `InvalidArgument`。範囲の検査は `validate_buffer_range`（確保長は Metal のバッファの `length()`）。`free` は別の device のハンドルを何も解放せず、自 device の同じ識別子のバッファを残す。解放したハンドルでの `upload`・`download_*` は `InvalidArgument`。範囲外の `upload` は `InvalidArgument` で、バッファの内容を変えない
 - `download_async` は読み出してからその場で `callback` を 1 回だけ呼ぶ（失敗も渡す）。`download_blocking` は feature `native-blocking-wait` の裏
 - この段ではコマンドバッファを積まない（読み書きの `unsafe` の同期の根拠がこの前提に頼るため、投入を足す変更では根拠を書き直す）
@@ -53,6 +53,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | `crates/contract/tests/backend_metal_no_submission.rs` | なし | ソース（コメント行を除く）にコマンドバッファ・エンコーダ・`commit`・完了待ちの語が無いこと、コマンドキューを保持するフィールドを読み出していないこと（`contents()` 越しの読み書きの同期の根拠の前提） | 触らない |
 
 - 3 つの試験ファイルは `cfg(target_os = "macos")` の裏にあり、他の OS では 0 件
+- `backend_metal.rs` の `imp::tests` も `cfg(target_os = "macos")` の `imp` の中にあり、他の OS では 0 件
 - device に触る試験は `#[ignore = "touches the Metal device; run only in a dedicated device session"]` を付け、既定の `cargo test` では流れない
 
 ## 確かめ方
