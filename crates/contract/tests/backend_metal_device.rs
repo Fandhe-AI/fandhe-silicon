@@ -669,7 +669,8 @@ fn dropping_the_device_calls_remaining_callbacks_once() {
     assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
 }
 
-/// callback が panic しても残りの callback は呼ばれ、panic は駆動の呼び出しから伝わる。device は使い続けられる。
+/// callback が panic しても残りの callback は呼ばれ、panic は登録の呼び出し（登録の時点で終端のとき）か
+/// 後の駆動の呼び出しのどちらか一方からちょうど 1 回伝わる。device は使い続けられる。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn a_panicking_callback_does_not_starve_the_others_or_break_the_device() {
@@ -678,27 +679,45 @@ fn a_panicking_callback_does_not_starve_the_others_or_break_the_device() {
     let second = submit_empty(device.as_ref());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&seen);
-    device
-        .queue()
-        .on_complete(first, Box::new(|_| panic!("callback failed")));
+    // 空の command buffer はすぐ終わるので、`first` は登録の時点で終端のことがある。その場合 panic は登録から伝わる。
+    let at_registration = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        device
+            .queue()
+            .on_complete(first, Box::new(|_| panic!("callback failed")));
+    }))
+    .is_err();
     device.queue().on_complete(
         second,
         Box::new(move |state| sink.lock().expect("lock").push(state)),
     );
-    // 登録のあと、`first` が終端になって最初に駆動した呼び出しから panic が伝わる。伝わるまで 10 秒まで駆動する。
-    let started = std::time::Instant::now();
-    let mut propagated = false;
-    while !propagated {
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(10),
-            "the callback's panic did not propagate"
-        );
-        propagated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            device.queue().poll(second);
-        }))
-        .is_err();
-        std::thread::sleep(std::time::Duration::from_millis(1));
+    let mut from_drive = false;
+    if !at_registration {
+        // 登録の時点で未完了だった。`first` が終端になって最初に駆動した呼び出しから panic が伝わる。伝わるまで 10 秒まで駆動する。
+        let started = std::time::Instant::now();
+        while !from_drive {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
+                "the callback's panic did not propagate"
+            );
+            from_drive = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                device.queue().poll(second);
+            }))
+            .is_err();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
+    assert!(
+        at_registration ^ from_drive,
+        "the panic must propagate from exactly one of registration and drive"
+    );
+    println!(
+        "panic_propagated_from={}",
+        if at_registration {
+            "registration"
+        } else {
+            "drive"
+        }
+    );
     // panic のあとも、後ろの callback は 1 回呼ばれる（同じ駆動で呼ばれるか、次の駆動で呼ばれる）。
     drive_until_called(&seen, || {
         device.queue().poll(second);
@@ -715,6 +734,11 @@ fn registered_recorder(
     device.queue().on_complete(
         token,
         Box::new(move |state| sink.lock().expect("lock").push(state)),
+    );
+    // 登録の直後にもう呼ばれていれば、登録の時点で終端だった（その場で呼ばれた）。
+    println!(
+        "called_at_registration={}",
+        !seen.lock().expect("lock").is_empty()
     );
     seen
 }

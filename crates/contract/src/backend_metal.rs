@@ -1424,6 +1424,8 @@ mod imp {
         ///
         /// callback の panic は、駆動した呼び出し（`submit` 系・`allocate`・`poll`・`wait_blocking`）から伝わる。
         /// そのとき `submit` 系に渡した `CommandEncoder` は閉じられて戻らず、`wait_blocking` は結果を返さずに巻き戻る。
+        /// 登録の呼び出しの中でその場で呼んだ callback の panic は、`on_complete` 自身から伝わる（その場で呼ぶときも錠の外で呼ぶので、
+        /// 表の錠は毒化せず、そのあとも登録・駆動を続けられる）。
         /// これは利用者の callback の panic を伝えるもので、この背後実装自身は panic しない。
         /// 残りの callback は panic のあとでも呼び切る。`Drop` の中の callback の panic は捨てる。
         fn on_complete(
@@ -2358,6 +2360,38 @@ mod precheck_tests {
         });
         assert_eq!(seen.lock().expect("lock").len(), 2);
         assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    #[test]
+    fn register_table_propagates_the_panic_of_an_at_once_callback_and_keeps_the_lock_usable() {
+        let seen: Seen = Arc::default();
+        // 番号 1 は完了済み（登録の時点で終端）、番号 2 は実行中。
+        let (subs, groups) = fake_table(&[1, 0]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            register_table(
+                &table,
+                1,
+                Box::new(|_| panic!("callback failed")),
+                fake_state,
+                call,
+            );
+        }));
+        // その場で呼んだ callback の panic は、登録の呼び出しから伝わる。
+        assert!(outcome.is_err());
+        // 錠は毒化せず放されていて、登録は残らない。
+        assert!(table.try_lock().is_ok());
+        assert!(lock_table(&table).callbacks.is_empty());
+        // そのあとも、登録と駆動が使える。
+        register_table(&table, 2, recorder(&seen, 2), fake_state, call);
+        assert!(seen.lock().expect("lock").is_empty());
+        groups[1].store(1, Ordering::SeqCst);
+        drive_table(&table, fake_state, call);
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(2, CompletionState::Complete)]
+        );
     }
 
     #[test]
