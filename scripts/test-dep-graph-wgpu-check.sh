@@ -9,7 +9,8 @@
 # ここで確かめる。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない。
 # 検査の定数 METADATA_ONLY_CRATES（metadata にだけ載る crate の一覧。TASK-82 のポインタ）の値には依存しない:
 # 既定は一覧を空にした写し（PIN_ROOT）で流し、一覧の確かめは定数の行だけを差し替えた写しで行う。
-# 末尾の「陽性対照」だけが実物の一覧を製品の workspace の写しに当て、記載を 1 件足すと終了コード 2 になることを確かめる。
+# 陽性対照の節の cargo は CARGO_NET_OFFLINE=true で流すので、製品の依存があらかじめ取得済みであることが前提
+# （`make deny` や CI の deny ジョブの前段で取得される）。末尾の「陽性対照」だけが実物の一覧を製品の workspace の写しに当て、記載を 1 件足すと終了コード 2 になることを確かめる。
 # 呼び出し元: `make test-dep-graph-wgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
@@ -31,22 +32,46 @@ REAL_CHECK="${DIR}/dep-graph-wgpu-check.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/test-dep-graph-wgpu-check.XXXXXX")"
 trap 'rm -rf "${work:?}"' EXIT
 
+# 検査の定数 METADATA_ONLY_CRATES の読み書きの補助。検査（bash）の中の Python 部（<<'PY' から PY まで）を ast で読み、
+# 代入文の行の範囲（lineno〜end_lineno）を使うので、複数行の tuple や行末のコメントがあっても働く。
+#   get <検査>                  定数の値を repr で出す（ast.literal_eval）
+#   extend <検査>               定数の値に成り立たない記載を 1 件足した tuple の repr を出す
+#   set <検査> <出力先> <値>    定数の代入文を <値> のリテラルに置き換えて書き出す
+AST_HELPER="${work}/const_helper.py"
+cat >"${AST_HELPER}" <<'PY'
+import ast
+import sys
+
+NAME = "METADATA_ONLY_CRATES"
+mode, src = sys.argv[1], sys.argv[2]
+lines = open(src, encoding="utf-8").read().split("\n")
+begin = next(i for i, ln in enumerate(lines) if ln.rstrip().endswith("<<'PY'")) + 1
+end = next(i for i in range(begin, len(lines)) if lines[i] == "PY")
+tree = ast.parse("\n".join(lines[begin:end]))
+hits = [n for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == NAME for t in n.targets)]
+if len(hits) != 1:
+    sys.exit(NAME + " assignment not found exactly once")
+node = hits[0]
+value = ast.literal_eval(node.value)
+if mode == "get":
+    print(repr(value))
+elif mode == "extend":
+    print(repr(tuple(value) + (("positive-control-impossible", "0.0.0"),)))
+elif mode == "set":
+    lo, hi = begin + node.lineno - 1, begin + node.end_lineno
+    lines[lo:hi] = [NAME + " = " + sys.argv[4]]
+    open(sys.argv[3], "w", encoding="utf-8").write("\n".join(lines))
+else:
+    sys.exit("unknown mode")
+PY
+
+
 # 検査の写しを作る。定数 METADATA_ONLY_CRATES の行だけを渡した値に差し替え、実物の一覧の値に依存しない形にする。
 # make_variant <出力先ディレクトリ> <Python のリテラル>: <出力先>/scripts/ に写しを置く（lib.sh も写す）。
 make_variant() {
   mkdir -p "$1/scripts"
   cp "${DIR}/lib.sh" "$1/scripts/"
-  python3 -I - "${REAL_CHECK}" "$1/scripts/dep-graph-wgpu-check.sh" "$2" <<'PY'
-import re
-import sys
-
-src, dst, literal = sys.argv[1:4]
-text = open(src, encoding="utf-8").read()
-text, n = re.subn(r"(?m)^METADATA_ONLY_CRATES = .*$", lambda m: "METADATA_ONLY_CRATES = " + literal, text)
-if n != 1:
-    sys.exit("METADATA_ONLY_CRATES definition line not found exactly once")
-open(dst, "w", encoding="utf-8").write(text)
-PY
+  python3 -I "${AST_HELPER}" set "${REAL_CHECK}" "$1/scripts/dep-graph-wgpu-check.sh" "$2"
   chmod +x "$1/scripts/dep-graph-wgpu-check.sh"
 }
 
@@ -223,6 +248,8 @@ cases["mo_basic"] = under_app(pkg("lib-a"), pkg("mo-x"))
 trees["mo_basic"] = tree_text([("app", "1.0.0"), ("lib-a", "1.0.0"), ("mo-x", "1.0.0")])
 cases["mo_narrow"] = under_app(pkg("lib-a"), pkg("naga"))
 trees["mo_narrow"] = tree_text([("app", "1.0.0"), ("lib-a", "1.0.0")])
+cases["mo_wide"] = under_app(pkg("lib-a"), pkg("mo-gfx", repo=GFX))
+trees["mo_wide"] = tree_text([("app", "1.0.0"), ("lib-a", "1.0.0")])
 cases["mo_two"] = under_app(pkg("lib-a"), pkg("mo-x"), pkg("mo-y"))
 
 for name, doc in cases.items():
@@ -656,6 +683,12 @@ use_variant narrow '(("naga", "1.0.0"),)'
 run_check --metadata-json "${work}/mo_narrow.json" --tree-text "${work}/mo_narrow.tree"
 judge "mo_listed_narrow" 1 "e:violation: definition=narrow crate=naga version=1.0.0" "e:FAILED: 1 crate(s)" \
   "o:record: commit=- crates_total=3 " "o:narrow_total=1 wide_total=0" "o:metadata-only: crate=naga version=1.0.0" "!ok: "
+# 一覧の crate は広い定義の対象のままでもある（repository が gfx-rs 配下）
+use_variant wide '(("mo-gfx", "1.0.0"),)'
+run_check --metadata-json "${work}/mo_wide.json" --tree-text "${work}/mo_wide.tree"
+judge "mo_listed_wide" 1 "e:violation: definition=wide crate=mo-gfx version=1.0.0" "e:FAILED: 1 crate(s)" \
+  "o:record: commit=- crates_total=3 " "o:narrow_total=0 wide_total=1" "o:metadata-only: crate=mo-gfx version=1.0.0" \
+  "!definition=narrow" "!ok: "
 # 緩めの経路は一覧を使わない（一覧にある crate が metadata だけでなくても、無くても影響しない）
 use_variant listed "${MO_X}"
 run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/tree_missing.tree" --allow-metadata-superset
@@ -875,20 +908,7 @@ mkdir -p "${pc}"
 cp "${ROOT_DIR}/Cargo.toml" "${ROOT_DIR}/Cargo.lock" "${pc}/"
 [ -f "${ROOT_DIR}/rust-toolchain.toml" ] && cp "${ROOT_DIR}/rust-toolchain.toml" "${pc}/"
 cp -R "${ROOT_DIR}/crates" "${pc}/crates"
-if real_literal="$(python3 -I - "${REAL_CHECK}" <<'PY'
-import re
-import sys
-
-text = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r"(?m)^METADATA_ONLY_CRATES = (.*)$", text)
-if m is None or not m.group(1).startswith("(") or not m.group(1).endswith(")"):
-    sys.exit(1)
-inner = m.group(1)[1:-1].strip()
-if inner and not inner.endswith(","):
-    inner += ","
-print("(" + (inner + " " if inner else "") + '("positive-control-impossible", "0.0.0"),)')
-PY
-)" \
+if real_literal="$(python3 -I "${AST_HELPER}" extend "${REAL_CHECK}")" \
   && mkdir -p "${pc}/scripts" && cp "${DIR}/lib.sh" "${DIR}/dep-graph-wgpu-check.sh" "${pc}/scripts/" \
   && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${pc}" init -q \
   && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${pc}" add -A \
@@ -896,7 +916,7 @@ PY
     -c user.name=test -c user.email=test@example.invalid commit -q -m fixture; then
   pc_run() {
     rc=0
-    (cd "${pc}" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR "$1") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+    (cd "${pc}" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR CARGO_NET_OFFLINE=true "$1") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
   }
   # 実物の検査（一覧は実物のまま）: 合格
   pc_run ./scripts/dep-graph-wgpu-check.sh

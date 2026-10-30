@@ -11,7 +11,7 @@
 | 呼び出し元 | `make dep-graph-wgpu-check`（単体）と `make deny`（`scripts/deny.sh`）。CI の `deny` ジョブは `make deny` の中で流し、回帰テストは `make test-dep-graph-wgpu-check` のステップで流す。違反も前提の不足も失敗にし、握りつぶさない | `grep -n dep-graph-wgpu-check scripts/deny.sh Makefile` |
 | 対象 | 既定は製品の workspace（ルートの `Cargo.toml`）。`--manifest-path` でリポジトリ内の別 workspace（例: `baseline-wgpu/Cargo.toml`）に当てられる。`make deny` が呼ぶのは製品の workspace だけ | 同スクリプトの先頭コメント |
 | 入力 | `cargo metadata` と `cargo tree`。または `--metadata-json` と `--tree-text` で渡した入力 | 同スクリプトの先頭コメント |
-| 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。`METADATA_ONLY_CRATES` は、定数の行だけを差し替えた写しで確かめ（実物の値には依存しない）、実物の一覧に成り立たない記載を 1 件足した写しが終了コード 2 になることを製品の workspace の写しで確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-dep-graph-wgpu-check` |
+| 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。`METADATA_ONLY_CRATES` は、定数の行だけを差し替えた写しで確かめ（実物の値には依存しない）、実物の一覧に成り立たない記載を 1 件足した写しが終了コード 2 になることを製品の workspace の写しで確かめる。リポジトリのファイルを変更しない。実物の cargo の節は path 依存だけでネットワーク不要。製品の workspace の写しを流す陽性対照の節は `CARGO_NET_OFFLINE=true` で流すので、製品の依存があらかじめ取得済みであること（`make deny` の前段などで取得済み）が前提 | `make test-dep-graph-wgpu-check` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
