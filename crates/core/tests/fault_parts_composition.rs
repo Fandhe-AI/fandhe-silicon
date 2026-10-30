@@ -84,8 +84,15 @@ impl FaultHooks for StubDevice {
 }
 
 /// 試験の中だけの trait。型を消した内側として使う。
+/// wasm32 では `FaultStub` の通知の関数が `Send` でないので、`Send + Sync` は求めない。
+#[cfg(not(target_arch = "wasm32"))]
 trait Dev: Capabilities + FaultHooks + Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: Capabilities + FaultHooks + Send + Sync> Dev for T {}
+#[cfg(target_arch = "wasm32")]
+trait Dev: Capabilities + FaultHooks {}
+#[cfg(target_arch = "wasm32")]
+impl<T: Capabilities + FaultHooks> Dev for T {}
 
 /// 型を消した内側。`Capabilities`・`FaultHooks` を委譲する。
 struct BoxInner(Box<dyn Dev>);
@@ -282,13 +289,18 @@ fn runtime_error_keeps_backend_kind_from_script() {
 
 // ---- 型の組み上がり ----
 
+#[cfg(not(target_arch = "wasm32"))]
 fn assert_send_sync<T: Send + Sync>() {}
 fn assert_debug<T: fmt::Debug>() {}
 
 #[test]
 fn decorator_over_sync_inner_is_send_sync_debug_and_coerces() {
-    assert_send_sync::<FaultInjecting<StubDevice>>();
-    assert_send_sync::<FaultInjecting<BoxInner>>();
+    // wasm32 では `FaultStub` が `Send` でないので、この確かめは外す。
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        assert_send_sync::<FaultInjecting<StubDevice>>();
+        assert_send_sync::<FaultInjecting<BoxInner>>();
+    }
     assert_debug::<FaultInjecting<StubDevice>>();
     let d = FaultInjecting::new(StubDevice::default(), FaultScript::PassThrough);
     let hooks: &dyn FaultHooks = &d;
