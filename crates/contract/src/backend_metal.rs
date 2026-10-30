@@ -422,7 +422,20 @@ impl __BackendSharedEncoderCloser for OpenEncoders {
     }
 }
 
+/// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
+///
+/// 破棄で出た panic の中身も `forget` で捨てる（その破棄から呼び出し元へ巻き戻らないため。漏れるのは panic の中身だけで、
+/// メモリ安全には触れない）。残りの callback を呼び切る経路と `Drop` の経路が、破棄で途切れないために通す。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(inner) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(inner);
+    }
+}
+
 /// 外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
+///
+/// 2 個目以降の panic の中身は `discard_panic` で捨てる（その破棄の panic でも残りを呼び切る）。
 ///
 /// 錠を放してから呼ぶこと。呼ぶ側が駆動の呼び出しの最後に `resume_unwind` で再送出する
 /// （`Drop` では捨てる）。取りこぼしと二重呼び出しを作らないため、各 callback は呼ぶ前にすでに表から外れている。
@@ -436,7 +449,11 @@ fn run_callbacks<C>(
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(callback, state)));
         if let Err(payload) = outcome {
-            first_panic.get_or_insert(payload);
+            if first_panic.is_none() {
+                first_panic = Some(payload);
+            } else {
+                discard_panic(payload);
+            }
         }
     }
     first_panic
@@ -501,7 +518,7 @@ fn finish_table<G, C>(
     subs.wait_registered(wait);
     let ready = subs.take_all(classify);
     if let Some(payload) = run_callbacks(ready, call) {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(payload)));
+        discard_panic(payload);
     }
 }
 
@@ -1424,10 +1441,11 @@ mod imp {
         ///
         /// callback の panic は、駆動した呼び出し（`submit` 系・`allocate`・`poll`・`wait_blocking`）から伝わる。
         /// そのとき `submit` 系に渡した `CommandEncoder` は閉じられて戻らず、`wait_blocking` は結果を返さずに巻き戻る。
-        /// 登録の呼び出しの中でその場で呼んだ callback の panic は、`on_complete` 自身から伝わる（その場で呼ぶときも錠の外で呼ぶので、
-        /// 表の錠は毒化せず、そのあとも登録・駆動を続けられる）。
+        /// 登録の呼び出しの中でその場で呼んだ callback の panic は、`on_complete` 自身から伝わる。
+        /// その場で呼ぶときも錠の外で呼ぶので、表の錠は毒化せず、そのあとも登録・駆動を続けられる。
         /// これは利用者の callback の panic を伝えるもので、この背後実装自身は panic しない。
-        /// 残りの callback は panic のあとでも呼び切る。`Drop` の中の callback の panic は捨てる。
+        /// 残りの callback は panic のあとでも呼び切る。2 個目以降の panic の中身の `Drop` が panic しても、そこで止めずに呼び切る。
+        /// `Drop` の中の callback の panic と、その中身の破棄の panic は捨てる。
         fn on_complete(
             &self,
             token: SubmitToken,
@@ -2413,6 +2431,71 @@ mod precheck_tests {
         );
         assert!(subs.callbacks.is_empty());
         assert_eq!(groups[0].load(Ordering::SeqCst), 1);
+    }
+
+    /// `Drop` が panic する panic の中身（`panic_any` に渡す）。
+    struct PanicOnDrop;
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            panic!("payload drop failed");
+        }
+    }
+
+    fn drop_bomb() -> Callback {
+        Box::new(|_| std::panic::panic_any(PanicOnDrop))
+    }
+
+    #[test]
+    fn drive_table_calls_the_rest_when_a_discarded_payload_panics_on_drop() {
+        let seen: Seen = Arc::default();
+        let (subs, _groups) = fake_table(&[1, 1, 1, 1]);
+        let table = Mutex::new(subs);
+        {
+            let mut subs = lock_table(&table);
+            subs.callbacks.push((1, drop_bomb()));
+            subs.callbacks.push((2, drop_bomb()));
+            subs.callbacks.push((3, recorder(&seen, 3)));
+            subs.callbacks.push((4, recorder(&seen, 4)));
+        }
+        let call = |callback: Callback, state| callback(state);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drive_table(&table, fake_state, call);
+        }));
+        // 最初の中身だけが伝わり、2 個目の中身の破棄の panic は止まる。後ろの callback も 1 回ずつ呼ばれる。
+        let payload = outcome.expect_err("the first payload is propagated");
+        assert!(payload.is::<PanicOnDrop>());
+        std::mem::forget(payload);
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![
+                (3, CompletionState::Complete),
+                (4, CompletionState::Complete)
+            ]
+        );
+        assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    #[test]
+    fn finish_table_does_not_unwind_when_a_discarded_payload_panics_on_drop() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[0, 0, 0]);
+        subs.callbacks.push((1, drop_bomb()));
+        subs.callbacks.push((2, drop_bomb()));
+        subs.callbacks.push((3, recorder(&seen, 3)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            finish_table(
+                &mut subs,
+                |group| group.store(1, Ordering::SeqCst),
+                fake_state,
+                |callback: Callback, state| callback(state),
+            );
+        }));
+        assert!(outcome.is_ok());
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(3, CompletionState::Complete)]
+        );
+        assert!(subs.callbacks.is_empty());
     }
 
     #[test]
