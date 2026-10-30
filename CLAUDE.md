@@ -102,7 +102,7 @@ fandhe-silicon/
 ├── docs/core-deps-check.md   # 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・確かめ方・TASK-13 の検査との突き合わせ・完了の条件の確かめ（2/2）（TASK-258）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
 ├── docs/public-api-contract-check.md  # 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧のまとめと完了の条件の確かめ（4/4）（TASK-253）
-├── docs/public-api-webgpu-check.md  # 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6）
+├── docs/public-api-webgpu-check.md  # 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6）・名前に WebGPU の語を含む公開の操作・型（TASK-155）
 ├── docs/dep-graph-wgpu-check.md  # 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11）
 ├── docs/profile-dep-graph-check.md  # 依存グラフのプロファイルごとの検査（CpuOnly・ComputeOnly の Metal の組と per-header feature）の所在・出力の読み方・数え方の定義の所在・陽性対照（一覧に 1 件足すと落ちることの確かめ）・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）・完了の条件の確かめと件数・差の記録（6/6）（TASK-229）
 ├── docs/public-api-diff.md   # 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17）

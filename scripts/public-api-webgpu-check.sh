@@ -63,7 +63,19 @@
 #   record に `pipeline_create_functions_total=<n> pipeline_input_checked=<0|1> pipeline_input_violations_total=<n>`、
 #   ok の末尾に `, pipeline input ok`。(2) の違反の行は `violation: crate=<c> features=<f> check=pipeline-input reason=<..>` と
 #   `violation: crate=<c> features=<f> item=<名前> kind=function check=pipeline-create reason=no-pipeline-input`。
-#   FAILED の件数は (1)(2)(3) の合計。
+#   FAILED の件数は (1)(2)(3)(4) の合計。
+#
+# 内容の (4) の照合の規則（TASK-155 のポインタ。対象は組 A と組 B の JSON）:
+#   H1 crate_id が 0 で visibility が public / default のアイテムのうち、inner が function・use・struct・enum・union・trait・
+#      trait_alias・type_alias・variant のものの名前（再公開は局所名 use.name も）を、`_` と大文字小文字の切れ目で語に分け
+#      （`WebGpuX`・`WebGPUX`・`as_webgpu` はどれも webgpu を含む語の並びになる）、連続する語をつないだ文字列が [webgpu-words] の語に
+#      等しければ違反。部分一致では当てない。const・static・field・module・マクロは数えない（WebGPU の口の非対応を答える値は操作でない）。
+#   違反の行は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=webgpu-name word=<語>`。
+#   scanned の末尾に `webgpu_names=<n>`、record の末尾に `webgpu_names_total=<n>`。組 B の JSON にも同じ規則をかけ、
+#      組 A で数えた同じ (crate, 名前, 種類, 語) は同じ個数まで引いて、組 A と組 B の和集合で数える
+#      （`native-blocking-wait` の裏のアイテムは組 B にだけ現れる）。(4) の対象にならない種類（const・static・field・module・
+#      関連型・関連定数・マクロ）は数えない。JSON は Linux で生成するので、`cfg(target_os)` で外れる面は見ない。
+#      外部 crate を指す glob の再公開・解決できない参照先は、組 A・B とも (1) と同じ規則で終了コード 2。
 #   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
 #
 # 検査しないもの: 語を含まない名前のブロッキング待ち、完了の通知に非ブロッキングの形があるか、exec・upper の公開面、
@@ -82,6 +94,7 @@ require_cmd python3 || exit 2
 # シェルは入力の値に触れない。値の扱いはすべて Python の中で行う。
 exec python3 -I - "${ROOT_DIR}" "$@" <<'PY'
 import argparse
+import collections
 import json
 import os
 import re
@@ -98,7 +111,10 @@ if sys.version_info < (3, 8):
 WITHOUT_BLOCKING = "native-blocking-wait"
 WITHOUT_INTEROP = "ext-interop"
 TARGET_PACKAGES = ("fandhe-silicon-core", "fandhe-silicon-contract")
-SECTIONS = ("blocking-words",)
+SECTIONS = ("blocking-words", "webgpu-words")
+# 内容の (4) の対象（名前を持つ「操作」と型。const・static・field・module・マクロは数えない）。
+WEBGPU_KINDS = ("function", "use", "struct", "enum", "union", "trait", "trait_alias", "type_alias", "variant")
+NAME_TOKEN = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 # 内容の (2) の照合の名前（構造の事実なので語の一覧の conf には持たない）。
 CORE_CRATE = "fandhe_silicon_core"
 PIPELINE_INPUT = "PipelineInput"
@@ -166,6 +182,43 @@ def match_words(name, words):
     """名前を `_` で区切って小文字にした語のうち、[blocking-words] に等しいものを返す。"""
     parts = name.lower().split("_")
     return [w for w in words if w in parts]
+
+
+def name_tokens(name):
+    """名前を `_` と大文字小文字の切れ目（`WebGpu`・`WebGPUHandle`）で区切り、小文字にした語の並びを返す。"""
+    out = []
+    for seg in name.split("_"):
+        out.extend(t.lower() for t in NAME_TOKEN.findall(seg))
+    return out
+
+
+def match_webgpu(name, words):
+    """語の並びの連続する部分をつないだ文字列が [webgpu-words] の語に等しいものを返す（部分一致では当てない）。"""
+    toks = name_tokens(name)
+    joined = set()
+    for i in range(len(toks)):
+        acc = ""
+        for j in range(i, len(toks)):
+            acc += toks[j]
+            joined.add(acc)
+    return [w for w in words if w in joined]
+
+
+def webgpu_hits(doc, words):
+    """(4) 用に、inspect を通った JSON 1 本から WebGPU の語を名前に含む公開の操作・型を [(名前, 種類, 語)] で返す。
+    種類は WEBGPU_KINDS に限る。const・static・field は WebGPU の口の非対応を答える値や部品であり数えない。"""
+    hits = []
+    for it in doc["index"].values():
+        if it["crate_id"] != 0 or it.get("visibility") not in ("public", "default"):
+            continue
+        inner = it["inner"]
+        kind = next((k for k in WEBGPU_KINDS if k in inner), None)
+        if kind is None:
+            continue
+        for nm in item_names(it):
+            for w in match_webgpu(nm, words):
+                hits.append((clean(nm), kind, clean(w)))
+    return hits
 
 
 def mentions_pipeline_input(node):
@@ -415,15 +468,27 @@ def load_json(path):
         raise Misuse("cannot read JSON input")
 
 
-def run_docs(inputs, words, mode):
+def run_docs(inputs, words, mode, wwords=(), seen=None):
     """文書ごとに規則をかける。mode "A" は (1)(2) と G2・G3、mode "B"（ext-interop を外した組）は G1・G2・G3。"""
     total = {"public": 0, "functions": 0, "hits": 0, "pcreate": 0, "pchecked": 0, "pviol": 0,
-            "ei": 0, "handle_core": 0, "waits": 0, "iviol": 0}
+            "ei": 0, "handle_core": 0, "waits": 0, "iviol": 0, "wviol": 0, "wkeys": collections.Counter()}
     results = []
     for _crate, label, path in inputs:
         doc = load_json(path)
         name, fv, public, functions, hits, pdefs, pfuncs = inspect(doc, words)
         ext, ops, hdefs, submits, waits = inspect_interop(doc)
+        whits = webgpu_hits(doc, wwords)
+        # 組 B では、組 A で数えた同じ (crate, 名前, 種類, 語) を同じ個数まで引き、B にだけある分を数える（和集合）。
+        remaining = collections.Counter(seen) if seen is not None else collections.Counter()
+        fresh = []
+        for h in whits:
+            key = (clean(name), h[0], h[1], h[2])
+            if remaining[key] > 0:
+                remaining[key] -= 1
+            else:
+                fresh.append(h)
+        whits = fresh
+        total["wkeys"].update((clean(name), h[0], h[1], h[2]) for h in whits)
         # (2) の違反を、この文書に属するものとして集める（(行に出す属性, 理由) の並び）。mode B では (1)(2) をかけない。
         pv = []
         if mode == "A":
@@ -463,23 +528,26 @@ def run_docs(inputs, words, mode):
             if reason is not None:
                 iv.append(("submit-wait", fname, "function", reason))
         results.append((name, label, fv, public, functions, hits, len(pfuncs), pv,
-                        len(ext), len(ops), len(hdefs), submits, len(waits), iv))
+                        len(ext), len(ops), len(hdefs), submits, len(waits), iv, whits))
     for (name, label, fv, public, functions, hits, pcreate, pv,
-        n_ext, n_ops, n_hdefs, submits, n_waits, iv) in results:
+        n_ext, n_ops, n_hdefs, submits, n_waits, iv, whits) in results:
         if mode == "A":
             print("scanned: crate=%s features=%s format_version=%d public_items=%d public_functions=%d blocking_wait_names=%d"
                   " pipeline_create_functions=%d pipeline_input_violations=%d"
                   " external_interop_items=%d semaphore_handle_defs=%d submit_functions=%d submit_wait_params=%d"
-                  " interop_violations=%d"
+                  " interop_violations=%d webgpu_names=%d"
                   % (clean(name), clean(label), fv, public, functions, len(hits), pcreate, len(pv),
-                    n_ext, n_hdefs, submits, n_waits, len(iv)))
+                    n_ext, n_hdefs, submits, n_waits, len(iv), len(whits)))
         else:
             print("scanned: crate=%s features=%s format_version=%d public_items=%d external_interop_items=%d"
                   " interop_op_names=%d semaphore_handle_defs=%d submit_functions=%d submit_wait_params=%d"
-                  " interop_violations=%d"
-                  % (clean(name), clean(label), fv, public, n_ext, n_ops, n_hdefs, submits, n_waits, len(iv)))
+                  " interop_violations=%d webgpu_names=%d"
+                  % (clean(name), clean(label), fv, public, n_ext, n_ops, n_hdefs, submits, n_waits, len(iv), len(whits)))
         for item, kind, word in hits:
             print("violation: crate=%s features=%s item=%s kind=%s word=%s"
+                  % (clean(name), clean(label), item, kind, word), file=sys.stderr)
+        for item, kind, word in whits:
+            print("violation: crate=%s features=%s item=%s kind=%s check=webgpu-name word=%s"
                   % (clean(name), clean(label), item, kind, word), file=sys.stderr)
         for check, item, reason in pv:
             if item is None:
@@ -503,6 +571,7 @@ def run_docs(inputs, words, mode):
         total["ei"] += n_ext
         total["waits"] += n_waits
         total["iviol"] += len(iv)
+        total["wviol"] += len(whits)
         if mode == "A" and name == CORE_CRATE:
             total["handle_core"] += n_hdefs
     return total
@@ -517,13 +586,15 @@ def main():
     args = parser.parse_args(sys.argv[2:])
     need(args.interop_json is None or args.json is not None, "--interop-json requires --json")
 
-    words = load_config(args.config)["blocking-words"]
+    conf = load_config(args.config)
+    words = conf["blocking-words"]
+    wwords = conf["webgpu-words"]
     if args.json is not None:
         commit = "-"
         inputs = [("-", "-", p) for p in args.json]
-        total = run_docs(inputs, words, "A")
+        total = run_docs(inputs, words, "A", wwords)
         b_inputs = [("-", "-", p) for p in (args.interop_json or [])]
-        btotal = run_docs(b_inputs, words, "B") if b_inputs else None
+        btotal = run_docs(b_inputs, words, "B", wwords, total["wkeys"]) if b_inputs else None
     else:
         commit = source_commit(root)
         with tempfile.TemporaryDirectory() as tmp:
@@ -531,18 +602,19 @@ def main():
             os.mkdir(os.path.join(tmp, "b"))
             inputs = emit_docs(root, os.path.join(tmp, "a"), WITHOUT_BLOCKING)
             b_inputs = emit_docs(root, os.path.join(tmp, "b"), WITHOUT_INTEROP)
-            total = run_docs(inputs, words, "A")
-            btotal = run_docs(b_inputs, words, "B")
+            total = run_docs(inputs, words, "A", wwords)
+            btotal = run_docs(b_inputs, words, "B", wwords, total["wkeys"])
 
+    wviol = total["wviol"] + (btotal["wviol"] if btotal else 0)
     iviol = total["iviol"] + (btotal["iviol"] if btotal else 0)
     print("record: commit=%s documents=%d public_items_total=%d public_functions_total=%d blocking_wait_names_total=%d"
           " pipeline_create_functions_total=%d pipeline_input_checked=%d pipeline_input_violations_total=%d"
           " interop_documents=%d ext_interop_checked=%d external_interop_items_total=%d semaphore_handle_defined=%d"
-          " submit_wait_params_total=%d interop_violations_total=%d"
+          " submit_wait_params_total=%d interop_violations_total=%d webgpu_names_total=%d"
           % (commit, len(inputs), total["public"], total["functions"], total["hits"],
               total["pcreate"], total["pchecked"], total["pviol"],
-              len(b_inputs), 1 if btotal else 0, total["ei"], total["handle_core"], total["waits"], iviol))
-    failed = total["hits"] + total["pviol"] + iviol
+              len(b_inputs), 1 if btotal else 0, total["ei"], total["handle_core"], total["waits"], iviol, wviol))
+    failed = total["hits"] + total["pviol"] + iviol + wviol
     if failed:
         print("FAILED: %d item(s)" % failed, file=sys.stderr)
         return 1

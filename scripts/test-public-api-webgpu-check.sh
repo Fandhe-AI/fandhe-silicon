@@ -404,12 +404,65 @@ d = core_base()
 d["index"]["30"] = item(30, "export_memory", {"function": {}}, crate_id=1)
 put("o_external", d)
 
+# ---- (4): 名前に WebGPU の語を含む公開の操作・型（ダミーの語 zzgpu。語は ok.conf の [webgpu-words]）----
+def wg(extra):
+    d = base()
+    for i, (name, inner, kw) in enumerate(extra):
+        d["index"][str(2 + i)] = item(2 + i, name, inner, **kw)
+    return d
+
+
+put("w_fn", wg([("as_zzgpu", {"function": {}}, {})]))
+put("w_method_default", wg([("open_zzgpu_port", {"function": {}}, {"vis": "default"})]))
+put("w_struct", wg([("ZzGpuDevice", {"struct": {}}, {})]))
+put("w_struct_acronym", wg([("ZZGPUHandle", {"struct": {}}, {})]))
+put("w_enum", wg([("Zzgpu", {"enum": {}}, {})]))
+put("w_trait", wg([("HasZzGpu", {"trait": {}}, {})]))
+put("w_union", wg([("ZzgpuU", {"union": {}}, {})]))
+put("w_type_alias", wg([("ZzgpuAlias", {"type_alias": {}}, {})]))
+put("w_variant", wg([("ZzGpu", {"variant": {}}, {})]))
+put("w_split", wg([("zz_gpu_thing", {"function": {}}, {})]))
+put("w_use", wg([("ZzgpuReexp", {"use": {"name": "ZzgpuReexp", "source": "x", "id": None, "is_glob": False}}, {})]))
+put("w_use_alias", wg([("shown", {"use": {"name": "AsZzgpu", "source": "x", "id": None, "is_glob": False}}, {})]))
+# const・static・field・module は数えない（WebGPU の口の非対応を答える値は操作ではない）。
+put("w_const", wg([
+    ("ZZGPU_DEVICE_PORT", {"constant": {}}, {}),
+    ("ZZGPU_STATIC", {"static": {}}, {}),
+    ("zzgpu_field", {"struct_field": {}}, {}),
+    ("zzgpu_mod", {"module": {"items": []}}, {}),
+]))
+# 語を部分に含むだけの別の語は数えない。
+put("w_partial", wg([
+    ("nonzzgpu", {"function": {}}, {}),
+    ("zzgpus", {"function": {}}, {}),
+    ("Zzgpus", {"struct": {}}, {}),
+    ("zz_only", {"function": {}}, {}),
+    ("gpu_zz", {"function": {}}, {}),
+]))
+put("w_nonpublic", wg([
+    ("zzgpu_private", {"function": {}}, {"vis": "crate"}),
+    ("zzgpu_ext", {"function": {}}, {"crate_id": 1}),
+]))
+put("w_trait_alias", wg([("ZzgpuAlias2", {"trait_alias": {}}, {})]))
+# 許可リストに無い種類（関連型・関連定数・マクロ）は数えない。
+put("w_other_kinds", wg([
+    ("ZzgpuAssoc", {"assoc_type": {}}, {}),
+    ("ZZGPU_ASSOC", {"assoc_const": {}}, {}),
+    ("zzgpu_macro", {"macro": ""}, {}),
+]))
+put("w_dup2", wg([("as_zzgpu", {"function": {}}, {}), ("as_zzgpu", {"function": {}}, {})]))
+put("w_two", wg([("as_zzgpu", {"function": {}}, {}), ("ZzgpuDevice", {"struct": {}}, {})]))
+
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
 PY
 
 # 設定の合成ファイル（テスト用のダミーの語）
-printf '# dummy\n[blocking-words]\nzzblock\nzzwait\n' >"${work}/ok.conf"
+printf '# dummy\n[blocking-words]\nzzblock\nzzwait\n[webgpu-words]\nzzgpu\n' >"${work}/ok.conf"
+printf '[webgpu-words]\nzzgpu\n[webgpu-words]\nzzgpu2\n' >"${work}/dup_wg_section.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nZzGpu\n' >"${work}/upper_wg_word.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\n# none\n' >"${work}/empty_wg_section.conf"
+printf '[blocking-words]\nzzblock\n' >"${work}/missing_wg_section.conf"
 printf '[blocking-words]\nzzblock\n[bogus]\nx\n' >"${work}/unknown_section.conf"
 printf '[Blocking-Words]\nzzblock\n' >"${work}/upper_section.conf"
 printf '[blocking-words]\nzzblock\n[blocking-words]\nzzwait\n' >"${work}/dup_section.conf"
@@ -480,6 +533,45 @@ check "1 つの名前に 2 語なら語ごとに数える" 1 "blocking_wait_name
 check "複数 JSON の合計" 1 "documents=2 public_items_total=5 public_functions_total=1 blocking_wait_names_total=1" "FAILED: 1 item(s)" \
     --config "${C}" --json "$(J clean)" "$(J fn_hit)"
 check "違反の出力の値の無害化" 1 - "item=zzblock_? kind=function" --config "${C}" --json "$(J ctrl_name)"
+
+# ---- (4) の検査（--json の経路）----
+check "(4) 関数 as_ 語" 1 "webgpu_names=1" "violation: crate=dummy features=- item=as_zzgpu kind=function check=webgpu-name word=zzgpu" \
+    --config "${C}" --json "$(J w_fn)"
+check "(4) record と FAILED" 1 "webgpu_names_total=1" "FAILED: 1 item(s)" --config "${C}" --json "$(J w_fn)"
+check "(4) メソッド（default）" 1 - "item=open_zzgpu_port kind=function check=webgpu-name" --config "${C}" --json "$(J w_method_default)"
+check "(4) struct（CamelCase）" 1 - "item=ZzGpuDevice kind=struct check=webgpu-name word=zzgpu" --config "${C}" --json "$(J w_struct)"
+check "(4) struct（大文字の略語）" 1 - "item=ZZGPUHandle kind=struct check=webgpu-name" --config "${C}" --json "$(J w_struct_acronym)"
+check "(4) enum" 1 - "item=Zzgpu kind=enum check=webgpu-name" --config "${C}" --json "$(J w_enum)"
+check "(4) trait" 1 - "item=HasZzGpu kind=trait check=webgpu-name" --config "${C}" --json "$(J w_trait)"
+check "(4) union" 1 - "item=ZzgpuU kind=union check=webgpu-name" --config "${C}" --json "$(J w_union)"
+check "(4) type alias" 1 - "item=ZzgpuAlias kind=type_alias check=webgpu-name" --config "${C}" --json "$(J w_type_alias)"
+check "(4) variant" 1 - "item=ZzGpu kind=variant check=webgpu-name" --config "${C}" --json "$(J w_variant)"
+check "(4) _ で分かれた語の連続" 1 - "item=zz_gpu_thing kind=function check=webgpu-name" --config "${C}" --json "$(J w_split)"
+check "(4) 再公開" 1 "webgpu_names_total=1" "item=ZzgpuReexp kind=use check=webgpu-name" --config "${C}" --json "$(J w_use)"
+check "(4) 再公開の局所名だけが語を含む" 1 - "item=AsZzgpu kind=use check=webgpu-name" --config "${C}" --json "$(J w_use_alias)"
+check "(4) 複数は合計" 1 "webgpu_names_total=2" "FAILED: 2 item(s)" --config "${C}" --json "$(J w_two)"
+check "(4) const・static・field・module は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_const)"
+check "(4) 語を部分に含むだけの名前は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_partial)"
+check "(4) 非公開・他 crate は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_nonpublic)"
+check "(4) trait alias" 1 - "item=ZzgpuAlias2 kind=trait_alias check=webgpu-name" --config "${C}" --json "$(J w_trait_alias)"
+check "(4) 関連型・関連定数・マクロは数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_other_kinds)"
+check "(4) 組 B にだけある違反を数える" 1 "webgpu_names_total=1" "violation: crate=dummy features=- item=as_zzgpu kind=function check=webgpu-name" \
+    --config "${C}" --json "$(J clean)" --interop-json "$(J w_fn)"
+check "(4) 組 B の scanned にも件数" 1 "webgpu_names=1" - --config "${C}" --json "$(J clean)" --interop-json "$(J w_fn)"
+check "(4) 両方にある同じアイテムは 1 件" 1 "webgpu_names_total=1" "FAILED: 1 item(s)" \
+    --config "${C}" --json "$(J w_fn)" --interop-json "$(J w_fn)"
+check "(4) 組 B にだけ増えた分を足す" 1 "webgpu_names_total=2" "FAILED: 2 item(s)" \
+    --config "${C}" --json "$(J w_fn)" --interop-json "$(J w_two)"
+check "(4) 同名が複数あれば個数で引く" 1 "webgpu_names_total=2" "FAILED: 2 item(s)" \
+    --config "${C}" --json "$(J w_fn)" --interop-json "$(J w_dup2)"
+check "(4) 組 B の外部 crate を指す glob は終了コード 2" 2 - "glob re-export target is external or unresolved" \
+    --config "${C}" --json "$(J clean)" --interop-json "$(J glob_external)"
+check "(4) 組 B の解決できない glob は終了コード 2" 2 - "glob re-export target is external or unresolved" \
+    --config "${C}" --json "$(J clean)" --interop-json "$(J glob_unresolved)"
+check "(4) 節の重複" 2 - "duplicate config section" --config "${work}/dup_wg_section.conf" --json "$(J clean)"
+check "(4) 大文字の語" 2 - "malformed word in a config section" --config "${work}/upper_wg_word.conf" --json "$(J clean)"
+check "(4) 節が空" 2 - "empty config section" --config "${work}/empty_wg_section.conf" --json "$(J clean)"
+check "(4) 節の欠落" 2 - "missing config section" --config "${work}/missing_wg_section.conf" --json "$(J clean)"
 
 # 終了コード 2（誤用・前提の不足・読み切れない入力）
 check "引数なし" 2 - -
@@ -645,7 +737,7 @@ with open(conf, encoding="utf-8") as f:
             continue
         if line.startswith("[") and line.endswith("]"):
             sec = line[1:-1]
-        elif sec == "blocking-words":
+        elif sec in ("blocking-words", "webgpu-words"):
             words.append(line)
 if not words:
     sys.exit("no words in the real config")
@@ -795,6 +887,25 @@ for raw in open(sys.argv[1], encoding="utf-8"):
 PY
 )" || first_word=""
 VIOL="${first_word}_idle"
+# WebGPU の語（[webgpu-words] の最初の語）。
+wg_word="$(python3 -I - "${REAL_CONF}" <<'PY'
+import re
+import sys
+
+sec = None
+for raw in open(sys.argv[1], encoding="utf-8"):
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("["):
+        sec = line
+    elif sec == "[webgpu-words]":
+        if re.fullmatch(r"[a-z0-9]+", line):
+            print(line)
+        break
+PY
+)" || wg_word=""
+wg_upper="$(printf '%s' "${wg_word}" | tr '[:lower:]' '[:upper:]')"
 
 libs "${CORE_OK}" 'pub struct Own;'
 if [[ -n "${feature_names}" && -n "${first_word}" ]] \
@@ -849,6 +960,40 @@ impl Own {
 }
 pub use m::${VIOL};"
     real real_reexport 1 - "kind=use word=${first_word}"
+
+    # ---- (4) の陽性対照（実物の rustdoc の JSON）----
+    # 公開の自由関数 as_<語> を足すと落ちる。
+    libs "${CORE_OK}" "pub struct Own;
+pub fn as_${wg_word}() {}"
+    real real_webgpu_fn 1 "webgpu_names_total=1" "item=as_${wg_word} kind=function check=webgpu-name word=${wg_word}"
+    has_in real_webgpu_fn_failed "${ERR_F}" 'FAILED: 1 item\(s\)'
+    not_in real_webgpu_fn_no_ok "${OUT_F}" '^ok:'
+    # CamelCase の型も落ちる（語の綴りは設定の語を先頭だけ大文字にして作る）。
+    wg_camel="$(printf '%s' "${wg_word}" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "${wg_word}" | cut -c2-)"
+    libs "${CORE_OK}" "pub struct ${wg_camel}Device;" 'pub struct Own;'
+    real real_webgpu_struct 1 "webgpu_names_total=1" "kind=struct check=webgpu-name"
+    # inherent のメソッド・公開 trait のメソッドも落ちる。
+    libs "${CORE_OK}" "pub struct Own;
+impl Own {
+    pub fn as_${wg_word}(&self) {}
+}"
+    real real_webgpu_method 1 "webgpu_names_total=1" "item=as_${wg_word} kind=function check=webgpu-name"
+    libs "${CORE_OK}" "pub struct Own;
+pub trait Port {
+    fn as_${wg_word}(&self);
+}"
+    real real_webgpu_trait_method 1 "webgpu_names_total=1" "item=as_${wg_word} kind=function check=webgpu-name"
+    # native-blocking-wait の裏だけにある名前は組 B で拾う（組 A には出ない）。
+    libs "${CORE_OK}" "pub struct Own;
+#[cfg(feature = \"native-blocking-wait\")]
+pub fn as_${wg_word}() {}"
+    real real_webgpu_gated 1 "webgpu_names_total=1" "violation: crate=fandhe_silicon_contract features=without-ext-interop item=as_${wg_word}"
+    # 定数は WebGPU の口の非対応を答える値であり数えない。
+    libs "${CORE_OK}
+pub const ${wg_upper}_PORT: u32 = 1;
+pub static ${wg_upper}_STATIC: u32 = 1;" 'pub struct Own;'
+    real real_webgpu_const 0 "webgpu_names_total=0" -
+    not_in real_webgpu_const_no_violation "${ERR_F}" 'violation'
 
     # ---- (2) の陽性対照（実物の rustdoc の JSON）----
     # (a) non_exhaustive を外すと落ちる。
