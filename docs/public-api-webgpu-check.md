@@ -161,3 +161,19 @@
 | (3) の違反を 1 件足すと落ちる | 同上 | `real_interop_open`・`real_interop_op_fn`・`real_handle_root`・`real_handle_contract`・`real_wait_vec`・`real_wait_mut`・`real_wait_u32` |
 
 確かめ方: `make test-public-api-webgpu-check`（`failed=0`）。
+
+## 名前に WebGPU の語を含む公開の操作・型（TASK-155）
+
+記録の正は private spec 側の TASK-155（ポインタのみ）。組 A と組 B の rustdoc の JSON に、同じスクリプトが節 `[webgpu-words]`（`public-api-webgpu-check.conf`）の語で名前を照合する。本リポの事実として確かめられること。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 数える種類 | crate_id が 0 で visibility が public / default のうち、`function`・`use`・`struct`・`enum`・`union`・`trait`・`trait_alias`・`type_alias`・`variant`。`constant`・`static`・field・module は数えない（種類の許可リストで外れる。除外の一覧は持たない） | `(4) const・static・field・module は数えない`・`real_webgpu_const` |
+| 名前の照合 | `_` と大文字小文字の切れ目で小文字の語に分け、連続する語をつないだ文字列が節の語に等しければ違反。加えて、大文字だけの語（略語の並び）の中で語が終わる場合も違反にする（つないだ文字列が語で始まり、その手前までの文字列が語より短い。`<語>X` の CamelCase・全部大文字の名前を拾う）。小文字を含む語の途中で一致するだけの名前（`<語>s` など）は当てない。`as_<語>`・`<語>Device`・大文字の略語の並び・`_` で分かれた語を拾う。語を部分に含むだけの名前は拾わない。再公開は局所名（`use.name`）も見る | `(4) 関数 as_ 語`・`(4) struct（CamelCase）`・`(4) 再公開`・`(4) trait alias`・`(4) 大文字の略語の並びに続く名前`・`(4) 語を部分に含むだけの名前は数えない` |
+| 出力 | 違反は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=webgpu-name word=<語>`。`scanned:` の末尾に `webgpu_names=`、`record:` の末尾に `webgpu_names_total=`。`FAILED:` の件数に足す。組 B の `scanned:` にも `webgpu_names=` が付く | `(4) record と FAILED`・`(4) 組 B の scanned にも件数` |
+| 組 A と組 B の和集合 | 組 B の JSON にも同じ規則をかけ、組 A で数えた同じ (crate, 名前, 種類, 語) は同じ個数まで引く。`native-blocking-wait` の裏だけにある名前は組 B で拾い、両方にある同じアイテムは 1 件と数える。鍵が同じ別のアイテムが組 A と組 B に 1 つずつあるときも 1 件と数える（件数の表示だけが変わり、終了コードは 1 のまま） | `(4) 組 B にだけある違反を数える`・`(4) 両方にある同じアイテムは 1 件`・`(4) 組 B にだけ増えた分を足す`・`(4) 同名が複数あれば個数で引く`・`real_webgpu_gated` |
+| 数えない種類と生成の環境（検査の範囲の外） | 許可リストに無い種類（const・static・field・module・関連型・関連定数・マクロ）は数えない。rustdoc の JSON は Linux で生成するので、`cfg(target_os)` で外れる面は見ない | `(4) 関連型・関連定数・マクロは数えない` |
+| glob の再公開 | 外部 crate を指す glob・解決できない参照先は、組 A・B とも (1) と同じ規則で終了コード 2 | `(4) 組 B の外部 crate を指す glob は終了コード 2`・`(4) 組 B の解決できない glob は終了コード 2` |
+| 設定の書式 | 節 `[webgpu-words]` は必須。節の重複・空・大文字の語は終了コード 2 | `(4) 節の重複`・`(4) 節が空`・`(4) 節の欠落`・`(4) 大文字の語` |
+| 一時 workspace の実物 | 公開の自由関数 `as_<語>` や `<語>` を含む型を足すと終了コード 1。同じ語の定数・static は 0 件で通る | `real_webgpu_fn`・`real_webgpu_struct`・`real_webgpu_method`・`real_webgpu_trait_method`・`real_webgpu_const` |
+| 実物のリポジトリ | 引数なしで終了コード 0 | `make public-api-webgpu-check` |
