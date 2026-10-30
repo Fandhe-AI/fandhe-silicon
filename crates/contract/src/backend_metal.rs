@@ -1148,15 +1148,17 @@ mod imp {
 
         /// 試験専用。確定を遅らせる状態をやめ、溜めたコマンドバッファを投入順に確定する。何度呼んでもよい。
         #[cfg(test)]
-        fn release_held_commits(&self) {
+        fn release_held_commits(&self) -> Vec<CommandBuffer> {
             let held = self
                 .commit_hold
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .take();
-            for buffer in held.into_iter().flatten() {
+            let held: Vec<CommandBuffer> = held.into_iter().flatten().collect();
+            for buffer in &held {
                 buffer.commit();
             }
+            held
         }
 
         /// 登録済みの callback のうち終端になったものを、呼び出し元のスレッドで 1 回ずつ呼ぶ。
@@ -1950,6 +1952,14 @@ mod imp {
             fn release(&self) {
                 self.0.release_held_commits();
             }
+
+            /// 確定し、溜めていたコマンドバッファがすべて終わるまで待つ。submission の表は駆動しない
+            /// （コマンドバッファ自身の完了待ちなので、callback は呼ばれない）。
+            fn release_and_wait_all(&self) {
+                for buffer in self.0.release_held_commits() {
+                    buffer.waitUntilCompleted();
+                }
+            }
         }
 
         impl Drop for HeldCommits<'_> {
@@ -2088,6 +2098,9 @@ mod imp {
 
         /// TASK-595。panic が駆動の呼び出し（この試験では `poll`）から 1 回だけ伝わり、残りの callback は 1 回呼ばれ、
         /// device は使い続けられる。この試験は `poll` からの伝わりだけを確かめる。
+        ///
+        /// 確定を保留して 2 つを登録し、確定して両方の完了を待ってから 1 回だけ駆動する。panic する callback と
+        /// その後ろの callback は、毎回同じ駆動に入る。
         #[test]
         #[ignore = "touches the Metal device; run only in a dedicated device session"]
         fn drive_path_panic_propagates_from_drive_once_and_the_rest_are_called() {
@@ -2101,29 +2114,27 @@ mod imp {
             .is_err();
             assert!(!at_registration, "the panic came from registration");
             let seen = register_pending(&device, second);
-            held.release();
-            let started = std::time::Instant::now();
-            let mut panics = 0;
-            while seen.lock().expect("lock").is_empty() || panics == 0 {
-                assert!(
-                    started.elapsed() < std::time::Duration::from_secs(10),
-                    "the callback was not driven"
-                );
-                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    device.poll(second);
-                }))
-                .is_err()
-                {
-                    panics += 1;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
+            // 両方のコマンドバッファが終わってから 1 回だけ駆動し、panic する callback と
+            // その後ろの callback が同じ駆動に入る経路を必ず通す。
+            held.release_and_wait_all();
+            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                device.poll(second);
+            }))
+            .is_err();
+            assert!(
+                panicked,
+                "the drive did not propagate the panic (the commits were not held, or the callback was not called)"
+            );
+            assert_eq!(
+                *seen.lock().expect("lock"),
+                vec![CompletionState::Complete],
+                "the callback after the panicking one was not called in the same drive"
+            );
             println!("panic_propagated_from=drive");
             // 以後の駆動では panic せず、残りの callback も 1 回のまま。device は使い続けられる。
             for _ in 0..3 {
                 assert_eq!(device.poll(second), CompletionState::Complete);
             }
-            assert_eq!(panics, 1);
             assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
             assert_eq!(device.poll(first), CompletionState::Complete);
             submit_empty(&device);
