@@ -964,7 +964,10 @@ fn gpu_timing_after_a_bounded_wait_is_not_available() {
     assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
 }
 
-/// `on_complete` の callback が呼ばれた後（`wait_blocking(None)` を呼ばない）も、時刻は書かれず `Available` にならない。
+/// `on_complete` の callback が呼ばれた後も、時刻は書かれず `Available` にならない。
+///
+/// callback は後の駆動の呼び出しの中で呼ばれる（Metal の completion handler からは呼ばれない）ので、
+/// 駆動は `poll` で行う。時刻を残す `wait_blocking(None)` は呼ばない。止まらないよう上限を設ける。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn gpu_timing_after_on_complete_is_not_available() {
@@ -975,12 +978,31 @@ fn gpu_timing_after_on_complete_is_not_available() {
     queue.on_complete(
         token,
         Box::new(move |state| {
-            sender.send(state).expect("send");
+            let _ = sender.send(state);
         }),
     );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let state = loop {
+        let _ = queue.poll(token);
+        match receiver.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(state) => break state,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "on_complete callback was not called within 30 s of polling"
+                );
+            }
+            Err(error) => panic!("receiver: {error:?}"),
+        }
+    };
+    assert_eq!(state, CompletionState::Complete);
+    // 以後の駆動では呼ばれない（ちょうど 1 回）。
+    for _ in 0..3 {
+        assert_eq!(queue.poll(token), CompletionState::Complete);
+    }
     assert_eq!(
-        receiver.recv().expect("callback"),
-        CompletionState::Complete
+        receiver.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
     );
     assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
 }
