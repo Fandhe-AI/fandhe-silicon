@@ -7,6 +7,9 @@
 # ではない。比較基準への陽性対照は別 TASK のポインタ）に検査を写し、実物の cargo metadata / cargo tree の出力で
 # 通す。狭い定義の名前・広い定義の repository をそれぞれ 1 件置くと失敗になること（検査が働いている証拠）も
 # ここで確かめる。依存は path だけでネットワークを使わず、リポジトリのファイルを変更しない。
+# 検査の定数 METADATA_ONLY_CRATES（metadata にだけ載る crate の一覧。TASK-82 のポインタ）の値には依存しない:
+# 既定は一覧を空にした写し（PIN_ROOT）で流し、一覧の確かめは定数の行だけを差し替えた写しで行う。
+# 末尾の「陽性対照」だけが実物の一覧を製品の workspace の写しに当て、記載を 1 件足すと終了コード 2 になることを確かめる。
 # 呼び出し元: `make test-dep-graph-wgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
 #
@@ -24,9 +27,43 @@ require_cmd python3
 require_cmd cargo
 require_cmd git
 
-CHECK="${DIR}/dep-graph-wgpu-check.sh"
+REAL_CHECK="${DIR}/dep-graph-wgpu-check.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/test-dep-graph-wgpu-check.XXXXXX")"
 trap 'rm -rf "${work:?}"' EXIT
+
+# 検査の写しを作る。定数 METADATA_ONLY_CRATES の行だけを渡した値に差し替え、実物の一覧の値に依存しない形にする。
+# make_variant <出力先ディレクトリ> <Python のリテラル>: <出力先>/scripts/ に写しを置く（lib.sh も写す）。
+make_variant() {
+  mkdir -p "$1/scripts"
+  cp "${DIR}/lib.sh" "$1/scripts/"
+  python3 -I - "${REAL_CHECK}" "$1/scripts/dep-graph-wgpu-check.sh" "$2" <<'PY'
+import re
+import sys
+
+src, dst, literal = sys.argv[1:4]
+text = open(src, encoding="utf-8").read()
+text, n = re.subn(r"(?m)^METADATA_ONLY_CRATES = .*$", lambda m: "METADATA_ONLY_CRATES = " + literal, text)
+if n != 1:
+    sys.exit("METADATA_ONLY_CRATES definition line not found exactly once")
+open(dst, "w", encoding="utf-8").write(text)
+PY
+  chmod +x "$1/scripts/dep-graph-wgpu-check.sh"
+}
+
+# 既定の検査は一覧を空にした写し（PIN_ROOT）。製品の workspace の実物の一覧の値に依存せず、
+# 厳密一致の既存の確かめを固定する。実物の一覧の確かめは末尾の「陽性対照」の節で行う。
+# PIN_ROOT は --manifest-path の確かめに使う最小の疑似リポジトリ（git の作業ツリー）でもある。
+PIN_ROOT="${work}/pin"
+make_variant "${PIN_ROOT}" '()'
+mkdir -p "${PIN_ROOT}/baseline-wgpu"
+printf '[workspace]\n' >"${PIN_ROOT}/Cargo.toml"
+printf '[workspace]\n' >"${PIN_ROOT}/baseline-wgpu/Cargo.toml"
+printf '# fixture\n' >"${PIN_ROOT}/baseline-wgpu/deny.toml"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${PIN_ROOT}" init -q
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${PIN_ROOT}" add -A
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${PIN_ROOT}" -c core.hooksPath=/dev/null \
+  -c user.name=test -c user.email=test@example.invalid commit -q -m fixture
+CHECK="${PIN_ROOT}/scripts/dep-graph-wgpu-check.sh"
 OUT_F="${work}/stdout.txt"
 ERR_F="${work}/stderr.txt"
 passed=0
@@ -180,6 +217,13 @@ cases["err_kinds_elem"] = mutate(lambda d: d["resolve"]["nodes"][0]["deps"][0].u
 cases["err_pkg_unknown_id"] = mutate(lambda d: d["packages"].pop(1))
 cases["err_node_missing"] = mutate(lambda d: d["resolve"]["nodes"].pop(1))
 cases["err_member_unknown"] = mutate(lambda d: d.update(workspace_members=["ghost@1.0.0"]))
+
+# ---- metadata にだけ載る crate（METADATA_ONLY_CRATES の確かめ用。名前はダミー）----
+cases["mo_basic"] = under_app(pkg("lib-a"), pkg("mo-x"))
+trees["mo_basic"] = tree_text([("app", "1.0.0"), ("lib-a", "1.0.0"), ("mo-x", "1.0.0")])
+cases["mo_narrow"] = under_app(pkg("lib-a"), pkg("naga"))
+trees["mo_narrow"] = tree_text([("app", "1.0.0"), ("lib-a", "1.0.0")])
+cases["mo_two"] = under_app(pkg("lib-a"), pkg("mo-x"), pkg("mo-y"))
 
 for name, doc in cases.items():
     with open(os.path.join(out, name + ".json"), "w", encoding="utf-8") as f:
@@ -427,8 +471,8 @@ judge "superset_without_inputs" 2 "e:--allow-metadata-superset is not accepted f
 run_check --metadata-json "${work}/ok_basic.json" --allow-metadata-superset
 judge "superset_without_tree" 2 "e:--allow-metadata-superset requires --tree-text" "!ok: " "!record: "
 
-# --manifest-path: ROOT_DIR 配下の Cargo.toml だけ。誤用は終了コード 2（cargo は呼ばない）
-run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --metadata-json "${work}/ok_basic.json"
+# --manifest-path: 検査のあるリポジトリ配下の Cargo.toml だけ。誤用は終了コード 2（cargo は呼ばない）
+run_check --manifest-path "${PIN_ROOT}/baseline-wgpu/Cargo.toml" --metadata-json "${work}/ok_basic.json"
 judge "manifest_with_metadata" 2 "e:--manifest-path cannot be combined with --metadata-json" "!ok: " "!record: "
 run_check --manifest-path "${work}/ok_basic.json" --allow-metadata-superset
 judge "manifest_outside_repo" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
@@ -436,11 +480,11 @@ mkdir -p "${work}/outside"
 printf '[workspace]\n' >"${work}/outside/Cargo.toml"
 run_check --manifest-path "${work}/outside/Cargo.toml" --allow-metadata-superset
 judge "manifest_outside_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: " "!${work}"
-run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/no-such/Cargo.toml" --allow-metadata-superset
+run_check --manifest-path "${PIN_ROOT}/baseline-wgpu/no-such/Cargo.toml" --allow-metadata-superset
 judge "manifest_missing_file" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
-run_check --manifest-path "${ROOT_DIR}/baseline-wgpu/deny.toml" --allow-metadata-superset
+run_check --manifest-path "${PIN_ROOT}/baseline-wgpu/deny.toml" --allow-metadata-superset
 judge "manifest_not_cargo_toml" 2 "e:--manifest-path must be a Cargo.toml inside the repository" "!ok: " "!record: "
-run_check --manifest-path "${ROOT_DIR}/Cargo.toml" --allow-metadata-superset
+run_check --manifest-path "${PIN_ROOT}/Cargo.toml" --allow-metadata-superset
 judge "manifest_product_no_relax" 2 "e:--allow-metadata-superset is not accepted for the product workspace" "!ok: " "!record: "
 run_check --manifest-path
 judge "manifest_without_value" 2 "!ok: " "!record: "
@@ -535,7 +579,7 @@ args_log="${work}/fake-args.log"
 rc=0
 PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok FAKE_ARGS_LOG="${args_log}" \
   FAKE_MD="${work}/ok_basic.json" FAKE_TREE="${work}/tree_missing.tree" \
-  "${CHECK}" --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --allow-metadata-superset \
+  "${CHECK}" --manifest-path "${PIN_ROOT}/baseline-wgpu/Cargo.toml" --allow-metadata-superset \
   >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 judge "fake_manifest_superset" 0 "o:ok: " "o:record: commit=0123456789abcdef0123456789abcdef01234567 crates_total=2 " "!error:"
 count_is "fake_manifest_metadata_arg" "${args_log}" "metadata --locked --format-version 1 --all-features --manifest-path " 1
@@ -543,7 +587,7 @@ count_is "fake_manifest_tree_arg" "${args_log}" "tree --locked --workspace --all
 rc=0
 PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok \
   FAKE_MD="${work}/ok_basic.json" FAKE_TREE="${work}/tree_missing.tree" \
-  "${CHECK}" --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" \
+  "${CHECK}" --manifest-path "${PIN_ROOT}/baseline-wgpu/Cargo.toml" \
   >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 judge "fake_manifest_strict_disagree" 2 "e:cargo metadata and cargo tree disagree" "!ok: " "!record: "
 
@@ -563,6 +607,98 @@ judge "fake_git_fails" 2 "e:error: cannot resolve the source commit" "!ok: " "!r
 run_fake ok garbage "${work}/ok_basic.json" "${work}/ok_basic.tree"
 judge "fake_git_garbage" 2 "e:error: cannot resolve the source commit" "!/secret/host/path" "!ok: " "!record: "
 
+# ---- metadata にだけ載る crate の一覧（METADATA_ONLY_CRATES。TASK-82 のポインタ）----
+# 一覧の値は検査の写しに差し替えて確かめ、実物の一覧の値には依存しない。
+use_variant() {
+  VARIANT_ROOT="${work}/variant-$1"
+  make_variant "${VARIANT_ROOT}" "$2"
+  CHECK="${VARIANT_ROOT}/scripts/dep-graph-wgpu-check.sh"
+}
+use_pin() {
+  CHECK="${PIN_ROOT}/scripts/dep-graph-wgpu-check.sh"
+}
+MO_X='(("mo-x", "1.0.0"),)'
+
+# 一覧が空: 一覧に無い metadata だけの crate は不一致
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_unlisted" 2 "e:error: cargo metadata and cargo tree disagree on the crate set" "!ok: " "!record: " "!metadata-only:"
+
+use_variant listed "${MO_X}"
+# 一覧にあり、metadata だけにある: 合格。総数に入り、1 件ごとに出る
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_listed_ok" 0 "o:ok: " "o:record: commit=- crates_total=3 workspace_members=1 narrow_total=0 wide_total=0" \
+  "o:metadata-only: crate=mo-x version=1.0.0" "o:scanned: reading=tree crates=2" "!error:"
+count_is "mo_listed_ok_one_line" "${OUT_F}" "metadata-only: " 1
+if [ "$(grep -n '^metadata-only:' "${OUT_F}" | cut -d: -f1)" -gt "$(grep -n '^record:' "${OUT_F}" | cut -d: -f1)" ]; then
+  report_ok "mo_listed_ok_after_record"
+else
+  report_fail "mo_listed_ok_after_record" "metadata-only line must come after the record line"
+fi
+# 一覧にあるが metadata にも無い（古い記載）
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_listed_absent" 2 "e:error: listed metadata-only crate is not metadata-only: mo-x 1.0.0" "!ok: " "!record: "
+# 一覧にあるが tree にもある
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/mo_basic.tree"
+judge "mo_listed_in_tree" 2 "e:error: listed metadata-only crate is not metadata-only: mo-x 1.0.0" "!ok: " "!record: "
+# 一覧にない metadata だけの crate がもう 1 件ある
+run_check --metadata-json "${work}/mo_two.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_listed_plus_unlisted" 2 "e:cargo metadata and cargo tree disagree on the crate set" "!ok: " "!record: "
+# 版が違えば別の crate
+use_variant listed_ver '(("mo-x", "2.0.0"),)'
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_listed_other_version" 2 "e:cargo metadata and cargo tree disagree on the crate set" "!ok: "
+# tree 側だけの crate は一覧があっても不一致
+use_variant listed "${MO_X}"
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/tree_extra.tree"
+judge "mo_listed_tree_only" 2 "e:cargo metadata and cargo tree disagree on the crate set" "!ok: " "!record: "
+# 一覧の crate も狭い定義の対象のまま（総数にも入る）
+use_variant narrow '(("naga", "1.0.0"),)'
+run_check --metadata-json "${work}/mo_narrow.json" --tree-text "${work}/mo_narrow.tree"
+judge "mo_listed_narrow" 1 "e:violation: definition=narrow crate=naga version=1.0.0" "e:FAILED: 1 crate(s)" \
+  "o:record: commit=- crates_total=3 " "o:narrow_total=1 wide_total=0" "o:metadata-only: crate=naga version=1.0.0" "!ok: "
+# 緩めの経路は一覧を使わない（一覧にある crate が metadata だけでなくても、無くても影響しない）
+use_variant listed "${MO_X}"
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/tree_missing.tree" --allow-metadata-superset
+judge "mo_superset_ignores_list" 0 "o:ok: " "o:record: commit=- crates_total=2 " "!metadata-only:" "!error:"
+# 引数なしの経路（偽の cargo）でも一覧が働く。別 workspace の厳密一致では一覧を使わない
+printf '[workspace]\n' >"${VARIANT_ROOT}/Cargo.toml"
+mkdir -p "${VARIANT_ROOT}/baseline-wgpu"
+printf '[workspace]\n' >"${VARIANT_ROOT}/baseline-wgpu/Cargo.toml"
+run_fake ok ok "${work}/mo_basic.json" "${work}/ok_basic.tree"
+judge "mo_fake_product_listed" 0 "o:ok: " "o:metadata-only: crate=mo-x version=1.0.0" "o:record: commit=0123456789abcdef0123456789abcdef01234567 crates_total=3 "
+rc=0
+PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok \
+  FAKE_MD="${work}/mo_basic.json" FAKE_TREE="${work}/ok_basic.tree" \
+  "${CHECK}" --manifest-path "${VARIANT_ROOT}/baseline-wgpu/Cargo.toml" \
+  >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "mo_fake_other_workspace_strict" 2 "e:cargo metadata and cargo tree disagree on the crate set" "!ok: " "!metadata-only:"
+rc=0
+PATH="${fakebin}:${PATH}" FAKE_CARGO_MODE=ok FAKE_GIT_MODE=ok \
+  FAKE_MD="${work}/mo_basic.json" FAKE_TREE="${work}/ok_basic.tree" \
+  "${CHECK}" --manifest-path "${VARIANT_ROOT}/Cargo.toml" \
+  >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+judge "mo_fake_product_manifest_listed" 0 "o:ok: " "o:metadata-only: crate=mo-x version=1.0.0"
+
+# 一覧の形が崩れていれば終了コード 2（入力を読む前に止まるので、どの経路でも同じ）
+for spec in 'list:[("mo-x", "1.0.0")]' 'short:(("mo-x",),)' 'empty_name:(("", "1.0.0"),)' \
+  'int_ver:(("mo-x", 1),)' 'str_entry:("mo-x",)' 'triple:(("a", "b", "c"),)'; do
+  use_variant "bad_${spec%%:*}" "${spec#*:}"
+  run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/ok_basic.tree"
+  judge "mo_malformed_${spec%%:*}" 2 "e:error: malformed metadata-only crate list" "!ok: " "!record: "
+done
+use_variant dup '(("mo-x", "1.0.0"), ("mo-x", "1.0.0"))'
+run_check --metadata-json "${work}/mo_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_malformed_duplicate" 2 "e:error: duplicate entry in metadata-only crate list" "!ok: " "!record: "
+use_variant ctl '(("evil\x1b[31m;x", "1.0.0"),)'
+run_check --metadata-json "${work}/ok_basic.json" --tree-text "${work}/ok_basic.tree"
+judge "mo_listed_sanitized" 2 "e:listed metadata-only crate is not metadata-only: evil??31m?x 1.0.0" "!ok: "
+if grep -q "$(printf '\033')" "${ERR_F}" "${OUT_F}"; then
+  report_fail "mo_listed_sanitized_no_raw_chars" "control character leaked into the output"
+else
+  report_ok "mo_listed_sanitized_no_raw_chars"
+fi
+use_pin
+
 # ---- 実物（一時 workspace の実物の cargo metadata / cargo tree）----
 # 合成 path crate だけの一時 workspace を作り、検査を写して引数なしで流す。ネットワークは使わない（--offline）。
 rw="${work}/real"
@@ -573,7 +709,7 @@ members = ["app"]
 resolver = "2"
 TOML
 printf '%s\n' '// fixture' >"${rw}/ws/app/src/lib.rs"
-cp "${DIR}/dep-graph-wgpu-check.sh" "${DIR}/lib.sh" "${rw}/ws/scripts/"
+cp "${PIN_ROOT}/scripts/dep-graph-wgpu-check.sh" "${PIN_ROOT}/scripts/lib.sh" "${rw}/ws/scripts/"
 chmod +x "${rw}/ws/scripts/dep-graph-wgpu-check.sh"
 if [ -f "${DIR}/../rust-toolchain.toml" ]; then
   cp "${DIR}/../rust-toolchain.toml" "${rw}/ws/rust-toolchain.toml"
@@ -702,8 +838,77 @@ naga = { path = "../../ext/naga" }' || report_fail "real_files_bad_setup" "canno
   else
     report_fail "real_files_narrow" "cannot produce real cargo output"
   fi
+
+  # (i) 弱い依存の feature（dep?/feat）で metadata にだけ載る crate。一覧が空なら不一致、一覧にあれば合格
+  # （feature の裏の依存が cargo tree に出ない構成。オフラインの path crate だけで再現する）
+  mkdir -p "${rw}/ext/weak-host/src" "${rw}/ext/weak-dep/src"
+  printf '[package]\nname = "weak-host"\nversion = "0.1.0"\nedition = "2021"\nrepository = "https://example.invalid/host"\n\n[dependencies]\nweak-dep = { path = "../weak-dep", optional = true }\n\n[features]\nx = ["weak-dep?/f"]\n' \
+    >"${rw}/ext/weak-host/Cargo.toml"
+  printf '[package]\nname = "weak-dep"\nversion = "0.1.0"\nedition = "2021"\nrepository = "https://example.invalid/dep"\n\n[features]\nf = []\n' \
+    >"${rw}/ext/weak-dep/Cargo.toml"
+  printf '%s\n' '// fixture' >"${rw}/ext/weak-host/src/lib.rs"
+  printf '%s\n' '// fixture' >"${rw}/ext/weak-dep/src/lib.rs"
+  real_app '[dependencies]
+weak-host = { path = "../../ext/weak-host", features = ["x"] }' || report_fail "real_weak_setup" "cannot prepare"
+  run_real
+  judge "real_weak_unlisted" 2 "e:error: cargo metadata and cargo tree disagree on the crate set" "!ok: " "!record: " "!${rw}"
+  make_variant "${work}/variant-weak" '(("weak-dep", "0.1.0"),)'
+  cp "${work}/variant-weak/scripts/dep-graph-wgpu-check.sh" "${rw}/ws/scripts/dep-graph-wgpu-check.sh"
+  run_real
+  judge "real_weak_listed" 0 "o:ok: " "o:metadata-only: crate=weak-dep version=0.1.0" "o:scanned: reading=metadata crates=3 " \
+    "o:scanned: reading=tree crates=2" "!error:" "!${rw}"
+  # 通常の依存に切り替えると tree にも載るので、一覧の記載は古くなり不一致
+  real_app '[dependencies]
+weak-dep = { path = "../../ext/weak-dep" }' || report_fail "real_weak_stale_setup" "cannot prepare"
+  run_real
+  judge "real_weak_listed_now_in_tree" 2 "e:error: listed metadata-only crate is not metadata-only: weak-dep 0.1.0" "!ok: " "!record: " "!${rw}"
+  cp "${PIN_ROOT}/scripts/dep-graph-wgpu-check.sh" "${rw}/ws/scripts/dep-graph-wgpu-check.sh"
 else
   report_fail "real_fixture_setup" "cannot prepare the temporary workspace"
+fi
+
+# ---- 陽性対照（実物の検査を製品の workspace に当てる）----
+# 製品の workspace の最小の写し（Cargo.toml・Cargo.lock・crates/・toolchain）を一時ディレクトリに作り、
+# 実物の検査はそのまま合格すること、実物の一覧に成り立たない記載を 1 件足した写しは終了コード 2 になることを確かめる。
+pc="${work}/product"
+mkdir -p "${pc}"
+cp "${ROOT_DIR}/Cargo.toml" "${ROOT_DIR}/Cargo.lock" "${pc}/"
+[ -f "${ROOT_DIR}/rust-toolchain.toml" ] && cp "${ROOT_DIR}/rust-toolchain.toml" "${pc}/"
+cp -R "${ROOT_DIR}/crates" "${pc}/crates"
+if real_literal="$(python3 -I - "${REAL_CHECK}" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"(?m)^METADATA_ONLY_CRATES = (.*)$", text)
+if m is None or not m.group(1).startswith("(") or not m.group(1).endswith(")"):
+    sys.exit(1)
+inner = m.group(1)[1:-1].strip()
+if inner and not inner.endswith(","):
+    inner += ","
+print("(" + (inner + " " if inner else "") + '("positive-control-impossible", "0.0.0"),)')
+PY
+)" \
+  && mkdir -p "${pc}/scripts" && cp "${DIR}/lib.sh" "${DIR}/dep-graph-wgpu-check.sh" "${pc}/scripts/" \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${pc}" init -q \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${pc}" add -A \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${pc}" -c core.hooksPath=/dev/null \
+    -c user.name=test -c user.email=test@example.invalid commit -q -m fixture; then
+  pc_run() {
+    rc=0
+    (cd "${pc}" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR "$1") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  }
+  # 実物の検査（一覧は実物のまま）: 合格
+  pc_run ./scripts/dep-graph-wgpu-check.sh
+  judge "positive_control_real_ok" 0 "o:ok: " "o:record: commit=" "!error:" "!violation"
+  # 実物の一覧に成り立たない記載を 1 件足した写し: 終了コード 2
+  make_variant "${work}/variant-pc" "${real_literal}"
+  cp "${work}/variant-pc/scripts/dep-graph-wgpu-check.sh" "${pc}/scripts/dep-graph-wgpu-check.sh"
+  pc_run ./scripts/dep-graph-wgpu-check.sh
+  judge "positive_control_extra_entry_fails" 2 \
+    "e:error: listed metadata-only crate is not metadata-only: positive-control-impossible 0.0.0" "!ok: " "!record: "
+else
+  report_fail "positive_control_setup" "cannot prepare the product workspace copy"
 fi
 
 echo "passed: ${passed}, failed: ${failed}"

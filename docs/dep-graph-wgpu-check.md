@@ -11,7 +11,7 @@
 | 呼び出し元 | `make dep-graph-wgpu-check`（単体）と `make deny`（`scripts/deny.sh`）。CI の `deny` ジョブは `make deny` の中で流し、回帰テストは `make test-dep-graph-wgpu-check` のステップで流す。違反も前提の不足も失敗にし、握りつぶさない | `grep -n dep-graph-wgpu-check scripts/deny.sh Makefile` |
 | 対象 | 既定は製品の workspace（ルートの `Cargo.toml`）。`--manifest-path` でリポジトリ内の別 workspace（例: `baseline-wgpu/Cargo.toml`）に当てられる。`make deny` が呼ぶのは製品の workspace だけ | 同スクリプトの先頭コメント |
 | 入力 | `cargo metadata` と `cargo tree`。または `--metadata-json` と `--tree-text` で渡した入力 | 同スクリプトの先頭コメント |
-| 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-dep-graph-wgpu-check` |
+| 回帰テスト | `scripts/test-dep-graph-wgpu-check.sh`（`make test-dep-graph-wgpu-check`）。合成 JSON・合成 tree、偽の cargo / git、PATH を絞った環境、一時 workspace の実物の cargo の出力で、2 定義とも 0 件の成功・どちらかの定義で 1 件の失敗・読めない入力の終了コード 2 を確かめる。`METADATA_ONLY_CRATES` は、定数の行だけを差し替えた写しで確かめ（実物の値には依存しない）、実物の一覧に成り立たない記載を 1 件足した写しが終了コード 2 になることを製品の workspace の写しで確かめる。リポジトリのファイルを変更しない・ネットワーク不要 | `make test-dep-graph-wgpu-check` |
 | 依存 | 外部依存を足していない | `Cargo.lock` |
 
 ## 使い方と終了コード
@@ -21,13 +21,13 @@
 | 引数なし | cargo を流して数える | 直接実行 |
 | `--metadata-json <path> [--tree-text <path>]` | 渡した入力だけを数える（cargo を呼ばない）。`--tree-text` は `--metadata-json` と組でだけ受け付ける | 直接実行 |
 | `--manifest-path <path>` | `<path>`（リポジトリ内の `Cargo.toml`）の workspace に cargo を流して数える。`--metadata-json` とは併用できない | 直接実行 |
-| `--allow-metadata-superset` | metadata と tree の一致の確認を「tree 側の crate がすべて metadata にある」へ緩める（optional な依存で metadata の方が大きい workspace 向け）。製品の `Cargo.toml` を指す経路・引数なしの経路では受け付けない。tree 側だけの crate や空の tree は緩めても終了コード 2 | 直接実行 |
+| `--allow-metadata-superset` | metadata と tree の一致の確認を「tree 側の crate がすべて metadata にある」へ緩める（optional な依存で metadata の方が大きい workspace 向け）。製品の `Cargo.toml` を指す経路・引数なしの経路では受け付けない。tree 側だけの crate や空の tree は緩めても終了コード 2。`METADATA_ONLY_CRATES` は使わない | 直接実行 |
 
 | コード | 意味 | 確かめ方 |
 | ------ | ---- | -------- |
 | 0 | 2 つの定義とも 0 件 | 直接実行して `echo $?` |
 | 1 | どちらかの定義で 1 件以上（違反） | 同スクリプトの先頭コメント |
-| 2 | 誤用・前提の不足・読めない入力・metadata と tree の不一致・数えた crate が 0 件・`--manifest-path` の値が不正（リポジトリ外・`Cargo.toml` でない）・`--allow-metadata-superset` を受け付けない経路での指定。`dep_kinds` が欠けた・空・未知の kind・形の崩れた入力もここ | 同スクリプトの先頭コメント |
+| 2 | 誤用・前提の不足・読めない入力・metadata と tree の不一致（製品の workspace では、metadata にだけある crate が `METADATA_ONLY_CRATES` の記載と過不足なく一致しない場合を含む）・`METADATA_ONLY_CRATES` の記載が metadata だけの crate でない（tree にある・どちらにも無い）・同じ定数の形の崩れ・数えた crate が 0 件・`--manifest-path` の値が不正（リポジトリ外・`Cargo.toml` でない）・`--allow-metadata-superset` を受け付けない経路での指定。`dep_kinds` が欠けた・空・未知の kind・形の崩れた入力もここ | 同スクリプトの先頭コメント |
 
 ## 出力の読み方
 
@@ -38,6 +38,7 @@
 | `scanned:` | 標準出力 | 読んだ入力ごとに 1 行（`reading=metadata` と `reading=tree`） | `scripts/dep-graph-wgpu-check.sh \| grep '^scanned:'` |
 | `record:` | 標準出力（終了コード 0 と 1 のとき） | `commit`（cargo を流す経路では HEAD のコミット、変更があれば末尾に `-dirty`。入力を渡す経路では `-`）、`crates_total`、`workspace_members`、`narrow_total`、`wide_total`、`no_repository` | `scripts/dep-graph-wgpu-check.sh \| grep '^record:'` |
 | `no-repository:` | 標準出力 | repository が無い crate を 1 件ごとに出す。違反ではない | 同スクリプトの先頭コメント |
+| `metadata-only:` | 標準出力 | `METADATA_ONLY_CRATES` の crate を 1 件ごとに出す（`record:` の後）。違反ではない。総数・狭い定義・広い定義の対象のまま | 同スクリプトの先頭コメント |
 | `ok:` | 標準出力 | 合格時の 1 行 | 直接実行 |
 | `violation:` / `FAILED:` | 標準エラー | 違反した定義と crate、違反した crate の件数 | 同スクリプトの先頭コメント |
 | `error:` | 標準エラー | 終了コード 2 の理由 | 同スクリプトの先頭コメント |
@@ -53,9 +54,11 @@
 | 数える feature | `FEATURE_ARGS` | `grep -n FEATURE_ARGS scripts/dep-graph-wgpu-check.sh` |
 | 狭い定義の名前と折りたたみ | `NARROW_NAMES`・`NARROW_NAME_REPLACE` | `grep -n NARROW_ scripts/dep-graph-wgpu-check.sh` |
 | 広い定義の接頭辞と repository の正規化 | `WIDE_REPOSITORY_PREFIX`・`REPOSITORY_STRIP_PREFIXES`・`REPOSITORY_SCHEMES`・`REPOSITORY_STRIP_SUFFIXES` | `grep -n REPOSITORY_ scripts/dep-graph-wgpu-check.sh` |
+| metadata にだけ載り cargo tree に載らない crate（(名前, 版) の組） | `METADATA_ONLY_CRATES` | `grep -n METADATA_ONLY_CRATES scripts/dep-graph-wgpu-check.sh` |
 
 - 狭い定義の名前は、`deny.toml` の `[bans] deny` と対応する
 - `cargo metadata` 側は `FEATURE_ARGS` と `TARGET`（`all` 以外のとき）で作り、`cargo tree` 側は `FEATURE_ARGS`・`TARGET`・`DEP_KINDS` で作る
+- 製品の workspace（引数なし・製品の `Cargo.toml`・`--metadata-json` と `--tree-text` の組）の厳密一致は、「tree 側の crate がすべて metadata にある」かつ「metadata にだけある crate の集合が `METADATA_ONLY_CRATES` と過不足なく一致する」で判定する。別 workspace の厳密一致と `--allow-metadata-superset` は一覧を使わない
 - metadata の走査は、`dep_kinds` の kind（null は通常の依存）が `DEP_KINDS` に入る辺だけをたどる
 
 ## 数え方を変えるときの手順
@@ -68,6 +71,7 @@
 | 製品の workspace で直接実行し、終了コード 2 にならない（metadata と tree が食い違わない）ことと `record:` の件数を見る | `scripts/dep-graph-wgpu-check.sh` |
 | 回帰テストを通す。判定を弱めるとテストが失敗することを、検査の写しで確かめる | `make test-dep-graph-wgpu-check` |
 | `make deny` のログに `dep-graph-wgpu-check` の行と `record:` が出ることを見る | `make deny` |
+| `METADATA_ONLY_CRATES` を変えることは数え方を変えることで、決定は同じく TASK-82 のポインタに従う。一覧は、metadata にだけ載る依存が変わる PR（その crate を cargo tree から外す変更）の中で同時に変える | 依存の変更と一覧の変更が同じ PR にある |
 | 品質ゲートを通す | `make check`・`make verify`・`make deny` |
 
 ## 検査しないもの

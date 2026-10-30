@@ -19,18 +19,24 @@
 #                                                                     --metadata-json と --tree-text の組のときだけ。数える集合は metadata 側のまま
 # 終了コード: 0 2 定義とも 0 件 / 1 どちらかの定義で 1 件以上（違反）
 #   2 誤用・前提の不足（python3・cargo・git が無い、cargo の失敗、コミットが取れない）・読めない入力・
-#     metadata と tree の不一致（緩めても tree 側だけの crate があれば不一致）・数えた crate が 0 件（成功扱いにしない）・
+#     metadata と tree の不一致（緩めても tree 側だけの crate があれば不一致。製品の workspace では
+#     「metadata にだけある crate の集合」が METADATA_ONLY_CRATES と過不足なく一致しなくても不一致）・
+#     一覧の crate が metadata だけの crate でない・一覧の形の崩れ・数えた crate が 0 件（成功扱いにしない）・
 #     --manifest-path の値が不正（リポジトリ外・Cargo.toml でない）・--allow-metadata-superset を受け付けない経路での指定
 # 標準出力: `scanned:` の行（読んだ入力ごと）、数え終えたとき（終了コード 0 と 1）だけ `record:` の行、合格時の `ok:` の 1 行。
 #   `record: commit=<rev|-> crates_total=<n> workspace_members=<n> narrow_total=<n> wide_total=<n> no_repository=<n>`
 #   commit は cargo を流す経路では HEAD のコミット（変更が在れば末尾に `-dirty`）、--metadata-json の経路では `-`。
 #   repository が無い crate は 1 件ごとに `no-repository: crate=<name> version=<ver>`（`record:` の後。違反ではない）。
+#   METADATA_ONLY_CRATES の crate は 1 件ごとに `metadata-only: crate=<name> version=<ver>`（`record:` の後。違反ではない）。
 # 標準エラー: `violation:`・`FAILED:`・`error:`。
 #
 # 数え方: 数える依存の種類・target・feature、名前の一覧、広い定義の形は、Python 部の先頭の
 #   「数え方の定義」ブロックにだけ置く（値をここへ書き写さない）。変える手順と出力の読み方は docs/dep-graph-wgpu-check.md。
 #   数えるのは一意の package（metadata の workspace_members から、定義の依存の種類の辺をたどって届くもの）。
-#   tree 側の (名前, 版) の集合と一致しなければ終了コード 2。
+#   tree 側の (名前, 版) の集合と一致しなければ終了コード 2。ただし製品の workspace（引数なし・製品の Cargo.toml・
+#   --metadata-json と --tree-text の組）では、metadata にだけある crate は METADATA_ONLY_CRATES に載せたものに限り、
+#   載せた crate がすべて metadata にだけある（tree にある・どちらにも無いは古い記載として不一致）ことを求める。
+#   一覧の crate も総数・狭い定義・広い定義の対象のまま。別 workspace の厳密一致と --allow-metadata-superset では一覧を使わない。
 #   repository が無い（null か空）crate は広い定義に当たらない扱いで、総数には含め、件数と crate を標準出力に出す。
 #   同じ (名前, 版) が複数あるときは、広い定義はどれか 1 つでも当たれば当たり、repository の欠落は全部が欠けるときだけ欠落。
 # 検査しないもの: `www.` 付きのホスト、`git://`・`ssh://`・`git@github.com:` の形、github.com 以外のホスト、
@@ -77,6 +83,13 @@ WIDE_REPOSITORY_PREFIX = "github.com/gfx-rs/"
 REPOSITORY_STRIP_PREFIXES = ("git+",)
 REPOSITORY_SCHEMES = ("https://", "http://")
 REPOSITORY_STRIP_SUFFIXES = ("/", ".git")
+
+# metadata の依存グラフには載るが cargo tree には載らない（コンパイルされない）crate の一覧。
+# 要素は (名前, 版) の完全一致の組。製品の workspace を厳密一致で確かめるときだけ使い、
+# 「metadata にだけある crate の集合」がこの一覧と過不足なく一致することを求める。
+# 一覧の crate も総数・狭い定義・広い定義の対象のまま。一覧を変えるのは、metadata にだけ載る依存が
+# 変わる PR の中だけにする（決定は TASK-82 のポインタ）。
+METADATA_ONLY_CRATES = ()
 # ==== 数え方の定義ここまで ====
 
 # 定義から組み立てるコマンド（値はここに書かない）。target は metadata では --filter-platform に任せる。
@@ -98,6 +111,21 @@ class Misuse(Exception):
 def clean(text):
     """出力に出す名前から制御文字や想定外の文字を落とす。"""
     return re.sub(r"[^A-Za-z0-9_.:/+@-]", "?", str(text))[:100]
+
+
+def metadata_only_set():
+    """METADATA_ONLY_CRATES の形を確かめ、(名前, 版) の集合にして返す。崩れていれば Misuse。"""
+    need(isinstance(METADATA_ONLY_CRATES, tuple), "malformed metadata-only crate list")
+    found = set()
+    for e in METADATA_ONLY_CRATES:
+        ok = (
+            isinstance(e, tuple) and len(e) == 2
+            and all(isinstance(x, str) and x for x in e)
+        )
+        need(ok, "malformed metadata-only crate list")
+        need(e not in found, "duplicate entry in metadata-only crate list")
+        found.add(e)
+    return found
 
 
 def need(cond, msg):
@@ -280,8 +308,12 @@ def main():
         extra = ["--manifest-path", resolved]
         # 製品の workspace を指すときは緩めを許さない（製品向けは常に厳密一致）。
         is_product = resolved == os.path.join(os.path.realpath(a.root), "Cargo.toml")
+        use_list = is_product
     else:
         is_product = a.metadata_json is None
+        # 入力を渡す経路は製品の workspace の入力として読むので、一覧を使う。
+        use_list = True
+    listed = metadata_only_set()
     if a.allow_metadata_superset:
         need(not is_product, "--allow-metadata-superset is not accepted for the product workspace")
         has_tree = a.metadata_json is None or a.tree_text is not None
@@ -319,8 +351,24 @@ def main():
     if tree_set is not None:
         # 緩めるのは明示のオプションがあるときだけ。tree 側だけの crate は緩めても不一致。
         # 緩めても空の tree は受け付けない（空集合はどんな集合の部分集合でもあり、素通りになるため）。
-        agree = (bool(tree_set) and tree_set <= set(uniq)) if a.allow_metadata_superset else set(uniq) == tree_set
+        keys = set(uniq)
+        if a.allow_metadata_superset:
+            agree = bool(tree_set) and tree_set <= keys
+        elif use_list:
+            # tree 側だけの crate と、一覧に無い metadata だけの crate は不一致。
+            agree = bool(tree_set) and tree_set <= keys and (keys - tree_set) <= listed
+        else:
+            agree = keys == tree_set
         need(agree, "cargo metadata and cargo tree disagree on the crate set")
+        if use_list and not a.allow_metadata_superset:
+            # 一覧にあるのに metadata だけの crate でない（tree にある・どちらにも無い）ものは古い記載として止める。
+            stale = sorted(listed - (keys - tree_set))
+            if stale:
+                name, ver = stale[0]
+                raise Misuse("listed metadata-only crate is not metadata-only: %s %s" % (clean(name), clean(ver)))
+        metadata_only = sorted(listed) if use_list and not a.allow_metadata_superset else []
+    else:
+        metadata_only = []
 
     narrow = sorted(k for k, v in uniq.items() if v["narrow"])
     wide = sorted(k for k, v in uniq.items() if v["wide"])
@@ -333,6 +381,8 @@ def main():
           % (commit, len(uniq), n_members, len(narrow), len(wide), len(missing)))
     for name, ver in missing:
         print("no-repository: crate=%s version=%s" % (clean(name), clean(ver)))
+    for name, ver in metadata_only:
+        print("metadata-only: crate=%s version=%s" % (clean(name), clean(ver)))
     for label, hits in (("narrow", narrow), ("wide", wide)):
         for name, ver in hits:
             repos = [r for r in uniq[(name, ver)]["repos"] if isinstance(r, str)]
