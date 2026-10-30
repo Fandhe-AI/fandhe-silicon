@@ -113,6 +113,7 @@ fn group_state_of(states: impl IntoIterator<Item = BufState>) -> GroupState {
 }
 
 /// 時刻の表が持つ件数の上限。超えたら通し番号の小さいものから捨てる。
+#[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const TIMING_TABLE_MAX: usize = 1024;
 
@@ -120,6 +121,7 @@ const TIMING_TABLE_MAX: usize = 1024;
 ///
 /// 空の列・有限でない値・0 以下の値（Metal は時刻を得られないとき 0 を返す）・終了が開始より前の組があれば
 /// `None`（時刻として残さない）。
+#[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn span_of(times: impl IntoIterator<Item = (f64, f64)>) -> Option<(f64, f64)> {
     let mut span: Option<(f64, f64)> = None;
@@ -181,6 +183,7 @@ impl<G, C> Submissions<G, C> {
     }
 
     /// 時刻を表に書く。上限を超えた分は通し番号の最も小さいものから捨てる。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
     fn record_timing(&mut self, sequence: u64, start_seconds: f64, end_seconds: f64) {
         self.timings.insert(sequence, (start_seconds, end_seconds));
         while self.timings.len() > TIMING_TABLE_MAX {
@@ -190,8 +193,9 @@ impl<G, C> Submissions<G, C> {
 
     /// 完了を待ち終えた時の時刻の扱い。`record` が真で `span` が `Some` の時だけ表へ書き、書いたかを返す。
     ///
-    /// `wait_blocking(None)` だけが `record = true` で呼ぶ。期限付きの待ちと `on_complete` は `false`。
+    /// `wait_blocking(None)` だけが `record = true` で呼ぶ。期限付きの待ちと `on_complete` は呼ばない。
     /// `span` は完了を確かめた列の `span_of` の値で、未完了・不正な時刻なら `None`。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
     fn complete_wait(&mut self, sequence: u64, span: Option<(f64, f64)>, record: bool) -> bool {
         match (record, span) {
             (true, Some((start, end))) => {
@@ -736,11 +740,13 @@ mod imp {
 
     use super::host_range;
     #[cfg(feature = "native-blocking-wait")]
+    use super::span_of;
+    #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
         BufState, Callback, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
         drive_table, finish_table, group_state_of, precheck_submit, precheck_submit_many,
-        register_table, retire, span_of, take_next,
+        register_table, retire, take_next,
     };
 
     use fandhe_silicon_core::capability::{
