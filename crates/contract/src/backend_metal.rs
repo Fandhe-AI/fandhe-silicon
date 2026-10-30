@@ -28,6 +28,8 @@
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
+//! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
+//! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -111,6 +113,7 @@ fn group_state_of(states: impl IntoIterator<Item = BufState>) -> GroupState {
 }
 
 /// 時刻の表が持つ件数の上限。超えたら通し番号の小さいものから捨てる。
+#[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const TIMING_TABLE_MAX: usize = 1024;
 
@@ -118,6 +121,7 @@ const TIMING_TABLE_MAX: usize = 1024;
 ///
 /// 空の列・有限でない値・0 以下の値（Metal は時刻を得られないとき 0 を返す）・終了が開始より前の組があれば
 /// `None`（時刻として残さない）。
+#[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn span_of(times: impl IntoIterator<Item = (f64, f64)>) -> Option<(f64, f64)> {
     let mut span: Option<(f64, f64)> = None;
@@ -133,11 +137,22 @@ fn span_of(times: impl IntoIterator<Item = (f64, f64)>) -> Option<(f64, f64)> {
     span
 }
 
-/// 投入済みの表。投入の通し番号は device ごとに 1 から払い出す。`G` は 1 回の投入が持つ列の型。
-///
-/// 本物では `G` が Objective-C のコマンドバッファの列で、試験では偽の状態の列を使う。
+/// `on_complete` に渡された callback。native 版の `CommandQueue::on_complete` の引数と同じ型。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-struct Submissions<G> {
+type Callback = Box<dyn FnOnce(CompletionState) + Send>;
+
+/// 投入済みの表と、`on_complete` の登録の表。投入の通し番号は device ごとに 1 から払い出す。
+///
+/// `G` は 1 回の投入が持つ列の型で、本物では Objective-C のコマンドバッファの列、試験では偽の状態の列。
+/// `C` は登録された callback の型。
+///
+/// 登録の表と投入済みの表は同じ錠の中に置く（device にはほかに `buffers`・`open` の錠があるが、この表の操作は
+/// それらを同時に取らない）。callback はどの錠も握らずに呼ぶ。
+/// 登録の判定は `state_of` が行い、`pending` から回収で外れた番号でも watermark と失敗の集合から
+/// 終端の値が決まるので、登録の表は `pending` と独立に持てる。
+/// callback は必ず表から外して錠を放してから呼ぶ。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct Submissions<G, C = Callback> {
     /// 次に払い出す通し番号。
     next_sequence: u64,
     /// この番号以下は回収済み（失敗の集合にあるものを除き完了）。
@@ -149,10 +164,12 @@ struct Submissions<G> {
     /// 通し番号から (開始, 終了)（秒）への表。書くのは完了で起きる待ち（`wait_blocking(None)`）が完了を検出した時だけ。
     /// `TIMING_TABLE_MAX` 件を超えたら通し番号の最も小さいものから捨てる。
     timings: BTreeMap<u64, (f64, f64)>,
+    /// 未完了のまま登録された callback。登録の順に持つ。呼ぶときに表から外すので、どれも 1 回しか呼ばれない。
+    callbacks: Vec<(u64, C)>,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-impl<G> Submissions<G> {
+impl<G, C> Submissions<G, C> {
     /// 何も投入していない表。
     fn new() -> Self {
         Self {
@@ -161,10 +178,12 @@ impl<G> Submissions<G> {
             pending: BTreeMap::new(),
             failed: HashSet::new(),
             timings: BTreeMap::new(),
+            callbacks: Vec::new(),
         }
     }
 
     /// 時刻を表に書く。上限を超えた分は通し番号の最も小さいものから捨てる。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
     fn record_timing(&mut self, sequence: u64, start_seconds: f64, end_seconds: f64) {
         self.timings.insert(sequence, (start_seconds, end_seconds));
         while self.timings.len() > TIMING_TABLE_MAX {
@@ -174,8 +193,9 @@ impl<G> Submissions<G> {
 
     /// 完了を待ち終えた時の時刻の扱い。`record` が真で `span` が `Some` の時だけ表へ書き、書いたかを返す。
     ///
-    /// `wait_blocking(None)` だけが `record = true` で呼ぶ。期限付きの待ちと `on_complete` は `false`。
+    /// `wait_blocking(None)` だけが `record = true` で呼ぶ。期限付きの待ちと `on_complete` は呼ばない。
     /// `span` は完了を確かめた列の `span_of` の値で、未完了・不正な時刻なら `None`。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
     fn complete_wait(&mut self, sequence: u64, span: Option<(f64, f64)>, record: bool) -> bool {
         match (record, span) {
             (true, Some((start, end))) => {
@@ -214,6 +234,82 @@ impl<G> Submissions<G> {
         } else {
             GpuTiming::Unavailable
         }
+    }
+
+    /// callback を登録する。回収はしない（登録は駆動の呼び出しではない）。
+    ///
+    /// 番号の状態が終端なら登録せず、callback と状態を返す。呼ぶのは錠を放してから。
+    /// `Pending` なら表に積んで `None`。
+    fn register(
+        &mut self,
+        sequence: u64,
+        callback: C,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> Option<(C, CompletionState)> {
+        match self.state_of(sequence, classify) {
+            CompletionState::Pending => {
+                self.callbacks.push((sequence, callback));
+                None
+            }
+            done => Some((callback, done)),
+        }
+    }
+
+    /// 回収してから、終端になった登録を表から外して返す。`Pending` のものは残す。
+    ///
+    /// 先頭が未完了で回収が止まっていても、後ろの完了済みの列の登録は外れる。呼ぶのは錠を放してから。
+    /// 登録の件数に比例して走査する。判定（`classify`）をすべて済ませてから外すので、判定が panic しても登録は失われない。
+    fn take_terminal(
+        &mut self,
+        classify: impl Fn(&G) -> GroupState + Copy,
+    ) -> Vec<(C, CompletionState)> {
+        self.reclaim(classify);
+        let states: Vec<CompletionState> = self
+            .callbacks
+            .iter()
+            .map(|(sequence, _)| self.state_of(*sequence, classify))
+            .collect();
+        let mut ready = Vec::new();
+        let mut kept = Vec::new();
+        for ((sequence, callback), state) in
+            std::mem::take(&mut self.callbacks).into_iter().zip(states)
+        {
+            match state {
+                CompletionState::Pending => kept.push((sequence, callback)),
+                done => ready.push((callback, done)),
+            }
+        }
+        self.callbacks = kept;
+        ready
+    }
+
+    /// 登録されている番号の列の完了を `wait` で待つ。`Drop` が残りを呼び切る前に使う。
+    fn wait_registered(&self, wait: impl Fn(&G)) {
+        for (sequence, _) in &self.callbacks {
+            if let Some(group) = self.pending.get(sequence) {
+                wait(group);
+            }
+        }
+    }
+
+    /// 登録を全部外して返す。待ったあとでも `Pending` の番号は `Lost`（起きないはずの経路の fail-closed）。
+    ///
+    /// 判定を済ませてから外すので、判定が panic しても登録は失われない。
+    fn take_all(
+        &mut self,
+        classify: impl Fn(&G) -> GroupState + Copy,
+    ) -> Vec<(C, CompletionState)> {
+        self.reclaim(classify);
+        let states: Vec<CompletionState> = self
+            .callbacks
+            .iter()
+            .map(|(sequence, _)| terminal_state(self.state_of(*sequence, classify)))
+            .collect();
+        std::mem::take(&mut self.callbacks)
+            .into_iter()
+            .zip(states)
+            .map(|((_, callback), state)| (callback, state))
+            .collect()
     }
 
     /// 通し番号の昇順に、決着した先頭から表を外して watermark を進める。未完了で止まる。
@@ -330,7 +426,107 @@ impl __BackendSharedEncoderCloser for OpenEncoders {
     }
 }
 
-/// `on_complete` が callback に渡す終端の状態。待ったあとでも `Pending` なら（起きないはずだが）失敗側の `Lost` にする。
+/// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
+///
+/// 破棄で出た panic の中身も `forget` で捨てる（その破棄から呼び出し元へ巻き戻らないため。漏れるのは panic の中身だけで、
+/// メモリ安全には触れない）。残りの callback を呼び切る経路と `Drop` の経路が、破棄で途切れないために通す。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(inner) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(inner);
+    }
+}
+
+/// 外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
+///
+/// 2 個目以降の panic の中身は `discard_panic` で捨てる（その破棄の panic でも残りを呼び切る）。
+///
+/// 錠を放してから呼ぶこと。呼ぶ側が駆動の呼び出しの最後に `resume_unwind` で再送出する
+/// （`Drop` では捨てる）。取りこぼしと二重呼び出しを作らないため、各 callback は呼ぶ前にすでに表から外れている。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn run_callbacks<C>(
+    ready: Vec<(C, CompletionState)>,
+    call: impl Fn(C, CompletionState),
+) -> Option<Box<dyn std::any::Any + Send>> {
+    let mut first_panic = None;
+    for (callback, state) in ready {
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(callback, state)));
+        if let Err(payload) = outcome {
+            if first_panic.is_none() {
+                first_panic = Some(payload);
+            } else {
+                discard_panic(payload);
+            }
+        }
+    }
+    first_panic
+}
+
+/// 表の錠を取る。毒化していても中身を使う（表は壊れない更新だけを行う）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn lock_table<G, C>(table: &Mutex<Submissions<G, C>>) -> MutexGuard<'_, Submissions<G, C>> {
+    table.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 駆動の本体。回収して終端の登録を外すまでを錠の中で行い、錠を放してから `call` で 1 回ずつ呼ぶ。
+///
+/// 登録が空なら回収もしない。callback が panic しても残りを呼び切り、最後に最初の panic を
+/// `resume_unwind` で伝える（利用者の callback の panic を伝えるもので、この関数自身は panic しない）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn drive_table<G, C>(
+    table: &Mutex<Submissions<G, C>>,
+    classify: impl Fn(&G) -> GroupState + Copy,
+    call: impl Fn(C, CompletionState),
+) {
+    let ready = {
+        let mut subs = lock_table(table);
+        if subs.callbacks.is_empty() {
+            return;
+        }
+        subs.take_terminal(classify)
+    };
+    if let Some(payload) = run_callbacks(ready, call) {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+/// 登録の本体。終端ならその場で（錠を放してから）`call` で 1 回呼び、未完了なら表に積む。回収はしない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn register_table<G, C>(
+    table: &Mutex<Submissions<G, C>>,
+    sequence: u64,
+    callback: C,
+    classify: impl Fn(&G) -> GroupState,
+    call: impl Fn(C, CompletionState),
+) {
+    let ready = lock_table(table).register(sequence, callback, classify);
+    if let Some((callback, state)) = ready {
+        call(callback, state);
+    }
+}
+
+/// `Drop` の本体。登録が残っていれば、その列を `wait` で待ってから、残りを `call` で 1 回ずつ呼ぶ。
+///
+/// `&mut` なので錠は取らない。callback の panic は捨てる（`Drop` から伝えない）。捨てる中身の破棄の panic も止める。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn finish_table<G, C>(
+    subs: &mut Submissions<G, C>,
+    wait: impl Fn(&G),
+    classify: impl Fn(&G) -> GroupState + Copy,
+    call: impl Fn(C, CompletionState),
+) {
+    if subs.callbacks.is_empty() {
+        return;
+    }
+    subs.wait_registered(wait);
+    let ready = subs.take_all(classify);
+    if let Some(payload) = run_callbacks(ready, call) {
+        discard_panic(payload);
+    }
+}
+
+/// 終端の状態に寄せる。待ったあとでも `Pending` なら（起きないはずだが）失敗側の `Lost` にする。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn terminal_state(state: CompletionState) -> CompletionState {
     match state {
@@ -544,11 +740,13 @@ mod imp {
 
     use super::host_range;
     #[cfg(feature = "native-blocking-wait")]
+    use super::span_of;
+    #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
-        BufState, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
-        group_state_of, precheck_submit, precheck_submit_many, retire, span_of, take_next,
-        terminal_state,
+        BufState, Callback, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
+        drive_table, finish_table, group_state_of, precheck_submit, precheck_submit_many,
+        register_table, retire, take_next,
     };
 
     use fandhe_silicon_core::capability::{
@@ -826,6 +1024,11 @@ mod imp {
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
         submissions: Mutex<Submissions<Vec<CommandBuffer>>>,
+        /// 試験専用。`Some` の間は `commit_buffers` が確定を遅らせ、ここに溜める（`None` なら従来どおり即確定）。
+        /// 確定していないコマンドバッファは完了しないので、登録の時点で未完了の状態を決定的に作れる。
+        /// 製品のビルドには存在しない。
+        #[cfg(test)]
+        commit_hold: Mutex<Option<Vec<CommandBuffer>>>,
     }
 
     /// 投入した 1 つのコマンドバッファ。
@@ -860,7 +1063,8 @@ mod imp {
         ///
         /// 一括投入も 1 つだけ作る（記録の操作が無いので 1 つで足りる）。作成・確定・採番・登録を表の錠の中で行う。
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
-        /// 確定していないコマンドバッファは錠の中で溜めない（溜めると戻らなくなる）。
+        /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
+        /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
         fn commit_buffers(&self) -> Result<SubmitToken, ContractError> {
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
@@ -880,7 +1084,10 @@ mod imp {
                         backend: BACKEND,
                         detail: "commandBuffer returned None".into(),
                     })?;
+            #[cfg(not(test))]
             buffer.commit();
+            #[cfg(test)]
+            self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
             Ok(SubmitToken::__backend_new(
@@ -915,12 +1122,58 @@ mod imp {
                 }),
                 open: Arc::new(OpenEncoders::new()),
                 submissions: Mutex::new(Submissions::new()),
+                #[cfg(test)]
+                commit_hold: Mutex::new(None),
             }
         }
 
-        /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`on_complete` と `wait_blocking(None)` が共有する。
+        /// 試験専用。確定を遅らせる状態なら溜め、そうでなければ確定する。`commit_buffers` から投入の錠の中で呼ぶ。
+        ///
+        /// 錠の順は 投入の錠 -> `commit_hold` の錠。`release_held_commits` は `commit_hold` の錠だけを取る。
+        #[cfg(test)]
+        fn commit_or_hold(&self, buffer: &CommandBuffer) {
+            let mut hold = self.commit_hold.lock().unwrap_or_else(|e| e.into_inner());
+            match hold.as_mut() {
+                Some(held) => held.push(buffer.clone()),
+                None => buffer.commit(),
+            }
+        }
+
+        /// 試験専用。以後の投入の確定を遅らせる。
+        #[cfg(test)]
+        fn hold_commits(&self) {
+            let mut hold = self.commit_hold.lock().unwrap_or_else(|e| e.into_inner());
+            hold.get_or_insert_with(Vec::new);
+        }
+
+        /// 試験専用。確定を遅らせる状態をやめ、溜めたコマンドバッファを投入順に確定する。何度呼んでもよい。
+        #[cfg(test)]
+        fn release_held_commits(&self) {
+            let held = self
+                .commit_hold
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            for buffer in held.into_iter().flatten() {
+                buffer.commit();
+            }
+        }
+
+        /// 登録済みの callback のうち終端になったものを、呼び出し元のスレッドで 1 回ずつ呼ぶ。
+        ///
+        /// `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で呼ぶ駆動点。本体は `drive_table`。
+        fn drive_callbacks(&self) {
+            drive_table(
+                &self.submissions,
+                group_state,
+                |callback: Callback, state| callback(state),
+            );
+        }
+
+        /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`wait_blocking(None)` が使う。
         ///
         /// 列を clone して表の錠を放してから待つ。待つ間も同じ錠を取る `poll`・`submit` を妨げない（錠を握ったまま待たない）。
+        #[cfg(feature = "native-blocking-wait")]
         fn wait_for_completion(&self, token: SubmitToken, record_timing: bool) -> CompletionState {
             // 列は回収の前に取る（完了済みで先頭の列は回収で表から外れ、時刻を読めなくなる）。
             let group = {
@@ -1055,6 +1308,30 @@ mod imp {
         }
     }
 
+    impl Drop for MetalDevice {
+        /// 登録が残っていれば、その列の完了を待ってから、残りの callback を `poll` と同じ判定の値で 1 回ずつ呼ぶ。
+        ///
+        /// 登録が無ければ待たない。待ちに上限は無く、確定済みの command buffer が終わるまで戻らない。
+        /// 「確定済みの command buffer は必ず終わる」ことに頼る。この前提は、投入するコマンドバッファが空である
+        /// 現在の形に対するもので、記録の操作を足す変更では見直す。callback の panic は捨てる。本体は `finish_table`。
+        fn drop(&mut self) {
+            let subs = self
+                .submissions
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner());
+            finish_table(
+                subs,
+                |group| {
+                    for buffer in group {
+                        buffer.waitUntilCompleted();
+                    }
+                },
+                group_state,
+                |callback: Callback, state| callback(state),
+            );
+        }
+    }
+
     impl Capabilities for MetalDevice {
         /// この段の `query` は、どの機能にも `Unsupported` を返す。
         fn query(&self, _feature: FeatureId) -> CapabilityLevel {
@@ -1130,6 +1407,7 @@ mod imp {
             mut commands: CommandEncoder,
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
+            self.drive_callbacks();
             precheck_submit(wait)?;
             self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
@@ -1148,6 +1426,7 @@ mod imp {
             after: &[SubmitToken],
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
+            self.drive_callbacks();
             precheck_submit_many(commands.len(), after, wait, self.id, self.generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
             self.open.claim(&ids)?;
@@ -1160,13 +1439,19 @@ mod imp {
         /// 列の全部が完了なら `Complete`、どれかが `Error` なら `Lost`、他は `Pending`。
         ///
         /// 別 device の印・世代違いの印は `Lost`。回収済みの番号は watermark と失敗の集合で答える。
+        ///
+        /// 回収のあとで、終端になった登録済みの callback を呼ぶ（呼び出しが戻る前、このスレッドで）。
         fn poll(&self, token: SubmitToken) -> CompletionState {
             if check_token_owner(&token, self.id, self.generation).is_err() {
                 return CompletionState::Lost;
             }
-            let mut subs = self.lock_submissions();
-            subs.reclaim(group_state);
-            subs.state_of(token.sequence, group_state)
+            let state = {
+                let mut subs = self.lock_submissions();
+                subs.reclaim(group_state);
+                subs.state_of(token.sequence, group_state)
+            };
+            self.drive_callbacks();
+            state
         }
 
         /// `poll` の詳しい版。未完了は `Pending`、完了は `Complete`、`Error` で終わった列は `RuntimeError`。
@@ -1175,29 +1460,58 @@ mod imp {
         /// 回収済みの番号は watermark と失敗の集合で答える（失敗した投入を `Complete` とは返さない）。
         /// `poll` は失敗した列と払い出していない番号を `Lost` とし、`poll_ex` はこれを `RuntimeError`・`Unknown` に分ける。
         /// `Pending`・`Complete` は `poll` と同じ。
+        ///
+        /// 回収のあとで、終端になった登録済みの callback を呼ぶ（`poll` と同じく、錠を放してからこのスレッドで）。
         fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
             if check_token_owner(&token, self.id, self.generation).is_err() {
                 return CompletionStateEx::Lost;
             }
-            let mut subs = self.lock_submissions();
-            subs.reclaim(group_state);
-            subs.state_ex_of(token.sequence, group_state)
+            let state = {
+                let mut subs = self.lock_submissions();
+                subs.reclaim(group_state);
+                subs.state_ex_of(token.sequence, group_state)
+            };
+            self.drive_callbacks();
+            state
         }
 
-        /// 完了まで呼び出し元のスレッドで待ってから、終端の状態（`Complete` か `Lost`）で `callback` を 1 回だけ呼ぶ。
+        /// 終端の状態（`Complete` か `Lost`）で `callback` をちょうど 1 回呼ぶ。`Pending` は渡さない。待たず、ブロックしない。
         ///
-        /// 回収した `poll` の値が終端ならその場で呼ぶ。別 device の印・世代違いの印・表に無い番号は待たずに `Lost`。
-        /// 未完了なら表の錠を放してから待つ。`callback` は錠の外で呼ぶ。
+        /// 別 device の印・世代違いの印・表に無い番号・回収済みの番号は、登録の呼び出しの中でその場で呼ぶ。
+        /// 未完了なら登録して戻り、`submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の
+        /// どれかの中で終端になったと分かった時に、その呼び出しを行ったスレッドで呼ぶ（待ちのスレッドも完了ハンドラも使わない）。
+        /// 登録は回収せず、ほかの登録済みの callback も呼ばない。callback は錠の外で呼ぶ。
+        ///
+        /// # 注意
+        ///
+        /// 上の駆動する呼び出し以外（`upload`・`download_*`・`free` など）では callback を呼ばない。
+        /// 呼ばれるには駆動する呼び出しを続ける必要がある。駆動しなければ、`MetalDevice` を落とすまで残る
+        /// （落とすときに、その列の完了を待ってから 1 回呼ぶ。待ちに上限は無い）。
+        ///
+        /// callback の panic は、駆動した呼び出し（`submit` 系・`allocate`・`poll`・`wait_blocking`）から伝わる。
+        /// そのとき `submit` 系に渡した `CommandEncoder` は閉じられて戻らず、`wait_blocking` は結果を返さずに巻き戻る。
+        /// 登録の呼び出しの中でその場で呼んだ callback の panic は、`on_complete` 自身から伝わる。
+        /// その場で呼ぶときも錠の外で呼ぶので、表の錠は毒化せず、そのあとも登録・駆動を続けられる。
+        /// これは利用者の callback の panic を伝えるもので、この背後実装自身は panic しない。
+        /// 残りの callback は panic のあとでも呼び切る。2 個目以降の panic の中身の `Drop` が panic しても、そこで止めずに呼び切る。
+        /// `Drop` の中の callback の panic と、その中身の破棄の panic は捨てる。
         fn on_complete(
             &self,
             token: SubmitToken,
             callback: Box<dyn FnOnce(CompletionState) + Send>,
         ) {
-            let state = match self.poll(token) {
-                CompletionState::Pending => self.wait_for_completion(token, false),
-                done => done,
-            };
-            callback(terminal_state(state));
+            let call = |callback: Callback, state| callback(state);
+            if check_token_owner(&token, self.id, self.generation).is_err() {
+                call(callback, CompletionState::Lost);
+                return;
+            }
+            register_table(
+                &self.submissions,
+                token.sequence,
+                callback,
+                group_state,
+                call,
+            );
         }
 
         /// 完了まで待つ。`None` はコマンドバッファの完了を待ち、`Some` は 1 ms 間隔で `poll` を確かめる。
@@ -1328,6 +1642,7 @@ mod imp {
             byte_len: u64,
             usage: BufferUsage,
         ) -> Result<BufferHandle, ContractError> {
+            self.drive_callbacks();
             validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
                 requested_bytes: byte_len,
@@ -1620,6 +1935,217 @@ mod imp {
             assert_eq!(first.test_open_encoder_count(), 0);
         }
 
+        /// 試験専用。確定を遅らせている間、溜めたコマンドバッファを持つ。落とすと必ず確定する。
+        ///
+        /// assert が落ちて巻き戻っても、確定していないコマンドバッファは `Drop` の完了待ちで永久に待つので、
+        /// device より先に解放する。device の後に宣言し（先に落ちる）、device を落とす試験では明示で解放してから落とす。
+        struct HeldCommits<'a>(&'a MetalDevice);
+
+        impl<'a> HeldCommits<'a> {
+            fn new(device: &'a MetalDevice) -> Self {
+                device.hold_commits();
+                Self(device)
+            }
+
+            fn release(&self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        impl Drop for HeldCommits<'_> {
+            fn drop(&mut self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        type Seen = Arc<Mutex<Vec<CompletionState>>>;
+
+        /// 登録の時点では未完了（確定していない）なので、callback は登録の中で呼ばれない。それを固定して記録先を返す。
+        fn register_pending(device: &MetalDevice, token: SubmitToken) -> Seen {
+            let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            device.on_complete(
+                token,
+                Box::new(move |state| sink.lock().expect("lock").push(state)),
+            );
+            let at_registration = !seen.lock().expect("lock").is_empty();
+            println!("called_at_registration={at_registration}");
+            assert!(!at_registration, "callback was called at registration");
+            seen
+        }
+
+        /// 確定前は駆動しても呼ばれず、確定後に `drive` を 10 秒まで繰り返すと `Complete` で 1 回だけ呼ばれる。
+        fn assert_driven_once(held: &HeldCommits<'_>, seen: &Seen, mut drive: impl FnMut()) {
+            drive();
+            assert!(
+                seen.lock().expect("lock").is_empty(),
+                "called while pending"
+            );
+            held.release();
+            let started = std::time::Instant::now();
+            while seen.lock().expect("lock").is_empty() {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(10),
+                    "callback was not called"
+                );
+                drive();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            drive();
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+        }
+
+        fn submit_empty(device: &MetalDevice) -> SubmitToken {
+            device.submit(device.create_encoder(), &[]).expect("submit")
+        }
+
+        /// TASK-595。`submit` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_submit_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                submit_empty(&device);
+            });
+        }
+
+        /// TASK-595。`submit_many` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_submit_many_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device
+                    .submit_many(vec![device.create_encoder()], &[], &[])
+                    .expect("submit_many");
+            });
+        }
+
+        /// TASK-595。`allocate` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_allocate_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                let h = device.allocate(16, BufferUsage::empty()).expect("allocate");
+                device.free(h);
+            });
+        }
+
+        /// TASK-595。`poll` の中で駆動される経路を決定的に通す。未確定の間の `poll` は `Pending`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_poll_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            assert_eq!(device.poll(token), CompletionState::Pending);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device.poll(token);
+            });
+        }
+
+        /// TASK-595。`poll_ex` の中で駆動される経路を決定的に通す。未確定の間の `poll_ex` は `Pending`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_poll_ex_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            assert_eq!(device.poll_ex(token), CompletionStateEx::Pending);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device.poll_ex(token);
+            });
+        }
+
+        /// TASK-595。`wait_blocking(None)` の中で駆動される経路だけを決定的に通す。
+        ///
+        /// 未確定のコマンドバッファの完了は待てないので、確定してから待つ。確定までは呼ばれていないことを固定する。
+        #[cfg(feature = "native-blocking-wait")]
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_wait_blocking_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert!(seen.lock().expect("lock").is_empty());
+            held.release();
+            device.wait_blocking(token, None).expect("wait_blocking");
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+        }
+
+        /// TASK-595。panic が駆動の呼び出し（この試験では `poll`）から 1 回だけ伝わり、残りの callback は 1 回呼ばれ、
+        /// device は使い続けられる。この試験は `poll` からの伝わりだけを確かめる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_panic_propagates_from_drive_once_and_the_rest_are_called() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let first = submit_empty(&device);
+            let second = submit_empty(&device);
+            let at_registration = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                device.on_complete(first, Box::new(|_| panic!("callback failed")));
+            }))
+            .is_err();
+            assert!(!at_registration, "the panic came from registration");
+            let seen = register_pending(&device, second);
+            held.release();
+            let started = std::time::Instant::now();
+            let mut panics = 0;
+            while seen.lock().expect("lock").is_empty() || panics == 0 {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(10),
+                    "the callback was not driven"
+                );
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    device.poll(second);
+                }))
+                .is_err()
+                {
+                    panics += 1;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            println!("panic_propagated_from=drive");
+            // 以後の駆動では panic せず、残りの callback も 1 回のまま。device は使い続けられる。
+            for _ in 0..3 {
+                assert_eq!(device.poll(second), CompletionState::Complete);
+            }
+            assert_eq!(panics, 1);
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+            assert_eq!(device.poll(first), CompletionState::Complete);
+            submit_empty(&device);
+        }
+
+        /// TASK-595。未確定の登録が残ったまま device を落とすと、`Drop` の中で残りの callback が 1 回呼ばれる。
+        ///
+        /// 未確定のまま落とすと `Drop` の完了待ちが戻らないので、確定してから落とす。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_dropping_the_device_calls_a_pending_registration_once() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert!(seen.lock().expect("lock").is_empty());
+            held.release();
+            drop(held);
+            drop(device);
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+        }
+
         /// CMD-11 のポインタ。空でない `wait` は投入せず `Unsupported` で、記録先は破棄で閉じる。
         #[test]
         #[ignore = "touches the Metal device; run only in a dedicated device session"]
@@ -1644,6 +2170,8 @@ pub use imp::{MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider};
 mod precheck_tests {
     //! device に触らない検査の固定（どの OS でも流れる）。
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU8;
 
     const DEVICE_ID: u64 = 7;
     const GENERATION: u64 = 3;
@@ -1875,6 +2403,371 @@ mod precheck_tests {
             terminal_state(CompletionState::Pending),
             CompletionState::Lost
         );
+    }
+
+    // ---- on_complete の登録の表（device に触らない）----
+
+    /// 偽の列。0 = 実行中、1 = 完了、2 = 失敗。`wait` で完了にできる。
+    type Fake = Arc<AtomicU8>;
+
+    fn fake_state(group: &Fake) -> GroupState {
+        match group.load(Ordering::SeqCst) {
+            0 => GroupState::Pending,
+            2 => GroupState::Failed,
+            _ => GroupState::Completed,
+        }
+    }
+
+    type Seen = Arc<Mutex<Vec<(u64, CompletionState)>>>;
+
+    fn recorder(seen: &Seen, tag: u64) -> Callback {
+        let seen = Arc::clone(seen);
+        Box::new(move |state| seen.lock().expect("lock").push((tag, state)))
+    }
+
+    fn fake_table(states: &[u8]) -> (Submissions<Fake>, Vec<Fake>) {
+        let mut subs = Submissions::new();
+        let mut groups = Vec::new();
+        for state in states {
+            let group: Fake = Arc::new(AtomicU8::new(*state));
+            subs.pending.insert(subs.next_sequence, Arc::clone(&group));
+            subs.next_sequence += 1;
+            groups.push(group);
+        }
+        (subs, groups)
+    }
+
+    fn call_all(ready: Vec<(Callback, CompletionState)>) {
+        let panic = run_callbacks(ready, |callback, state| callback(state));
+        assert!(panic.is_none());
+    }
+
+    #[test]
+    fn register_calls_back_at_once_only_for_a_terminal_sequence() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[1, 0]);
+        // 回収しないので、完了済みの列は表に残ったままでも `Complete` が決まる。
+        let ready = subs.register(1, recorder(&seen, 1), fake_state);
+        assert!(matches!(ready, Some((_, CompletionState::Complete))));
+        assert!(subs.register(2, recorder(&seen, 2), fake_state).is_none());
+        // 払い出していない番号は `Lost` でその場。
+        let ready = subs.register(9, recorder(&seen, 9), fake_state);
+        assert!(matches!(ready, Some((_, CompletionState::Lost))));
+        assert_eq!(subs.callbacks.len(), 1);
+        assert!(seen.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn take_terminal_returns_only_finished_registrations_exactly_once() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0, 0, 0]);
+        for sequence in 1..=3 {
+            assert!(
+                subs.register(sequence, recorder(&seen, sequence), fake_state)
+                    .is_none()
+            );
+        }
+        assert!(subs.take_terminal(fake_state).is_empty());
+
+        // 先頭が実行中のまま、後ろの 2 つが終わる。回収は止まったままでも後ろの登録は外れる。
+        groups[2].store(1, Ordering::SeqCst);
+        groups[1].store(2, Ordering::SeqCst);
+        call_all(subs.take_terminal(fake_state));
+        assert_eq!(subs.watermark, 0);
+        assert_eq!(subs.callbacks.len(), 1);
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(2, CompletionState::Lost), (3, CompletionState::Complete)]
+        );
+
+        // 2 回目の駆動では何も呼ばれず、先頭が終わると 1 回だけ呼ばれる。
+        call_all(subs.take_terminal(fake_state));
+        groups[0].store(1, Ordering::SeqCst);
+        call_all(subs.take_terminal(fake_state));
+        call_all(subs.take_terminal(fake_state));
+        assert_eq!(seen.lock().expect("lock").len(), 3);
+        assert_eq!(
+            seen.lock().expect("lock")[2],
+            (1, CompletionState::Complete)
+        );
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn a_registration_for_a_reclaimed_sequence_is_resolved_by_the_watermark() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0]);
+        assert!(subs.register(1, recorder(&seen, 1), fake_state).is_none());
+        groups[0].store(1, Ordering::SeqCst);
+        subs.reclaim(fake_state);
+        assert!(subs.pending.is_empty());
+        call_all(subs.take_terminal(fake_state));
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(1, CompletionState::Complete)]
+        );
+    }
+
+    #[test]
+    fn take_all_after_waiting_returns_the_actual_state_and_never_pending() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0, 0]);
+        for sequence in 1..=2 {
+            assert!(
+                subs.register(sequence, recorder(&seen, sequence), fake_state)
+                    .is_none()
+            );
+        }
+        groups[1].store(2, Ordering::SeqCst);
+        subs.wait_registered(|group| {
+            if group.load(Ordering::SeqCst) == 0 {
+                group.store(1, Ordering::SeqCst);
+            }
+        });
+        call_all(subs.take_all(fake_state));
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(1, CompletionState::Complete), (2, CompletionState::Lost)]
+        );
+        assert!(subs.callbacks.is_empty());
+
+        // 待たなかった（実行中のままの）列は `Lost` に寄せる。
+        let (mut subs, _groups) = fake_table(&[0]);
+        assert!(subs.register(1, recorder(&seen, 7), fake_state).is_none());
+        call_all(subs.take_all(fake_state));
+        assert_eq!(seen.lock().expect("lock")[2], (7, CompletionState::Lost));
+    }
+
+    #[test]
+    fn a_panicking_callback_does_not_stop_the_rest_and_is_reported_once() {
+        let seen: Seen = Arc::default();
+        let ready: Vec<(Callback, CompletionState)> = vec![
+            (recorder(&seen, 1), CompletionState::Complete),
+            (
+                Box::new(|_| panic!("callback failed")),
+                CompletionState::Complete,
+            ),
+            (recorder(&seen, 3), CompletionState::Lost),
+        ];
+        let payload = run_callbacks(ready, |callback, state| callback(state));
+        assert!(payload.is_some());
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(1, CompletionState::Complete), (3, CompletionState::Lost)]
+        );
+    }
+
+    /// 駆動の本体 `drive_table` を通す。callback の中から表の錠を取って登録・駆動しても詰まらない。
+    #[test]
+    fn callbacks_run_outside_the_lock_so_reentry_does_not_deadlock() {
+        type Table = Mutex<Submissions<Fake>>;
+        fn drive(table: &Table) {
+            drive_table(table, fake_state, |callback: Callback, state| {
+                callback(state)
+            });
+        }
+
+        let (subs, groups) = fake_table(&[0, 0]);
+        let table: Arc<Table> = Arc::new(Mutex::new(subs));
+        let seen: Seen = Arc::default();
+        let inner_seen = Arc::clone(&seen);
+        let inner_table = Arc::clone(&table);
+        let second_group = Arc::clone(&groups[1]);
+        let outer: Callback = Box::new(move |state| {
+            inner_seen.lock().expect("lock").push((1, state));
+            // 錠が空いている。
+            assert!(inner_table.try_lock().is_ok());
+            // 再入: 登録と駆動を、この callback の中から行う。
+            register_table(
+                &inner_table,
+                2,
+                recorder(&inner_seen, 22),
+                fake_state,
+                |callback: Callback, state| callback(state),
+            );
+            second_group.store(1, Ordering::SeqCst);
+            drive(&inner_table);
+        });
+        lock_table(&table).callbacks.push((1, outer));
+        drive(&table);
+        assert!(seen.lock().expect("lock").is_empty());
+
+        groups[0].store(1, Ordering::SeqCst);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker_table = Arc::clone(&table);
+        std::thread::spawn(move || {
+            drive(&worker_table);
+            done_tx.send(()).expect("send");
+        });
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("re-entering from a callback must not deadlock");
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![
+                (1, CompletionState::Complete),
+                (22, CompletionState::Complete)
+            ]
+        );
+        drive(&table);
+        assert_eq!(seen.lock().expect("lock").len(), 2);
+    }
+
+    #[test]
+    fn drive_table_runs_the_rest_then_propagates_the_first_panic() {
+        let seen: Seen = Arc::default();
+        let (subs, _groups) = fake_table(&[1, 1, 1]);
+        let table = Mutex::new(subs);
+        {
+            let mut subs = lock_table(&table);
+            subs.callbacks.push((1, recorder(&seen, 1)));
+            subs.callbacks
+                .push((2, Box::new(|_| panic!("callback failed"))));
+            subs.callbacks.push((3, recorder(&seen, 3)));
+        }
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drive_table(&table, fake_state, |callback: Callback, state| {
+                callback(state)
+            });
+        }));
+        assert!(outcome.is_err());
+        assert_eq!(seen.lock().expect("lock").len(), 2);
+        // 登録は残らず、次の駆動で二重に呼ばれない。
+        drive_table(&table, fake_state, |callback: Callback, state| {
+            callback(state)
+        });
+        assert_eq!(seen.lock().expect("lock").len(), 2);
+        assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    #[test]
+    fn register_table_propagates_the_panic_of_an_at_once_callback_and_keeps_the_lock_usable() {
+        let seen: Seen = Arc::default();
+        // 番号 1 は完了済み（登録の時点で終端）、番号 2 は実行中。
+        let (subs, groups) = fake_table(&[1, 0]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            register_table(
+                &table,
+                1,
+                Box::new(|_| panic!("callback failed")),
+                fake_state,
+                call,
+            );
+        }));
+        // その場で呼んだ callback の panic は、登録の呼び出しから伝わる。
+        assert!(outcome.is_err());
+        // 錠は毒化せず放されていて、登録は残らない。
+        assert!(table.try_lock().is_ok());
+        assert!(lock_table(&table).callbacks.is_empty());
+        // そのあとも、登録と駆動が使える。
+        register_table(&table, 2, recorder(&seen, 2), fake_state, call);
+        assert!(seen.lock().expect("lock").is_empty());
+        groups[1].store(1, Ordering::SeqCst);
+        drive_table(&table, fake_state, call);
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(2, CompletionState::Complete)]
+        );
+    }
+
+    #[test]
+    fn finish_table_waits_calls_the_rest_and_swallows_panics() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0, 0]);
+        subs.callbacks
+            .push((1, Box::new(|_| panic!("callback failed"))));
+        subs.callbacks.push((2, recorder(&seen, 2)));
+        finish_table(
+            &mut subs,
+            |group| group.store(1, Ordering::SeqCst),
+            fake_state,
+            |callback: Callback, state| callback(state),
+        );
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(2, CompletionState::Complete)]
+        );
+        assert!(subs.callbacks.is_empty());
+        assert_eq!(groups[0].load(Ordering::SeqCst), 1);
+    }
+
+    /// `Drop` が panic する panic の中身（`panic_any` に渡す）。
+    struct PanicOnDrop;
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            panic!("payload drop failed");
+        }
+    }
+
+    fn drop_bomb() -> Callback {
+        Box::new(|_| std::panic::panic_any(PanicOnDrop))
+    }
+
+    #[test]
+    fn drive_table_calls_the_rest_when_a_discarded_payload_panics_on_drop() {
+        let seen: Seen = Arc::default();
+        let (subs, _groups) = fake_table(&[1, 1, 1, 1]);
+        let table = Mutex::new(subs);
+        {
+            let mut subs = lock_table(&table);
+            subs.callbacks.push((1, drop_bomb()));
+            subs.callbacks.push((2, drop_bomb()));
+            subs.callbacks.push((3, recorder(&seen, 3)));
+            subs.callbacks.push((4, recorder(&seen, 4)));
+        }
+        let call = |callback: Callback, state| callback(state);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drive_table(&table, fake_state, call);
+        }));
+        // 最初の中身だけが伝わり、2 個目の中身の破棄の panic は止まる。後ろの callback も 1 回ずつ呼ばれる。
+        let payload = outcome.expect_err("the first payload is propagated");
+        assert!(payload.is::<PanicOnDrop>());
+        std::mem::forget(payload);
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![
+                (3, CompletionState::Complete),
+                (4, CompletionState::Complete)
+            ]
+        );
+        assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    #[test]
+    fn finish_table_does_not_unwind_when_a_discarded_payload_panics_on_drop() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[0, 0, 0]);
+        subs.callbacks.push((1, drop_bomb()));
+        subs.callbacks.push((2, drop_bomb()));
+        subs.callbacks.push((3, recorder(&seen, 3)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            finish_table(
+                &mut subs,
+                |group| group.store(1, Ordering::SeqCst),
+                fake_state,
+                |callback: Callback, state| callback(state),
+            );
+        }));
+        assert!(outcome.is_ok());
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(3, CompletionState::Complete)]
+        );
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn a_panicking_classify_does_not_lose_registrations() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[0]);
+        assert!(subs.register(1, recorder(&seen, 1), fake_state).is_none());
+        let boom = |_: &Fake| -> GroupState { panic!("classify failed") };
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| subs.take_terminal(boom)));
+        assert!(outcome.is_err());
+        assert_eq!(subs.callbacks.len(), 1);
     }
 
     #[test]
