@@ -57,6 +57,10 @@ name = "fault_decorator_limits"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_decorator_limits_rows"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "fault_parts_matrix"
 required-features = ["fault-injection"]
 
@@ -230,3 +234,23 @@ required-features = ["fault-injection"]
 [[test]]
 name = "submit_default_impls"
 required-features = ["fault-injection"]
+
+[[test]]
+name = "interop_types"
+required-features = ["ext-interop"]
+
+[[test]]
+name = "interop_device_accessors"
+required-features = ["ext-interop"]
+
+[[test]]
+name = "interop_extension_defaults"
+required-features = ["ext-interop"]
+
+[[test]]
+name = "interop_same_gpu"
+required-features = ["ext-interop"]
+
+[[test]]
+name = "capability_webgpu_ports"
+required-features = ["test-support"]

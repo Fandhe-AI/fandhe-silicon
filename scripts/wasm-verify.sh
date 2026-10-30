@@ -4,6 +4,7 @@
 # 呼び出し元: `make wasm-verify`。CI の deny ジョブも同じ make ターゲットを呼ぶ。
 # ソースは変更しない。外部依存（wasm-bindgen）があるので、初回は取得にネットワークが要る
 # （--locked で Cargo.lock の不一致を失敗させる）。wasm32 の target が無いときは skip せず失敗させる。
+# 製品の core の試験の wasm32 の型検査（cargo check）も流す。
 # 回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため。measure-verify.sh と同じ）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +29,14 @@ main() {
   log "cargo clippy (wasm/, wasm32-unknown-unknown) -D warnings"
   cargo clippy --manifest-path wasm/Cargo.toml --workspace --all-targets --all-features --locked \
     --target wasm32-unknown-unknown -- -D warnings
+
+  # 製品の core の試験の crate が wasm32 で型検査を通ることを確かめる（実行はしない）。
+  # 通知の関数が wasm32 で Send でない設計や unix 限定の補助の関数を、試験が前提にしていないかを見る。
+  log "cargo check (crates/core tests, wasm32-unknown-unknown, default features)"
+  cargo check -p fandhe-silicon-core --tests --locked --target wasm32-unknown-unknown
+
+  log "cargo check (crates/core tests, wasm32-unknown-unknown, all features)"
+  cargo check -p fandhe-silicon-core --tests --all-features --locked --target wasm32-unknown-unknown
 
   log "cargo test (wasm/, host)"
   cargo test --manifest-path wasm/Cargo.toml --workspace --locked

@@ -131,6 +131,13 @@ enum EncoderCloser {
 /// fn needs_clone<T: Clone>() {}
 /// needs_clone::<CommandEncoder>();
 /// ```
+///
+/// `Send + Sync` を満たす（CMD-9）。満たさない型が同じ境界で拒まれることの陽性対照:
+///
+/// ```compile_fail
+/// fn needs_send_sync<T: Send + Sync>() {}
+/// needs_send_sync::<std::rc::Rc<()>>();
+/// ```
 pub struct CommandEncoder {
     recorded: u32,
     id: u64,
@@ -210,6 +217,17 @@ pub trait CommandQueue {
     fn create_encoder(&self) -> CommandEncoder;
 
     /// 記録先を値で消費して投入し、結果を指す印を返す。`wait` は先に待つ取り込み済みセマフォ。
+    ///
+    /// `commands` は値で渡るので、投入後に同じ変数をもう一度使うと所有権の移動のエラーになる（CMD-5）:
+    ///
+    /// ```compile_fail,E0382
+    /// use fandhe_silicon_core::execution::CommandQueue;
+    /// fn f(queue: &dyn CommandQueue) {
+    ///     let encoder = queue.create_encoder();
+    ///     let _ = queue.submit(encoder, &[]);
+    ///     let _ = queue.submit(encoder, &[]);
+    /// }
+    /// ```
     fn submit(
         &self,
         commands: CommandEncoder,

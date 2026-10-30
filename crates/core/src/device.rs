@@ -116,6 +116,24 @@ pub trait Device: Capabilities {
 
     /// 診断の値。
     fn diagnostics(&self) -> DeviceDiagnostics;
+
+    /// 相互運用の操作の口。既定は `None`（持たない）。
+    ///
+    /// 持つ背後実装だけが上書きする。`None` のとき、この crate は別の経路への切り替えをしない。
+    /// feature `ext-interop` の裏にある。
+    #[cfg(feature = "ext-interop")]
+    fn external_interop(&self) -> Option<&dyn crate::interop::ExternalInterop> {
+        None
+    }
+
+    /// 物理 GPU の識別子。既定は `None`（取得できない）。
+    ///
+    /// `None` は同じ GPU であることの根拠にならない。呼び手は `None` を一致として扱わないこと（判定はこの crate に無い）。
+    /// feature `ext-interop` の裏にある。
+    #[cfg(feature = "ext-interop")]
+    fn physical_gpu_id(&self) -> Option<crate::interop::PhysicalGpuId> {
+        None
+    }
 }
 
 /// `DeviceRequest` から device を作る入口。背後実装が実装する。

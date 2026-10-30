@@ -93,6 +93,7 @@ fn runtime_error_stays_default() {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn stub_is_send_sync() {
     fn check<T: Send + Sync>() {}
@@ -114,4 +115,20 @@ fn callback_may_reenter_stub() {
         .unwrap();
     assert_eq!(seen.load(Ordering::SeqCst), 1);
     assert_eq!(stub.lost_reason(), Some(DeviceLostReason::Destroyed));
+}
+
+#[test]
+fn lost_is_notified_through_the_dyn_notify() {
+    use fandhe_silicon_core::device_lost::DeviceLostNotify;
+    let stub = FaultStub::new();
+    let n = Arc::new(AtomicU64::new(0));
+    let n2 = Arc::clone(&n);
+    let notify: &dyn DeviceLostNotify = &stub;
+    notify.set_lost_callback(Box::new(move |_| {
+        n2.fetch_add(1, Ordering::SeqCst);
+    }));
+    stub.simulate_device_lost(DeviceLostReason::Unknown)
+        .unwrap();
+    assert_eq!(n.load(Ordering::SeqCst), 1);
+    assert_eq!(stub.lost_callback_count(), 1);
 }

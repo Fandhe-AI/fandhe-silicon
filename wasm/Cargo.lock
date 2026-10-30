@@ -122,5 +122,6 @@ name = "wasm-glue"
 version = "0.0.0"
 dependencies = [
  "fandhe-silicon-contract",
+ "fandhe-silicon-core",
  "wasm-bindgen",
 ]

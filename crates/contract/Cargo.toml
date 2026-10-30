@@ -52,6 +52,10 @@ name = "backend_metal_device"
 required-features = ["backend-metal", "native-blocking-wait"]
 
 [[test]]
+name = "backend_metal_ext_interop"
+required-features = ["backend-metal", "ext-interop"]
+
+[[test]]
 name = "backend_metal_fault"
 required-features = ["backend-metal", "fault-injection"]
 
