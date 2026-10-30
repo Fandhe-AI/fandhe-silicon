@@ -63,14 +63,17 @@ fn unset_combination_is_not_configured() {
 #[test]
 fn invalid_combination_values_are_distinguished_from_unset() {
     let long = "a".repeat(200);
-    for v in [
+    #[allow(unused_mut)]
+    let mut values = vec![
         s(""),
         s("no-such"),
         s("METAL-MAC-MINI"),
         s(" metal-mac-mini"),
         s(&long),
-        Some(non_utf8()),
-    ] {
+    ];
+    #[cfg(any(unix, windows))]
+    values.push(Some(non_utf8()));
+    for v in values {
         assert_eq!(
             decide(&decl(&[]), &setting(v, None)),
             not_run(NotRunReason::InvalidCombinationSetting)
@@ -85,7 +88,8 @@ fn invalid_permission_values_are_rejected() {
         .collect::<Vec<_>>()
         .join(",");
     let huge = "a,".repeat(2000);
-    for v in [
+    #[allow(unused_mut)]
+    let mut values = vec![
         s("Bad"),
         s("a,,b"),
         s("a,"),
@@ -93,8 +97,10 @@ fn invalid_permission_values_are_rejected() {
         s("a b"),
         s(&many),
         s(&huge),
-        Some(non_utf8()),
-    ] {
+    ];
+    #[cfg(any(unix, windows))]
+    values.push(Some(non_utf8()));
+    for v in values {
         assert_eq!(
             decide(&decl(&[]), &setting(s("metal-mac-mini"), v)),
             not_run(NotRunReason::InvalidPermissionSetting)

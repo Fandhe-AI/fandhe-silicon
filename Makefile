@@ -41,7 +41,7 @@ deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検�
 measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
 	@scripts/measure-verify.sh
 
-wasm-verify: ## wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）。直接: scripts/wasm-verify.sh
+wasm-verify: ## wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / core の試験の wasm32 型検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）。直接: scripts/wasm-verify.sh
 	@scripts/wasm-verify.sh
 
 wasm-size: ## wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2・ネットワーク不要。手元と CI の wasm-macos ジョブ用で CI の deny ジョブは呼ばない）。直接: scripts/wasm-size.sh [--from-dir <dir>]

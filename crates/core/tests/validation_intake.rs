@@ -161,6 +161,7 @@ fn replacing_a_callback_whose_drop_calls_the_reporter_does_not_deadlock() {
 }
 
 /// 実行中に再登録した後、古い関数の終わりで新しい登録が上書きされない。
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn re_registration_during_a_run_survives_the_old_callbacks_end() {
     use std::sync::Barrier;
@@ -188,6 +189,7 @@ fn re_registration_during_a_run_survives_the_old_callbacks_end() {
 }
 
 /// 新しい関数が別の報告で実行中のとき、古い関数が先に終わっても、新しい関数が後から戻る。
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn newer_callback_running_elsewhere_is_restored_after_the_old_one_ends() {
     use std::sync::Barrier;
