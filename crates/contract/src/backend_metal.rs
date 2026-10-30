@@ -18,6 +18,14 @@
 //! 読み書きの `unsafe` ブロックの同期の根拠は、この前提に頼る。
 //! 記録の操作（コピー・クリア・dispatch）を足す変更では、これらのブロックの同期の根拠を必ず書き直す。
 //!
+//! `free` したバッファは、同じ `byte_len` の再利用の一覧（pool）へ回す（上限を超える分は解放する）。
+//! 今の投入はどのバッファも参照しないので、`free` したバッファを無条件に pool へ回す（回す前に、
+//! そのバッファを参照する未完了の投入が無いかを確かめる実行時の検査は無い）。
+//! 記録の操作を足す変更では、遅延解放（バッファを参照する未完了の投入が終わるまで解放しない）と合わせて
+//! pool への回し方を見直す（TASK-610・TASK-319 のポインタ）。pool に入れる前に全バイトを 0 にするので、
+//! 再利用された `allocate` の利用者に以前の内容は見えない。pool に入ったバッファは、device の Drop まで
+//! 保持される（合計の上限は 64 MiB）。
+//!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
 
@@ -335,6 +343,120 @@ fn precheck_submit_many(
     Ok(())
 }
 
+/// 再利用の一覧に溜めるバッファの件数の上限（全 `byte_len` の合計）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const POOL_MAX_ENTRIES: usize = 16;
+
+/// 再利用の一覧に溜めるバッファの大きさの合計（バイト）の上限。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const POOL_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 再利用の一覧に入るバッファ 1 本。`slot` は Metal のバッファごとに 1 度だけ払い出す識別子で、
+/// 一覧を出入りしても変わらない（ハンドルの識別子とは別で、再利用のたびに新しいハンドルの識別子を払い出す）。
+/// `G` は本物では Metal のバッファで、試験では偽の値を使う。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct PooledSlot<G> {
+    slot: u64,
+    buffer: G,
+}
+
+/// 同じ `byte_len` ごとの再利用の一覧。`device` の表の錠の中に置く。
+///
+/// 入れるバッファは呼び出し側が先に全バイトを 0 にしたものに限る（この部品は中身を見ない）。
+/// 件数と大きさの合計に上限があり、超える分は入れずに呼び出し側へ返す（呼び出し側が解放する）。
+/// 再利用の回数と、取り出した `slot` が直前に入れた `slot` と一致した回数を数える（試験が読む）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct SizePool<G> {
+    by_len: BTreeMap<u64, Vec<PooledSlot<G>>>,
+    entries: usize,
+    bytes: u64,
+    last_put_slot: Option<u64>,
+    reuse_count: u64,
+    slot_match_count: u64,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl<G> SizePool<G> {
+    fn new() -> Self {
+        Self {
+            by_len: BTreeMap::new(),
+            entries: 0,
+            bytes: 0,
+            last_put_slot: None,
+            reuse_count: 0,
+            slot_match_count: 0,
+        }
+    }
+
+    /// 入れた後の件数と大きさの合計。上限を超える・計算があふれるときは `None`。
+    fn next_totals(&self, byte_len: u64) -> Option<(usize, u64)> {
+        let entries = self.entries.checked_add(1)?;
+        let bytes = self.bytes.checked_add(byte_len)?;
+        (entries <= POOL_MAX_ENTRIES && bytes <= POOL_MAX_BYTES).then_some((entries, bytes))
+    }
+
+    /// いま `byte_len` のバッファを入れられるか。呼び出し側がゼロ化の前に確かめる。
+    /// 錠の外でゼロ化する間に状況が変わりうるので、`put` が改めて検査する。
+    fn would_accept(&self, byte_len: u64) -> bool {
+        self.next_totals(byte_len).is_some()
+    }
+
+    /// 入れる。上限に当たる（件数・大きさの合計・計算のあふれ）と、一覧を変えずに渡された値を返す。
+    fn put(&mut self, byte_len: u64, slot: u64, buffer: G) -> Option<G> {
+        let Some((next_entries, next_bytes)) = self.next_totals(byte_len) else {
+            return Some(buffer);
+        };
+        self.entries = next_entries;
+        self.bytes = next_bytes;
+        self.last_put_slot = Some(slot);
+        self.by_len
+            .entry(byte_len)
+            .or_default()
+            .push(PooledSlot { slot, buffer });
+        None
+    }
+
+    /// 同じ `byte_len` の一覧から 1 本取り出す。別の大きさは見ない。取り出せたら再利用の回数を数える。
+    fn take(&mut self, byte_len: u64) -> Option<(u64, G)> {
+        let list = self.by_len.get_mut(&byte_len)?;
+        let PooledSlot { slot, buffer } = list.pop()?;
+        if list.is_empty() {
+            self.by_len.remove(&byte_len);
+        }
+        // 入れた分だけ引くので、あふれ・負にはならない。
+        self.entries = self.entries.saturating_sub(1);
+        self.bytes = self.bytes.saturating_sub(byte_len);
+        self.reuse_count = self.reuse_count.saturating_add(1);
+        if self.last_put_slot == Some(slot) {
+            self.slot_match_count = self.slot_match_count.saturating_add(1);
+        }
+        Some((slot, buffer))
+    }
+}
+
+/// 解放されたバッファを、ゼロ化してから再利用の一覧へ回す流れ。受け入れられなかったバッファを返す
+/// （呼び出し側が解放する）。device に触らず、錠の取り方は呼び出し側の閉包に任せる。
+///
+/// 順は、`accepts(byte_len)` で一覧に入れられるか確かめる（入れられないならゼロ化せずに返す）、
+/// `zero` でゼロ化する（失敗したら入れずに返す）、`put` で入れる（検査に当たれば返す）。
+/// 一覧に入るのはゼロ化に成功したバッファだけになる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn retire<B, E>(
+    byte_len: u64,
+    mut buffer: B,
+    accepts: impl FnOnce(u64) -> bool,
+    zero: impl FnOnce(&mut B) -> Result<(), E>,
+    put: impl FnOnce(B) -> Option<B>,
+) -> Option<B> {
+    if !accepts(byte_len) {
+        return Some(buffer);
+    }
+    if zero(&mut buffer).is_err() {
+        return Some(buffer);
+    }
+    put(buffer)
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
@@ -345,8 +467,8 @@ mod imp {
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
-        BufState, GroupState, OpenEncoders, Submissions, check_token_owner, group_state_of,
-        precheck_submit, precheck_submit_many, take_next, terminal_state,
+        BufState, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
+        group_state_of, precheck_submit, precheck_submit_many, retire, take_next, terminal_state,
     };
 
     use fandhe_silicon_core::capability::{
@@ -580,6 +702,8 @@ mod imp {
     struct BufferEntry {
         /// Metal のバッファ。`free` で表から外すまで device が保持する。
         buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+        /// このバッファの識別子（slot）。Metal のバッファを作るときに 1 度だけ払い出し、再利用の一覧を出入りしても変わらない。
+        slot: u64,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -588,7 +712,14 @@ mod imp {
         next_id: u64,
         /// 識別子からバッファへの表。
         map: HashMap<u64, BufferEntry>,
+        /// 次に払い出す slot。
+        next_slot: u64,
+        /// 解放されたバッファの再利用の一覧。入っているのは全バイトが 0 のバッファだけ。
+        pool: SizePool<Retained<ProtocolObject<dyn MTLBuffer>>>,
     }
+
+    /// ゼロ化に使う 0 の並び。`free` の中で大きな領域を確保しないよう、固定長を繰り返し書く。
+    const ZEROS: [u8; 4096] = [0; 4096];
 
     /// Metal の device 1 つ。`DeviceProvider::request` が作る。
     ///
@@ -699,6 +830,8 @@ mod imp {
                 buffers: Mutex::new(Buffers {
                     next_id: 1,
                     map: HashMap::new(),
+                    next_slot: 1,
+                    pool: SizePool::new(),
                 }),
                 open: Arc::new(OpenEncoders::new()),
                 submissions: Mutex::new(Submissions::new()),
@@ -728,26 +861,53 @@ mod imp {
             self.lock_submissions().next_sequence - 1
         }
 
+        /// 試験専用。再利用の一覧から取り出した回数の通算。
+        #[cfg(test)]
+        fn test_pool_reuse_count(&self) -> u64 {
+            self.lock_buffers().pool.reuse_count
+        }
+
+        /// 試験専用。取り出した slot が直前に一覧へ入れた slot と一致した回数の通算。
+        #[cfg(test)]
+        fn test_pool_slot_match_count(&self) -> u64 {
+            self.lock_buffers().pool.slot_match_count
+        }
+
+        /// 試験専用。再利用の一覧にあるバッファの数。
+        #[cfg(test)]
+        fn test_pool_len(&self) -> usize {
+            self.lock_buffers().pool.entries
+        }
+
+        /// 試験専用。ハンドルが指す表のバッファの slot。表に無ければ `None`。
+        #[cfg(test)]
+        fn test_slot_of(&self, handle: &BufferHandle) -> Option<u64> {
+            self.lock_buffers()
+                .map
+                .get(&handle.__backend_id())
+                .map(|entry| entry.slot)
+        }
+
         /// 試験専用。開いている記録先の数。
         #[cfg(test)]
         fn test_open_encoder_count(&self) -> usize {
             self.open.lock().len()
         }
 
-        /// ハンドルを照合し、この device のバッファに対して `f` を呼ぶ。`f` の間は表の錠を持つ。
+        /// ハンドルを照合し、この device のバッファの表の項目を `&mut` で借りて `f` を呼ぶ。`f` の間は表の錠を持つ。
         ///
         /// 照合の順は、払い出し元の device の識別子（違えば `DeviceMismatch`）、表にある識別子、
         /// 世代の一致（表に無い・世代が違うものは偽造として `InvalidArgument`）。
         fn with_buffer<R>(
             &self,
             handle: &BufferHandle,
-            f: impl FnOnce(&ProtocolObject<dyn MTLBuffer>) -> Result<R, ContractError>,
+            f: impl FnOnce(&mut BufferEntry) -> Result<R, ContractError>,
         ) -> Result<R, ContractError> {
             if handle.__backend_device_id() != self.id {
                 return Err(ContractError::DeviceMismatch);
             }
-            let buffers = self.lock_buffers();
-            let Some(entry) = buffers.map.get(&handle.__backend_id()) else {
+            let mut buffers = self.lock_buffers();
+            let Some(entry) = buffers.map.get_mut(&handle.__backend_id()) else {
                 return Err(ContractError::InvalidArgument(
                     "buffer handle is not in this device's table".into(),
                 ));
@@ -757,7 +917,7 @@ mod imp {
                     "buffer handle generation does not match this device".into(),
                 ));
             }
-            f(&entry.buffer)
+            f(entry)
         }
 
         /// 範囲を検査してから `[offset, offset + len)` を読み出す。`download_*` が共有する。
@@ -767,7 +927,8 @@ mod imp {
             src_offset: u64,
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
-            self.with_buffer(src, |buffer| {
+            self.with_buffer(src, |entry| {
+                let buffer = &entry.buffer;
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
                 })?;
@@ -993,6 +1154,57 @@ mod imp {
         validate_allocation_size(byte_len, max_buffer_bytes)
     }
 
+    /// 範囲を検査してから、`bytes` を `entry` のバッファの `offset` から書き込む。`upload` とゼロ化が共有する。
+    ///
+    /// 検査に当たると、バッファの内容を変えずに `InvalidArgument` を返す。
+    /// 書き込みの排他は `&mut BufferEntry` が型で示す。`upload` は表の錠の中の `get_mut` で借りた項目を、
+    /// ゼロ化は表から外して所有している項目を渡す。共有参照からは書けない。非公開。
+    fn write_range(
+        entry: &mut BufferEntry,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), ContractError> {
+        let buffer = &entry.buffer;
+        let len = u64::try_from(bytes.len())
+            .map_err(|_| ContractError::InvalidArgument("data length does not fit u64".into()))?;
+        let allocation_len = u64::try_from(buffer.length())
+            .map_err(|_| ContractError::InvalidArgument("buffer length does not fit u64".into()))?;
+        let (offset, _) = host_range(offset, len, allocation_len)?;
+        if !bytes.is_empty() {
+            let base = buffer.contents().as_ptr().cast::<u8>();
+            // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
+            // `buffer.length()` バイトの領域を指し、`entry` が `Retained` を持つので書き込みの間は生きている。
+            // `host_range`（`validate_buffer_range` を呼ぶ）が `offset + bytes.len() <= length()` を保証している。
+            // `&mut BufferEntry` を受けているので、この領域を CPU 側で読み書きする他の参照は同時に存在しない
+            // （表の項目は表の錠の中で、または表から外して単独で所有した状態でしか借りられない）。
+            // GPU の読み書きと重ならないことは、
+            // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
+            // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
+            // このブロックの同期の根拠を必ず書き直す）。`bytes` は呼び出し側の借用した領域で、
+            // Metal の領域とは重ならない。
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), base.add(offset), bytes.len());
+            }
+        }
+        Ok(())
+    }
+
+    /// `entry` のバッファの全バイトを 0 にする。
+    fn zero_fill(entry: &mut BufferEntry) -> Result<(), ContractError> {
+        let total = u64::try_from(entry.buffer.length())
+            .map_err(|_| ContractError::InvalidArgument("buffer length does not fit u64".into()))?;
+        let mut offset: u64 = 0;
+        while offset < total {
+            let remaining = total - offset;
+            let step = remaining.min(ZEROS.len() as u64);
+            // `step` は `ZEROS.len()` 以下なので usize に収まる。
+            let chunk = &ZEROS[..usize::try_from(step).unwrap_or(ZEROS.len())];
+            write_range(entry, offset, chunk)?;
+            offset += step;
+        }
+        Ok(())
+    }
+
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
@@ -1008,14 +1220,29 @@ mod imp {
                 requested_bytes: byte_len,
             };
             let length = usize::try_from(byte_len).map_err(|_| failed())?;
-            let buffer = self
-                .device
-                .newBufferWithLength_options(length, MTLResourceOptions::StorageModeShared)
-                .ok_or_else(failed)?;
             let mut buffers = self.lock_buffers();
+            // ハンドルの識別子は再利用しない。解放済みのハンドルが新しい利用者のバッファに当たらないようにする。
+            // 一覧から取る前に払い出すので、あふれて失敗しても一覧のバッファは減らない。
             let id = buffers.next_id;
             buffers.next_id = id.checked_add(1).ok_or_else(failed)?;
-            buffers.map.insert(id, BufferEntry { buffer });
+            // 同じ `byte_len` の再利用の一覧にあれば、それを使う（中身は一覧に入れる前に 0 にしてある）。
+            // 無ければ Metal のバッファを新しく作る（確保 API が全バイトを 0 にする）。
+            let (slot, buffer) = match buffers.pool.take(byte_len) {
+                Some(pooled) => pooled,
+                None => {
+                    // 錠を放してから確保し、取り直す。
+                    drop(buffers);
+                    let buffer = self
+                        .device
+                        .newBufferWithLength_options(length, MTLResourceOptions::StorageModeShared)
+                        .ok_or_else(failed)?;
+                    buffers = self.lock_buffers();
+                    let slot = buffers.next_slot;
+                    buffers.next_slot = slot.checked_add(1).ok_or_else(failed)?;
+                    (slot, buffer)
+                }
+            };
+            buffers.map.insert(id, BufferEntry { buffer, slot });
             Ok(BufferHandle::__backend_new(
                 self.generation,
                 id,
@@ -1032,34 +1259,7 @@ mod imp {
             dst_offset: u64,
             bytes: &[u8],
         ) -> Result<(), ContractError> {
-            self.with_buffer(dst, |buffer| {
-                let len = u64::try_from(bytes.len()).map_err(|_| {
-                    ContractError::InvalidArgument("data length does not fit u64".into())
-                })?;
-                let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
-                    ContractError::InvalidArgument("buffer length does not fit u64".into())
-                })?;
-                let (offset, _) = host_range(dst_offset, len, allocation_len)?;
-                if !bytes.is_empty() {
-                    let base = buffer.contents().as_ptr().cast::<u8>();
-                    // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
-                    // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
-                    // `offset + bytes.len() <= length()` を保証している。GPU の読み書きと重ならないことは、
-                    // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
-                    // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
-                    // このブロックの同期の根拠を必ず書き直す）。`with_buffer` が表の錠を持ったまま
-                    // `f` を呼ぶため、コピーの間は `free` でバッファが落ちない。`bytes` は呼び出し側の
-                    // 借用した領域で、Metal の領域とは重ならない。
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            bytes.as_ptr(),
-                            base.add(offset),
-                            bytes.len(),
-                        );
-                    }
-                }
-                Ok(())
-            })
+            self.with_buffer(dst, |entry| write_range(entry, dst_offset, bytes))
         }
 
         /// `src` の `src_offset` から `byte_len` バイトを読み出す。記録の操作が無く GPU はバッファに触れないので、待たずに返る。
@@ -1084,9 +1284,14 @@ mod imp {
             callback(self.read_range(src, src_offset, byte_len));
         }
 
-        /// この device のハンドルなら、表から外してバッファを解放する。
+        /// この device のハンドルなら、表から外し、全バイトを 0 にしてから再利用の一覧へ回す。
         ///
-        /// 別の device のハンドルは何も解放しない（同じ識別子を持つ自 device のバッファを巻き込まない）。
+        /// 一覧が上限（件数・大きさの合計）に達していれば、ゼロ化せずに解放する。ゼロ化に失敗したバッファも
+        /// 一覧に入れず解放する（以前の内容を次の `allocate` の利用者に見せない側に倒す）。
+        /// 今の投入はどのバッファも参照しないので、一覧へは無条件に回す（参照する未完了の投入があるかの
+        /// 実行時の検査は無い。記録の操作を足す変更では、遅延解放と合わせて見直す）。
+        /// 一覧に入ったバッファは device の Drop まで保持される（合計の上限は 64 MiB）。
+        /// 別の device のハンドルは何もしない（同じ識別子を持つ自 device のバッファを巻き込まない）。
         fn free(&self, buffer: BufferHandle) {
             if buffer.__backend_device_id() != self.id
                 || buffer.__backend_generation() != self.generation
@@ -1094,8 +1299,29 @@ mod imp {
                 return;
             }
             let removed = self.lock_buffers().map.remove(&buffer.__backend_id());
+            let Some(entry) = removed else {
+                return;
+            };
+            // 一覧の分類は、ハンドルの申告ではなく Metal のバッファの実際の長さで決める。
+            let Ok(byte_len) = u64::try_from(entry.buffer.length()) else {
+                return;
+            };
+            // 表から外したので、このバッファはどのハンドルからも到達できない。ゼロ化は錠の外で行う。
+            let rejected = retire(
+                byte_len,
+                entry,
+                |len| self.lock_buffers().pool.would_accept(len),
+                zero_fill,
+                |entry| {
+                    let BufferEntry { buffer, slot } = entry;
+                    self.lock_buffers()
+                        .pool
+                        .put(byte_len, slot, buffer)
+                        .map(|buffer| BufferEntry { buffer, slot })
+                },
+            );
             // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
-            drop(removed);
+            drop(rejected);
         }
     }
 
@@ -1135,6 +1361,7 @@ mod imp {
     #[cfg(test)]
     mod device_tests {
         use super::*;
+        use crate::backend_metal::POOL_MAX_ENTRIES;
 
         fn new_device() -> MetalDevice {
             // 具体型で数の口を読むため、`request_with` を通さず同じ手順で作る。
@@ -1152,6 +1379,101 @@ mod imp {
                 device,
                 queue,
             )
+        }
+
+        /// 一覧が空の状態の確保は、全バイトが 0（MEM-2 のポインタ）。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn a_fresh_allocation_reads_back_all_zero() {
+            let device = new_device();
+            for len in [1_u64, 4096, 4097, 65_536] {
+                let h = device
+                    .allocate(len, BufferUsage::empty())
+                    .expect("allocate");
+                let bytes = device.read_range(&h, 0, len).expect("read");
+                assert_eq!(bytes.len() as u64, len);
+                assert_eq!(bytes.iter().filter(|b| **b != 0).count(), 0, "len={len}");
+            }
+            assert_eq!(device.test_pool_reuse_count(), 0);
+        }
+
+        /// upload -> free -> allocate を 1,000 回くり返しても、再利用されたバッファから以前の内容が読めない
+        /// （MEM-17 のポインタ）。再利用が実際に起きたこと（回数と slot の一致の回数）も確かめる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn reused_buffers_never_expose_previous_contents_over_1000_rounds() {
+            const LEN: u64 = 4097;
+            let device = new_device();
+            let mut handle = device
+                .allocate(LEN, BufferUsage::empty())
+                .expect("allocate");
+            let mut seen_slot = device.test_slot_of(&handle).expect("slot");
+            for round in 0..1000_u32 {
+                let fill = u8::try_from(round % 255).unwrap_or(0) + 1;
+                device
+                    .upload(&handle, 0, &vec![fill; LEN as usize])
+                    .expect("upload");
+                device.free(handle);
+                handle = device
+                    .allocate(LEN, BufferUsage::empty())
+                    .expect("allocate");
+                let bytes = device.read_range(&handle, 0, LEN).expect("read");
+                let nonzero = bytes.iter().filter(|b| **b != 0).count();
+                assert_eq!(nonzero, 0, "round={round}");
+                let slot = device.test_slot_of(&handle).expect("slot");
+                assert_eq!(slot, seen_slot, "round={round}: the slot was not reused");
+                seen_slot = slot;
+            }
+            let reused = device.test_pool_reuse_count();
+            let matched = device.test_pool_slot_match_count();
+            println!("pool_reuse_count={reused} pool_slot_match_count={matched}");
+            assert!(reused >= 1, "no reuse happened");
+            assert_eq!(reused, 1000);
+            assert_eq!(matched, reused);
+        }
+
+        /// 解放したハンドルは、同じ大きさの再利用の後も新しいハンドルに当たらない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn a_freed_handle_does_not_alias_the_reused_buffer() {
+            let device = new_device();
+            let first = device.allocate(64, BufferUsage::empty()).expect("allocate");
+            let stale = BufferHandle::__backend_new(
+                first.__backend_generation(),
+                first.__backend_id(),
+                first.__backend_device_id(),
+                64,
+                BufferUsage::empty(),
+            );
+            let first_slot = device.test_slot_of(&first).expect("slot");
+            device.free(first);
+            let second = device.allocate(64, BufferUsage::empty()).expect("allocate");
+            assert_ne!(stale.__backend_id(), second.__backend_id());
+            assert_eq!(device.test_pool_reuse_count(), 1);
+            assert_eq!(device.test_slot_of(&second), Some(first_slot));
+            let r = device.upload(&stale, 0, &[1]);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            // 解放済みのハンドルでの二重の free は、一覧に何も足さない。
+            device.free(stale);
+            assert_eq!(device.test_pool_len(), 0);
+        }
+
+        /// 一覧が上限を超えて溜まらない。別の大きさは再利用されない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn the_pool_is_bounded_and_matches_only_the_same_length() {
+            let device = new_device();
+            let handles: Vec<_> = (0..POOL_MAX_ENTRIES + 4)
+                .map(|_| device.allocate(32, BufferUsage::empty()).expect("allocate"))
+                .collect();
+            for h in handles {
+                device.free(h);
+            }
+            assert_eq!(device.test_pool_len(), POOL_MAX_ENTRIES);
+            let other = device.allocate(33, BufferUsage::empty()).expect("allocate");
+            assert_eq!(device.test_pool_reuse_count(), 0);
+            assert_eq!(device.test_pool_len(), POOL_MAX_ENTRIES);
+            device.free(other);
         }
 
         /// CMD-1 のポインタ。記録先を作る・破棄するだけでは投入の件数が増えず、破棄で開いている件数が戻る。
@@ -1477,6 +1799,140 @@ mod precheck_tests {
         open.close(9);
         open.close(9);
         assert!(open.lock().is_empty());
+    }
+
+    #[test]
+    fn pool_returns_the_same_slot_only_for_the_same_length() {
+        let mut pool: SizePool<&str> = SizePool::new();
+        assert!(pool.put(16, 7, "a").is_none());
+        assert!(pool.take(32).is_none());
+        assert_eq!(pool.entries, 1);
+        assert_eq!(pool.take(16), Some((7, "a")));
+        assert_eq!(pool.entries, 0);
+        assert_eq!(pool.bytes, 0);
+        assert!(pool.take(16).is_none());
+    }
+
+    #[test]
+    fn pool_counts_reuses_and_slot_matches() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        assert!(pool.take(16).is_none());
+        assert_eq!(pool.reuse_count, 0);
+        for round in 0..10_u8 {
+            assert!(pool.put(16, 3, round).is_none());
+            assert_eq!(pool.take(16), Some((3, round)));
+        }
+        assert_eq!(pool.reuse_count, 10);
+        assert_eq!(pool.slot_match_count, 10);
+        // 別の slot を入れた後に古い slot を取り出しても、一致には数えない。
+        assert!(pool.put(16, 4, 0).is_none());
+        assert!(pool.put(16, 5, 1).is_none());
+        assert_eq!(pool.take(16), Some((5, 1)));
+        assert_eq!(pool.take(16), Some((4, 0)));
+        assert_eq!(pool.reuse_count, 12);
+        assert_eq!(pool.slot_match_count, 11);
+    }
+
+    #[test]
+    fn pool_rejects_past_the_entry_limit_and_keeps_its_contents() {
+        let mut pool: SizePool<usize> = SizePool::new();
+        for i in 0..POOL_MAX_ENTRIES {
+            assert!(pool.put(8, i as u64, i).is_none());
+        }
+        assert_eq!(pool.put(8, 99, 99), Some(99));
+        assert_eq!(pool.entries, POOL_MAX_ENTRIES);
+        assert_eq!(pool.bytes, 8 * POOL_MAX_ENTRIES as u64);
+        // 取り出すと空きができる。
+        assert!(pool.take(8).is_some());
+        assert!(pool.put(8, 99, 99).is_none());
+    }
+
+    #[test]
+    fn pool_rejects_past_the_byte_limit_and_overflow() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        assert!(pool.put(POOL_MAX_BYTES, 1, 0).is_none());
+        assert_eq!(pool.put(1, 2, 1), Some(1));
+        assert_eq!(pool.bytes, POOL_MAX_BYTES);
+        assert_eq!(pool.entries, 1);
+        let mut empty: SizePool<u8> = SizePool::new();
+        assert_eq!(empty.put(POOL_MAX_BYTES + 1, 1, 0), Some(0));
+        assert_eq!(empty.put(u64::MAX, 1, 0), Some(0));
+        assert_eq!(empty.entries, 0);
+        assert!(empty.by_len.is_empty());
+    }
+
+    #[test]
+    fn would_accept_follows_the_limits_without_changing_the_pool() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        assert!(pool.would_accept(1));
+        assert!(pool.would_accept(POOL_MAX_BYTES));
+        assert!(!pool.would_accept(POOL_MAX_BYTES + 1));
+        assert!(!pool.would_accept(u64::MAX));
+        assert_eq!(pool.entries, 0);
+        assert!(pool.put(POOL_MAX_BYTES - 1, 1, 0).is_none());
+        assert!(pool.would_accept(1));
+        assert!(!pool.would_accept(2));
+        for i in 0..POOL_MAX_ENTRIES - 1 {
+            let _ = pool.put(0, i as u64, 0);
+        }
+        assert!(!pool.would_accept(0));
+    }
+
+    /// `retire` の試験用に、呼ばれた順を記録する。
+    fn run_retire(
+        pool: &mut SizePool<u8>,
+        byte_len: u64,
+        zero_ok: bool,
+        calls: &mut Vec<&'static str>,
+    ) -> Option<u8> {
+        let pool = std::cell::RefCell::new(pool);
+        let calls = std::cell::RefCell::new(calls);
+        retire(
+            byte_len,
+            9_u8,
+            |len| {
+                calls.borrow_mut().push("accepts");
+                pool.borrow().would_accept(len)
+            },
+            |_buffer: &mut u8| {
+                calls.borrow_mut().push("zero");
+                if zero_ok { Ok(()) } else { Err(()) }
+            },
+            |buffer| {
+                calls.borrow_mut().push("put");
+                pool.borrow_mut().put(byte_len, 1, buffer)
+            },
+        )
+    }
+
+    #[test]
+    fn retire_zeroes_then_puts_when_the_pool_accepts() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        let mut calls = Vec::new();
+        assert_eq!(run_retire(&mut pool, 16, true, &mut calls), None);
+        assert_eq!(calls, ["accepts", "zero", "put"]);
+        assert_eq!(pool.take(16), Some((1, 9)));
+    }
+
+    #[test]
+    fn retire_does_not_put_a_buffer_that_failed_to_zero() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        let mut calls = Vec::new();
+        assert_eq!(run_retire(&mut pool, 16, false, &mut calls), Some(9));
+        assert_eq!(calls, ["accepts", "zero"]);
+        assert_eq!(pool.entries, 0);
+    }
+
+    #[test]
+    fn retire_does_not_zero_a_size_the_pool_will_not_accept() {
+        let mut pool: SizePool<u8> = SizePool::new();
+        let mut calls = Vec::new();
+        assert_eq!(
+            run_retire(&mut pool, POOL_MAX_BYTES + 1, true, &mut calls),
+            Some(9)
+        );
+        assert_eq!(calls, ["accepts"]);
+        assert_eq!(pool.entries, 0);
     }
 
     #[test]
