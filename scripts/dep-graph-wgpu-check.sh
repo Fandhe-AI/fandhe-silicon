@@ -90,7 +90,10 @@ REPOSITORY_STRIP_SUFFIXES = ("/", ".git")
 # 一覧の crate も総数・狭い定義・広い定義の対象のまま。一覧を変えるのは、metadata にだけ載る依存が
 # 変わる PR の中だけにする（決定は TASK-82 のポインタ）。
 # 形の制約: 回帰テストが ast で読み書きするので、リテラルの tuple だけを 1 つの代入文で書く（複数行・行末のコメントは可）。
-METADATA_ONLY_CRATES = ()
+METADATA_ONLY_CRATES = (
+    # objc2-core-foundation の feature objc2 が持つ弱い依存（dispatch2?/objc2）で、lock と metadata にだけ載る。
+    ("dispatch2", "0.3.1"),
+)
 # ==== 数え方の定義ここまで ====
 
 # 定義から組み立てるコマンド（値はここに書かない）。target は metadata では --filter-platform に任せる。

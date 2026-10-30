@@ -71,8 +71,9 @@ impl SubmitToken {
 
 /// 投入した処理の GPU 側の開始・終了時刻の問合せ結果。`CommandQueue::gpu_timing` が返す。
 ///
-/// 問合せは読み取り専用で、回収を起こさない。回収済みの投入は `Reclaimed` になるので、
-/// 完了を `poll`・`poll_ex`・`wait_blocking` で確かめるより前に読む。
+/// 問合せは読み取り専用で、回収を起こさない。時刻を残すかどうか、どの待ち方で残すか、
+/// 回収の後も残すかは背後実装による（Metal は `docs/metal-device-request.md`）。
+/// 正常に完了し、時刻が残っていない投入（回収済みを含む）は `Reclaimed` になる。
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GpuTiming {
@@ -85,7 +86,7 @@ pub enum GpuTiming {
     },
     /// まだ完了していない。
     Pending,
-    /// 回収済みで読めない。
+    /// 正常に完了したが、時刻が残っていない（回収済みを含む）。
     Reclaimed,
     /// 観測できない。既定の実装はこれを返す。
     Unavailable,
