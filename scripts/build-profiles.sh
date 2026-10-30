@@ -44,6 +44,7 @@ NATIVE_SETS=(
   "ext-interop"                                                                    # spec TASK-233（BUILD-13。ゲートの feature 単独の組）
   "backend-vulkan,ext-interop"                                                     # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
   "backend-cuda,ext-interop"                                                       # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
+  "backend-metal,ext-interop"                                                      # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
 )
 
 # wasm32 の組

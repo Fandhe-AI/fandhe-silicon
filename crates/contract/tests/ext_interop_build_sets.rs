@@ -1,8 +1,8 @@
 //! `scripts/build-profiles.sh` の `NATIVE_SETS` にある、片方の背後実装だけに `ext-interop` を足した
-//! 2 組の行の存在を固定する試験（spec TASK-231、BUILD-14 のポインタ）。
+//! 3 組の行の存在を固定する試験（spec TASK-231、BUILD-14 のポインタ）。
 //!
 //! 両方の背後実装を含む本番の組（BUILD-4）の行は `feature_default_scope.rs` が受け持つので、
-//! ここでは `backend-vulkan,ext-interop` と `backend-cuda,ext-interop` の 2 行だけを守る。
+//! ここでは `backend-vulkan,ext-interop`・`backend-cuda,ext-interop`・`backend-metal,ext-interop` の 3 行だけを守る。
 //! 対象を `NATIVE_SETS` の区画に限るのは、行が `WASM_SETS` へ移っても通ってしまわないようにするため
 //! （両背後実装のモジュールは wasm32 では有効にならず、そこでは確かめにならない）。
 //! 判定は純粋関数 `problems` に分け、実物の本文を 1 か所だけ変えた入力を渡す陽性対照を常設する。
@@ -12,11 +12,12 @@
 use std::collections::BTreeSet;
 
 const TAG: &str = "# spec TASK-231";
-const EXPECTED: [&[&str]; 2] = [
+const EXPECTED: [&[&str]; 3] = [
     &["backend-vulkan", "ext-interop"],
     &["backend-cuda", "ext-interop"],
+    &["backend-metal", "ext-interop"],
 ];
-const BACKENDS: [&str; 2] = ["backend-vulkan", "backend-cuda"];
+const BACKENDS: [&str; 3] = ["backend-vulkan", "backend-cuda", "backend-metal"];
 
 /// 組と注記（`#` 以降。無ければ空）。
 type Row = (String, String);
@@ -63,7 +64,7 @@ fn as_set(s: &str) -> BTreeSet<&str> {
     s.split(',').collect()
 }
 
-/// 違反を文字列で返す。空なら 2 行は期待どおり。
+/// 違反を文字列で返す。空なら 3 行は期待どおり。
 fn problems(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for exp in EXPECTED {
@@ -109,9 +110,10 @@ fn real_script() -> String {
     .expect("build-profiles.sh must be readable")
 }
 
-const LINE_STARTS: [&str; 2] = [
+const LINE_STARTS: [&str; 3] = [
     "  \"backend-vulkan,ext-interop\"",
     "  \"backend-cuda,ext-interop\"",
+    "  \"backend-metal,ext-interop\"",
 ];
 
 /// 指定の行頭で始まる実物の 1 行を返す。

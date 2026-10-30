@@ -58,6 +58,7 @@
 - 追加した 2 組は `backend-vulkan`・`backend-cuda` の含意で `contract-core` が入り、`cpu-isa`・`cpu-ops` は入らない（`backend-vulkan` 単独・`backend-cuda` 単独の行と同じ扱い）
 - 背後実装の中の `ext-interop` の条件付きコンパイルは 0 件のまま（相互運用の実装が無いため）。門で囲むのは相互運用の実装を持つ PR で、その PR で本書に節を足す（BUILD-14 のポインタのみ）
 - 手元の結果: 追加した 2 組の `cargo test` はいずれも終了コード 0（`feature_gate_enabled` の `ext_interop_gate_is_visible` と各 doctest を含む）
+- `backend-metal,ext-interop` の組も `NATIVE_SETS` にある（注記は同じ `# spec TASK-231`）。`backend-metal` も含意で `contract-core` が入り、`cpu-isa`・`cpu-ops` は入らない。手元の結果: この組を含む `make build-profiles` は終了コード 0。`ext_interop_build_sets.rs` の期待の表も 3 行になっている
 - 行の存在を固定する試験は 3/4、3 構成の結果の記録と完了の条件の照合は 4/4 で扱う
 
 確かめ方:
@@ -70,12 +71,12 @@
 
 ## テスト（3/4）（TASK-231）
 
-`crates/contract/tests/ext_interop_build_sets.rs` を足した。`scripts/build-profiles.sh` の `NATIVE_SETS` の区画を読み、2/4 で足した 2 行の存在を固定する。
+`crates/contract/tests/ext_interop_build_sets.rs` を足した。`scripts/build-profiles.sh` の `NATIVE_SETS` の区画を読み、2/4 で足した 2 行の存在を固定する。`backend-metal,ext-interop` の行も同じ試験が固定する。
 
 | 確かめること | 内容 |
 | ------------ | ---- |
-| 2 組の存在 | `backend-vulkan,ext-interop` と `backend-cuda,ext-interop` が `NATIVE_SETS` の中にそれぞれちょうど 1 件あり、注記に `# spec TASK-231` がある |
-| タグの件数 | 注記にそのタグを持つ行がちょうど 2 件 |
+| 組の存在 | `backend-vulkan,ext-interop`・`backend-cuda,ext-interop`・`backend-metal,ext-interop` が `NATIVE_SETS` の中にそれぞれちょうど 1 件あり、注記に `# spec TASK-231` がある |
+| タグの件数 | 注記にそのタグを持つ行がちょうど 3 件 |
 | 期待の表 | 各組が背後実装をちょうど 1 つと `ext-interop` を持つ |
 | 読み取り | 空行とコメント行を飛ばし、注記を取り出す。開き・閉じの欠落と引用符の無い行は失敗にする |
 
