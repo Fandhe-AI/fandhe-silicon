@@ -110,18 +110,19 @@ fn group_state_of(states: impl IntoIterator<Item = BufState>) -> GroupState {
     }
 }
 
-/// 時刻の表が持つ件数の上限。超えたら通し番号の小さいものから捨てる（`gpu_timing` の rustdoc に同じ数を書く）。
+/// 時刻の表が持つ件数の上限。超えたら通し番号の小さいものから捨てる。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const TIMING_TABLE_MAX: usize = 1024;
 
 /// コマンドバッファの列の (開始, 終了)（秒）から、投入全体の (最小の開始, 最大の終了) を求める。
 ///
-/// 空の列・有限でない値・終了が開始より前の組があれば `None`（時刻として残さない）。
+/// 空の列・有限でない値・0 以下の値（Metal は時刻を得られないとき 0 を返す）・終了が開始より前の組があれば
+/// `None`（時刻として残さない）。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn span_of(times: impl IntoIterator<Item = (f64, f64)>) -> Option<(f64, f64)> {
     let mut span: Option<(f64, f64)> = None;
     for (start, end) in times {
-        if !start.is_finite() || !end.is_finite() || end < start {
+        if !start.is_finite() || !end.is_finite() || start <= 0.0 || end <= 0.0 || end < start {
             return None;
         }
         span = Some(match span {
@@ -168,6 +169,20 @@ impl<G> Submissions<G> {
         self.timings.insert(sequence, (start_seconds, end_seconds));
         while self.timings.len() > TIMING_TABLE_MAX {
             self.timings.pop_first();
+        }
+    }
+
+    /// 完了を待ち終えた時の時刻の扱い。`record` が真で `span` が `Some` の時だけ表へ書き、書いたかを返す。
+    ///
+    /// `wait_blocking(None)` だけが `record = true` で呼ぶ。期限付きの待ちと `on_complete` は `false`。
+    /// `span` は完了を確かめた列の `span_of` の値で、未完了・不正な時刻なら `None`。
+    fn complete_wait(&mut self, sequence: u64, span: Option<(f64, f64)>, record: bool) -> bool {
+        match (record, span) {
+            (true, Some((start, end))) => {
+                self.record_timing(sequence, start, end);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -919,20 +934,19 @@ mod imp {
                     buffer.waitUntilCompleted();
                 }
             }
-            // 時刻を書くのは `wait_blocking(None)` だけ。`on_complete` と `poll` 系の回収では書かない。
-            if let (true, Some(group)) = (record_timing, &group)
-                && group_state(group) == GroupState::Completed
-            {
-                let span = span_of(
-                    group
-                        .iter()
-                        .map(|buffer| (buffer.GPUStartTime(), buffer.GPUEndTime())),
-                );
-                if let Some((start, end)) = span {
-                    self.lock_submissions()
-                        .record_timing(token.sequence, start, end);
-                }
-            }
+            // 時刻を書くのは `wait_blocking(None)` だけ（書くかどうかは `complete_wait` が決める）。
+            let span = group
+                .as_ref()
+                .filter(|group| group_state(group) == GroupState::Completed)
+                .and_then(|group| {
+                    span_of(
+                        group
+                            .iter()
+                            .map(|buffer| (buffer.GPUStartTime(), buffer.GPUEndTime())),
+                    )
+                });
+            self.lock_submissions()
+                .complete_wait(token.sequence, span, record_timing);
             self.poll(token)
         }
 
@@ -1960,6 +1974,35 @@ mod precheck_tests {
         assert_eq!(span_of([(1.0, f64::NAN)]), None);
         assert_eq!(span_of([(f64::INFINITY, f64::INFINITY)]), None);
         assert_eq!(span_of([(1.0, 2.0), (3.0, 2.0)]), None);
+    }
+
+    #[test]
+    fn span_rejects_zero_times_even_when_other_pairs_are_valid() {
+        assert_eq!(span_of([(0.0, 0.0)]), None);
+        assert_eq!(span_of([(0.0, 1.0)]), None);
+        assert_eq!(span_of([(1.0, 0.0)]), None);
+        assert_eq!(span_of([(1.0, 2.0), (0.0, 0.0)]), None);
+        assert_eq!(span_of([(-1.0, 2.0)]), None);
+    }
+
+    #[test]
+    fn complete_wait_records_only_for_the_unbounded_wait_with_a_valid_span() {
+        let mut subs = table(&[]);
+        assert!(!subs.complete_wait(1, Some((1.0, 2.0)), false));
+        assert!(subs.timings.is_empty());
+        assert!(!subs.complete_wait(2, None, true));
+        assert!(subs.timings.is_empty());
+        assert!(subs.complete_wait(3, Some((1.0, 2.0)), true));
+        assert_eq!(subs.timing_of(3, classify), available(1.0, 2.0));
+        assert_eq!(subs.timings.len(), 1);
+    }
+
+    #[test]
+    fn reclaiming_never_writes_the_timing_table() {
+        let mut subs = table(&[vec![Done], vec![Done]]);
+        subs.reclaim(classify);
+        assert!(subs.timings.is_empty());
+        assert_eq!(subs.timing_of(1, classify), GpuTiming::Reclaimed);
     }
 
     #[test]

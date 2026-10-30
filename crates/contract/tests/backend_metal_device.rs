@@ -757,6 +757,43 @@ fn gpu_timing_of_a_token_reclaimed_by_poll_is_reclaimed() {
         std::thread::yield_now();
     }
     assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
+    // 回収済みの投入を `wait_blocking(None)` が後から観測しても、時刻は書かれず `Reclaimed` のまま。
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
+}
+
+/// 期限付きの `wait_blocking(Some(..))` が完了を検出しても時刻は書かれず、`Available` にならない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn gpu_timing_after_a_bounded_wait_is_not_available() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let queue = device.queue();
+    queue
+        .wait_blocking(token, Some(std::time::Duration::from_secs(30)))
+        .expect("wait_blocking");
+    assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
+}
+
+/// `on_complete` の callback が呼ばれた後（`wait_blocking(None)` を呼ばない）も、時刻は書かれず `Available` にならない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn gpu_timing_after_on_complete_is_not_available() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    let queue = device.queue();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    queue.on_complete(
+        token,
+        Box::new(move |state| {
+            sender.send(state).expect("send");
+        }),
+    );
+    assert_eq!(
+        receiver.recv().expect("callback"),
+        CompletionState::Complete
+    );
+    assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
 }
 
 /// 別 device の印・払い出していない番号（0 を含む）は `Unavailable`。
