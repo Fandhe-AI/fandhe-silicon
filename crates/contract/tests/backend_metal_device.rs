@@ -996,13 +996,13 @@ fn gpu_timing_after_on_complete_is_not_available() {
         }
     };
     assert_eq!(state, CompletionState::Complete);
-    // 以後の駆動では呼ばれない（ちょうど 1 回）。
+    // 以後の駆動でも状態は変わらない。callback は 1 回呼ばれた後に破棄され、送り手が無くなる。
     for _ in 0..3 {
         assert_eq!(queue.poll(token), CompletionState::Complete);
     }
     assert_eq!(
         receiver.try_recv(),
-        Err(std::sync::mpsc::TryRecvError::Empty)
+        Err(std::sync::mpsc::TryRecvError::Disconnected)
     );
     assert_eq!(queue.gpu_timing(token), GpuTiming::Reclaimed);
 }
