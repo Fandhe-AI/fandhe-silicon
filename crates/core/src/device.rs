@@ -4,13 +4,14 @@
 //! 型の持ち主は TASK-136（ポインタ）。
 //!
 //! 加えて、背後実装が実装する device の口 `Device` と、それを得る入口 `DeviceProvider`、診断の値 `DeviceDiagnostics` を置く
-//! （TASK-158 のポインタ）。この段の `Device` は、投入の列・compute の口・ロストの通知の method を持たない（TASK-588・TASK-769 のポインタ）。
+//! （TASK-158 のポインタ）。`Device` は投入の窓口 `queue` を持つ。compute の口・ロストの通知の method は持たない（TASK-588・TASK-592・TASK-769 のポインタ）。
 
 use core::any::Any;
 use core::fmt;
 
 use crate::capability::{BackendKind, Capabilities};
 use crate::error::ContractError;
+use crate::execution::CommandQueue;
 use crate::memory::MemoryOps;
 
 /// device の要求。背後実装・プロファイル・所有形態の 3 つだけを持つ。
@@ -94,8 +95,8 @@ pub struct DeviceDiagnostics {
 /// 背後実装が実装する device の口。
 ///
 /// 上と下-2 は `DeviceProvider::request` で `Box<dyn Device>` を得て、能力の問合せ（`Capabilities`）と
-/// メモリ操作（`memory`）を呼ぶ。この段の `Device` は、投入の列・compute の口・ロストの通知の method を持たない
-/// （TASK-588・TASK-769 のポインタ）。ここに無い method を前提にしない。
+/// メモリ操作（`memory`）・投入の窓口（`queue`）を呼ぶ。この段の `Device` は、compute の口・ロストの通知の method を持たない
+/// （TASK-769 のポインタ）。ここに無い method を前提にしない。
 /// 対応する項目のポインタ: DEV-1・DEV-16。
 pub trait Device: Capabilities {
     /// この device の背後実装の種類。
@@ -109,6 +110,9 @@ pub trait Device: Capabilities {
 
     /// この device のメモリ操作の口。
     fn memory(&self) -> &dyn MemoryOps;
+
+    /// この device の投入の窓口。記録先の作成・投入・完了の確認はここから行う（CMD-1 のポインタ）。
+    fn queue(&self) -> &dyn CommandQueue;
 
     /// 診断の値。
     fn diagnostics(&self) -> DeviceDiagnostics;

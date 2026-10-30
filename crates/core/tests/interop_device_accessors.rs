@@ -8,8 +8,10 @@ use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, FeatureId, LimitsTable,
 };
 use fandhe_silicon_core::device::{Device, DeviceDiagnostics, DeviceOwnership};
-use fandhe_silicon_core::error::ContractError;
-use fandhe_silicon_core::execution::{ImportedSemaphoreHandle, SubmitToken};
+use fandhe_silicon_core::error::{CompletionState, ContractError};
+use fandhe_silicon_core::execution::{
+    CommandEncoder, CommandQueue, ImportedSemaphoreHandle, SubmitToken,
+};
 use fandhe_silicon_core::interop::{
     ExternalInterop, ExternalMemoryHandle, ExternalSemaphoreHandle, PhysicalGpuId,
 };
@@ -100,6 +102,55 @@ impl ExternalInterop for Interop {
     }
 }
 
+/// 何も投入しない最小の投入の窓口。
+struct NoQueue;
+
+impl CommandQueue for NoQueue {
+    fn create_encoder(&self) -> CommandEncoder {
+        CommandEncoder::__backend_new(1, None)
+    }
+
+    fn submit(
+        &self,
+        _: CommandEncoder,
+        _: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        Ok(SubmitToken::__backend_new(1, 1, 1))
+    }
+
+    fn submit_many(
+        &self,
+        _: Vec<CommandEncoder>,
+        _: &[SubmitToken],
+        _: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        Ok(SubmitToken::__backend_new(1, 1, 1))
+    }
+
+    fn poll(&self, _: SubmitToken) -> CompletionState {
+        CompletionState::Complete
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
+        callback(self.poll(token));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState)>) {
+        callback(self.poll(token));
+    }
+
+    #[cfg(feature = "native-blocking-wait")]
+    fn wait_blocking(
+        &self,
+        _: SubmitToken,
+        _: Option<std::time::Duration>,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+}
+
 /// 相互運用の口を上書きするかを選べるダミーの device。
 struct DummyDevice {
     overrides: bool,
@@ -132,6 +183,10 @@ impl Device for DummyDevice {
 
     fn memory(&self) -> &dyn MemoryOps {
         &NoMemory
+    }
+
+    fn queue(&self) -> &dyn CommandQueue {
+        &NoQueue
     }
 
     fn diagnostics(&self) -> DeviceDiagnostics {
@@ -181,6 +236,10 @@ impl Device for DefaultDevice {
 
     fn memory(&self) -> &dyn MemoryOps {
         &NoMemory
+    }
+
+    fn queue(&self) -> &dyn CommandQueue {
+        &NoQueue
     }
 
     fn diagnostics(&self) -> DeviceDiagnostics {

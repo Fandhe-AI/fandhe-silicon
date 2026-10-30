@@ -11,7 +11,10 @@ use fandhe_silicon_core::capability::{
 use fandhe_silicon_core::device::{
     Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
-use fandhe_silicon_core::error::ContractError;
+use fandhe_silicon_core::error::{CompletionState, ContractError};
+use fandhe_silicon_core::execution::{
+    CommandEncoder, CommandQueue, ImportedSemaphoreHandle, SubmitToken,
+};
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage, MemoryOps};
 
 const LIMITS: LimitsTable = LimitsTable {
@@ -67,10 +70,60 @@ impl MemoryOps for DummyMemory {
     fn free(&self, _: BufferHandle) {}
 }
 
+/// 何も投入しない最小の投入の窓口。
+struct DummyQueue;
+
+impl CommandQueue for DummyQueue {
+    fn create_encoder(&self) -> CommandEncoder {
+        CommandEncoder::__backend_new(1, None)
+    }
+
+    fn submit(
+        &self,
+        _: CommandEncoder,
+        _: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        Ok(SubmitToken::__backend_new(1, 1, 1))
+    }
+
+    fn submit_many(
+        &self,
+        _: Vec<CommandEncoder>,
+        _: &[SubmitToken],
+        _: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        Ok(SubmitToken::__backend_new(1, 1, 1))
+    }
+
+    fn poll(&self, _: SubmitToken) -> CompletionState {
+        CompletionState::Complete
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
+        callback(self.poll(token));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState)>) {
+        callback(self.poll(token));
+    }
+
+    #[cfg(feature = "native-blocking-wait")]
+    fn wait_blocking(
+        &self,
+        _: SubmitToken,
+        _: Option<std::time::Duration>,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+}
+
 /// 要求の所有形態をそのまま持つダミーの device。
 struct DummyDevice {
     ownership: DeviceOwnership,
     memory: DummyMemory,
+    queue: DummyQueue,
 }
 
 impl Capabilities for DummyDevice {
@@ -100,6 +153,10 @@ impl Device for DummyDevice {
         &self.memory
     }
 
+    fn queue(&self) -> &dyn CommandQueue {
+        &self.queue
+    }
+
     fn diagnostics(&self) -> DeviceDiagnostics {
         DeviceDiagnostics {
             adapter_name: "dummy-adapter".to_string(),
@@ -121,6 +178,7 @@ impl DeviceProvider for DummyProvider {
             (_, ownership) => Ok(Box::new(DummyDevice {
                 ownership,
                 memory: DummyMemory,
+                queue: DummyQueue,
             })),
         }
     }
@@ -218,4 +276,17 @@ fn device_exposes_capabilities_and_memory() {
         .expect("allocate");
     assert_eq!(buf.size(), 16);
     device.memory().free(buf);
+}
+
+#[test]
+fn device_exposes_the_command_queue() {
+    let device = DummyProvider::request(request(
+        Profile::ComputeOnly,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("device");
+    let queue: &dyn CommandQueue = device.queue();
+    let encoder = queue.create_encoder();
+    let token = queue.submit(encoder, &[]).expect("submit");
+    assert_eq!(queue.poll(token), CompletionState::Complete);
 }
