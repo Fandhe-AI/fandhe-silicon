@@ -254,6 +254,130 @@ fn out_of_range_upload_fails_and_leaves_the_contents_unchanged() {
 
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn upload_with_an_overflowing_end_fails_and_leaves_the_contents_unchanged() {
+    let device = new_device();
+    let memory = device.memory();
+    let handle = memory.allocate(16, usage()).expect("allocate");
+    memory.upload(&handle, 0, &[0x22; 16]).expect("upload");
+
+    for offset in [u64::MAX, u64::MAX - 7, u64::MAX - 15] {
+        let r = memory.upload(&handle, offset, &[0xEE; 16]);
+        assert!(
+            matches!(r, Err(ContractError::InvalidArgument(_))),
+            "offset={offset}: {r:?}"
+        );
+    }
+    let r = memory.upload(&handle, 16, &[0xEE]);
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+    let back = memory.download_blocking(&handle, 0, 16).expect("download");
+    assert_eq!(back, vec![0x22; 16]);
+    memory.free(handle);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn upload_that_ends_exactly_at_the_allocation_is_accepted() {
+    let device = new_device();
+    let memory = device.memory();
+    let handle = memory.allocate(16, usage()).expect("allocate");
+    memory.upload(&handle, 0, &[0; 16]).expect("zero fill");
+    memory.upload(&handle, 12, &[1, 2, 3, 4]).expect("tail");
+    memory.upload(&handle, 16, &[]).expect("empty at the end");
+    let back = memory.download_blocking(&handle, 0, 16).expect("download");
+    let mut expected = vec![0_u8; 16];
+    expected[12..].copy_from_slice(&[1, 2, 3, 4]);
+    assert_eq!(back, expected);
+    memory.free(handle);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn download_blocking_rejects_out_of_range_and_overflowing_ranges() {
+    let device = new_device();
+    let memory = device.memory();
+    let handle = memory.allocate(16, usage()).expect("allocate");
+    memory.upload(&handle, 0, &[0x33; 16]).expect("upload");
+
+    let cases = [
+        (8_u64, 9_u64),
+        (0, 17),
+        (17, 0),
+        (u64::MAX, 1),
+        (u64::MAX, 0),
+        (1, u64::MAX),
+        (u64::MAX, u64::MAX),
+    ];
+    for (offset, len) in cases {
+        let r = memory.download_blocking(&handle, offset, len);
+        assert!(
+            matches!(r, Err(ContractError::InvalidArgument(_))),
+            "offset={offset} len={len}: {r:?}"
+        );
+    }
+    // 拒否のあとでも内容は変わらない。
+    let back = memory.download_blocking(&handle, 0, 16).expect("download");
+    assert_eq!(back, vec![0x33; 16]);
+    memory.free(handle);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn download_blocking_of_a_sub_range_matches_the_cpu_reference() {
+    let device = new_device();
+    let memory = device.memory();
+    let payload: Vec<u8> = (0..32_u8)
+        .map(|b| b.wrapping_mul(7).wrapping_add(3))
+        .collect();
+    let handle = memory.allocate(32, usage()).expect("allocate");
+    memory.upload(&handle, 0, &payload).expect("upload");
+
+    for (offset, len) in [(0_usize, 32_usize), (5, 11), (31, 1), (32, 0), (16, 16)] {
+        let got = memory
+            .download_blocking(&handle, offset as u64, len as u64)
+            .expect("download");
+        assert_eq!(
+            got,
+            payload[offset..offset + len],
+            "offset={offset} len={len}"
+        );
+    }
+    memory.free(handle);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn download_async_rejects_an_out_of_range_read_with_one_callback() {
+    let device = new_device();
+    let memory = device.memory();
+    let handle = memory.allocate(16, usage()).expect("allocate");
+    memory.upload(&handle, 0, &[0x44; 16]).expect("upload");
+
+    for (offset, len) in [(8_u64, 9_u64), (u64::MAX, 1), (1, u64::MAX)] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let received = Arc::new(Mutex::new(None));
+        let (c, r) = (Arc::clone(&calls), Arc::clone(&received));
+        memory.download_async(
+            &handle,
+            offset,
+            len,
+            Box::new(move |result| {
+                c.fetch_add(1, Ordering::SeqCst);
+                *r.lock().unwrap() = Some(result);
+            }),
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "offset={offset} len={len}");
+        let got = received.lock().unwrap().take().expect("callback ran");
+        assert!(
+            matches!(got, Err(ContractError::InvalidArgument(_))),
+            "offset={offset} len={len}: {got:?}"
+        );
+    }
+    memory.free(handle);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn download_async_calls_back_once_with_the_same_bytes() {
     let device = new_device();
     let memory = device.memory();
