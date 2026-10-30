@@ -2063,7 +2063,7 @@ mod imp {
             });
         }
 
-        /// TASK-595。`wait_blocking` の中で駆動される経路を決定的に通す。
+        /// TASK-595。`wait_blocking(None)` の中で駆動される経路だけを決定的に通す。
         ///
         /// 未確定のコマンドバッファの完了は待てないので、確定してから待つ。確定までは呼ばれていないことを固定する。
         #[cfg(feature = "native-blocking-wait")]
@@ -2081,7 +2081,7 @@ mod imp {
         }
 
         /// TASK-595。panic が駆動の呼び出し（この試験では `poll`）から 1 回だけ伝わり、残りの callback は 1 回呼ばれ、
-        /// device は使い続けられる。submit 系・`allocate`・`wait_blocking` からの伝わりは確かめていない。
+        /// device は使い続けられる。この試験は `poll` からの伝わりだけを確かめる。
         #[test]
         #[ignore = "touches the Metal device; run only in a dedicated device session"]
         fn drive_path_panic_propagates_from_drive_once_and_the_rest_are_called() {
