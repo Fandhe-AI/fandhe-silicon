@@ -1018,6 +1018,11 @@ mod imp {
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
         submissions: Mutex<Submissions<Vec<CommandBuffer>>>,
+        /// 試験専用。`Some` の間は `commit_buffers` が確定を遅らせ、ここに溜める（`None` なら従来どおり即確定）。
+        /// 確定していないコマンドバッファは完了しないので、登録の時点で未完了の状態を決定的に作れる。
+        /// 製品のビルドには存在しない。
+        #[cfg(test)]
+        commit_hold: Mutex<Option<Vec<CommandBuffer>>>,
     }
 
     /// 投入した 1 つのコマンドバッファ。
@@ -1052,7 +1057,8 @@ mod imp {
         ///
         /// 一括投入も 1 つだけ作る（記録の操作が無いので 1 つで足りる）。作成・確定・採番・登録を表の錠の中で行う。
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
-        /// 確定していないコマンドバッファは錠の中で溜めない（溜めると戻らなくなる）。
+        /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
+        /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
         fn commit_buffers(&self) -> Result<SubmitToken, ContractError> {
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
@@ -1072,7 +1078,10 @@ mod imp {
                         backend: BACKEND,
                         detail: "commandBuffer returned None".into(),
                     })?;
+            #[cfg(not(test))]
             buffer.commit();
+            #[cfg(test)]
+            self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
             Ok(SubmitToken::__backend_new(
@@ -1107,6 +1116,40 @@ mod imp {
                 }),
                 open: Arc::new(OpenEncoders::new()),
                 submissions: Mutex::new(Submissions::new()),
+                #[cfg(test)]
+                commit_hold: Mutex::new(None),
+            }
+        }
+
+        /// 試験専用。確定を遅らせる状態なら溜め、そうでなければ確定する。`commit_buffers` から投入の錠の中で呼ぶ。
+        ///
+        /// 錠の順は 投入の錠 -> `commit_hold` の錠。`release_held_commits` は `commit_hold` の錠だけを取る。
+        #[cfg(test)]
+        fn commit_or_hold(&self, buffer: &CommandBuffer) {
+            let mut hold = self.commit_hold.lock().unwrap_or_else(|e| e.into_inner());
+            match hold.as_mut() {
+                Some(held) => held.push(buffer.clone()),
+                None => buffer.commit(),
+            }
+        }
+
+        /// 試験専用。以後の投入の確定を遅らせる。
+        #[cfg(test)]
+        fn hold_commits(&self) {
+            let mut hold = self.commit_hold.lock().unwrap_or_else(|e| e.into_inner());
+            hold.get_or_insert_with(Vec::new);
+        }
+
+        /// 試験専用。確定を遅らせる状態をやめ、溜めたコマンドバッファを投入順に確定する。何度呼んでもよい。
+        #[cfg(test)]
+        fn release_held_commits(&self) {
+            let held = self
+                .commit_hold
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            for buffer in held.into_iter().flatten() {
+                buffer.commit();
             }
         }
 
@@ -1884,6 +1927,217 @@ mod imp {
             assert_eq!(first.test_submitted_count(), 0);
             // 記録先は破棄で元の device の集合から外れる。
             assert_eq!(first.test_open_encoder_count(), 0);
+        }
+
+        /// 試験専用。確定を遅らせている間、溜めたコマンドバッファを持つ。落とすと必ず確定する。
+        ///
+        /// assert が落ちて巻き戻っても、確定していないコマンドバッファは `Drop` の完了待ちで永久に待つので、
+        /// device より先に解放する。device の後に宣言し（先に落ちる）、device を落とす試験では明示で解放してから落とす。
+        struct HeldCommits<'a>(&'a MetalDevice);
+
+        impl<'a> HeldCommits<'a> {
+            fn new(device: &'a MetalDevice) -> Self {
+                device.hold_commits();
+                Self(device)
+            }
+
+            fn release(&self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        impl Drop for HeldCommits<'_> {
+            fn drop(&mut self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        type Seen = Arc<Mutex<Vec<CompletionState>>>;
+
+        /// 登録の時点では未完了（確定していない）なので、callback は登録の中で呼ばれない。それを固定して記録先を返す。
+        fn register_pending(device: &MetalDevice, token: SubmitToken) -> Seen {
+            let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            device.on_complete(
+                token,
+                Box::new(move |state| sink.lock().expect("lock").push(state)),
+            );
+            let at_registration = !seen.lock().expect("lock").is_empty();
+            println!("called_at_registration={at_registration}");
+            assert!(!at_registration, "callback was called at registration");
+            seen
+        }
+
+        /// 確定前は駆動しても呼ばれず、確定後に `drive` を 10 秒まで繰り返すと `Complete` で 1 回だけ呼ばれる。
+        fn assert_driven_once(held: &HeldCommits<'_>, seen: &Seen, mut drive: impl FnMut()) {
+            drive();
+            assert!(
+                seen.lock().expect("lock").is_empty(),
+                "called while pending"
+            );
+            held.release();
+            let started = std::time::Instant::now();
+            while seen.lock().expect("lock").is_empty() {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(10),
+                    "callback was not called"
+                );
+                drive();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            drive();
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+        }
+
+        fn submit_empty(device: &MetalDevice) -> SubmitToken {
+            device.submit(device.create_encoder(), &[]).expect("submit")
+        }
+
+        /// TASK-595。`submit` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_submit_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                submit_empty(&device);
+            });
+        }
+
+        /// TASK-595。`submit_many` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_submit_many_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device
+                    .submit_many(vec![device.create_encoder()], &[], &[])
+                    .expect("submit_many");
+            });
+        }
+
+        /// TASK-595。`allocate` の中で駆動される経路を決定的に通す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_allocate_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                let h = device.allocate(16, BufferUsage::empty()).expect("allocate");
+                device.free(h);
+            });
+        }
+
+        /// TASK-595。`poll` の中で駆動される経路を決定的に通す。未確定の間の `poll` は `Pending`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_poll_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            assert_eq!(device.poll(token), CompletionState::Pending);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device.poll(token);
+            });
+        }
+
+        /// TASK-595。`poll_ex` の中で駆動される経路を決定的に通す。未確定の間の `poll_ex` は `Pending`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_poll_ex_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            assert_eq!(device.poll_ex(token), CompletionStateEx::Pending);
+            let seen = register_pending(&device, token);
+            assert_driven_once(&held, &seen, || {
+                device.poll_ex(token);
+            });
+        }
+
+        /// TASK-595。`wait_blocking` の中で駆動される経路を決定的に通す。
+        ///
+        /// 未確定のコマンドバッファの完了は待てないので、確定してから待つ。確定までは呼ばれていないことを固定する。
+        #[cfg(feature = "native-blocking-wait")]
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_wait_blocking_calls_a_pending_registration() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert!(seen.lock().expect("lock").is_empty());
+            held.release();
+            device.wait_blocking(token, None).expect("wait_blocking");
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+        }
+
+        /// TASK-595。panic が駆動の呼び出し（この試験では `poll`）から 1 回だけ伝わり、残りの callback は 1 回呼ばれ、
+        /// device は使い続けられる。submit 系・`allocate`・`wait_blocking` からの伝わりは確かめていない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_panic_propagates_from_drive_once_and_the_rest_are_called() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let first = submit_empty(&device);
+            let second = submit_empty(&device);
+            let at_registration = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                device.on_complete(first, Box::new(|_| panic!("callback failed")));
+            }))
+            .is_err();
+            assert!(!at_registration, "the panic came from registration");
+            let seen = register_pending(&device, second);
+            held.release();
+            let started = std::time::Instant::now();
+            let mut panics = 0;
+            while seen.lock().expect("lock").is_empty() || panics == 0 {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(10),
+                    "the callback was not driven"
+                );
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    device.poll(second);
+                }))
+                .is_err()
+                {
+                    panics += 1;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            println!("panic_propagated_from=drive");
+            // 以後の駆動では panic せず、残りの callback も 1 回のまま。device は使い続けられる。
+            for _ in 0..3 {
+                assert_eq!(device.poll(second), CompletionState::Complete);
+            }
+            assert_eq!(panics, 1);
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
+            assert_eq!(device.poll(first), CompletionState::Complete);
+            submit_empty(&device);
+        }
+
+        /// TASK-595。未確定の登録が残ったまま device を落とすと、`Drop` の中で残りの callback が 1 回呼ばれる。
+        ///
+        /// 未確定のまま落とすと `Drop` の完了待ちが戻らないので、確定してから落とす。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn drive_path_dropping_the_device_calls_a_pending_registration_once() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let token = submit_empty(&device);
+            let seen = register_pending(&device, token);
+            assert!(seen.lock().expect("lock").is_empty());
+            held.release();
+            drop(held);
+            drop(device);
+            assert_eq!(*seen.lock().expect("lock"), vec![CompletionState::Complete]);
         }
 
         /// CMD-11 のポインタ。空でない `wait` は投入せず `Unsupported` で、記録先は破棄で閉じる。
