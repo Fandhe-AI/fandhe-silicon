@@ -36,7 +36,7 @@ use std::sync::{Mutex, MutexGuard};
 use fandhe_silicon_core::capability::BackendKind;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
-    __BackendSharedEncoderCloser, ImportedSemaphoreHandle, SubmitToken,
+    __BackendSharedEncoderCloser, GpuTiming, ImportedSemaphoreHandle, SubmitToken,
 };
 use fandhe_silicon_core::memory::validate_buffer_range;
 
@@ -110,6 +110,28 @@ fn group_state_of(states: impl IntoIterator<Item = BufState>) -> GroupState {
     }
 }
 
+/// 時刻の表が持つ件数の上限。超えたら通し番号の小さいものから捨てる（`gpu_timing` の rustdoc に同じ数を書く）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const TIMING_TABLE_MAX: usize = 1024;
+
+/// コマンドバッファの列の (開始, 終了)（秒）から、投入全体の (最小の開始, 最大の終了) を求める。
+///
+/// 空の列・有限でない値・終了が開始より前の組があれば `None`（時刻として残さない）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn span_of(times: impl IntoIterator<Item = (f64, f64)>) -> Option<(f64, f64)> {
+    let mut span: Option<(f64, f64)> = None;
+    for (start, end) in times {
+        if !start.is_finite() || !end.is_finite() || end < start {
+            return None;
+        }
+        span = Some(match span {
+            None => (start, end),
+            Some((s, e)) => (s.min(start), e.max(end)),
+        });
+    }
+    span
+}
+
 /// 投入済みの表。投入の通し番号は device ごとに 1 から払い出す。`G` は 1 回の投入が持つ列の型。
 ///
 /// 本物では `G` が Objective-C のコマンドバッファの列で、試験では偽の状態の列を使う。
@@ -123,6 +145,9 @@ struct Submissions<G> {
     pending: BTreeMap<u64, G>,
     /// 失敗として回収した通し番号。watermark 以下の失敗の番号だけを持つので、増えるのは失敗の件数だけ。
     failed: HashSet<u64>,
+    /// 通し番号から (開始, 終了)（秒）への表。書くのは完了で起きる待ち（`wait_blocking(None)`）が完了を検出した時だけ。
+    /// `TIMING_TABLE_MAX` 件を超えたら通し番号の最も小さいものから捨てる。
+    timings: BTreeMap<u64, (f64, f64)>,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -134,6 +159,45 @@ impl<G> Submissions<G> {
             watermark: 0,
             pending: BTreeMap::new(),
             failed: HashSet::new(),
+            timings: BTreeMap::new(),
+        }
+    }
+
+    /// 時刻を表に書く。上限を超えた分は通し番号の最も小さいものから捨てる。
+    fn record_timing(&mut self, sequence: u64, start_seconds: f64, end_seconds: f64) {
+        self.timings.insert(sequence, (start_seconds, end_seconds));
+        while self.timings.len() > TIMING_TABLE_MAX {
+            self.timings.pop_first();
+        }
+    }
+
+    /// 通し番号の GPU 側の時刻の問合せ。表と投入済みの表を見るだけで、回収も状態の変更もしない。
+    ///
+    /// 時刻の表にあれば `Available`。無ければ、投入済みの表にあるものは未完了が `Pending`、
+    /// 時刻を残さずに完了したものが `Reclaimed`、失敗が `Unavailable`。表から外れた番号は、失敗の集合にあれば
+    /// `Unavailable`、watermark 以下の他は（時刻を残さずに完了した・表から捨てられたものとして）`Reclaimed`。
+    /// 0 と払い出していない番号は `Unavailable`。
+    fn timing_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> GpuTiming {
+        if let Some(&(start_seconds, end_seconds)) = self.timings.get(&sequence) {
+            return GpuTiming::Available {
+                start_seconds,
+                end_seconds,
+            };
+        }
+        if let Some(group) = self.pending.get(&sequence) {
+            return match classify(group) {
+                GroupState::Pending => GpuTiming::Pending,
+                GroupState::Completed => GpuTiming::Reclaimed,
+                GroupState::Failed => GpuTiming::Unavailable,
+            };
+        }
+        if self.failed.contains(&sequence) {
+            return GpuTiming::Unavailable;
+        }
+        if sequence >= 1 && sequence <= self.watermark {
+            GpuTiming::Reclaimed
+        } else {
+            GpuTiming::Unavailable
         }
     }
 
@@ -468,7 +532,8 @@ mod imp {
     use super::wait_result;
     use super::{
         BufState, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
-        group_state_of, precheck_submit, precheck_submit_many, retire, take_next, terminal_state,
+        group_state_of, precheck_submit, precheck_submit_many, retire, span_of, take_next,
+        terminal_state,
     };
 
     use fandhe_silicon_core::capability::{
@@ -482,7 +547,7 @@ mod imp {
     };
     use fandhe_silicon_core::execution::{
         __BackendSharedEncoderCloser, __backend_next_encoder_id, CommandEncoder, CommandQueue,
-        ImportedSemaphoreHandle, SubmitToken,
+        GpuTiming, ImportedSemaphoreHandle, SubmitToken,
     };
     use fandhe_silicon_core::memory::{
         BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
@@ -841,15 +906,31 @@ mod imp {
         /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`on_complete` と `wait_blocking(None)` が共有する。
         ///
         /// 列を clone して表の錠を放してから待つ。待つ間も同じ錠を取る `poll`・`submit` を妨げない（錠を握ったまま待たない）。
-        fn wait_for_completion(&self, token: SubmitToken) -> CompletionState {
+        fn wait_for_completion(&self, token: SubmitToken, record_timing: bool) -> CompletionState {
+            // 列は回収の前に取る（完了済みで先頭の列は回収で表から外れ、時刻を読めなくなる）。
             let group = {
                 let mut subs = self.lock_submissions();
+                let group = subs.pending.get(&token.sequence).cloned();
                 subs.reclaim(group_state);
-                subs.pending.get(&token.sequence).cloned()
+                group
             };
-            if let Some(group) = group {
-                for buffer in &group {
+            if let Some(group) = &group {
+                for buffer in group {
                     buffer.waitUntilCompleted();
+                }
+            }
+            // 時刻を書くのは `wait_blocking(None)` だけ。`on_complete` と `poll` 系の回収では書かない。
+            if let (true, Some(group)) = (record_timing, &group)
+                && group_state(group) == GroupState::Completed
+            {
+                let span = span_of(
+                    group
+                        .iter()
+                        .map(|buffer| (buffer.GPUStartTime(), buffer.GPUEndTime())),
+                );
+                if let Some((start, end)) = span {
+                    self.lock_submissions()
+                        .record_timing(token.sequence, start, end);
                 }
             }
             self.poll(token)
@@ -1099,7 +1180,7 @@ mod imp {
             callback: Box<dyn FnOnce(CompletionState) + Send>,
         ) {
             let state = match self.poll(token) {
-                CompletionState::Pending => self.wait_for_completion(token),
+                CompletionState::Pending => self.wait_for_completion(token, false),
                 done => done,
             };
             callback(terminal_state(state));
@@ -1116,7 +1197,7 @@ mod imp {
         ) -> Result<(), ContractError> {
             check_token_owner(&token, self.id, self.generation)?;
             match timeout {
-                None => wait_result(self.wait_for_completion(token)),
+                None => wait_result(self.wait_for_completion(token, true)),
                 Some(limit) => {
                     let started = std::time::Instant::now();
                     loop {
@@ -1134,6 +1215,24 @@ mod imp {
                     }
                 }
             }
+        }
+
+        /// 投入の GPU 側の開始・終了時刻（秒）。読み取り専用で、回収も `on_complete` の駆動も状態の変更もしない。
+        ///
+        /// 時刻は、feature `native-blocking-wait` の `wait_blocking(token, None)` が完了を検出した時にだけ device の表へ書かれる
+        /// （`poll`・`poll_ex`・`submit` の回収と、期限付きの待ちは書かない）。表の上限は 1,024 件で、
+        /// 超えたら通し番号の最も小さいものから捨てる。返す値:
+        ///
+        /// - `Available`: 表に時刻がある。開始は列のコマンドバッファの最小、終了は最大で、終了は開始以上。差分は呼び出し側で取る
+        /// - `Pending`: 投入済みで未完了
+        /// - `Reclaimed`: 完了して回収された、時刻を残さずに完了した、または表から捨てられた投入
+        /// - `Unavailable`: `Error` で終わった投入、別 device の印、世代違いの印、払い出していない番号（0 を含む）
+        fn gpu_timing(&self, token: SubmitToken) -> GpuTiming {
+            if check_token_owner(&token, self.id, self.generation).is_err() {
+                return GpuTiming::Unavailable;
+            }
+            self.lock_submissions()
+                .timing_of(token.sequence, group_state)
         }
     }
 
@@ -1777,6 +1876,90 @@ mod precheck_tests {
             matches!(pending, Err(ContractError::BackendFailure { .. })),
             "{pending:?}"
         );
+    }
+
+    fn available(start_seconds: f64, end_seconds: f64) -> GpuTiming {
+        GpuTiming::Available {
+            start_seconds,
+            end_seconds,
+        }
+    }
+
+    #[test]
+    fn gpu_timing_covers_the_four_returns() {
+        let mut subs = table(&[vec![Done], vec![Running], vec![Failed], vec![Done]]);
+        subs.record_timing(1, 1.0, 2.5);
+        assert_eq!(subs.timing_of(1, classify), available(1.0, 2.5));
+        assert_eq!(subs.timing_of(2, classify), GpuTiming::Pending);
+        assert_eq!(subs.timing_of(3, classify), GpuTiming::Unavailable);
+        // 完了していて時刻を残していない投入。
+        assert_eq!(subs.timing_of(4, classify), GpuTiming::Reclaimed);
+    }
+
+    #[test]
+    fn gpu_timing_boundaries_follow_the_watermark_and_the_failed_set() {
+        let mut subs = table(&[vec![Done], vec![Failed], vec![Done], vec![Running]]);
+        subs.reclaim(classify);
+        assert_eq!(subs.watermark, 3);
+        assert_eq!(subs.timing_of(0, classify), GpuTiming::Unavailable);
+        assert_eq!(subs.timing_of(1, classify), GpuTiming::Reclaimed);
+        assert_eq!(subs.timing_of(2, classify), GpuTiming::Unavailable);
+        assert_eq!(subs.timing_of(3, classify), GpuTiming::Reclaimed);
+        assert_eq!(subs.timing_of(4, classify), GpuTiming::Pending);
+        assert_eq!(subs.timing_of(5, classify), GpuTiming::Unavailable);
+        assert_eq!(subs.timing_of(u64::MAX, classify), GpuTiming::Unavailable);
+    }
+
+    #[test]
+    fn gpu_timing_keeps_a_recorded_time_after_reclaiming() {
+        let mut subs = table(&[vec![Done]]);
+        subs.record_timing(1, 3.0, 4.0);
+        subs.reclaim(classify);
+        assert_eq!(subs.timing_of(1, classify), available(3.0, 4.0));
+    }
+
+    #[test]
+    fn the_timing_table_drops_the_smallest_sequence_past_1024_entries() {
+        let mut subs: Submissions<Vec<BufState>> = Submissions::new();
+        for sequence in 1..=1025u64 {
+            subs.pending.insert(sequence, vec![Done]);
+            subs.next_sequence = sequence + 1;
+            subs.record_timing(sequence, sequence as f64, sequence as f64 + 0.5);
+            subs.reclaim(classify);
+        }
+        assert_eq!(subs.timings.len(), 1024);
+        assert_eq!(subs.timing_of(1, classify), GpuTiming::Reclaimed);
+        assert_eq!(subs.timing_of(2, classify), available(2.0, 2.5));
+        assert_eq!(subs.timing_of(1025, classify), available(1025.0, 1025.5));
+    }
+
+    #[test]
+    fn gpu_timing_does_not_reclaim_or_change_the_table() {
+        let subs = table(&[vec![Done], vec![Done]]);
+        for sequence in 0..4 {
+            let _ = subs.timing_of(sequence, classify);
+        }
+        assert_eq!(subs.watermark, 0);
+        assert_eq!(subs.pending.len(), 2);
+        assert!(subs.failed.is_empty());
+        assert!(subs.timings.is_empty());
+    }
+
+    #[test]
+    fn span_takes_the_earliest_start_and_the_latest_end() {
+        assert_eq!(
+            span_of([(2.0, 3.0), (1.0, 2.5), (2.5, 4.0)]),
+            Some((1.0, 4.0))
+        );
+        assert_eq!(span_of([(1.0, 1.0)]), Some((1.0, 1.0)));
+    }
+
+    #[test]
+    fn span_rejects_empty_non_finite_and_reversed_times() {
+        assert_eq!(span_of([]), None);
+        assert_eq!(span_of([(1.0, f64::NAN)]), None);
+        assert_eq!(span_of([(f64::INFINITY, f64::INFINITY)]), None);
+        assert_eq!(span_of([(1.0, 2.0), (3.0, 2.0)]), None);
     }
 
     #[test]
