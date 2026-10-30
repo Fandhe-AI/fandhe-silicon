@@ -505,10 +505,12 @@ fn on_complete_with_a_foreign_or_unissued_token_calls_back_lost_once() {
     let first = new_device();
     let second = new_device();
     let foreign = submit_empty(first.as_ref());
+    // 払い出していない番号は、`second` 自身の device の識別子と世代で作る（別 device の拒否と分けて確かめる）。
+    let own = submit_empty(second.as_ref());
     let unissued = fandhe_silicon_core::execution::SubmitToken::__backend_new(
-        second.generation(),
-        99,
-        foreign.__backend_device_id() + 1000,
+        own.generation,
+        own.sequence + 98,
+        own.__backend_device_id(),
     );
     for token in [foreign, unissued] {
         let seen = Arc::new(Mutex::new(Vec::new()));

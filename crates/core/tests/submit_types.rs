@@ -287,6 +287,8 @@ fn gpu_timing_has_no_eq() {
     const { assert!(<Probe<SubmitToken>>::HAS_EQ) };
 }
 
+// wasm32 ではスレッドを作れないので、native だけで流す。
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn backend_encoder_ids_are_unique_and_never_zero_across_threads() {
     let handles: Vec<_> = (0..4)
