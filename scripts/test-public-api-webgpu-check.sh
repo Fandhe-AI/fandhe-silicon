@@ -443,6 +443,18 @@ put("w_nonpublic", wg([
     ("zzgpu_private", {"function": {}}, {"vis": "crate"}),
     ("zzgpu_ext", {"function": {}}, {"crate_id": 1}),
 ]))
+# 略語の並びに続く名前（WebGPUX 相当。ダミー語 zzgpu）。
+put("w_acr_camel", wg([("ZzGPUX", {"struct": {}}, {})]))
+put("w_acr_upper", wg([("ZZGPUX", {"struct": {}}, {})]))
+put("w_acr_prefix", wg([("XZzGPUDevice", {"struct": {}}, {})]))
+put("w_acr_fn", wg([("as_ZZGPUX", {"function": {}}, {})]))
+put("w_acr_miss", wg([
+    ("Zzgpus", {"struct": {}}, {}),
+    ("nonzzgpu", {"struct": {}}, {}),
+    ("ZzGPU", {"struct": {}}, {"vis": "crate"}),
+    ("ZZGP", {"struct": {}}, {}),
+    ("ZZGPXU", {"struct": {}}, {}),
+]))
 put("w_trait_alias", wg([("ZzgpuAlias2", {"trait_alias": {}}, {})]))
 # 許可リストに無い種類（関連型・関連定数・マクロ）は数えない。
 put("w_other_kinds", wg([
@@ -553,6 +565,11 @@ check "(4) 複数は合計" 1 "webgpu_names_total=2" "FAILED: 2 item(s)" --confi
 check "(4) const・static・field・module は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_const)"
 check "(4) 語を部分に含むだけの名前は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_partial)"
 check "(4) 非公開・他 crate は数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_nonpublic)"
+check "(4) 大文字の略語の並びに続く名前（WebGPUX 相当）" 1 - "item=ZzGPUX kind=struct check=webgpu-name word=zzgpu" --config "${C}" --json "$(J w_acr_camel)"
+check "(4) 全部大文字の名前（WEBGPUX 相当）" 1 - "item=ZZGPUX kind=struct check=webgpu-name" --config "${C}" --json "$(J w_acr_upper)"
+check "(4) 前に語が付く（XWebGPUDevice 相当）" 1 - "item=XZzGPUDevice kind=struct check=webgpu-name" --config "${C}" --json "$(J w_acr_prefix)"
+check "(4) 略語の並びに続く関数名" 1 - "item=as_ZZGPUX kind=function check=webgpu-name" --config "${C}" --json "$(J w_acr_fn)"
+check "(4) 語に届かない・小文字を含む語の途中は当てない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_acr_miss)"
 check "(4) trait alias" 1 - "item=ZzgpuAlias2 kind=trait_alias check=webgpu-name" --config "${C}" --json "$(J w_trait_alias)"
 check "(4) 関連型・関連定数・マクロは数えない" 0 "webgpu_names_total=0" - --config "${C}" --json "$(J w_other_kinds)"
 check "(4) 組 B にだけある違反を数える" 1 "webgpu_names_total=1" "violation: crate=dummy features=- item=as_zzgpu kind=function check=webgpu-name" \

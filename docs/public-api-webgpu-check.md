@@ -169,7 +169,7 @@
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 数える種類 | crate_id が 0 で visibility が public / default のうち、`function`・`use`・`struct`・`enum`・`union`・`trait`・`trait_alias`・`type_alias`・`variant`。`constant`・`static`・field・module は数えない（種類の許可リストで外れる。除外の一覧は持たない） | `(4) const・static・field・module は数えない`・`real_webgpu_const` |
-| 名前の照合 | `_` と大文字小文字の切れ目で小文字の語に分け、連続する語をつないだ文字列が節の語に等しければ違反。`as_<語>`・`<語>Device`・大文字の略語の並び・`_` で分かれた語を拾う。語を部分に含むだけの名前は拾わない。再公開は局所名（`use.name`）も見る | `(4) 関数 as_ 語`・`(4) struct（CamelCase）`・`(4) 再公開`・`(4) trait alias`・`(4) 語を部分に含むだけの名前は数えない` |
+| 名前の照合 | `_` と大文字小文字の切れ目で小文字の語に分け、連続する語をつないだ文字列が節の語に等しければ違反。加えて、大文字だけの語（略語の並び）の中で語が終わる場合も違反にする（つないだ文字列が語で始まり、その手前までの文字列が語より短い。`<語>X` の CamelCase・全部大文字の名前を拾う）。小文字を含む語の途中で一致するだけの名前（`<語>s` など）は当てない。`as_<語>`・`<語>Device`・大文字の略語の並び・`_` で分かれた語を拾う。語を部分に含むだけの名前は拾わない。再公開は局所名（`use.name`）も見る | `(4) 関数 as_ 語`・`(4) struct（CamelCase）`・`(4) 再公開`・`(4) trait alias`・`(4) 大文字の略語の並びに続く名前`・`(4) 語を部分に含むだけの名前は数えない` |
 | 出力 | 違反は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=webgpu-name word=<語>`。`scanned:` の末尾に `webgpu_names=`、`record:` の末尾に `webgpu_names_total=`。`FAILED:` の件数に足す。組 B の `scanned:` にも `webgpu_names=` が付く | `(4) record と FAILED`・`(4) 組 B の scanned にも件数` |
 | 組 A と組 B の和集合 | 組 B の JSON にも同じ規則をかけ、組 A で数えた同じ (crate, 名前, 種類, 語) は同じ個数まで引く。`native-blocking-wait` の裏だけにある名前は組 B で拾い、両方にある同じアイテムは 1 件と数える。鍵が同じ別のアイテムが組 A と組 B に 1 つずつあるときも 1 件と数える（件数の表示だけが変わり、終了コードは 1 のまま） | `(4) 組 B にだけある違反を数える`・`(4) 両方にある同じアイテムは 1 件`・`(4) 組 B にだけ増えた分を足す`・`(4) 同名が複数あれば個数で引く`・`real_webgpu_gated` |
 | 数えない種類と生成の環境（検査の範囲の外） | 許可リストに無い種類（const・static・field・module・関連型・関連定数・マクロ）は数えない。rustdoc の JSON は Linux で生成するので、`cfg(target_os)` で外れる面は見ない | `(4) 関連型・関連定数・マクロは数えない` |

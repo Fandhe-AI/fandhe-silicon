@@ -68,8 +68,10 @@
 # 内容の (4) の照合の規則（TASK-155 のポインタ。対象は組 A と組 B の JSON）:
 #   H1 crate_id が 0 で visibility が public / default のアイテムのうち、inner が function・use・struct・enum・union・trait・
 #      trait_alias・type_alias・variant のものの名前（再公開は局所名 use.name も）を、`_` と大文字小文字の切れ目で語に分け
-#      （`WebGpuX`・`WebGPUX`・`as_webgpu` はどれも webgpu を含む語の並びになる）、連続する語をつないだ文字列が [webgpu-words] の語に
-#      等しければ違反。部分一致では当てない。const・static・field・module・マクロは数えない（WebGPU の口の非対応を答える値は操作でない）。
+#      （`WebGpuX`・`as_webgpu` は webgpu を含む語の並びになる）、連続する語をつないだ文字列が [webgpu-words] の語に等しければ違反。
+#      加えて、大文字だけの語（略語の並び）の中で語が終わる場合も違反にする: つないだ文字列が語で始まり、その手前までの文字列が語より
+#      短ければ当たる（`WebGPUX`・`WEBGPUX`・`XWebGPUDevice` を拾う）。小文字を含む語の途中で一致するだけ（`webgpus`・`Webgpus`・`nonwebgpu`）は
+#      当てない。const・static・field・module・マクロは数えない（WebGPU の口の非対応を答える値は操作でない）。
 #   違反の行は `violation: crate=<c> features=<f> item=<名前> kind=<種類> check=webgpu-name word=<語>`。
 #   scanned の末尾に `webgpu_names=<n>`、record の末尾に `webgpu_names_total=<n>`。組 B の JSON にも同じ規則をかけ、
 #      組 A で数えた同じ (crate, 名前, 種類, 語) は同じ個数まで引いて、組 A と組 B の和集合で数える
@@ -185,23 +187,35 @@ def match_words(name, words):
 
 
 def name_tokens(name):
-    """名前を `_` と大文字小文字の切れ目（`WebGpu`・`WebGPUHandle`）で区切り、小文字にした語の並びを返す。"""
+    """名前を `_` と大文字小文字の切れ目（`WebGpu`・`WebGPUHandle`）で区切った語の並びを、元の大小のまま返す。"""
     out = []
     for seg in name.split("_"):
-        out.extend(t.lower() for t in NAME_TOKEN.findall(seg))
+        out.extend(NAME_TOKEN.findall(seg))
     return out
 
 
 def match_webgpu(name, words):
-    """語の並びの連続する部分をつないだ文字列が [webgpu-words] の語に等しいものを返す（部分一致では当てない）。"""
+    """[webgpu-words] の語に当たるものを返す。次のどちらかで当てる（部分一致では当てない）。
+    (a) 連続する語を小文字でつないだ文字列が語に等しい。
+    (b) 語の途中で終わる位置が、大文字だけの語（略語の並び。`WebGPUX` の `GPUX`）の中にある。略語の並びは次の語との
+        境界があいまいなので、つないだ文字列が語で始まり、その手前までの文字列は語より短いときも当てる（fail-closed）。
+        小文字を含む語の途中で一致するだけ（`webgpus`・`Webgpus`・`nonwebgpu`）は当てない。"""
     toks = name_tokens(name)
     joined = set()
+    prefix = set()
     for i in range(len(toks)):
         acc = ""
         for j in range(i, len(toks)):
-            acc += toks[j]
+            before = acc
+            acc += toks[j].lower()
             joined.add(acc)
-    return [w for w in words if w in joined]
+            if toks[j].isalpha() and toks[j].isupper():
+                prefix.add((before, acc))
+    out = []
+    for w in words:
+        if w in joined or any(a.startswith(w) and len(b) < len(w) for b, a in prefix):
+            out.append(w)
+    return out
 
 
 def webgpu_hits(doc, words):
