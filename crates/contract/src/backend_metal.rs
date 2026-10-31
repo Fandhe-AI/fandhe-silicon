@@ -116,7 +116,9 @@ impl LostState {
 
     /// コールバックを登録する。登録済みなら上書きし、ロスト済みなら保持するだけで呼ばない。
     fn set_callback(&self, callback: LostCallback) {
-        self.lock().callback = Some(callback);
+        // 上書きされた古いコールバックの `Drop` が再入しても詰まらないよう、錠を放してから捨てる。
+        let old = self.lock().callback.replace(callback);
+        drop(old);
     }
 
     /// 模擬のロストが起きたか。単体の試験だけが読む。
@@ -127,6 +129,8 @@ impl LostState {
 
     /// 1 回目だけ、理由の記録・世代の取り直し・コールバックの取り出しを錠の中で行い、錠を放してから
     /// 指定の理由でコールバックを 1 回呼ぶ。2 回目以降は何もせず `Ok`。
+    ///
+    /// 世代は原子の値として読まれる。理由とコールバックは錠の中だけで読む。
     ///
     /// 世代は `source` から 1 つ取って `generation` へ書く。`source` が尽きていたら、理由も世代も
     /// コールバックも変えずに `Err` を返す。コールバックの中から同じ状態を呼んでも詰まらない。
@@ -1159,7 +1163,7 @@ mod imp {
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
         /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
         /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
-        fn commit_buffers(&self) -> Result<SubmitToken, ContractError> {
+        fn commit_buffers(&self, generation: u64) -> Result<SubmitToken, ContractError> {
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
             let sequence = subs.next_sequence;
@@ -1184,11 +1188,7 @@ mod imp {
             self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
-            Ok(SubmitToken::__backend_new(
-                self.current_generation(),
-                sequence,
-                self.id,
-            ))
+            Ok(SubmitToken::__backend_new(generation, sequence, self.id))
         }
 
         /// device を組み立てる。`request_with` と試験が共有する。
@@ -1539,9 +1539,11 @@ mod imp {
         ) -> Result<SubmitToken, ContractError> {
             self.drive_callbacks();
             precheck_submit(wait)?;
+            // 世代は 1 回だけ読み、印の払い出しに使う（ロストと重なっても読みが割れない）。
+            let generation = self.current_generation();
             self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
-            self.commit_buffers()
+            self.commit_buffers(generation)
         }
 
         /// 複数の記録先を 1 回で投入し、1 つの印を返す。
@@ -1557,19 +1559,15 @@ mod imp {
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
             self.drive_callbacks();
-            precheck_submit_many(
-                commands.len(),
-                after,
-                wait,
-                self.id,
-                self.current_generation(),
-            )?;
+            // 世代は 1 回だけ読み、`after` の照合と印の払い出しの両方に同じ値を使う。
+            let generation = self.current_generation();
+            precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
             self.open.claim(&ids)?;
             for command in &mut commands {
                 command.__backend_disarm_closer();
             }
-            self.commit_buffers()
+            self.commit_buffers(generation)
         }
 
         /// 列の全部が完了なら `Complete`、どれかが `Error` なら `Lost`、他は `Pending`。
@@ -3396,6 +3394,83 @@ mod lost_state_tests {
             .unwrap();
         assert!(seen.lock().unwrap().is_empty());
         assert!(state.lock().callback.is_some());
+    }
+
+    #[test]
+    fn a_loss_without_a_callback_then_a_registration_never_calls_it() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    /// 捨てられるときに、同じ状態の `set_callback` と `lose` を呼ぶ値。
+    struct ReentrantDrop {
+        state: Arc<LostState>,
+        generation: Arc<AtomicU64>,
+        source: Arc<AtomicU64>,
+        done: Arc<Mutex<bool>>,
+    }
+
+    impl Drop for ReentrantDrop {
+        fn drop(&mut self) {
+            self.state.set_callback(Box::new(|_| {}));
+            let _ = self
+                .state
+                .lose(DeviceLostReason::Unknown, &self.generation, &self.source);
+            *self.done.lock().unwrap() = true;
+        }
+    }
+
+    #[test]
+    fn dropping_an_overwritten_callback_may_reenter_without_deadlock() {
+        let state = Arc::new(LostState::default());
+        let generation = Arc::new(AtomicU64::new(1));
+        let source = Arc::new(AtomicU64::new(2));
+        let done = Arc::new(Mutex::new(false));
+        let guard = ReentrantDrop {
+            state: Arc::clone(&state),
+            generation: Arc::clone(&generation),
+            source: Arc::clone(&source),
+            done: Arc::clone(&done),
+        };
+        state.set_callback(Box::new(move |_| {
+            let _keep = &guard;
+        }));
+        // 上書きで古いコールバックが捨てられ、その `Drop` が再入する。錠を握ったままなら詰まる。
+        state.set_callback(Box::new(|_| {}));
+        assert!(*done.lock().unwrap());
+        assert!(state.is_lost());
+    }
+
+    #[test]
+    fn concurrent_loses_call_the_callback_once_and_advance_the_source_once() {
+        const THREADS: usize = 8;
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(10));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        let barrier = std::sync::Barrier::new(THREADS);
+        std::thread::scope(|scope| {
+            for _ in 0..THREADS {
+                scope.spawn(|| {
+                    barrier.wait();
+                    state
+                        .lose(DeviceLostReason::Unknown, &generation, &source)
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert_eq!(source.load(Ordering::Relaxed), 11);
+        assert_eq!(generation.load(Ordering::Relaxed), 10);
     }
 
     #[test]
