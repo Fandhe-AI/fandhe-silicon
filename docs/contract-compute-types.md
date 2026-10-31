@@ -1,7 +1,7 @@
 # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と本リポの現状
 
 TASK-769 の作業の所在と、本リポの現状の事実を置く。spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
-対応づけは COMP-26・COMP-27・COMP-30・COMP-34 のポインタだけにする。
+対応づけは TASK-415、COMP-25、COMP-26・COMP-27・COMP-30・COMP-34、BIND-1・BIND-2・BIND-3 のポインタだけにする。
 
 ## 記録の所在
 
@@ -17,6 +17,8 @@ TASK-769 の作業の所在と、本リポの現状の事実を置く。spec の
 | `Binding<'a>` | 構造体（`#[non_exhaustive]`。`slot`・`buffer`・`offset` が `pub`。`new` で作る。`Debug`・`Clone`・`Copy`） |
 | `ConstantBinding<'a>` | 構造体（`#[non_exhaustive]`。`slot`・`bytes` が `pub`。`new` で作る。`Debug`・`Clone`・`Copy`） |
 | `ThreadgroupMemory` | 構造体（`#[non_exhaustive]`。`index`・`bytes` が `pub`。`new` で作る。`Debug`・`Clone`・`Copy`・`PartialEq`・`Eq`） |
+| `BindingLayout` | 構造体（`#[non_exhaustive]`。`slots: Vec<u32>` が `pub`。`new` で作り、検査をせず重複や並びもそのまま持つ。`Debug`・`Clone`・`PartialEq`・`Eq`） |
+| `ComputeOps` | trait（必須のメソッドは `create_pipeline(&self, PipelineInput<'_>, &BindingLayout) -> Result<PipelineHandle, ContractError>` の 1 本。既定の本体を持つメソッドは無い。本リポに実装は無い） |
 
 `CommandQueue`（`crates/core/src/execution/submit.rs`）に次の 2 つを足した。
 
@@ -35,6 +37,10 @@ TASK-769 の作業の所在と、本リポの現状の事実を置く。spec の
 | 構築の口 | 外の crate は 4 つの型を構造体式で作れず、`new`（`PipelineHandle` は `__backend_new`）を使う | `compute.rs` の rustdoc（`compile_fail,E0639`・`E0451`） |
 | 必須のメソッド | `dispatch_ex` を持たない `CommandQueue` の実装は拒まれる。持てば通る | `submit.rs` の rustdoc（`compile_fail,E0046`） |
 | 検査 | 4 つの型の作成は検査をせず、渡された値をそのまま写す | `dispatch_default_impl.rs` |
+| `BindingLayout` | `new` で渡した `slots` をそのまま持つ。空・重複を含む並びも同じ。`Clone` と比較が使える | `crates/core/tests/compute_ops_shape.rs` |
+| `ComputeOps` | 実装は渡された `PipelineInput` と `BindingLayout` をそのまま受け取り、返した `Ok(PipelineHandle)`・`Err(..)` がそのまま呼び出し側へ戻る。`&dyn ComputeOps` として呼べる | 同上 |
+| 構築の口（`BindingLayout`） | 外の crate は構造体式で作れず、`new` を使う | `compute.rs` の rustdoc（`compile_fail,E0639`） |
+| 必須のメソッド（`ComputeOps`） | `create_pipeline` を持たない実装は拒まれる。持てば通る | `compute.rs` の rustdoc（`compile_fail,E0046`） |
 | 外部依存 | 足していない。`unsafe` は無い | `make deps-check` |
 
 ## 対応するテスト
@@ -42,13 +48,15 @@ TASK-769 の作業の所在と、本リポの現状の事実を置く。spec の
 | テスト | 内容 |
 | ------ | ---- |
 | `crates/core/tests/dispatch_default_impl.rs` | `dispatch` の既定の委譲、補う値、結果のそのままの返却、各型の値の保持 |
-| `compute.rs` の rustdoc | 各型の構造体式が拒まれること。`new` / `__backend_new` で作れる陽性対照つき |
+| `crates/core/tests/compute_ops_shape.rs` | `BindingLayout` の保持、`ComputeOps` の引数と結果のそのままの受け渡し、object safe |
+| `compute.rs` の rustdoc | 各型（`BindingLayout` を含む）の構造体式が拒まれること、`create_pipeline` を持たない `ComputeOps` の実装が拒まれること。`new` / `__backend_new` で作れる陽性対照つき |
 | `submit.rs` の rustdoc | `dispatch_ex` を持たない実装が拒まれること。持てば通る陽性対照つき |
 
 ## 確かめ方
 
 ```bash
 cargo test -p fandhe-silicon-core --test dispatch_default_impl
+cargo test -p fandhe-silicon-core --test compute_ops_shape
 cargo test -p fandhe-silicon-core --doc
 make verify && make check
 make public-api-check && make public-name-check && make public-api-webgpu-check && make public-api-sdk-check && make core-deps-check

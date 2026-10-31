@@ -4,8 +4,12 @@
 //! 上（`fandhe-silicon-upper`）・下-2（`fandhe-silicon-exec`）が組み立て、下-1 の背後実装が受け取る。
 //! 値は純粋なデータで、背後実装の物を持たない。作成時の検査・下位の API へ渡す口は無い。
 //! 背後実装だけが使う `__backend_new` は検査をせず、渡された値をそのまま写す。
-//! 対応づけ: TASK-769、COMP-26・COMP-27・COMP-30・COMP-34（ポインタのみ）。
+//! パイプラインの slot の並びを持つ `BindingLayout` と、パイプライン生成の口 `ComputeOps` も置く。
+//! `ComputeOps` は trait の宣言だけで、実装は持たない。
+//! 対応づけ: TASK-769、TASK-415、COMP-25、COMP-26・COMP-27・COMP-30・COMP-34、BIND-1・BIND-2・BIND-3（ポインタのみ）。
 
+use crate::error::ContractError;
+use crate::execution::PipelineInput;
 use crate::memory::BufferHandle;
 
 /// 生成済みの compute パイプラインを指す印。
@@ -156,4 +160,73 @@ impl ThreadgroupMemory {
     pub fn new(index: u32, bytes: u32) -> Self {
         Self { index, bytes }
     }
+}
+
+/// パイプラインが受ける slot の並び（束縛と定数の slot を 1 つの番号の空間で並べる）を持つ値。
+///
+/// 外の crate は構造体式で作れない。`new` で作る。`new` は検査をせず、重複や並びもそのまま持つ。
+/// `ComputeOps::create_pipeline` の引数として渡る。
+///
+/// ```
+/// use fandhe_silicon_core::execution::BindingLayout;
+/// let l = BindingLayout::new(vec![0, 1, 4]);
+/// assert_eq!(l.slots, vec![0, 1, 4]);
+/// ```
+///
+/// 構造体式は拒まれる。
+///
+/// ```compile_fail,E0639
+/// use fandhe_silicon_core::execution::BindingLayout;
+/// let _ = BindingLayout { slots: vec![0, 1, 4] };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BindingLayout {
+    /// slot 番号の並び。
+    pub slots: Vec<u32>,
+}
+
+impl BindingLayout {
+    /// slot の並びから作る。検査はしない。
+    pub fn new(slots: Vec<u32>) -> Self {
+        Self { slots }
+    }
+}
+
+/// compute パイプラインの生成の口。
+///
+/// 上（`fandhe-silicon-upper`）・下-2（`fandhe-silicon-exec`）が成果物と `BindingLayout` を渡して呼び、
+/// 下-1 の背後実装が実装する。既定の本体を持つメソッドは無く、`create_pipeline` は必ず実装する。
+///
+/// `create_pipeline` を持たない実装は拒まれる。
+///
+/// ```compile_fail,E0046
+/// use fandhe_silicon_core::execution::ComputeOps;
+/// struct C;
+/// impl ComputeOps for C {}
+/// ```
+///
+/// 持てば通る。
+///
+/// ```
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::execution::{BindingLayout, ComputeOps, PipelineHandle, PipelineInput};
+/// struct C;
+/// impl ComputeOps for C {
+///     fn create_pipeline(
+///         &self,
+///         _input: PipelineInput<'_>,
+///         _layout: &BindingLayout,
+///     ) -> Result<PipelineHandle, ContractError> {
+///         Ok(PipelineHandle::__backend_new(1, 1))
+///     }
+/// }
+/// ```
+pub trait ComputeOps {
+    /// 成果物と slot の並びからパイプラインを作る。検査と生成の中身は実装が決める。
+    fn create_pipeline(
+        &self,
+        input: PipelineInput<'_>,
+        layout: &BindingLayout,
+    ) -> Result<PipelineHandle, ContractError>;
 }
