@@ -136,6 +136,9 @@ fn safety_comments() -> Vec<(usize, String)> {
 /// 関数の定数の設定（`setConstantValue_type_atIndex`）に結びつく `// SAFETY:` を見分ける語句。
 const CONSTANT_SAFETY_MARKER: &str = "setConstantValue_type_atIndex";
 
+/// 関数の定数の設定の `// SAFETY:` が含んでいなければならない、根拠の語句。
+const CONSTANT_SAFETY_RATIONALE: &[&str] = &["局所", "アラインメント", "長さ", "直前で"];
+
 /// コメントの記号と改行を除いてつなぐ（行末の折り返しをまたぐ語句を拾えるようにする）。
 fn flatten(text: &str) -> String {
     text.lines()
@@ -157,6 +160,11 @@ fn backend_metal_safety_comments_state_the_no_recording_rationale() {
     let mut misses = Vec::new();
     for (no, text) in &contents {
         let flat = flatten(text);
+        if flat.contains(CONSTANT_SAFETY_MARKER) {
+            misses.push(format!(
+                "src/backend_metal.rs:{no}: a `contents()` SAFETY comment mentions `{CONSTANT_SAFETY_MARKER}`"
+            ));
+        }
         if !flat.contains("contents()") {
             misses.push(format!(
                 "src/backend_metal.rs:{no}: a SAFETY comment is neither around `contents()` nor for `{CONSTANT_SAFETY_MARKER}`"
@@ -179,5 +187,26 @@ fn backend_metal_safety_comments_state_the_no_recording_rationale() {
         constant.len(),
         1,
         "expected exactly one `// SAFETY:` comment for `{CONSTANT_SAFETY_MARKER}`"
+    );
+    let mut constant_misses = Vec::new();
+    for (no, text) in &constant {
+        let flat = flatten(text);
+        if flat.contains("contents()") {
+            constant_misses.push(format!(
+                "src/backend_metal.rs:{no}: the constant SAFETY must not mention `contents()`"
+            ));
+        }
+        for phrase in CONSTANT_SAFETY_RATIONALE {
+            if !flat.contains(phrase) {
+                constant_misses.push(format!(
+                    "src/backend_metal.rs:{no}: missing `{phrase}` in the constant SAFETY comment"
+                ));
+            }
+        }
+    }
+    assert!(
+        constant_misses.is_empty(),
+        "the constant SAFETY comment lost its rationale:\n{}",
+        constant_misses.join("\n")
     );
 }

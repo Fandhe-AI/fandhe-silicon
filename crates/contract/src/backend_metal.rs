@@ -98,8 +98,7 @@ fn classify_pipeline_input<'a>(
     let rejected = |variant: &str| ContractError::ArtifactRejected {
         kind: "unsupported-input",
         reason: format!(
-            "received {variant}; the Metal backend accepts Msl, MslSpecialized, {}",
-            "MslWithOptions and MslSpecializedWithOptions"
+            "pipeline input {variant} is not accepted by the Metal backend; accepted inputs are Msl and MslSpecialized"
         ),
     };
     match input {
@@ -1131,9 +1130,10 @@ mod imp {
 
     /// device のパイプラインの表。識別子は device ごとに 1 から払い出す。
     struct Pipelines {
-        /// 次に払い出すパイプラインの識別子。
-        next_id: u64,
+        /// 次に払い出すパイプラインの識別子の源。`take_next` で払い出す。
+        next_id: AtomicU64,
         /// 識別子から（パイプライン状態, 作成時に渡された `BindingLayout` の写し）への表。
+        /// パイプラインの破棄の口は無く、作った分だけ件数が増え続ける（上限も無い）。
         map: HashMap<
             u64,
             (
@@ -1275,7 +1275,7 @@ mod imp {
                     pool: SizePool::new(),
                 }),
                 pipelines: Mutex::new(Pipelines {
-                    next_id: 1,
+                    next_id: AtomicU64::new(1),
                     map: HashMap::new(),
                 }),
                 open: Arc::new(OpenEncoders::new()),
@@ -1832,20 +1832,24 @@ mod imp {
             ConstantKind::Bool => MTLDataType::Bool,
         };
         let index = usize::try_from(index).map_err(|_| failed("function constant index"))?;
-        // 局所の配列に写して、その先頭を渡す。`UInt` は 4 バイト、`Bool` は 1 バイトだけが読まれる。
-        let mut local = [0_u8; 4];
-        local[..bytes.len()].copy_from_slice(bytes);
+        // 4 バイトにそろえた局所の値へ写して、その先頭を渡す。`UInt` は 4 バイト、`Bool` は 1 バイトだけが読まれる。
+        let mut local = Aligned4([0_u8; 4]);
+        local.0[..bytes.len()].copy_from_slice(bytes);
         let value = core::ptr::NonNull::from(&mut local).cast::<core::ffi::c_void>();
-        // SAFETY: `setConstantValue_type_atIndex` に渡す `value` は局所の配列 `local`（4 バイト）の先頭を指す
-        // 非 null のポインタで、この呼び出しの間だけ
-        // 生きる。Metal が読む大きさは `data_type` で決まり（`UInt` は 4 バイト、`Bool` は 1 バイト）、
-        // 上で `bytes.len() == kind.byte_len()` を確かめた値と一致して `local` に収まる。`index` は呼び手の
-        // 番号をそのまま渡す（範囲の検査は Metal の関数の生成が行い、不正なら生成の失敗で返る）。
+        // SAFETY: `setConstantValue_type_atIndex` に渡す `value` は、局所の値 `local` を指す非 null のポインタで、
+        // この呼び出しの間だけ生きる。`local` は 4 バイトで 4 バイトにそろえてあり、Metal が読む大きさ
+        // （`UInt` は 4 バイト、`Bool` は 1 バイト）とアラインメントが `data_type` と一致する。
+        // `bytes` の長さは直前で `kind.byte_len()` と照合した。`index` は呼び手の値を変換せずに渡す。
+        // objc2-metal は index が範囲検査されない可能性を挙げており、ここではその扱いを安全の根拠に使わない。
         unsafe {
             values.setConstantValue_type_atIndex(value, data_type, index);
         }
         Ok(())
     }
+
+    /// function constant の値を置く 4 バイトの領域。`UInt` の読み出しに要る 4 バイトのアラインメントをそろえる。
+    #[repr(align(4))]
+    struct Aligned4([u8; 4]);
 
     /// NSError の説明文を取り出す。
     fn describe(error: &objc2_foundation::NSError) -> String {
@@ -1901,10 +1905,8 @@ mod imp {
                 .map_err(|e| rejected("compute-pipeline", "pipeline state creation failed", &e))?;
 
             let mut pipelines = self.lock_pipelines();
-            let id = pipelines.next_id;
-            pipelines.next_id = id
-                .checked_add(1)
-                .ok_or_else(|| ContractError::BackendFailure {
+            let id =
+                take_next(&pipelines.next_id).ok_or_else(|| ContractError::BackendFailure {
                     op: "create_pipeline",
                     backend: BACKEND,
                     detail: "pipeline id space is exhausted".into(),
@@ -2547,6 +2549,51 @@ mod imp {
             let r = device.create_pipeline(msl("no_such_entry"), &BindingLayout::new(vec![]));
             assert!(
                 matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                "{r:?}"
+            );
+        }
+
+        /// `function_constant(0)` を `uint` で宣言したソースに、`Bool` を渡すと型違いで拒まれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn constant_of_the_wrong_type_is_artifact_rejected() {
+            let device = new_device();
+            let constants = [FunctionConstant {
+                index: 0,
+                value: FunctionConstantValue::Bool(true),
+            }];
+            let r = device.create_pipeline(
+                PipelineInput::MslSpecialized {
+                    source: "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        constant uint N [[function_constant(0)]];\n\
+                        kernel void k(device uint* out [[buffer(0)]]) { out[0] = N; }\n",
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(
+                matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                "{r:?}"
+            );
+        }
+
+        /// `function_constant` を宣言したソースに、空の定数の `MslSpecialized` を渡すと拒まれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn specialized_msl_with_no_constants_is_artifact_rejected() {
+            let device = new_device();
+            let r = device.create_pipeline(
+                PipelineInput::MslSpecialized {
+                    source: SPECIALIZED_KERNEL,
+                    entry_point: "k",
+                    function_constants: &[],
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(
+                matches!(r, Err(ContractError::ArtifactRejected { .. })),
                 "{r:?}"
             );
         }
@@ -3581,15 +3628,12 @@ mod precheck_tests {
             match classify_pipeline_input(input) {
                 Err(ContractError::ArtifactRejected { kind, reason }) => {
                     assert_eq!(kind, "unsupported-input");
-                    assert!(reason.contains(name), "{reason}");
-                    for accepted in [
-                        "Msl",
-                        "MslSpecialized",
-                        "MslWithOptions",
-                        "MslSpecializedWithOptions",
-                    ] {
-                        assert!(reason.contains(accepted), "{reason}");
-                    }
+                    assert_eq!(
+                        reason,
+                        format!(
+                            "pipeline input {name} is not accepted by the Metal backend; accepted inputs are Msl and MslSpecialized"
+                        )
+                    );
                 }
                 other => panic!("{name}: {other:?}"),
             }
