@@ -5,7 +5,8 @@
 //! GPU がそのバッファを同時に使っていないことの根拠を「この背後実装が投入するコマンドバッファは
 //! エンコーダを開かず、どのバッファも参照しない」に置いている（モジュール冒頭のコメントも同じ前提）。
 //! その前提がコメントだけで残らないよう、記録の操作に当たる呼び出しがコード本体に現れたら落とし、
-//! 2 つの SAFETY が新しい根拠の語句を保っていることも確かめる。
+//! 2 つの SAFETY が新しい根拠の語句を保っていることも確かめる。関数の定数の設定の SAFETY
+//! （記録に関わらない `setConstantValue_type_atIndex` の呼び出し）は別に 1 つだけ数える。
 //! 対象はソースの文字列なので feature・target ではゲートせず、Metal の型にも device にも触らない
 //! （どの OS でも流れる）。`unsafe` の個数の試験（`backend_metal_unsafe_count.rs`）と同じ読み方をする。
 
@@ -132,21 +133,35 @@ fn safety_comments() -> Vec<(usize, String)> {
     out
 }
 
+/// 関数の定数の設定（`setConstantValue_type_atIndex`）に結びつく `// SAFETY:` を見分ける語句。
+const CONSTANT_SAFETY_MARKER: &str = "setConstantValue_type_atIndex";
+
+/// コメントの記号と改行を除いてつなぐ（行末の折り返しをまたぐ語句を拾えるようにする）。
+fn flatten(text: &str) -> String {
+    text.lines()
+        .map(|l| l.trim_start_matches('/').trim())
+        .collect()
+}
+
 #[test]
 fn backend_metal_safety_comments_state_the_no_recording_rationale() {
     let comments = safety_comments();
+    let (constant, contents): (Vec<_>, Vec<_>) = comments
+        .iter()
+        .partition(|(_, text)| flatten(text).contains(CONSTANT_SAFETY_MARKER));
     assert_eq!(
-        comments.len(),
+        contents.len(),
         2,
         "expected exactly the two `// SAFETY:` comments around `contents()`"
     );
     let mut misses = Vec::new();
-    for (no, text) in &comments {
-        // 行末の折り返しをまたぐ語句を拾えるよう、コメントの記号と改行を除いてつなぐ。
-        let flat: String = text
-            .lines()
-            .map(|l| l.trim_start_matches('/').trim())
-            .collect();
+    for (no, text) in &contents {
+        let flat = flatten(text);
+        if !flat.contains("contents()") {
+            misses.push(format!(
+                "src/backend_metal.rs:{no}: a SAFETY comment is neither around `contents()` nor for `{CONSTANT_SAFETY_MARKER}`"
+            ));
+        }
         for phrase in SAFETY_RATIONALE {
             if !flat.contains(phrase) {
                 misses.push(format!(
@@ -159,5 +174,10 @@ fn backend_metal_safety_comments_state_the_no_recording_rationale() {
         misses.is_empty(),
         "the SAFETY comments lost the no-recording rationale:\n{}\n{FIX_HINT}",
         misses.join("\n")
+    );
+    assert_eq!(
+        constant.len(),
+        1,
+        "expected exactly one `// SAFETY:` comment for `{CONSTANT_SAFETY_MARKER}`"
     );
 }

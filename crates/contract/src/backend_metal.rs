@@ -27,6 +27,8 @@
 //! 保持される（合計の上限は 64 MiB）。
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
+//! `create_pipeline`（TASK-773 のポインタ）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
+//! `layout` の写しと一緒に置く。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
@@ -38,7 +40,8 @@ use std::sync::{Mutex, MutexGuard};
 use fandhe_silicon_core::capability::BackendKind;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
-    __BackendSharedEncoderCloser, GpuTiming, ImportedSemaphoreHandle, SubmitToken,
+    __BackendSharedEncoderCloser, FunctionConstant, FunctionConstantValue, GpuTiming,
+    ImportedSemaphoreHandle, PipelineInput, SubmitToken,
 };
 use fandhe_silicon_core::memory::validate_buffer_range;
 
@@ -71,6 +74,132 @@ fn take_next(counter: &AtomicU64) -> Option<u64> {
             Err(actual) => current = actual,
         }
     }
+}
+
+/// `create_pipeline` が受け付ける入力から取り出した、ソース・入口名・function constant の並び。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+type AcceptedPipelineInput<'a> = (&'a str, &'a str, &'a [FunctionConstant]);
+
+/// `create_pipeline` の入力を分類する。device にも Metal の API にも触らない。
+///
+/// `Msl`・`MslSpecialized` は取り出して返す（`Msl` の function constant は空の並び）。
+/// コンパイル選択つきの MSL と WGSL は、この背後実装が提供しない操作として `Unsupported` にする。
+/// ほかの言語の成果物は `ArtifactRejected { kind: "unsupported-input", .. }` にし、理由に受け取った
+/// variant 名と受け付ける variant を英語で載せる。`PipelineInput` は `#[non_exhaustive]` なので、
+/// 知らない variant も `Unsupported` にする（fail-closed）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn classify_pipeline_input<'a>(
+    input: &PipelineInput<'a>,
+) -> Result<AcceptedPipelineInput<'a>, ContractError> {
+    let unsupported = || ContractError::Unsupported {
+        op: "create_pipeline",
+        backend: BackendKind::Metal,
+    };
+    let rejected = |variant: &str| ContractError::ArtifactRejected {
+        kind: "unsupported-input",
+        reason: format!(
+            "received {variant}; the Metal backend accepts Msl, MslSpecialized, {}",
+            "MslWithOptions and MslSpecializedWithOptions"
+        ),
+    };
+    match input {
+        PipelineInput::Msl {
+            source,
+            entry_point,
+        } => Ok((source, entry_point, &[])),
+        PipelineInput::MslSpecialized {
+            source,
+            entry_point,
+            function_constants,
+        } => Ok((source, entry_point, function_constants)),
+        PipelineInput::MslWithOptions { .. }
+        | PipelineInput::MslSpecializedWithOptions { .. }
+        | PipelineInput::Wgsl { .. } => Err(unsupported()),
+        PipelineInput::SpirV { .. } => Err(rejected("SpirV")),
+        PipelineInput::CudaC { .. } => Err(rejected("CudaC")),
+        PipelineInput::Ptx { .. } => Err(rejected("Ptx")),
+        PipelineInput::Dxil { .. } => Err(rejected("Dxil")),
+        _ => Err(unsupported()),
+    }
+}
+
+/// `layout.slots` に同じ番号が 2 つ以上あれば `InvalidArgument`（重複した最初の番号を載せる）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_unique_slots(slots: &[u32]) -> Result<(), ContractError> {
+    let mut seen = HashSet::new();
+    for slot in slots {
+        if !seen.insert(*slot) {
+            return Err(ContractError::InvalidArgument(format!(
+                "duplicate slot in binding layout: {slot}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// function constant の `index` に重複があれば `InvalidArgument`（重複した最初の番号を載せる）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_unique_constants(constants: &[FunctionConstant]) -> Result<(), ContractError> {
+    let mut seen = HashSet::new();
+    for constant in constants {
+        if !seen.insert(constant.index) {
+            return Err(ContractError::InvalidArgument(format!(
+                "duplicate function constant index: {}",
+                constant.index
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// function constant の値の種別。Metal の `MTLDataType` の `UInt`・`Bool` に対応する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+enum ConstantKind {
+    /// 32 ビット符号なし整数（`MTLDataType::UInt`。4 バイト）。
+    UInt,
+    /// 真偽値（`MTLDataType::Bool`。1 バイト）。
+    Bool,
+}
+
+impl ConstantKind {
+    /// この種別の値が Metal に渡るときのバイト数。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    const fn byte_len(self) -> usize {
+        match self {
+            Self::UInt => 4,
+            Self::Bool => 1,
+        }
+    }
+}
+
+/// function constant の値を（種別, ネイティブエンディアンのバイト列）に写す。
+///
+/// `FunctionConstantValue` は `#[non_exhaustive]` なので、知らない型は `Unsupported`（fail-closed）。
+/// 返すバイト列の長さは種別の `byte_len` と一致する（`Bool` は偽が 0、真が 1）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn constant_wire(value: &FunctionConstantValue) -> Result<(ConstantKind, Vec<u8>), ContractError> {
+    match value {
+        FunctionConstantValue::U32(v) => Ok((ConstantKind::UInt, v.to_ne_bytes().to_vec())),
+        FunctionConstantValue::Bool(v) => Ok((ConstantKind::Bool, vec![u8::from(*v)])),
+        _ => Err(ContractError::Unsupported {
+            op: "create_pipeline",
+            backend: BackendKind::Metal,
+        }),
+    }
+}
+
+/// function constant の並びを、重複の検査と値の写しを済ませた（番号, 種別, バイト列）の並びにする。
+/// Metal の API を呼ぶ前に、`create_pipeline` から呼ばれる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn prepare_constants(
+    constants: &[FunctionConstant],
+) -> Result<Vec<(u32, ConstantKind, Vec<u8>)>, ContractError> {
+    check_unique_constants(constants)?;
+    constants
+        .iter()
+        .map(|c| constant_wire(&c.value).map(|(kind, bytes)| (c.index, kind, bytes)))
+        .collect()
 }
 
 /// コマンドバッファ 1 つの状態。`MTLCommandBufferStatus` を写す。試験では偽の値を使う。
@@ -744,9 +873,10 @@ mod imp {
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
-        BufState, Callback, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
-        drive_table, finish_table, group_state_of, precheck_submit, precheck_submit_many,
-        register_table, retire, take_next,
+        BufState, Callback, ConstantKind, GroupState, OpenEncoders, SizePool, Submissions,
+        check_token_owner, check_unique_slots, classify_pipeline_input, drive_table, finish_table,
+        group_state_of, precheck_submit, precheck_submit_many, prepare_constants, register_table,
+        retire, take_next,
     };
 
     use fandhe_silicon_core::capability::{
@@ -759,8 +889,9 @@ mod imp {
         CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
     };
     use fandhe_silicon_core::execution::{
-        __BackendSharedEncoderCloser, __backend_next_encoder_id, CommandEncoder, CommandQueue,
-        GpuTiming, ImportedSemaphoreHandle, SubmitToken,
+        __BackendSharedEncoderCloser, __backend_next_encoder_id, BindingLayout, CommandEncoder,
+        CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle, PipelineHandle,
+        PipelineInput, SubmitToken,
     };
     use fandhe_silicon_core::memory::{
         BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
@@ -770,9 +901,11 @@ mod imp {
     // コマンドラインのプログラムで `MTLCreateSystemDefaultDevice` が既定の device を返すには、
     // Core Graphics がリンクされている必要がある。参照を置いてリンクを確実にする（シンボルは使わない）。
     use objc2_core_graphics as _;
+    use objc2_foundation::NSString;
     use objc2_metal::{
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue,
-        MTLCreateSystemDefaultDevice, MTLDevice, MTLResourceOptions,
+        MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice,
+        MTLFunctionConstantValues, MTLLibrary, MTLResourceOptions,
     };
 
     /// この背後実装の種類。エラーの `backend` と `Device::backend` の値。
@@ -996,6 +1129,20 @@ mod imp {
         pool: SizePool<Retained<ProtocolObject<dyn MTLBuffer>>>,
     }
 
+    /// device のパイプラインの表。識別子は device ごとに 1 から払い出す。
+    struct Pipelines {
+        /// 次に払い出すパイプラインの識別子。
+        next_id: u64,
+        /// 識別子から（パイプライン状態, 作成時に渡された `BindingLayout` の写し）への表。
+        map: HashMap<
+            u64,
+            (
+                Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+                BindingLayout,
+            ),
+        >,
+    }
+
     /// ゼロ化に使う 0 の並び。`free` の中で大きな領域を確保しないよう、固定長を繰り返し書く。
     const ZEROS: [u8; 4096] = [0; 4096];
 
@@ -1020,6 +1167,8 @@ mod imp {
         queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
         /// バッファの表。
         buffers: Mutex<Buffers>,
+        /// パイプラインの表。作成した状態は device が持ち、破棄の口は持たない。
+        pipelines: Mutex<Pipelines>,
         /// 開いている（まだ投入も破棄もされていない）記録先の識別子の集合。hook と共有する。
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
@@ -1052,6 +1201,11 @@ mod imp {
         /// 表の錠を取る。他のスレッドが panic して錠が汚れていても、表は壊れない更新だけなので中身を使う。
         fn lock_buffers(&self) -> MutexGuard<'_, Buffers> {
             self.buffers.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// パイプラインの表の錠を取る。表は壊れない更新だけなので、汚れていても中身を使う。
+        fn lock_pipelines(&self) -> MutexGuard<'_, Pipelines> {
+            self.pipelines.lock().unwrap_or_else(|e| e.into_inner())
         }
 
         /// 投入済みの表の錠を取る。表は壊れない更新だけなので、汚れていても中身を使う。
@@ -1119,6 +1273,10 @@ mod imp {
                     map: HashMap::new(),
                     next_slot: 1,
                     pool: SizePool::new(),
+                }),
+                pipelines: Mutex::new(Pipelines {
+                    next_id: 1,
+                    map: HashMap::new(),
                 }),
                 open: Arc::new(OpenEncoders::new()),
                 submissions: Mutex::new(Submissions::new()),
@@ -1651,6 +1809,111 @@ mod imp {
         Ok(())
     }
 
+    /// `values` の `index` 番の function constant に、種別 `kind` の値 `bytes` を設定する。
+    ///
+    /// `ComputeOps::create_pipeline` が `prepare_constants` の結果を渡して呼ぶ。`U32` と `Bool` の両方を
+    /// この 1 つの関数が扱う。`bytes` の長さが `kind` の大きさと違えば、Metal を呼ばずに失敗で返す。
+    fn set_constant(
+        values: &MTLFunctionConstantValues,
+        index: u32,
+        kind: ConstantKind,
+        bytes: &[u8],
+    ) -> Result<(), ContractError> {
+        let failed = |detail: &str| ContractError::BackendFailure {
+            op: "create_pipeline",
+            backend: BACKEND,
+            detail: detail.into(),
+        };
+        if bytes.len() != kind.byte_len() {
+            return Err(failed("function constant size does not match its type"));
+        }
+        let data_type = match kind {
+            ConstantKind::UInt => MTLDataType::UInt,
+            ConstantKind::Bool => MTLDataType::Bool,
+        };
+        let index = usize::try_from(index).map_err(|_| failed("function constant index"))?;
+        // 局所の配列に写して、その先頭を渡す。`UInt` は 4 バイト、`Bool` は 1 バイトだけが読まれる。
+        let mut local = [0_u8; 4];
+        local[..bytes.len()].copy_from_slice(bytes);
+        let value = core::ptr::NonNull::from(&mut local).cast::<core::ffi::c_void>();
+        // SAFETY: `setConstantValue_type_atIndex` に渡す `value` は局所の配列 `local`（4 バイト）の先頭を指す
+        // 非 null のポインタで、この呼び出しの間だけ
+        // 生きる。Metal が読む大きさは `data_type` で決まり（`UInt` は 4 バイト、`Bool` は 1 バイト）、
+        // 上で `bytes.len() == kind.byte_len()` を確かめた値と一致して `local` に収まる。`index` は呼び手の
+        // 番号をそのまま渡す（範囲の検査は Metal の関数の生成が行い、不正なら生成の失敗で返る）。
+        unsafe {
+            values.setConstantValue_type_atIndex(value, data_type, index);
+        }
+        Ok(())
+    }
+
+    /// NSError の説明文を取り出す。
+    fn describe(error: &objc2_foundation::NSError) -> String {
+        error.localizedDescription().to_string()
+    }
+
+    impl ComputeOps for MetalDevice {
+        /// MSL のソースから compute パイプラインを作り、表に登録して返す。
+        ///
+        /// 受け付けるのは `Msl` と `MslSpecialized`。検査（入力の分類・`layout.slots` と function constant の
+        /// 重複）はすべて Metal の API を呼ぶ前に行う。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
+        /// `layout` は検査したうえで写しを表に持つだけで、カーネルの引数とは突き合わせない。
+        fn create_pipeline(
+            &self,
+            input: PipelineInput<'_>,
+            layout: &BindingLayout,
+        ) -> Result<PipelineHandle, ContractError> {
+            let (source, entry_point, constants) = classify_pipeline_input(&input)?;
+            check_unique_slots(&layout.slots)?;
+            let prepared = prepare_constants(constants)?;
+
+            let rejected = |kind: &'static str, what: &str, error: &objc2_foundation::NSError| {
+                ContractError::ArtifactRejected {
+                    kind,
+                    reason: format!("{what}: {}", describe(error)),
+                }
+            };
+            let library = self
+                .device
+                .newLibraryWithSource_options_error(&NSString::from_str(source), None)
+                .map_err(|e| rejected("msl", "MSL compilation failed", &e))?;
+            let name = NSString::from_str(entry_point);
+            let found = if prepared.is_empty() {
+                library.newFunctionWithName(&name)
+            } else {
+                let values = MTLFunctionConstantValues::new();
+                for (index, kind, bytes) in &prepared {
+                    set_constant(&values, *index, *kind, bytes)?;
+                }
+                Some(
+                    library
+                        .newFunctionWithName_constantValues_error(&name, &values)
+                        .map_err(|e| rejected("msl", "MSL function specialization failed", &e))?,
+                )
+            };
+            let function = found.ok_or_else(|| ContractError::ArtifactRejected {
+                kind: "msl",
+                reason: format!("entry point `{entry_point}` was not found in the MSL source"),
+            })?;
+            let state = self
+                .device
+                .newComputePipelineStateWithFunction_error(&function)
+                .map_err(|e| rejected("compute-pipeline", "pipeline state creation failed", &e))?;
+
+            let mut pipelines = self.lock_pipelines();
+            let id = pipelines.next_id;
+            pipelines.next_id = id
+                .checked_add(1)
+                .ok_or_else(|| ContractError::BackendFailure {
+                    op: "create_pipeline",
+                    backend: BACKEND,
+                    detail: "pipeline id space is exhausted".into(),
+                })?;
+            pipelines.map.insert(id, (state, layout.clone()));
+            Ok(PipelineHandle::__backend_new(id, self.id))
+        }
+    }
+
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
@@ -1809,6 +2072,7 @@ mod imp {
     mod device_tests {
         use super::*;
         use crate::backend_metal::POOL_MAX_ENTRIES;
+        use fandhe_silicon_core::execution::{FunctionConstant, FunctionConstantValue};
 
         fn new_device() -> MetalDevice {
             // 具体型で数の口を読むため、`request_with` を通さず同じ手順で作る。
@@ -2184,6 +2448,133 @@ mod imp {
             assert!(matches!(r, Err(ContractError::Unsupported { .. })), "{r:?}");
             assert_eq!(device.test_submitted_count(), 0);
             assert_eq!(device.test_open_encoder_count(), 0);
+        }
+
+        const KERNEL: &str = "#include <metal_stdlib>\n\
+            using namespace metal;\n\
+            kernel void k(device float* out [[buffer(0)]], uint tid [[thread_position_in_grid]]) {\n\
+                out[tid] = 1.0;\n\
+            }\n";
+
+        const SPECIALIZED_KERNEL: &str = "#include <metal_stdlib>\n\
+            using namespace metal;\n\
+            constant uint N [[function_constant(0)]];\n\
+            constant bool B [[function_constant(1)]];\n\
+            kernel void k(device uint* out [[buffer(0)]]) {\n\
+                out[0] = N;\n\
+                if (B) { out[1] = 1; }\n\
+            }\n";
+
+        fn msl(entry_point: &str) -> PipelineInput<'_> {
+            PipelineInput::Msl {
+                source: KERNEL,
+                entry_point,
+            }
+        }
+
+        /// TASK-773 のポインタ。MSL から `Ok(PipelineHandle)` が返り、device の識別子が入る。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn create_pipeline_returns_a_handle_of_this_device() {
+            let device = new_device();
+            let h = device
+                .create_pipeline(msl("k"), &BindingLayout::new(vec![0]))
+                .expect("create_pipeline");
+            assert_eq!(h.__backend_device_id(), device.id);
+        }
+
+        /// 2 回作ると識別子が違う。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn create_pipeline_twice_gives_different_ids() {
+            let device = new_device();
+            let layout = BindingLayout::new(vec![0]);
+            let a = device.create_pipeline(msl("k"), &layout).expect("a");
+            let b = device.create_pipeline(msl("k"), &layout).expect("b");
+            assert_ne!(a.__backend_id(), b.__backend_id());
+            assert_eq!(device.lock_pipelines().map.len(), 2);
+        }
+
+        /// `[[function_constant(N)]]` を持つ MSL は、`U32` と `Bool` を与えて `Ok` になる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn specialized_msl_with_u32_and_bool_constants_is_created() {
+            let device = new_device();
+            let constants = [
+                FunctionConstant {
+                    index: 0,
+                    value: FunctionConstantValue::U32(u32::MAX),
+                },
+                FunctionConstant {
+                    index: 1,
+                    value: FunctionConstantValue::Bool(true),
+                },
+            ];
+            let r = device.create_pipeline(
+                PipelineInput::MslSpecialized {
+                    source: SPECIALIZED_KERNEL,
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(r.is_ok(), "{r:?}");
+        }
+
+        /// 文法の誤った MSL は `ArtifactRejected { kind: "msl" }`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn invalid_msl_is_artifact_rejected() {
+            let device = new_device();
+            let r = device.create_pipeline(
+                PipelineInput::Msl {
+                    source: "kernel void k( {",
+                    entry_point: "k",
+                },
+                &BindingLayout::new(vec![]),
+            );
+            assert!(
+                matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                "{r:?}"
+            );
+        }
+
+        /// 存在しない入口名は `ArtifactRejected { kind: "msl" }`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn missing_entry_point_is_artifact_rejected() {
+            let device = new_device();
+            let r = device.create_pipeline(msl("no_such_entry"), &BindingLayout::new(vec![]));
+            assert!(
+                matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                "{r:?}"
+            );
+        }
+
+        /// 重複した slot は Metal を呼ぶ前に `InvalidArgument` で拒まれ、表に何も入らない。
+        /// 検査そのものは device なしでも `precheck_tests` で確かめる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn duplicate_slots_are_invalid_argument_and_leave_the_table_empty() {
+            let device = new_device();
+            let r = device.create_pipeline(msl("k"), &BindingLayout::new(vec![0, 1, 0]));
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            assert!(device.lock_pipelines().map.is_empty());
+        }
+
+        /// `slots` がカーネルの引数と食い違っても生成は `Ok`。表には `layout` の写しが入る。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn mismatched_slots_still_create_and_the_layout_copy_is_stored() {
+            let device = new_device();
+            let layout = BindingLayout::new(vec![9]);
+            let h = device.create_pipeline(msl("k"), &layout).expect("create");
+            let pipelines = device.lock_pipelines();
+            let entry = pipelines.map.values().next().expect("one entry");
+            assert_eq!(entry.1, layout);
+            assert_eq!(pipelines.map.len(), 1);
+            drop(pipelines);
+            assert_eq!(h.__backend_device_id(), device.id);
         }
     }
 }
@@ -3087,5 +3478,184 @@ mod precheck_tests {
         let counter = AtomicU64::new(u64::MAX);
         assert_eq!(take_next(&counter), None);
         assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
+    }
+
+    // ---- create_pipeline の純粋な部分（TASK-773 のポインタ。device に触らない） ----
+
+    use fandhe_silicon_core::execution::{MslFloatFunctions, MslMathMode};
+
+    fn constant(index: u32, value: FunctionConstantValue) -> FunctionConstant {
+        FunctionConstant { index, value }
+    }
+
+    #[test]
+    fn classify_accepts_msl_and_msl_specialized() {
+        let (source, entry, constants) = classify_pipeline_input(&PipelineInput::Msl {
+            source: "src",
+            entry_point: "k",
+        })
+        .unwrap();
+        assert_eq!((source, entry, constants.len()), ("src", "k", 0));
+
+        let given = [constant(2, FunctionConstantValue::U32(5))];
+        let (source, entry, constants) = classify_pipeline_input(&PipelineInput::MslSpecialized {
+            source: "s2",
+            entry_point: "e2",
+            function_constants: &given,
+        })
+        .unwrap();
+        assert_eq!((source, entry, constants.len()), ("s2", "e2", 1));
+        assert_eq!(constants[0].index, 2);
+    }
+
+    #[test]
+    fn classify_marks_option_variants_and_wgsl_unsupported() {
+        let inputs = [
+            PipelineInput::MslWithOptions {
+                source: "s",
+                entry_point: "k",
+                math_mode: MslMathMode::Safe,
+            },
+            PipelineInput::MslSpecializedWithOptions {
+                source: "s",
+                entry_point: "k",
+                function_constants: &[],
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Precise,
+            },
+            PipelineInput::Wgsl {
+                source: "s",
+                entry_point: "k",
+            },
+        ];
+        for input in &inputs {
+            let r = classify_pipeline_input(input);
+            assert!(
+                matches!(
+                    r,
+                    Err(ContractError::Unsupported {
+                        op: "create_pipeline",
+                        backend: BackendKind::Metal
+                    })
+                ),
+                "{input:?}: {r:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_rejects_other_languages_and_names_the_variant() {
+        let words = [0_u32; 1];
+        let bytes = [0_u8; 1];
+        let cases = [
+            (
+                PipelineInput::SpirV {
+                    words: &words,
+                    entry_point: "k",
+                },
+                "SpirV",
+            ),
+            (
+                PipelineInput::CudaC {
+                    source: "s",
+                    entry_point: "k",
+                },
+                "CudaC",
+            ),
+            (
+                PipelineInput::Ptx {
+                    source: "s",
+                    entry_point: "k",
+                },
+                "Ptx",
+            ),
+            (
+                PipelineInput::Dxil {
+                    bytes: &bytes,
+                    entry_point: "k",
+                },
+                "Dxil",
+            ),
+        ];
+        for (input, name) in &cases {
+            match classify_pipeline_input(input) {
+                Err(ContractError::ArtifactRejected { kind, reason }) => {
+                    assert_eq!(kind, "unsupported-input");
+                    assert!(reason.contains(name), "{reason}");
+                    for accepted in [
+                        "Msl",
+                        "MslSpecialized",
+                        "MslWithOptions",
+                        "MslSpecializedWithOptions",
+                    ] {
+                        assert!(reason.contains(accepted), "{reason}");
+                    }
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn slots_empty_and_distinct_pass_duplicates_are_invalid_argument() {
+        assert!(check_unique_slots(&[]).is_ok());
+        assert!(check_unique_slots(&[0, 1, 4, u32::MAX]).is_ok());
+        for slots in [&[3_u32, 3][..], &[0, 1, 2, 1], &[7, 0, 7]] {
+            let r = check_unique_slots(slots);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        }
+        let Err(ContractError::InvalidArgument(msg)) = check_unique_slots(&[0, 5, 5]) else {
+            panic!("expected InvalidArgument");
+        };
+        assert!(msg.contains('5'), "{msg}");
+    }
+
+    #[test]
+    fn duplicate_constant_indexes_are_invalid_argument() {
+        let ok = [
+            constant(0, FunctionConstantValue::U32(1)),
+            constant(1, FunctionConstantValue::Bool(true)),
+        ];
+        assert!(check_unique_constants(&[]).is_ok());
+        assert!(check_unique_constants(&ok).is_ok());
+        let dup = [
+            constant(4, FunctionConstantValue::U32(1)),
+            constant(4, FunctionConstantValue::Bool(false)),
+        ];
+        let r = check_unique_constants(&dup);
+        assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        assert!(matches!(
+            prepare_constants(&dup),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn constant_wire_maps_u32_and_bool() {
+        for v in [0_u32, 1, u32::MAX] {
+            let (kind, bytes) = constant_wire(&FunctionConstantValue::U32(v)).unwrap();
+            assert_eq!(kind, ConstantKind::UInt);
+            assert_eq!(bytes, v.to_ne_bytes());
+            assert_eq!(bytes.len(), kind.byte_len());
+        }
+        for (v, byte) in [(false, 0_u8), (true, 1)] {
+            let (kind, bytes) = constant_wire(&FunctionConstantValue::Bool(v)).unwrap();
+            assert_eq!(kind, ConstantKind::Bool);
+            assert_eq!(bytes, [byte]);
+            assert_eq!(bytes.len(), kind.byte_len());
+        }
+    }
+
+    #[test]
+    fn prepare_constants_keeps_order_index_and_kind() {
+        let given = [
+            constant(9, FunctionConstantValue::Bool(true)),
+            constant(0, FunctionConstantValue::U32(0)),
+        ];
+        let prepared = prepare_constants(&given).unwrap();
+        assert_eq!(prepared.len(), 2);
+        assert_eq!((prepared[0].0, prepared[0].1), (9, ConstantKind::Bool));
+        assert_eq!((prepared[1].0, prepared[1].1), (0, ConstantKind::UInt));
+        assert!(prepare_constants(&[]).unwrap().is_empty());
     }
 }
