@@ -224,6 +224,43 @@ cargo test -p fandhe-silicon-core --test texture_format_non_exhaustive
 cargo test -p fandhe-silicon-core --all-features
 ```
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#6712）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1312）。GPU の実機なしで実行し、件数は実測。本体のコードと試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 |
+| ------ | ------ |
+| 形式の型（`TextureFormat`・`AstcBlock`・`AstcChannel`）と性質の関数 | `crates/core/src/texture_format.rs`（上の「現状の形（2/6）」） |
+| 型の試験 | `crates/core/tests/texture_format_counts.rs`・`texture_format_existing_values.rs`・`texture_format_properties.rs`・`texture_format_names.rs`・`texture_format_non_exhaustive.rs` と `texture_format.rs` の `mod tests`（上の「試験（4/6）」「試験（5/6）」） |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 既存の 4 値の綴りと一覧、性質の照合 | `cargo test -p fandhe-silicon-core --test texture_format_existing_values`（`four_values_debug_spelling_matches_name`・`four_values_are_listed_in_all`）、`--test texture_format_properties`（`properties_match_wgpu_types_30_0_1`） | 2 件・1 件とも passed |
+| (2) | 77 の名前と値の対応・118 件・ASTC の 42 件 | `--test texture_format_names`（`every_name_maps_to_values`・`every_value_maps_to_a_name`・`all_has_no_duplicates`・`astc_concrete_formats_are_block_by_channel`・`astc_block_names_match`・`astc_channel_names_match`）、`--test texture_format_counts`（`texture_format_all_has_118_concrete_formats`・`texture_format_all_has_42_astc_formats`・`astc_block_all_has_14_values`・`astc_channel_all_has_3_values`）、`--lib texture_format`（`all_formats_cover_every_variant`・`all_formats_follow_declaration_order`・`astc_blocks_cover_every_variant`・`astc_channels_cover_every_variant`） | 6 件・4 件・4 件とも passed |
+| (3) | 利用側の `match` が壊れない扱い | `--test texture_format_non_exhaustive`（`texture_format_stays_non_exhaustive`・`astc_block_stays_non_exhaustive`・`astc_channel_stays_non_exhaustive`・`astc_variant_is_constructible_and_matchable`） | 4 件 passed |
+| 全 feature | 上の組を `--all-features` 付きで流す | 同じ件数で passed |
+| feature なし | `grep -c texture crates/core/Cargo.toml` | 0 件（試験に `[[test]]` の宣言が無く、feature なしで走る） |
+| wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test <5 本>` | 終了コード 0 |
+| 公開 API・依存の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-api-webgpu-check`・`make public-name-check`・`make core-deps-check` | すべて終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`・`sdk_type_refs=0 sdk_other_refs=0`・`webgpu_names=0`・`unexpected=0 missing=0` |
+| 外部依存と unsafe | `cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -n forbid crates/core/src/lib.rs` | 依存 0 件、`#![forbid(unsafe_code)]` |
+| `PixelFormat`・`DepthFormat` | `grep -rn -e PixelFormat -e DepthFormat crates wasm measure baseline-wgpu`（`target/` を除く） | 0 件。両方とも本リポに存在しない。private spec 側の記録に従う（ポインタのみ） |
+| 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+| base の CI | `gh run list --branch main --commit <base> --workflow ci.yml` | 記録時点で run 41202408462 は in_progress（結論は未確定） |
+
+### 再実行の契機
+
+- `crates/core/src/texture_format.rs` を変えたとき
+- 上の 5 本の試験か `mod tests` を変えたとき
+- `TextureFormat`・`AstcBlock`・`AstcChannel` に値が増えたとき
+- `scripts/public-api-check.sh` などの検査を変えたとき
+- `docs/spec` の参照先を進めたとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1312）。確かめた base は `627d9fa36189ef0b34db37d3845bf1cfbaf98d10`。
+
 ## 段の表
 
 | Issue | 内容 |
