@@ -499,6 +499,31 @@ fn non_empty_wait_is_unsupported_and_submits_nothing() {
     assert_eq!(submit_empty(device.as_ref()).sequence, 1);
 }
 
+/// TASK-592 のポインタ。空の `wait` の `submit_ex` は成功して印を返し、`RetryPolicy` は宣言として受けるだけで再試行しない。
+/// 投入は 1 件だけ進み（通し番号が前の印の次）、印は `wait_blocking(None)` の後の `poll` で `Complete` になる。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn submit_ex_with_an_empty_wait_returns_a_token_that_completes() {
+    use fandhe_silicon_core::error::RetryPolicy;
+    for policy in [RetryPolicy::IdempotentSafe, RetryPolicy::NotIdempotent] {
+        let device = new_device();
+        let first = submit_empty(device.as_ref());
+        let queue = device.queue();
+        let token = queue
+            .submit_ex(queue.create_encoder(), &[], policy)
+            .expect("submit_ex");
+        assert_eq!(token.sequence, first.sequence + 1, "{policy:?}");
+        queue.wait_blocking(token, None).expect("wait_blocking");
+        assert_eq!(queue.poll(token), CompletionState::Complete, "{policy:?}");
+        // 再試行で投入が増えていないので、次の投入の通し番号はさらに 1 だけ進む。
+        assert_eq!(
+            submit_empty(device.as_ref()).sequence,
+            token.sequence + 1,
+            "{policy:?}"
+        );
+    }
+}
+
 /// CMD-12 のポインタ。別 device の記録先は `InvalidArgument` で投入されず、元の device でも投入できる。
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
@@ -910,6 +935,31 @@ fn gpu_timing_is_available_after_wait_blocking() {
         other => panic!("expected Available, got {other:?}"),
     }
     // 読み取り専用なので、続けて読んでも同じ値が返る。
+    assert_eq!(queue.gpu_timing(token), queue.gpu_timing(token));
+}
+
+/// TASK-596 のポインタ。`submit` の後に間を置いてから `wait_blocking(None)` を呼んでも、その後の `gpu_timing` は
+/// `Available` で、時刻が残る（開始は 0 より大きく、終了は開始以上）。間を置くのは、待つ前に完了している経路を
+/// 通りやすくするためで、完了済みになることは保証しない（どちらの経路でも `Available`）。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn gpu_timing_is_available_after_a_sleep_then_wait_blocking() {
+    let device = new_device();
+    let token = submit_empty(device.as_ref());
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let queue = device.queue();
+    queue.wait_blocking(token, None).expect("wait_blocking");
+    match queue.gpu_timing(token) {
+        GpuTiming::Available {
+            start_seconds,
+            end_seconds,
+        } => {
+            println!("start_seconds={start_seconds} end_seconds={end_seconds}");
+            assert!(start_seconds > 0.0);
+            assert!(end_seconds >= start_seconds);
+        }
+        other => panic!("expected Available, got {other:?}"),
+    }
     assert_eq!(queue.gpu_timing(token), queue.gpu_timing(token));
 }
 
