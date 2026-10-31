@@ -26,7 +26,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 条件なしで公開する module | `artifact_cache`・`binding`・`capability`・`decision`・`device`・`device_lost`・`error`・`execution`・`hash`・`memory`・`texture_format`・`validation` の 12 個 | `grep -n "pub mod" crates/core/src/lib.rs` |
+| 条件なしで公開する module | `artifact_cache`・`binding`・`capability`・`decision`・`device`・`device_lost`・`error`・`execution`・`hash`・`memory`・`spirv`・`texture_format`・`validation` の 13 個 | `grep -n "pub mod" crates/core/src/lib.rs` |
 | feature の裏の module | `ext-interop` の裏に `interop`。`test-support` の裏に `capability_rule`・`parity`・`test_frame`・`rerun`。`fault-injection` の裏に `fault` | 同上 |
 | feature | `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つ。どれも `= []` で、`default` は無い | `crates/core/Cargo.toml` の `[features]` |
 | 外部依存 | 0 件（`cargo tree` に子が出ない） | `cargo tree -p fandhe-silicon-core -e normal --depth 1` |
@@ -36,7 +36,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `SpirvModule`・`spirv_words_from_bytes`・`spirv_words_const`・`make_spirv` | `crates/`・`wasm/` に 0 件（終了コード 1） | `grep -rn -e SpirvModule -e spirv_words_from_bytes -e spirv_words_const -e make_spirv crates wasm` |
+| `spirv_words_const`・`make_spirv` | `crates/`・`wasm/` に 0 件（終了コード 1）。`SpirvModule`・`spirv_words_from_bytes` は 2/5 で `spirv.rs` に入った（下の「現状の形（2/5）」） | `grep -rn -e spirv_words_const -e make_spirv crates wasm` |
 | `#[macro_export]` | 1 件。`crates/core/src/test_frame.rs` の `declaration!`（module ごと feature `test-support` の裏）。feature の条件なしのものは 0 件 | `grep -rn macro_export crates wasm` |
 | `PipelineInput` | `crates/core/src/execution.rs` の `pub enum PipelineInput<'a>`。`SpirV { words, entry_point }` の variant がある | `grep -n -e "pub enum PipelineInput" -e "SpirV {" crates/core/src/execution.rs` |
 | `SpirV` の既存の試験 | `crates/core/tests/execution_pipeline_input.rs`・`execution_type_coverage.rs` | `grep -ln SpirV crates/core/tests/*` |
@@ -54,3 +54,50 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | doctest の実行 | `make verify` の `cargo test --workspace --all-features` で流れる | `grep -n "cargo test" scripts/verify.sh` |
 | wasm32 | `scripts/wasm-verify.sh` が `cargo check -p fandhe-silicon-core --tests --locked --target wasm32-unknown-unknown` を既定と `--all-features` で流す。doctest は wasm32 では流れない | `grep -n "fandhe-silicon-core" scripts/wasm-verify.sh` |
 | ツールチェーン | `rust-toolchain.toml` は `channel = "stable"` で、target に `wasm32-unknown-unknown` がある。`rust-version` の宣言は無い（終了コード 1） | `cat rust-toolchain.toml`・`grep -rn rust-version Cargo.toml crates/*/Cargo.toml` |
+
+## 現状の形（2/5）
+
+置き場は `crates/core/src/spirv.rs`（feature の条件なし・外部依存 0・`forbid(unsafe_code)` のまま）。
+
+### 型
+
+| 項目 | 事実 |
+| ---- | ---- |
+| 型 | `SpirvModule`（フィールドは非公開の `Vec<u32>`） |
+| derive | `Clone, PartialEq, Eq`。`Debug` は手書きで、語の数だけを出す |
+
+### 操作
+
+| 操作 | 返すもの |
+| ---- | -------- |
+| `spirv_words_from_bytes(&[u8])` | `Result<Vec<u32>, ContractError>`。4 バイトずつ語にする。先頭の語が逆の語順の magic number のときは全語のバイトを入れ替える |
+| `SpirvModule::from_bytes(&[u8])` | 上と同じ検査を通した `Result<SpirvModule, ContractError>` |
+| `SpirvModule::words` | `&[u32]` |
+| `SpirvModule::into_words` | `Vec<u32>` |
+| `SpirvModule::pipeline_input(&self, entry_point)` | `PipelineInput::SpirV { words, entry_point }`（どちらも借用） |
+
+入力の扱い。拒むときは `ContractError::ArtifactRejected { kind: "spir-v", reason }` で、`reason` は `<句> (<入力のバイト数> bytes)` の形。入力の中身は載せない。照らす順は 空、先頭の語、長さ。
+
+| 入力 | 句 |
+| ---- | -- |
+| 空 | `input is empty` |
+| 先頭の 4 バイトが（どちらの語順でも）magic number でない。1〜3 バイトもここ | `first word is not the SPIR-V magic number` |
+| 長さが 4 の倍数でない | `byte length is not a multiple of 4` |
+
+### 対応するテスト
+
+`crates/core/src/spirv.rs` の `mod tests`。
+
+| テスト | 内容 |
+| ------ | ---- |
+| `host_order_magic_is_read_as_is` | ホストの語順の magic だけの入力が 1 語になる |
+| `swapped_magic_is_swapped_back` | 逆の語順の magic だけの入力が同じ 1 語になる |
+| `empty_input_is_rejected_with_length` | 空の入力が `input is empty (0 bytes)` で拒まれる |
+| `pipeline_input_borrows_words_and_entry_point` | `pipeline_input` が `PipelineInput::SpirV` を返す |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --lib spirv
+cargo test -p fandhe-silicon-core --all-features
+```
