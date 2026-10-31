@@ -9,7 +9,9 @@ mod compute;
 mod dispatch_check;
 mod submit;
 
-pub use compute::{Binding, ConstantBinding, PipelineHandle, ThreadgroupMemory};
+pub use compute::{
+    Binding, BindingLayout, ComputeOps, ConstantBinding, PipelineHandle, ThreadgroupMemory,
+};
 pub use dispatch_check::{
     OperandBinding, OperandConstant, required_bytes, validate_dispatch_operands,
 };
