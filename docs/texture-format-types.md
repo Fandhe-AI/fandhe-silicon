@@ -38,7 +38,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `PixelFormat`・`DepthFormat`・`TextureFormat` | `crates/`・`wasm/`・`measure/`・`baseline-wgpu/` に定義も参照も 0 件（終了コード 1） | `grep -rn -E 'PixelFormat\|DepthFormat\|TextureFormat' crates wasm measure baseline-wgpu`（`target/` は除く） |
+| `PixelFormat`・`DepthFormat`・`TextureFormat` | `crates/`・`wasm/`・`measure/`・`baseline-wgpu/` に定義も参照も 0 件（終了コード 1） | `grep -rn -e PixelFormat -e DepthFormat -e TextureFormat crates wasm measure baseline-wgpu`（`target/` は除く） |
 | `FeatureId` | `crates/core/src/capability.rs` の `pub struct FeatureId(pub &'static str);` | `grep -n "pub struct FeatureId" crates/core/src/capability.rs` |
 | `FeatureId` の先例の試験 | `crates/core/tests/capability_query_default.rs` がある | `ls crates/core/tests` |
 | `_` の腕の無い網羅 `match` の先例 | `crates/core/src/artifact_cache.rs` の `mod tests`（`RejectReason` の `match`） | `grep -n "mod tests\|match r" crates/core/src/artifact_cache.rs` |
