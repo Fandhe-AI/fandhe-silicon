@@ -52,6 +52,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - 口 `fault::FaultHooks`: 背後実装が実装するトレイト。メソッドは `simulate_device_lost(DeviceLostReason)`・`arm_gate`・`open_gate`・`simulate_runtime_error(String)`・`simulate_validation_report(String)` の 5 つで、戻り値は `Result<(), ContractError>`。`dyn` で使え、すべて既定の実装を持つ。既定の実装は黙って成功せず、`UnsupportedExtensionDefault` を自分のメソッド名の `op` で返す
 - 種類 `fault::HookFault`（`non_exhaustive`）: `DeviceLost`・`ArmGate`・`OpenGate`・`RuntimeError`・`ValidationReport`
 - 差し込みの部品 `fault::inject(Option<&dyn FaultHooks>, HookFault)`: 種類に対応する口を 1 回だけ呼び、戻り値をそのまま返す。`None` のときは何も呼ばず `UnsupportedExtensionDefault { op: "fault_hooks" }` を返す
+- `Device::fault_hooks()`: `Device` の既定の実装を持つメソッドで、`fault-injection` のビルドにだけある。既定は `None` で、上書きした背後実装が `&dyn FaultHooks` を返す。`None` を `inject` に渡すと `UnsupportedExtensionDefault { op: "fault_hooks" }` が返る。`Device` の既存の実装は変更なしでコンパイルできる。試験は `crates/core/tests/device_fault_hooks.rs`（既定が `None`・`inject` の `None` の経路・`FaultStub` を返す上書きでロストが届くこと）と、`crates/contract/src/cfg_gate_doctest.rs` の `DeviceFaultHooksGate`（feature なしでメソッドが解決できない compile_fail の対）。対応する項目のポインタ: DEV-80
 - 試験: `crates/core/tests/fault_hooks_types.rs`・`fault_hooks_inject.rs`、`crates/contract/tests/fault_injection_forwarding.rs`、`crates/contract/src/cfg_gate_doctest.rs` の対（無効の構成では `core` の `fault` が解決できず compile_fail、有効の構成では通る）
 - 組: `scripts/build-profiles.sh` の `NATIVE_SETS` に `fault-injection` 単独の組がある
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`、`cargo test -p fandhe-silicon-contract --features fault-injection`、`make build-profiles`

@@ -56,3 +56,15 @@ pub struct ExtInteropGate;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct FaultInjectionGate;
+
+/// `fault-injection` を有効にしない構成では `Device::fault_hooks` が解決できずコンパイルエラーになる
+/// （core の `Device` の既定メソッドが同じ feature の裏にあることの確かめ）。
+#[cfg_attr(not(feature = "fault-injection"), doc = "```compile_fail")]
+#[cfg_attr(feature = "fault-injection", doc = "```")]
+#[doc = "use fandhe_silicon_core::device::Device;"]
+#[doc = "fn probe(device: &dyn Device) {"]
+#[doc = "    let _ = device.fault_hooks();"]
+#[doc = "}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct DeviceFaultHooksGate;
