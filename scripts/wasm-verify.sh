@@ -38,6 +38,11 @@ main() {
   log "cargo check (crates/core tests, wasm32-unknown-unknown, all features)"
   cargo check -p fandhe-silicon-core --tests --all-features --locked --target wasm32-unknown-unknown
 
+  # 契約の crate の試験が wasm32 で型検査を通ること（コールバックに Send を要求しない側。TASK-240 のポインタ）。
+  # --all-features は背後実装の feature を含み wasm32 では意味が違うので足さない。
+  log "cargo check (crates/contract tests, wasm32-unknown-unknown, default features)"
+  cargo check -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown
+
   log "cargo test (wasm/, host)"
   cargo test --manifest-path wasm/Cargo.toml --workspace --locked
 

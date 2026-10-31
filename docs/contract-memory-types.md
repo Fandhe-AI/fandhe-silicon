@@ -193,6 +193,14 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | native で `Send` の関数が両方に渡せる | `crates/core/tests/callback_send_requirement.rs` の `native` モジュール | `cargo test -p fandhe-silicon-core --test callback_send_requirement` |
 | wasm32 で `Rc` を捕まえる関数が両方に渡せる | 同ファイルの `wasm32` モジュール（型検査のみで実行しない） | `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`。CI では `make wasm-verify`（`deny` ジョブ）が流す |
 
+契約の crate 側にも同じ観点の試験がある。両 trait は core のものなので `fandhe_silicon_core` から取り込み、試験の中の最小の実装で確かめる。
+
+| 確かめること | 試験 | 走らせ方 |
+| ------------ | ---- | -------- |
+| native で `Rc` を捕まえる関数が `download_async`・`on_complete` に渡せない（`Arc` に替えると通る対の例つき） | `crates/contract/src/callback_send_doctest.rs` の `compile_fail` の例（feature `test-support` の裏） | `cargo test -p fandhe-silicon-contract --all-features --doc` |
+| native で `Send` の関数が両方に渡せる | `crates/contract/tests/callback_send_requirement.rs` の `native` モジュール | `cargo test -p fandhe-silicon-contract --test callback_send_requirement` |
+| wasm32 で `Rc` を捕まえる関数が両方に渡せる | 同ファイルの `wasm32` モジュール（型検査のみ） | `cargo check -p fandhe-silicon-contract --tests --target wasm32-unknown-unknown`。CI では `make wasm-verify` が流す |
+
 `set_lost_callback` の同種の確かめは [device-lost-notify](device-lost-notify.md)（TASK-138）が持つ。
 
 ## 依存の承認の件数の現状
