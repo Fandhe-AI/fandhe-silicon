@@ -182,6 +182,19 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 - [workspace-boundary](workspace-boundary.md)
 - [docs/contract/README.md](contract/README.md)
 
+## コールバックの `Send` 要求の型検査（TASK-240）
+
+`MemoryOps::download_async`（BUILD-27）と `CommandQueue::on_complete`（BUILD-28）の callback は、native では `+ Send`、wasm32 では `Send` なしの型を持つ（`cfg(target_arch = "wasm32")` で出し分け）。
+
+| 確かめること | 試験 | 走らせ方 |
+| ------------ | ---- | -------- |
+| native で `Rc` を捕まえる関数が `download_async` に渡せない | `memory/ops.rs` の `download_async` の rustdoc の `compile_fail` の例 | `cargo test -p fandhe-silicon-core --doc` |
+| native で `Rc` を捕まえる関数が `on_complete` に渡せない | `execution/submit.rs` の `on_complete` の rustdoc の `compile_fail` の例 | 同上 |
+| native で `Send` の関数が両方に渡せる | `crates/core/tests/callback_send_requirement.rs` の `native` モジュール | `cargo test -p fandhe-silicon-core --test callback_send_requirement` |
+| wasm32 で `Rc` を捕まえる関数が両方に渡せる | 同ファイルの `wasm32` モジュール（型検査のみで実行しない） | `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`。CI では `make wasm-verify`（`deny` ジョブ）が流す |
+
+`set_lost_callback` の同種の確かめは [device-lost-notify](device-lost-notify.md)（TASK-138）が持つ。
+
 ## 依存の承認の件数の現状
 
 上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。

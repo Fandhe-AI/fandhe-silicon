@@ -249,7 +249,7 @@ pub trait CommandQueue {
 
     /// 完了したら `callback` に状態を渡す。
     ///
-    /// native では callback が `Send` でなければならない。`Send` でない値を持つ callback は渡せない:
+    /// native では callback が `Send` でなければならない（BUILD-28 のポインタ）。`Send` でない値を持つ callback は渡せない:
     ///
     /// ```compile_fail
     /// use fandhe_silicon_core::error::CompletionState;

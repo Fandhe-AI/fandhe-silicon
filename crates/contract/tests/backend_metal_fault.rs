@@ -219,3 +219,39 @@ fn fault_hooks_are_present_and_the_loss_moves_the_generation_once() {
     .expect("second loss");
     assert_eq!(device.generation(), after);
 }
+
+/// TASK-274 のポインタ（ERR-43・ERR-44）。Metal の queue に完了不明の差し込みを被せ、宣言なしの `submit` を 1 回流す。
+/// 完了不明を観測しても、被せた口を通した内側の `submit` は 1 回のまま（`submit_call_count`）で、
+/// 実機の queue への投入も増えない（次の投入の通し番号が 1 だけ進む）。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn plain_submit_over_unknown_completion_is_not_retried() {
+    use fandhe_silicon_core::error::CompletionStateEx;
+    use fandhe_silicon_core::execution::CommandQueue;
+    use fandhe_silicon_core::fault::decorator::{FaultInjecting, FaultScript};
+
+    let device = MetalDeviceProvider::request(compute_request(
+        BackendKind::Metal,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("request");
+    let queue: &dyn CommandQueue = device.queue();
+    let gate = FaultInjecting::new(queue, FaultScript::CompletionUnknown);
+
+    let token = gate
+        .submit_with(|q| q.submit(q.create_encoder(), &[]))
+        .expect("submit");
+    assert_eq!(gate.submit_call_count(), 1);
+    assert_eq!(
+        gate.poll_ex_with(|q| q.poll_ex(token)),
+        CompletionStateEx::Unknown
+    );
+    assert_eq!(
+        gate.poll_ex_with(|q| q.poll_ex(token)),
+        CompletionStateEx::Unknown
+    );
+    assert_eq!(gate.submit_call_count(), 1);
+
+    let next = queue.submit(queue.create_encoder(), &[]).expect("next");
+    assert_eq!(next.sequence, token.sequence + 1);
+}

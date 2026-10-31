@@ -4352,6 +4352,23 @@ mod precheck_tests {
     }
 
     #[test]
+    fn remove_issued_ignores_forged_ids_and_an_empty_table() {
+        let generation_of = |entry: &(u64, &str)| entry.0;
+        // 空の表では、どの識別子・世代でも何も外さず、panic もしない。
+        let mut empty: HashMap<u64, (u64, &str)> = HashMap::new();
+        assert_eq!(remove_issued(&mut empty, 0, 0, generation_of), None);
+        assert_eq!(
+            remove_issued(&mut empty, u64::MAX, u64::MAX, generation_of),
+            None
+        );
+        // 偽造の識別子は、表の別の項目を巻き込まない。
+        let mut map: HashMap<u64, (u64, &str)> = HashMap::new();
+        map.insert(1, (1, "a"));
+        assert_eq!(remove_issued(&mut map, u64::MAX, 1, generation_of), None);
+        assert_eq!(map.get(&1), Some(&(1, "a")));
+    }
+
+    #[test]
     fn a_reentrant_loss_in_the_first_callback_turns_the_second_into_lost() {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[1, 1]);

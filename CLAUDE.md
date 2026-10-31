@@ -52,18 +52,18 @@ fandhe-silicon/
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
-├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141）
+├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
 ├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）（TASK-136）
 ├── docs/contract-device-stub-check.md  # スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）（TASK-137）
-├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）
+├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）・コールバックの `Send` 要求の型検査（TASK-240）
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
 ├── docs/contract-interop-types.md  # 相互運用の公開の型と `ExternalInterop` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-717）
 ├── docs/contract-buffer-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6）（TASK-310）
-├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）
+├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）・完了不明の投入を再試行しないことの試験（TASK-274）
 ├── docs/validation-intake.md  # 検証レイヤーの不正の受け口と失敗の種類の入口の所在と、本リポの現状の事実・現状の形・段の表・確かめ方（TASK-554）
 ├── docs/device-lost-notify.md  # ロストの通知先の関数の型を native と wasm32 で確かめる試験の所在と、本リポの現状の事実・確かめ方（TASK-138）
 ├── docs/failure-class-contract-test.md  # 失敗の種類を戻り値だけで区別する共通の契約テストの所在と、本リポの現状の事実・値の出どころ・対応する試験・段の表・確かめ方（TASK-272）
@@ -99,7 +99,7 @@ fandhe-silicon/
 ├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29）
-├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）
+├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）・決定表の語彙の検査（ソースの語・呼び出しと `DecisionInput` の公開フィールドの集合。TASK-142）
 ├── docs/public-api-sdk-check.md  # 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13）
 ├── docs/core-deps-check.md   # 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・確かめ方・TASK-13 の検査との突き合わせ・完了の条件の確かめ（2/2）（TASK-258）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
@@ -112,7 +112,7 @@ fandhe-silicon/
 ├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせと完了の条件の確かめ（TASK-2947）
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・完了の条件の確かめ（6/6）（TASK-1027）
-├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）
+├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験（TASK-317）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
