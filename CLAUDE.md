@@ -188,6 +188,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 | [git-hooks.md](.claude/rules/git-hooks.md) | lefthook のフック方針（pre-commit 1 秒未満・重い検査や CI 重複は CI へ。`lefthook.yml`・`scripts/hooks/` 編集時のみ読み込み） |
 | [contract-shaping-escalation.md](.claude/rules/contract-shaping-escalation.md) | 形を決めるタスクでのオーナー判断の伺い方（伺いは summary に残す）・spec 側への差し戻しの提案手順（spec 配下を書き換えない） |
 | [poc-carry-over.md](.claude/rules/poc-carry-over.md) | PoC の隔離 workspace から持ち込むときの守り方（依存グラフに足場 0 件・記録を写さない・測定 → 製品の一方向。区分の正は private spec） |
+| [private-context.md](.claude/rules/private-context.md) | 自動実装のエージェントが TASK の材料を読む置き場（`.git` の中の抜粋）・無ければ止める・spec リポへ書き込まない・公開側に書き写さない・親を閉じるコメントの形（P0） |
 
 ## Current Skills
 
@@ -228,7 +229,7 @@ main セッションは計画・委譲・レビュー・統合に徹し、ファ
 
 - **日本語**: やりとり・報告・コメント・コミット本文は日本語（[japanese-style](.claude/rules/japanese-style.md)）
 - **Conventional Commits**: `scripts/hooks/commit-msg-check.sh` が commit-msg フックと CI（PR タイトル）で検証。`--no-verify` によるバイパス禁止
-- **private spec**: `docs/spec` の本文をコード・ドキュメント・Issue・PR・コミットへ転記しない。参照は ID・パスのポインタ表記（[spec-confidentiality](.claude/rules/spec-confidentiality.md)）
+- **private spec**: `docs/spec` の本文をコード・ドキュメント・Issue・PR・コミットへ転記しない。参照は ID・パスのポインタ表記（[spec-confidentiality](.claude/rules/spec-confidentiality.md)）。自動実装のエージェントは TASK の材料を `.git` の中の抜粋から読む（[private-context](.claude/rules/private-context.md)）
 - **依存**: 追加・更新はユーザー承認＋ `=x.y.z` 完全固定。wgpu 系を導入しない（[dependency-policy](.claude/rules/dependency-policy.md)）
 - **unsafe / FFI**: backend に閉じ込め、`// SAFETY:` 必須、公開 API は safe（[coding-rust](.claude/rules/coding-rust.md)）
 - **コマンド契約**: 処理の実体は `scripts/`、`Makefile` は 1 行呼び出しのみ。ターゲット変更時は `scripts/help.sh` も更新。ローカル・hooks・CI は同じ `make check` を共有する

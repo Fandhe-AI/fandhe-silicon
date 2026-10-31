@@ -9,6 +9,7 @@
 ## private spec の漏えい防止（P0）
 
 - [spec-confidentiality](./spec-confidentiality.md) に従う（本リポは public、`docs/spec` は private）
+- 自動実装のエージェントが読む private の抜粋は [private-context](./private-context.md) に従う（公開側に書き写さない・レビューで突き合わせる）
 
 ## メモリ安全性（P0）
 
