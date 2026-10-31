@@ -2161,8 +2161,9 @@ mod imp {
         // この呼び出しの間だけ生きる。`local` は 4 バイトで 4 バイトにそろえてあり、Metal が読む大きさ
         // （`UInt` は 4 バイト、`Bool` は 1 バイト）とアラインメントが `data_type` と一致する。
         // `bytes` の長さは直前で `kind.byte_len()` と照合した。`index` は直前で MSL の範囲（0〜65535）に
-        // 入ることを検査済みで、`usize` への変換で値は失われない。関数に宣言の無い index は Metal が
-        // 無視する（エラーも未定義動作も起きない）ので、範囲内なら宣言の有無を問わない。
+        // 入ることを検査済みで、`usize` への変換で値は失われない。MSL 4.1 の 5.8 節は 0〜65535 を有効な
+        // index とし、Apple の `makeFunction(name:constantValues:)` の文書は、関数に宣言の無い index の値を
+        // 関数の生成で無視すると書く。範囲内なら宣言の有無を問わない。
         unsafe {
             values.setConstantValue_type_atIndex(value, data_type, index);
         }
