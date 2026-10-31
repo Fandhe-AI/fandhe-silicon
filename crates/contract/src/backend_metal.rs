@@ -142,6 +142,27 @@ fn check_unique_slots(slots: &[u32]) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// function constant の `index` の上限（含む）。MSL 4.1 仕様の 5.8 節（Program Scope Function Constants）が
+/// 許す範囲 0〜65535 の上端で、Apple の公開文書に基づく。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAX_FUNCTION_CONSTANT_INDEX: u32 = 65535;
+
+/// function constant の `index` が Metal の許す範囲（0〜`MAX_FUNCTION_CONSTANT_INDEX`）を超えるものがあれば
+/// `InvalidArgument`（最初の範囲外の番号を載せる）。Metal の API を呼ぶ前に、重複の検査より先に行う。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_constant_index_range(constants: &[FunctionConstant]) -> Result<(), ContractError> {
+    match constants
+        .iter()
+        .find(|c| c.index > MAX_FUNCTION_CONSTANT_INDEX)
+    {
+        Some(c) => Err(ContractError::InvalidArgument(format!(
+            "function constant index out of range: {} (max {MAX_FUNCTION_CONSTANT_INDEX})",
+            c.index
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// function constant の `index` に重複があれば `InvalidArgument`（重複した最初の番号を載せる）。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn check_unique_constants(constants: &[FunctionConstant]) -> Result<(), ContractError> {
@@ -200,6 +221,7 @@ fn constant_wire(value: &FunctionConstantValue) -> Result<(ConstantKind, Vec<u8>
 fn prepare_constants(
     constants: &[FunctionConstant],
 ) -> Result<Vec<(u32, ConstantKind, Vec<u8>)>, ContractError> {
+    check_constant_index_range(constants)?;
     check_unique_constants(constants)?;
     constants
         .iter()
@@ -1078,7 +1100,6 @@ mod imp {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
-    use super::host_range;
     #[cfg(feature = "native-blocking-wait")]
     use super::span_of;
     #[cfg(feature = "fault-injection")]
@@ -1091,6 +1112,7 @@ mod imp {
         driven_generation, finish_table, group_state_of, precheck_submit, precheck_submit_many,
         prepare_constants, register_table, remove_issued, retire, take_next,
     };
+    use super::{MAX_FUNCTION_CONSTANT_INDEX, host_range};
 
     use fandhe_silicon_core::capability::{
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
@@ -2124,6 +2146,12 @@ mod imp {
             ConstantKind::UInt => MTLDataType::UInt,
             ConstantKind::Bool => MTLDataType::Bool,
         };
+        // 範囲は `prepare_constants` でも検査済みだが、この関数単体でも SAFETY の根拠を保つために再確認する。
+        if index > MAX_FUNCTION_CONSTANT_INDEX {
+            return Err(ContractError::InvalidArgument(format!(
+                "function constant index out of range: {index} (max {MAX_FUNCTION_CONSTANT_INDEX})"
+            )));
+        }
         let index = usize::try_from(index).map_err(|_| failed("function constant index"))?;
         // 4 バイトにそろえた局所の値へ写して、その先頭を渡す。`UInt` は 4 バイト、`Bool` は 1 バイトだけが読まれる。
         let mut local = Aligned4([0_u8; 4]);
@@ -2132,8 +2160,9 @@ mod imp {
         // SAFETY: `setConstantValue_type_atIndex` に渡す `value` は、局所の値 `local` を指す非 null のポインタで、
         // この呼び出しの間だけ生きる。`local` は 4 バイトで 4 バイトにそろえてあり、Metal が読む大きさ
         // （`UInt` は 4 バイト、`Bool` は 1 バイト）とアラインメントが `data_type` と一致する。
-        // `bytes` の長さは直前で `kind.byte_len()` と照合した。`index` は呼び手の値を変換せずに渡す。
-        // objc2-metal は index が範囲検査されない可能性を挙げており、ここではその扱いを安全の根拠に使わない。
+        // `bytes` の長さは直前で `kind.byte_len()` と照合した。`index` は直前で MSL の範囲（0〜65535）に
+        // 入ることを検査済みで、`usize` への変換で値は失われない。関数に宣言の無い index は Metal が
+        // 無視する（エラーも未定義動作も起きない）ので、範囲内なら宣言の有無を問わない。
         unsafe {
             values.setConstantValue_type_atIndex(value, data_type, index);
         }
@@ -4504,6 +4533,32 @@ mod precheck_tests {
             prepare_constants(&dup),
             Err(ContractError::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn constant_index_above_msl_limit_is_invalid_argument() {
+        let at = |i| [constant(i, FunctionConstantValue::U32(1))];
+        assert!(check_constant_index_range(&at(0)).is_ok());
+        assert!(check_constant_index_range(&at(MAX_FUNCTION_CONSTANT_INDEX)).is_ok());
+        assert!(prepare_constants(&at(65535)).is_ok());
+        for bad in [65536, u32::MAX] {
+            let r = check_constant_index_range(&at(bad));
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            let r = prepare_constants(&at(bad));
+            let Err(ContractError::InvalidArgument(msg)) = r else {
+                panic!("{r:?}");
+            };
+            assert!(msg.contains(&bad.to_string()), "{msg}");
+        }
+        // 重複と範囲外の両方があるときは、範囲外を先に返す。
+        let both = [
+            constant(65536, FunctionConstantValue::U32(1)),
+            constant(65536, FunctionConstantValue::U32(2)),
+        ];
+        let Err(ContractError::InvalidArgument(msg)) = prepare_constants(&both) else {
+            panic!();
+        };
+        assert!(msg.contains("out of range"), "{msg}");
     }
 
     #[test]
