@@ -232,6 +232,24 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - device に触る試験は `#[ignore]`（Metal の実機の回でだけ流す）。`backend_metal.rs` の `device_tests::lost` と `crates/contract/tests/backend_metal_fault.rs` の `fault_hooks_are_present_and_the_loss_moves_the_generation_once`
 - 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib`（Linux でも流れる範囲）
 
+## 完了不明の投入を再試行しないことの試験（TASK-274）
+
+対応する項目のポインタ: ERR-43・ERR-44・ERR-45。コードと公開テストが示す事実だけを置く。
+
+- 完了不明の表し方: 筋書き `FaultScript::CompletionUnknown`。`submit_with` は内側を呼んで数え、`poll_ex_with` は `CompletionStateEx::Unknown`、`wait_blocking_with` は `Err(Timeout)` を返す。確かめは `submit_call_count()` が 1 のまま（0 回でも 2 回以上でもない）であること
+- `FaultInjecting` は `CommandQueue` を実装しない。試験側の queue が `submit` から `submit_with` を呼び、`submit_ex` は既定の本体のまま上書きしない
+
+| 入力 | 流す場所 | 試験 |
+| ---- | -------- | ---- |
+| 宣言なしの `submit`（ERR-44） | Metal の実機に被せた差し込み | `crates/contract/tests/backend_metal_fault.rs` の `plain_submit_over_unknown_completion_is_not_retried`（`#[ignore]`。実機の回でだけ流す） |
+| 宣言なしの `submit`（ERR-44） | スタブ（Metal の代わりではない） | `crates/core/tests/fault_no_auto_retry.rs` の `plain_submit_is_not_retried_after_completion_is_unknown` |
+| `submit_ex` に `NotIdempotent`（ERR-44） | スタブ | 同 `submit_ex_not_idempotent_is_not_retried_after_completion_is_unknown` |
+| `submit_ex` に `IdempotentSafe`（ERR-45。宣言があっても 1 回） | スタブ | 同 `submit_ex_idempotent_safe_is_not_retried_after_completion_is_unknown` |
+| 3 つの入力で回数と印が同じ（ERR-43） | スタブ | 同 `submit_count_and_token_are_the_same_for_all_three_inputs` |
+
+- `submit_ex` の既定の本体が `submit` を 1 回呼ぶことは `submit_default_impls.rs`（TASK-589）が持つ。Vulkan・CUDA は別の TASK
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection --test fault_no_auto_retry`。Metal 側は `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal,fault-injection -- -D warnings` でコンパイルを確かめる
+
 ## 依存の承認の件数の現状
 
 上の確かめの表と本書の記録の、依存の承認の件数（0 件）は記録時点の値で、書き換えない。今の値は次のとおり。
