@@ -165,6 +165,58 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `cargo test -p fandhe-silicon-core --test indirect_args_rules`
 - `cargo test -p fandhe-silicon-core --all-features`
 
+## 試験（4/6）
+
+`crates/core/src/` は変えず、試験のファイルを 1 つ足した。公開 API は変わらない。
+
+### 確かめること
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 大きさと整列 | 3 型で `size_of` が `SIZE`（16・20・12）と一致し、整列が 4 |
+| 欄の順とリトルエンディアン | 欄ごとに別のバイトの模様の値を入れ、`to_bytes` が試験の中に手で書いた配列と一致する |
+| `base_vertex` の符号 | `-1`・`i32::MIN`・`i32::MAX` が 2 の補数のリトルエンディアンで 12〜15 バイト目に入り、ほかの欄の位置は動かない |
+| 境界値の往復 | `u32` の欄は `{0, 1, u32::MAX}`、`base_vertex` は `{i32::MIN, -1, 0, i32::MAX}` の直積（Draw 81 件・DrawIndexed 324 件・Dispatch 27 件）で `from_bytes(&x.to_bytes()) == x` |
+| 既定値 | 3 型の `default()` の全欄が 0 で、`to_bytes` も全部 0 |
+
+### 対応するテスト
+
+`crates/core/tests/indirect_args_layout.rs`（feature 不要）。
+
+| テスト | 内容 |
+| ------ | ---- |
+| `sizes_match_size_constants` | 3 型の `size_of` と `SIZE` の一致と値 |
+| `alignment_is_four` | 3 型の整列が 4 |
+| `draw_bytes_follow_field_order` | Draw の欄の並び |
+| `draw_indexed_bytes_follow_field_order` | DrawIndexed の欄の並び |
+| `dispatch_bytes_follow_field_order` | Dispatch の欄の並び |
+| `base_vertex_is_twos_complement_le` | `base_vertex` の符号の境界 |
+| `round_trip_over_boundary_values` | 境界値の直積の往復 |
+| `bytes_round_trip_from_expected_arrays` | 手で書いた配列からの組み立てと書き戻し |
+| `default_is_all_zero` | 既定値 |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --test indirect_args_layout`
+- `cargo test -p fandhe-silicon-core --all-features`
+- `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`
+
+### 公開 API・依存の検査
+
+型を足したあとの本リポで実際に流した結果。設定・Makefile・CI は変えていない。
+
+| 検査 | 入口 | CI のジョブ | 結果（記録時点） |
+| ---- | ---- | ----------- | ---------------- |
+| 公開 API の wgpu 系の参照 | `make public-api-check` | `deny` | 終了コード 0。`record:` は `documents=10 public_items_total=10100 wgpu_type_refs_total=0 wgpu_other_refs_total=0` |
+| 公開 API のチップの SDK の crate | `make public-api-sdk-check` | `deny` | 終了コード 0。`public_items_total=8625 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0` |
+| 公開 API の WebGPU 系の名前 | `make public-api-webgpu-check` | `deny` | 終了コード 0。`webgpu_names_total=0 blocking_wait_names_total=0 interop_violations_total=0` |
+| 公開 API の名前 | `make public-name-check` | `deny` | 終了コード 0。`name_hits_total=0 source_hits_total=0 field_hits_total=0` |
+| core の外部依存と feature の転送 | `make core-deps-check` | `deny` | 終了コード 0。`unexpected=0 missing=0 forward_violations=0` |
+| 依存の監査と依存グラフの wgpu 系 crate | `make deny` | `deny` | 終了コード 0。依存グラフの `record:` は `crates_total=13 workspace_members=5 narrow_total=0 wide_total=0` |
+| core の試験を含む wasm32 の型検査 | `make wasm-verify` | `deny`・`wasm-macos` | 終了コード 0 |
+
+件数は記録時点の値である。流した base の commit は `35a851be02f62e3be0c2deddd20c2557ee886fee`。
+
 ## 段の表
 
 | Issue | 内容 |
