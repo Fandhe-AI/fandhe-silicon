@@ -179,3 +179,44 @@ cargo test -p fandhe-silicon-core --test spirv_words_const
 cargo test -p fandhe-silicon-core --all-features
 make wasm-verify
 ```
+
+## 完了の条件の確かめ（5/5）
+
+5/5（#7537）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1682）。GPU の実機なしで実行し、件数は実測。本体のコードと試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 |
+| ------ | ------ |
+| 3 つの操作（`SpirvModule::from_bytes` と `words`・`into_words`・`pipeline_input`、`spirv_words_from_bytes`、`spirv_words_const!` と展開用の口 `__spirv_words_const`） | `crates/core/src/spirv.rs`（上の「現状の形（2/5）」「現状の形（3/5）」） |
+| ART-138（`SpirvModule` の操作）の試験 | `crates/core/tests/spirv_words_runtime.rs` |
+| ART-139（`spirv_words_from_bytes`）の試験 | `crates/core/tests/spirv_words_raw.rs` |
+| ART-140（`spirv_words_const!`）の試験 | `crates/core/tests/spirv_words_const.rs` と `spirv_words_const!` の doctest |
+| 共通の単体試験 | `crates/core/src/spirv.rs` の `mod tests` |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | ART-138 の受け付け・拒否・`pipeline_input`。拒否は `from_bytes_rejection_matches_raw_function` が、空・1〜3 バイト・どちらの語順でも magic でない入力・magic の後に 1〜3 バイト余る入力（両語順）で `spirv_words_from_bytes` と同じ結果になることを見る | `cargo test -p fandhe-silicon-core --test spirv_words_runtime`（`from_bytes_accepts_and_exposes_words`・`swapped_input_equals_host_order_module`・`same_input_builds_equal_modules`・`from_bytes_rejection_matches_raw_function`・`pipeline_input_borrows_words_and_entry_point`） | 5 件 passed |
+| (2) | ART-139 の受け付け・拒否の句・バイト数・入力の中身を載せないこと。長さが 4 の倍数でない入力と先頭の語が magic でない入力は `rejects_non_magic_first_word_regardless_of_length`・`rejects_magic_with_trailing_bytes_with_length_phrase` が覆う | `--test spirv_words_raw`（`accepts_host_order_input`・`accepts_swapped_order_input_and_swaps_every_word`・`word_count_is_byte_len_over_four`・`rejects_empty_with_empty_phrase`・`rejects_one_to_three_bytes_with_magic_phrase`・`rejects_non_magic_first_word_regardless_of_length`・`rejects_magic_with_trailing_bytes_with_length_phrase`・`reason_does_not_leak_input_contents`・`three_phrases_are_distinct`・`same_input_gives_same_result`） | 10 件 passed |
+| (3) | ART-140 の `const`・`static` での一致と、展開用の口を実行時に呼んだ句の一致 | `--test spirv_words_const`（`macro_in_const_and_static_matches_runtime`・`macro_does_not_clash_with_user_names`・`same_input_twice_gives_same_value`・`const_entry_accepts_like_runtime`・`const_entry_phrases_match_runtime_reason`） | 5 件 passed |
+| (4) | ART-140 のコンパイル時の拒否。`compile_fail,E0080` の例が覆うのは、ホストの語順の magic に 1 バイト余る入力（長さ）・`[1, 2, 3, 4]`（どちらの語順でも magic でない）・空の 3 つ。逆の語順の magic で長さが 4 の倍数でない入力は `compile_fail` の例に無く、展開用の口を実行時に呼ぶ `const_entry_phrases_match_runtime_reason` が両語順で句を確かめる | `cargo test -p fandhe-silicon-core --doc spirv_words_const` | 6 件 passed（通る例 3・`compile_fail` 3） |
+| (5) | 内部の単体試験 | `cargo test -p fandhe-silicon-core --lib spirv::`（`host_order_magic_is_read_as_is`・`swapped_magic_is_swapped_back`・`later_words_follow_the_first_word_byte_order`・`empty_input_is_rejected_with_length`・`one_to_three_bytes_are_rejected_as_magic`・`wrong_magic_is_rejected`・`magic_with_trailing_bytes_is_rejected_by_length`・`pipeline_input_borrows_words_and_entry_point`・`const_macro_matches_runtime`・`const_entry_rejects_mismatched_length_at_runtime`） | 10 件 passed |
+| 全 feature | (1)〜(5) を `--all-features` 付きで流す | 同じ件数で passed |
+| feature なし | `grep -c spirv crates/core/Cargo.toml` | 0 件（試験に `[[test]]` の宣言が無く、feature なしで走る） |
+| wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test spirv_words_raw --test spirv_words_runtime --test spirv_words_const`・`make wasm-verify` | どちらも終了コード 0。`spirv_words_const.rs` の `const` の評価は wasm32 の型検査でも走る。doctest は wasm32 では流れない |
+| 公開 API・依存の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-api-webgpu-check`・`make public-name-check`・`make core-deps-check` | すべて終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`・`sdk_type_refs=0 sdk_other_refs=0`・`webgpu_names=0`・`name_hits=0`・`unexpected=0 missing=0` |
+| 外部依存と unsafe | `cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -n forbid crates/core/src/lib.rs` | 依存 0 件、`#![forbid(unsafe_code)]` |
+| 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+| base の CI | `gh run list --branch main --commit <base> --workflow ci.yml` | 記録時点で run 41224029284 は queued（結論は未確定） |
+
+### 再実行の契機
+
+- `crates/core/src/spirv.rs` を変えたとき
+- 上の 3 本の試験・`mod tests`・マクロの doctest を変えたとき
+- `PipelineInput::SpirV` や `ContractError::ArtifactRejected` の形が変わったとき
+- `scripts/wasm-verify.sh` や公開 API の検査を変えたとき
+- `docs/spec` の参照先を進めたとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1682）。確かめた base は `6c083ded3e01db89c22ed192222125678fd21322`。
