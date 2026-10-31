@@ -156,6 +156,33 @@ make wasm-verify
 cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown
 ```
 
+## 試験（4/6）
+
+`crates/core` の `src/` は変えず、試験のファイルを 2 つ足した。公開 API は変わらない。
+
+| 確かめること | 内容 |
+| ------------ | ---- |
+| 既存の 4 値 | `Rgba8Unorm`・`Bgra8Unorm`・`Rgba32Float`・`Depth32Float` が同じ名前で `TextureFormat` にあり、`Debug` の綴りが名前と合い、`all()` に含まれる |
+| 性質の関数の値 | 性質の関数の値が、比較基準の `wgpu-types` 30.0.1 の同じ名前の関数の値と合う。対象は上の 4 値と、色・深度ステンシル・複数平面・BC・ETC2/EAC・ASTC の代表値。期待値は試験の中に定数で持ち、実行時に wgpu は使わない |
+
+形式ごとの値の表は本書に置かず、試験のファイルを正とする。`PixelFormat`・`DepthFormat` は本リポに無く、この段の試験はそれらとそこからの変換を含まない。
+
+### 対応するテスト
+
+| ファイル | テスト | 内容 |
+| -------- | ------ | ---- |
+| `crates/core/tests/texture_format_existing_values.rs` | `four_values_debug_spelling_matches_name` | 4 値の `Debug` の綴りが名前と合う |
+| 同上 | `four_values_are_listed_in_all` | 4 値が `TextureFormat::all()` に含まれる |
+| `crates/core/tests/texture_format_properties.rs` | `properties_match_wgpu_types_30_0_1` | 各代表値で性質の関数の値が期待の定数と合う |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --test texture_format_existing_values
+cargo test -p fandhe-silicon-core --test texture_format_properties
+cargo test -p fandhe-silicon-core --all-features
+```
+
 ## 段の表
 
 | Issue | 内容 |
