@@ -224,6 +224,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `simulate_device_lost(reason)`: 1 回目は、指定の理由を記録し、`Device::generation()` の値をプロセスの世代の源から取り直し、登録済みのコールバックを錠の外で 1 回、指定の理由で呼ぶ。理由は `Unrecoverable` を含めてそのまま渡す。2 回目以降は何もせず `Ok`（世代もコールバックの数も変わらない）。世代の源が尽きていれば、状態を変えずに `BackendFailure` を返す。`Drop` ではコールバックを呼ばない
 - device の型は `DeviceLostNotify` を実装し、コールバックの登録は上書きになる。ロストの後の登録は保持するだけで呼ばない。`Box<dyn Device>` からは登録に届かないので、登録は crate の内側の試験から行う
 - 世代は device ごとに書き換えられる値で、投入の印・バッファのハンドルの払い出しと照合も、いまの値を読む。ロストの後の操作の拒否はこの段では持たない
+- `on_complete` の登録は、登録したときの印の世代を持つ。1 回目のロストの後に、世代が今と違う登録を表から外し、device のロストのコールバックの後に、錠を放してから `Lost` で 1 回ずつ呼ぶ（その印の `poll` が返す値と同じ）。駆動（`submit`・`submit_many`・`poll`・`poll_ex`・`allocate`）と device の Drop も、世代が違う登録には Metal の完了状態に関わらず `Complete` を渡さず `Lost` を渡す。確かめは `precheck_tests` の `take_stale_*`・`a_stale_registration_*`・`sweeping_then_driving_*`（どの OS でも流れる）と、`#[ignore]` の `device_tests::lost::a_pending_completion_callback_gets_lost_once_after_the_loss`
 - 状態の部品（理由・コールバック・世代の取り直し）は device に触らない純粋な型で、どの OS でも流れる単体の試験（`crates/contract/src/backend_metal.rs` の `lost_state_tests`。1 回だけ呼ぶこと・2 回目の無視・錠の外で呼ぶこと・ロストの後の登録・理由 4 値・世代の取り直し・尽きたときの不変・毒化した錠）で確かめる
 - device に触る試験は `#[ignore]`（Metal の実機の回でだけ流す）。`backend_metal.rs` の `device_tests::lost` と `crates/contract/tests/backend_metal_fault.rs` の `fault_hooks_are_present_and_the_loss_moves_the_generation_once`
 - 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib`（Linux でも流れる範囲）
