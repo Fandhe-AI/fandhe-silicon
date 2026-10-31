@@ -82,13 +82,15 @@ fn take_next(counter: &AtomicU64) -> Option<u64> {
     }
 }
 
-/// `create_pipeline` が受け付ける入力から取り出した、ソース・入口名・function constant の並び。
+/// `create_pipeline` が受け付ける入力から取り出した、ソース・入口名・function constant の並び・
+/// 特殊化の入力（`MslSpecialized`）だったか。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-type AcceptedPipelineInput<'a> = (&'a str, &'a str, &'a [FunctionConstant]);
+type AcceptedPipelineInput<'a> = (&'a str, &'a str, &'a [FunctionConstant], bool);
 
 /// `create_pipeline` の入力を分類する。device にも Metal の API にも触らない。
 ///
-/// `Msl`・`MslSpecialized` は取り出して返す（`Msl` の function constant は空の並び）。
+/// `Msl`・`MslSpecialized` は取り出して返す（`Msl` の function constant は空の並びで、末尾は `false`。
+/// `MslSpecialized` は並びが空でも末尾が `true`）。
 /// コンパイル選択つきの MSL と WGSL は、この背後実装が提供しない操作として `Unsupported` にする。
 /// ほかの言語の成果物は `ArtifactRejected { kind: "unsupported-input", .. }` にし、理由に受け取った
 /// variant 名と受け付ける variant を英語で載せる。`PipelineInput` は `#[non_exhaustive]` なので、
@@ -111,12 +113,12 @@ fn classify_pipeline_input<'a>(
         PipelineInput::Msl {
             source,
             entry_point,
-        } => Ok((source, entry_point, &[])),
+        } => Ok((source, entry_point, &[], false)),
         PipelineInput::MslSpecialized {
             source,
             entry_point,
             function_constants,
-        } => Ok((source, entry_point, function_constants)),
+        } => Ok((source, entry_point, function_constants, true)),
         PipelineInput::MslWithOptions { .. }
         | PipelineInput::MslSpecializedWithOptions { .. }
         | PipelineInput::Wgsl { .. } => Err(unsupported()),
@@ -2179,18 +2181,21 @@ mod imp {
         error.localizedDescription().to_string()
     }
 
+    /// 公開の `Device`（`MetalDeviceProvider::request` が返す `Box<dyn Device>`）からこの実装へ届く口は、
+    /// このモジュールには無い（TASK-773 のポインタ）。
     impl ComputeOps for MetalDevice {
         /// MSL のソースから compute パイプラインを作り、表に登録して返す。
         ///
         /// 受け付けるのは `Msl` と `MslSpecialized`。検査（入力の分類・`layout.slots` と function constant の
-        /// 重複）はすべて Metal の API を呼ぶ前に行う。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
+        /// 重複）はすべて Metal の API を呼ぶ前に行う。`MslSpecialized` は function constant が空でも
+        /// 特殊化の API（`newFunctionWithName_constantValues_error`）で関数を作る。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
         /// `layout` は検査したうえで写しを表に持つだけで、カーネルの引数とは突き合わせない。
         fn create_pipeline(
             &self,
             input: PipelineInput<'_>,
             layout: &BindingLayout,
         ) -> Result<PipelineHandle, ContractError> {
-            let (source, entry_point, constants) = classify_pipeline_input(&input)?;
+            let (source, entry_point, constants, specialized) = classify_pipeline_input(&input)?;
             check_unique_slots(&layout.slots)?;
             let prepared = prepare_constants(constants)?;
 
@@ -2205,7 +2210,7 @@ mod imp {
                 .newLibraryWithSource_options_error(&NSString::from_str(source), None)
                 .map_err(|e| rejected("msl", "MSL compilation failed", &e))?;
             let name = NSString::from_str(entry_point);
-            let found = if prepared.is_empty() {
+            let found = if !specialized {
                 library.newFunctionWithName(&name)
             } else {
                 let values = MTLFunctionConstantValues::new();
@@ -2857,6 +2862,30 @@ mod imp {
                     source: SPECIALIZED_KERNEL,
                     entry_point: "k",
                     function_constants: &constants,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(r.is_ok(), "{r:?}");
+        }
+
+        /// `is_function_constant_defined` で未設定を扱う function constant を持つ MSL は、
+        /// 定数が空の `MslSpecialized` でも `Ok` になる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn empty_msl_specialized_with_optional_function_constant_is_created() {
+            const OPTIONAL_KERNEL: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                constant uint k [[function_constant(0)]];\n\
+                constant bool has_k = is_function_constant_defined(k);\n\
+                kernel void opt(device uint* out [[buffer(0)]]) {\n\
+                    out[0] = has_k ? k : 0;\n\
+                }\n";
+            let device = new_device();
+            let r = device.create_pipeline(
+                PipelineInput::MslSpecialized {
+                    source: OPTIONAL_KERNEL,
+                    entry_point: "opt",
+                    function_constants: &[],
                 },
                 &BindingLayout::new(vec![0]),
             );
@@ -4416,22 +4445,50 @@ mod precheck_tests {
 
     #[test]
     fn classify_accepts_msl_and_msl_specialized() {
-        let (source, entry, constants) = classify_pipeline_input(&PipelineInput::Msl {
-            source: "src",
+        let (source, entry, constants, specialized) =
+            classify_pipeline_input(&PipelineInput::Msl {
+                source: "src",
+                entry_point: "k",
+            })
+            .unwrap();
+        assert_eq!(
+            (source, entry, constants.len(), specialized),
+            ("src", "k", 0, false)
+        );
+
+        let given = [constant(2, FunctionConstantValue::U32(5))];
+        let (source, entry, constants, specialized) =
+            classify_pipeline_input(&PipelineInput::MslSpecialized {
+                source: "s2",
+                entry_point: "e2",
+                function_constants: &given,
+            })
+            .unwrap();
+        assert_eq!(
+            (source, entry, constants.len(), specialized),
+            ("s2", "e2", 1, true)
+        );
+        assert_eq!(constants[0].index, 2);
+    }
+
+    /// 定数が空の `MslSpecialized` は、`Msl` と区別できる（特殊化の API へ進む印が立つ）。
+    #[test]
+    fn classify_distinguishes_empty_msl_specialized_from_msl() {
+        let (_, _, msl_constants, msl_specialized) = classify_pipeline_input(&PipelineInput::Msl {
+            source: "s",
             entry_point: "k",
         })
         .unwrap();
-        assert_eq!((source, entry, constants.len()), ("src", "k", 0));
-
-        let given = [constant(2, FunctionConstantValue::U32(5))];
-        let (source, entry, constants) = classify_pipeline_input(&PipelineInput::MslSpecialized {
-            source: "s2",
-            entry_point: "e2",
-            function_constants: &given,
-        })
-        .unwrap();
-        assert_eq!((source, entry, constants.len()), ("s2", "e2", 1));
-        assert_eq!(constants[0].index, 2);
+        let (_, _, spec_constants, spec_specialized) =
+            classify_pipeline_input(&PipelineInput::MslSpecialized {
+                source: "s",
+                entry_point: "k",
+                function_constants: &[],
+            })
+            .unwrap();
+        assert!(msl_constants.is_empty() && spec_constants.is_empty());
+        assert!(!msl_specialized);
+        assert!(spec_specialized);
     }
 
     #[test]
