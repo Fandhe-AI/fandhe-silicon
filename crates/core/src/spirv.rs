@@ -144,6 +144,61 @@ mod tests {
         );
     }
 
+    fn rejected(reason: &str) -> Result<Vec<u32>, ContractError> {
+        Err(ContractError::ArtifactRejected {
+            kind: "spir-v",
+            reason: reason.to_string(),
+        })
+    }
+
+    #[test]
+    fn wrong_magic_is_rejected() {
+        let bytes = 0x1234_5678u32.to_ne_bytes();
+        assert_eq!(
+            spirv_words_from_bytes(&bytes),
+            rejected(&format!("{REASON_MAGIC} (4 bytes)"))
+        );
+    }
+
+    #[test]
+    fn one_to_three_bytes_are_rejected_as_magic() {
+        for len in 1..4usize {
+            let bytes = &MAGIC.to_ne_bytes()[..len];
+            assert_eq!(
+                spirv_words_from_bytes(bytes),
+                rejected(&format!("{REASON_MAGIC} ({len} bytes)"))
+            );
+        }
+    }
+
+    #[test]
+    fn magic_with_trailing_bytes_is_rejected_by_length() {
+        for extra in 1..4usize {
+            for magic in [MAGIC, MAGIC.swap_bytes()] {
+                let mut bytes = magic.to_ne_bytes().to_vec();
+                bytes.extend(std::iter::repeat_n(0u8, extra));
+                assert_eq!(
+                    spirv_words_from_bytes(&bytes),
+                    rejected(&format!("{REASON_LENGTH} ({} bytes)", bytes.len()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn later_words_follow_the_first_word_byte_order() {
+        let later = [0x0102_0304u32, 0xAABB_CCDD];
+        let mut host = MAGIC.to_ne_bytes().to_vec();
+        let mut swapped = MAGIC.swap_bytes().to_ne_bytes().to_vec();
+        for w in later {
+            host.extend(w.to_ne_bytes());
+            swapped.extend(w.swap_bytes().to_ne_bytes());
+        }
+        let expected = vec![MAGIC, later[0], later[1]];
+        assert_eq!(spirv_words_from_bytes(&host), Ok(expected.clone()));
+        assert_eq!(spirv_words_from_bytes(&swapped), Ok(expected));
+    }
+
     #[test]
     fn pipeline_input_borrows_words_and_entry_point() {
         let module = SpirvModule::from_bytes(&MAGIC.to_ne_bytes()).unwrap();
