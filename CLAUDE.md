@@ -63,7 +63,7 @@ fandhe-silicon/
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
 ├── docs/contract-interop-types.md  # 相互運用の公開の型と `ExternalInterop` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-717）
 ├── docs/contract-buffer-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6）（TASK-310）
-├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）
+├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）・完了不明の投入を再試行しないことの試験（TASK-274）
 ├── docs/validation-intake.md  # 検証レイヤーの不正の受け口と失敗の種類の入口の所在と、本リポの現状の事実・現状の形・段の表・確かめ方（TASK-554）
 ├── docs/device-lost-notify.md  # ロストの通知先の関数の型を native と wasm32 で確かめる試験の所在と、本リポの現状の事実・確かめ方（TASK-138）
 ├── docs/failure-class-contract-test.md  # 失敗の種類を戻り値だけで区別する共通の契約テストの所在と、本リポの現状の事実・値の出どころ・対応する試験・段の表・確かめ方（TASK-272）

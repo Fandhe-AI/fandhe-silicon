@@ -45,6 +45,10 @@ name = "fault_decorator_submit_count"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_no_auto_retry"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "fault_decorator_oom"
 required-features = ["fault-injection"]
 
