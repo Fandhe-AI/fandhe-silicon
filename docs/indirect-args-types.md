@@ -217,6 +217,47 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 件数は記録時点の値である。流した base の commit は `35a851be02f62e3be0c2deddd20c2557ee886fee`。
 
+## 試験（5/6）
+
+`crates/core/src/` は変えず、試験のファイルを 2 つ足した。公開 API は変わらない。
+
+### 確かめること
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 範囲・整列の格子 | `args_size` 5 値 × `buffer_len` の境界 × `offset` の境界（0〜4、長さと終端の前後、`u64::MAX` 付近）の各点で、`u128` で求めた期待と結果が一致する |
+| 判定の順 | 4 の倍数でなければ整列の拒否、次に終端が `u64` に収まらないあふれの拒否、次に長さを超える拒否、それ以外は `Ok(())` |
+| 終端がちょうど長さ | 終端と長さが等しければ通る（`u64::MAX` 付近を含む） |
+| 開始位置が長さを超える | `args_size` が 0 でも超過で拒否される |
+| 拒否の種類 | 格子のすべての拒否が `InvalidArgument` |
+| `first_instance` の判定の境界 | `feature_enabled` の 2 値 × `{0, 1, 2, 4, u32::MAX - 1, u32::MAX}` で参照と一致する |
+| `first_instance` の判定の刻み | 刻み 65537 で `u32` の全域を回し、両方の `feature_enabled` で参照と一致する |
+| 閉じた 2 値 | `FirstInstanceDecision` を `_` の腕なしの `match` で扱える |
+
+### 対応するテスト
+
+`crates/core/tests/indirect_args_range.rs`・`crates/core/tests/indirect_args_first_instance.rs`（feature 不要）。
+
+| ファイル | テスト | 内容 |
+| -------- | ------ | ---- |
+| `indirect_args_range.rs` | `range_grid_matches_u128_reference` | 格子と参照の一致 |
+| `indirect_args_range.rs` | `every_rejection_is_invalid_argument` | 拒否の種類 |
+| `indirect_args_range.rs` | `misalignment_is_reported_before_overflow_and_excess` | 整列の拒否が先に出る |
+| `indirect_args_range.rs` | `end_exactly_at_length_is_accepted` | 終端がちょうど長さ |
+| `indirect_args_range.rs` | `start_beyond_length_is_rejected_even_for_empty_args` | 開始位置が長さを超える |
+| `indirect_args_range.rs` | `end_overflow_boundary_near_u64_max` | あふれの境界 |
+| `indirect_args_first_instance.rs` | `boundary_values_match_reference` | 判定の境界 |
+| `indirect_args_first_instance.rs` | `named_claims` | `0` は常に適用、`0` 以外は有効のときだけ適用 |
+| `indirect_args_first_instance.rs` | `stride_sweep_over_u32_matches_reference` | 刻みでの全域 |
+| `indirect_args_first_instance.rs` | `decision_is_closed_two_values` | 閉じた 2 値 |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --test indirect_args_range`
+- `cargo test -p fandhe-silicon-core --test indirect_args_first_instance`
+- `cargo test -p fandhe-silicon-core --all-features`
+- `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`
+
 ## 段の表
 
 | Issue | 内容 |
