@@ -30,6 +30,7 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | `DecisionInput` の公開フィールドが 4 つだけ | rustdoc の JSON の `decision::DecisionInput`（crate 内の経路で特定） | `scanned-fields:` の `public_fields=capability,scale,residency,scalar`。過不足は `violation: fields … problem=unexpected-field:… / missing-field:… / field-count:…`。`dtype` は集合に無いので足すと落ちる |
 
 - 対象のソースは実装ファイル `decision.rs` だけで、`decision/tests.rs` は含めない。`decision/` に `tests.rs` 以外のファイルが増えると回帰テストが落ちるので、そのファイルを `Makefile` の `--source` に足す
+- 単語の境界は `[A-Za-z0-9_]` なので、複合識別子（例 `MetalDevice`・`metal_device`）の中の語は数えない（スクリプトのヘッダの「検査しないもの」と同じ）
 - フィールドの集合は、ソースの grep でなく rustdoc の JSON から読む（`pub` の有無・`#[non_exhaustive]`・フィールドの順に影響されない。非公開フィールドは数えない）。指定の struct が渡した JSON のどれにも無ければ終了コード 2
 - `--exact-fields` を渡したときだけ、`record:` の末尾に `field_specs=<n> field_hits_total=<n>` が付く。語の一覧の変更は TASK-14 の流儀に従い、今回は変えていない
 - 回帰テスト（`make test-public-name-check`）は、合成 JSON のフィールドの各経路に加えて、実物の `decision.rs` の一時コピーへ禁止の語・`diagnostics(` を 1 つ足すと落ちること、実物の rustdoc の JSON の一時コピーへフィールド `dtype` や名前 `tensor_shape` を足すと落ちることを確かめる（陽性対照）

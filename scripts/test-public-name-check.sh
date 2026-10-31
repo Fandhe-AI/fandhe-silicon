@@ -459,7 +459,7 @@ fi
 # ---- 決定表の語彙の検査（Makefile の public-name-check の引数）を実物のリポジトリに当てる陽性対照 ----
 # 実物の core の rustdoc の JSON とソースの一時コピーに、禁止の語・呼び出し・フィールドを 1 つ足すと落ちること。
 # 実物の引数は Makefile から読む（テストに書き写さない）。
-DEC_ARGS="$(sed -n 's/^\t@scripts\/public-name-check.sh --config public-name-check.conf //p' "${DIR}/../Makefile" | head -n 1)"
+DEC_ARGS="$(sed -n 's/^[[:space:]]*@scripts\/public-name-check.sh --config public-name-check.conf //p' "${DIR}/../Makefile" | head -n 1)"
 DEC_SRC="${DIR}/../$(printf '%s\n' "${DEC_ARGS}" | sed -n 's/.*--source \([^ ]*\).*/\1/p')"
 [[ -f "${DEC_SRC}" ]] || DEC_SRC="${work}/missing-decision-source"
 # decision/ 配下に tests.rs 以外のファイルが増えたら、検査の対象（Makefile の --source）に足し忘れないよう落とす。

@@ -27,7 +27,7 @@
 #     （前後が英数字と _ でない出現。コメント・文字列リテラルも数える）。
 #   呼び出しの形（match_calls）: ソースの各行に [calls] の語を、大小文字を無視した部分一致で当てる。
 #
-#   公開フィールドの集合（match_fields）: tuple・unit の struct、struct でないものは集合が空でないので違反（形が違う）。
+#   公開フィールドの集合（match_fields）: 対象は paths の kind が struct のものだけ（enum など他の種類は「見つからず」として終了コード 2）。tuple・unit の struct は通常の struct でないので違反（not-a-plain-struct）。
 #
 # 標準出力: JSON ごとの `scanned:`、ソースごとの `scanned-source:`、全部を検査し終えたとき（終了コード 0 と 1）だけ
 #   締めの `record:`、合格時の `ok:`。標準エラー: `violation:`・`FAILED:`・`error:`。
