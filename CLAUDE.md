@@ -52,7 +52,7 @@ fandhe-silicon/
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
-├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141）
+├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
 ├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）（TASK-136）
