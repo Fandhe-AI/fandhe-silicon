@@ -3668,6 +3668,7 @@ mod precheck_tests {
     }
 
     #[test]
+    #[cfg(feature = "fault-injection")]
     fn a_concurrent_loss_and_registrations_call_each_registration_exactly_once() {
         const N: u64 = 16;
         for _ in 0..50 {
