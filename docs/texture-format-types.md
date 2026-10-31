@@ -81,7 +81,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 型 | `TextureFormat`・`AstcBlock`・`AstcChannel` の 3 つ |
 | variant の数 | `TextureFormat` は 77（ASTC 以外の 76 と `Astc { block, channel }` の 1）、`AstcBlock` は 14、`AstcChannel` は 3 |
 | derive | 3 つとも `Debug, Clone, Copy, PartialEq, Eq, Hash` |
-| `#[non_exhaustive]` | 3 つの型に付ける。`Astc` の variant には付けない（別の crate が値を作れる） |
+| `#[non_exhaustive]` | `TextureFormat`・`AstcBlock`・`AstcChannel` の型に付く。`TextureFormat::Astc` の variant 自体には付かない（下の「試験（5/6）」で確かめる） |
 | `#[repr]` | 付けない（判別子の数値は公開しない） |
 | 名前と順 | `TextureFormat`・`AstcBlock`・`AstcChannel` の variant の名前と順は、比較基準の `wgpu-types` 30.0.1 の同名の型と同じ（上の照合と同じ手順で確かめられる） |
 | 値の一覧 | `TextureFormat::all()` は 118 件、`AstcBlock::all()` は 14 件、`AstcChannel::all()` は 3 件のスライス（長さは型に出さない） |
@@ -163,9 +163,9 @@ cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown
 | 確かめること | 内容 |
 | ------------ | ---- |
 | 既存の 4 値 | `Rgba8Unorm`・`Bgra8Unorm`・`Rgba32Float`・`Depth32Float` が同じ名前で `TextureFormat` にあり、`Debug` の綴りが名前と合い、`all()` に含まれる |
-| 性質の関数の値 | 性質の関数の値が、比較基準の `wgpu-types` 30.0.1 の同じ名前の関数の値と合う。対象は上の 4 値と、色・深度ステンシル・複数平面・BC・ETC2/EAC・ASTC の代表値。期待値は試験の中に定数で持ち、実行時に wgpu は使わない |
+| 性質の関数の値 | 性質の関数の返り値が、試験の中に書いた期待値の定数と合う（定数は比較基準の `wgpu-types` 30.0.1 が返す値から書いた）。形式は上の 4 値と、色・深度ステンシル・複数平面・BC・ETC2/EAC・ASTC の代表値。実行時に wgpu は使わない |
 
-形式ごとの値の表は本書に置かず、試験のファイルを正とする。`PixelFormat`・`DepthFormat` は本リポに無く、この段の試験はそれらとそこからの変換を含まない。
+形式ごとの値の表は本書に置かず、試験のファイルを正とする。`PixelFormat`・`DepthFormat` は本リポに無く、この段の試験はそれらを含まない。
 
 ### 対応するテスト
 
