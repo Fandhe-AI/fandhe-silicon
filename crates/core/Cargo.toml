@@ -244,6 +244,10 @@ name = "interop_device_accessors"
 required-features = ["ext-interop"]
 
 [[test]]
+name = "device_fault_hooks"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "interop_extension_defaults"
 required-features = ["ext-interop"]
 

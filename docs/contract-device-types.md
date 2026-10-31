@@ -182,3 +182,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## `Device::fault_hooks`
+
+`Device` は feature `fault-injection` のビルドにだけ、既定が `None` のメソッド `fault_hooks()`（`Option<&dyn FaultHooks>`）を持つ。詳細と試験は [contract-fault-injection](contract-fault-injection.md)。
