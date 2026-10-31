@@ -92,7 +92,10 @@ fn callable_as_dyn() {
         .create_pipeline(wgsl(), &BindingLayout::new(vec![7]))
         .unwrap();
     assert_eq!(h.__backend_id(), 1);
-    assert_eq!(r.calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        *r.calls.lock().unwrap(),
+        vec![("main".to_string(), "fn main() {}".to_string(), vec![7])]
+    );
 }
 
 #[test]

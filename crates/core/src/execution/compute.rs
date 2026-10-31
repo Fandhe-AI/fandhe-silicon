@@ -162,7 +162,7 @@ impl ThreadgroupMemory {
     }
 }
 
-/// パイプラインが受ける slot の並び（束縛と定数の slot を 1 つの番号の空間で並べる）を持つ値。
+/// パイプラインの作成に渡す slot の番号の並びを持つ値。
 ///
 /// 外の crate は構造体式で作れない。`new` で作る。`new` は検査をせず、重複や並びもそのまま持つ。
 /// `ComputeOps::create_pipeline` の引数として渡る。
