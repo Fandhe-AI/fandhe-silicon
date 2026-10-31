@@ -537,11 +537,15 @@ impl<G, C> Submissions<G, C> {
         current_generation: u64,
         classify: impl Fn(&G) -> GroupState + Copy,
     ) -> Vec<(C, u64, CompletionState)> {
-        self.reclaim(classify);
+        // 回収が止まった先頭は再分類せず `Pending` に残す（間に完了が挟まっても、表に残したまま配らない）。
+        let stalled = self.reclaim_observing(classify);
         let states: Vec<CompletionState> = self
             .callbacks
             .iter()
             .map(|(sequence, generation, _)| {
+                if stalled == Some(*sequence) && *generation == current_generation {
+                    return CompletionState::Pending;
+                }
                 self.delivery_state(*sequence, *generation, current_generation, classify)
             })
             .collect();
@@ -636,10 +640,20 @@ impl<G, C> Submissions<G, C> {
     ///
     /// 先頭が未完了なら、後ろが完了していても回収しない。失敗は失敗の集合に移す（完了として数えない）。
     fn reclaim(&mut self, classify: impl Fn(&G) -> GroupState) {
+        let _ = self.reclaim_observing(classify);
+    }
+
+    /// `reclaim` と同じ。回収が止まった先頭の通し番号（そのとき `Pending` と分類した列）を返す。
+    ///
+    /// 呼び出しの中で返す状態は、この分類から決める。Metal のコマンドバッファの状態は呼ぶたびに読み直すので、
+    /// 回収のあとに同じ列を分類し直すと、間に完了が挟まって「`Complete` を返したのに表に残る」ことが起きる。
+    /// 返した番号の列は `Pending` として答えれば、非 `Pending` を返した番号（先頭まで決着済み）は必ず表から外れている。
+    /// 先頭より後ろの列は回収しない設計のままで、後ろの列の状態は答える側で分類する。
+    fn reclaim_observing(&mut self, classify: impl Fn(&G) -> GroupState) -> Option<u64> {
         while let Some(entry) = self.pending.first_entry() {
             let sequence = *entry.key();
             match classify(entry.get()) {
-                GroupState::Pending => break,
+                GroupState::Pending => return Some(sequence),
                 GroupState::Completed => {
                     entry.remove();
                 }
@@ -650,6 +664,33 @@ impl<G, C> Submissions<G, C> {
             }
             self.watermark = sequence;
         }
+        None
+    }
+
+    /// 回収してから通し番号の完了状態を答える（`poll` の錠の中の本体）。
+    ///
+    /// 回収が `Pending` で止まった先頭の番号は、再分類せずに `Pending` と答える。
+    fn reclaim_and_state_of(
+        &mut self,
+        sequence: u64,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> CompletionState {
+        if self.reclaim_observing(&classify) == Some(sequence) {
+            return CompletionState::Pending;
+        }
+        self.state_of(sequence, classify)
+    }
+
+    /// 回収してから通し番号の拡張した完了状態を答える（`poll_ex` の錠の中の本体）。`reclaim_and_state_of` と同じ規則。
+    fn reclaim_and_state_ex_of(
+        &mut self,
+        sequence: u64,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> CompletionStateEx {
+        if self.reclaim_observing(&classify) == Some(sequence) {
+            return CompletionStateEx::Pending;
+        }
+        self.state_ex_of(sequence, classify)
     }
 
     /// 通し番号の完了状態。呼ぶ前に `reclaim` しておく。
@@ -1920,8 +1961,7 @@ mod imp {
             }
             let state = {
                 let mut subs = self.lock_submissions();
-                subs.reclaim(group_state);
-                subs.state_of(token.sequence, group_state)
+                subs.reclaim_and_state_of(token.sequence, group_state)
             };
             self.drive_callbacks(generation);
             state
@@ -1942,8 +1982,7 @@ mod imp {
             }
             let state = {
                 let mut subs = self.lock_submissions();
-                subs.reclaim(group_state);
-                subs.state_ex_of(token.sequence, group_state)
+                subs.reclaim_and_state_ex_of(token.sequence, group_state)
             };
             self.drive_callbacks(generation);
             state
@@ -3889,6 +3928,99 @@ mod precheck_tests {
         subs.reclaim(classify);
         assert!(subs.timings.is_empty());
         assert_eq!(subs.timing_of(1, classify), GpuTiming::Reclaimed);
+    }
+
+    /// 呼ぶたびに状態が進む分類。1 回目は `Pending`、2 回目以降は `Completed`（回収と答えの間の完了を模す）。
+    fn completes_after_first_look(
+        calls: &std::cell::Cell<u32>,
+    ) -> impl Fn(&Vec<BufState>) -> GroupState + Copy + '_ {
+        move |_| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                GroupState::Pending
+            } else {
+                GroupState::Completed
+            }
+        }
+    }
+
+    #[test]
+    fn poll_state_of_a_stalled_head_is_pending_and_never_complete_while_in_the_table() {
+        let mut subs = table(&[vec![Done]]);
+        let state =
+            subs.reclaim_and_state_of(1, completes_after_first_look(&std::cell::Cell::new(0)));
+        assert_eq!(state, CompletionState::Pending);
+        assert!(subs.pending.contains_key(&1));
+        // 次の呼び出しで完了と分かれば、答えと同時に表から外れる。
+        assert_eq!(
+            subs.reclaim_and_state_of(1, classify),
+            CompletionState::Complete
+        );
+        assert!(!subs.pending.contains_key(&1));
+        assert_eq!(subs.timing_of(1, classify), GpuTiming::Reclaimed);
+    }
+
+    #[test]
+    fn poll_ex_state_of_a_stalled_head_is_pending_and_never_complete_while_in_the_table() {
+        let mut subs = table(&[vec![Done]]);
+        let state =
+            subs.reclaim_and_state_ex_of(1, completes_after_first_look(&std::cell::Cell::new(0)));
+        assert_eq!(state, CompletionStateEx::Pending);
+        assert!(subs.pending.contains_key(&1));
+        assert_eq!(
+            subs.reclaim_and_state_ex_of(1, classify),
+            CompletionStateEx::Complete
+        );
+        assert!(!subs.pending.contains_key(&1));
+    }
+
+    #[test]
+    fn a_non_pending_answer_for_a_head_always_comes_with_removal_from_the_table() {
+        // 1 回目の分類が Pending なら Pending、そうでなければ表から外れている。
+        for first in [
+            GroupState::Pending,
+            GroupState::Completed,
+            GroupState::Failed,
+        ] {
+            let mut subs = table(&[vec![Done]]);
+            let calls = std::cell::Cell::new(0_u32);
+            let classify_fn = |_: &Vec<BufState>| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 1 {
+                    first
+                } else {
+                    GroupState::Completed
+                }
+            };
+            let state = subs.reclaim_and_state_of(1, classify_fn);
+            assert_eq!(
+                state != CompletionState::Pending,
+                !subs.pending.contains_key(&1),
+                "{first:?} {state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_complete_answer_behind_an_unfinished_head_stays_in_the_table() {
+        // 先頭が未完了なら、後ろの完了済みの列は `Complete` と答えても表に残る（既存の設計）。
+        let mut subs = table(&[vec![Running], vec![Done]]);
+        assert_eq!(
+            subs.reclaim_and_state_of(2, classify),
+            CompletionState::Complete
+        );
+        assert!(subs.pending.contains_key(&2));
+    }
+
+    #[test]
+    fn take_terminal_keeps_a_head_that_completes_between_reclaiming_and_delivery() {
+        let mut subs = table(&[vec![Done]]);
+        subs.callbacks.push((1, 1, Box::new(|_| {})));
+        let calls = std::cell::Cell::new(0);
+        let ready = subs.take_terminal(1, completes_after_first_look(&calls));
+        assert!(ready.is_empty());
+        assert_eq!(subs.callbacks.len(), 1);
+        assert!(subs.pending.contains_key(&1));
     }
 
     #[test]
