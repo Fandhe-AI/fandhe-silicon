@@ -903,3 +903,174 @@ impl TextureFormat {
         }
     }
 }
+
+/// 値の一覧（`ALL_FORMATS`・`ASTC_BLOCKS`・`ASTC_CHANNELS`）への足し忘れを検出する試験。
+///
+/// 番号を返す `match` は `_` の腕を持たないので、variant を足すとコンパイルが落ちて番号を足させる。
+/// 一覧への足し忘れは、各番号がちょうど期待の件数だけ現れるかを数える試験が落とす。
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VARIANTS: usize = 77;
+
+    fn ordinal(f: TextureFormat) -> usize {
+        use TextureFormat as F;
+        match f {
+            F::R8Unorm => 0,
+            F::R8Snorm => 1,
+            F::R8Uint => 2,
+            F::R8Sint => 3,
+            F::R16Uint => 4,
+            F::R16Sint => 5,
+            F::R16Unorm => 6,
+            F::R16Snorm => 7,
+            F::R16Float => 8,
+            F::Rg8Unorm => 9,
+            F::Rg8Snorm => 10,
+            F::Rg8Uint => 11,
+            F::Rg8Sint => 12,
+            F::R32Uint => 13,
+            F::R32Sint => 14,
+            F::R32Float => 15,
+            F::Rg16Uint => 16,
+            F::Rg16Sint => 17,
+            F::Rg16Unorm => 18,
+            F::Rg16Snorm => 19,
+            F::Rg16Float => 20,
+            F::Rgba8Unorm => 21,
+            F::Rgba8UnormSrgb => 22,
+            F::Rgba8Snorm => 23,
+            F::Rgba8Uint => 24,
+            F::Rgba8Sint => 25,
+            F::Bgra8Unorm => 26,
+            F::Bgra8UnormSrgb => 27,
+            F::Rgb9e5Ufloat => 28,
+            F::Rgb10a2Uint => 29,
+            F::Rgb10a2Unorm => 30,
+            F::Rg11b10Ufloat => 31,
+            F::R64Uint => 32,
+            F::Rg32Uint => 33,
+            F::Rg32Sint => 34,
+            F::Rg32Float => 35,
+            F::Rgba16Uint => 36,
+            F::Rgba16Sint => 37,
+            F::Rgba16Unorm => 38,
+            F::Rgba16Snorm => 39,
+            F::Rgba16Float => 40,
+            F::Rgba32Uint => 41,
+            F::Rgba32Sint => 42,
+            F::Rgba32Float => 43,
+            F::Stencil8 => 44,
+            F::Depth16Unorm => 45,
+            F::Depth24Plus => 46,
+            F::Depth24PlusStencil8 => 47,
+            F::Depth32Float => 48,
+            F::Depth32FloatStencil8 => 49,
+            F::NV12 => 50,
+            F::P010 => 51,
+            F::Bc1RgbaUnorm => 52,
+            F::Bc1RgbaUnormSrgb => 53,
+            F::Bc2RgbaUnorm => 54,
+            F::Bc2RgbaUnormSrgb => 55,
+            F::Bc3RgbaUnorm => 56,
+            F::Bc3RgbaUnormSrgb => 57,
+            F::Bc4RUnorm => 58,
+            F::Bc4RSnorm => 59,
+            F::Bc5RgUnorm => 60,
+            F::Bc5RgSnorm => 61,
+            F::Bc6hRgbUfloat => 62,
+            F::Bc6hRgbFloat => 63,
+            F::Bc7RgbaUnorm => 64,
+            F::Bc7RgbaUnormSrgb => 65,
+            F::Etc2Rgb8Unorm => 66,
+            F::Etc2Rgb8UnormSrgb => 67,
+            F::Etc2Rgb8A1Unorm => 68,
+            F::Etc2Rgb8A1UnormSrgb => 69,
+            F::Etc2Rgba8Unorm => 70,
+            F::Etc2Rgba8UnormSrgb => 71,
+            F::EacR11Unorm => 72,
+            F::EacR11Snorm => 73,
+            F::EacRg11Unorm => 74,
+            F::EacRg11Snorm => 75,
+            F::Astc { .. } => 76,
+        }
+    }
+
+    fn block_ordinal(b: AstcBlock) -> usize {
+        match b {
+            AstcBlock::B4x4 => 0,
+            AstcBlock::B5x4 => 1,
+            AstcBlock::B5x5 => 2,
+            AstcBlock::B6x5 => 3,
+            AstcBlock::B6x6 => 4,
+            AstcBlock::B8x5 => 5,
+            AstcBlock::B8x6 => 6,
+            AstcBlock::B8x8 => 7,
+            AstcBlock::B10x5 => 8,
+            AstcBlock::B10x6 => 9,
+            AstcBlock::B10x8 => 10,
+            AstcBlock::B10x10 => 11,
+            AstcBlock::B12x10 => 12,
+            AstcBlock::B12x12 => 13,
+        }
+    }
+
+    fn channel_ordinal(c: AstcChannel) -> usize {
+        match c {
+            AstcChannel::Unorm => 0,
+            AstcChannel::UnormSrgb => 1,
+            AstcChannel::Hdr => 2,
+        }
+    }
+
+    #[test]
+    fn all_formats_cover_every_variant() {
+        let mut counts = [0usize; VARIANTS];
+        for f in TextureFormat::all() {
+            counts[ordinal(*f)] += 1;
+        }
+        for (i, c) in counts.iter().enumerate() {
+            let expected = if i == VARIANTS - 1 { 42 } else { 1 };
+            assert_eq!(*c, expected, "variant ordinal {i}");
+        }
+    }
+
+    #[test]
+    fn all_formats_follow_declaration_order() {
+        let all = TextureFormat::all();
+        assert_eq!(all.len(), 118);
+        for (i, f) in all.iter().take(VARIANTS - 1).enumerate() {
+            assert_eq!(ordinal(*f), i);
+        }
+        let mut k = 0;
+        for b in 0..14 {
+            for c in 0..3 {
+                match all[VARIANTS - 1 + k] {
+                    TextureFormat::Astc { block, channel } => {
+                        assert_eq!(block_ordinal(block), b);
+                        assert_eq!(channel_ordinal(channel), c);
+                    }
+                    other => panic!("ASTC の位置に別の形式: {other:?}"),
+                }
+                k += 1;
+            }
+        }
+        assert_eq!(k, 42);
+    }
+
+    #[test]
+    fn astc_blocks_cover_every_variant() {
+        let got: Vec<usize> = AstcBlock::all().iter().map(|b| block_ordinal(*b)).collect();
+        assert_eq!(got, (0..14).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn astc_channels_cover_every_variant() {
+        let got: Vec<usize> = AstcChannel::all()
+            .iter()
+            .map(|c| channel_ordinal(*c))
+            .collect();
+        assert_eq!(got, (0..3).collect::<Vec<_>>());
+    }
+}
