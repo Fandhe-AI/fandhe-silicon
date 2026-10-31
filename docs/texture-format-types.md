@@ -183,6 +183,47 @@ cargo test -p fandhe-silicon-core --test texture_format_properties
 cargo test -p fandhe-silicon-core --all-features
 ```
 
+## 試験（5/6）
+
+`crates/core/src/texture_format.rs` には `#[cfg(test)] mod tests` だけを足し、公開 API は変わらない。試験のファイルを 2 つ足した。
+
+| 確かめること | 内容 |
+| ------------ | ---- |
+| 名前の対応 | 77 個の variant 名と `TextureFormat` の値が 1 対 1 で対応する（ASTC 以外の 76 は具体形式 1 件ずつ、`Astc` は 42 件）。名前の綴りと順は比較基準の `wgpu-types` 30.0.1 と合う |
+| 重複なし | `TextureFormat::all()` の 118 件に重複が無い |
+| ASTC の組 | ASTC の具体形式がちょうど 42 件で、`AstcBlock::all()`（14）と `AstcChannel::all()`（3）の組ごとにちょうど 1 件。block・channel の綴りが期待と合う |
+| 足し忘れの検出 | 同じ crate の中の `_` の腕の無い網羅 `match` で、値の一覧への足し忘れが検出される |
+| `#[non_exhaustive]` | 3 つの型が `#[non_exhaustive]` で、別の crate は `_` の腕付きの `match` で書ける |
+| `Astc` の構築と束縛 | `Astc` の variant 自体には `#[non_exhaustive]` が付かず、別の crate が値を作り、フィールドを `..` なしで束縛して `match` できる |
+
+名前の一覧の表は本書に置かず、試験のファイルを正とする。`PixelFormat`・`DepthFormat` は本リポに無く、この段の試験はそれらを含まない。
+
+### 対応するテスト
+
+| ファイル | テスト | 内容 |
+| -------- | ------ | ---- |
+| `crates/core/src/texture_format.rs`（`mod tests`） | `all_formats_cover_every_variant` | 各 variant の番号が期待の件数だけ `all()` に現れる |
+| 同上 | `all_formats_follow_declaration_order` | `all()` が宣言順で、ASTC が block（外）× channel（内）の順 |
+| 同上 | `astc_blocks_cover_every_variant`・`astc_channels_cover_every_variant` | block・channel の全 variant が一覧に過不足なく並ぶ |
+| `crates/core/tests/texture_format_names.rs` | `every_name_maps_to_values` | 各名前に対応する値が 1 件（`Astc` は 42 件） |
+| 同上 | `every_value_maps_to_a_name` | 全値が名前に対応し、初出の順が名前の並びと合う |
+| 同上 | `all_has_no_duplicates` | `all()` に重複が無く 118 件 |
+| 同上 | `astc_concrete_formats_are_block_by_channel` | ASTC の 42 件が組ごとに 1 件で `Debug` の形が合う |
+| 同上 | `astc_block_names_match`・`astc_channel_names_match` | block・channel の `Debug` が期待の綴りと順に合う |
+| `crates/core/tests/texture_format_non_exhaustive.rs` | `texture_format_stays_non_exhaustive`・`astc_block_stays_non_exhaustive`・`astc_channel_stays_non_exhaustive` | `unreachable_patterns` を deny した別の crate で全 variant と `_` の腕を並べる |
+| 同上 | `astc_variant_is_constructible_and_matchable` | `Astc` の構築と `..` なしの束縛 |
+
+件数だけの確かめは `texture_format_counts.rs`（上の「対応するテスト」）が持つ。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --lib texture_format
+cargo test -p fandhe-silicon-core --test texture_format_names
+cargo test -p fandhe-silicon-core --test texture_format_non_exhaustive
+cargo test -p fandhe-silicon-core --all-features
+```
+
 ## 段の表
 
 | Issue | 内容 |
