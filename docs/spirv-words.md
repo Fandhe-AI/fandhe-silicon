@@ -143,3 +143,39 @@ cargo test -p fandhe-silicon-core --doc spirv_words_const
 cargo test -p fandhe-silicon-core --lib spirv
 make wasm-verify
 ```
+
+## 試験（4/5）
+
+`crates/core` の `src/` は変えず、試験のファイルを 3 つ足した。公開 API は変わらない。
+
+| 確かめること | 内容 |
+| ------------ | ---- |
+| 受け付けの入力 | ホストの語順・逆の語順の magic で始まる 4 の倍数の長さの入力で、語の列の先頭が `0x0723_0203`、語の数がバイト数の 4 分の 1 になり、逆の語順の入力は全語を入れ替えた値（ホストの語順の入力と同じ列）になる。入力は `to_ne_bytes`・`swap_bytes` で作り、ホストの語順に依らない |
+| 拒否の入力と句 | 空は空の句、1〜3 バイトと magic でない入力（長さが 4 の倍数かどうかに依らない）は magic の句、magic で始まり長さが 4 の倍数でない入力は長さの句。どれも `ArtifactRejected { kind: "spir-v", .. }` |
+| `reason` の中身 | 句の後ろに入力のバイト数が付き、入力の中身（先頭の語の値）は含まない |
+| 3 つの操作の一致 | `SpirvModule::from_bytes`・`spirv_words_from_bytes`・`spirv_words_const!` が同じ入力に同じ語の列を返す。展開用の口を実行時に呼んだ `Err` の句は、実行時の `reason` の句と一致する |
+| `pipeline_input` | `PipelineInput::SpirV` を返し、`words` は `SpirvModule::words()` と同じ slice、`entry_point` は渡した文字列と同じ借用 |
+| マクロ | `const`・`static` の初期化子に置け、利用者の定数名と衝突せず、同じ入力を 2 回渡すと同じ値になる |
+
+### 対応するテスト
+
+| ファイル | テスト | 内容 |
+| -------- | ------ | ---- |
+| `crates/core/tests/spirv_words_raw.rs` | `accepts_host_order_input`・`accepts_swapped_order_input_and_swaps_every_word`・`word_count_is_byte_len_over_four` | 受け付けの語の列と語の数 |
+| 同上 | `rejects_empty_with_empty_phrase`・`rejects_one_to_three_bytes_with_magic_phrase`・`rejects_non_magic_first_word_regardless_of_length`・`rejects_magic_with_trailing_bytes_with_length_phrase` | 拒否の入力ごとの句とバイト数 |
+| 同上 | `reason_does_not_leak_input_contents`・`three_phrases_are_distinct`・`same_input_gives_same_result` | 中身を載せないこと・句の区別・同じ入力に同じ結果 |
+| `crates/core/tests/spirv_words_runtime.rs` | `from_bytes_accepts_and_exposes_words`・`swapped_input_equals_host_order_module`・`same_input_builds_equal_modules` | `SpirvModule` の受け付けと等価 |
+| 同上 | `from_bytes_rejection_matches_raw_function` | 拒否が `spirv_words_from_bytes` と同じ |
+| 同上 | `pipeline_input_borrows_words_and_entry_point` | `pipeline_input` の借用 |
+| `crates/core/tests/spirv_words_const.rs` | `macro_in_const_and_static_matches_runtime`・`macro_does_not_clash_with_user_names`・`same_input_twice_gives_same_value` | `const`・`static` でのマクロ |
+| 同上 | `const_entry_accepts_like_runtime`・`const_entry_phrases_match_runtime_reason` | 展開用の口と実行時の変換の一致 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --test spirv_words_runtime
+cargo test -p fandhe-silicon-core --test spirv_words_raw
+cargo test -p fandhe-silicon-core --test spirv_words_const
+cargo test -p fandhe-silicon-core --all-features
+make wasm-verify
+```
