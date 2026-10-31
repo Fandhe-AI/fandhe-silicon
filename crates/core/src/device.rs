@@ -134,6 +134,15 @@ pub trait Device: Capabilities {
     fn physical_gpu_id(&self) -> Option<crate::interop::PhysicalGpuId> {
         None
     }
+
+    /// 試験用の故障の差し込みの口。既定は `None`（持たない）。
+    ///
+    /// 持つ背後実装だけが上書きする。`None` のとき `fault::inject` は `UnsupportedExtensionDefault { op: "fault_hooks" }` を返す。
+    /// feature `fault-injection` のビルドにだけある。対応する項目のポインタ: DEV-80、TASK-271。
+    #[cfg(feature = "fault-injection")]
+    fn fault_hooks(&self) -> Option<&dyn crate::fault::FaultHooks> {
+        None
+    }
 }
 
 /// `DeviceRequest` から device を作る入口。背後実装が実装する。

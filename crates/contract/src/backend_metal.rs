@@ -12,9 +12,11 @@
 //! `request` が返す `Box<dyn Device>` 越しに使う。
 //!
 //! 投入は、記録先ごとに空のコマンドバッファを 1 つ作って確定する（`submit`・`submit_many`）。
-//! 記録の操作（コピー・クリア・dispatch）・待ちセマフォ・ロストの通知はこの段では持たない。
+//! 記録の操作（コピー・クリア・dispatch）・待ちセマフォ・実際のロストの検出はこの段では持たない。
 //! したがって投入するコマンドバッファはエンコーダを開かず、どのバッファも参照せず、
 //! device のメモリへの CPU からの読み書きと GPU の読み書きが重なることはない。
+//! ロストは、feature `fault-injection` の模擬（`FaultHooks::simulate_device_lost`）と、device の型の内側の
+//! コールバックの登録（`DeviceLostNotify`）だけがある（TASK-2932、DEV-80 のポインタ）。
 //! 読み書きの `unsafe` ブロックの同期の根拠は、この前提に頼る。
 //! 記録の操作（コピー・クリア・dispatch）を足す変更では、これらのブロックの同期の根拠を必ず書き直す。
 //!
@@ -33,11 +35,15 @@
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use fandhe_silicon_core::capability::BackendKind;
+#[cfg(feature = "fault-injection")]
+use fandhe_silicon_core::device_lost::LostCallback;
+#[cfg(feature = "fault-injection")]
+use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, FunctionConstant, FunctionConstantValue, GpuTiming,
@@ -201,6 +207,113 @@ fn prepare_constants(
         .collect()
 }
 
+/// 世代の源が尽きて、ロストの世代を取り直せなかったことを表す。状態は変わっていない。
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct GenerationExhausted;
+
+/// 模擬のロストの状態。最初のロストの理由と、登録されたコールバック 1 つを錠の中に持つ。
+///
+/// device に触らない純粋な型で、Metal の device の型 `MetalDevice` が 1 つ持つ（TASK-2932、DEV-80、TASK-271）。
+/// 世代の格納先と取り直しの源は呼び出し側が渡すので、device が無い環境でも単体で確かめられる。
+/// `Drop` ではコールバックを呼ばない。
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct LostState {
+    inner: Mutex<LostInner>,
+}
+
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct LostInner {
+    /// 最初のロストの理由。`Some` になったら 2 回目以降のロストは無視する。
+    reason: Option<DeviceLostReason>,
+    /// 登録されたコールバック。ロストで `take` されるので、ロストの後に登録したものは呼ばれない。
+    callback: Option<LostCallback>,
+}
+
+#[cfg(feature = "fault-injection")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl LostState {
+    /// 毒化していても中身を取り出す。panic しない。
+    fn lock(&self) -> MutexGuard<'_, LostInner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// コールバックを登録する。登録済みなら上書きし、ロスト済みなら保持するだけで呼ばない。
+    fn set_callback(&self, callback: LostCallback) {
+        // 上書きされた古いコールバックの `Drop` が再入しても詰まらないよう、錠を放してから捨てる。
+        let old = self.lock().callback.replace(callback);
+        drop(old);
+    }
+
+    /// 模擬のロストが起きたか。単体の試験だけが読む。
+    #[cfg(test)]
+    fn is_lost(&self) -> bool {
+        self.lock().reason.is_some()
+    }
+
+    /// 1 回目だけ、理由の記録・世代の取り直し・コールバックの取り出しを錠の中で行い、錠を放してから
+    /// 指定の理由でコールバックを 1 回呼ぶ。1 回目なら `Ok(true)`、2 回目以降は何もせず `Ok(false)`。
+    ///
+    /// 世代は原子の値として読まれる。理由とコールバックは錠の中だけで読む。
+    ///
+    /// 世代は `source` から 1 つ取って `generation` へ書く。`source` が尽きていたら、理由も世代も
+    /// コールバックも変えずに `Err` を返す。コールバックの中から同じ状態を呼んでも詰まらない。
+    fn lose(
+        &self,
+        reason: DeviceLostReason,
+        generation: &AtomicU64,
+        source: &AtomicU64,
+    ) -> Result<bool, GenerationExhausted> {
+        let callback = {
+            let mut inner = self.lock();
+            if inner.reason.is_some() {
+                return Ok(false);
+            }
+            let next = take_next(source).ok_or(GenerationExhausted)?;
+            generation.store(next, Ordering::Release);
+            inner.reason = Some(reason.clone());
+            inner.callback.take()
+        };
+        if let Some(callback) = callback {
+            callback(reason);
+        }
+        Ok(true)
+    }
+}
+
+/// 駆動してから、照合と払い出しに使う世代を読み直して返す。
+///
+/// 駆動は利用者の callback を同期で呼ぶので、その中から `simulate_device_lost` へ再入すると世代が変わり得る。
+/// 駆動の前に読んだ値で照合や払い出しをすると、成功して返したハンドルや印が直後の操作で世代不一致になる。
+/// そこで、駆動には駆動の前に読んだ世代 `g0` を渡し、照合と払い出しには駆動の後の値を使う
+/// （1 つの操作で世代を読むのは、駆動に 1 回、照合と払い出しに 1 回）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn driven_generation(drive: impl FnOnce(u64), read: impl Fn() -> u64) -> u64 {
+    drive(read());
+    read()
+}
+
+/// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
+///
+/// 識別子は払い出しのたびに新しいので、一致する項目はそのハンドルを払い出したときの項目だけ。
+/// 世代が違う・表に無い識別子は何も外さない。`free` が使う（ロストの後でも、ロスト前のハンドルで外せる）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn remove_issued<T>(
+    map: &mut HashMap<u64, T>,
+    id: u64,
+    generation: u64,
+    issued_generation: impl Fn(&T) -> u64,
+) -> Option<T> {
+    match map.get(&id) {
+        Some(entry) if issued_generation(entry) == generation => map.remove(&id),
+        _ => None,
+    }
+}
+
 /// コマンドバッファ 1 つの状態。`MTLCommandBufferStatus` を写す。試験では偽の値を使う。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -292,8 +405,10 @@ struct Submissions<G, C = Callback> {
     /// 通し番号から (開始, 終了)（秒）への表。書くのは完了で起きる待ち（`wait_blocking(None)`）が完了を検出した時だけ。
     /// `TIMING_TABLE_MAX` 件を超えたら通し番号の最も小さいものから捨てる。
     timings: BTreeMap<u64, (f64, f64)>,
-    /// 未完了のまま登録された callback。登録の順に持つ。呼ぶときに表から外すので、どれも 1 回しか呼ばれない。
-    callbacks: Vec<(u64, C)>,
+    /// 未完了のまま登録された callback。(通し番号, 登録したときの印の世代, callback) を登録の順に持つ。
+    /// 呼ぶときに表から外すので、どれも 1 回しか呼ばれない。
+    /// 世代が device の今の世代と違う項目は、Metal の完了状態に関わらず `Lost` で呼ぶ（`poll` と同じ値）。
+    callbacks: Vec<(u64, u64, C)>,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -371,12 +486,18 @@ impl<G, C> Submissions<G, C> {
     fn register(
         &mut self,
         sequence: u64,
+        generation: u64,
+        current_generation: u64,
         callback: C,
         classify: impl Fn(&G) -> GroupState,
     ) -> Option<(C, CompletionState)> {
+        // 登録の世代が今より小さければ、ロストの掃き出しがすでに済んでいる。積まずにその場で `Lost` を返す。
+        if generation < current_generation {
+            return Some((callback, CompletionState::Lost));
+        }
         match self.state_of(sequence, classify) {
             CompletionState::Pending => {
-                self.callbacks.push((sequence, callback));
+                self.callbacks.push((sequence, generation, callback));
                 None
             }
             done => Some((callback, done)),
@@ -389,31 +510,73 @@ impl<G, C> Submissions<G, C> {
     /// 登録の件数に比例して走査する。判定（`classify`）をすべて済ませてから外すので、判定が panic しても登録は失われない。
     fn take_terminal(
         &mut self,
+        current_generation: u64,
         classify: impl Fn(&G) -> GroupState + Copy,
-    ) -> Vec<(C, CompletionState)> {
+    ) -> Vec<(C, u64, CompletionState)> {
         self.reclaim(classify);
         let states: Vec<CompletionState> = self
             .callbacks
             .iter()
-            .map(|(sequence, _)| self.state_of(*sequence, classify))
+            .map(|(sequence, generation, _)| {
+                self.delivery_state(*sequence, *generation, current_generation, classify)
+            })
             .collect();
         let mut ready = Vec::new();
         let mut kept = Vec::new();
-        for ((sequence, callback), state) in
+        for ((sequence, generation, callback), state) in
             std::mem::take(&mut self.callbacks).into_iter().zip(states)
         {
             match state {
-                CompletionState::Pending => kept.push((sequence, callback)),
-                done => ready.push((callback, done)),
+                CompletionState::Pending => kept.push((sequence, generation, callback)),
+                done => ready.push((callback, generation, done)),
             }
         }
         self.callbacks = kept;
         ready
     }
 
+    /// 登録の配る値。世代の源は単調に増えるので、古い扱いは登録の世代が比べる世代より小さいときだけ。
+    ///
+    /// - 登録の世代 < 比べる世代: 列の状態に関わらず `Lost`（その token の `poll` と同じ値）
+    /// - 登録の世代 > 比べる世代: 読んだ世代のほうが古い。触れずに `Pending`（次の駆動に残す）
+    /// - 等しい: 列の状態
+    fn delivery_state(
+        &self,
+        sequence: u64,
+        generation: u64,
+        current_generation: u64,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> CompletionState {
+        if generation < current_generation {
+            return CompletionState::Lost;
+        }
+        if generation > current_generation {
+            return CompletionState::Pending;
+        }
+        self.state_of(sequence, classify)
+    }
+
+    /// 世代が今より小さい登録を全部外し、`Lost` を付けて返す。同じ世代と新しい世代の登録は残す。呼ぶのは錠を放してから。
+    ///
+    /// ロストの後に、まだ呼ばれていない完了の callback を `poll` と同じ値で呼ぶために使う。
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn take_stale(&mut self, current_generation: u64) -> Vec<(C, u64, CompletionState)> {
+        let mut stale = Vec::new();
+        let mut kept = Vec::new();
+        for (sequence, generation, callback) in std::mem::take(&mut self.callbacks) {
+            if generation < current_generation {
+                stale.push((callback, generation, CompletionState::Lost));
+            } else {
+                kept.push((sequence, generation, callback));
+            }
+        }
+        self.callbacks = kept;
+        stale
+    }
+
     /// 登録されている番号の列の完了を `wait` で待つ。`Drop` が残りを呼び切る前に使う。
     fn wait_registered(&self, wait: impl Fn(&G)) {
-        for (sequence, _) in &self.callbacks {
+        for (sequence, _, _) in &self.callbacks {
             if let Some(group) = self.pending.get(sequence) {
                 wait(group);
             }
@@ -425,18 +588,23 @@ impl<G, C> Submissions<G, C> {
     /// 判定を済ませてから外すので、判定が panic しても登録は失われない。
     fn take_all(
         &mut self,
+        current_generation: u64,
         classify: impl Fn(&G) -> GroupState + Copy,
-    ) -> Vec<(C, CompletionState)> {
+    ) -> Vec<(C, u64, CompletionState)> {
         self.reclaim(classify);
         let states: Vec<CompletionState> = self
             .callbacks
             .iter()
-            .map(|(sequence, _)| terminal_state(self.state_of(*sequence, classify)))
+            .map(|(sequence, generation, _)| {
+                // 最後の掃き出しなので、新しい世代の登録も今の世代として通常の判定にする。
+                let compared = (*generation).max(current_generation);
+                terminal_state(self.delivery_state(*sequence, *generation, compared, classify))
+            })
             .collect();
         std::mem::take(&mut self.callbacks)
             .into_iter()
             .zip(states)
-            .map(|((_, callback), state)| (callback, state))
+            .map(|((_, generation, callback), state)| (callback, generation, state))
             .collect()
     }
 
@@ -567,17 +735,27 @@ fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
 
 /// 外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
 ///
+/// 各 callback を呼ぶ直前に `read_generation` で今の世代を読み直し、登録の世代がそれより小さければ、
+/// 先に決めた状態に関わらず `Lost` を渡す。先の callback からロストに再入しても、表の外に出た後ろの登録が
+/// 古い判定の `Complete` を受け取らないため。世代が等しいか大きければ、決めた状態のまま渡す。
+///
 /// 2 個目以降の panic の中身は `discard_panic` で捨てる（その破棄の panic でも残りを呼び切る）。
 ///
 /// 錠を放してから呼ぶこと。呼ぶ側が駆動の呼び出しの最後に `resume_unwind` で再送出する
 /// （`Drop` では捨てる）。取りこぼしと二重呼び出しを作らないため、各 callback は呼ぶ前にすでに表から外れている。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn run_callbacks<C>(
-    ready: Vec<(C, CompletionState)>,
+    ready: Vec<(C, u64, CompletionState)>,
+    read_generation: impl Fn() -> u64,
     call: impl Fn(C, CompletionState),
 ) -> Option<Box<dyn std::any::Any + Send>> {
     let mut first_panic = None;
-    for (callback, state) in ready {
+    for (callback, generation, state) in ready {
+        let state = if generation < read_generation() {
+            CompletionState::Lost
+        } else {
+            state
+        };
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(callback, state)));
         if let Err(payload) = outcome {
@@ -604,6 +782,8 @@ fn lock_table<G, C>(table: &Mutex<Submissions<G, C>>) -> MutexGuard<'_, Submissi
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn drive_table<G, C>(
     table: &Mutex<Submissions<G, C>>,
+    current_generation: u64,
+    read_generation: impl Fn() -> u64,
     classify: impl Fn(&G) -> GroupState + Copy,
     call: impl Fn(C, CompletionState),
 ) {
@@ -612,9 +792,26 @@ fn drive_table<G, C>(
         if subs.callbacks.is_empty() {
             return;
         }
-        subs.take_terminal(classify)
+        subs.take_terminal(current_generation, classify)
     };
-    if let Some(payload) = run_callbacks(ready, call) {
+    if let Some(payload) = run_callbacks(ready, read_generation, call) {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+/// ロストの後の掃き出し。世代が今と違う登録を外し、錠を放してから `Lost` で 1 回ずつ呼ぶ。
+///
+/// `drive_table` と同じく、callback が panic しても残りを呼び切り、最後に最初の panic を伝える。
+/// 外した登録は表に残らないので、`drive_table` や `Drop` と二重に呼ばれない。
+#[cfg(any(test, feature = "fault-injection"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn sweep_stale_table<G, C>(
+    table: &Mutex<Submissions<G, C>>,
+    current_generation: u64,
+    call: impl Fn(C, CompletionState),
+) {
+    let ready = lock_table(table).take_stale(current_generation);
+    if let Some(payload) = run_callbacks(ready, || current_generation, call) {
         std::panic::resume_unwind(payload);
     }
 }
@@ -624,12 +821,26 @@ fn drive_table<G, C>(
 fn register_table<G, C>(
     table: &Mutex<Submissions<G, C>>,
     sequence: u64,
+    generation: u64,
+    read_generation: impl Fn() -> u64,
     callback: C,
     classify: impl Fn(&G) -> GroupState,
     call: impl Fn(C, CompletionState),
 ) {
-    let ready = lock_table(table).register(sequence, callback, classify);
+    // 世代の読みの例外: 呼び出した操作の読みではなく、表の錠の中で読み直す。ロストの掃き出しとすれ違うと、
+    // 掃き出しの済んだ表へ古い世代の登録が残るため。ロストは世代を書いてから掃き出すので、錠の中の読みで抜けが無い。
+    let ready = {
+        let mut subs = lock_table(table);
+        let current = read_generation();
+        subs.register(sequence, generation, current, callback, classify)
+    };
     if let Some((callback, state)) = ready {
+        // 錠を放した後に世代が進んでいたら、決めた状態に関わらず `Lost` を渡す。
+        let state = if generation < read_generation() {
+            CompletionState::Lost
+        } else {
+            state
+        };
         call(callback, state);
     }
 }
@@ -640,6 +851,7 @@ fn register_table<G, C>(
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn finish_table<G, C>(
     subs: &mut Submissions<G, C>,
+    current_generation: u64,
     wait: impl Fn(&G),
     classify: impl Fn(&G) -> GroupState + Copy,
     call: impl Fn(C, CompletionState),
@@ -648,8 +860,8 @@ fn finish_table<G, C>(
         return;
     }
     subs.wait_registered(wait);
-    let ready = subs.take_all(classify);
-    if let Some(payload) = run_callbacks(ready, call) {
+    let ready = subs.take_all(current_generation, classify);
+    if let Some(payload) = run_callbacks(ready, || current_generation, call) {
         discard_panic(payload);
     }
 }
@@ -863,19 +1075,21 @@ fn retire<B, E>(
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use super::host_range;
     #[cfg(feature = "native-blocking-wait")]
     use super::span_of;
+    #[cfg(feature = "fault-injection")]
+    use super::sweep_stale_table;
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
         BufState, Callback, ConstantKind, GroupState, OpenEncoders, SizePool, Submissions,
-        check_token_owner, check_unique_slots, classify_pipeline_input, drive_table, finish_table,
-        group_state_of, precheck_submit, precheck_submit_many, prepare_constants, register_table,
-        retire, take_next,
+        check_token_owner, check_unique_slots, classify_pipeline_input, drive_table,
+        driven_generation, finish_table, group_state_of, precheck_submit, precheck_submit_many,
+        prepare_constants, register_table, remove_issued, retire, take_next,
     };
 
     use fandhe_silicon_core::capability::{
@@ -884,6 +1098,10 @@ mod imp {
     use fandhe_silicon_core::device::{
         Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
     };
+    #[cfg(feature = "fault-injection")]
+    use fandhe_silicon_core::device_lost::{DeviceLostNotify, LostCallback};
+    #[cfg(feature = "fault-injection")]
+    use fandhe_silicon_core::error::DeviceLostReason;
     use fandhe_silicon_core::error::{
         CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
     };
@@ -892,6 +1110,8 @@ mod imp {
         CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle, PipelineHandle,
         PipelineInput, SubmitToken,
     };
+    #[cfg(feature = "fault-injection")]
+    use fandhe_silicon_core::fault::FaultHooks;
     use fandhe_silicon_core::memory::{
         BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
     };
@@ -1114,6 +1334,8 @@ mod imp {
         buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
         /// このバッファの識別子（slot）。Metal のバッファを作るときに 1 度だけ払い出し、再利用の一覧を出入りしても変わらない。
         slot: u64,
+        /// 払い出したときの世代。`free` はロストの後でも、これと一致するハンドルなら外す。
+        generation: u64,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -1153,8 +1375,11 @@ mod imp {
     struct MetalDevice {
         /// この背後実装の中で device ごとに別の識別子。ハンドルの払い出し元の照合に使う。
         id: u64,
-        /// device を作るときに取った世代。
-        generation: u64,
+        /// 世代。device を作るときに取り、模擬のロストの 1 回目で取り直す。読むのは `current_generation`。
+        generation: AtomicU64,
+        /// 模擬のロストの状態（理由とコールバック）。
+        #[cfg(feature = "fault-injection")]
+        lost: super::LostState,
         /// 作るときに指定された所有形態。
         ownership: DeviceOwnership,
         /// `MTLDevice::name` の文字列。
@@ -1198,6 +1423,11 @@ mod imp {
     }
 
     impl MetalDevice {
+        /// いまの世代。投入の印・バッファのハンドルの払い出しと照合は、この値を読む。
+        fn current_generation(&self) -> u64 {
+            self.generation.load(Ordering::Acquire)
+        }
+
         /// 表の錠を取る。他のスレッドが panic して錠が汚れていても、表は壊れない更新だけなので中身を使う。
         fn lock_buffers(&self) -> MutexGuard<'_, Buffers> {
             self.buffers.lock().unwrap_or_else(|e| e.into_inner())
@@ -1219,7 +1449,7 @@ mod imp {
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
         /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
         /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
-        fn commit_buffers(&self) -> Result<SubmitToken, ContractError> {
+        fn commit_buffers(&self, generation: u64) -> Result<SubmitToken, ContractError> {
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
             let sequence = subs.next_sequence;
@@ -1244,11 +1474,7 @@ mod imp {
             self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
-            Ok(SubmitToken::__backend_new(
-                self.generation,
-                sequence,
-                self.id,
-            ))
+            Ok(SubmitToken::__backend_new(generation, sequence, self.id))
         }
 
         /// device を組み立てる。`request_with` と試験が共有する。
@@ -1262,7 +1488,9 @@ mod imp {
         ) -> Self {
             Self {
                 id,
-                generation,
+                generation: AtomicU64::new(generation),
+                #[cfg(feature = "fault-injection")]
+                lost: super::LostState::default(),
                 ownership: DeviceOwnership::ProductIndependent,
                 adapter_name,
                 limits,
@@ -1321,13 +1549,25 @@ mod imp {
 
         /// 登録済みの callback のうち終端になったものを、呼び出し元のスレッドで 1 回ずつ呼ぶ。
         ///
+        /// `generation` は呼び出した操作が読んだ今の世代。世代がこれと違う登録は、列の状態に関わらず `Lost` で呼ぶ。
+        ///
         /// `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で呼ぶ駆動点。本体は `drive_table`。
-        fn drive_callbacks(&self) {
+        fn drive_callbacks(&self, generation: u64) {
             drive_table(
                 &self.submissions,
+                generation,
+                || self.current_generation(),
                 group_state,
                 |callback: Callback, state| callback(state),
             );
+        }
+
+        /// 駆動してから、照合と払い出しに使う今の世代を返す（理由は `driven_generation`）。
+        fn drive_and_generation(&self) -> u64 {
+            driven_generation(
+                |generation| self.drive_callbacks(generation),
+                || self.current_generation(),
+            )
         }
 
         /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`wait_blocking(None)` が使う。
@@ -1420,7 +1660,7 @@ mod imp {
                     "buffer handle is not in this device's table".into(),
                 ));
             };
-            if handle.__backend_generation() != self.generation {
+            if handle.__backend_generation() != self.current_generation() {
                 return Err(ContractError::InvalidArgument(
                     "buffer handle generation does not match this device".into(),
                 ));
@@ -1475,12 +1715,14 @@ mod imp {
         /// 「確定済みの command buffer は必ず終わる」ことに頼る。この前提は、投入するコマンドバッファが空である
         /// 現在の形に対するもので、記録の操作を足す変更では見直す。callback の panic は捨てる。本体は `finish_table`。
         fn drop(&mut self) {
+            let generation = self.generation.load(Ordering::Acquire);
             let subs = self
                 .submissions
                 .get_mut()
                 .unwrap_or_else(|e| e.into_inner());
             finish_table(
                 subs,
+                generation,
                 |group| {
                     for buffer in group {
                         buffer.waitUntilCompleted();
@@ -1512,6 +1754,44 @@ mod imp {
         }
     }
 
+    /// 模擬のロストだけを持つ故障の差し込みの口。実際の故障ではない。
+    ///
+    /// `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
+    /// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否はここでは持たない。
+    #[cfg(feature = "fault-injection")]
+    impl FaultHooks for MetalDevice {
+        /// 1 回目は理由を記録し、世代を取り直し、登録されたコールバックを錠の外で 1 回呼ぶ。2 回目以降は何もせず `Ok`。
+        /// 世代の源が尽きていたら、状態を変えずに `BackendFailure` を返す。
+        fn simulate_device_lost(&self, reason: DeviceLostReason) -> Result<(), ContractError> {
+            let first = self
+                .lost
+                .lose(reason, &self.generation, &NEXT_GENERATION)
+                .map_err(|_| ContractError::BackendFailure {
+                    op: "simulate_device_lost",
+                    backend: BACKEND,
+                    detail: "device generation space is exhausted".into(),
+                })?;
+            if first {
+                // device のロストのコールバックの後に、世代の古い完了の callback を `Lost` で 1 回ずつ呼ぶ。
+                // 錠はどちらも放してある。世代はここで 1 回だけ読む。
+                sweep_stale_table(
+                    &self.submissions,
+                    self.current_generation(),
+                    |callback: Callback, state| callback(state),
+                );
+            }
+            Ok(())
+        }
+    }
+
+    /// ロストの通知先の登録。登録済みなら上書きし、ロストの後の登録は保持するだけで呼ばない。
+    #[cfg(feature = "fault-injection")]
+    impl DeviceLostNotify for MetalDevice {
+        fn set_lost_callback(&self, callback: LostCallback) {
+            self.lost.set_callback(callback);
+        }
+    }
+
     impl Device for MetalDevice {
         fn backend(&self) -> BackendKind {
             BACKEND
@@ -1522,7 +1802,12 @@ mod imp {
         }
 
         fn generation(&self) -> u64 {
-            self.generation
+            self.current_generation()
+        }
+
+        #[cfg(feature = "fault-injection")]
+        fn fault_hooks(&self) -> Option<&dyn FaultHooks> {
+            Some(self)
         }
 
         fn memory(&self) -> &dyn MemoryOps {
@@ -1567,11 +1852,12 @@ mod imp {
             mut commands: CommandEncoder,
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
-            self.drive_callbacks();
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
+            let generation = self.drive_and_generation();
             precheck_submit(wait)?;
             self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
-            self.commit_buffers()
+            self.commit_buffers(generation)
         }
 
         /// 複数の記録先を 1 回で投入し、1 つの印を返す。
@@ -1586,14 +1872,16 @@ mod imp {
             after: &[SubmitToken],
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
-            self.drive_callbacks();
-            precheck_submit_many(commands.len(), after, wait, self.id, self.generation)?;
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。
+            // `after` の照合と印の払い出しには、駆動の後に読んだ同じ値を使う。
+            let generation = self.drive_and_generation();
+            precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
             self.open.claim(&ids)?;
             for command in &mut commands {
                 command.__backend_disarm_closer();
             }
-            self.commit_buffers()
+            self.commit_buffers(generation)
         }
 
         /// 列の全部が完了なら `Complete`、どれかが `Error` なら `Lost`、他は `Pending`。
@@ -1602,7 +1890,8 @@ mod imp {
         ///
         /// 回収のあとで、終端になった登録済みの callback を呼ぶ（呼び出しが戻る前、このスレッドで）。
         fn poll(&self, token: SubmitToken) -> CompletionState {
-            if check_token_owner(&token, self.id, self.generation).is_err() {
+            let generation = self.current_generation();
+            if check_token_owner(&token, self.id, generation).is_err() {
                 return CompletionState::Lost;
             }
             let state = {
@@ -1610,7 +1899,7 @@ mod imp {
                 subs.reclaim(group_state);
                 subs.state_of(token.sequence, group_state)
             };
-            self.drive_callbacks();
+            self.drive_callbacks(generation);
             state
         }
 
@@ -1623,7 +1912,8 @@ mod imp {
         ///
         /// 回収のあとで、終端になった登録済みの callback を呼ぶ（`poll` と同じく、錠を放してからこのスレッドで）。
         fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
-            if check_token_owner(&token, self.id, self.generation).is_err() {
+            let generation = self.current_generation();
+            if check_token_owner(&token, self.id, generation).is_err() {
                 return CompletionStateEx::Lost;
             }
             let state = {
@@ -1631,7 +1921,7 @@ mod imp {
                 subs.reclaim(group_state);
                 subs.state_ex_of(token.sequence, group_state)
             };
-            self.drive_callbacks();
+            self.drive_callbacks(generation);
             state
         }
 
@@ -1661,13 +1951,16 @@ mod imp {
             callback: Box<dyn FnOnce(CompletionState) + Send>,
         ) {
             let call = |callback: Callback, state| callback(state);
-            if check_token_owner(&token, self.id, self.generation).is_err() {
+            if check_token_owner(&token, self.id, self.current_generation()).is_err() {
                 call(callback, CompletionState::Lost);
                 return;
             }
+            // 登録に token の世代を持たせる。ロストと重なって掃き出しをすり抜けても、駆動が `Lost` で呼ぶ。
             register_table(
                 &self.submissions,
                 token.sequence,
+                token.generation,
+                || self.current_generation(),
                 callback,
                 group_state,
                 call,
@@ -1683,7 +1976,7 @@ mod imp {
             token: SubmitToken,
             timeout: Option<std::time::Duration>,
         ) -> Result<(), ContractError> {
-            check_token_owner(&token, self.id, self.generation)?;
+            check_token_owner(&token, self.id, self.current_generation())?;
             match timeout {
                 None => wait_result(self.wait_for_completion(token, true)),
                 Some(limit) => {
@@ -1716,7 +2009,7 @@ mod imp {
         /// - `Reclaimed`: 完了して回収された、時刻を残さずに完了した、または表から捨てられた投入
         /// - `Unavailable`: `Error` で終わった投入、別 device の印、世代違いの印、払い出していない番号（0 を含む）
         fn gpu_timing(&self, token: SubmitToken) -> GpuTiming {
-            if check_token_owner(&token, self.id, self.generation).is_err() {
+            if check_token_owner(&token, self.id, self.current_generation()).is_err() {
                 return GpuTiming::Unavailable;
             }
             self.lock_submissions()
@@ -1926,7 +2219,8 @@ mod imp {
             byte_len: u64,
             usage: BufferUsage,
         ) -> Result<BufferHandle, ContractError> {
-            self.drive_callbacks();
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
+            let generation = self.drive_and_generation();
             validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
                 requested_bytes: byte_len,
@@ -1954,13 +2248,16 @@ mod imp {
                     (slot, buffer)
                 }
             };
-            buffers.map.insert(id, BufferEntry { buffer, slot });
-            Ok(BufferHandle::__backend_new(
-                self.generation,
+            buffers.map.insert(
                 id,
-                self.id,
-                byte_len,
-                usage,
+                BufferEntry {
+                    buffer,
+                    slot,
+                    generation,
+                },
+            );
+            Ok(BufferHandle::__backend_new(
+                generation, id, self.id, byte_len, usage,
             ))
         }
 
@@ -2004,13 +2301,18 @@ mod imp {
         /// 実行時の検査は無い。記録の操作を足す変更では、遅延解放と合わせて見直す）。
         /// 一覧に入ったバッファは device の Drop まで保持される（合計の上限は 64 MiB）。
         /// 別の device のハンドルは何もしない（同じ識別子を持つ自 device のバッファを巻き込まない）。
+        /// 照合は device の今の世代ではなく、表の項目を払い出したときの世代と比べるので、ロストの後でもロスト前のハンドルで解放できる。
         fn free(&self, buffer: BufferHandle) {
-            if buffer.__backend_device_id() != self.id
-                || buffer.__backend_generation() != self.generation
-            {
+            if buffer.__backend_device_id() != self.id {
                 return;
             }
-            let removed = self.lock_buffers().map.remove(&buffer.__backend_id());
+            // ロストの後でも、払い出したときの世代と一致するハンドルなら外して解放する（device の世代とは比べない）。
+            let removed = remove_issued(
+                &mut self.lock_buffers().map,
+                buffer.__backend_id(),
+                buffer.__backend_generation(),
+                |entry| entry.generation,
+            );
             let Some(entry) = removed else {
                 return;
             };
@@ -2025,11 +2327,19 @@ mod imp {
                 |len| self.lock_buffers().pool.would_accept(len),
                 zero_fill,
                 |entry| {
-                    let BufferEntry { buffer, slot } = entry;
+                    let BufferEntry {
+                        buffer,
+                        slot,
+                        generation,
+                    } = entry;
                     self.lock_buffers()
                         .pool
                         .put(byte_len, slot, buffer)
-                        .map(|buffer| BufferEntry { buffer, slot })
+                        .map(|buffer| BufferEntry {
+                            buffer,
+                            slot,
+                            generation,
+                        })
                 },
             );
             // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
@@ -2623,6 +2933,130 @@ mod imp {
             drop(pipelines);
             assert_eq!(h.__backend_device_id(), device.id);
         }
+
+        /// DEV-80・TASK-2932 のポインタ。`fault_hooks` の口から模擬のロストを呼ぶ。
+        #[cfg(feature = "fault-injection")]
+        mod lost {
+            use super::*;
+            use fandhe_silicon_core::fault::{HookFault, inject};
+
+            fn seen_by(device: &MetalDevice) -> Arc<Mutex<Vec<DeviceLostReason>>> {
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&seen);
+                DeviceLostNotify::set_lost_callback(
+                    device,
+                    Box::new(move |reason| sink.lock().unwrap().push(reason)),
+                );
+                seen
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn the_hooks_are_present_and_only_the_loss_is_overridden() {
+                let device = new_device();
+                assert!(device.fault_hooks().is_some());
+                for fault in [
+                    HookFault::ArmGate,
+                    HookFault::OpenGate,
+                    HookFault::RuntimeError("x".into()),
+                    HookFault::ValidationReport("x".into()),
+                ] {
+                    let r = inject(device.fault_hooks(), fault);
+                    assert!(
+                        matches!(r, Err(ContractError::UnsupportedExtensionDefault { .. })),
+                        "{r:?}"
+                    );
+                }
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn a_pending_completion_callback_gets_lost_once_after_the_loss() {
+                let device = new_device();
+                // 確定を遅らせて、未完了の投入を決定的に作る。
+                device.hold_commits();
+                let token = device.submit(device.create_encoder(), &[]).expect("submit");
+                assert_eq!(device.poll(token), CompletionState::Pending);
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&seen);
+                device.on_complete(
+                    token,
+                    Box::new(move |state| sink.lock().unwrap().push(state)),
+                );
+
+                inject(
+                    device.fault_hooks(),
+                    HookFault::DeviceLost(DeviceLostReason::Unknown),
+                )
+                .expect("loss");
+                assert_eq!(*seen.lock().unwrap(), [CompletionState::Lost]);
+                assert_eq!(device.poll(token), CompletionState::Lost);
+
+                // 確定して完了させ、駆動を重ねても `Complete` は届かず、二重にも呼ばれない。
+                for buffer in device.release_held_commits() {
+                    buffer.waitUntilCompleted();
+                }
+                device.drive_callbacks(device.current_generation());
+                assert_eq!(*seen.lock().unwrap(), [CompletionState::Lost]);
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn a_handle_from_before_the_loss_can_still_be_freed_once() {
+                let device = new_device();
+                let handle = device.allocate(64, BufferUsage::empty()).expect("allocate");
+                inject(
+                    device.fault_hooks(),
+                    HookFault::DeviceLost(DeviceLostReason::Unknown),
+                )
+                .expect("loss");
+                // ロストの後も、`free` 以外はロスト前のハンドルを拒む。
+                assert!(device.upload(&handle, 0, &[1]).is_err());
+                assert_eq!(device.lock_buffers().map.len(), 1);
+
+                let again = BufferHandle::__backend_new(
+                    handle.__backend_generation(),
+                    handle.__backend_id(),
+                    handle.__backend_device_id(),
+                    64,
+                    BufferUsage::empty(),
+                );
+                device.free(handle);
+                assert_eq!(device.lock_buffers().map.len(), 0);
+                assert_eq!(device.lock_buffers().pool.entries, 1);
+                // 外れた後の `free` は何も起きない。
+                device.free(again);
+                assert_eq!(device.lock_buffers().pool.entries, 1);
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn each_reason_reaches_the_callback_once_and_the_generation_moves_once() {
+                for reason in [
+                    DeviceLostReason::Destroyed,
+                    DeviceLostReason::Unknown,
+                    DeviceLostReason::ValidationError("v".into()),
+                ] {
+                    let device = new_device();
+                    let seen = seen_by(&device);
+                    let before = device.generation();
+
+                    inject(device.fault_hooks(), HookFault::DeviceLost(reason.clone()))
+                        .expect("first loss");
+                    let after = device.generation();
+                    assert!(after > before, "{before} -> {after}");
+                    assert_eq!(*seen.lock().unwrap(), [reason]);
+
+                    inject(
+                        device.fault_hooks(),
+                        HookFault::DeviceLost(DeviceLostReason::Unknown),
+                    )
+                    .expect("second loss");
+                    assert_eq!(device.generation(), after);
+                    assert_eq!(seen.lock().unwrap().len(), 1);
+                }
+            }
+        }
     }
 }
 
@@ -2641,6 +3075,8 @@ mod precheck_tests {
 
     const DEVICE_ID: u64 = 7;
     const GENERATION: u64 = 3;
+    /// 登録の表の試験で使う、今の世代と登録の世代（同じ値）。
+    const GEN: u64 = 0;
 
     fn semaphore() -> ImportedSemaphoreHandle {
         ImportedSemaphoreHandle::__backend_new(1)
@@ -2903,8 +3339,8 @@ mod precheck_tests {
         (subs, groups)
     }
 
-    fn call_all(ready: Vec<(Callback, CompletionState)>) {
-        let panic = run_callbacks(ready, |callback, state| callback(state));
+    fn call_all(ready: Vec<(Callback, u64, CompletionState)>) {
+        let panic = run_callbacks(ready, || 0, |callback, state| callback(state));
         assert!(panic.is_none());
     }
 
@@ -2913,11 +3349,14 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[1, 0]);
         // 回収しないので、完了済みの列は表に残ったままでも `Complete` が決まる。
-        let ready = subs.register(1, recorder(&seen, 1), fake_state);
+        let ready = subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state);
         assert!(matches!(ready, Some((_, CompletionState::Complete))));
-        assert!(subs.register(2, recorder(&seen, 2), fake_state).is_none());
+        assert!(
+            subs.register(2, GEN, GEN, recorder(&seen, 2), fake_state)
+                .is_none()
+        );
         // 払い出していない番号は `Lost` でその場。
-        let ready = subs.register(9, recorder(&seen, 9), fake_state);
+        let ready = subs.register(9, GEN, GEN, recorder(&seen, 9), fake_state);
         assert!(matches!(ready, Some((_, CompletionState::Lost))));
         assert_eq!(subs.callbacks.len(), 1);
         assert!(seen.lock().expect("lock").is_empty());
@@ -2929,16 +3368,16 @@ mod precheck_tests {
         let (mut subs, groups) = fake_table(&[0, 0, 0]);
         for sequence in 1..=3 {
             assert!(
-                subs.register(sequence, recorder(&seen, sequence), fake_state)
+                subs.register(sequence, GEN, GEN, recorder(&seen, sequence), fake_state)
                     .is_none()
             );
         }
-        assert!(subs.take_terminal(fake_state).is_empty());
+        assert!(subs.take_terminal(GEN, fake_state).is_empty());
 
         // 先頭が実行中のまま、後ろの 2 つが終わる。回収は止まったままでも後ろの登録は外れる。
         groups[2].store(1, Ordering::SeqCst);
         groups[1].store(2, Ordering::SeqCst);
-        call_all(subs.take_terminal(fake_state));
+        call_all(subs.take_terminal(GEN, fake_state));
         assert_eq!(subs.watermark, 0);
         assert_eq!(subs.callbacks.len(), 1);
         assert_eq!(
@@ -2947,10 +3386,10 @@ mod precheck_tests {
         );
 
         // 2 回目の駆動では何も呼ばれず、先頭が終わると 1 回だけ呼ばれる。
-        call_all(subs.take_terminal(fake_state));
+        call_all(subs.take_terminal(GEN, fake_state));
         groups[0].store(1, Ordering::SeqCst);
-        call_all(subs.take_terminal(fake_state));
-        call_all(subs.take_terminal(fake_state));
+        call_all(subs.take_terminal(GEN, fake_state));
+        call_all(subs.take_terminal(GEN, fake_state));
         assert_eq!(seen.lock().expect("lock").len(), 3);
         assert_eq!(
             seen.lock().expect("lock")[2],
@@ -2963,11 +3402,14 @@ mod precheck_tests {
     fn a_registration_for_a_reclaimed_sequence_is_resolved_by_the_watermark() {
         let seen: Seen = Arc::default();
         let (mut subs, groups) = fake_table(&[0]);
-        assert!(subs.register(1, recorder(&seen, 1), fake_state).is_none());
+        assert!(
+            subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state)
+                .is_none()
+        );
         groups[0].store(1, Ordering::SeqCst);
         subs.reclaim(fake_state);
         assert!(subs.pending.is_empty());
-        call_all(subs.take_terminal(fake_state));
+        call_all(subs.take_terminal(GEN, fake_state));
         assert_eq!(
             *seen.lock().expect("lock"),
             vec![(1, CompletionState::Complete)]
@@ -2980,7 +3422,7 @@ mod precheck_tests {
         let (mut subs, groups) = fake_table(&[0, 0]);
         for sequence in 1..=2 {
             assert!(
-                subs.register(sequence, recorder(&seen, sequence), fake_state)
+                subs.register(sequence, GEN, GEN, recorder(&seen, sequence), fake_state)
                     .is_none()
             );
         }
@@ -2990,7 +3432,7 @@ mod precheck_tests {
                 group.store(1, Ordering::SeqCst);
             }
         });
-        call_all(subs.take_all(fake_state));
+        call_all(subs.take_all(GEN, fake_state));
         assert_eq!(
             *seen.lock().expect("lock"),
             vec![(1, CompletionState::Complete), (2, CompletionState::Lost)]
@@ -2999,23 +3441,27 @@ mod precheck_tests {
 
         // 待たなかった（実行中のままの）列は `Lost` に寄せる。
         let (mut subs, _groups) = fake_table(&[0]);
-        assert!(subs.register(1, recorder(&seen, 7), fake_state).is_none());
-        call_all(subs.take_all(fake_state));
+        assert!(
+            subs.register(1, GEN, GEN, recorder(&seen, 7), fake_state)
+                .is_none()
+        );
+        call_all(subs.take_all(GEN, fake_state));
         assert_eq!(seen.lock().expect("lock")[2], (7, CompletionState::Lost));
     }
 
     #[test]
     fn a_panicking_callback_does_not_stop_the_rest_and_is_reported_once() {
         let seen: Seen = Arc::default();
-        let ready: Vec<(Callback, CompletionState)> = vec![
-            (recorder(&seen, 1), CompletionState::Complete),
+        let ready: Vec<(Callback, u64, CompletionState)> = vec![
+            (recorder(&seen, 1), 0, CompletionState::Complete),
             (
                 Box::new(|_| panic!("callback failed")),
+                0,
                 CompletionState::Complete,
             ),
-            (recorder(&seen, 3), CompletionState::Lost),
+            (recorder(&seen, 3), 0, CompletionState::Lost),
         ];
-        let payload = run_callbacks(ready, |callback, state| callback(state));
+        let payload = run_callbacks(ready, || 0, |callback, state| callback(state));
         assert!(payload.is_some());
         assert_eq!(
             *seen.lock().expect("lock"),
@@ -3028,9 +3474,13 @@ mod precheck_tests {
     fn callbacks_run_outside_the_lock_so_reentry_does_not_deadlock() {
         type Table = Mutex<Submissions<Fake>>;
         fn drive(table: &Table) {
-            drive_table(table, fake_state, |callback: Callback, state| {
-                callback(state)
-            });
+            drive_table(
+                table,
+                GEN,
+                || GEN,
+                fake_state,
+                |callback: Callback, state| callback(state),
+            );
         }
 
         let (subs, groups) = fake_table(&[0, 0]);
@@ -3047,6 +3497,8 @@ mod precheck_tests {
             register_table(
                 &inner_table,
                 2,
+                GEN,
+                || GEN,
                 recorder(&inner_seen, 22),
                 fake_state,
                 |callback: Callback, state| callback(state),
@@ -3054,7 +3506,7 @@ mod precheck_tests {
             second_group.store(1, Ordering::SeqCst);
             drive(&inner_table);
         });
-        lock_table(&table).callbacks.push((1, outer));
+        lock_table(&table).callbacks.push((1, GEN, outer));
         drive(&table);
         assert!(seen.lock().expect("lock").is_empty());
 
@@ -3086,22 +3538,30 @@ mod precheck_tests {
         let table = Mutex::new(subs);
         {
             let mut subs = lock_table(&table);
-            subs.callbacks.push((1, recorder(&seen, 1)));
+            subs.callbacks.push((1, GEN, recorder(&seen, 1)));
             subs.callbacks
-                .push((2, Box::new(|_| panic!("callback failed"))));
-            subs.callbacks.push((3, recorder(&seen, 3)));
+                .push((2, GEN, Box::new(|_| panic!("callback failed"))));
+            subs.callbacks.push((3, GEN, recorder(&seen, 3)));
         }
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            drive_table(&table, fake_state, |callback: Callback, state| {
-                callback(state)
-            });
+            drive_table(
+                &table,
+                GEN,
+                || GEN,
+                fake_state,
+                |callback: Callback, state| callback(state),
+            );
         }));
         assert!(outcome.is_err());
         assert_eq!(seen.lock().expect("lock").len(), 2);
         // 登録は残らず、次の駆動で二重に呼ばれない。
-        drive_table(&table, fake_state, |callback: Callback, state| {
-            callback(state)
-        });
+        drive_table(
+            &table,
+            GEN,
+            || GEN,
+            fake_state,
+            |callback: Callback, state| callback(state),
+        );
         assert_eq!(seen.lock().expect("lock").len(), 2);
         assert!(lock_table(&table).callbacks.is_empty());
     }
@@ -3117,6 +3577,8 @@ mod precheck_tests {
             register_table(
                 &table,
                 1,
+                GEN,
+                || GEN,
                 Box::new(|_| panic!("callback failed")),
                 fake_state,
                 call,
@@ -3128,10 +3590,10 @@ mod precheck_tests {
         assert!(table.try_lock().is_ok());
         assert!(lock_table(&table).callbacks.is_empty());
         // そのあとも、登録と駆動が使える。
-        register_table(&table, 2, recorder(&seen, 2), fake_state, call);
+        register_table(&table, 2, GEN, || GEN, recorder(&seen, 2), fake_state, call);
         assert!(seen.lock().expect("lock").is_empty());
         groups[1].store(1, Ordering::SeqCst);
-        drive_table(&table, fake_state, call);
+        drive_table(&table, GEN, || GEN, fake_state, call);
         assert_eq!(
             *seen.lock().expect("lock"),
             vec![(2, CompletionState::Complete)]
@@ -3143,10 +3605,11 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, groups) = fake_table(&[0, 0]);
         subs.callbacks
-            .push((1, Box::new(|_| panic!("callback failed"))));
-        subs.callbacks.push((2, recorder(&seen, 2)));
+            .push((1, GEN, Box::new(|_| panic!("callback failed"))));
+        subs.callbacks.push((2, GEN, recorder(&seen, 2)));
         finish_table(
             &mut subs,
+            GEN,
             |group| group.store(1, Ordering::SeqCst),
             fake_state,
             |callback: Callback, state| callback(state),
@@ -3178,14 +3641,14 @@ mod precheck_tests {
         let table = Mutex::new(subs);
         {
             let mut subs = lock_table(&table);
-            subs.callbacks.push((1, drop_bomb()));
-            subs.callbacks.push((2, drop_bomb()));
-            subs.callbacks.push((3, recorder(&seen, 3)));
-            subs.callbacks.push((4, recorder(&seen, 4)));
+            subs.callbacks.push((1, GEN, drop_bomb()));
+            subs.callbacks.push((2, GEN, drop_bomb()));
+            subs.callbacks.push((3, GEN, recorder(&seen, 3)));
+            subs.callbacks.push((4, GEN, recorder(&seen, 4)));
         }
         let call = |callback: Callback, state| callback(state);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            drive_table(&table, fake_state, call);
+            drive_table(&table, GEN, || GEN, fake_state, call);
         }));
         // 最初の中身だけが伝わり、2 個目の中身の破棄の panic は止まる。後ろの callback も 1 回ずつ呼ばれる。
         let payload = outcome.expect_err("the first payload is propagated");
@@ -3205,12 +3668,13 @@ mod precheck_tests {
     fn finish_table_does_not_unwind_when_a_discarded_payload_panics_on_drop() {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[0, 0, 0]);
-        subs.callbacks.push((1, drop_bomb()));
-        subs.callbacks.push((2, drop_bomb()));
-        subs.callbacks.push((3, recorder(&seen, 3)));
+        subs.callbacks.push((1, GEN, drop_bomb()));
+        subs.callbacks.push((2, GEN, drop_bomb()));
+        subs.callbacks.push((3, GEN, recorder(&seen, 3)));
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             finish_table(
                 &mut subs,
+                GEN,
                 |group| group.store(1, Ordering::SeqCst),
                 fake_state,
                 |callback: Callback, state| callback(state),
@@ -3228,10 +3692,14 @@ mod precheck_tests {
     fn a_panicking_classify_does_not_lose_registrations() {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[0]);
-        assert!(subs.register(1, recorder(&seen, 1), fake_state).is_none());
+        assert!(
+            subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state)
+                .is_none()
+        );
         let boom = |_: &Fake| -> GroupState { panic!("classify failed") };
-        let outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| subs.take_terminal(boom)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            subs.take_terminal(GEN, boom)
+        }));
         assert!(outcome.is_err());
         assert_eq!(subs.callbacks.len(), 1);
     }
@@ -3520,6 +3988,370 @@ mod precheck_tests {
         assert_eq!(pool.entries, 0);
     }
 
+    // ---- ロストの後の完了 callback（世代の違う登録。TASK-2932）----
+
+    #[test]
+    fn take_stale_splits_by_generation_and_returns_lost_once() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[0, 0, 0]);
+        assert!(
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
+                .is_none()
+        );
+        assert!(
+            subs.register(2, 2, 2, recorder(&seen, 2), fake_state)
+                .is_none()
+        );
+        assert!(
+            subs.register(3, 1, 1, recorder(&seen, 3), fake_state)
+                .is_none()
+        );
+
+        call_all(subs.take_stale(2));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(1, CompletionState::Lost), (3, CompletionState::Lost)]
+        );
+        // 同じ世代の登録は残り、もう一度掃いても二重には呼ばれない。
+        assert_eq!(subs.callbacks.len(), 1);
+        call_all(subs.take_stale(2));
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_stale_registration_is_never_completed_even_when_the_group_is_done() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0]);
+        assert!(
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
+                .is_none()
+        );
+        groups[0].store(1, Ordering::SeqCst);
+        // 世代が違えば、列が完了していても `Complete` は渡さず `Lost` を渡す。
+        call_all(subs.take_terminal(2, fake_state));
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn a_stale_registration_is_lost_on_the_final_drain_too() {
+        let seen: Seen = Arc::default();
+        let (mut subs, groups) = fake_table(&[0]);
+        assert!(
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
+                .is_none()
+        );
+        groups[0].store(1, Ordering::SeqCst);
+        call_all(subs.take_all(2, fake_state));
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+    }
+
+    #[test]
+    fn sweeping_then_driving_calls_each_registration_exactly_once() {
+        let seen: Seen = Arc::default();
+        let (subs, groups) = fake_table(&[0, 0]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        register_table(&table, 1, 1, || 1, recorder(&seen, 1), fake_state, call);
+        register_table(&table, 2, 2, || 1, recorder(&seen, 2), fake_state, call);
+        groups[0].store(1, Ordering::SeqCst);
+        groups[1].store(1, Ordering::SeqCst);
+
+        sweep_stale_table(&table, 2, call);
+        drive_table(&table, 2, || 2, fake_state, call);
+        drive_table(&table, 2, || 2, fake_state, call);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(1, CompletionState::Lost), (2, CompletionState::Complete)]
+        );
+    }
+
+    #[test]
+    fn a_newer_registration_is_left_alone_by_an_older_reading() {
+        let seen: Seen = Arc::default();
+        let (subs, groups) = fake_table(&[1, 1]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        // 古い世代 1 の登録と、ロストの後に登録された新しい世代 2 の登録。列はどちらも完了済み。
+        register_table(
+            &table,
+            1,
+            1,
+            || 1,
+            recorder(&seen, 1),
+            |_| GroupState::Pending,
+            call,
+        );
+        register_table(
+            &table,
+            2,
+            2,
+            || 2,
+            recorder(&seen, 2),
+            |_| GroupState::Pending,
+            call,
+        );
+        assert_eq!(lock_table(&table).callbacks.len(), 2);
+        groups[0].store(1, Ordering::SeqCst);
+
+        // 世代 1 を読んだ操作の駆動は、世代 2 の登録に触れない（`Lost` も `Complete` も渡さない）。
+        drive_table(&table, 1, || 1, fake_state, call);
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Complete)]);
+        assert_eq!(lock_table(&table).callbacks.len(), 1);
+        // 世代 1 を読んだ掃き出しも同じ。
+        sweep_stale_table(&table, 1, call);
+        assert_eq!(lock_table(&table).callbacks.len(), 1);
+
+        // 次の世代 2 の駆動で、通常の値が 1 回だけ届く。
+        drive_table(&table, 2, || 2, fake_state, call);
+        drive_table(&table, 2, || 2, fake_state, call);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (1, CompletionState::Complete),
+                (2, CompletionState::Complete)
+            ]
+        );
+    }
+
+    #[test]
+    fn stale_sweeping_and_the_final_drain_follow_the_same_ordering_rule() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[1, 1, 1]);
+        assert!(
+            subs.register(1, 1, 1, recorder(&seen, 1), |_| GroupState::Pending)
+                .is_none()
+        );
+        assert!(
+            subs.register(2, 2, 2, recorder(&seen, 2), |_| GroupState::Pending)
+                .is_none()
+        );
+        assert!(
+            subs.register(3, 3, 3, recorder(&seen, 3), |_| GroupState::Pending)
+                .is_none()
+        );
+        // 世代 2 を読んだ掃き出しは、世代 1 だけを外す。
+        call_all(subs.take_stale(2));
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+        assert_eq!(subs.callbacks.len(), 2);
+        // 最後の掃き出し（Drop）では、世代 2 は今の世代と同じ扱いで通常の値、世代 3 も通常の値になる。
+        call_all(subs.take_all(2, fake_state));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (1, CompletionState::Lost),
+                (2, CompletionState::Complete),
+                (3, CompletionState::Complete)
+            ]
+        );
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn registering_with_an_older_generation_than_now_gets_lost_at_once() {
+        let seen: Seen = Arc::default();
+        let (subs, _groups) = fake_table(&[0]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        // 所有者の検査の後でロストと掃き出しが済んだ想定。錠の中で読んだ世代 2 が登録の世代 1 より大きい。
+        register_table(&table, 1, 1, || 2, recorder(&seen, 1), fake_state, call);
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+        assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    /// 並行の試験で使う、各登録の呼ばれた回数と値。
+    fn tally(seen: &Seen, count: u64) -> Vec<Vec<CompletionState>> {
+        let mut by_tag = vec![Vec::new(); count as usize];
+        for (tag, state) in seen.lock().unwrap().iter() {
+            by_tag[*tag as usize].push(*state);
+        }
+        by_tag
+    }
+
+    #[test]
+    fn a_concurrent_sweep_and_drives_call_each_registration_exactly_once() {
+        const N: u64 = 16;
+        for _ in 0..50 {
+            let seen: Seen = Arc::default();
+            let states = [1_u8; N as usize];
+            let (subs, _groups) = fake_table(&states);
+            let table = Mutex::new(subs);
+            let generation = AtomicU64::new(1);
+            let call = |callback: Callback, state| callback(state);
+            for tag in 0..N {
+                register_table(
+                    &table,
+                    tag + 1,
+                    1,
+                    || 1,
+                    recorder(&seen, tag),
+                    |_| GroupState::Pending,
+                    call,
+                );
+            }
+            let barrier = std::sync::Barrier::new(4);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    generation.store(2, Ordering::Release);
+                    sweep_stale_table(&table, 2, call);
+                });
+                for _ in 0..3 {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        for _ in 0..4 {
+                            drive_table(
+                                &table,
+                                generation.load(Ordering::Acquire),
+                                || generation.load(Ordering::Acquire),
+                                fake_state,
+                                call,
+                            );
+                        }
+                    });
+                }
+            });
+            drive_table(&table, 2, || 2, fake_state, call);
+            for calls in tally(&seen, N) {
+                assert_eq!(calls.len(), 1, "{calls:?}");
+                assert!(matches!(
+                    calls[0],
+                    CompletionState::Lost | CompletionState::Complete
+                ));
+            }
+            assert!(lock_table(&table).callbacks.is_empty());
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "fault-injection")]
+    fn a_concurrent_loss_and_registrations_call_each_registration_exactly_once() {
+        const N: u64 = 16;
+        for _ in 0..50 {
+            let seen: Seen = Arc::default();
+            // 偶数番は完了済み、奇数番は未完了の列。
+            let states: Vec<u8> = (0..N).map(|i| u8::from(i % 2 == 0)).collect();
+            let (subs, _groups) = fake_table(&states);
+            let table = Mutex::new(subs);
+            let lost = LostState::default();
+            let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+            let call = |callback: Callback, state| callback(state);
+            let barrier = std::sync::Barrier::new(3);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    if lost
+                        .lose(DeviceLostReason::Unknown, &generation, &source)
+                        .unwrap()
+                    {
+                        sweep_stale_table(&table, generation.load(Ordering::Acquire), call);
+                    }
+                });
+                for half in 0..2_u64 {
+                    let (seen, table, generation, barrier) = (&seen, &table, &generation, &barrier);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        for tag in (half * N / 2)..((half + 1) * N / 2) {
+                            // 印の世代は 1（ロストの前に払い出された印）。
+                            register_table(
+                                table,
+                                tag + 1,
+                                1,
+                                || generation.load(Ordering::Acquire),
+                                recorder(seen, tag),
+                                fake_state,
+                                call,
+                            );
+                        }
+                    });
+                }
+            });
+            // 残りは最後の掃き出し。世代 2 を読む駆動で、古い世代の登録は `Lost` になる。
+            drive_table(&table, 2, || 2, fake_state, call);
+            for (tag, calls) in tally(&seen, N).into_iter().enumerate() {
+                assert_eq!(calls.len(), 1, "tag {tag}: {calls:?}");
+                if tag % 2 == 1 {
+                    // 未完了の列は、ロストの前後どちらに登録しても `Lost`。
+                    assert_eq!(calls[0], CompletionState::Lost);
+                } else {
+                    assert!(matches!(
+                        calls[0],
+                        CompletionState::Lost | CompletionState::Complete
+                    ));
+                }
+            }
+            assert!(lock_table(&table).callbacks.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_generation_is_read_again_after_the_drive() {
+        let generation = AtomicU64::new(1);
+        let seen_by_drive = Mutex::new(None);
+        let used = driven_generation(
+            |g0| {
+                *seen_by_drive.lock().unwrap() = Some(g0);
+                // 駆動中の callback が再入して世代を進めた想定。
+                generation.store(2, Ordering::Release);
+            },
+            || generation.load(Ordering::Acquire),
+        );
+        assert_eq!(*seen_by_drive.lock().unwrap(), Some(1));
+        assert_eq!(used, 2);
+        // 動かなければ同じ値。
+        assert_eq!(driven_generation(|_| {}, || 5), 5);
+    }
+
+    #[test]
+    fn remove_issued_matches_the_issue_generation_not_the_current_one() {
+        // 項目は (払い出しの世代, 中身)。device の今の世代は引数に現れない。
+        let mut map: HashMap<u64, (u64, &str)> = HashMap::new();
+        map.insert(1, (1, "a"));
+        map.insert(2, (2, "b"));
+        let generation_of = |entry: &(u64, &str)| entry.0;
+
+        // 世代が違う・表に無い識別子は何も外さない。
+        assert_eq!(remove_issued(&mut map, 1, 2, generation_of), None);
+        assert_eq!(remove_issued(&mut map, 9, 1, generation_of), None);
+        assert_eq!(map.len(), 2);
+        // 一致すれば外れ、2 回目は何も起きない。別の項目は残る。
+        assert_eq!(remove_issued(&mut map, 1, 1, generation_of), Some((1, "a")));
+        assert_eq!(remove_issued(&mut map, 1, 1, generation_of), None);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&2));
+    }
+
+    #[test]
+    fn a_reentrant_loss_in_the_first_callback_turns_the_second_into_lost() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[1, 1]);
+        let generation = Arc::new(AtomicU64::new(1));
+        // 1 件目は呼ばれたときに世代を進める（ロストへの再入の見立て）。
+        let advance = {
+            let (seen, generation) = (Arc::clone(&seen), Arc::clone(&generation));
+            Box::new(move |state| {
+                seen.lock().unwrap().push((1, state));
+                generation.store(2, Ordering::Release);
+            }) as Callback
+        };
+        subs.callbacks.push((1, 1, advance));
+        subs.callbacks.push((2, 1, recorder(&seen, 2)));
+        subs.callbacks.push((3, 2, recorder(&seen, 3)));
+
+        // 世代 1 の読みで取り出す。世代 2 の登録は新しいので残る。
+        let ready = subs.take_terminal(1, fake_state);
+        assert_eq!(ready.len(), 2);
+        assert_eq!(subs.callbacks.len(), 1);
+        let read = || generation.load(Ordering::Acquire);
+        assert!(run_callbacks(ready, read, |callback, state| callback(state)).is_none());
+
+        // 1 件目は先に決めた `Complete` のまま、2 件目は `Lost`。各 1 回。
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(1, CompletionState::Complete), (2, CompletionState::Lost)]
+        );
+    }
+
     #[test]
     fn take_next_does_not_move_an_exhausted_counter() {
         let counter = AtomicU64::new(u64::MAX);
@@ -3701,5 +4533,250 @@ mod precheck_tests {
         assert_eq!((prepared[0].0, prepared[0].1), (9, ConstantKind::Bool));
         assert_eq!((prepared[1].0, prepared[1].1), (0, ConstantKind::UInt));
         assert!(prepare_constants(&[]).unwrap().is_empty());
+    }
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+mod lost_state_tests {
+    //! 模擬のロストの状態 `LostState` の固定（device に触らない。どの OS でも流れる。TASK-2932）。
+    use super::*;
+    use std::sync::Arc;
+
+    type Seen = Arc<Mutex<Vec<DeviceLostReason>>>;
+
+    fn recorder(seen: &Seen) -> LostCallback {
+        let seen = Arc::clone(seen);
+        Box::new(move |reason| seen.lock().unwrap().push(reason))
+    }
+
+    fn all_reasons() -> [DeviceLostReason; 4] {
+        [
+            DeviceLostReason::Destroyed,
+            DeviceLostReason::Unknown,
+            DeviceLostReason::ValidationError("v".into()),
+            DeviceLostReason::Unrecoverable("u".into()),
+        ]
+    }
+
+    #[test]
+    fn the_callback_runs_once_and_a_second_lose_is_ignored() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(5));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        assert!(!state.is_lost());
+
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Ok(true)
+        );
+        assert_eq!(
+            state.lose(DeviceLostReason::Destroyed, &generation, &source),
+            Ok(false)
+        );
+        assert!(state.is_lost());
+        assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Unknown]);
+    }
+
+    #[test]
+    fn every_reason_is_passed_through_unchanged() {
+        for reason in all_reasons() {
+            let state = LostState::default();
+            let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+            let seen = Seen::default();
+            state.set_callback(recorder(&seen));
+            state.lose(reason.clone(), &generation, &source).unwrap();
+            assert_eq!(*seen.lock().unwrap(), [reason]);
+        }
+    }
+
+    #[test]
+    fn the_generation_is_taken_once() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(7));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert_eq!(generation.load(Ordering::Relaxed), 7);
+        assert_eq!(source.load(Ordering::Relaxed), 8);
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(generation.load(Ordering::Relaxed), 7);
+        assert_eq!(source.load(Ordering::Relaxed), 8);
+    }
+
+    #[test]
+    fn an_exhausted_source_leaves_the_state_unchanged() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(u64::MAX));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Err(GenerationExhausted)
+        );
+        assert!(!state.is_lost());
+        assert_eq!(generation.load(Ordering::Relaxed), 1);
+        assert_eq!(source.load(Ordering::Relaxed), u64::MAX);
+        assert!(seen.lock().unwrap().is_empty());
+
+        // 源が戻れば、保持されたままのコールバックでロストできる。
+        source.store(3, Ordering::Relaxed);
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Destroyed]);
+        assert_eq!(generation.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn a_callback_registered_after_the_loss_is_kept_but_not_called() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(seen.lock().unwrap().is_empty());
+        assert!(state.lock().callback.is_some());
+    }
+
+    #[test]
+    fn a_loss_without_a_callback_then_a_registration_never_calls_it() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    /// 捨てられるときに、同じ状態の `set_callback` と `lose` を呼ぶ値。
+    struct ReentrantDrop {
+        state: Arc<LostState>,
+        generation: Arc<AtomicU64>,
+        source: Arc<AtomicU64>,
+        done: Arc<Mutex<bool>>,
+    }
+
+    impl Drop for ReentrantDrop {
+        fn drop(&mut self) {
+            self.state.set_callback(Box::new(|_| {}));
+            let _ = self
+                .state
+                .lose(DeviceLostReason::Unknown, &self.generation, &self.source);
+            *self.done.lock().unwrap() = true;
+        }
+    }
+
+    #[test]
+    fn dropping_an_overwritten_callback_may_reenter_without_deadlock() {
+        let state = Arc::new(LostState::default());
+        let generation = Arc::new(AtomicU64::new(1));
+        let source = Arc::new(AtomicU64::new(2));
+        let done = Arc::new(Mutex::new(false));
+        let guard = ReentrantDrop {
+            state: Arc::clone(&state),
+            generation: Arc::clone(&generation),
+            source: Arc::clone(&source),
+            done: Arc::clone(&done),
+        };
+        state.set_callback(Box::new(move |_| {
+            let _keep = &guard;
+        }));
+        // 上書きで古いコールバックが捨てられ、その `Drop` が再入する。錠を握ったままなら詰まる。
+        state.set_callback(Box::new(|_| {}));
+        assert!(*done.lock().unwrap());
+        assert!(state.is_lost());
+    }
+
+    #[test]
+    fn concurrent_loses_call_the_callback_once_and_advance_the_source_once() {
+        const THREADS: usize = 8;
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(10));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        let barrier = std::sync::Barrier::new(THREADS);
+        std::thread::scope(|scope| {
+            for _ in 0..THREADS {
+                scope.spawn(|| {
+                    barrier.wait();
+                    state
+                        .lose(DeviceLostReason::Unknown, &generation, &source)
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert_eq!(source.load(Ordering::Relaxed), 11);
+        assert_eq!(generation.load(Ordering::Relaxed), 10);
+    }
+
+    #[test]
+    fn a_later_registration_replaces_the_earlier_one() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        let (first, second) = (Seen::default(), Seen::default());
+        state.set_callback(recorder(&first));
+        state.set_callback(recorder(&second));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert!(first.lock().unwrap().is_empty());
+        assert_eq!(second.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_callback_runs_outside_the_lock() {
+        let state = Arc::new(LostState::default());
+        let (generation, source) = (Arc::new(AtomicU64::new(1)), Arc::new(AtomicU64::new(2)));
+        let reentered = Arc::new(Mutex::new(None));
+        {
+            let (state2, generation2, source2, reentered) = (
+                Arc::clone(&state),
+                Arc::clone(&generation),
+                Arc::clone(&source),
+                Arc::clone(&reentered),
+            );
+            state.set_callback(Box::new(move |_| {
+                // 錠を持ったまま呼ばれていれば、ここで詰まる。
+                state2.set_callback(Box::new(|_| {}));
+                let again = state2.lose(DeviceLostReason::Unknown, &generation2, &source2);
+                *reentered.lock().unwrap() = Some((state2.is_lost(), again));
+            }));
+        }
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(*reentered.lock().unwrap(), Some((true, Ok(false))));
+    }
+
+    #[test]
+    fn a_poisoned_lock_does_not_panic() {
+        let state = Arc::new(LostState::default());
+        let poisoner = Arc::clone(&state);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.inner.lock().unwrap();
+            panic!("poison the lock");
+        })
+        .join();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1);
     }
 }
