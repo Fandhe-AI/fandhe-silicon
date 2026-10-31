@@ -99,7 +99,7 @@ fandhe-silicon/
 ├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29）
-├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）
+├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）・決定表の語彙の検査（ソースの語・呼び出しと `DecisionInput` の公開フィールドの集合。TASK-142）
 ├── docs/public-api-sdk-check.md  # 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13）
 ├── docs/core-deps-check.md   # 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・確かめ方・TASK-13 の検査との突き合わせ・完了の条件の確かめ（2/2）（TASK-258）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
