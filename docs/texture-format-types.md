@@ -119,6 +119,43 @@ cargo test -p fandhe-silicon-core --test texture_format_counts
 cargo test -p fandhe-silicon-core --all-features
 ```
 
+## CI への組み込み（3/6）
+
+範囲は `docs/spec/05-tasks.md` の TASK-1312 の内容（ポインタのみ）。
+本段では CI の設定・Makefile・スクリプトを変えていない（新しいジョブ・step・make ターゲットは足していない）。
+2/6 で足した `TextureFormat`・`AstcBlock`・`AstcChannel` は、既存の検査が core 全体に当てる範囲に入っている。
+
+### 検査と CI のジョブ
+
+| 検査 | 入口 | CI のジョブ | 結果（記録時点） |
+| ---- | ---- | ----------- | ---------------- |
+| 公開 API の wgpu 系の参照 | `make public-api-check` | `deny` | 終了コード 0。core は production で `public_items=2655`・all-features で `public_items=6430`、`wgpu_type_refs=0`・`wgpu_other_refs=0` |
+| 公開 API のチップの SDK の crate | `make public-api-sdk-check` | `deny` | 終了コード 0。core は production で `public_items=2341`・all-features で `public_items=5718`、`sdk_type_refs=0`・`sdk_other_refs=0` |
+| 公開 API の WebGPU 系の名前 | `make public-api-webgpu-check` | `deny` | 終了コード 0。`record:` は `public_items_total=2345`・`webgpu_names_total=0`・`blocking_wait_names_total=0` |
+| 公開 API の名前 | `make public-name-check` | `deny` | 終了コード 0。core は production で `named_items=822`・all-features で `named_items=2011`、いずれも `name_hits=0` |
+| core の外部依存と feature の転送 | `make core-deps-check` | `deny` | 終了コード 0。`record:` は `unexpected=0`・`missing=0`・`forward_violations=0` |
+| 依存グラフの wgpu 系 crate | `make deny` の中の `dep-graph-wgpu-check` | `deny` | 終了コード 0。`record:` は `crates_total=13`・`narrow_total=0`・`wide_total=0` |
+| core の試験を含む wasm32 の型検査 | `make wasm-verify` | `deny`・`wasm-macos` | 終了コード 0 |
+| core の wasm32 の型検査 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown` | CI では `make wasm-verify` の `--tests` の check と、`verify`・`verify-macos` の `make build-profiles` の wasm32 の組が core をコンパイルする | 終了コード 0 |
+
+ジョブは `ci.yml` のジョブ id で書く（`deny` は make deny (cargo-deny)、`wasm-macos` は wasm32 build + size + node (macos-latest)、`verify` は make verify + build-profiles、`verify-macos` は macOS 版）。
+件数は記録時点（origin/main の 1df20ff）の値で、後の段で型や公開アイテムが増えても本節は書き換えない。
+
+### 確かめ方
+
+```text
+grep -n 'run: make' .github/workflows/ci.yml
+grep -n 'cargo check' scripts/wasm-verify.sh
+make public-api-check
+make public-api-sdk-check
+make public-api-webgpu-check
+make public-name-check
+make core-deps-check
+make deny
+make wasm-verify
+cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown
+```
+
 ## 段の表
 
 | Issue | 内容 |
