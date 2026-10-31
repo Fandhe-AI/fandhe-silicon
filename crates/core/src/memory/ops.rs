@@ -33,6 +33,22 @@ pub trait MemoryOps {
     ) -> Result<Vec<u8>, ContractError>;
 
     /// `src` の `src_offset` から `byte_len` バイトを読み出し、完了したら `callback` に渡す。
+    ///
+    /// native では callback が `Send` でなければならない（BUILD-27 のポインタ）。`Send` でない値を持つ callback は渡せない:
+    ///
+    /// ```compile_fail
+    /// use fandhe_silicon_core::error::ContractError;
+    /// use fandhe_silicon_core::memory::{BufferHandle, MemoryOps};
+    /// fn f(ops: &dyn MemoryOps, buffer: &BufferHandle) {
+    ///     let not_send = std::rc::Rc::new(0);
+    ///     ops.download_async(
+    ///         buffer,
+    ///         0,
+    ///         4,
+    ///         Box::new(move |_: Result<Vec<u8>, ContractError>| drop(not_send)),
+    ///     );
+    /// }
+    /// ```
     #[cfg(not(target_arch = "wasm32"))]
     fn download_async(
         &self,
