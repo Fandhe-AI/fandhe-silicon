@@ -231,6 +231,38 @@ fn prepare_constants(
         .collect()
 }
 
+/// 関数が宣言する function constant の（番号, 必須か）の並びと、渡した番号から、足りない必須の番号を
+/// 小さい順に重複なしで返す。Metal に触らない純粋な関数で、`create_pipeline` が特殊化の前に呼ぶ。
+///
+/// 必須でない宣言は渡されなくてよい。宣言に無い番号を渡しても咎めない（Metal はそれを無視する）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn missing_required_constants(declared: &[(usize, bool)], provided: &[u32]) -> Vec<usize> {
+    let mut missing: Vec<usize> = declared
+        .iter()
+        .filter(|(index, required)| {
+            *required
+                && !provided
+                    .iter()
+                    .any(|p| usize::try_from(*p).is_ok_and(|p| p == *index))
+        })
+        .map(|(index, _)| *index)
+        .collect();
+    missing.sort_unstable();
+    missing.dedup();
+    missing
+}
+
+/// 足りない必須の番号（空でない）から、`ArtifactRejected { kind: "msl" }` の理由の文を作る。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn missing_required_reason(missing: &[usize]) -> String {
+    let list = missing
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("required function constant at index {list} was not provided")
+}
+
 /// 世代の源が尽きて、ロストの世代を取り直せなかったことを表す。状態は変わっていない。
 #[cfg(feature = "fault-injection")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1152,8 +1184,9 @@ mod imp {
     use super::{
         BufState, Callback, ConstantKind, GroupState, OpenEncoders, SizePool, Submissions,
         check_token_owner, check_unique_slots, classify_pipeline_input, drive_table,
-        driven_generation, finish_table, group_state_of, precheck_submit, precheck_submit_many,
-        prepare_constants, register_table, remove_issued, retire, take_next,
+        driven_generation, finish_table, group_state_of, missing_required_constants,
+        missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
+        register_table, remove_issued, retire, take_next,
     };
     use super::{MAX_FUNCTION_CONSTANT_INDEX, host_range};
 
@@ -1188,7 +1221,7 @@ mod imp {
     use objc2_foundation::NSString;
     use objc2_metal::{
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue,
-        MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice,
+        MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
         MTLFunctionConstantValues, MTLLibrary, MTLResourceOptions,
     };
 
@@ -2225,9 +2258,13 @@ mod imp {
     impl ComputeOps for MetalDevice {
         /// MSL のソースから compute パイプラインを作り、表に登録して返す。
         ///
-        /// 受け付けるのは `Msl` と `MslSpecialized`。検査（入力の分類・`layout.slots` と function constant の
-        /// 重複）はすべて Metal の API を呼ぶ前に行う。`MslSpecialized` は function constant が空でも
-        /// 特殊化の API（`newFunctionWithName_constantValues_error`）で関数を作る。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
+        /// 受け付けるのは `Msl` と `MslSpecialized`。入力の分類・`layout.slots` と function constant の
+        /// 重複の検査は Metal の API を呼ぶ前に行う。ライブラリのコンパイルと、特殊化しない関数からの
+        /// function constant の宣言の読み出しの後、特殊化の前に、必須の定数（`is_function_constant_defined` で
+        /// 守られていないもの）がすべて渡されているかを確かめ、足りなければ `ArtifactRejected { kind: "msl" }`
+        /// を返す。`Msl` は定数の並びが空として扱うので、必須の定数を持つカーネルは拒まれる。
+        /// `MslSpecialized` は function constant が空でも特殊化の API（`newFunctionWithName_constantValues_error`）で
+        /// 関数を作る。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
         /// `layout` は検査したうえで写しを表に持つだけで、カーネルの引数とは突き合わせない。
         fn create_pipeline(
             &self,
@@ -2249,23 +2286,40 @@ mod imp {
                 .newLibraryWithSource_options_error(&NSString::from_str(source), None)
                 .map_err(|e| rejected("msl", "MSL compilation failed", &e))?;
             let name = NSString::from_str(entry_point);
-            let found = if !specialized {
-                library.newFunctionWithName(&name)
+            // 特殊化しない関数から function constant の宣言を読み、必須の定数が渡されているかを
+            // 特殊化の前に自分で確かめる（Metal の結果に頼らない）。`Msl` は定数の並びが空として扱う。
+            let base = library.newFunctionWithName(&name).ok_or_else(|| {
+                ContractError::ArtifactRejected {
+                    kind: "msl",
+                    reason: format!("entry point `{entry_point}` was not found in the MSL source"),
+                }
+            })?;
+            let declared: Vec<(usize, bool)> = base
+                .functionConstantsDictionary()
+                .allValues()
+                .to_vec()
+                .iter()
+                .map(|c| (c.index(), c.required()))
+                .collect();
+            let provided: Vec<u32> = prepared.iter().map(|(index, _, _)| *index).collect();
+            let missing = missing_required_constants(&declared, &provided);
+            if !missing.is_empty() {
+                return Err(ContractError::ArtifactRejected {
+                    kind: "msl",
+                    reason: missing_required_reason(&missing),
+                });
+            }
+            let function = if !specialized {
+                base
             } else {
                 let values = MTLFunctionConstantValues::new();
                 for (index, kind, bytes) in &prepared {
                     set_constant(&values, *index, *kind, bytes)?;
                 }
-                Some(
-                    library
-                        .newFunctionWithName_constantValues_error(&name, &values)
-                        .map_err(|e| rejected("msl", "MSL function specialization failed", &e))?,
-                )
+                library
+                    .newFunctionWithName_constantValues_error(&name, &values)
+                    .map_err(|e| rejected("msl", "MSL function specialization failed", &e))?
             };
-            let function = found.ok_or_else(|| ContractError::ArtifactRejected {
-                kind: "msl",
-                reason: format!("entry point `{entry_point}` was not found in the MSL source"),
-            })?;
             let state = self
                 .device
                 .newComputePipelineStateWithFunction_error(&function)
@@ -3002,6 +3056,58 @@ mod imp {
             );
             assert!(
                 matches!(r, Err(ContractError::ArtifactRejected { .. })),
+                "{r:?}"
+            );
+        }
+
+        /// 必須の定数の一部だけを渡した `MslSpecialized` は、特殊化の前に拒まれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn specialized_msl_missing_a_required_constant_is_artifact_rejected() {
+            const TWO_REQUIRED: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                constant uint A [[function_constant(0)]];\n\
+                constant uint B [[function_constant(1)]];\n\
+                kernel void k(device uint* out [[buffer(0)]]) { out[0] = A + B; }\n";
+            let device = new_device();
+            let constants = [FunctionConstant {
+                index: 0,
+                value: FunctionConstantValue::U32(1),
+            }];
+            let r = device.create_pipeline(
+                PipelineInput::MslSpecialized {
+                    source: TWO_REQUIRED,
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            match r {
+                Err(ContractError::ArtifactRejected {
+                    kind: "msl",
+                    reason,
+                }) => assert_eq!(
+                    reason,
+                    "required function constant at index 1 was not provided"
+                ),
+                other => panic!("{other:?}"),
+            }
+        }
+
+        /// 必須の定数を持つカーネルは、`Msl`（定数の並びが空）でも拒まれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn msl_with_a_required_constant_is_artifact_rejected() {
+            let device = new_device();
+            let r = device.create_pipeline(
+                PipelineInput::Msl {
+                    source: SPECIALIZED_KERNEL,
+                    entry_point: "k",
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(
+                matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
                 "{r:?}"
             );
         }
@@ -4782,6 +4888,48 @@ mod precheck_tests {
             assert_eq!(bytes, [byte]);
             assert_eq!(bytes.len(), kind.byte_len());
         }
+    }
+
+    #[test]
+    fn missing_required_lists_absent_required_indexes_in_order() {
+        let declared = [(3, true), (0, true), (1, false), (2, true)];
+        assert_eq!(missing_required_constants(&declared, &[2]), vec![0, 3]);
+    }
+
+    #[test]
+    fn missing_required_is_empty_when_all_required_are_provided() {
+        let declared = [(0, true), (1, true)];
+        assert!(missing_required_constants(&declared, &[1, 0]).is_empty());
+    }
+
+    #[test]
+    fn missing_required_ignores_optional_declarations() {
+        let declared = [(0, false), (1, false)];
+        assert!(missing_required_constants(&declared, &[]).is_empty());
+    }
+
+    #[test]
+    fn missing_required_does_not_object_to_undeclared_provided_index() {
+        let declared = [(0, true)];
+        assert!(missing_required_constants(&declared, &[0, 7, 65535]).is_empty());
+    }
+
+    #[test]
+    fn missing_required_with_no_declarations_is_empty() {
+        assert!(missing_required_constants(&[], &[]).is_empty());
+        assert!(missing_required_constants(&[], &[1]).is_empty());
+    }
+
+    #[test]
+    fn missing_required_reason_names_the_indexes() {
+        assert_eq!(
+            missing_required_reason(&[1]),
+            "required function constant at index 1 was not provided"
+        );
+        assert_eq!(
+            missing_required_reason(&[0, 3]),
+            "required function constant at index 0, 3 was not provided"
+        );
     }
 
     #[test]
