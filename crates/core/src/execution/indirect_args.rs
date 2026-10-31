@@ -1,6 +1,10 @@
 //! 間接実行で GPU が読む引数の固定長の型と、欄ごとのリトルエンディアンのバイト列との相互変換（TASK-1878 のポインタ）。
 //!
 //! `execution` から再公開される。型は欄がすべて公開で、unsafe を使わずに `to_bytes`・`from_bytes` で変換する。
+//! あわせて、引数バッファの開始位置の整列と範囲の検査（`validate_indirect_args_range`）と、`first_instance` を反映するか拒否するかの判定（`first_instance_decision`）を置く。
+
+use crate::error::ContractError;
+use crate::memory::validate_buffer_range;
 
 /// 4 バイトを `u32` に読む（リトルエンディアン）。
 const fn read_u32(b: &[u8], at: usize) -> u32 {
@@ -131,5 +135,51 @@ impl DispatchIndirectArgs {
             y: read_u32(bytes, 4),
             z: read_u32(bytes, 8),
         }
+    }
+}
+
+/// 間接実行の引数バッファの開始位置の整列と範囲を確かめる純粋関数。
+///
+/// 判定の順は、開始位置が 4 の倍数か、終端（`offset + args_size`）が `u64` であふれないか、
+/// 終端がバッファの長さを超えないか（ちょうど長さなら通る）。`args_size` は 12・16・20 に限らず任意の値を受ける。
+///
+/// # Errors
+///
+/// どの拒否も `ContractError::InvalidArgument` で返す。整列の拒否の文は `indirect args offset` で始まり、
+/// あふれと超過の文は `validate_buffer_range` と同じ。
+pub fn validate_indirect_args_range(
+    offset: u64,
+    args_size: u64,
+    buffer_len: u64,
+) -> Result<(), ContractError> {
+    if !offset.is_multiple_of(4) {
+        return Err(ContractError::InvalidArgument(format!(
+            "indirect args offset ({offset}) is not a multiple of 4"
+        )));
+    }
+    validate_buffer_range(offset, args_size, buffer_len)
+}
+
+/// `first_instance` の扱いの判定結果（閉じた 2 値）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FirstInstanceDecision {
+    /// 引数の値をそのまま使ってよい。
+    Apply,
+    /// この組は受け付けない。
+    Reject,
+}
+
+/// `first_instance` を反映するか拒否するかを返す。
+///
+/// `first_instance` が 0 なら `Apply`。0 以外のときは、`feature_enabled`（device を作ったときに機能を有効にしたか）が
+/// 真なら `Apply`、偽なら `Reject`。
+pub fn first_instance_decision(
+    feature_enabled: bool,
+    first_instance: u32,
+) -> FirstInstanceDecision {
+    if first_instance == 0 || feature_enabled {
+        FirstInstanceDecision::Apply
+    } else {
+        FirstInstanceDecision::Reject
     }
 }

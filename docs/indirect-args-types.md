@@ -126,6 +126,45 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `cargo test -p fandhe-silicon-core --test indirect_args_size`
 - `cargo test -p fandhe-silicon-core --all-features`
 
+## 現状の形（3/6）
+
+置き場は同じ `crates/core/src/execution/indirect_args.rs` で、`execution` から再公開される。
+
+### 範囲・整列の検査
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 関数 | `validate_indirect_args_range(offset: u64, args_size: u64, buffer_len: u64) -> Result<(), ContractError>` |
+| 判定の順 | 開始位置が 4 の倍数か、終端のあふれ、終端が長さを超えるか（後の 2 つは `validate_buffer_range` に渡す） |
+| 拒否 | どれも `ContractError::InvalidArgument` |
+| 文 | 整列は `indirect args offset (…) is not a multiple of 4`。あふれ・超過は [buffer-range-check](buffer-range-check.md) の既存の 2 種のまま |
+| 入力 | `args_size` は任意の `u64`。`BufferHandle` は受けず、長さは呼び手が渡す |
+
+### first_instance の判定
+
+| 項目 | 内容 |
+| ---- | ---- |
+| enum | `FirstInstanceDecision { Apply, Reject }`。derive は `Debug, Clone, Copy, PartialEq, Eq, Hash`。`#[non_exhaustive]` は付けない |
+| 関数 | `first_instance_decision(feature_enabled: bool, first_instance: u32) -> FirstInstanceDecision`（`Result` ではない） |
+| 対応 | `first_instance` が 0 なら `Apply`、そうでなく `feature_enabled` なら `Apply`、それ以外は `Reject` |
+
+### 対応するテスト
+
+`crates/core/tests/indirect_args_rules.rs`（feature 不要）。
+
+| テスト | 内容 |
+| ------ | ---- |
+| `range_rejects_misaligned_offset` | 開始位置 1 が整列の文で拒否される |
+| `range_rejects_end_overflow` | 終端があふれる組があふれの文で拒否される |
+| `range_rejects_end_beyond_length` | 終端が長さを超える組が超過の文で拒否される |
+| `range_accepts_end_equal_to_length` | 終端がちょうど長さなら通る |
+| `first_instance_decision_cases` | `(false, 0)` と `(true, 7)` は `Apply`、`(false, 1)` は `Reject` |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --test indirect_args_rules`
+- `cargo test -p fandhe-silicon-core --all-features`
+
 ## 段の表
 
 | Issue | 内容 |
