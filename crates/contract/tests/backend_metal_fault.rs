@@ -184,3 +184,38 @@ fn command_queue_none_is_an_initialization_failure() {
     assert!(matches!(e, ContractError::DeviceUnavailable(_)), "{e:?}");
     assert_eq!(e.failure_class(), FailureClass::Initialization);
 }
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn fault_hooks_are_present_and_the_loss_moves_the_generation_once() {
+    // TASK-2932・DEV-80 のポインタ。公開の `Device` 越しに見える範囲を確かめる。
+    use fandhe_silicon_core::error::DeviceLostReason;
+    use fandhe_silicon_core::fault::{HookFault, inject};
+
+    let device = MetalDeviceProvider::request(compute_request(
+        BackendKind::Metal,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("request");
+    assert!(device.fault_hooks().is_some());
+    let gate = inject(device.fault_hooks(), HookFault::ArmGate);
+    assert!(
+        matches!(gate, Err(ContractError::UnsupportedExtensionDefault { .. })),
+        "{gate:?}"
+    );
+
+    let before = device.generation();
+    inject(
+        device.fault_hooks(),
+        HookFault::DeviceLost(DeviceLostReason::Unknown),
+    )
+    .expect("first loss");
+    let after = device.generation();
+    assert!(after > before);
+    inject(
+        device.fault_hooks(),
+        HookFault::DeviceLost(DeviceLostReason::Destroyed),
+    )
+    .expect("second loss");
+    assert_eq!(device.generation(), after);
+}

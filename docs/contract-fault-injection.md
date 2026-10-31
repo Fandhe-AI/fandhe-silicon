@@ -62,7 +62,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。
 
 - `fault::stub::FaultStub`: 背後実装を持たない試験用のスタブ。`FaultHooks` を実装し、`Send + Sync`。`simulate_device_lost` は 1 回目だけ理由を記録し、登録済みのコールバックを lock の外で 1 回呼ぶ。2 回目以降は `Ok` を返すだけで、理由も回数も変えない。コールバックが未登録のとき `lost_callback_count` は 0 のまま。`arm_gate`・`open_gate` は門の状態の記録だけで、何度呼んでも `Ok`。`simulate_runtime_error` は既定の実装のまま。`ValidationIntake` も実装し、`simulate_validation_report` は登録された関数へ `ValidationFailed` を届ける（device はロストしない）。届けた数は `validation_delivered_count` で読める
-- `fault::decorator::FaultInjecting<D>` と `FaultScript`（`non_exhaustive`。`PassThrough`・`CompletionUnknown`）: `Device` のトレイトが無いため、包む型を型引数にし、内側の呼び出しはクロージャで受ける。`wait_blocking_with` は `CompletionUnknown` で内側を呼ばず `Err(ContractError::Timeout)`、`poll_ex_with` は内側を呼ばず `CompletionStateEx::Unknown` を返す。`PassThrough` は内側の値をそのまま返す。`FaultHooks` の 4 つの口は内側へそのまま渡す
+- `fault::decorator::FaultInjecting<D>` と `FaultScript`（`non_exhaustive`。`PassThrough`・`CompletionUnknown`）: 包む型は型引数 `D` で、`Device` の実装に限らない。内側の呼び出しはクロージャで受ける。`wait_blocking_with` は `CompletionUnknown` で内側を呼ばず `Err(ContractError::Timeout)`、`poll_ex_with` は内側を呼ばず `CompletionStateEx::Unknown` を返す。`PassThrough` は内側の値をそのまま返す。`FaultHooks` の 4 つの口は内側へそのまま渡す
 - 試験: `crates/core/tests/fault_stub_lost.rs`・`fault_decorator_completion_unknown.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
@@ -133,7 +133,7 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 
 ### (A) デコレータの使い方
 
-1. 偽の内側を用意する（`Device` のトレイトはまだ無いので、包む値は型引数 `D`）
+1. 偽の内側を用意する（包む値は型引数 `D`。`Device` を実装した型に限らない）
 2. `FaultInjecting::new(inner, script)` で包む。筋書きは `PassThrough`・`CompletionUnknown`・`CapabilityInsufficient { feature, required }`・`CapabilityQueryFails`・`AllocationFails`・`RuntimeError { backend, detail }`
 3. 対象の `*_with(クロージャ)` を呼び、戻り値と内側を呼んだ回数を見る。クロージャは内側 `&D` を受け取る
     - `submit_with`・`wait_blocking_with`・`poll_ex_with`・`poll_with`・`create_pipeline_with`・`limits_with`: `|inner| ...`
@@ -215,6 +215,18 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 ## 後から足した口
 
 検証レイヤーの報告を模す口 `simulate_validation_report` と種類 `HookFault::ValidationReport` は TASK-554 が足した。所在は [validation-intake](validation-intake.md)。
+
+## Metal の `fault_hooks`（TASK-2932）
+
+`backend-metal` と `fault-injection` の両方を付けた macOS のビルドにだけある。対応する項目のポインタ: DEV-80、TASK-271。
+
+- Metal の device は `Device::fault_hooks()` を上書きし、自身を `Some` で返す。`FaultHooks` は `simulate_device_lost` だけを上書きし、`arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体（`UnsupportedExtensionDefault`）のまま
+- `simulate_device_lost(reason)`: 1 回目は、指定の理由を記録し、`Device::generation()` の値をプロセスの世代の源から取り直し、登録済みのコールバックを錠の外で 1 回、指定の理由で呼ぶ。理由は `Unrecoverable` を含めてそのまま渡す。2 回目以降は何もせず `Ok`（世代もコールバックの数も変わらない）。世代の源が尽きていれば、状態を変えずに `BackendFailure` を返す。`Drop` ではコールバックを呼ばない
+- device の型は `DeviceLostNotify` を実装し、コールバックの登録は上書きになる。ロストの後の登録は保持するだけで呼ばない。`Box<dyn Device>` からは登録に届かないので、登録は crate の内側の試験から行う
+- 世代は device ごとに書き換えられる値で、投入の印・バッファのハンドルの払い出しと照合も、いまの値を読む。ロストの後の操作の拒否はこの段では持たない
+- 状態の部品（理由・コールバック・世代の取り直し）は device に触らない純粋な型で、どの OS でも流れる単体の試験（`crates/contract/src/backend_metal.rs` の `lost_state_tests`。1 回だけ呼ぶこと・2 回目の無視・錠の外で呼ぶこと・ロストの後の登録・理由 4 値・世代の取り直し・尽きたときの不変・毒化した錠）で確かめる
+- device に触る試験は `#[ignore]`（Metal の実機の回でだけ流す）。`backend_metal.rs` の `device_tests::lost` と `crates/contract/tests/backend_metal_fault.rs` の `fault_hooks_are_present_and_the_loss_moves_the_generation_once`
+- 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib`（Linux でも流れる範囲）
 
 ## 依存の承認の件数の現状
 
