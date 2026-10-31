@@ -36,8 +36,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `spirv_words_const`・`make_spirv` | `crates/`・`wasm/` に 0 件（終了コード 1）。`SpirvModule`・`spirv_words_from_bytes` は 2/5 で `spirv.rs` に入った（下の「現状の形（2/5）」） | `grep -rn -e spirv_words_const -e make_spirv crates wasm` |
-| `#[macro_export]` | 1 件。`crates/core/src/test_frame.rs` の `declaration!`（module ごと feature `test-support` の裏）。feature の条件なしのものは 0 件 | `grep -rn macro_export crates wasm` |
+| `spirv_words_const`・`make_spirv` | `spirv_words_const` は 3/5 で `spirv.rs` に入った（下の「現状の形（3/5）」）。`make_spirv` は 0 件。`SpirvModule`・`spirv_words_from_bytes` は 2/5 で入った | `grep -rn -e spirv_words_const -e make_spirv crates wasm` |
+| `#[macro_export]` | 2 件。feature の条件なしは `spirv_words_const!`（`spirv.rs`）。`test_frame.rs` の `declaration!` は module ごと feature `test-support` の裏 | `grep -rn macro_export crates wasm` |
 | `PipelineInput` | `crates/core/src/execution.rs` の `pub enum PipelineInput<'a>`。`SpirV { words, entry_point }` の variant がある | `grep -n -e "pub enum PipelineInput" -e "SpirV {" crates/core/src/execution.rs` |
 | `SpirV` の既存の試験 | `crates/core/tests/execution_pipeline_input.rs`・`execution_type_coverage.rs` | `grep -ln SpirV crates/core/tests/*` |
 | `ContractError::ArtifactRejected` | `crates/core/src/error.rs` の `ArtifactRejected { kind, reason }`。`Display` は `artifact rejected ({kind}): {reason}`。`FailureClass::Initialization` に入る。`ContractError` は `PartialEq` を derive している | `grep -n -e ArtifactRejected -e "artifact rejected" -e derive crates/core/src/error.rs` |
@@ -100,4 +100,46 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 ```text
 cargo test -p fandhe-silicon-core --lib spirv
 cargo test -p fandhe-silicon-core --all-features
+```
+
+## 現状の形（3/5）
+
+置き場は `crates/core/src/spirv.rs`（2/5 と同じ。外部依存 0・unsafe なし）。
+
+### マクロと展開用の口
+
+| 名前 | 引数 | 返すもの |
+| ---- | ---- | -------- |
+| `spirv_words_const!`（`#[macro_export]`・crate の根） | `const` 式の `&[u8]` | `[u32; 入力のバイト数 / 4]`。`const` と `static` の初期化子に置ける |
+| `__spirv_words_const::<N>`（`#[doc(hidden)] pub const fn`・マクロの展開から呼ぶ） | `&[u8]` | `Result<[u32; N], &'static str>`。panic しない。`N * 4` が入力のバイト数と合わないときは長さの句 |
+
+マクロの展開は内側の `const` 2 つ（`__FANDHE_SILICON_SPIRV_` で始まる名前）を持つブロック式で、利用者の定数名と衝突しない。
+
+### コンパイル時の入力ごとの結果
+
+句と照らす順は実行時の `spirv_words_from_bytes` と同じ（バイト数の付記だけが無い）。
+
+| 入力 | 結果 |
+| ---- | ---- |
+| ホストの語順の magic で始まる 4 の倍数の長さ | 語の列 |
+| 逆の語順の magic で始まる 4 の倍数の長さ | 全語を入れ替えた語の列 |
+| 空 | コンパイルエラー（`input is empty`） |
+| どちらの語順でも magic でない | コンパイルエラー（`first word is not the SPIR-V magic number`） |
+| magic で始まり長さが 4 の倍数でない | コンパイルエラー（`byte length is not a multiple of 4`） |
+
+### 対応するテスト
+
+| テスト | 内容 |
+| ------ | ---- |
+| `spirv_words_const` の doc の通る例（3 つ） | ホストの語順・逆の語順・`static` の初期化子で、`spirv_words_from_bytes` と同じ語の列になる |
+| `spirv_words_const` の doc の `compile_fail` の例（3 つ） | 長さが 4 の倍数でない入力・magic でない入力・空の入力でコンパイルが失敗する |
+| `const_macro_matches_runtime`（`mod tests`） | `const`・`static` で使い、実行時の結果と一致する |
+| `const_entry_rejects_mismatched_length_at_runtime`（`mod tests`） | 展開用の口が `N` の不一致・空・magic 違いを句で返す |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --doc spirv_words_const
+cargo test -p fandhe-silicon-core --lib spirv
+make wasm-verify
 ```

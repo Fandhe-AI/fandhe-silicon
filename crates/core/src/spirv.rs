@@ -5,7 +5,9 @@
 //! `ContractError::ArtifactRejected`（`kind` は `"spir-v"`）で拒む。
 //! 先頭の語が逆の語順の magic number のときは、全語のバイトを入れ替えて読む。
 //!
-//! TASK-1682・ART-138・ART-139 のポインタ。
+//! `const` の文脈では crate の根のマクロ `spirv_words_const!` が同じ検査で語の列を作る。
+//!
+//! TASK-1682・ART-138・ART-139・ART-140 のポインタ。
 
 use crate::error::ContractError;
 use crate::execution::PipelineInput;
@@ -70,6 +72,119 @@ pub fn spirv_words_from_bytes(bytes: &[u8]) -> Result<Vec<u32>, ContractError> {
         words.push(word_at(*chunk, swap));
     }
     Ok(words)
+}
+
+/// `spirv_words_const!` の展開から呼ぶ口。語の列か、拒む句を返す（panic しない）。
+///
+/// `N` は語の数で、入力のバイト数の 4 分の 1 と合わないときは長さの句を返す。
+#[doc(hidden)]
+pub const fn __spirv_words_const<const N: usize>(bytes: &[u8]) -> Result<[u32; N], &'static str> {
+    let swap = match check(bytes) {
+        Ok(swap) => swap,
+        Err(phrase) => return Err(phrase),
+    };
+    match N.checked_mul(4) {
+        Some(len) if len == bytes.len() => {}
+        _ => return Err(REASON_LENGTH),
+    }
+    let mut words = [0u32; N];
+    let mut i = 0;
+    while i < N {
+        let b = i * 4;
+        words[i] = word_at([bytes[b], bytes[b + 1], bytes[b + 2], bytes[b + 3]], swap);
+        i += 1;
+    }
+    Ok(words)
+}
+
+/// `const` の文脈で SPIR-V のバイト列から語の列 `[u32; 入力のバイト数 / 4]` を作るマクロ。
+///
+/// 引数は `const` 式の `&[u8]`。`const` や `static` の初期化子に置ける。
+/// 受け付けた入力は `spirv_words_from_bytes` と同じ語の列になる。
+/// 拒む入力ではコンパイルが失敗し、実行時の `reason` と同じ句が出る。
+/// `include_bytes!` の結果も渡せる。
+///
+/// ```
+/// use fandhe_silicon_core::spirv::spirv_words_from_bytes;
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const BYTES: &[u8] = &{
+///     let a = 0x0723_0203u32.to_ne_bytes();
+///     let b = 7u32.to_ne_bytes();
+///     [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
+/// };
+/// const WORDS: [u32; 2] = spirv_words_const!(BYTES);
+/// assert_eq!(WORDS[0], 0x0723_0203);
+/// assert_eq!(WORDS.to_vec(), spirv_words_from_bytes(BYTES).unwrap());
+/// ```
+///
+/// 逆の語順の入力も同じ語の列になる。
+///
+/// ```
+/// use fandhe_silicon_core::spirv::spirv_words_from_bytes;
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const SWAPPED: [u8; 8] = {
+///     let a = 0x0723_0203u32.swap_bytes().to_ne_bytes();
+///     let b = 7u32.swap_bytes().to_ne_bytes();
+///     [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
+/// };
+/// const WORDS: [u32; 2] = spirv_words_const!(&SWAPPED);
+/// assert_eq!(WORDS, [0x0723_0203, 7]);
+/// assert_eq!(WORDS.to_vec(), spirv_words_from_bytes(&SWAPPED).unwrap());
+/// ```
+///
+/// `static` の初期化子でも使える。
+///
+/// ```
+/// use fandhe_silicon_core::spirv::spirv_words_from_bytes;
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const MAGIC_BYTES: [u8; 4] = 0x0723_0203u32.to_ne_bytes();
+/// static WORDS: [u32; 1] = spirv_words_const!(&MAGIC_BYTES);
+/// assert_eq!(WORDS.to_vec(), spirv_words_from_bytes(&MAGIC_BYTES).unwrap());
+/// ```
+///
+/// 長さが 4 の倍数でない入力（通る例は上の最初の例）。
+///
+/// ```compile_fail,E0080
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const WORDS: [u32; 1] = spirv_words_const!(&{
+///     let a = 0x0723_0203u32.to_ne_bytes();
+///     [a[0], a[1], a[2], a[3], 0]
+/// });
+/// ```
+///
+/// どちらの語順でも magic number でない入力（通る例は上の最初の例）。
+///
+/// ```compile_fail,E0080
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const WORDS: [u32; 1] = spirv_words_const!(&[1, 2, 3, 4]);
+/// ```
+///
+/// 空の入力（通る例は上の最初の例）。
+///
+/// ```compile_fail,E0080
+/// use fandhe_silicon_core::spirv_words_const;
+///
+/// const WORDS: [u32; 0] = spirv_words_const!(&[]);
+/// ```
+#[macro_export]
+macro_rules! spirv_words_const {
+    ($bytes:expr) => {{
+        const __FANDHE_SILICON_SPIRV_BYTES: &[u8] = $bytes;
+        #[allow(clippy::uninlined_format_args)]
+        const __FANDHE_SILICON_SPIRV_WORDS: [u32; __FANDHE_SILICON_SPIRV_BYTES.len() / 4] =
+            match $crate::spirv::__spirv_words_const::<{ __FANDHE_SILICON_SPIRV_BYTES.len() / 4 }>(
+                __FANDHE_SILICON_SPIRV_BYTES,
+            ) {
+                ::core::result::Result::Ok(words) => words,
+                ::core::result::Result::Err(msg) => ::core::panic!("{}", msg),
+            };
+        __FANDHE_SILICON_SPIRV_WORDS
+    }};
 }
 
 /// 検査を通った SPIR-V の語の列を持つ型。
@@ -209,5 +324,40 @@ mod tests {
             }
             _ => panic!("expected SpirV"),
         }
+    }
+
+    #[test]
+    fn const_macro_matches_runtime() {
+        const HOST: [u8; 8] = {
+            let a = MAGIC.to_ne_bytes();
+            let b = 9u32.to_ne_bytes();
+            [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
+        };
+        const SWAPPED: [u8; 8] = {
+            let a = MAGIC.swap_bytes().to_ne_bytes();
+            let b = 9u32.swap_bytes().to_ne_bytes();
+            [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
+        };
+        const HOST_WORDS: [u32; 2] = crate::spirv_words_const!(&HOST);
+        static SWAPPED_WORDS: [u32; 2] = crate::spirv_words_const!(&SWAPPED);
+        assert_eq!(HOST_WORDS, [MAGIC, 9]);
+        assert_eq!(HOST_WORDS.to_vec(), spirv_words_from_bytes(&HOST).unwrap());
+        assert_eq!(
+            SWAPPED_WORDS.to_vec(),
+            spirv_words_from_bytes(&SWAPPED).unwrap()
+        );
+    }
+
+    #[test]
+    fn const_entry_rejects_mismatched_length_at_runtime() {
+        let bytes = MAGIC.to_ne_bytes();
+        assert_eq!(__spirv_words_const::<1>(&bytes), Ok([MAGIC]));
+        assert_eq!(__spirv_words_const::<2>(&bytes), Err(REASON_LENGTH));
+        assert_eq!(__spirv_words_const::<0>(&bytes), Err(REASON_LENGTH));
+        assert_eq!(__spirv_words_const::<1>(&[]), Err(REASON_EMPTY));
+        assert_eq!(
+            __spirv_words_const::<1>(&0x1234_5678u32.to_ne_bytes()),
+            Err(REASON_MAGIC)
+        );
     }
 }
