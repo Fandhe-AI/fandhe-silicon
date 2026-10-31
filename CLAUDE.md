@@ -57,7 +57,7 @@ fandhe-silicon/
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
 ├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）（TASK-136）
 ├── docs/contract-device-stub-check.md  # スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）（TASK-137）
-├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）
+├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）・コールバックの `Send` 要求の型検査（TASK-240）
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
