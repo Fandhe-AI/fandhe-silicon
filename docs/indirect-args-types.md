@@ -82,6 +82,50 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 手順は `python3 -I -c` で、正規化した名前に語が含まれるかを数える。
 `[words]` は `--source` に渡したファイルの行に当てる別の照合で、公開アイテム名の照合には使われない。
 
+## 現状の形（2/6）
+
+置き場は `crates/core/src/execution/indirect_args.rs`（feature の条件なし・外部依存 0・`forbid(unsafe_code)` のまま。`execution` から再公開される）。
+
+### 型
+
+| 型 | 欄（名前: 型。宣言順） | `SIZE` |
+| -- | ---------------------- | ------ |
+| `DrawIndirectArgs` | `vertex_count: u32`・`instance_count: u32`・`first_vertex: u32`・`first_instance: u32` | 16 |
+| `DrawIndexedIndirectArgs` | `index_count: u32`・`instance_count: u32`・`first_index: u32`・`base_vertex: i32`・`first_instance: u32` | 20 |
+| `DispatchIndirectArgs` | `x: u32`・`y: u32`・`z: u32` | 12 |
+
+| 項目 | 事実 |
+| ---- | ---- |
+| derive | 3 つとも `Clone, Copy, Debug, Default, PartialEq, Eq` |
+| `#[repr(C)]` | 3 つとも付く |
+| `#[non_exhaustive]` | 付けない。欄はすべて公開 |
+| 名前と順 | 型の名前・欄の名前と型と順は、比較基準の `wgpu-types` 30.0.1 の同名の型と同じ |
+
+### バイト列との変換
+
+| 関数 | 動き |
+| ---- | ---- |
+| `to_bytes(&self)` | 欄の宣言順に各欄をリトルエンディアンで並べた配列（16・20・12 バイト）を返す |
+| `from_bytes(&[u8; N])` | `to_bytes` の逆で、同じ並びから値を組み立てる |
+
+変換は欄ごとの `to_le_bytes`・`from_le_bytes` で書いており、unsafe を使わない。
+
+### 対応するテスト
+
+`crates/core/tests/indirect_args_size.rs`（feature 不要）。
+
+| テスト | 内容 |
+| ------ | ---- |
+| `draw_indirect_args_size_matches_layout` | `size_of` と `SIZE` が一致し、16 |
+| `draw_indexed_indirect_args_size_matches_layout` | 同じく 20 |
+| `dispatch_indirect_args_size_matches_layout` | 同じく 12 |
+| `bytes_round_trip` | 3 型で `from_bytes(&x.to_bytes()) == x`（`base_vertex` は負の値を含む） |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --test indirect_args_size`
+- `cargo test -p fandhe-silicon-core --all-features`
+
 ## 段の表
 
 | Issue | 内容 |
