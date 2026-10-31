@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 製品の crate の公開アイテムの名前と、能力の問合せの決定表のソースに、語の一覧の語が出ていないことを数えて確かめる
+# 製品の crate の公開アイテムの名前と、能力の問合せの決定表のソースに、語の一覧の語が出ていないことを数えて確かめる（--exact-fields で struct の公開フィールドの集合も確かめる）
 # （spec TASK-14・TASK-113 のポインタ。関連 TASK-10・TASK-142。親 Issue #394 の 2/4・4/4）。
 # 呼び出し元: `make public-name-check`（直接実行も可。CI の `deny` ジョブも呼び、`scanned:` / `record:` の行がジョブのログに残る）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json` を呼んで共有し、抽出の実体をここに持たない。
@@ -9,6 +9,10 @@
 #   --config  語の一覧（必須。書式は public-name-check.conf の先頭）。語はこのスクリプトに持たない。
 #   --json    渡した rustdoc の JSON だけを名前の検査に使う（cargo を呼ばない。組は `-` と表示）。無ければ JSON を作る。
 #   --source  渡したソースのファイルを単語・呼び出しの形の検査に使う。指定したときだけ走る（既定の対象は持たない）。
+#   --exact-fields <モジュール経路>::<struct 名>=<f1,f2,...>
+#             rustdoc の JSON の中のその struct（crate 内の経路が一致する crate_id 0 のもの）の公開フィールドの名前の集合が
+#             列挙どおりで過不足がないことを検査する（例: decision::DecisionInput=capability,scale,residency,scalar）。
+#             複数回指定できる。渡した JSON のどれにも見つからなければ終了コード 2。非公開フィールドは数えない。
 # 終了コード: 0 一致が 0 件 / 1 一致が 1 件以上（違反） / 2 誤用・前提の不足・入力を読み切れない（成功扱いにしない）
 #   2 になるもの: 引数の誤用、設定の欠落・書式違反、指定のファイルが無い・読めない、JSON の形の不一致
 #   （public-api-check.sh の V1〜V3 と同じ形の検査）、JSON 1 本あたりの公開アイテムが 0 件、JSON を作る段の失敗、想定外の例外。
@@ -23,9 +27,13 @@
 #     （前後が英数字と _ でない出現。コメント・文字列リテラルも数える）。
 #   呼び出しの形（match_calls）: ソースの各行に [calls] の語を、大小文字を無視した部分一致で当てる。
 #
+#   公開フィールドの集合（match_fields）: 対象は paths の kind が struct のものだけ（enum など他の種類は「見つからず」として終了コード 2）。tuple・unit の struct は通常の struct でないので違反（not-a-plain-struct）。
+#
 # 標準出力: JSON ごとの `scanned:`、ソースごとの `scanned-source:`、全部を検査し終えたとき（終了コード 0 と 1）だけ
 #   締めの `record:`、合格時の `ok:`。標準エラー: `violation:`・`FAILED:`・`error:`。
 #   `record: commit=<rev> documents=<n> public_items_total=<n> name_hits_total=<n> sources=<n> source_hits_total=<n>`
+#   --exact-fields を渡したときだけ、見つかった struct ごとの `scanned-fields:` と、record の末尾に
+#   `field_specs=<n> field_hits_total=<n>` が付く（違反は `violation: fields ...`）。
 #   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
 #
 # 検査しないもの: 語の一覧に当たらない名前、doc コメント・シグネチャの中の文字列、単語の一部として含まれるベンダー名、
@@ -173,6 +181,58 @@ def inspect(doc, words):
     return root["name"], fv, public, named, hits
 
 
+def parse_field_spec(text):
+    """`a::b::Name=f1,f2` を (モジュール経路のリスト, struct 名, フィールド名の集合) にする。書式違反は Misuse。"""
+    m = re.fullmatch(r"((?:[A-Za-z0-9_]+::)+)([A-Za-z0-9_]+)=([A-Za-z0-9_]+(?:,[A-Za-z0-9_]+)*)", text)
+    need(m is not None, "malformed --exact-fields value")
+    mods = [x for x in m.group(1).split("::") if x]
+    fields = m.group(3).split(",")
+    need(len(set(fields)) == len(fields), "duplicate field in --exact-fields")
+    return mods, m.group(2), fields
+
+
+def match_fields(doc, spec):
+    """spec に当たる struct を doc から探し、(見つかった数, 公開フィールド名の並び, 違反の一覧) を返す。"""
+    mods, name, expected = spec
+    want = mods + [name]
+    found = 0
+    seen = []
+    problems = []
+    for iid, ent in doc["paths"].items():
+        if not (isinstance(ent, dict) and ent.get("crate_id") == 0 and ent.get("kind") == "struct"):
+            continue
+        path = ent.get("path")
+        if not (isinstance(path, list) and path[1:] == want):
+            continue
+        found += 1
+        it = doc["index"].get(str(iid))
+        need(isinstance(it, dict), "struct listed in paths is missing from index")
+        st = it.get("inner", {}).get("struct") if isinstance(it.get("inner"), dict) else None
+        need(isinstance(st, dict), "malformed struct item")
+        plain = st.get("kind", {}).get("plain") if isinstance(st.get("kind"), dict) else None
+        if not isinstance(plain, dict):
+            problems.append("not-a-plain-struct")
+            continue
+        ids = plain.get("fields")
+        need(isinstance(ids, list), "malformed struct fields")
+        names = []
+        for fid in ids:
+            f = doc["index"].get(str(fid))
+            need(isinstance(f, dict) and isinstance(f.get("name"), str), "malformed field item")
+            if f.get("visibility") in ("public", "default"):
+                names.append(f["name"])
+        seen = names
+        for n in names:
+            if n not in expected:
+                problems.append("unexpected-field:" + clean(n))
+        for n in expected:
+            if n not in names:
+                problems.append("missing-field:" + clean(n))
+        if len(names) != len(expected):
+            problems.append("field-count:%d" % len(names))
+    return found, seen, problems
+
+
 def _git(root, args):
     env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
     try:
@@ -251,9 +311,11 @@ def scan_source(root, path, conf, patterns):
     return disp, nw, nc, hits
 
 
-def run_docs(inputs, conf, total):
+def run_docs(inputs, conf, total, specs):
+    found_by_spec = [0] * len(specs)
     for _crate, label, path in inputs:
-        name, fv, public, named, hits = inspect(load_json(path), conf["names"])
+        doc = load_json(path)
+        name, fv, public, named, hits = inspect(doc, conf["names"])
         print("scanned: crate=%s features=%s format_version=%d public_items=%d named_items=%d name_hits=%d"
               % (clean(name), label, fv, public, named, len(hits)))
         for item, word in hits:
@@ -261,6 +323,19 @@ def run_docs(inputs, conf, total):
                   file=sys.stderr)
         total["public"] += public
         total["names"] += len(hits)
+        for i, spec in enumerate(specs):
+            found, seen, problems = match_fields(doc, spec)
+            if not found:
+                continue
+            found_by_spec[i] += found
+            item = "::".join(spec[0] + [spec[1]])
+            print("scanned-fields: crate=%s features=%s item=%s public_fields=%s"
+                  % (clean(name), label, clean(item), ",".join(clean(n) for n in seen)))
+            for pr in problems:
+                print("violation: fields crate=%s features=%s item=%s problem=%s"
+                      % (clean(name), label, clean(item), clean(pr)), file=sys.stderr)
+            total["field_hits"] += len(problems)
+    need(all(found_by_spec), "--exact-fields struct not found in any JSON")
 
 
 def main():
@@ -269,23 +344,25 @@ def main():
     parser.add_argument("--config", required=True, metavar="PATH")
     parser.add_argument("--json", nargs="+", metavar="PATH")
     parser.add_argument("--source", nargs="+", metavar="PATH")
+    parser.add_argument("--exact-fields", action="append", default=[], metavar="SPEC")
     args = parser.parse_args(sys.argv[2:])
 
     conf = load_config(args.config)
     patterns = [(w, re.compile(r"(?<![A-Za-z0-9_])" + re.escape(w) + r"(?![A-Za-z0-9_])", re.IGNORECASE))
                 for w in conf["words"]]
-    total = {"public": 0, "names": 0, "sources": 0, "src_hits": 0}
+    specs = [parse_field_spec(t) for t in args.exact_fields]
+    total = {"public": 0, "names": 0, "sources": 0, "src_hits": 0, "field_hits": 0}
 
     if args.json is not None:
         commit = "-"
         inputs = [("-", "-", p) for p in args.json]
-        run_docs(inputs, conf, total)
+        run_docs(inputs, conf, total, specs)
         ndocs = len(inputs)
     else:
         commit = source_commit(root)
         with tempfile.TemporaryDirectory() as tmp:
             inputs = emit_docs(root, tmp)
-            run_docs(inputs, conf, total)
+            run_docs(inputs, conf, total, specs)
         ndocs = len(inputs)
 
     for path in args.source or []:
@@ -296,9 +373,12 @@ def main():
         total["sources"] += 1
         total["src_hits"] += nw + nc
 
-    print("record: commit=%s documents=%d public_items_total=%d name_hits_total=%d sources=%d source_hits_total=%d"
-          % (commit, ndocs, total["public"], total["names"], total["sources"], total["src_hits"]))
-    hits_all = total["names"] + total["src_hits"]
+    extra = ""
+    if specs:
+        extra = " field_specs=%d field_hits_total=%d" % (len(specs), total["field_hits"])
+    print("record: commit=%s documents=%d public_items_total=%d name_hits_total=%d sources=%d source_hits_total=%d%s"
+          % (commit, ndocs, total["public"], total["names"], total["sources"], total["src_hits"], extra))
+    hits_all = total["names"] + total["src_hits"] + total["field_hits"]
     if hits_all:
         print("FAILED: %d hit(s)" % hits_all, file=sys.stderr)
         return 1

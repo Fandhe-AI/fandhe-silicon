@@ -110,6 +110,28 @@ d["index"] = {"0": item(0, "dummy", {"module": {}}, vis="crate")}
 put("zero_public", d)
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
+
+
+# --exact-fields 用: 経路 [dummy, zzmod, ZzIn] の struct と、そのフィールド。
+def fields_doc(names, vis=None, plain=True, path_crate=0):
+    d = base()
+    ids = []
+    for i, n in enumerate(names):
+        fid = 10 + i
+        d["index"][str(fid)] = item(fid, n, {"struct_field": {}}, vis=(vis or {}).get(n, "public"))
+        ids.append(fid)
+    kind = {"plain": {"fields": ids, "has_stripped_fields": False}} if plain else {"tuple": ids}
+    d["index"]["5"] = item(5, "ZzIn", {"struct": {"kind": kind}})
+    d["paths"]["5"] = {"crate_id": path_crate, "path": ["dummy", "zzmod", "ZzIn"], "kind": "struct"}
+    return d
+
+
+put("fields_ok", fields_doc(["fa", "fb"]))
+put("fields_extra", fields_doc(["fa", "fb", "fc"]))
+put("fields_missing", fields_doc(["fa"]))
+put("fields_private_extra", fields_doc(["fa", "fb", "fp"], vis={"fp": "crate"}))
+put("fields_tuple", fields_doc(["fa", "fb"], plain=False))
+put("fields_other_crate", fields_doc(["fa", "fb"], path_crate=1))
 PY
 
 # 設定・ソースの合成ファイル（テスト用のダミーの語）
@@ -177,6 +199,37 @@ check "呼び出しの形は部分一致（大小文字を無視）" 1 "word_hit
 check "ソースを渡さなければ走らない" 0 "sources=0" - --config "${C}" --json "$(J clean)"
 check "ソースの合計" 1 "sources=2 source_hits_total=5" - \
     --config "${C}" --json "$(J clean)" --source "${work}/src_words.rs" "${work}/src_calls.rs"
+
+# 公開フィールドの集合（--exact-fields）
+FS="zzmod::ZzIn=fa,fb"
+check "フィールドが一致なら 0" 0 "scanned-fields: crate=dummy features=- item=zzmod::ZzIn public_fields=fa,fb" - \
+    --config "${C}" --json "$(J fields_ok)" --exact-fields "${FS}"
+check "フィールド指定の record" 0 "field_specs=1 field_hits_total=0" - \
+    --config "${C}" --json "$(J fields_ok)" --exact-fields "${FS}"
+check "フィールドが 1 つ多いと 1" 1 - "problem=unexpected-field:fc" \
+    --config "${C}" --json "$(J fields_extra)" --exact-fields "${FS}"
+check "フィールドの個数も違反に出る" 1 "field_hits_total=2" "problem=field-count:3" \
+    --config "${C}" --json "$(J fields_extra)" --exact-fields "${FS}"
+check "フィールドが足りないと 1" 1 - "problem=missing-field:fb" \
+    --config "${C}" --json "$(J fields_missing)" --exact-fields "${FS}"
+check "非公開のフィールドは数えない" 0 "public_fields=fa,fb" - \
+    --config "${C}" --json "$(J fields_private_extra)" --exact-fields "${FS}"
+check "タプル構造体は違反" 1 - "problem=not-a-plain-struct" \
+    --config "${C}" --json "$(J fields_tuple)" --exact-fields "${FS}"
+check "指定の struct が JSON に無いと 2" 2 - "struct not found in any JSON" \
+    --config "${C}" --json "$(J clean)" --exact-fields "${FS}"
+check "他 crate の経路は見つからず 2" 2 - "struct not found in any JSON" \
+    --config "${C}" --json "$(J fields_other_crate)" --exact-fields "${FS}"
+check "経路が違うと見つからず 2" 2 - "struct not found in any JSON" \
+    --config "${C}" --json "$(J fields_ok)" --exact-fields "other::ZzIn=fa,fb"
+check "複数 JSON は見つかったものだけ検査" 1 "field_specs=1" "problem=unexpected-field:fc" \
+    --config "${C}" --json "$(J clean)" "$(J fields_extra)" --exact-fields "${FS}"
+check "--exact-fields の書式違反" 2 - "malformed --exact-fields value" \
+    --config "${C}" --json "$(J fields_ok)" --exact-fields "ZzIn=fa"
+check "--exact-fields のフィールド重複" 2 - "duplicate field" \
+    --config "${C}" --json "$(J fields_ok)" --exact-fields "zzmod::ZzIn=fa,fa"
+check "指定しなければ record に field_specs が出ない" 0 "sources=0 source_hits_total=0" - \
+    --config "${C}" --json "$(J fields_extra)"
 
 # 終了コード 2（誤用・前提の不足・読み切れない入力）
 check "引数なし" 2 - -
@@ -401,6 +454,70 @@ pub use m::ZzName;'
 else
     failed=$((failed + 1))
     echo "FAIL: real_fixture_setup (cannot prepare the temporary workspace)" >&2
+fi
+
+# ---- 決定表の語彙の検査（Makefile の public-name-check の引数）を実物のリポジトリに当てる陽性対照 ----
+# 実物の core の rustdoc の JSON とソースの一時コピーに、禁止の語・呼び出し・フィールドを 1 つ足すと落ちること。
+# 実物の引数は Makefile から読む（テストに書き写さない）。
+DEC_ARGS="$(sed -n 's/^[[:space:]]*@scripts\/public-name-check.sh --config public-name-check.conf //p' "${DIR}/../Makefile" | head -n 1)"
+DEC_SRC="${DIR}/../$(printf '%s\n' "${DEC_ARGS}" | sed -n 's/.*--source \([^ ]*\).*/\1/p')"
+[[ -f "${DEC_SRC}" ]] || DEC_SRC="${work}/missing-decision-source"
+# decision/ 配下に tests.rs 以外のファイルが増えたら、検査の対象（Makefile の --source）に足し忘れないよう落とす。
+extra_dec="$(find "${DIR}/../crates/core/src/decision" -type f ! -name tests.rs 2>/dev/null | head -n 1)"
+if [[ -z "${extra_dec}" ]]; then
+    passed=$((passed + 1))
+else
+    failed=$((failed + 1))
+    echo "FAIL: decision/ に tests.rs 以外のファイルがある（--source に足す）" >&2
+fi
+real_dir="${work}/realjson"
+mkdir -p "${real_dir}"
+if [[ -n "${DEC_ARGS}" ]] && bash "${DIR}/public-api-check.sh" --emit-json "${real_dir}" >"${work}/emit.txt" 2>/dev/null \
+    && [[ -f "${real_dir}/fandhe_silicon_core.production.json" ]]; then
+    RJ="${real_dir}/fandhe_silicon_core.production.json"
+    # Makefile の引数のうち、実物のソースの経路を一時コピーへ差し替えて流す。
+    dec() { # dec <名前> <期待する終了コード> <標準エラーに含む語|-> <ソース> <JSON> <追加のフィールド指定|->
+        local src="$4" js="$5"
+        local -a args
+        args=(--config "${REAL_CONF}" --json "${js}" --source "${src}")
+        # Makefile の --exact-fields の値だけを取り出す
+        local spec
+        spec="$(printf '%s\n' "${DEC_ARGS}" | sed -n 's/.*--exact-fields \([^ ]*\).*/\1/p')"
+        args=("${args[@]}" --exact-fields "${spec}")
+        check "$1" "$2" - "$3" "${args[@]}"
+    }
+    dec "決定表（実物）は合格" 0 - "${DEC_SRC}" "${RJ}" -
+    mutated="${work}/mut"
+    mkdir -p "${mutated}"
+    for w in Metal Vulkan Cuda Apple NVIDIA BackendKind adapter_name M4 Arc; do
+        { cat "${DEC_SRC}"; printf '// %s\n' "${w}"; } >"${mutated}/decision.rs"
+        dec "決定表のコピーに ${w} を足すと落ちる" 1 "word=${w}" "${mutated}/decision.rs" "${RJ}" -
+    done
+    { cat "${DEC_SRC}"; printf 'fn x() { diagnostics(1); }\n'; } >"${mutated}/decision.rs"
+    dec "決定表のコピーに diagnostics( を足すと落ちる" 1 "word=diagnostics(" "${mutated}/decision.rs" "${RJ}" -
+    python3 -I - "${RJ}" "${mutated}/field.json" "${mutated}/tensor.json" <<'PY'
+import json
+import sys
+
+src, out_field, out_name = sys.argv[1:4]
+doc = json.load(open(src, encoding="utf-8"))
+sid = next(k for k, v in doc["paths"].items() if v["path"][1:] == ["decision", "DecisionInput"])
+fields = doc["index"][sid]["inner"]["struct"]["kind"]["plain"]["fields"]
+proto = doc["index"][str(fields[0])]
+new = dict(proto, id=999999, name="dtype")
+doc["index"]["999999"] = new
+fields.append(999999)
+json.dump(doc, open(out_field, "w", encoding="utf-8"))
+# decision モジュールの公開アイテムの名前に製品固有の語を足す（名前の検査）
+doc = json.load(open(src, encoding="utf-8"))
+doc["index"]["999998"] = dict(proto, id=999998, name="tensor_shape")
+json.dump(doc, open(out_name, "w", encoding="utf-8"))
+PY
+    dec "DecisionInput にフィールドを 1 つ足すと落ちる" 1 "problem=unexpected-field:dtype" "${DEC_SRC}" "${mutated}/field.json" -
+    dec "公開アイテムの名前に tensor を足すと落ちる" 1 "word=tensor" "${DEC_SRC}" "${mutated}/tensor.json" -
+else
+    failed=$((failed + 1))
+    echo "FAIL: decision_real_setup (cannot read Makefile args or emit the real JSON)" >&2
 fi
 
 echo "test-public-name-check: passed=${passed} failed=${failed}"
