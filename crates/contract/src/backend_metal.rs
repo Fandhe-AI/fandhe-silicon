@@ -33,7 +33,7 @@
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
@@ -154,6 +154,35 @@ impl LostState {
             callback(reason);
         }
         Ok(true)
+    }
+}
+
+/// 駆動してから、照合と払い出しに使う世代を読み直して返す。
+///
+/// 駆動は利用者の callback を同期で呼ぶので、その中から `simulate_device_lost` へ再入すると世代が変わり得る。
+/// 駆動の前に読んだ値で照合や払い出しをすると、成功して返したハンドルや印が直後の操作で世代不一致になる。
+/// そこで、駆動には駆動の前に読んだ世代 `g0` を渡し、照合と払い出しには駆動の後の値を使う
+/// （1 つの操作で世代を読むのは、駆動に 1 回、照合と払い出しに 1 回）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn driven_generation(drive: impl FnOnce(u64), read: impl Fn() -> u64) -> u64 {
+    drive(read());
+    read()
+}
+
+/// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
+///
+/// 識別子は払い出しのたびに新しいので、一致する項目はそのハンドルを払い出したときの項目だけ。
+/// 世代が違う・表に無い識別子は何も外さない。`free` が使う（ロストの後でも、ロスト前のハンドルで外せる）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn remove_issued<T>(
+    map: &mut HashMap<u64, T>,
+    id: u64,
+    generation: u64,
+    issued_generation: impl Fn(&T) -> u64,
+) -> Option<T> {
+    match map.get(&id) {
+        Some(entry) if issued_generation(entry) == generation => map.remove(&id),
+        _ => None,
     }
 }
 
@@ -913,8 +942,8 @@ mod imp {
     use super::wait_result;
     use super::{
         BufState, Callback, GroupState, OpenEncoders, SizePool, Submissions, check_token_owner,
-        drive_table, finish_table, group_state_of, precheck_submit, precheck_submit_many,
-        register_table, retire, take_next,
+        drive_table, driven_generation, finish_table, group_state_of, precheck_submit,
+        precheck_submit_many, register_table, remove_issued, retire, take_next,
     };
 
     use fandhe_silicon_core::capability::{
@@ -1156,6 +1185,8 @@ mod imp {
         buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
         /// このバッファの識別子（slot）。Metal のバッファを作るときに 1 度だけ払い出し、再利用の一覧を出入りしても変わらない。
         slot: u64,
+        /// 払い出したときの世代。`free` はロストの後でも、これと一致するハンドルなら外す。
+        generation: u64,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -1353,6 +1384,14 @@ mod imp {
                 group_state,
                 |callback: Callback, state| callback(state),
             );
+        }
+
+        /// 駆動してから、照合と払い出しに使う今の世代を返す（理由は `driven_generation`）。
+        fn drive_and_generation(&self) -> u64 {
+            driven_generation(
+                |generation| self.drive_callbacks(generation),
+                || self.current_generation(),
+            )
         }
 
         /// 対象の列の完了を呼び出し元のスレッドで待ち、その後の `poll` の値を返す。`wait_blocking(None)` が使う。
@@ -1637,9 +1676,8 @@ mod imp {
             mut commands: CommandEncoder,
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
-            // 世代は 1 回だけ読み、駆動と印の払い出しに使う（ロストと重なっても読みが割れない）。
-            let generation = self.current_generation();
-            self.drive_callbacks(generation);
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
+            let generation = self.drive_and_generation();
             precheck_submit(wait)?;
             self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
@@ -1658,9 +1696,9 @@ mod imp {
             after: &[SubmitToken],
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
-            // 世代は 1 回だけ読み、駆動・`after` の照合・印の払い出しに同じ値を使う。
-            let generation = self.current_generation();
-            self.drive_callbacks(generation);
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。
+            // `after` の照合と印の払い出しには、駆動の後に読んだ同じ値を使う。
+            let generation = self.drive_and_generation();
             precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
             self.open.claim(&ids)?;
@@ -1898,9 +1936,8 @@ mod imp {
             byte_len: u64,
             usage: BufferUsage,
         ) -> Result<BufferHandle, ContractError> {
-            // 世代は 1 回だけ読み、駆動と返すハンドルの払い出しに使う。
-            let generation = self.current_generation();
-            self.drive_callbacks(generation);
+            // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
+            let generation = self.drive_and_generation();
             validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
                 requested_bytes: byte_len,
@@ -1928,7 +1965,14 @@ mod imp {
                     (slot, buffer)
                 }
             };
-            buffers.map.insert(id, BufferEntry { buffer, slot });
+            buffers.map.insert(
+                id,
+                BufferEntry {
+                    buffer,
+                    slot,
+                    generation,
+                },
+            );
             Ok(BufferHandle::__backend_new(
                 generation, id, self.id, byte_len, usage,
             ))
@@ -1974,13 +2018,18 @@ mod imp {
         /// 実行時の検査は無い。記録の操作を足す変更では、遅延解放と合わせて見直す）。
         /// 一覧に入ったバッファは device の Drop まで保持される（合計の上限は 64 MiB）。
         /// 別の device のハンドルは何もしない（同じ識別子を持つ自 device のバッファを巻き込まない）。
+        /// 照合は device の今の世代ではなく、表の項目を払い出したときの世代と比べるので、ロストの後でもロスト前のハンドルで解放できる。
         fn free(&self, buffer: BufferHandle) {
-            if buffer.__backend_device_id() != self.id
-                || buffer.__backend_generation() != self.current_generation()
-            {
+            if buffer.__backend_device_id() != self.id {
                 return;
             }
-            let removed = self.lock_buffers().map.remove(&buffer.__backend_id());
+            // ロストの後でも、払い出したときの世代と一致するハンドルなら外して解放する（device の世代とは比べない）。
+            let removed = remove_issued(
+                &mut self.lock_buffers().map,
+                buffer.__backend_id(),
+                buffer.__backend_generation(),
+                |entry| entry.generation,
+            );
             let Some(entry) = removed else {
                 return;
             };
@@ -1995,11 +2044,19 @@ mod imp {
                 |len| self.lock_buffers().pool.would_accept(len),
                 zero_fill,
                 |entry| {
-                    let BufferEntry { buffer, slot } = entry;
+                    let BufferEntry {
+                        buffer,
+                        slot,
+                        generation,
+                    } = entry;
                     self.lock_buffers()
                         .pool
                         .put(byte_len, slot, buffer)
-                        .map(|buffer| BufferEntry { buffer, slot })
+                        .map(|buffer| BufferEntry {
+                            buffer,
+                            slot,
+                            generation,
+                        })
                 },
             );
             // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
@@ -2485,6 +2542,35 @@ mod imp {
                 }
                 device.drive_callbacks(device.current_generation());
                 assert_eq!(*seen.lock().unwrap(), [CompletionState::Lost]);
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn a_handle_from_before_the_loss_can_still_be_freed_once() {
+                let device = new_device();
+                let handle = device.allocate(64, BufferUsage::empty()).expect("allocate");
+                inject(
+                    device.fault_hooks(),
+                    HookFault::DeviceLost(DeviceLostReason::Unknown),
+                )
+                .expect("loss");
+                // ロストの後も、`free` 以外はロスト前のハンドルを拒む。
+                assert!(device.upload(&handle, 0, &[1]).is_err());
+                assert_eq!(device.lock_buffers().map.len(), 1);
+
+                let again = BufferHandle::__backend_new(
+                    handle.__backend_generation(),
+                    handle.__backend_id(),
+                    handle.__backend_device_id(),
+                    64,
+                    BufferUsage::empty(),
+                );
+                device.free(handle);
+                assert_eq!(device.lock_buffers().map.len(), 0);
+                assert_eq!(device.lock_buffers().pool.entries, 1);
+                // 外れた後の `free` は何も起きない。
+                device.free(again);
+                assert_eq!(device.lock_buffers().pool.entries, 1);
             }
 
             #[test]
@@ -3726,6 +3812,43 @@ mod precheck_tests {
             }
             assert!(lock_table(&table).callbacks.is_empty());
         }
+    }
+
+    #[test]
+    fn the_generation_is_read_again_after_the_drive() {
+        let generation = AtomicU64::new(1);
+        let seen_by_drive = Mutex::new(None);
+        let used = driven_generation(
+            |g0| {
+                *seen_by_drive.lock().unwrap() = Some(g0);
+                // 駆動中の callback が再入して世代を進めた想定。
+                generation.store(2, Ordering::Release);
+            },
+            || generation.load(Ordering::Acquire),
+        );
+        assert_eq!(*seen_by_drive.lock().unwrap(), Some(1));
+        assert_eq!(used, 2);
+        // 動かなければ同じ値。
+        assert_eq!(driven_generation(|_| {}, || 5), 5);
+    }
+
+    #[test]
+    fn remove_issued_matches_the_issue_generation_not_the_current_one() {
+        // 項目は (払い出しの世代, 中身)。device の今の世代は引数に現れない。
+        let mut map: HashMap<u64, (u64, &str)> = HashMap::new();
+        map.insert(1, (1, "a"));
+        map.insert(2, (2, "b"));
+        let generation_of = |entry: &(u64, &str)| entry.0;
+
+        // 世代が違う・表に無い識別子は何も外さない。
+        assert_eq!(remove_issued(&mut map, 1, 2, generation_of), None);
+        assert_eq!(remove_issued(&mut map, 9, 1, generation_of), None);
+        assert_eq!(map.len(), 2);
+        // 一致すれば外れ、2 回目は何も起きない。別の項目は残る。
+        assert_eq!(remove_issued(&mut map, 1, 1, generation_of), Some((1, "a")));
+        assert_eq!(remove_issued(&mut map, 1, 1, generation_of), None);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&2));
     }
 
     #[test]
