@@ -42,7 +42,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
     - 一覧の分類は、ハンドルが申告する大きさではなく Metal のバッファの実際の長さで決める
     - 一覧の上限は、件数 16 と、大きさの合計 64 MiB（計算は `checked_add`）。超える分は一覧に入れずに解放する。ゼロ化に失敗したバッファも一覧に入れずに解放する。一覧が受け入れない大きさはゼロ化もしない（ゼロ化の前に確かめ、入れるときに再度確かめる）。一覧に入ったバッファは device の Drop まで保持される（合計 64 MiB まで）。解放と一覧への流れは、バッファの型とゼロ化の関数を引数にした純粋な関数（`retire`）を通る
     - ハンドルの識別子は再利用のたびに新しく払い出す。解放したハンドルは、同じ大きさの再利用の後も新しいバッファに当たらず `InvalidArgument`。Metal のバッファごとの内部の識別子（slot）は一覧を出入りしても変わらない
-    - ゼロ化は `upload` と同じ書き込みの関数（`write_range`）を通す。`write_range` は表の項目を `&mut` で受け、共有参照からは書けない。`unsafe` ブロックは 2 つのまま
+    - ゼロ化は `upload` と同じ書き込みの関数（`write_range`）を通す。`write_range` は表の項目を `&mut` で受け、共有参照からは書けない。ゼロ化のための `unsafe` ブロックは足していない
     - 一覧から取り出した回数と、取り出した slot が直前に一覧へ入れた slot と一致した回数を、試験専用の口（`#[cfg(test)]`）で読む。公開の API は増えない
 - ハンドルの照合: 払い出し元の device が違えば `DeviceMismatch`、表に無い識別子は `InvalidArgument`。範囲の検査は非公開の関数 `host_range` が共通の `validate_buffer_range` を呼んで行い（確保長は Metal のバッファの `length()`）、検査を通った値を `usize` に直す。`upload` の宛先と `download_*` の元が同じ関数を通る。`free` は別の device のハンドルを何も解放せず、自 device の同じ識別子のバッファを残す。解放したハンドルでの `upload`・`download_*` は `InvalidArgument`。範囲外の `upload`・`download_*`（終端が確保長を超える、`offset` が `u64::MAX`、終端が `u64` であふれる）は `InvalidArgument` で、`upload` はバッファの内容を変えない。終端が確保長ちょうど、`len` が 0 で `offset` が確保長ちょうどの範囲は通る
 - `download_async` は読み出してからその場で `callback` を 1 回だけ呼ぶ（失敗も渡す）。`download_blocking` は feature `native-blocking-wait` の裏

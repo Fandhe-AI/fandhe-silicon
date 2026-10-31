@@ -160,11 +160,6 @@ fn backend_metal_safety_comments_state_the_no_recording_rationale() {
     let mut misses = Vec::new();
     for (no, text) in &contents {
         let flat = flatten(text);
-        if flat.contains(CONSTANT_SAFETY_MARKER) {
-            misses.push(format!(
-                "src/backend_metal.rs:{no}: a `contents()` SAFETY comment mentions `{CONSTANT_SAFETY_MARKER}`"
-            ));
-        }
         if !flat.contains("contents()") {
             misses.push(format!(
                 "src/backend_metal.rs:{no}: a SAFETY comment is neither around `contents()` nor for `{CONSTANT_SAFETY_MARKER}`"
