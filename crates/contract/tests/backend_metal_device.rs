@@ -228,6 +228,150 @@ fn freeing_another_devices_handle_keeps_the_buffer_with_the_same_id() {
     second.memory().free(from_second);
 }
 
+/// 自 device の識別子で、表に無い識別子（払い出していない大きな値）の偽造のハンドルを作る。
+fn forged_unknown_id(own: &BufferHandle) -> BufferHandle {
+    BufferHandle::__backend_new(
+        own.__backend_generation(),
+        u64::MAX - 1,
+        own.__backend_device_id(),
+        own.size(),
+        own.usage(),
+    )
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn forged_handles_are_rejected_by_upload_and_download_without_touching_own_buffers() {
+    let device = new_device();
+    let memory = device.memory();
+    let own = memory.allocate(16, usage()).expect("allocate");
+    memory.upload(&own, 0, &[0x3C; 16]).expect("upload own");
+
+    // 自 device の識別子だが表に無い識別子。
+    let unknown = forged_unknown_id(&own);
+    // 表にある識別子だが世代が違う。
+    let wrong_generation = BufferHandle::__backend_new(
+        own.__backend_generation() + 1,
+        own.__backend_id(),
+        own.__backend_device_id(),
+        own.size(),
+        own.usage(),
+    );
+    for forged in [&unknown, &wrong_generation] {
+        let up = memory.upload(forged, 0, &[0xEE; 16]);
+        assert!(
+            matches!(up, Err(ContractError::InvalidArgument(_))),
+            "{up:?}"
+        );
+        let down = memory.download_blocking(forged, 0, 16);
+        assert!(
+            matches!(down, Err(ContractError::InvalidArgument(_))),
+            "{down:?}"
+        );
+    }
+    // どの device のものでもない識別子は取り違えとして拒否する。
+    let foreign = BufferHandle::__backend_new(
+        own.__backend_generation(),
+        own.__backend_id(),
+        own.__backend_device_id() ^ u64::MAX,
+        own.size(),
+        own.usage(),
+    );
+    assert_eq!(
+        memory.upload(&foreign, 0, &[0xEE; 16]),
+        Err(ContractError::DeviceMismatch)
+    );
+    assert_eq!(
+        memory.download_blocking(&foreign, 0, 16),
+        Err(ContractError::DeviceMismatch)
+    );
+
+    // 自 device のバッファの中身は変わっていない。
+    let kept = memory.download_blocking(&own, 0, 16).expect("download own");
+    assert_eq!(kept, vec![0x3C; 16]);
+    memory.free(own);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn another_devices_buffer_is_rejected_by_download_async_and_the_same_id_stays_intact() {
+    let first = new_device();
+    let second = new_device();
+    let from_first = first
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate first");
+    let from_second = second
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate second");
+    assert_eq!(from_first.__backend_id(), from_second.__backend_id());
+    second
+        .memory()
+        .upload(&from_second, 0, &[0x77; 16])
+        .expect("upload second");
+
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let r = Arc::clone(&received);
+    second.memory().download_async(
+        &from_first,
+        0,
+        16,
+        Box::new(move |result| r.lock().unwrap().push(result)),
+    );
+    let got = received.lock().unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0], Err(ContractError::DeviceMismatch));
+    drop(got);
+
+    let kept = second
+        .memory()
+        .download_blocking(&from_second, 0, 16)
+        .expect("download second");
+    assert_eq!(kept, vec![0x77; 16]);
+    first.memory().free(from_first);
+    second.memory().free(from_second);
+}
+
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn freeing_a_forged_or_unknown_handle_is_ignored_and_keeps_own_buffers() {
+    let device = new_device();
+    let memory = device.memory();
+    let a = memory.allocate(16, usage()).expect("allocate a");
+    let b = memory.allocate(16, usage()).expect("allocate b");
+    memory.upload(&a, 0, &[0x11; 16]).expect("upload a");
+    memory.upload(&b, 0, &[0x22; 16]).expect("upload b");
+
+    // 表に無い識別子、世代違い、どの device のものでもない識別子の 3 通りを渡す。
+    memory.free(forged_unknown_id(&a));
+    memory.free(BufferHandle::__backend_new(
+        a.__backend_generation() + 1,
+        a.__backend_id(),
+        a.__backend_device_id(),
+        a.size(),
+        a.usage(),
+    ));
+    memory.free(BufferHandle::__backend_new(
+        a.__backend_generation(),
+        a.__backend_id(),
+        a.__backend_device_id() ^ u64::MAX,
+        a.size(),
+        a.usage(),
+    ));
+
+    assert_eq!(
+        memory.download_blocking(&a, 0, 16).expect("a"),
+        vec![0x11; 16]
+    );
+    assert_eq!(
+        memory.download_blocking(&b, 0, 16).expect("b"),
+        vec![0x22; 16]
+    );
+    memory.free(a);
+    memory.free(b);
+}
+
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn out_of_range_upload_fails_and_leaves_the_contents_unchanged() {
