@@ -19,6 +19,11 @@ pub mod cfg_gate_doctest;
 #[doc(hidden)]
 pub mod memory_free_doctest;
 
+// コールバックの `Send` 要求が native で型として拒否されることの試験（doctest のみ）。wasm32 は `Send` を要求しないので native だけ。
+#[cfg(all(feature = "test-support", not(target_arch = "wasm32")))]
+#[doc(hidden)]
+pub mod callback_send_doctest;
+
 // 背後実装のモジュール。
 // Metal は feature のみでゲートする（spec BUILD-22）。
 #[cfg(feature = "backend-metal")]

@@ -48,7 +48,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | export | `roundtrip_f32(&[f32]) -> Vec<f32>` の 1 つ。入力をビット列のまま写して返す。wasm32 のときだけ wasm-bindgen の export になる。手で書く unsafe は無い（workspace の lints は `unsafe_code = "forbid"`） | `grep -n -e roundtrip_f32 -e wasm_bindgen wasm/crates/glue/src/lib.rs` |
 | 対応するテスト | `wasm/crates/glue/src/lib.rs` の単体テスト 3 件（空・有限値・非有限値と `-0.0`。ホストで流れる） | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` |
 | 量の測定の profile | `wasm/Cargo.toml` の `[profile.wasm-size]`（`release` を継承。`opt-level = "z"`・`lto = true`・`codegen-units = 1`） | `grep -n -A5 'profile.wasm-size' wasm/Cargo.toml` |
-| 検査の入口 | `make wasm-verify`（`scripts/wasm-verify.sh`）。順に fmt --check、clippy（ホスト・wasm32）、test、wasm32 の build と `.wasm` の存在確認、deps-check（`--allow-path-root crates`）。target 未導入は失敗する | `sed -n 1,60p scripts/wasm-verify.sh` |
+| 検査の入口 | `make wasm-verify`（`scripts/wasm-verify.sh`）。順に fmt --check、clippy（ホスト・wasm32）、test、wasm32 の build と `.wasm` の存在確認、`crates/core` と `crates/contract` の試験の wasm32 型検査、deps-check（`--allow-path-root crates`）。target 未導入は失敗する | `sed -n 1,60p scripts/wasm-verify.sh` |
 | make deny での監査 | `scripts/deny.sh` が `wasm/` にルートの `deny.toml` をそのまま当て（wgpu 系・naga の禁止は残る）、deps-check も呼ぶ | `grep -n 'wasm/' scripts/deny.sh` |
 | CI | `deny` ジョブが `make wasm-verify` を呼ぶ。ジョブ・check 名は増えない | `grep -n -B1 -A2 wasm-verify .github/workflows/ci.yml` |
 
