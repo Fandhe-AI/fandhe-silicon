@@ -330,9 +330,14 @@ impl<G, C> Submissions<G, C> {
         &mut self,
         sequence: u64,
         generation: u64,
+        current_generation: u64,
         callback: C,
         classify: impl Fn(&G) -> GroupState,
     ) -> Option<(C, CompletionState)> {
+        // 登録の世代が今より小さければ、ロストの掃き出しがすでに済んでいる。積まずにその場で `Lost` を返す。
+        if generation < current_generation {
+            return Some((callback, CompletionState::Lost));
+        }
         match self.state_of(sequence, classify) {
             CompletionState::Pending => {
                 self.callbacks.push((sequence, generation, callback));
@@ -373,7 +378,11 @@ impl<G, C> Submissions<G, C> {
         ready
     }
 
-    /// 登録の配る値。世代が今と違う項目は、列の状態に関わらず `Lost`（その token の `poll` と同じ値）。
+    /// 登録の配る値。世代の源は単調に増えるので、古い扱いは登録の世代が比べる世代より小さいときだけ。
+    ///
+    /// - 登録の世代 < 比べる世代: 列の状態に関わらず `Lost`（その token の `poll` と同じ値）
+    /// - 登録の世代 > 比べる世代: 読んだ世代のほうが古い。触れずに `Pending`（次の駆動に残す）
+    /// - 等しい: 列の状態
     fn delivery_state(
         &self,
         sequence: u64,
@@ -381,13 +390,16 @@ impl<G, C> Submissions<G, C> {
         current_generation: u64,
         classify: impl Fn(&G) -> GroupState,
     ) -> CompletionState {
-        if generation != current_generation {
+        if generation < current_generation {
             return CompletionState::Lost;
+        }
+        if generation > current_generation {
+            return CompletionState::Pending;
         }
         self.state_of(sequence, classify)
     }
 
-    /// 世代が今と違う登録を全部外し、`Lost` を付けて返す。同じ世代の登録は残す。呼ぶのは錠を放してから。
+    /// 世代が今より小さい登録を全部外し、`Lost` を付けて返す。同じ世代と新しい世代の登録は残す。呼ぶのは錠を放してから。
     ///
     /// ロストの後に、まだ呼ばれていない完了の callback を `poll` と同じ値で呼ぶために使う。
     #[cfg(any(test, feature = "fault-injection"))]
@@ -395,10 +407,10 @@ impl<G, C> Submissions<G, C> {
         let mut stale = Vec::new();
         let mut kept = Vec::new();
         for (sequence, generation, callback) in std::mem::take(&mut self.callbacks) {
-            if generation == current_generation {
-                kept.push((sequence, generation, callback));
-            } else {
+            if generation < current_generation {
                 stale.push((callback, CompletionState::Lost));
+            } else {
+                kept.push((sequence, generation, callback));
             }
         }
         self.callbacks = kept;
@@ -427,12 +439,9 @@ impl<G, C> Submissions<G, C> {
             .callbacks
             .iter()
             .map(|(sequence, generation, _)| {
-                terminal_state(self.delivery_state(
-                    *sequence,
-                    *generation,
-                    current_generation,
-                    classify,
-                ))
+                // 最後の掃き出しなので、新しい世代の登録も今の世代として通常の判定にする。
+                let compared = (*generation).max(current_generation);
+                terminal_state(self.delivery_state(*sequence, *generation, compared, classify))
             })
             .collect();
         std::mem::take(&mut self.callbacks)
@@ -645,11 +654,18 @@ fn register_table<G, C>(
     table: &Mutex<Submissions<G, C>>,
     sequence: u64,
     generation: u64,
+    read_generation: impl Fn() -> u64,
     callback: C,
     classify: impl Fn(&G) -> GroupState,
     call: impl Fn(C, CompletionState),
 ) {
-    let ready = lock_table(table).register(sequence, generation, callback, classify);
+    // 世代の読みの例外: 呼び出した操作の読みではなく、表の錠の中で読み直す。ロストの掃き出しとすれ違うと、
+    // 掃き出しの済んだ表へ古い世代の登録が残るため。ロストは世代を書いてから掃き出すので、錠の中の読みで抜けが無い。
+    let ready = {
+        let mut subs = lock_table(table);
+        let current = read_generation();
+        subs.register(sequence, generation, current, callback, classify)
+    };
     if let Some((callback, state)) = ready {
         call(callback, state);
     }
@@ -1730,6 +1746,7 @@ mod imp {
                 &self.submissions,
                 token.sequence,
                 token.generation,
+                || self.current_generation(),
                 callback,
                 group_state,
                 call,
@@ -2790,14 +2807,14 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[1, 0]);
         // 回収しないので、完了済みの列は表に残ったままでも `Complete` が決まる。
-        let ready = subs.register(1, GEN, recorder(&seen, 1), fake_state);
+        let ready = subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state);
         assert!(matches!(ready, Some((_, CompletionState::Complete))));
         assert!(
-            subs.register(2, GEN, recorder(&seen, 2), fake_state)
+            subs.register(2, GEN, GEN, recorder(&seen, 2), fake_state)
                 .is_none()
         );
         // 払い出していない番号は `Lost` でその場。
-        let ready = subs.register(9, GEN, recorder(&seen, 9), fake_state);
+        let ready = subs.register(9, GEN, GEN, recorder(&seen, 9), fake_state);
         assert!(matches!(ready, Some((_, CompletionState::Lost))));
         assert_eq!(subs.callbacks.len(), 1);
         assert!(seen.lock().expect("lock").is_empty());
@@ -2809,7 +2826,7 @@ mod precheck_tests {
         let (mut subs, groups) = fake_table(&[0, 0, 0]);
         for sequence in 1..=3 {
             assert!(
-                subs.register(sequence, GEN, recorder(&seen, sequence), fake_state)
+                subs.register(sequence, GEN, GEN, recorder(&seen, sequence), fake_state)
                     .is_none()
             );
         }
@@ -2844,7 +2861,7 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, groups) = fake_table(&[0]);
         assert!(
-            subs.register(1, GEN, recorder(&seen, 1), fake_state)
+            subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state)
                 .is_none()
         );
         groups[0].store(1, Ordering::SeqCst);
@@ -2863,7 +2880,7 @@ mod precheck_tests {
         let (mut subs, groups) = fake_table(&[0, 0]);
         for sequence in 1..=2 {
             assert!(
-                subs.register(sequence, GEN, recorder(&seen, sequence), fake_state)
+                subs.register(sequence, GEN, GEN, recorder(&seen, sequence), fake_state)
                     .is_none()
             );
         }
@@ -2883,7 +2900,7 @@ mod precheck_tests {
         // 待たなかった（実行中のままの）列は `Lost` に寄せる。
         let (mut subs, _groups) = fake_table(&[0]);
         assert!(
-            subs.register(1, GEN, recorder(&seen, 7), fake_state)
+            subs.register(1, GEN, GEN, recorder(&seen, 7), fake_state)
                 .is_none()
         );
         call_all(subs.take_all(GEN, fake_state));
@@ -2934,6 +2951,7 @@ mod precheck_tests {
                 &inner_table,
                 2,
                 GEN,
+                || GEN,
                 recorder(&inner_seen, 22),
                 fake_state,
                 |callback: Callback, state| callback(state),
@@ -3005,6 +3023,7 @@ mod precheck_tests {
                 &table,
                 1,
                 GEN,
+                || GEN,
                 Box::new(|_| panic!("callback failed")),
                 fake_state,
                 call,
@@ -3016,7 +3035,7 @@ mod precheck_tests {
         assert!(table.try_lock().is_ok());
         assert!(lock_table(&table).callbacks.is_empty());
         // そのあとも、登録と駆動が使える。
-        register_table(&table, 2, GEN, recorder(&seen, 2), fake_state, call);
+        register_table(&table, 2, GEN, || GEN, recorder(&seen, 2), fake_state, call);
         assert!(seen.lock().expect("lock").is_empty());
         groups[1].store(1, Ordering::SeqCst);
         drive_table(&table, GEN, fake_state, call);
@@ -3119,7 +3138,7 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[0]);
         assert!(
-            subs.register(1, GEN, recorder(&seen, 1), fake_state)
+            subs.register(1, GEN, GEN, recorder(&seen, 1), fake_state)
                 .is_none()
         );
         let boom = |_: &Fake| -> GroupState { panic!("classify failed") };
@@ -3421,15 +3440,15 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, _groups) = fake_table(&[0, 0, 0]);
         assert!(
-            subs.register(1, 1, recorder(&seen, 1), fake_state)
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
                 .is_none()
         );
         assert!(
-            subs.register(2, 2, recorder(&seen, 2), fake_state)
+            subs.register(2, 2, 2, recorder(&seen, 2), fake_state)
                 .is_none()
         );
         assert!(
-            subs.register(3, 1, recorder(&seen, 3), fake_state)
+            subs.register(3, 1, 1, recorder(&seen, 3), fake_state)
                 .is_none()
         );
 
@@ -3449,7 +3468,7 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, groups) = fake_table(&[0]);
         assert!(
-            subs.register(1, 1, recorder(&seen, 1), fake_state)
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
                 .is_none()
         );
         groups[0].store(1, Ordering::SeqCst);
@@ -3464,7 +3483,7 @@ mod precheck_tests {
         let seen: Seen = Arc::default();
         let (mut subs, groups) = fake_table(&[0]);
         assert!(
-            subs.register(1, 1, recorder(&seen, 1), fake_state)
+            subs.register(1, 1, 1, recorder(&seen, 1), fake_state)
                 .is_none()
         );
         groups[0].store(1, Ordering::SeqCst);
@@ -3478,8 +3497,8 @@ mod precheck_tests {
         let (subs, groups) = fake_table(&[0, 0]);
         let table = Mutex::new(subs);
         let call = |callback: Callback, state| callback(state);
-        register_table(&table, 1, 1, recorder(&seen, 1), fake_state, call);
-        register_table(&table, 2, 2, recorder(&seen, 2), fake_state, call);
+        register_table(&table, 1, 1, || 1, recorder(&seen, 1), fake_state, call);
+        register_table(&table, 2, 2, || 1, recorder(&seen, 2), fake_state, call);
         groups[0].store(1, Ordering::SeqCst);
         groups[1].store(1, Ordering::SeqCst);
 
@@ -3490,6 +3509,222 @@ mod precheck_tests {
             *seen.lock().unwrap(),
             [(1, CompletionState::Lost), (2, CompletionState::Complete)]
         );
+    }
+
+    #[test]
+    fn a_newer_registration_is_left_alone_by_an_older_reading() {
+        let seen: Seen = Arc::default();
+        let (subs, groups) = fake_table(&[1, 1]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        // 古い世代 1 の登録と、ロストの後に登録された新しい世代 2 の登録。列はどちらも完了済み。
+        register_table(
+            &table,
+            1,
+            1,
+            || 1,
+            recorder(&seen, 1),
+            |_| GroupState::Pending,
+            call,
+        );
+        register_table(
+            &table,
+            2,
+            2,
+            || 2,
+            recorder(&seen, 2),
+            |_| GroupState::Pending,
+            call,
+        );
+        assert_eq!(lock_table(&table).callbacks.len(), 2);
+        groups[0].store(1, Ordering::SeqCst);
+
+        // 世代 1 を読んだ操作の駆動は、世代 2 の登録に触れない（`Lost` も `Complete` も渡さない）。
+        drive_table(&table, 1, fake_state, call);
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Complete)]);
+        assert_eq!(lock_table(&table).callbacks.len(), 1);
+        // 世代 1 を読んだ掃き出しも同じ。
+        sweep_stale_table(&table, 1, call);
+        assert_eq!(lock_table(&table).callbacks.len(), 1);
+
+        // 次の世代 2 の駆動で、通常の値が 1 回だけ届く。
+        drive_table(&table, 2, fake_state, call);
+        drive_table(&table, 2, fake_state, call);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (1, CompletionState::Complete),
+                (2, CompletionState::Complete)
+            ]
+        );
+    }
+
+    #[test]
+    fn stale_sweeping_and_the_final_drain_follow_the_same_ordering_rule() {
+        let seen: Seen = Arc::default();
+        let (mut subs, _groups) = fake_table(&[1, 1, 1]);
+        assert!(
+            subs.register(1, 1, 1, recorder(&seen, 1), |_| GroupState::Pending)
+                .is_none()
+        );
+        assert!(
+            subs.register(2, 2, 2, recorder(&seen, 2), |_| GroupState::Pending)
+                .is_none()
+        );
+        assert!(
+            subs.register(3, 3, 3, recorder(&seen, 3), |_| GroupState::Pending)
+                .is_none()
+        );
+        // 世代 2 を読んだ掃き出しは、世代 1 だけを外す。
+        call_all(subs.take_stale(2));
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+        assert_eq!(subs.callbacks.len(), 2);
+        // 最後の掃き出し（Drop）では、世代 2 は今の世代と同じ扱いで通常の値、世代 3 も通常の値になる。
+        call_all(subs.take_all(2, fake_state));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (1, CompletionState::Lost),
+                (2, CompletionState::Complete),
+                (3, CompletionState::Complete)
+            ]
+        );
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn registering_with_an_older_generation_than_now_gets_lost_at_once() {
+        let seen: Seen = Arc::default();
+        let (subs, _groups) = fake_table(&[0]);
+        let table = Mutex::new(subs);
+        let call = |callback: Callback, state| callback(state);
+        // 所有者の検査の後でロストと掃き出しが済んだ想定。錠の中で読んだ世代 2 が登録の世代 1 より大きい。
+        register_table(&table, 1, 1, || 2, recorder(&seen, 1), fake_state, call);
+        assert_eq!(*seen.lock().unwrap(), [(1, CompletionState::Lost)]);
+        assert!(lock_table(&table).callbacks.is_empty());
+    }
+
+    /// 並行の試験で使う、各登録の呼ばれた回数と値。
+    fn tally(seen: &Seen, count: u64) -> Vec<Vec<CompletionState>> {
+        let mut by_tag = vec![Vec::new(); count as usize];
+        for (tag, state) in seen.lock().unwrap().iter() {
+            by_tag[*tag as usize].push(*state);
+        }
+        by_tag
+    }
+
+    #[test]
+    fn a_concurrent_sweep_and_drives_call_each_registration_exactly_once() {
+        const N: u64 = 16;
+        for _ in 0..50 {
+            let seen: Seen = Arc::default();
+            let states = [1_u8; N as usize];
+            let (subs, _groups) = fake_table(&states);
+            let table = Mutex::new(subs);
+            let generation = AtomicU64::new(1);
+            let call = |callback: Callback, state| callback(state);
+            for tag in 0..N {
+                register_table(
+                    &table,
+                    tag + 1,
+                    1,
+                    || 1,
+                    recorder(&seen, tag),
+                    |_| GroupState::Pending,
+                    call,
+                );
+            }
+            let barrier = std::sync::Barrier::new(4);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    generation.store(2, Ordering::Release);
+                    sweep_stale_table(&table, 2, call);
+                });
+                for _ in 0..3 {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        for _ in 0..4 {
+                            drive_table(
+                                &table,
+                                generation.load(Ordering::Acquire),
+                                fake_state,
+                                call,
+                            );
+                        }
+                    });
+                }
+            });
+            drive_table(&table, 2, fake_state, call);
+            for calls in tally(&seen, N) {
+                assert_eq!(calls.len(), 1, "{calls:?}");
+                assert!(matches!(
+                    calls[0],
+                    CompletionState::Lost | CompletionState::Complete
+                ));
+            }
+            assert!(lock_table(&table).callbacks.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_concurrent_loss_and_registrations_call_each_registration_exactly_once() {
+        const N: u64 = 16;
+        for _ in 0..50 {
+            let seen: Seen = Arc::default();
+            // 偶数番は完了済み、奇数番は未完了の列。
+            let states: Vec<u8> = (0..N).map(|i| u8::from(i % 2 == 0)).collect();
+            let (subs, _groups) = fake_table(&states);
+            let table = Mutex::new(subs);
+            let lost = LostState::default();
+            let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+            let call = |callback: Callback, state| callback(state);
+            let barrier = std::sync::Barrier::new(3);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    if lost
+                        .lose(DeviceLostReason::Unknown, &generation, &source)
+                        .unwrap()
+                    {
+                        sweep_stale_table(&table, generation.load(Ordering::Acquire), call);
+                    }
+                });
+                for half in 0..2_u64 {
+                    let (seen, table, generation, barrier) = (&seen, &table, &generation, &barrier);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        for tag in (half * N / 2)..((half + 1) * N / 2) {
+                            // 印の世代は 1（ロストの前に払い出された印）。
+                            register_table(
+                                table,
+                                tag + 1,
+                                1,
+                                || generation.load(Ordering::Acquire),
+                                recorder(seen, tag),
+                                fake_state,
+                                call,
+                            );
+                        }
+                    });
+                }
+            });
+            // 残りは最後の掃き出し。世代 2 を読む駆動で、古い世代の登録は `Lost` になる。
+            drive_table(&table, 2, fake_state, call);
+            for (tag, calls) in tally(&seen, N).into_iter().enumerate() {
+                assert_eq!(calls.len(), 1, "tag {tag}: {calls:?}");
+                if tag % 2 == 1 {
+                    // 未完了の列は、ロストの前後どちらに登録しても `Lost`。
+                    assert_eq!(calls[0], CompletionState::Lost);
+                } else {
+                    assert!(matches!(
+                        calls[0],
+                        CompletionState::Lost | CompletionState::Complete
+                    ));
+                }
+            }
+            assert!(lock_table(&table).callbacks.is_empty());
+        }
     }
 
     #[test]
