@@ -70,6 +70,55 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 型名と合わせた名前を小文字の英数字だけに正規化し、語の一覧の語が含まれるものを数える。結果は 0 件である。
 `[words]`（`GB10` など）は `--source` のファイルの行に単語境界で当てる別の照合で、公開アイテム名の照合には使われない。
 
+## 現状の形（2/6）
+
+置き場は `crates/core/src/texture_format.rs`（feature の条件なし・外部依存 0・`forbid(unsafe_code)` のまま）。
+
+### 型
+
+| 項目 | 事実 |
+| ---- | ---- |
+| 型 | `TextureFormat`・`AstcBlock`・`AstcChannel` の 3 つ |
+| variant の数 | `TextureFormat` は 77（ASTC 以外の 76 と `Astc { block, channel }` の 1）、`AstcBlock` は 14、`AstcChannel` は 3 |
+| derive | 3 つとも `Debug, Clone, Copy, PartialEq, Eq, Hash` |
+| `#[non_exhaustive]` | 3 つの型に付ける。`Astc` の variant には付けない（別の crate が値を作れる） |
+| `#[repr]` | 付けない（判別子の数値は公開しない） |
+| 名前と順 | `TextureFormat`・`AstcBlock`・`AstcChannel` の variant の名前と順は、比較基準の `wgpu-types` 30.0.1 の同名の型と同じ（上の照合と同じ手順で確かめられる） |
+| 値の一覧 | `TextureFormat::all()` は 118 件、`AstcBlock::all()` は 14 件、`AstcChannel::all()` は 3 件のスライス（長さは型に出さない） |
+| `TextureFormat::all()` の順 | ASTC 以外の 76 値を宣言順に並べ、続けて ASTC をブロックの順（外）× チャネルの順（内）の 42 件 |
+
+### 性質の関数
+
+どれも `&self` を取り、機材を引数に取らず、`Result` を返さず、panic しない。形式ごとの値の表は本書に置かず、`texture_format.rs` の `match` を正とする。
+
+| 関数 | 返すもの |
+| ---- | -------- |
+| `has_color_aspect`・`has_depth_aspect`・`has_stencil_aspect` | 色・深度・ステンシルの面を持つか（`bool`）。`NV12`・`P010` は色の面を持たない |
+| `is_depth_stencil_format` | 深度またはステンシルの面を持つか |
+| `is_combined_depth_stencil_format` | 深度とステンシルの両方を持つか |
+| `is_multi_planar_format`・`planes` | 複数平面か。`planes` は `NV12`・`P010` で `Some(2)`、ほかは `None` |
+| `block_dimensions`・`is_compressed` | ブロックの大きさ（非圧縮は `(1, 1)`、BC・ETC2・EAC は `(4, 4)`、ASTC はブロックの大きさ）。圧縮か（`(1, 1)` でないか） |
+| `remove_srgb_suffix`・`add_srgb_suffix`・`is_srgb` | sRGB の対を外す・付ける（対の無い形式は自身）。sRGB か |
+| `required_feature` | 要る機能を `Option<FeatureId>` で返す。値は `"feature:<名前>"` の形で、要らない形式は `None` |
+
+### 対応するテスト
+
+`crates/core/tests/texture_format_counts.rs`。
+
+| テスト | 内容 |
+| ------ | ---- |
+| `texture_format_all_has_118_concrete_formats` | `TextureFormat::all()` の長さが 118 |
+| `texture_format_all_has_42_astc_formats` | `all()` のうち `Astc` が 42 |
+| `astc_block_all_has_14_values` | `AstcBlock::all()` の長さが 14 |
+| `astc_channel_all_has_3_values` | `AstcChannel::all()` の長さが 3 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --test texture_format_counts
+cargo test -p fandhe-silicon-core --all-features
+```
+
 ## 段の表
 
 | Issue | 内容 |
