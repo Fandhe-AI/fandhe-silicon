@@ -1,4 +1,4 @@
-# 決定表の純関数と型（TASK-141）の所在と現状の事実
+# 決定表の純関数と型（TASK-141・TASK-143）の所在と現状の事実
 
 本リポのコードと公開テストから説明できる振る舞いを記録する。記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-141。ポインタのみ）。spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。置き場は TASK-132 の決定の記録に従う（ポインタのみ）。
 
@@ -37,6 +37,12 @@
 | `S0` が `NoRoute(Unknown)`、`Unsupported` が `NoRoute(Unsupported)` | 同 `s0_is_no_route_unknown_for_every_other_input`・`unsupported_is_no_route_unsupported_for_every_other_input` |
 | 知らない段階が `NoRoute(Unknown)`（同じ crate の中では `CapabilityLevel` の値を作れないため、内側の関数に `None` を渡して模す） | 同 `unrecognized_level_is_no_route_unknown` |
 | 期待の表に依らない性質: S5 に届かない段階は常に経路なし、小さい規模は常に経路なし、行列の演算器の候補は S6・大・F16 のときだけ、経路が出るのは S5 か S6 で大のときだけ | 同 `levels_below_s5_never_route`・`small_scale_never_routes`・`matrix_unit_route_only_for_s6_large_f16`・`any_route_only_for_s5_or_s6_large` |
+| `S1`〜`S4` は規模・数値型・常駐位置を問わず `NoRoute(NotVerified)`、理由は `CapabilityBelowS5`（DEV-123） | `crates/core/tests/decision_branches.rs` の `s1_to_s4_is_no_route_not_verified_because_below_s5` |
+| `S5` かつ `Small` は `NoRoute(NotVerified)`、理由は `ScaleSmall`（DEV-124） | 同 `s5_small_is_no_route_not_verified_because_scale_small` |
+| `S5` かつ `Large` は数値型を問わず `Route(GpuGeneric)`、理由は `CapabilityS5ScaleLarge`（DEV-125） | 同 `s5_large_routes_to_gpu_generic_for_every_scalar` |
+| `S6` かつ `Small` は `NoRoute(NotVerified)`、理由は `ScaleSmall`（DEV-126） | 同 `s6_small_is_no_route_not_verified_because_scale_small` |
+| `S6` かつ `Large` かつ `F16` は `Route(GpuMatrixUnit)`、理由は `CapabilityS6ScaleLargeF16`（DEV-127） | 同 `s6_large_f16_routes_to_gpu_matrix_unit` |
+| `S6` かつ `Large` かつ `F32` または `I8` は `Route(GpuGeneric)`、理由は `CapabilityS6ScaleLargeOtherScalar`（DEV-128） | 同 `s6_large_f32_or_i8_routes_to_gpu_generic` |
 | 他の crate から `DecisionInput::new` で作った入力を `decide` が受ける | `crates/core/tests/decision_table.rs` の `input_built_with_new_is_accepted_by_decide` |
 | 経路の候補の名前にチップ・製品・カーネルの固有の語が入らない | 同 `route_candidate_names_carry_no_product_specific_words` |
 
@@ -44,6 +50,7 @@
 
 ```bash
 cargo test -p fandhe-silicon-core --test decision_table
+cargo test -p fandhe-silicon-core --test decision_branches
 cargo test -p fandhe-silicon-core --lib decision
 ```
 
