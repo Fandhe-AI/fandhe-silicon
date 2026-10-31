@@ -258,6 +258,42 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `cargo test -p fandhe-silicon-core --all-features`
 - `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#7543）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1878）。GPU の実機なしで実行し、件数は実測。本体のコードと試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 |
+| ------ | ------ |
+| 引数の型・範囲と整列の検査・`first_instance` の判定 | `crates/core/src/execution/indirect_args.rs`（`execution` から再公開。上の「現状の形（2/6）」「現状の形（3/6）」） |
+| 試験 | `crates/core/tests/indirect_args_size.rs`・`indirect_args_layout.rs`・`indirect_args_rules.rs`・`indirect_args_range.rs`・`indirect_args_first_instance.rs`（上の「試験（4/6）」「試験（5/6）」） |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 配置（CMD-133 のポインタ） | `cargo test -p fandhe-silicon-core --test indirect_args_size`（`draw_indirect_args_size_matches_layout`・`draw_indexed_indirect_args_size_matches_layout`・`dispatch_indirect_args_size_matches_layout`・`bytes_round_trip`）、`--test indirect_args_layout`（`sizes_match_size_constants`・`alignment_is_four`・`draw_bytes_follow_field_order`・`draw_indexed_bytes_follow_field_order`・`dispatch_bytes_follow_field_order`・`base_vertex_is_twos_complement_le`・`round_trip_over_boundary_values`・`bytes_round_trip_from_expected_arrays`・`default_is_all_zero`） | 4 件・9 件とも passed |
+| (2) | 範囲・整列の検査（CMD-134・CMD-135 のポインタ） | `--test indirect_args_rules range_`（`range_rejects_misaligned_offset`・`range_rejects_end_overflow`・`range_rejects_end_beyond_length`・`range_accepts_end_equal_to_length`）、`--test indirect_args_range`（`range_grid_matches_u128_reference`・`every_rejection_is_invalid_argument`・`misalignment_is_reported_before_overflow_and_excess`・`end_exactly_at_length_is_accepted`・`start_beyond_length_is_rejected_even_for_empty_args`・`end_overflow_boundary_near_u64_max`） | 4 件・6 件とも passed |
+| (3) | `first_instance` の判定（CMD-136 のポインタ） | `--test indirect_args_rules first_instance`（`first_instance_decision_cases`）、`--test indirect_args_first_instance`（`boundary_values_match_reference`・`named_claims`・`stride_sweep_over_u32_matches_reference`・`decision_is_closed_two_values`） | 1 件・4 件とも passed |
+| 全 feature | 上の組を `--all-features` 付きで流す | 同じ件数で passed |
+| feature なし | `grep -c indirect crates/core/Cargo.toml` | 0 件（試験に `[[test]]` の宣言が無く、feature なしで走る。5 本とも `#[ignore]` は 0 件） |
+| wasm32 | `cargo check -p fandhe-silicon-core --target wasm32-unknown-unknown --test <5 本>` | 終了コード 0 |
+| 公開 API・依存の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-api-webgpu-check`・`make public-name-check`・`make core-deps-check` | すべて終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`・`sdk_type_refs=0 sdk_other_refs=0`・`webgpu_names=0`・`name_hits=0`・`unexpected=0 missing=0` |
+| 外部依存と unsafe | `cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -n forbid crates/core/src/lib.rs` | 依存 0 件、`#![forbid(unsafe_code)]` |
+| 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
+| base の CI | `gh run list --branch main --commit <base> --workflow ci.yml` | 記録時点で run 41225202952 は in_progress（結論は確定していない） |
+
+### 再実行の契機
+
+- `crates/core/src/execution/indirect_args.rs` を変えたとき
+- 上の 5 本の試験を変えたとき
+- `validate_buffer_range` を変えたとき
+- `scripts/public-api-check.sh` などの検査を変えたとき
+- `docs/spec` の参照先を進めたとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1878）。確かめた base は `a97ac58f10a9ac80ccdfaec92d5c044c8d1ebf1a`。
+
 ## 段の表
 
 | Issue | 内容 |
