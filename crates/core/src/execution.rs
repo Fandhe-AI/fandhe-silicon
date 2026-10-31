@@ -5,9 +5,11 @@
 //! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C4〜C8 を判定する純粋関数（`dispatch_check`）を置き、コンパイル・チップ固有の型は持たない。
 //! 入力は借用で持つので、確保も所有権の移動も起きない。
 
+mod compute;
 mod dispatch_check;
 mod submit;
 
+pub use compute::{Binding, ConstantBinding, PipelineHandle, ThreadgroupMemory};
 pub use dispatch_check::{
     OperandBinding, OperandConstant, required_bytes, validate_dispatch_operands,
 };

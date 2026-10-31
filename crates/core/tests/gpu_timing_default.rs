@@ -12,6 +12,22 @@ use fandhe_silicon_core::execution::{
 struct Plain(CompletionState);
 
 impl CommandQueue for Plain {
+    fn dispatch_ex(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _pipeline: &fandhe_silicon_core::execution::PipelineHandle,
+        _bindings: &[fandhe_silicon_core::execution::Binding<'_>],
+        _consts: &[fandhe_silicon_core::execution::ConstantBinding<'_>],
+        _dispatch_dims: [u32; 3],
+        _threads_per_threadgroup: [u32; 3],
+        _threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
+    ) -> Result<(), fandhe_silicon_core::error::ContractError> {
+        Err(fandhe_silicon_core::error::ContractError::Unsupported {
+            op: "dispatch_ex",
+            backend: fandhe_silicon_core::capability::BackendKind::Metal,
+        })
+    }
+
     fn create_encoder(&self) -> CommandEncoder {
         CommandEncoder::__backend_new(1, None)
     }

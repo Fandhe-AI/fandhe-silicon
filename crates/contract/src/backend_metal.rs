@@ -1564,6 +1564,23 @@ mod imp {
             self.lock_submissions()
                 .timing_of(token.sequence, group_state)
         }
+
+        /// 何も記録せず Metal の API も呼ばずに `Unsupported` を返す。dispatch の記録は TASK-775 のポインタ。
+        fn dispatch_ex(
+            &self,
+            _encoder: &mut CommandEncoder,
+            _pipeline: &fandhe_silicon_core::execution::PipelineHandle,
+            _bindings: &[fandhe_silicon_core::execution::Binding<'_>],
+            _consts: &[fandhe_silicon_core::execution::ConstantBinding<'_>],
+            _dispatch_dims: [u32; 3],
+            _threads_per_threadgroup: [u32; 3],
+            _threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
+        ) -> Result<(), ContractError> {
+            Err(ContractError::Unsupported {
+                op: "dispatch_ex",
+                backend: fandhe_silicon_core::capability::BackendKind::Metal,
+            })
+        }
     }
 
     /// `allocate` が Metal のバッファを作る前に通す検査。
