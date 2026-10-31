@@ -209,7 +209,7 @@ make wasm-verify
 | 公開 API・依存の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-api-webgpu-check`・`make public-name-check`・`make core-deps-check` | すべて終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`・`sdk_type_refs=0 sdk_other_refs=0`・`webgpu_names=0`・`name_hits=0`・`unexpected=0 missing=0` |
 | 外部依存と unsafe | `cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -n forbid crates/core/src/lib.rs` | 依存 0 件、`#![forbid(unsafe_code)]` |
 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | すべて終了コード 0 |
-| base の CI | `gh run list --branch main --commit <base> --workflow ci.yml` | 記録時点で run 41224029284 は queued（結論は未確定） |
+| base の CI | `gh run list --branch main --commit <base> --workflow ci.yml` | run 41224029284 は success |
 
 ### 再実行の契機
 
