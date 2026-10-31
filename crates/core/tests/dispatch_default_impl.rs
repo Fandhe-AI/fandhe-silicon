@@ -16,6 +16,8 @@ use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 /// `dispatch_ex` が受け取った引数の写し。
 #[derive(Debug, PartialEq)]
 struct Call {
+    /// 渡された encoder の識別子。
+    encoder: u64,
     pipeline: (u64, u64),
     /// (slot, offset, バッファの識別子)。
     bindings: Vec<(u32, u64, u64)>,
@@ -87,7 +89,7 @@ impl CommandQueue for Recording {
 
     fn dispatch_ex(
         &self,
-        _encoder: &mut CommandEncoder,
+        encoder: &mut CommandEncoder,
         pipeline: &PipelineHandle,
         bindings: &[Binding<'_>],
         consts: &[ConstantBinding<'_>],
@@ -96,6 +98,7 @@ impl CommandQueue for Recording {
         threadgroup_memory: &[ThreadgroupMemory],
     ) -> Result<(), ContractError> {
         self.calls.lock().unwrap().push(Call {
+            encoder: encoder.__backend_id(),
             pipeline: (pipeline.__backend_id(), pipeline.__backend_device_id()),
             bindings: bindings
                 .iter()
@@ -117,7 +120,7 @@ fn buffer(id: u64) -> BufferHandle {
 #[test]
 fn dispatch_calls_dispatch_ex_once_with_defaults() {
     let q = Recording::new(Ok(()));
-    let mut enc = q.create_encoder();
+    let mut enc = CommandEncoder::__backend_new(77, None);
     let pipeline = PipelineHandle::__backend_new(9, 4);
     let (a, b) = (buffer(10), buffer(11));
     let bindings = [Binding::new(0, &a, 0), Binding::new(3, &b, 32)];
@@ -130,6 +133,7 @@ fn dispatch_calls_dispatch_ex_once_with_defaults() {
     assert_eq!(
         calls[0],
         Call {
+            encoder: 77,
             pipeline: (9, 4),
             bindings: vec![(0, 0, 10), (3, 32, 11)],
             consts_len: 0,

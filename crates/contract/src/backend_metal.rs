@@ -1565,7 +1565,7 @@ mod imp {
                 .timing_of(token.sequence, group_state)
         }
 
-        /// 何も記録せず Metal の API も呼ばずに `Unsupported` を返す。dispatch の記録は TASK-775 のポインタ。
+        // dispatch の記録は TASK-775 のポインタ。この実装は引数を読まず、encoder に何も積まない。
         fn dispatch_ex(
             &self,
             _encoder: &mut CommandEncoder,
