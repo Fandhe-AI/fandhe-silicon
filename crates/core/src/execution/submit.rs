@@ -5,7 +5,7 @@
 //! ここには型と trait の形だけを置き、チップ固有の型・unsafe は持たない。
 //! `dispatch` 系・束縛の検査などは本モジュールの範囲の外。
 
-use super::ImportedSemaphoreHandle;
+use super::{Binding, ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, ThreadgroupMemory};
 use crate::error::{CompletionState, CompletionStateEx, ContractError, RetryPolicy};
 
 /// 記録先の識別子の源。背後実装をまたいで、プロセス全体で通し番号にする。0 は払い出さない。
@@ -309,5 +309,100 @@ pub trait CommandQueue {
     /// 投入の GPU 側の時刻を読む。読み取り専用で回収を起こさない。既定は `Unavailable`。
     fn gpu_timing(&self, _token: SubmitToken) -> GpuTiming {
         GpuTiming::Unavailable
+    }
+
+    /// compute の dispatch を記録先へ記録する。記録の中身・検査は背後実装が決める。既定の本体は無く、必ず実装する。
+    ///
+    /// 既定の `dispatch` はこのメソッドへ委ねる。
+    ///
+    /// `dispatch_ex` を持たない実装は拒まれる。
+    ///
+    /// ```compile_fail,E0046
+    /// use fandhe_silicon_core::error::{CompletionState, ContractError};
+    /// use fandhe_silicon_core::execution::{
+    ///     CommandEncoder, CommandQueue, ImportedSemaphoreHandle, SubmitToken,
+    /// };
+    /// struct Q;
+    /// impl CommandQueue for Q {
+    ///     fn create_encoder(&self) -> CommandEncoder { CommandEncoder::__backend_new(1, None) }
+    ///     fn submit(&self, _c: CommandEncoder, _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn submit_many(&self, _c: Vec<CommandEncoder>, _a: &[SubmitToken], _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn poll(&self, _t: SubmitToken) -> CompletionState { CompletionState::Complete }
+    ///     fn on_complete(&self, _t: SubmitToken, cb: Box<dyn FnOnce(CompletionState) + Send>) {
+    ///         cb(CompletionState::Complete);
+    ///     }
+    ///     #[cfg(feature = "native-blocking-wait")]
+    ///     fn wait_blocking(&self, _t: SubmitToken, _o: Option<std::time::Duration>)
+    ///         -> Result<(), ContractError> { Ok(()) }
+    /// }
+    /// ```
+    ///
+    /// 陽性対照: `dispatch_ex` を持てば通る。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::error::{CompletionState, ContractError};
+    /// use fandhe_silicon_core::execution::{
+    ///     Binding, CommandEncoder, CommandQueue, ConstantBinding, ImportedSemaphoreHandle,
+    ///     PipelineHandle, SubmitToken, ThreadgroupMemory,
+    /// };
+    /// struct Q;
+    /// impl CommandQueue for Q {
+    ///     fn create_encoder(&self) -> CommandEncoder { CommandEncoder::__backend_new(1, None) }
+    ///     fn submit(&self, _c: CommandEncoder, _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn submit_many(&self, _c: Vec<CommandEncoder>, _a: &[SubmitToken], _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn poll(&self, _t: SubmitToken) -> CompletionState { CompletionState::Complete }
+    ///     fn on_complete(&self, _t: SubmitToken, cb: Box<dyn FnOnce(CompletionState) + Send>) {
+    ///         cb(CompletionState::Complete);
+    ///     }
+    ///     #[cfg(feature = "native-blocking-wait")]
+    ///     fn wait_blocking(&self, _t: SubmitToken, _o: Option<std::time::Duration>)
+    ///         -> Result<(), ContractError> { Ok(()) }
+    ///     fn dispatch_ex(
+    ///         &self,
+    ///         _e: &mut CommandEncoder,
+    ///         _p: &PipelineHandle,
+    ///         _b: &[Binding<'_>],
+    ///         _c: &[ConstantBinding<'_>],
+    ///         _d: [u32; 3],
+    ///         _t: [u32; 3],
+    ///         _m: &[ThreadgroupMemory],
+    ///     ) -> Result<(), ContractError> { Ok(()) }
+    /// }
+    /// ```
+    // 引数は dispatch の宣言の並びそのままで、まとめる型を挟まない。
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_ex(
+        &self,
+        encoder: &mut CommandEncoder,
+        pipeline: &PipelineHandle,
+        bindings: &[Binding<'_>],
+        consts: &[ConstantBinding<'_>],
+        dispatch_dims: [u32; 3],
+        threads_per_threadgroup: [u32; 3],
+        threadgroup_memory: &[ThreadgroupMemory],
+    ) -> Result<(), ContractError>;
+
+    /// 簡易版の dispatch。定数なし・`[1, 1, 1]` のスレッド数・共有メモリなしで `dispatch_ex` を呼び、結果をそのまま返す。
+    /// 自分では検査しない。
+    fn dispatch(
+        &self,
+        encoder: &mut CommandEncoder,
+        pipeline: &PipelineHandle,
+        bindings: &[Binding<'_>],
+        dispatch_dims: [u32; 3],
+    ) -> Result<(), ContractError> {
+        self.dispatch_ex(
+            encoder,
+            pipeline,
+            bindings,
+            &[],
+            dispatch_dims,
+            [1, 1, 1],
+            &[],
+        )
     }
 }
