@@ -1,10 +1,13 @@
 //! feature `test-support` を有効にしたときだけ公開される、試験用の device と provider。
 //!
 //! GPU も背後実装も使わず、ホストのメモリだけで `Device`・`MemoryOps`・`CommandQueue` を満たす（TASK-156 のポインタ）。
-//! 製品の経路からは使わない。メモリ・投入・compute の口は本 module の中の非公開の型で、`StubDevice` 越しにだけ届く。
+//! 製品の経路からは使わない。メモリ・投入・compute・描画の口は本 module の中の非公開の型で、`StubDevice` 越しにだけ届く。
 //!
 //! `Device::compute()` は要求のプロファイルで答えが変わる。`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す
 //! （所有形態によらない。TASK-2956 のポインタ）。
+//!
+//! feature `graphics` のビルドでは `Device::graphics()` も要求のプロファイルで答えが変わる。`CpuOnly`・`ComputeOnly` は `None`、
+//! `Graphics` は `Some` を返す（所有形態によらない。TASK-837 のポインタ）。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,9 +23,13 @@ use crate::execution::{
     CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
     PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
 };
+#[cfg(feature = "graphics")]
+use crate::graphics::{DepthConfig, DepthFormat, GraphicsOps, PixelFormat, RenderEncoder};
 use crate::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
 };
+#[cfg(feature = "graphics")]
+use crate::render_target::RenderTargetHandle;
 
 /// 試験用の device の上限の表。確保の上限だけ持ち、dispatch・テクスチャは 0。
 const LIMITS: LimitsTable = LimitsTable {
@@ -246,12 +253,35 @@ impl __BackendSharedEncoderCloser for OpenEncoders {
     }
 }
 
+/// 投入の印を 1 つ払い出す。queue と描画の口が同じ源を共有し、尽きたら `BackendFailure { op, .. }` を返す。
+fn issue_token(
+    sequence: &AtomicU64,
+    backend: BackendKind,
+    id: u64,
+    op: &'static str,
+) -> Result<SubmitToken, ContractError> {
+    let mut current = sequence.load(Ordering::Relaxed);
+    loop {
+        let Some(next) = current.checked_add(1) else {
+            return Err(ContractError::BackendFailure {
+                op,
+                backend,
+                detail: "submission sequence space is exhausted".to_string(),
+            });
+        };
+        match sequence.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return Ok(SubmitToken::__backend_new(id, current, id)),
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 /// 投入を即時に完了済みとして扱う `CommandQueue`。`StubDevice` が持つ。
 struct StubQueue {
     backend: BackendKind,
     id: u64,
     open: Arc<OpenEncoders>,
-    next_sequence: AtomicU64,
+    next_sequence: Arc<AtomicU64>,
 }
 
 impl StubQueue {
@@ -262,31 +292,13 @@ impl StubQueue {
             open: Arc::new(OpenEncoders {
                 ids: Mutex::new(HashSet::new()),
             }),
-            next_sequence: AtomicU64::new(1),
+            next_sequence: Arc::new(AtomicU64::new(1)),
         }
     }
 
     /// 投入の印を 1 つ払い出す。
     fn issue(&self) -> Result<SubmitToken, ContractError> {
-        let mut current = self.next_sequence.load(Ordering::Relaxed);
-        loop {
-            let Some(next) = current.checked_add(1) else {
-                return Err(ContractError::BackendFailure {
-                    op: "submit",
-                    backend: self.backend,
-                    detail: "submission sequence space is exhausted".to_string(),
-                });
-            };
-            match self.next_sequence.compare_exchange_weak(
-                current,
-                next,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return Ok(SubmitToken::__backend_new(self.id, current, self.id)),
-                Err(actual) => current = actual,
-            }
-        }
+        issue_token(&self.next_sequence, self.backend, self.id, "submit")
     }
 
     /// 印が自分の device のものか照合する。
@@ -467,12 +479,197 @@ impl ComputeOps for StubCompute {
     }
 }
 
+/// 描画の操作を満たす `GraphicsOps`。`StubDevice` が feature `graphics` のビルドで持つ。
+///
+/// 入力・配置・形式・大きさは検査も解釈もせず、印の device の識別子は device の `generation()` と同じ値にする。
+/// パイプライン・描画先・記録先の通し番号は 1 つの源から 1 から増え、尽きたら `BackendFailure` を返す（panic しない）。
+/// `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
+/// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
+#[cfg(feature = "graphics")]
+struct StubGraphics {
+    backend: BackendKind,
+    id: u64,
+    next_serial: AtomicU64,
+    sequence: Arc<AtomicU64>,
+}
+
+#[cfg(feature = "graphics")]
+impl StubGraphics {
+    fn new(backend: BackendKind, id: u64, sequence: Arc<AtomicU64>) -> Self {
+        Self {
+            backend,
+            id,
+            next_serial: AtomicU64::new(1),
+            sequence,
+        }
+    }
+
+    /// 通し番号を 1 つ取る。尽きたら `None`。
+    fn next(&self) -> Option<u64> {
+        let mut current = self.next_serial.load(Ordering::Relaxed);
+        loop {
+            let next = current.checked_add(1)?;
+            match self.next_serial.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(current),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    fn exhausted(&self, op: &'static str) -> ContractError {
+        ContractError::BackendFailure {
+            op,
+            backend: self.backend,
+            detail: "graphics id space is exhausted".to_string(),
+        }
+    }
+
+    fn pipeline(&self, op: &'static str) -> Result<PipelineHandle, ContractError> {
+        let serial = self.next().ok_or_else(|| self.exhausted(op))?;
+        Ok(PipelineHandle::__backend_new(serial, self.id))
+    }
+
+    fn target(&self, op: &'static str) -> Result<RenderTargetHandle, ContractError> {
+        let serial = self.next().ok_or_else(|| self.exhausted(op))?;
+        Ok(RenderTargetHandle::__backend_new(self.id, serial, self.id))
+    }
+
+    fn encoder(&self, op: &'static str) -> RenderEncoder {
+        match self.next() {
+            Some(serial) => RenderEncoder::__backend_new(self.id, serial, self.id),
+            None => RenderEncoder::__backend_new_rejected(self.id, 0, self.id, self.exhausted(op)),
+        }
+    }
+}
+
+#[cfg(feature = "graphics")]
+impl GraphicsOps for StubGraphics {
+    fn create_render_pipeline(
+        &self,
+        _vs: PipelineInput<'_>,
+        _fs: PipelineInput<'_>,
+        _layout: &BindingLayout,
+    ) -> Result<PipelineHandle, ContractError> {
+        self.pipeline("create_render_pipeline")
+    }
+
+    fn create_render_pipeline_with_depth(
+        &self,
+        _vs: PipelineInput<'_>,
+        _fs: PipelineInput<'_>,
+        _layout: &BindingLayout,
+        _depth_format: DepthFormat,
+    ) -> Result<PipelineHandle, ContractError> {
+        self.pipeline("create_render_pipeline_with_depth")
+    }
+
+    fn create_offscreen_target(
+        &self,
+        _width: u32,
+        _height: u32,
+        _format: PixelFormat,
+    ) -> Result<RenderTargetHandle, ContractError> {
+        self.target("create_offscreen_target")
+    }
+
+    fn create_offscreen_target_with_depth(
+        &self,
+        _width: u32,
+        _height: u32,
+        _color_format: PixelFormat,
+        _depth: DepthConfig,
+    ) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> {
+        let op = "create_offscreen_target_with_depth";
+        Ok((self.target(op)?, self.target(op)?))
+    }
+
+    fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
+        self.encoder("create_render_encoder")
+    }
+
+    fn create_render_encoder_with_depth(
+        &self,
+        _target: &RenderTargetHandle,
+        _depth_target: &RenderTargetHandle,
+        _clear_color: [f32; 4],
+    ) -> RenderEncoder {
+        self.encoder("create_render_encoder_with_depth")
+    }
+
+    fn draw(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _pipeline: &PipelineHandle,
+        _vertex_buffer: &BufferHandle,
+        _vertex_count: u32,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "draw",
+            backend: self.backend,
+        })
+    }
+
+    fn draw_ex(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _pipeline: &PipelineHandle,
+        _vertex_buffer: &BufferHandle,
+        _vertex_count: u32,
+        _vertex_constants: &[ConstantBinding<'_>],
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "draw_ex",
+            backend: self.backend,
+        })
+    }
+
+    fn submit_render(
+        &self,
+        encoder: RenderEncoder,
+        wait: &[ImportedSemaphoreHandle],
+    ) -> Result<SubmitToken, ContractError> {
+        if !wait.is_empty() {
+            return Err(ContractError::Unsupported {
+                op: "submit_render(wait)",
+                backend: self.backend,
+            });
+        }
+        if let Some(err) = encoder.__backend_rejected() {
+            return Err(err.clone());
+        }
+        issue_token(&self.sequence, self.backend, self.id, "submit_render")
+    }
+
+    fn copy_target_to_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _target: &RenderTargetHandle,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "copy_target_to_buffer",
+            backend: self.backend,
+        })
+    }
+}
+
 /// GPU も背後実装も使わない試験用の device。
 ///
 /// 要求の `backend` と所有形態をそのまま持ち、能力問合せはどの機能も `Unsupported` を返す。
 /// メモリはホストの `Vec<u8>`、投入は即時に完了済みとして扱う。
 /// `compute()` は要求の `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
+///
+/// feature `graphics` のビルドでは `graphics()` も `profile` で変わり、`CpuOnly`・`ComputeOnly` は `None`、`Graphics` は `Some` を返す。
+/// `Some` の描画パイプライン・描画先・記録先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
+/// `submit_render` の印は `queue()` の `poll` で `Complete` になる。`draw`・`draw_ex`・`copy_target_to_buffer` と、
+/// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
@@ -481,20 +678,27 @@ pub struct StubDevice {
     memory: StubMemory,
     queue: StubQueue,
     compute: StubCompute,
+    #[cfg(feature = "graphics")]
+    graphics: StubGraphics,
 }
 
 impl StubDevice {
     /// 要求から device を作る。組み合わせの検査はせず、どの要求でも成功する。
     pub fn new(req: DeviceRequest) -> Self {
         let id = next_id();
+        let queue = StubQueue::new(req.backend, id);
+        #[cfg(feature = "graphics")]
+        let graphics = StubGraphics::new(req.backend, id, Arc::clone(&queue.next_sequence));
         Self {
             backend: req.backend,
             ownership: req.ownership,
             profile: req.profile,
             id,
             memory: StubMemory::new(id),
-            queue: StubQueue::new(req.backend, id),
+            queue,
             compute: StubCompute::new(req.backend, id),
+            #[cfg(feature = "graphics")]
+            graphics,
         }
     }
 }
@@ -534,6 +738,15 @@ impl Device for StubDevice {
         match self.profile {
             Profile::CpuOnly => None,
             Profile::ComputeOnly | Profile::Graphics => Some(&self.compute),
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    fn graphics(&self) -> Option<&dyn GraphicsOps> {
+        match self.profile {
+            Profile::CpuOnly => None,
+            Profile::ComputeOnly => None,
+            Profile::Graphics => Some(&self.graphics),
         }
     }
 
@@ -583,6 +796,59 @@ mod tests {
             compute.create_pipeline(input(), &layout),
             Err(ContractError::BackendFailure {
                 op: "create_pipeline",
+                ..
+            })
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    fn pipeline_input() -> PipelineInput<'static> {
+        PipelineInput::Msl {
+            source: "",
+            entry_point: "main",
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn graphics_create_reports_exhausted_id_space() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        g.next_serial.store(u64::MAX - 1, Ordering::Relaxed);
+        let layout = BindingLayout::new(vec![]);
+        let handle = g
+            .create_render_pipeline(pipeline_input(), pipeline_input(), &layout)
+            .expect("pipeline");
+        assert_eq!(handle.__backend_id(), u64::MAX - 1);
+        assert_eq!(handle.__backend_device_id(), 5);
+        assert!(matches!(
+            g.create_render_pipeline(pipeline_input(), pipeline_input(), &layout),
+            Err(ContractError::BackendFailure {
+                op: "create_render_pipeline",
+                ..
+            })
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn render_encoder_carries_backend_failure_when_ids_are_exhausted() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        g.next_serial.store(u64::MAX - 1, Ordering::Relaxed);
+        let target = RenderTargetHandle::__backend_new(5, 1, 5);
+        let first = g.create_render_encoder(&target);
+        assert_eq!(first.__backend_rejected(), None);
+        let second = g.create_render_encoder(&target);
+        assert!(matches!(
+            second.__backend_rejected(),
+            Some(ContractError::BackendFailure {
+                op: "create_render_encoder",
+                ..
+            })
+        ));
+        assert!(matches!(
+            g.submit_render(second, &[]),
+            Err(ContractError::BackendFailure {
+                op: "create_render_encoder",
                 ..
             })
         ));

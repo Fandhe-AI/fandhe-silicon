@@ -291,3 +291,7 @@ required-features = ["test-support"]
 [[test]]
 name = "render_target_lost_check"
 required-features = ["test-support", "fault-injection"]
+
+[[test]]
+name = "stub_device_graphics"
+required-features = ["test-support", "graphics"]

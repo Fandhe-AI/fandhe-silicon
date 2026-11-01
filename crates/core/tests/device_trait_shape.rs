@@ -316,3 +316,14 @@ fn default_compute_is_none_through_dyn_device() {
     .expect("device");
     assert!(device.compute().is_none());
 }
+
+#[cfg(feature = "graphics")]
+#[test]
+fn default_graphics_is_none_through_dyn_device() {
+    let device = DummyProvider::request(request(
+        Profile::ComputeOnly,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("device");
+    assert!(device.graphics().is_none());
+}
