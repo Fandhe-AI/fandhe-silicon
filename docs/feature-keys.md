@@ -113,6 +113,23 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | core の中の試験 | 9 | `cargo test -p fandhe-silicon-core --features test-support --lib capability_table_check` |
 | doctest | 4 | `cargo test -p fandhe-silicon-core --features test-support --doc capability_table_check` |
 
+## 鍵の一覧と表の枠の試験（4/6）
+
+`crates/core/tests/feature_key_table.rs` に、公開のパスだけを使う外の crate の試験を置く。`crates/core/Cargo.toml` の `[[test]]` で feature `test-support` を要る（`required-features`）。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `feature_query_keys_are_complete_list` | 一覧が 79 件で `check_key_list` が `Ok`、すべての鍵が `feature:` で始まる |
+| `missing_or_extra_key_is_detected` | 79 行の表は `Ok`。一覧から 1 件除くと `RowKeyNotInList`、一覧に無い鍵の行で `RowKeyNotInList`、行の重なりで `DuplicateRowKey`、一覧の鍵の重なりで `DuplicateKey` がそれぞれ 1 件だけ返る |
+| `unlisted_key_is_unknown_feature_not_no_api` | 空の表では 79 鍵すべてが `UNLISTED_FEATURE_QUERY`（`Unsupported`・`UnknownFeature`・根拠なし）で `NoApi` でなく、`eval` は呼ばれない。3 行の表では行の鍵は行の値、残り 76 件は `UNLISTED_FEATURE_QUERY` |
+| `s3_and_above_carry_evidence` | 根拠つきの `S1`〜`S4` と `Unsupported` の表は `check_table_queries` が `Ok`。`S3` で根拠なしの行を 1 つ足すと `MissingEvidence` が 1 件だけ返る |
+| `texture_format_required_features_are_listed` | `TextureFormat::all()` の `required_feature()` が `Some` の鍵がすべて一覧に入っており、`Some` は 1 件以上 |
+| `ledger_entries_follow_key_list` | 空の台帳と有効な台帳は `Ok`。一覧の外の鍵は `LedgerKeyNotInList`、（鍵, 背後実装）の重なりは `DuplicateLedgerEntry`、空の試験の名前は `EmptyTestName` |
+
+| 試験 | 件数（記録時点の値） | 確かめ方 |
+| ---- | -------------------- | -------- |
+| 外の crate の試験 | 6 | `cargo test -p fandhe-silicon-core --features test-support --test feature_key_table` |
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -120,6 +137,6 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 1/6 | #6435 | 鍵の定数と一覧（本書の「現状の形（1/6）」） |
 | 2/6 | #6436 | 能力の表の行の型と引き方（本書の「能力の表の行の型と引き方（2/6）」） |
 | 3/6 | #6437 | 表の網羅の検査の道具と差分の台帳（本書の「表の網羅の検査の道具と差分の台帳（3/6）」） |
-| 4/6 | #6438 | テスト |
+| 4/6 | #6438 | 鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（4/6）」） |
 | 5/6 | #6439 | 検査と CI への組み込み |
 | 6/6 | #6440 | 完了の条件の確かめ |
