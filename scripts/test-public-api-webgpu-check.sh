@@ -470,7 +470,7 @@ with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
 PY
 
 # 設定の合成ファイル（テスト用のダミーの語）
-printf '# dummy\n[blocking-words]\nzzblock\nzzwait\n[webgpu-words]\nzzgpu\n' >"${work}/ok.conf"
+printf '# dummy\n[blocking-words]\nzzblock\nzzwait\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz_tok_op\n' >"${work}/ok.conf"
 printf '[webgpu-words]\nzzgpu\n[webgpu-words]\nzzgpu2\n' >"${work}/dup_wg_section.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nZzGpu\n' >"${work}/upper_wg_word.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\n# none\n' >"${work}/empty_wg_section.conf"
@@ -938,7 +938,7 @@ if [[ -n "${feature_names}" && -n "${first_word}" ]] \
     has_in real_clean_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=without-native-blocking-wait '
     not_in real_clean_no_violation "${ERR_F}" 'violation'
     has_in real_clean_pipeline_input "${OUT_F}" 'pipeline_input_checked=1 pipeline_input_violations_total=0'
-    has_in real_clean_ok_pipeline "${OUT_F}" 'pipeline input ok, ext-interop ok$'
+    has_in real_clean_ok_pipeline "${OUT_F}" 'pipeline input ok, ext-interop ok, submit token ops ok$'
     has_in real_clean_interop "${OUT_F}" 'interop_documents=2 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=0 '
     has_in real_clean_b_core "${OUT_F}" '^scanned: crate=fandhe_silicon_core features=without-ext-interop '
     has_in real_clean_b_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=without-ext-interop '

@@ -205,3 +205,16 @@
 後の段で足す検査の振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。
 
 確かめた base のコミット: `5ba9135b867c0d0b6d3f0e62ecf39a5b1ac9c14b`。
+
+## SubmitToken を受ける公開の口の検査の実装（2/4）（TASK-313）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 検査本体の所在 | `scripts/public-api-webgpu-check.sh` の内容の (5)。(1)〜(4) の数えには混ぜない別の照合 | スクリプト先頭のコメント |
+| JSON の組 | 3 回目の `public-api-check.sh --emit-json`（`--without-feature` なし・`--document-hidden-items` なし）の core・contract の `all-features` の JSON だけを読む | `make public-api-webgpu-check` の出力の `features=all-features` の `scanned:` の行 |
+| 照合の規則 | 公開の関数・メソッドのうち、引数の型の入れ子の中に core の `SubmitToken` を含むものと、`SubmitToken` の impl（blanket・自動 impl を除く）の `Self` を受けるメソッドの名前を、設定の節と完全一致で照らす。一覧に無ければ違反（終了コード 1）。sig の崩れ・型の id が引けないは終了コード 2。一覧にあって JSON に無い名前は違反にしない | `make test-public-api-webgpu-check` |
+| 設定 | `public-api-webgpu-check.conf` の `[submit-token-ops]`。語の文法は `[a-z_][a-z0-9_]*`（ほかの 2 節は `[a-z0-9]+`）。欠落・空・重複・文法違反は終了コード 2 | 設定ファイルの先頭の書式 |
+| 出力 | `scanned:` の末尾に `submit_token_ops` `submit_token_violations`、`record:` の末尾に `submit_token_checked` `submit_token_ops_total` `submit_token_violations_total`、`ok:` の末尾に `, submit token ops ok`（かけないときは `skipped`）、違反は `check=submit-token-op reason=not-allowed` | `make public-api-webgpu-check` |
+| `--json` の経路 | `--token-json <path>...` を `--json` と一緒にだけ渡せる。渡さなければ照合せず `submit_token_checked=0` | スクリプトの先頭の使い方 |
+| 検査しないもの | `SubmitToken` を受けない口、名前だけの照合なので一覧と同じ名前の別の口、`cfg(target_os)` で外れる面、`#[doc(hidden)]` の公開の口、trait の既定の本体だけの `Self` メソッド、exec・upper・wasm-abi の公開面、production の組 | スクリプトの先頭のコメント |
+| 現状 | `make public-api-webgpu-check` が終了コード 0。一覧から 1 件外すと、その名前の `violation:` で終了コード 1 になる | `make public-api-webgpu-check` |
