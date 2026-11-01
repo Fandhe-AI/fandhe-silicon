@@ -262,6 +262,52 @@ core の `all-features` の 1 件は、数え方が空振りでないことの�
 
 `Cargo.lock`・`deps-approved.toml` に差分は無い。
 
+## 完了の条件の確かめ（5/5）
+
+TASK-156（DEV-34）の 5/5（#7566）として、本リポで観測できる事実だけを記録する。GPU の実機のない Linux で流し、件数と出力は実測の値。本体のコードと試験は変えていない。
+
+### 成果物と置き場の対応
+
+| 成果物 | 置き場 |
+| ------ | ------ |
+| 実装 | `crates/core/src/stub_device.rs`。feature `test-support` の裏（`lib.rs` の `#[cfg(feature = "test-support")] pub mod stub_device;`）。上の「現状の形（2/5）」 |
+| 振る舞いの試験 | `crates/core/tests/stub_device_request.rs`・`stub_device_memory.rs`・`stub_device_queue.rs` と `stub_device.rs` の `mod tests`。上の「試験（3/5）」 |
+| 公開 API の検査 | `crates/core/src/device.rs` の module doc の doctest の対と、既存の公開 API の検査。上の「公開 API の検査（4/5）」 |
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 実装が feature `test-support` の裏にある | `grep -n 'stub_device' crates/core/src/lib.rs`、`grep -n -A1 'stub_device_' crates/core/Cargo.toml`、feature なしの `cargo test -p fandhe-silicon-core` | `lib.rs` の `pub mod stub_device;` は cfg の直下。3 つの `[[test]]` は `required-features = ["test-support"]` だけを持つ。feature なしの実行に `Running tests/stub_device_` の行は 0 件 |
+| 2 | 振る舞いの試験が通る | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_request --test stub_device_memory --test stub_device_queue` と `--lib stub_device` | request 8・memory 11・queue 9・lib 4 がすべて `ok`、failed 0、ignored 0 |
+| 3 | `--all-features` でも通る | 同じ組を `--all-features` で流す | request 8・memory 12・queue 10・lib 5 がすべて `ok`。`native-blocking-wait` の裏の分が memory・queue・lib で 1 件ずつ増える |
+| 4 | 公開の契約に現れない（feature なし） | `cargo test -p fandhe-silicon-core --doc` | `test crates/core/src/device.rs - device (line 13) - compile fail ... ok` |
+| 5 | 同（有効側） | `--features test-support --doc`・`--all-features --doc` | どちらも `test crates/core/src/device.rs - device (line 13) ... ok` |
+| 6 | 公開 API の検査 | `make public-api-check` | 終了コード 0。`documents=10 public_items_total=10160 wgpu_type_refs_total=0 wgpu_other_refs_total=0` |
+| 7 | 公開 API の名前の検査 | `make public-name-check` | 終了コード 0。`documents=10 name_hits_total=0 source_hits_total=0 field_hits_total=0` |
+| 8 | WebGPU の語の検査 | `make public-api-webgpu-check` | 終了コード 0。`documents=2 blocking_wait_names_total=0 webgpu_names_total=0` |
+| 9 | チップの SDK の参照 | `make public-api-sdk-check` | 終了コード 0。`sdk_type_refs_total=0 common_declared_deps=0` |
+| 10 | core の外部依存と feature の転送 | `make core-deps-check` | 終了コード 0。`unexpected=0 missing=0 forward_violations=0` |
+| 11 | 上の層が `test-support` を有効にしない | `make upper-layer-check` | 終了コード 0。`forbidden_features=0` |
+| 12 | 背後実装と機材に依らない | `git grep -n 'backend-' -- crates/core/src/stub_device.rs`、`grep -c '#\[ignore'`（4 ファイル） | `backend-` の行は 0 件、`#[ignore` は 4 ファイルとも 0。試験は `crates/core` にあり、背後実装の feature を求めない。2・3 は GPU のない Linux で `ok` |
+| 13 | CI で流れる場所 | `.github/workflows/ci.yml` | `verify` ジョブの `make verify`（`:176`〜`:177`）と `make build-profiles`（`:180`〜`:181`） |
+| 14 | wasm32 の型検査 | `make wasm-verify` | 終了コード 0 |
+| 15 | 外部依存 0 と unsafe | `cargo tree -p fandhe-silicon-core -e normal --depth 1`、`grep -n unsafe_code crates/core/src/lib.rs` | 依存の行は core 自身だけ。`#![forbid(unsafe_code)]` |
+| 16 | 依存の記録 | `git diff --stat 56493bb^ origin/main -- Cargo.lock deps-approved.toml`、`make deps-check` | 差分は空。`deps-check` は終了コード 0 |
+| 17 | 品質ゲート | `make check`・`make verify`・`make deny`・`make build-profiles` | すべて終了コード 0 |
+| 18 | base の CI | `gh run list --branch main --commit 8736023d571a6b2f881e3d10169ba115d3db7e0d --workflow ci.yml` | run 41272447161、status `completed`、conclusion `success` |
+
+### 再実行の契機
+
+- `crates/core/src/stub_device.rs` を変えたとき
+- 3 本の試験か `mod tests` を変えたとき
+- `crates/core/src/device.rs` の doctest の対を変えたとき
+- `Device`・`DeviceProvider`・`MemoryOps`・`CommandQueue`・`Capabilities` に必須の method が増えたとき
+- `scripts/public-api-check.sh` などの検査を変えたとき
+- `docs/spec` の参照先を進めたとき
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-156）。確かめた base は `8736023d571a6b2f881e3d10169ba115d3db7e0d`。
+
 ## 段の表
 
 TASK-156 は次の 5 つの Issue に分けて進める。
