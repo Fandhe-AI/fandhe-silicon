@@ -99,3 +99,29 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 ```
 
 出力はそれぞれ `4 passed`、`2 passed`。
+
+## 完了の条件の確かめ（4/4）
+
+TASK-375 の 4/4（#4580）として、本リポで観測できる事実だけを記録する。GPU の実機のない Linux の隔離した作業ツリー（base `e599bceef2ca1fa9ad1959f7f1b59343b618d7da`）で流した出力による。コード・試験・CI は変えていない。ID は対応づけのポインタ（TEX-12）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 型の形（欄が非公開・`Clone`/`Copy` なし） | `grep -n 'derive' crates/core/src/render_target.rs`、`grep -n 'pub struct' crates/core/src/render_target.rs`、`cargo test -p fandhe-silicon-core --doc render_target` | 終了コード 0。`33:#[derive(Debug)]`、`34:pub struct RenderTargetHandle {`。`RenderTargetHandle` の doctest は 3 本（line 11 の往復、line 21 の `compile_fail,E0451`、line 28 の `compile_fail,E0599`）で、どれも `ok` |
+| 2 | 照合の関数の順（TEX-12） | 同じ `cargo test -p fandhe-silicon-core --doc render_target` | `render_target::check_render_target_device (line 81) ... ok`。`render_target` の doctest は合計 4 本で、実行の結果は通常の 2 本が `2 passed; 0 failed`、compile fail の 2 本が `2 passed; 0 failed` |
+| 3 | 試験用の device 2 つの拒否と、`BufferHandle` の拒否と同じ値 | `cargo test -p fandhe-silicon-core --features test-support --test render_target_device_check` | 終了コード 0。`4 passed; 0 failed`（`handle_from_other_stub_device_is_device_mismatch`・`rejection_matches_buffer_handle_rejection`・`handle_from_recreated_device_is_device_mismatch`・`forged_handle_is_judged_by_device_id_only`） |
+| 4 | ロスト | `cargo test -p fandhe-silicon-core --features test-support,fault-injection --test render_target_lost_check` | 終了コード 0。`2 passed; 0 failed`（`lost_stub_returns_device_lost_with_given_generation`・`lost_is_checked_before_device_id`） |
+| 5 | CI で流れる場所 | `grep -n 'run: make' .github/workflows/ci.yml`、`grep -n 'CORE_PKG' scripts/build-profiles.sh`、`grep -n 'cargo check -p fandhe-silicon-core' scripts/wasm-verify.sh`、`make wasm-verify`、main の push の ci.yml の run の一覧 | `make verify` は `:177`・`:465`、`make build-profiles` は `:181`・`:468`、`make wasm-verify` は `:262`・`:427`。`build-profiles.sh` は core の feature なし（`:85`・`:86`。doctest が流れる）と `test-support` だけ（`:89`・`:90`。`render_target_device_check` が流れる）の clippy と test を流す。`wasm-verify.sh` は core の試験の wasm32 の型検査を既定（`:36`）と `--all-features`（`:39`）で流す。`make wasm-verify` は終了コード 0。main の push の run は、1/4 の `36338ba` が 41297383208、2/4 の `039285d` が 41298723471、3/4 の `e599bce` が 41299804348（3 件とも completed / success） |
+| 6 | 公開 API の検査 5 つ | `make public-api-check`・`make public-name-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make core-deps-check` | すべて終了コード 0。`documents=10 public_items_total=10215 wgpu_type_refs_total=0 wgpu_other_refs_total=0`／`documents=10 public_items_total=8720 name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0`／`documents=2 … blocking_wait_names_total=0 … webgpu_names_total=0`／`documents=10 public_items_total=8720 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0`／`unexpected=0 missing=0 … core_features=4 forwarded=4 forward_violations=0` |
+| 7 | 依存 0・unsafe の追加 0 | 1/4 の親 `55e2ae2` から HEAD への `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/render_target.rs` | `Cargo.lock`・`deps-approved.toml` の差分は空。`crates/core/Cargo.toml` の差分は `[[test]]` の 2 項目（`render_target_device_check`: `test-support`、`render_target_lost_check`: `test-support`・`fault-injection`）と、`ext-interop` の直前のコメント行（#7599）だけで、`[features]` は 4 つ（`test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop`）のまま。`[[approval]]` は 4。`29:#![forbid(unsafe_code)]`。`render_target.rs` の `unsafe` は 0 |
+| 8 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0（Linux・GPU なし） |
+
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-375）。確かめた base は `e599bceef2ca1fa9ad1959f7f1b59343b618d7da`。
+
+## 段の表
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/4 | 現状の形（型） | #4577 |
+| 2/4 | 現状の形（照合の関数） | #4578 |
+| 3/4 | 試験 | #4579 |
+| 4/4 | 完了の条件の確かめ | #4580 |
