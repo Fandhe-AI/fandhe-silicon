@@ -198,6 +198,70 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 - `make verify`（`--all-features` の test）
 - `make wasm-verify`（`--all-features` の wasm32 の型検査に 3 ファイルが入る）
 
+## 公開 API の検査（4/5）
+
+### 置き場
+
+`crates/core/src/device.rs` の module doc に、feature `test-support` の有無でコンパイルの成否が切り替わる doctest の対を置いた。公開のアイテムは増えていない。新しいスクリプト・make ターゲット・CI の step も足していない。
+snippet は `use fandhe_silicon_core::stub_device::{StubDevice, StubDeviceProvider};` と、両方の型を引数に取る空の関数で、型が解決できるかだけを見る。形の先例は [feature-gate-compile-check](feature-gate-compile-check.md) の対。
+
+### 組ごとの見え方
+
+| 組 | doctest の扱い | 実行の出力 |
+| -- | -------------- | ---------- |
+| feature なし | `compile_fail`。`stub_device` が解決できず失敗することが期待どおり | `test crates/core/src/device.rs - device (line 13) - compile fail ... ok` |
+| `--features test-support` | 通常の doctest。コンパイルして通る | `test crates/core/src/device.rs - device (line 13) ... ok` |
+| `--all-features` | 同上 | 同上 |
+
+snippet の import を存在しない名前に変えると有効側の doctest は `FAILED` になることを手元で確かめた（変更は戻してあり、差分に入っていない）。
+
+### 流れる場所
+
+| 側 | 場所 | 確かめた出力 |
+| -- | ---- | ------------ |
+| feature なし | `make build-profiles` の core を feature なしで試験する段（`scripts/build-profiles.sh:86` の `cargo test -p fandhe-silicon-core`）。CI は `verify` ジョブ（`.github/workflows/ci.yml:180`〜`:181`） | ログに `- compile fail ... ok` の行 |
+| 有効 | `make verify` の `--all-features` の test。CI は `verify` ジョブ（同 `:176`〜`:177`） | ログに `... ok` の行 |
+
+`make wasm-verify` の core の型検査は `cargo check --tests` なので、doctest は入らない。
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --doc`（feature なし。`compile fail ... ok` の行）
+- `cargo test -p fandhe-silicon-core --features test-support --doc`（`... ok` の行）
+- `cargo test -p fandhe-silicon-core --all-features --doc`（同上）
+
+### rustdoc の JSON での件数
+
+`scripts/public-api-check.sh --emit-json <dir>` で 5 crate × 2 組（`production`・`all-features`）の 10 本を作り（`emitted:` の行が 10 本）、各 JSON の `index` で `crate_id` が 0 のアイテムのうち、`name` または再公開（`inner.use`・`inner.import`）の `name` が `StubDevice`・`StubDeviceProvider`・`stub_device` のものを `python3 -I` の短いスクリプトで名前ごとに数えた。`<dir>` は作業の後に消した。
+
+| crate | `production` | `all-features` |
+| ----- | ------------ | -------------- |
+| core | 3 つの名前とも 0 件 | 3 つの名前とも 1 件 |
+| contract | 3 つの名前とも 0 件 | 3 つの名前とも 0 件 |
+| exec | 3 つの名前とも 0 件 | 3 つの名前とも 0 件 |
+| upper | 3 つの名前とも 0 件 | 3 つの名前とも 0 件 |
+| wasm-abi | 3 つの名前とも 0 件 | 3 つの名前とも 0 件 |
+
+core の `all-features` の 1 件は、数え方が空振りでないことの陽性の対照になる。contract が core を再公開しないことは `git grep -c "pub use fandhe_silicon_core" -- crates` の出力が空（0 件）であることで確かめた。
+
+### 既存の検査の結果
+
+| 検査 | 呼ぶ CI のジョブ（`ci.yml`） | 結果 | 確かめたこと |
+| ---- | ---------------------------- | ---- | ------------ |
+| `make check` | `check` | 終了コード 0 | 整形の規約 |
+| `make verify` | `verify`（`:176`） | 終了コード 0 | fmt・clippy・test（doctest を含む） |
+| `make build-profiles` | `verify`（`:180`） | 終了コード 0 | feature の組ごとの build・test |
+| `make deny` | `deny`（`:245`） | 終了コード 0 | cargo-deny・依存グラフの検査 |
+| `make public-api-check` | `deny`（`:302`） | 終了コード 0。`documents=10 public_items_total=10160 wgpu_type_refs_total=0 wgpu_other_refs_total=0` | wgpu 系の参照が増えていない |
+| `make public-name-check` | `deny`（`:317`） | 終了コード 0。`documents=10 name_hits_total=0 source_hits_total=0 field_hits_total=0` | `public-name-check.conf` の語に新しい名前が当たらない |
+| `make public-api-webgpu-check` | `deny`（`:335`） | 終了コード 0。`blocking_wait_names_total=0` | 新しい公開の method の名前に `wait`・`blocking` の語が無い。この検査が見るのは本番の組から 1 つの feature を外した組で、`test-support` の裏の物は対象に入らない |
+| `make public-api-sdk-check` | `deny`（`:323`） | 終了コード 0。`sdk_type_refs_total=0 common_declared_deps=0` | チップの SDK の参照が無い |
+| `make core-deps-check` | `deny`（`:329`） | 終了コード 0。`unexpected=0 missing=0 forward_violations=0` | core の外部依存が 0 件で、feature の転送が変わらない |
+| `make upper-layer-check` | `deny`（`:252`） | 終了コード 0。`forbidden_features=0` | 上の層が `test-support` を有効にしない |
+| `make wasm-verify` | `deny`（`:260`） | 終了コード 0 | wasm32 の型検査 |
+
+`Cargo.lock`・`deps-approved.toml` に差分は無い。
+
 ## 段の表
 
 TASK-156 は次の 5 つの Issue に分けて進める。

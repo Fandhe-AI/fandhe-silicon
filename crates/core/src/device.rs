@@ -5,6 +5,16 @@
 //!
 //! 加えて、背後実装が実装する device の口 `Device` と、それを得る入口 `DeviceProvider`、診断の値 `DeviceDiagnostics` を置く
 //! （TASK-158 のポインタ）。`Device` は投入の窓口 `queue` を持つ。compute の口・ロストの通知の method は持たない（TASK-588・TASK-592・TASK-769 のポインタ）。
+//!
+//! 試験用の device（`stub_device` module）は feature `test-support` の裏にある。
+//! feature を有効にしない構成では `stub_device` が解決できず、下の例はコンパイルに失敗する。有効にした構成では通る
+//! （TASK-156 のポインタ。新しい公開のアイテムを増やさずに、型の解決だけを確かめる）。
+//!
+#![cfg_attr(not(feature = "test-support"), doc = "```compile_fail")]
+#![cfg_attr(feature = "test-support", doc = "```")]
+#![doc = "use fandhe_silicon_core::stub_device::{StubDevice, StubDeviceProvider};"]
+#![doc = "fn probe(_: &StubDevice, _: StubDeviceProvider) {}"]
+#![doc = "```"]
 
 use core::any::Any;
 use core::fmt;
