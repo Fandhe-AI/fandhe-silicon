@@ -81,5 +81,3 @@ feature なしの `cargo test -p fandhe-silicon-core` では、`stub_device_comp
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 現状の形（実装とテスト） | #7587 |
-| 2/3 | Metal の上書き | #7588 |
-| 3/3 | 完了の条件の確かめ | #7589 |
