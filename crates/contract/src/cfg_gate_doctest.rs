@@ -9,12 +9,12 @@
 //! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など）の `cargo test`、
 //! 有効側は `make verify`（`--all-features`）の doctest と、`scripts/build-profiles.sh` の feature 単独の組。
 //! 有効側の確かめは `tests/feature_gate_enabled.rs` が受け持つ。
-//! spec との対応: TASK-233 の 1/4〜3/4・5/7、BUILD-11〜13（ポインタ表記）。
+//! spec との対応: TASK-233 の 1/4〜3/4・5/7・6/7、BUILD-11〜13（ポインタ表記）。
 //! 置く対: 実在の feature ゲート `backend-metal`、`native-blocking-wait` の core の 2 アイテム
 //! （`MemoryOps::download_blocking`・`CommandQueue::wait_blocking`。別々の snippet）、
+//! `ext-interop` の core のアイテム（`ExternalInterop`）、
 //! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）。
 //! feature に依らず通る `download_async`・`on_complete` の doctest も置く。
-//! `ext-interop` は門の目印の対のままで、枠の確かめにとどまる。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
 #[cfg_attr(not(feature = "backend-metal"), doc = "```compile_fail")]
@@ -63,17 +63,15 @@ pub struct WaitBlockingGate;
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct NonBlockingReadbackGate;
 
-/// `ext-interop` を有効にした構成にだけ存在する門の目印。無効側の doctest が解決に失敗することの根拠になる。
-#[cfg(feature = "ext-interop")]
-pub struct ExtInteropEnabled;
-
-/// `ext-interop` を有効にしない構成では目印が解決できずコンパイルエラーになる。
+/// `ext-interop` を有効にしない構成では core の `interop` モジュールが無く、`ExternalInterop` が解決できずコンパイルエラーになる
+/// （contract の feature が core の同名 feature へ転送されることの確かめ）。
 #[cfg_attr(not(feature = "ext-interop"), doc = "```compile_fail")]
 #[cfg_attr(feature = "ext-interop", doc = "```")]
-#[doc = "use fandhe_silicon_contract::cfg_gate_doctest::ExtInteropEnabled;"]
+#[doc = "use fandhe_silicon_core::interop::ExternalInterop;"]
+#[doc = "fn probe(_: &dyn ExternalInterop) {}"]
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
-pub struct ExtInteropGate;
+pub struct ExternalInteropGate;
 
 /// `fault-injection` を有効にしない構成では core の `fault` モジュールが解決できずコンパイルエラーになる
 /// （contract の feature が core の同名 feature へ転送されることの確かめ）。
