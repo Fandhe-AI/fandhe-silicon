@@ -20,10 +20,10 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 既にある型 | device の要求・能力問合せの型は `crates/core` にある。定義と確かめは [contract-device-types](contract-device-types.md) を参照し、ここでは繰り返さない | `crates/core/src/device.rs`、`crates/core/src/capability.rs` |
-| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 13 件（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕、`DeviceLostNotify`、`ComputeOps`、`CommandQueue`、`ExternalInterop`、内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`） | `git grep -nE 'pub trait' -- crates wasm` |
+| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 14 件（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`GraphicsOps`〔`crates/core/src/graphics.rs`。feature `graphics` の裏〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕、`DeviceLostNotify`、`ComputeOps`、`CommandQueue`、`ExternalInterop`、内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`） | `git grep -nE 'pub trait' -- crates wasm` |
 | device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト `CommandQueue`（`crates/core/src/execution/submit.rs`）、compute の口 `ComputeOps`（`crates/core/src/execution/compute.rs`。それを返す公開のアクセサ `Device::compute()` は `crates/core/src/device.rs` にあり、既定は `None`）、試験用のスタブの device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`、feature `test-support` の裏。[stub-device](stub-device.md)）が `crates/core` にある。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、および `crates/contract/src/backend_metal.rs`（macOS だけ）の Metal の provider 3 件（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）、`Stub` を含む型は故障の差し込み用の `FaultStub` と上のスタブの device・provider。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
 | 故障の差し込み口 | `FaultHooks` はある。それを返す公開のアクセサ `Device::fault_hooks()` が `crates/core/src/device.rs` にある（feature `fault-injection` の裏。既定は `None`）。`crates/core/tests/fault_parts_composition.rs` の同名メソッドは試験内の局所トレイト | `crates/core/src/fault.rs`、`crates/core/src/device.rs`、`crates/core/tests/fault_parts_composition.rs` |
-| feature の裏のアイテム | `graphics`・`artifact-inspection` は `crates/contract/Cargo.toml` に宣言済み。`graphics` で切られたアイテムは `crates/contract/src/backend_metal.rs` と `crates/contract/tests/backend_metal_fault.rs`・`backend_metal_request.rs` の `cfg(not(feature = "graphics"))` の 3 件と、`crates/contract/tests/stub_device_profiles.rs` の `cfg(feature = "graphics")` の 3 件（計 6 件）、`artifact-inspection` で切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
+| feature の裏のアイテム | `graphics`・`artifact-inspection` は `crates/contract/Cargo.toml` に宣言済み。`graphics` の `cfg` は `crates/contract` の 4 ファイル（`src/backend_metal.rs` と `tests/backend_metal_fault.rs`・`backend_metal_request.rs` の `cfg(not(feature = "graphics"))` の 3 件、`tests/stub_device_profiles.rs` の 3 件）と `crates/core` の 4 ファイル（`src/lib.rs`・`src/device.rs`・`src/stub_device.rs` の 12 件・`tests/device_trait_shape.rs`）で、計 8 ファイル 21 行、`artifact-inspection` で切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
 | コンパイル失敗の既存の仕組み | feature の有無でコンパイルが落ちることを確かめる枠が `crates/contract/src/cfg_gate_doctest.rs` にある | [feature-gate-compile-check](feature-gate-compile-check.md) |
 | 走る場所 | `make verify`（`--all-features`）と `make build-profiles`。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
@@ -42,6 +42,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 6/6 | #3664 | 確かめ |
 | 7/8 | #7576 | 契約テストの実装 |
 | 8/8 | #7577 | 完了の条件の確かめ |
+| 9/9 | #7593・#7596 | compute の口の契約テスト |
 
 ## 形の設計（2/6）
 
@@ -330,7 +331,7 @@ base `e4386fe` の作業ツリーで流した。前者は `test result: ok. 6 pa
 「実装（3/6）」の「5 件だけ」、「テスト（4/6）」・「CI への組み込み（5/6）」の「4 件のまま」、「確かめ（6/6）」の F1 の「4 件」・F4 など、各段の公開のトレイトと device の口の件数・有無は記録時点の値で、書き換えない。今の値は次のとおり（冒頭の「本リポの現状」の表と同じ）。
 
 - device のトレイトと device を返す入口は `crates/core/src/device.rs` にある（`Device`・`DeviceProvider`）
-- 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 13 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`・`DeviceLostNotify`・`ComputeOps`・`CommandQueue`・`ExternalInterop`・内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`）
+- 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 14 件（`Capabilities`・`Device`・`DeviceProvider`・`GraphicsOps`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`・`DeviceLostNotify`・`ComputeOps`・`CommandQueue`・`ExternalInterop`・内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`）
 - 投入の列のトレイト `CommandQueue`、compute の口 `ComputeOps`、試験用の device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`。feature `test-support` の裏。試験は `crates/core/tests/stub_device_*.rs`）が `crates/core` にある。詳細は [stub-device](stub-device.md)
 - 前提の部品の Issue の今の状態（`gh issue view <番号> --json state`）は、#1100 が CLOSED、#696・#784・#1126・#447・#448・#1305・#1149 が OPEN。「#1100 は OPEN」「8 件とも OPEN」は記録時点の値で、書き換えない
 - 「確かめ（6/6）」の F7（言及の範囲）の「本書・`CLAUDE.md`・`README.md` だけ」は記録時点の値で、書き換えない。今の値は上の「本リポの現状」の「本書の対象の言及」の行のとおり
@@ -338,6 +339,6 @@ base `e4386fe` の作業ツリーで流した。前者は `test result: ok. 6 pa
 - 「前提の部品の Issue」や「部品が今も `crates/`・`wasm/` に無い」とする各段の記述（「テスト（4/6）」・「CI への組み込み（5/6）」・「確かめ（6/6）」の F2・F6・成果物の対応の表を含む）も記録時点の値で、書き換えない
 - `backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_cuda.rs` に `pub` の項目は無い
 - 「契約テストの実装（7/8）」の「本リポに無い部品」の 1 行目と「完了の条件の確かめ（8/8）」の (5) の「`Device` の method に `ComputeOps` を返すものは無い」は記録時点の値で、書き換えない。今は `Device::compute()` が `crates/core/src/device.rs` にある（[device-compute](device-compute.md)）
-- `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つで、「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない。`graphics` は今も `crates/contract` にしか無い（`crates/core/Cargo.toml` の `[features]`）
+- `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop`・`graphics` の 5 つ（`crates/core/Cargo.toml` の `[features]`）。「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない
 - 上の `crates/core` の feature の行と末尾の表の「描画の操作の trait …は無い」「core の `[features]` に `graphics` … は無い」は記録時点の値で、書き換えない。今は core の `[features]` に `graphics` があり（契約の crate の `graphics` から転送）、`crates/core/src/graphics.rs` に `GraphicsOps` がある（[graphics-types](graphics-types.md)）。公開のトレイトは `GraphicsOps` を足して 14 件
 - 末尾の表の「描画の操作の trait と、それへ届く `Device` の読み出しは無い」は記録時点の値で、書き換えない。今は `Device::graphics()` が feature `graphics` の裏で `crates/core/src/device.rs` にある（既定は `None`。[graphics-types](graphics-types.md)）

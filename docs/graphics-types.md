@@ -1,7 +1,7 @@
 # 描画の公開の型と操作の trait（TASK-837）の所在と本リポの現状
 
 TASK-837 の作業の所在と、本リポの現状の事実を置く。spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
-対応づけは DEV-63 のポインタだけにする。事実はリポジトリのルートで流したコマンドの出力から書く。
+対応づけは DEV-59・DEV-60・DEV-63 のポインタだけにする（4/4 の表の「Device::graphics() と試験用の device」の行が挙げる）。事実はリポジトリのルートで流したコマンドの出力から書く。
 
 ## 記録の所在
 
