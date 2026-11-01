@@ -2,7 +2,7 @@
 //!
 //! この背後実装の `unsafe` / FFI はこのモジュールに閉じ込め、外へは safe な API だけを出す。
 //! macOS のときだけ、既定の device の取得（`DeviceProvider::request`）・診断・バッファの確保と読み書き・
-//! 投入の窓口（`Device::queue`）を持つ
+//! 投入の窓口（`Device::queue`）・compute の口（`Device::compute()`。`ComputeOps` の `create_pipeline` へ届く）を持つ
 //! （TASK-158、DEV-1・DEV-16・DEV-67・DEV-68・DEV-206・DEV-210・DEV-211・TASK-265、TASK-592 のポインタ）。
 //! macOS 以外（Linux・wasm32）では、feature を付けても実装は空のままで、公開の項目を持たない
 //! （device に触らない純粋な検査の関数だけが、この段の試験のために置かれている）。
@@ -29,7 +29,7 @@
 //! 保持される（合計の上限は 64 MiB）。
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
-//! `create_pipeline`（TASK-773 のポインタ）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
+//! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
 //! `layout` の写しと一緒に置く。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
