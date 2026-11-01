@@ -168,6 +168,48 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --test texture_types`（記録時点で 7 件）。
 
+## CI への組み込み（5/6）
+
+範囲は `docs/spec/05-tasks.md` の TASK-371 の内容（ポインタのみ）。
+本段では CI の設定・Makefile・スクリプトを変えていない（新しいジョブ・step・make ターゲットは足していない）。
+1/6〜4/6 で足した `texture` module の型・doctest と `crates/core/tests/texture_types.rs` は、既存の検査が core 全体に当てる範囲に入っている。
+
+### 検査と CI のジョブ
+
+| 検査 | 入口 | CI のジョブ | 結果（記録時点） |
+| ---- | ---- | ----------- | ---------------- |
+| 公開 API の wgpu 系の参照 | `make public-api-check` | `deny` | 終了コード 0。core は production で `public_items=3079`・all-features で `public_items=7088`、`record:` は `public_items_total=10844`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0` |
+| 公開 API のチップの SDK の crate | `make public-api-sdk-check` | `deny` | 終了コード 0。`record:` は `public_items_total=9205`・`sdk_type_refs_total=0`・`sdk_other_refs_total=0`・`common_chip_deps=0` |
+| 公開 API の WebGPU 系の名前 | `make public-api-webgpu-check` | `deny` | 終了コード 0。`record:` は `public_items_total=2714`・`blocking_wait_names_total=0`・`webgpu_names_total=0` |
+| 公開 API の名前 | `make public-name-check` | `deny` | 終了コード 0。core は production で `named_items=949`・all-features で `named_items=2198`、`record:` は `public_items_total=9205`・`name_hits_total=0` |
+| core の外部依存と feature の転送 | `make core-deps-check` | `deny` | 終了コード 0。`record:` は `unexpected=0`・`missing=0`・`forward_violations=0` |
+| 依存グラフの wgpu 系 crate | `make deny` の中の `dep-graph-wgpu-check` | `deny` | 終了コード 0。`record:` は `crates_total=13`・`narrow_total=0`・`wide_total=0` |
+| core の試験を含む wasm32 の型検査 | `make wasm-verify`（`scripts/wasm-verify.sh` の 36 行目・39 行目の `cargo check -p fandhe-silicon-core --tests`。既定と `--all-features`） | `deny`・`wasm-macos` | 終了コード 0 |
+| fmt・clippy・test | `make verify`（`--all-features`） | `verify`・`verify-macos` | 終了コード 0。`texture_types` は `test result: ok. 7 passed`、`texture.rs` の doctest は `test result: ok. 4 passed` |
+| feature の組ごとの build・clippy・test | `make build-profiles`（`scripts/build-profiles.sh` の 85 行目・86 行目の core の feature なしの `cargo clippy`・`cargo test`。`texture_types` は `[[test]]` の項目が無く feature なしでも流れる） | `verify`・`verify-macos` | 終了コード 0 |
+
+ジョブは `ci.yml` のジョブ id で書く（`deny` は make deny (cargo-deny) と各検査、`wasm-macos` は wasm32 build + size + node (macos-latest)、`verify` は make verify + build-profiles、`verify-macos` は macOS 版）。
+件数は記録時点（origin/main の fe83bbf）の値で、後の段で型や公開アイテムが増えても本節は書き換えない。
+
+### 確かめ方
+
+```text
+grep -n 'run: make' .github/workflows/ci.yml
+grep -n 'cargo check' scripts/wasm-verify.sh
+grep -n 'CORE_PKG' scripts/build-profiles.sh
+make public-api-check
+make public-api-sdk-check
+make public-api-webgpu-check
+make public-name-check
+make core-deps-check
+make deny
+make wasm-verify
+make verify
+make build-profiles
+cargo test -p fandhe-silicon-core --test texture_types
+cargo test -p fandhe-silicon-core --doc texture.rs
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
