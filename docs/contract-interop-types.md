@@ -32,7 +32,7 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | 拡張の操作 | 上書きしない型では `UnsupportedExtensionDefault { op }`（`op` は操作の名前）を返す | 同上 |
 | `Device` の口 | 既定は `None`。`Box<dyn Device>` 越しに上書きした値が届く。既存の `Device` の実装は変更不要 | `crates/core/tests/interop_device_accessors.rs` |
 | feature | `ext-interop` を外した構成では名前が現れない。`contract` の同名 feature が転送する | `make public-api-webgpu-check`、`make core-deps-check` |
-| 範囲の外 | `check_same_physical_gpu` と取り込み前の照合は含まない | - |
+| 範囲の外 | `check_same_physical_gpu` と取り込み前の照合は、この節の型の範囲に含めない（「同一 GPU の判定」の節。同じ feature の裏にある） | `crates/core/tests/interop_same_gpu.rs` |
 | 外部依存・unsafe | 足していない | `make deps-check`、`#![forbid(unsafe_code)]` |
 
 ## 対応するテスト
