@@ -189,7 +189,7 @@ impl RenderEncoder {
     }
 }
 
-/// 描画の操作の trait。背後実装が実装する（TASK-837 のポインタ）。
+/// 描画の操作の trait。背後実装が実装し、`Device::graphics()` から届く（TASK-837 のポインタ）。
 ///
 /// `&dyn GraphicsOps` として書ける。
 ///

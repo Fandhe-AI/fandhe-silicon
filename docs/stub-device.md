@@ -37,7 +37,7 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
+| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md)。さらに今は `graphics` も feature `graphics` の裏で既定の本体つきで持つ。試験用の device の答えは [graphics-types](graphics-types.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
 | `DeviceProvider` | `crates/core/src/device.rs:151`（1/5 の時点の値。今は `:168`）。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
 | `MemoryOps` | `crates/core/src/memory/ops.rs:10`。必須は `allocate`・`upload`・`download_async`（native と wasm32 の 2 版）・`free`。`download_blocking` は feature `native-blocking-wait` の裏。`pending_release_count` は既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/memory/ops.rs` |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216`。必須は `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`（native と wasm32 の 2 版）・`dispatch_ex`。`wait_blocking` は feature `native-blocking-wait` の裏。`poll_ex`・`submit_ex`・`gpu_timing`・`dispatch` は既定の本体を持つ。`submit_exportable` は feature `ext-interop` の裏で既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/execution/submit.rs` |
@@ -110,7 +110,7 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | ---- | ---- |
 | `StubDevice` | `StubDevice::new(req: DeviceRequest)` で作る。`Capabilities` と `Device` を実装する。`Send + Sync` を満たす |
 | `StubDeviceProvider` | 値を持たない型。`DeviceProvider::request` はどの要求にも `Ok(Box<dyn Device>)` を返す |
-| メモリの口・投入の口 | module の中の非公開の型で、`StubDevice::memory()`・`queue()` 越しにだけ届く。今は compute の口（`crates/core/src/stub_device.rs` の非公開の型 `StubCompute`）も同じく module の中の非公開の型で、`StubDevice::compute()` 越しにだけ届く（[device-compute](device-compute.md)） |
+| メモリの口・投入の口 | module の中の非公開の型で、`StubDevice::memory()`・`queue()` 越しにだけ届く。今は compute の口（`crates/core/src/stub_device.rs` の非公開の型 `StubCompute`）も同じく module の中の非公開の型で、`StubDevice::compute()` 越しにだけ届く（[device-compute](device-compute.md)）。今は描画の口（非公開の型 `StubGraphics`。feature `graphics` の裏）も同じく、`StubDevice::graphics()` 越しにだけ届く（[graphics-types](graphics-types.md)） |
 | feature の裏 | `download_blocking`・`wait_blocking` は feature `native-blocking-wait` の裏。`download_async`・`on_complete` は native と wasm32 の 2 版 |
 
 ### 1/5 の表からの変化

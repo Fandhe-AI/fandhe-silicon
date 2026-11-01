@@ -63,6 +63,57 @@ cargo test -p fandhe-silicon-core --features graphics --doc graphics
 
 実行の出力は、通常の doctest が 3 件、`compile_fail` が 6 件で、いずれも `ok`。
 
+## device の口と試験用の device（2/4）
+
+### `Device::graphics()`
+
+`crates/core/src/device.rs:141` の `fn graphics(&self) -> Option<&dyn GraphicsOps>`。feature `graphics` のビルドにだけある。既定の本体は `None`（確かめる試験は `crates/core/tests/device_trait_shape.rs` の `default_graphics_is_none_through_dyn_device`）。
+
+### 試験用の device の答え
+
+feature `test-support` と `graphics` を有効にしたとき、`StubDevice::graphics()` の答えは要求のプロファイルで変わる（所有形態によらない）。
+
+| プロファイル | `graphics()` |
+| ------------ | ------------ |
+| `CpuOnly` | `None` |
+| `ComputeOnly` | `None` |
+| `Graphics` | `Some` |
+
+`Some` が指すのは `crates/core/src/stub_device.rs` の非公開の型 `StubGraphics` で、`StubDevice::graphics()` 越しにだけ届く。10 操作の振る舞いは次のとおり。
+
+| 操作 | 振る舞い |
+| ---- | -------- |
+| `create_render_pipeline`・`create_render_pipeline_with_depth` | 入力・配置・深度の形式を検査せず `Ok(PipelineHandle)` を返す。印の device の識別子は `generation()` と等しい |
+| `create_offscreen_target` | 幅・高さ・形式を検査せず `Ok(RenderTargetHandle)` を返す |
+| `create_offscreen_target_with_depth` | 色・深度の順に、識別子の異なる handle を 2 つ返す |
+| `create_render_encoder`・`create_render_encoder_with_depth` | 描画先を検査せず記録先を返す |
+| `draw`・`draw_ex`・`copy_target_to_buffer` | 何もせず `Unsupported` を返す |
+| `submit_render` | `wait` が空でなければ `Unsupported`。記録先が拒否の値を持てばその値を返す。そうでなければ印を返し、`queue()` の `poll` で `Complete` になる |
+
+通し番号が尽きたら、生成の操作は `BackendFailure`（記録先は拒否の値を持つ）を返す。panic しない。
+
+### 対応するテスト
+
+| ファイル | 試験 | 確かめること |
+| -------- | ---- | ------------ |
+| `crates/core/tests/stub_device_graphics.rs` | `cpu_only_*`・`compute_only_*`（所有形態ごとに 3 本ずつ、計 6 本） | `graphics()` が `None` |
+| 同上 | `graphics_*_graphics_reaches_ops`（3 本） | `Some` で、描画先・パイプライン・記録先の device の識別子が `generation()` と等しく、投入の印が `Complete` になる |
+| 同上 | `draw_draw_ex_and_copy_target_to_buffer_are_unsupported` | 3 操作が `Unsupported` |
+| 同上 | `submit_render_with_wait_is_unsupported` | 待ちつきの投入が `Unsupported` |
+| 同上 | `offscreen_target_with_depth_returns_distinct_ids` | 2 つの handle の識別子が異なる |
+| 同上 | `submit_render_returns_error_held_by_encoder` | 記録先が持つ拒否の値がそのまま返る |
+| `crates/core/tests/device_trait_shape.rs` | `default_graphics_is_none_through_dyn_device` | 上書きしない device で既定が `None` |
+| `crates/core/src/stub_device.rs` の `mod tests` | `graphics_create_reports_exhausted_id_space` | 通し番号が尽きたら `BackendFailure` |
+| 同上 | `render_encoder_carries_backend_failure_when_ids_are_exhausted` | 尽きたときの記録先が拒否の値を持ち、`submit_render` が同じ値を返す |
+
+固定した値は `BackendKind::Vulkan` と、`Imported` の `NativeDeviceHandle::new(7u32)`。流れる組は `make verify`（`--all-features`）。
+
+```text
+cargo test -p fandhe-silicon-core --features test-support,graphics --test stub_device_graphics
+cargo test -p fandhe-silicon-core --features graphics --test device_trait_shape
+cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
