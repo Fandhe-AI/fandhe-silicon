@@ -2,7 +2,7 @@
 //!
 //! 試験用のダミーの device と provider はこのファイルの中だけにあり、公開 API ではない。機材には触れない。
 //! 確かめるもの: `Box<dyn Device>` を作れること（オブジェクト安全）、`request` の戻り値の型、
-//! 診断の値の読み取りと `Clone`・`PartialEq`、`Device` 越しに `Capabilities` の method と `memory()` を呼べること。
+//! 診断の値の読み取りと `Clone`・`PartialEq`、`Device` 越しに `Capabilities` の method と `memory()` を呼べること、既定の `compute()` が `None` であること。
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
@@ -305,4 +305,14 @@ fn device_exposes_the_command_queue() {
     let encoder = queue.create_encoder();
     let token = queue.submit(encoder, &[]).expect("submit");
     assert_eq!(queue.poll(token), CompletionState::Complete);
+}
+
+#[test]
+fn default_compute_is_none_through_dyn_device() {
+    let device = DummyProvider::request(request(
+        Profile::ComputeOnly,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("device");
+    assert!(device.compute().is_none());
 }
