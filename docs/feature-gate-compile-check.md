@@ -107,8 +107,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 上の表と 4/4 の表のうち、目印の名前（`NativeBlockingWaitGate`・`NativeBlockingWaitEnabled`）を挙げる行と、A2・A5 の doctest の件数は記録の時点の値で、書き換えない。今の値は次のとおり。
 
 - `crates/` 配下に `NativeBlockingWaitEnabled`・`NativeBlockingWaitGate` の名前は残っていない
-- `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExtInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
-- `cfg_gate_doctest.rs` の doctest は 9 件（7 件に `GraphicsGate`・`DeviceGraphicsGate` を足した。[contract-device-stub-check](contract-device-stub-check.md) の「描画の口の契約テスト（10/10）」）
+- `cfg_gate_doctest.rs` の doctest は 9 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`・`GraphicsGate`・`DeviceGraphicsGate`。`GraphicsGate`・`DeviceGraphicsGate` は [contract-device-stub-check](contract-device-stub-check.md) の「描画の口の契約テスト（10/10）」）
 
 ## アイテムへの差し替え（6/7）
 
@@ -146,7 +145,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 3/4・4/4・5/7 の表のうち、目印の名前（`ExtInteropGate`・`ExtInteropEnabled`）を挙げる行と、A1・A4・A5 の件数、5/7 の doctest の一覧は記録の時点の値で、書き換えない。今の値は次のとおり。
 
 - `crates/` 配下に `ExtInteropEnabled`・`ExtInteropGate` の名前は残っていない
-- `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
+- `cfg_gate_doctest.rs` の doctest は 9 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`・`GraphicsGate`・`DeviceGraphicsGate`。`GraphicsGate`・`DeviceGraphicsGate` は [contract-device-stub-check](contract-device-stub-check.md) の「描画の口の契約テスト（10/10）」）
 - `feature_gate_scope` の試験は 6 件
 
 ## 完了の条件の確かめ（7/7）
