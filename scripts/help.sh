@@ -27,6 +27,7 @@ cat <<'EOF'
   test-deps-check scripts/test-deps-check.sh     deps-check 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3）
   inventory-trace-check scripts/inventory-trace-check.sh  一覧の鍵が項目ファイルに現れるかの検査（既定はファイル単位。行単位は直接実行で --item-rows。--list で対応の一覧を標準出力へ。要 docs/spec の取得。CI では実行しない）
   test-inventory-trace-check scripts/test-inventory-trace-check.sh  inventory-trace-check 自体の回帰テスト（合成 fixture。bash + python3。docs/spec の取得は不要）
+  test-texture-format-key-check scripts/test-texture-format-key-check.sh  texture-format-key-check 自体の回帰テスト（合成の入力。bash + python3。cargo があれば example の出力の形も確かめる）。検査本体は make ターゲットなし: scripts/texture-format-key-check.sh --enumerate-json <path> --enumerate-list <key> --enumerate-item <key>
   test-session-record-check scripts/test-session-record-check.sh  session-record-check 自体の回帰テスト（合成 fixture。bash + python3）。検査本体は make ターゲットなし: scripts/session-record-check.sh <path>
   test-perf-record-check scripts/test-perf-record-check.sh  perf-record-check 自体の回帰テスト（合成 fixture。bash + python3。cargo 不要）。検査本体は make ターゲットなし: scripts/perf-record-check.sh <path> または --session <回の記録> [<path>...]
   test-record-summary scripts/test-record-summary.sh  record-summary と verify.sh の記録の扱いの回帰テスト（合成の部品と偽の cargo。bash + python3）。集計の本体は make ターゲットなし: scripts/record-summary.sh <部品のディレクトリ>
