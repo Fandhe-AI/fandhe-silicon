@@ -1,4 +1,4 @@
-//! テクスチャの値の型（次元・大きさ・用途）と、作るときに渡す記述子。
+//! テクスチャの値の型（次元・大きさ・用途）と、作るときに渡す記述子と、テクスチャを指す handle と handle の問い合わせ。
 //!
 //! 共通の crate が feature の条件なしで公開する。背後実装の型は含まない（TASK-371 のポインタ）。
 
@@ -280,5 +280,195 @@ impl TextureDescriptor<'_> {
             usage,
             view_formats: &[],
         }
+    }
+}
+
+/// テクスチャを指す不透明な handle（TASK-371 のポインタ）。
+///
+/// 欄（世代・識別子・device の識別子と、作るときに渡した記述子の値）は非公開で、
+/// `Clone`・`Copy` を実装しない。`__backend_*` は背後実装だけが使う口で、
+/// `__backend_new` は safe で誰でも値を作れる。
+///
+/// 往復の例。
+///
+/// ```
+/// use fandhe_silicon_core::texture::{
+///     TextureDescriptor, TextureDimension, TextureExtent, TextureHandle, TextureUsage,
+/// };
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+///
+/// let mut desc = TextureDescriptor::new(
+///     TextureDimension::D2,
+///     TextureExtent { width: 64, height: 32, depth_or_array_layers: 6 },
+///     TextureFormat::Rgba8Unorm,
+///     TextureUsage::TEXTURE_BINDING,
+/// );
+/// desc.mip_level_count = 4;
+/// desc.sample_count = 1;
+/// let h = TextureHandle::__backend_new(5, 3, 1, &desc);
+/// assert_eq!(h.__backend_generation(), 5);
+/// assert_eq!(h.__backend_id(), 3);
+/// assert_eq!(h.__backend_device_id(), 1);
+/// assert_eq!(h.size(), desc.size);
+/// assert_eq!(h.width(), desc.size.width);
+/// assert_eq!(h.height(), desc.size.height);
+/// assert_eq!(h.depth_or_array_layers(), desc.size.depth_or_array_layers);
+/// assert_eq!(h.mip_level_count(), desc.mip_level_count);
+/// assert_eq!(h.sample_count(), desc.sample_count);
+/// assert_eq!(h.dimension(), desc.dimension);
+/// assert_eq!(h.format(), desc.format);
+/// assert_eq!(h.usage(), desc.usage);
+/// ```
+///
+/// 外の crate からは構造体式で作れない。
+///
+/// ```compile_fail,E0451
+/// use fandhe_silicon_core::texture::{
+///     TextureDimension, TextureExtent, TextureHandle, TextureUsage,
+/// };
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+/// let _ = TextureHandle {
+///     generation: 0,
+///     id: 0,
+///     device_id: 0,
+///     dimension: TextureDimension::D2,
+///     size: TextureExtent { width: 1, height: 1, depth_or_array_layers: 1 },
+///     mip_level_count: 1,
+///     sample_count: 1,
+///     format: TextureFormat::Rgba8Unorm,
+///     usage: TextureUsage::empty(),
+/// };
+/// ```
+///
+/// `clone` は呼べない。
+///
+/// ```compile_fail,E0599
+/// use fandhe_silicon_core::texture::{
+///     TextureDescriptor, TextureDimension, TextureExtent, TextureHandle, TextureUsage,
+/// };
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+/// let desc = TextureDescriptor::new(
+///     TextureDimension::D2,
+///     TextureExtent { width: 1, height: 1, depth_or_array_layers: 1 },
+///     TextureFormat::Rgba8Unorm,
+///     TextureUsage::empty(),
+/// );
+/// let h = TextureHandle::__backend_new(5, 3, 1, &desc);
+/// let _ = h.clone();
+/// ```
+#[derive(Debug)]
+pub struct TextureHandle {
+    generation: u64,
+    id: u64,
+    device_id: u64,
+    dimension: TextureDimension,
+    size: TextureExtent,
+    mip_level_count: u32,
+    sample_count: u32,
+    format: TextureFormat,
+    usage: TextureUsage,
+}
+
+impl TextureHandle {
+    /// 背後実装向けの組み立ての口。記述子の値を写して持つ。検査はしない。
+    #[doc(hidden)]
+    pub fn __backend_new(
+        generation: u64,
+        id: u64,
+        device_id: u64,
+        desc: &TextureDescriptor<'_>,
+    ) -> Self {
+        Self {
+            generation,
+            id,
+            device_id,
+            dimension: desc.dimension,
+            size: desc.size,
+            mip_level_count: desc.mip_level_count,
+            sample_count: desc.sample_count,
+            format: desc.format,
+            usage: desc.usage,
+        }
+    }
+
+    /// 背後実装向けの読み出しの口（世代）。
+    #[doc(hidden)]
+    pub fn __backend_generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// 背後実装向けの読み出しの口（識別子）。
+    #[doc(hidden)]
+    pub fn __backend_id(&self) -> u64 {
+        self.id
+    }
+
+    /// 背後実装向けの読み出しの口（所属する device の識別子）。
+    #[doc(hidden)]
+    pub fn __backend_device_id(&self) -> u64 {
+        self.device_id
+    }
+
+    /// 大きさを返す（TEX-21 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn size(&self) -> TextureExtent {
+        self.size
+    }
+
+    /// 幅を返す（TEX-22 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn width(&self) -> u32 {
+        self.size.width
+    }
+
+    /// 高さを返す（TEX-23 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn height(&self) -> u32 {
+        self.size.height
+    }
+
+    /// 奥行きまたは配列の層数を返す（TEX-24 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn depth_or_array_layers(&self) -> u32 {
+        self.size.depth_or_array_layers
+    }
+
+    /// mip の段数を返す（TEX-25 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn mip_level_count(&self) -> u32 {
+        self.mip_level_count
+    }
+
+    /// サンプル数を返す（TEX-26 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn sample_count(&self) -> u32 {
+        self.sample_count
+    }
+
+    /// 次元を返す（TEX-27 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn dimension(&self) -> TextureDimension {
+        self.dimension
+    }
+
+    /// テクスチャの形式を返す（TEX-28 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn format(&self) -> TextureFormat {
+        self.format
+    }
+
+    /// テクスチャの用途を返す（TEX-29 のポインタ）。
+    ///
+    /// `__backend_new` に渡した記述子の値をそのまま返す。背後実装を呼ばず、失敗しない。
+    pub fn usage(&self) -> TextureUsage {
+        self.usage
     }
 }
