@@ -293,6 +293,11 @@ impl StubQueue {
                 generation: token.generation,
             });
         }
+        if token.sequence == 0 || token.sequence >= self.next_sequence.load(Ordering::Relaxed) {
+            return Err(ContractError::InvalidArgument(
+                "submit token sequence was not issued by this queue".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -526,6 +531,24 @@ mod tests {
         let got = slot.lock().expect("lock");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].as_ref().expect("ok"), &[0, 0, 1, 2, 3, 0, 0, 0]);
+    }
+
+    #[test]
+    fn submit_many_rejects_out_of_range_sequence_without_claiming() {
+        let device = StubDeviceProvider::request(request()).expect("device");
+        let queue = device.queue();
+        let token = queue.submit(queue.create_encoder(), &[]).expect("submit");
+        for bad in [0, u64::MAX, token.sequence + 1] {
+            let mut forged = token;
+            forged.sequence = bad;
+            let enc = queue.create_encoder();
+            let r = queue.submit_many(vec![enc], &[forged], &[]);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{bad}");
+        }
+        // 記録先は claim されておらず、新しい encoder で正常に投入できる。
+        queue
+            .submit_many(vec![queue.create_encoder()], &[token], &[])
+            .expect("valid after");
     }
 
     #[test]
