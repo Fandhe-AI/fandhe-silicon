@@ -1,8 +1,8 @@
-//! 試験用の device を `Box<dyn Device>` 越しに使い、プロファイル × 所有形態の組ごとに確かめる統合テスト（TASK-137。DEV-15・DEV-59・DEV-66 のポインタ）。
+//! 試験用の device を `Box<dyn Device>` 越しに使い、プロファイル × 所有形態の組ごとに確かめる統合テスト（TASK-137。DEV-15・DEV-59・DEV-60・DEV-63・DEV-66 のポインタ）。
 //!
 //! 組ごとに `#[test]` を 1 本置く。`Graphics` の 3 本は feature `graphics` の裏にあるので、
 //! `graphics` の有無で流れる本数が変わる。
-//! 共通の確かめには `compute()` の口（`CpuOnly` は `None`、それ以外は `create_pipeline` が `Ok`）も含む。試験用の device は core の feature `test-support` の裏にある。
+//! 共通の確かめには `compute()` の口（`CpuOnly` は `None`、それ以外は `create_pipeline` が `Ok`）も含み、feature `graphics` のビルドでは `graphics()` の口（`Graphics` だけ `Some` で `create_render_pipeline` が `Ok`）も含む。試験用の device は core の feature `test-support` の裏にある。
 
 use std::sync::{Arc, Mutex};
 
@@ -92,6 +92,32 @@ fn check(profile: Profile, kind: Kind) {
             )
             .expect("pipeline");
         assert_eq!(p.__backend_device_id(), device.generation());
+    }
+
+    // feature `graphics` のビルドでは描画の口も確かめる。CpuOnly・ComputeOnly は無く、Graphics は操作まで届く。
+    #[cfg(feature = "graphics")]
+    {
+        use fandhe_silicon_core::graphics::GraphicsOps;
+
+        if matches!(profile, Profile::Graphics) {
+            let g: &dyn GraphicsOps = device.graphics().expect("graphics");
+            let p = g
+                .create_render_pipeline(
+                    PipelineInput::Msl {
+                        source: "",
+                        entry_point: "vs",
+                    },
+                    PipelineInput::Msl {
+                        source: "",
+                        entry_point: "fs",
+                    },
+                    &BindingLayout::new(vec![]),
+                )
+                .expect("render pipeline");
+            assert_eq!(p.__backend_device_id(), device.generation());
+        } else {
+            assert!(device.graphics().is_none());
+        }
     }
 }
 

@@ -43,6 +43,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 7/8 | #7576 | 契約テストの実装 |
 | 8/8 | #7577 | 完了の条件の確かめ |
 | 9/9 | #7593・#7596 | compute の口の契約テスト |
+| 10/10 | #7612 | 描画の口の契約テスト |
 
 ## 形の設計（2/6）
 
@@ -315,6 +316,49 @@ sed -n 80,95p crates/contract/tests/stub_device_profiles.rs
 
 base `e4386fe` の作業ツリーで流した。前者は `test result: ok. 6 passed; 0 failed`、後者は `test result: ok. 9 passed; 0 failed`。
 
+## 描画の口の契約テスト（10/10）
+
+範囲は `docs/spec/05-tasks.md` の TASK-137（ポインタのみ。DEV-59・DEV-60・DEV-63 のポインタ）。`Device::graphics()`（[graphics-types](graphics-types.md)。TASK-837 のポインタ）の確かめを、既存の契約テストの共通の `check()` に足し、feature の門の対を `cfg_gate_doctest.rs` に足した。新しい `#[test]` は足していない。
+
+### 足した確かめ
+
+`crates/contract/tests/stub_device_profiles.rs` の `check()` の中、compute の確かめの後。feature `graphics` のビルドでだけ動く。`Profile` は `#[non_exhaustive]` なので `matches!` で分ける。
+
+| プロファイル | 確かめ |
+| ------------ | ------ |
+| `CpuOnly`・`ComputeOnly` | `device.graphics().is_none()` |
+| `Graphics` | `&dyn GraphicsOps` で受け、`create_render_pipeline` が `Ok`。返った `PipelineHandle` の `__backend_device_id()` が `device.generation()` と等しい |
+
+`crates/contract/src/cfg_gate_doctest.rs` に 2 つの対を足した。`GraphicsGate`（core の `graphics` モジュール）と `DeviceGraphicsGate`（`Device::graphics`）。
+
+| 組 | 見え方 |
+| -- | ------ |
+| 既定の組、`graphics` を含まない `NATIVE_SETS` の組 | `compile fail ... ok` |
+| `NATIVE_SETS` の BUILD-3・BUILD-4 の組、`--all-features` | `ok` |
+
+### どの組で何本流れるか
+
+- `make verify`（`--all-features`）: 9 本。`graphics()` の確かめが流れるのは、契約の crate で `graphics` と `test-support` を両方含む組、つまり今は `--all-features` だけ
+- `make build-profiles` の `test-support` を含む各組（`graphics` 無し）: 6 本
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test stub_device_profiles
+cargo test -p fandhe-silicon-contract --all-features --test stub_device_profiles
+cargo test -p fandhe-silicon-contract --doc cfg_gate
+cargo test -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics --doc cfg_gate
+```
+
+### 実行の結果
+
+base `760233c` の作業ツリーで流した。
+
+- 1 つ目: `test result: ok. 6 passed; 0 failed`
+- 2 つ目: `test result: ok. 9 passed; 0 failed`
+- 3 つ目: `GraphicsGate (line 99) - compile fail ... ok`・`DeviceGraphicsGate (line 109) - compile fail ... ok`
+- 4 つ目: `GraphicsGate (line 99) ... ok`・`DeviceGraphicsGate (line 109) ... ok`
+
 ## 本リポでの反映の方針
 
 本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
@@ -342,3 +386,4 @@ base `e4386fe` の作業ツリーで流した。前者は `test result: ok. 6 pa
 - `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop`・`graphics` の 5 つ（`crates/core/Cargo.toml` の `[features]`）。「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない
 - 上の `crates/core` の feature の行と末尾の表の「描画の操作の trait …は無い」「core の `[features]` に `graphics` … は無い」は記録時点の値で、書き換えない。今は core の `[features]` に `graphics` があり（契約の crate の `graphics` から転送）、`crates/core/src/graphics.rs` に `GraphicsOps` がある（[graphics-types](graphics-types.md)）。公開のトレイトは `GraphicsOps` を足して 14 件
 - 末尾の表の「描画の操作の trait と、それへ届く `Device` の読み出しは無い」は記録時点の値で、書き換えない。今は `Device::graphics()` が feature `graphics` の裏で `crates/core/src/device.rs` にある（既定は `None`。[graphics-types](graphics-types.md)）
+- `Device::graphics()` の確かめは今は「描画の口の契約テスト（10/10）」にある。「契約テストの実装（7/8）」の「本リポに無い部品」の 2 行目と「完了の条件の確かめ（8/8）」の (5) の描画の操作の部分は記録時点の値で、書き換えない
