@@ -389,15 +389,11 @@ impl CommandQueue for StubQueue {
         token: SubmitToken,
         _timeout: Option<std::time::Duration>,
     ) -> Result<(), ContractError> {
+        // 印の検査は `poll` が Lost を返す条件と同じ `check_token` に一本化している。
+        // Lost になる印は、ここで種類別のエラー（DeviceMismatch / DeviceLost / InvalidArgument）になる。
         self.check_token(&token)?;
-        match self.poll(token) {
-            CompletionState::Lost => Err(ContractError::BackendFailure {
-                op: "wait_blocking",
-                backend: self.backend,
-                detail: "submit token was not issued by this queue".to_string(),
-            }),
-            _ => Ok(()),
-        }
+        debug_assert_eq!(self.poll(token), CompletionState::Complete);
+        Ok(())
     }
 
     fn dispatch_ex(
@@ -549,6 +545,42 @@ mod tests {
         queue
             .submit_many(vec![queue.create_encoder()], &[token], &[])
             .expect("valid after");
+    }
+
+    #[cfg(feature = "native-blocking-wait")]
+    #[test]
+    fn wait_blocking_errors_match_poll_lost_tokens() {
+        let device = StubDeviceProvider::request(request()).expect("device");
+        let queue = device.queue();
+        let token = queue.submit(queue.create_encoder(), &[]).expect("submit");
+        assert_eq!(queue.poll(token), CompletionState::Complete);
+        assert!(queue.wait_blocking(token, None).is_ok());
+        // poll が Lost を返す印は、wait_blocking では種類別のエラーになる。
+        let mut bad_seq = token;
+        bad_seq.sequence = 0;
+        let mut bad_gen = token;
+        bad_gen.generation = token.generation.wrapping_add(1);
+        for forged in [bad_seq, bad_gen] {
+            assert_eq!(queue.poll(forged), CompletionState::Lost);
+        }
+        assert!(matches!(
+            queue.wait_blocking(bad_seq, None),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            queue.wait_blocking(bad_gen, None),
+            Err(ContractError::DeviceLost { .. })
+        ));
+        let other = StubDeviceProvider::request(request()).expect("device");
+        let foreign = other
+            .queue()
+            .submit(other.queue().create_encoder(), &[])
+            .expect("submit");
+        assert_eq!(queue.poll(foreign), CompletionState::Lost);
+        assert!(matches!(
+            queue.wait_blocking(foreign, None),
+            Err(ContractError::DeviceMismatch)
+        ));
     }
 
     #[test]
