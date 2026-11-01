@@ -74,6 +74,12 @@ feature `ext-interop` の裏。場所は `crates/core/src/interop/same_gpu.rs`�
 cargo test -p fandhe-silicon-core --features ext-interop --test interop_same_gpu
 ```
 
+契約の crate の側の試験（INTEROP-7・INTEROP-10 の組）: `crates/contract/tests/interop_same_gpu.rs`。feature `ext-interop` の裏。
+
+```bash
+cargo test -p fandhe-silicon-contract --features ext-interop --test interop_same_gpu
+```
+
 ## 確かめ方
 
 ```bash
