@@ -305,4 +305,5 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 - 「実装（7/8）」の「使う core のパス」に並ぶ `error::CompletionState` は記録時点の値で、書き換えない。`crates/contract/tests/stub_device_profiles.rs` は今 `error::ContractError` も import している
 - 「前提の部品の Issue」や「部品が今も `crates/`・`wasm/` に無い」とする各段の記述（「テスト（4/6）」・「CI への組み込み（5/6）」・「確かめ（6/6）」の F2・F6・成果物の対応の表を含む）も記録時点の値で、書き換えない
 - `backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_cuda.rs` に `pub` の項目は無い
+- 「契約テストの実装（7/8）」の「本リポに無い部品」の 1 行目と「完了の条件の確かめ（8/8）」の (5) の「`Device` の method に `ComputeOps` を返すものは無い」は記録時点の値で、書き換えない。今は `Device::compute()` が `crates/core/src/device.rs` にある（[device-compute](device-compute.md)）
 - `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つで、「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない。`graphics` は今も `crates/contract` にしか無い（`crates/core/Cargo.toml` の `[features]`）

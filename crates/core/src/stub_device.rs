@@ -1,18 +1,24 @@
 //! feature `test-support` を有効にしたときだけ公開される、試験用の device と provider。
 //!
 //! GPU も背後実装も使わず、ホストのメモリだけで `Device`・`MemoryOps`・`CommandQueue` を満たす（TASK-156 のポインタ）。
-//! 製品の経路からは使わない。メモリと投入の口は本 module の中の非公開の型で、`StubDevice` 越しにだけ届く。
+//! 製品の経路からは使わない。メモリ・投入・compute の口は本 module の中の非公開の型で、`StubDevice` 越しにだけ届く。
+//!
+//! `Device::compute()` は要求のプロファイルで答えが変わる。`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す
+//! （所有形態によらない。TASK-2956 のポインタ）。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::capability::{BackendKind, Capabilities, CapabilityLevel, FeatureId, LimitsTable};
-use crate::device::{Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest};
+use crate::device::{
+    Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
+};
 use crate::error::{CompletionState, ContractError};
 use crate::execution::{
-    __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, CommandEncoder, CommandQueue,
-    ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, SubmitToken, ThreadgroupMemory,
+    __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
+    CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
+    PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
 };
 use crate::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
@@ -413,16 +419,68 @@ impl CommandQueue for StubQueue {
     }
 }
 
+/// パイプラインの印を払い出す `ComputeOps`。`StubDevice` が持つ。
+///
+/// 成果物と slot の並びは検査も解釈もしない。印の device の識別子は device の `generation()` と同じ値で、
+/// 通し番号は device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_pipeline", .. }` を返す（panic しない）。
+struct StubCompute {
+    backend: BackendKind,
+    id: u64,
+    next_pipeline: AtomicU64,
+}
+
+impl StubCompute {
+    fn new(backend: BackendKind, id: u64) -> Self {
+        Self {
+            backend,
+            id,
+            next_pipeline: AtomicU64::new(1),
+        }
+    }
+}
+
+impl ComputeOps for StubCompute {
+    fn create_pipeline(
+        &self,
+        _input: PipelineInput<'_>,
+        _layout: &BindingLayout,
+    ) -> Result<PipelineHandle, ContractError> {
+        let mut current = self.next_pipeline.load(Ordering::Relaxed);
+        loop {
+            let Some(next) = current.checked_add(1) else {
+                return Err(ContractError::BackendFailure {
+                    op: "create_pipeline",
+                    backend: self.backend,
+                    detail: "pipeline id space is exhausted".to_string(),
+                });
+            };
+            match self.next_pipeline.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(PipelineHandle::__backend_new(current, self.id)),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+
 /// GPU も背後実装も使わない試験用の device。
 ///
 /// 要求の `backend` と所有形態をそのまま持ち、能力問合せはどの機能も `Unsupported` を返す。
 /// メモリはホストの `Vec<u8>`、投入は即時に完了済みとして扱う。
+/// `compute()` は要求の `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
+/// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
+    profile: Profile,
     id: u64,
     memory: StubMemory,
     queue: StubQueue,
+    compute: StubCompute,
 }
 
 impl StubDevice {
@@ -432,9 +490,11 @@ impl StubDevice {
         Self {
             backend: req.backend,
             ownership: req.ownership,
+            profile: req.profile,
             id,
             memory: StubMemory::new(id),
             queue: StubQueue::new(req.backend, id),
+            compute: StubCompute::new(req.backend, id),
         }
     }
 }
@@ -470,6 +530,13 @@ impl Device for StubDevice {
         &self.queue
     }
 
+    fn compute(&self) -> Option<&dyn ComputeOps> {
+        match self.profile {
+            Profile::CpuOnly => None,
+            Profile::ComputeOnly | Profile::Graphics => Some(&self.compute),
+        }
+    }
+
     fn diagnostics(&self) -> DeviceDiagnostics {
         DeviceDiagnostics {
             adapter_name: "stub".to_string(),
@@ -491,7 +558,6 @@ impl DeviceProvider for StubDeviceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::Profile;
 
     fn request() -> DeviceRequest {
         DeviceRequest {
@@ -499,6 +565,27 @@ mod tests {
             profile: Profile::ComputeOnly,
             ownership: DeviceOwnership::Shared,
         }
+    }
+
+    #[test]
+    fn create_pipeline_reports_exhausted_id_space() {
+        let compute = StubCompute::new(BackendKind::Vulkan, 5);
+        compute.next_pipeline.store(u64::MAX - 1, Ordering::Relaxed);
+        let input = || PipelineInput::Msl {
+            source: "",
+            entry_point: "main",
+        };
+        let layout = BindingLayout::new(vec![]);
+        let handle = compute.create_pipeline(input(), &layout).expect("pipeline");
+        assert_eq!(handle.__backend_id(), u64::MAX - 1);
+        assert_eq!(handle.__backend_device_id(), 5);
+        assert!(matches!(
+            compute.create_pipeline(input(), &layout),
+            Err(ContractError::BackendFailure {
+                op: "create_pipeline",
+                ..
+            })
+        ));
     }
 
     #[test]

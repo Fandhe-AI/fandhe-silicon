@@ -37,7 +37,7 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `Device` | `crates/core/src/device.rs:101`。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
+| `Device` | `crates/core/src/device.rs:101`。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
 | `DeviceProvider` | `crates/core/src/device.rs:151`。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
 | `MemoryOps` | `crates/core/src/memory/ops.rs:10`。必須は `allocate`・`upload`・`download_async`（native と wasm32 の 2 版）・`free`。`download_blocking` は feature `native-blocking-wait` の裏。`pending_release_count` は既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/memory/ops.rs` |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216`。必須は `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`（native と wasm32 の 2 版）・`dispatch_ex`。`wait_blocking` は feature `native-blocking-wait` の裏。`poll_ex`・`submit_ex`・`gpu_timing`・`dispatch` は既定の本体を持つ。`submit_exportable` は feature `ext-interop` の裏で既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/execution/submit.rs` |
@@ -122,7 +122,7 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 
 ### 対応するテスト
 
-`crates/core/src/stub_device.rs` の `mod tests`。
+`crates/core/src/stub_device.rs` の `mod tests`。今は `create_pipeline_reports_exhausted_id_space` も持つ（[device-compute](device-compute.md)）。以下の表は記録時点の値で、書き換えない。
 
 | テスト | 確かめること |
 | ------ | ------------ |

@@ -61,3 +61,7 @@ cargo test -p fandhe-silicon-core --doc
 make verify && make check
 make public-api-check && make public-name-check && make public-api-webgpu-check && make public-api-sdk-check && make core-deps-check
 ```
+
+## 今の値
+
+「公開に足した名前」の `ComputeOps` の行の「本リポに実装は無い」は記録時点の値で、書き換えない。今は Metal の device（`crates/contract/src/backend_metal.rs`）と試験用の device（`crates/core/src/stub_device.rs` の非公開の型）が実装する。`Device` から届く読み出しは `Device::compute()`（[device-compute](device-compute.md)）。
