@@ -315,3 +315,7 @@ required-features = ["graphics"]
 [[test]]
 name = "graphics_copy_target_check"
 required-features = ["graphics"]
+
+[[test]]
+name = "feature_key_table"
+required-features = ["test-support"]
