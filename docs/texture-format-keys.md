@@ -61,6 +61,58 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | doctest | 2 | `cargo test -p fandhe-silicon-core --doc texture_format_key` |
 | 外の crate からの試験（`crates/core/tests/texture_format_keys.rs`。件数・重複・並び・行の鍵・ASTC の行・文字種） | 8 | `cargo test -p fandhe-silicon-core --test texture_format_keys` |
 
+## 書き出しと突き合わせの検査（2/4）
+
+| 物 | 所在 |
+| -- | ---- |
+| 表の書き出し（example） | `crates/core/examples/texture_format_keys.rs` |
+| 突き合わせの検査 | `scripts/texture-format-key-check.sh` |
+| 検査の回帰テスト | `scripts/test-texture-format-key-check.sh` |
+
+### example の出力
+
+`cargo run -q -p fandhe-silicon-core --example texture_format_keys` は、`TEXTURE_FORMAT_ROWS` の並びで鍵 1 件を 1 行にして標準出力へ書く。見出しは無く、列は `<row>` / 鍵 / 形式の `Debug` のタブ区切りの 3 列で、118 行になる。引数は読まず、ファイルは作らない。
+
+### 検査の引数
+
+| 引数 | 既定 | 内容 |
+| ---- | ---- | ---- |
+| `--table PATH` | なし | 上の 3 列の TSV。省略時は example を cargo で実行して得る（cargo が無ければ終了コード 2） |
+| `--csv PATH` | `scripts/inventory-trace-check.sh` と同じ一覧のパス | 先頭のレコードを見出しとし、先頭の列を鍵の列にする |
+| `--key-prefix STR` | `texformat:` | CSV の鍵がこれで始まる行だけを対象にする |
+| `--enumerate-json PATH` | なし（必須） | 実行時列挙の記録の JSON |
+| `--enumerate-list KEY` | なし（必須） | JSON の最上位にある配列の鍵の名前 |
+| `--enumerate-item KEY` | なし（必須） | 配列の要素の中の形式の綴りの鍵の名前 |
+| `--show-keys` | off | 違反の診断に鍵・綴りの文字列も出す（既定は件数と行番号だけ） |
+
+### 判定
+
+| 判定 | 内容 |
+| ---- | ---- |
+| (a) 表の形 | 各行が 3 列・空の欄が無い・鍵が互いに異なる・形式が互いに異なる |
+| (b) 一覧との対応 | CSV の対象の行の鍵の集合と、表の `<row>` に接頭辞を付けた集合が過不足なく一致する。CSV の鍵の重複と、列の数が見出しと合わない行も違反 |
+| (c) 列挙との対応 | 列挙の綴りの集合と、表の形式の集合が過不足なく一致する。重複も違反 |
+
+空の表・空の CSV・対象の行が 0 件の CSV・空の列挙・読めない入力も違反になる。合格のときは標準出力に件数を 1 行で出す（表の行数・`<row>` の数・鍵が 2 件以上の `<row>` ごとの鍵の数・CSV の対象の行数・列挙の件数）。
+
+### 終了コード
+
+| コード | 意味 |
+| ------ | ---- |
+| 0 | 合格 |
+| 1 | 違反（読めない・空の入力を含む） |
+| 2 | 誤用・前提の不足（未知の引数・入力が無い・cargo が無い・JSON の 3 引数の欠け） |
+
+### 確かめ方
+
+| 確かめ | コマンド |
+| ------ | -------- |
+| 回帰テスト（件数と終了コード） | `scripts/test-texture-format-key-check.sh` |
+| 書き出しの行数 | `cargo run -q -p fandhe-silicon-core --example texture_format_keys \| wc -l`（118） |
+| 書き出しの row の種類 | `cargo run -q -p fandhe-silicon-core --example texture_format_keys \| cut -f1 \| sort -u \| wc -l`（77） |
+
+実物の入力（機能一覧と実行時列挙の記録）は private の submodule の中にあり、CI では流さない。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
