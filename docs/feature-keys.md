@@ -130,6 +130,64 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | -------------------- | -------- |
 | 外の crate の試験 | 6 | `cargo test -p fandhe-silicon-core --features test-support --test feature_key_table` |
 
+## 機能一覧との突き合わせの検査と CI への組み込み（5/6）
+
+鍵の一覧を機能一覧の CSV に突き合わせる検査を、core の example・検査のスクリプト・回帰テストで持つ。
+
+| 物 | 所在 |
+| -- | ---- |
+| example | `crates/core/examples/feature_keys.rs` |
+| 検査 | `scripts/feature-key-check.sh`（`make feature-key-check`） |
+| 回帰テスト | `scripts/test-feature-key-check.sh`（`make test-feature-key-check`） |
+
+`cargo run -q -p fandhe-silicon-core --example feature_keys` は、`FEATURE_QUERY_KEYS` の並びで鍵 1 件を 1 行にして標準出力へ書く。見出しは無く、列は鍵の文字列そのものの 1 列で、79 行になる。引数は読まず、ファイルは作らない。
+
+### 検査の引数
+
+| 引数 | 既定 | 内容 |
+| ---- | ---- | ---- |
+| `--keys PATH` | なし | 上の 1 列のテキスト。省略時は example を cargo で実行して得る（cargo が無ければ終了コード 2） |
+| `--csv PATH` | `docs/spec/03-poc/wgpu-feature-inventory/inventory.csv` | 機能一覧の CSV。先頭のレコードを見出しとし、先頭の列を鍵の列にする |
+| `--key-prefix STR` | `feature:` | 鍵がこれで始まる行だけを CSV の対象にする |
+| `--show-keys` | 無効 | 違反の診断に鍵の文字列も出す（既定は件数と行番号だけ） |
+
+### 判定
+
+| 判定 | 内容 |
+| ---- | ---- |
+| (a) 一覧の形 | 各行が 1 列（タブなし）で空でない・互いに異なる・どれも接頭辞で始まる |
+| (b) 一覧との対応 | CSV の対象の行の鍵の集合と一覧の鍵の集合が過不足なく一致する。CSV の鍵の重複・列数の不一致も違反 |
+
+空の一覧・空の CSV・対象の行が 0 件の CSV・読めない入力は、`FAILED` の行なしで終了コード 1。合格のときは標準出力に `[feature-key-check.sh] ok: keys=<一覧の件数> csv=<CSV の対象の行数>` の 1 行を出す。件数の期待の値はスクリプトに持たない。
+
+### 終了コード
+
+| コード | 意味 |
+| ------ | ---- |
+| 0 | 合格 |
+| 1 | 違反（読めない・空の入力を含む） |
+| 2 | 誤用・前提の不足（未知の引数・入力が無い・cargo が無い・example の失敗） |
+
+### 流れる場所
+
+| 検査 | 実行 | CI のジョブ | 記録時点の結果 |
+| ---- | ---- | ----------- | -------------- |
+| 突き合わせの検査の回帰テスト | `make test-feature-key-check` | `deny`（step 名は `make test-feature-key-check`） | 終了コード 0・23 件合格・0 件失敗 |
+| core の試験・doctest・example のビルド | `make verify`（`cargo clippy --all-targets`・`cargo test --workspace --all-features`） | `verify`・`verify-macos` | 終了コード 0 |
+| 試験の wasm32 の型検査 | `make wasm-verify`（core の `--tests` の check） | `deny`・`wasm-macos` | 終了コード 0 |
+| 公開 API の検査 | `make public-api-check`・`public-api-sdk-check`・`public-api-webgpu-check`・`public-name-check`・`core-deps-check` | `deny` | 新しい module を覆う |
+
+実物の機能一覧への実行（`make feature-key-check`）は、入力が private の submodule の中にあり、CI では流さない。
+
+### 確かめ方
+
+- `make test-feature-key-check`
+- `cargo run -q -p fandhe-silicon-core --example feature_keys | wc -l`（記録時点は 79）
+- `grep -n 'test-feature-key-check' .github/workflows/ci.yml Makefile scripts/help.sh`
+- `make ci-frame-check`
+
+記録時点の base は `26a651c`。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -138,5 +196,5 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 2/6 | #6436 | 能力の表の行の型と引き方（本書の「能力の表の行の型と引き方（2/6）」） |
 | 3/6 | #6437 | 表の網羅の検査の道具と差分の台帳（本書の「表の網羅の検査の道具と差分の台帳（3/6）」） |
 | 4/6 | #6438 | 鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（4/6）」） |
-| 5/6 | #6439 | 検査と CI への組み込み |
+| 5/6 | #6439 | 機能一覧との突き合わせの検査と CI への組み込み（本書の「機能一覧との突き合わせの検査と CI への組み込み（5/6）」） |
 | 6/6 | #6440 | 完了の条件の確かめ |

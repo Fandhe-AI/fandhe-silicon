@@ -154,3 +154,5 @@ worktree のルートで実行する。
 [workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)・[github-actions](../.claude/rules/github-actions.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 
 関連: 形式の問合せの鍵の表を一覧に突き合わせる検査は [texture-format-keys](texture-format-keys.md)
+
+関連: 機能の問合せの鍵の一覧を一覧に突き合わせる検査は [feature-keys](feature-keys.md)
