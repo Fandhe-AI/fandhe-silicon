@@ -74,6 +74,6 @@ TASK-272 の作業の所在と、本リポの現状の事実を置く。spec の
 
 注:
 
-- 完了不明は、時間を受けない `wait_blocking_with` が返す `Timeout` で確かめている。本リポには時間を受ける `wait_blocking` が無いため
+- 完了不明は、`wait_blocking_with` が返す `Timeout` で確かめている。加えて feature `native-blocking-wait` の下で、差し込みを通す試験用の queue の `CommandQueue::wait_blocking(token, Some(Duration::from_millis(100)))` でも `Timeout` になり、種類が `CompletionUnknown` であること（と、実行時エラーの筋書きでは別の種類になること）を確かめている（`via_command_queue` の 2 件）
 - ERR-21 の試験の対象は、本リポの `ContractError` の現存の 15 値と `CompletionStateEx` の 5 値。`#[non_exhaustive]` の外からは網羅を取れないので、値が増えたら試験の一覧と件数を足す
 - 結果は `make verify`・`make check`・`make deny`・`make deps-check` を流した時点のもの

@@ -490,3 +490,120 @@ fn err21_all_five_classes_are_returned() {
     }
     assert_eq!(seen.len(), 5);
 }
+
+/// 時間を受ける `CommandQueue::wait_blocking` 越しの完了不明の確かめ（feature `native-blocking-wait` の裏）。
+/// 筋書き `CompletionUnknown` を差し込んだ queue が、時間付きの呼び出しでも `Timeout` を返す。
+#[cfg(all(feature = "native-blocking-wait", not(target_arch = "wasm32")))]
+mod via_command_queue {
+    use std::time::Duration;
+
+    use super::*;
+    use fandhe_silicon_core::execution::{
+        Binding, CommandEncoder, CommandQueue, ConstantBinding, ImportedSemaphoreHandle,
+        PipelineHandle, SubmitToken, ThreadgroupMemory,
+    };
+
+    /// 完了待ちだけを差し込みの口に通す queue。ほかの操作は使わない。
+    struct WaitQueue(FaultInjecting<Inner>);
+
+    impl CommandQueue for WaitQueue {
+        fn create_encoder(&self) -> CommandEncoder {
+            CommandEncoder::__backend_new(1, None)
+        }
+
+        fn submit(
+            &self,
+            _commands: CommandEncoder,
+            _wait: &[ImportedSemaphoreHandle],
+        ) -> Result<SubmitToken, ContractError> {
+            Err(ContractError::Unsupported {
+                op: "submit",
+                backend: BackendKind::Metal,
+            })
+        }
+
+        fn submit_many(
+            &self,
+            _commands: Vec<CommandEncoder>,
+            _after: &[SubmitToken],
+            _wait: &[ImportedSemaphoreHandle],
+        ) -> Result<SubmitToken, ContractError> {
+            Err(ContractError::Unsupported {
+                op: "submit_many",
+                backend: BackendKind::Metal,
+            })
+        }
+
+        fn poll(&self, _token: SubmitToken) -> CompletionState {
+            CompletionState::Pending
+        }
+
+        fn on_complete(
+            &self,
+            _token: SubmitToken,
+            callback: Box<dyn FnOnce(CompletionState) + Send>,
+        ) {
+            callback(CompletionState::Pending);
+        }
+
+        fn wait_blocking(
+            &self,
+            _token: SubmitToken,
+            _timeout: Option<Duration>,
+        ) -> Result<(), ContractError> {
+            self.0.wait_blocking_with(|_| Ok(()))
+        }
+
+        fn dispatch_ex(
+            &self,
+            _encoder: &mut CommandEncoder,
+            _pipeline: &PipelineHandle,
+            _bindings: &[Binding<'_>],
+            _consts: &[ConstantBinding<'_>],
+            _dispatch_dims: [u32; 3],
+            _threads_per_threadgroup: [u32; 3],
+            _threadgroup_memory: &[ThreadgroupMemory],
+        ) -> Result<(), ContractError> {
+            Err(ContractError::Unsupported {
+                op: "dispatch_ex",
+                backend: BackendKind::Metal,
+            })
+        }
+    }
+
+    fn queue_wait(script: FaultScript, timeout: Option<Duration>) -> Result<(), ContractError> {
+        let token = SubmitToken::__backend_new(1, 1, 1);
+        WaitQueue(wrap(script)).wait_blocking(token, timeout)
+    }
+
+    #[test]
+    fn completion_unknown_through_command_queue_wait_blocking_is_timeout() {
+        let err = queue_wait(
+            FaultScript::CompletionUnknown,
+            Some(Duration::from_millis(100)),
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::Timeout);
+        assert_eq!(err.failure_class(), FailureClass::CompletionUnknown);
+        assert_eq!(class_by_match(&err), Some(FailureClass::CompletionUnknown));
+        // 時間なしの待ちでも同じ値になり、`wait_blocking_with` 越しの値とも一致する。
+        assert_eq!(
+            queue_wait(FaultScript::CompletionUnknown, None),
+            Err(timeout_err())
+        );
+    }
+
+    #[test]
+    fn runtime_error_through_command_queue_wait_blocking_is_not_completion_unknown() {
+        let err = queue_wait(
+            FaultScript::RuntimeError {
+                backend: BackendKind::Metal,
+                detail: "synthetic".into(),
+            },
+            Some(Duration::from_millis(100)),
+        )
+        .unwrap_err();
+        assert_eq!(err, backend_failure());
+        assert_eq!(err.failure_class(), FailureClass::Runtime);
+    }
+}
