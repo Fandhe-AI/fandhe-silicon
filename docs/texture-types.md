@@ -150,6 +150,24 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（この節で通常 1 件・`compile_fail` 2 件が増える）。
 
+## 試験（4/6）
+
+`crates/core` の `src/` は変えず、試験のファイルを 1 つ足した。公開 API は変わらない。
+
+### 対応するテスト
+
+| ファイル | テスト | 確かめること |
+| -------- | ------ | ------------ |
+| `crates/core/tests/texture_types.rs` | `queries_return_descriptor_values` | 次元・形式・用途・層・mip・サンプルの異なる 5 つの記述子で、9 つの問い合わせが記述子の値を返す |
+| 同上 | `queries_return_boundary_values_unchanged` | 大きさ・mip・サンプルが 0 と `u32::MAX` でも、値を検査せずそのまま返す |
+| 同上 | `descriptor_new_defaults` | `new` が `label` なし・mip 1・サンプル 1・`view_formats` 空にし、渡した 4 つの値を保つ |
+| 同上 | `handle_outlives_descriptor` | 記述子と借りた値を破棄した後でも、handle の問い合わせが値を返す |
+| 同上 | `backend_readers_round_trip` | 背後実装向けの 3 つの読み出しが、渡した値（0・`u64::MAX` を含む）を返す |
+| 同上 | `usage_constants_have_listed_bits` | 用途の 7 定数が 1 ビットずつ（1 から 64）で互いに重ならず、論理和が `0x7f` |
+| 同上 | `dimension_values_from_outside` | 次元の 3 値が外の crate から照合でき、互いに異なる |
+
+確かめ方: `cargo test -p fandhe-silicon-core --test texture_types`（記録時点で 7 件）。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
