@@ -26,6 +26,8 @@
 //! これら `test-support` の裏のモジュールは製品の経路からは使わない。
 //!
 //! feature `fault-injection` を有効にしたときだけ、テスト専用の故障の差し込み口（`fault` モジュール）が公開される。
+//!
+//! feature `graphics` を有効にしたときだけ、描画の公開の型と操作の trait（`graphics` モジュール）が公開される。
 #![forbid(unsafe_code)]
 
 pub mod artifact_cache;
@@ -62,3 +64,6 @@ pub mod stub_device;
 
 #[cfg(feature = "fault-injection")]
 pub mod fault;
+
+#[cfg(feature = "graphics")]
+pub mod graphics;

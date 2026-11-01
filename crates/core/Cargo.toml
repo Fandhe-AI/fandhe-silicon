@@ -22,6 +22,8 @@ native-blocking-wait = []
 #   - Device のアクセサ external_interop・physical_gpu_id
 #   - submit_exportable（セマフォを export する意図の宣言付きの投入。CommandQueue に載る）
 ext-interop = []
+# 描画の公開の型と GraphicsOps を載せる（graphics モジュール）。契約の crate の同名の feature から転送される（説明は docs/graphics-types.md）。
+graphics = []
 
 [[test]]
 name = "fault_hooks_types"
