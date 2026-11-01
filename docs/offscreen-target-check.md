@@ -54,11 +54,29 @@ make verify
 - 試験: `target_check_size_zero_is_rejected`・`target_check_size_over_limit_is_rejected`・`target_check_size_limit_exact_passes`・`target_check_size_u32_max_limit_passes`・`target_check_size_zero_limit_rejects`、および関数の `///` の doctest
 - 確かめ方: 上の `--lib target_check` と `--doc target_check` がそのまま拾う
 
+## 境界の入力の試験（3/4）
+
+試験ファイルは `crates/core/tests/graphics_target_check.rs`。外の crate から公開のパス `fandhe_silicon_core::graphics::` だけを使い、feature `graphics` の裏でだけ走る。`LimitsTable` の欄は TASK-157 のポインタ。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `zero_width_or_height_is_rejected` | 上限 16384 で 0 × 720・1280 × 0・0 × 0 が `InvalidArgument` |
+| `limit_exact_is_accepted` | 上限 16384 で 16384 × 16384・16384 × 1・1 × 16384 が `Ok(())` |
+| `limit_plus_one_is_rejected` | 上限 16384 で 16385 × 1・1 × 16385・16385 × 16385 が `InvalidArgument` |
+| `limit_from_limits_table` | `LimitsTable` の `max_texture_size` を 8 にして渡すと 8 × 8 が `Ok(())`、9 × 8・8 × 9 が `InvalidArgument` |
+| `rgba32float_bytes_are_16_per_pixel` | `Rgba32Float` が 16、1280 × 720 が 14,745,600、16384 × 16384 が 4,294,967,296（`u64`） |
+| `color_and_depth_bytes` | `Rgba8Unorm`・`Bgra8Unorm`・`Depth32Float` が 4、1280 × 720 が 3,686,400 |
+| `byte_count_overflow_is_rejected` | `u32::MAX` × `u32::MAX` が 1 画素 16 バイトでも 4 バイトでも `InvalidArgument` |
+| `rejection_is_repeatable` | 拒否の入力も受け入れる入力も、同じ引数で 2 回呼ぶと同じ結果 |
+| `rejection_is_invalid_argument_only` | 拒否はどれも `InvalidArgument` |
+
+- 確かめ方: `cargo test -p fandhe-silicon-core --features graphics --test graphics_target_check`。`make verify` と `make wasm-verify` の型検査も拾う
+
 ## 段の表
 
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
 | 1/4 | #4573 | 本頁の関数 |
 | 2/4 | #4574 | `validate_offscreen_target_size`（入力の検査） |
-| 3/4 | #4575 | — |
+| 3/4 | #4575 | `crates/core/tests/graphics_target_check.rs`（境界の入力の試験） |
 | 4/4 | #4576 | — |
