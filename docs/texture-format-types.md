@@ -292,6 +292,28 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_format_con
 
 流れる組は、`make verify` の `--all-features`、`make build-profiles` の core の `--features graphics`・`--features test-support,graphics`、`make wasm-verify` の wasm32 の型検査（`--tests --all-features`）。feature なしでは流れない。
 
+## 完了の条件の確かめ（8/8）
+
+8/8（#7627）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1312）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 2 型の値の数 | `cargo test -p fandhe-silicon-core --features graphics --lib graphics`（`pixel_format_has_three_values`・`depth_format_has_one_value`・`conversions_keep_names`）、`crates/core/src/graphics.rs` の `PixelFormat`（`:29`）・`DepthFormat`（`:50`）の variant の行 | 3 件 passed。`PixelFormat` は 3 値、`DepthFormat` は 1 値 |
+| (2) | 既存の 4 値が同じ名前で `TextureFormat` にある | `--test texture_format_existing_values`、`--features graphics --test graphics_format_conversion` | 2 件・4 件とも passed |
+| (3) | 2 型から同じ名前の値への失敗しない変換 | `impl From<PixelFormat> for TextureFormat`（`graphics.rs:62`）・`impl From<DepthFormat> for TextureFormat`（`graphics.rs:80`）と、その doctest（`--features graphics --doc graphics` の `TextureFormat (line 57)`・`TextureFormat (line 74)`）、(2) の外の crate の試験 | doctest 5 件 passed（`From` の 2 本を含む）、試験 4 件 passed |
+| (4) | 77 の名前・118 件・ASTC の 42 件 | `--test texture_format_names`・`--test texture_format_counts`・`--lib texture_format` | 6 件・4 件・4 件とも passed |
+| (5) | 利用側の `match` が壊れない扱い | `--test texture_format_non_exhaustive`、`--features graphics --test graphics_types`（`value_types_have_listed_variants` を含む）、`--doc graphics` の `PixelFormat`・`DepthFormat` の `compile_fail` | 4 件・4 件・`compile fail` を含む 6 件とも passed |
+| (6) | 公開 API に wgpu の型が 0 件（TASK-10 のポインタ） | `make public-api-check` | 終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`（production・all-features とも） |
+| (7) | 公開 API にチップの SDK の型が 0 件（TASK-13 のポインタ） | `make public-api-sdk-check` | 終了コード 0。core の行は `sdk_type_refs=0 sdk_other_refs=0` |
+| (8) | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | すべて終了コード 0。`name_hits_total=0`・`webgpu_names_total=0`・`unexpected=0 missing=0` |
+| (9) | CI で流れる場所 | `.github/workflows/ci.yml` の `make verify`・`make build-profiles`（`verify` と `verify-macos`）、`make wasm-verify`（`deny` と `wasm-macos`）、`gh run list --branch main --commit <base> --workflow ci.yml` | 上の 7/8 の節の「流れる組」に載る。base の run 41334958202 は記録時点で queued（結論は未確定） |
+| (10) | 依存 0・unsafe の追加 0 | 7/8 の差分の `Cargo.lock`・`deps-approved.toml`、`crates/core/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/graphics.rs` | `Cargo.lock`・`deps-approved.toml` は差分なし、`crates/core/Cargo.toml` は 4 行追加（`[[test]]` の 1 項目）、承認の記録 4 件のまま、`:32` に `#![forbid(unsafe_code)]`、`graphics.rs` の `unsafe` は 0 件 |
+| (11) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1312）。確かめた base は `41635e8c921b772d6b4e6c733d6a435a038d6c6a`。
+
 ## 段の表
 
 | Issue | 内容 |
@@ -303,6 +325,7 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_format_con
 | #6711 | テスト |
 | #6712 | 確かめ |
 | #7626 | 既存の 2 型からの変換 |
+| #7627 | 完了の条件の確かめ |
 
 ## 今の値
 
