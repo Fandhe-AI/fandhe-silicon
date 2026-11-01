@@ -1908,6 +1908,11 @@ mod imp {
             Some(self)
         }
 
+        /// `create_pipeline` を持つ `ComputeOps` の実装（この型自身）を返す（TASK-2956 のポインタ）。
+        fn compute(&self) -> Option<&dyn ComputeOps> {
+            Some(self)
+        }
+
         fn memory(&self) -> &dyn MemoryOps {
             self
         }
@@ -2253,8 +2258,8 @@ mod imp {
         error.localizedDescription().to_string()
     }
 
-    /// 公開の `Device`（`MetalDeviceProvider::request` が返す `Box<dyn Device>`）からこの実装へ届く口は、
-    /// このモジュールには無い（TASK-773 のポインタ）。
+    /// 公開の `Device`（`MetalDeviceProvider::request` が返す `Box<dyn Device>`）からは
+    /// `Device::compute()` でこの実装へ届く（TASK-2956 のポインタ。`create_pipeline` の実装は TASK-773 のポインタ）。
     impl ComputeOps for MetalDevice {
         /// MSL のソースから compute パイプラインを作り、表に登録して返す。
         ///

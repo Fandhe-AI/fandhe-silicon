@@ -14,7 +14,9 @@ use fandhe_silicon_core::device::{
 use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
-use fandhe_silicon_core::execution::{GpuTiming, ImportedSemaphoreHandle, SubmitToken};
+use fandhe_silicon_core::execution::{
+    BindingLayout, GpuTiming, ImportedSemaphoreHandle, PipelineInput, SubmitToken,
+};
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1235,4 +1237,28 @@ fn gpu_timing_table_drops_the_oldest_after_1025_waits() {
     println!("gpu_timing first={first:?} last={last:?}");
     assert_eq!(first, GpuTiming::Reclaimed);
     assert!(matches!(last, GpuTiming::Available { .. }));
+}
+
+/// 公開の `request` が返す `Box<dyn Device>` から `compute()` を経て `create_pipeline` に届く
+/// （TASK-2956・DEV-164 のポインタ）。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn compute_reaches_create_pipeline_through_the_public_device() {
+    const KERNEL: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        kernel void k(device float* out [[buffer(0)]], uint tid [[thread_position_in_grid]]) {\n\
+            out[tid] = 1.0;\n\
+        }\n";
+    let device = new_device();
+    let compute = device
+        .compute()
+        .expect("a Metal device must expose compute()");
+    let r = compute.create_pipeline(
+        PipelineInput::Msl {
+            source: KERNEL,
+            entry_point: "k",
+        },
+        &BindingLayout::new(vec![0]),
+    );
+    assert!(r.is_ok(), "create_pipeline failed: {r:?}");
 }
