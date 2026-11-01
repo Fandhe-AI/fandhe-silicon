@@ -100,6 +100,10 @@ name = "interop_extension_defaults"
 required-features = ["ext-interop"]
 
 [[test]]
+name = "interop_same_gpu"
+required-features = ["ext-interop"]
+
+[[test]]
 name = "stub_device_profiles"
 required-features = ["test-support"]
 

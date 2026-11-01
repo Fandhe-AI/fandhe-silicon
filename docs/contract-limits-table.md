@@ -26,7 +26,7 @@ TASK-157 の作業の記録の所在と、本リポのコードと公開テス�
 | 別の型の置き換え | `limits()` には効かない。`limits_with::<LimitsTable>` は `Err(InvalidArgument)` のまま | 同上 |
 | `with_limits_override`・`limits_with` | 型と振る舞いは変えていない | 同上 |
 | `CapabilityTable` | `limits()` の初期値は 3 項目とも 0。`with_limits(t)` の後は `t` を返す。`new()` の引数は変えていない | `crates/core/tests/capability_rule_stub.rs` |
-| 値の意味 | `crates/contract` に `fn limits` の実装は無い（0 件） | `git grep -n 'fn limits' -- crates/contract` |
+| 値の意味 | `crates/contract` では Metal の背後実装（`backend_metal.rs`）の `Capabilities for MetalDevice` だけが `fn limits` を実装し、持っている `LimitsTable` を返す | `crates/contract/tests/backend_metal_device.rs` の `limits_report_the_dispatch_and_texture_bounds`、`git grep -n 'fn limits' -- crates/contract` |
 
 ## 現状の形
 

@@ -14,7 +14,7 @@ TASK-138 の作業の所在と、本リポの現状の事実を置く。spec の
 | ---- | ---- | ---- |
 | 通知先の口 | `core::device_lost` に `DeviceLostNotify`（`set_lost_callback`。`dyn` で使える）と関数の型 `LostCallback` | `crates/core/tests/device_lost_notify.rs` の `send_closure_is_accepted_through_dyn_and_receives_the_reason` |
 | native の型 | `Box<dyn FnOnce(DeviceLostReason) + Send>`。`Send` でない関数（`Rc` を捕まえる）はコンパイルできない | 同上の `native_callback_type_is_send`、`device_lost` モジュールの `compile_fail` の例（同じ形で `Arc` にした通る例と対にしてある） |
-| wasm32 の型 | `Box<dyn FnOnce(DeviceLostReason)>`（`Send` なし）。`Rc` を捕まえる関数が通る | 同上の `wasm32_accepts_a_closure_that_is_not_send`（`cargo check --target wasm32-unknown-unknown`）、`wasm/crates/glue` の同名の試験。CI で効くのは glue の試験（`make wasm-verify` の wasm32 の clippy が型検査する）で、core 側の同名の試験は `cargo check --target wasm32-unknown-unknown --test device_lost_notify` の手元の確かめ |
+| wasm32 の型 | `Box<dyn FnOnce(DeviceLostReason)>`（`Send` なし）。`Rc` を捕まえる関数が通る | 同上の `wasm32_accepts_a_closure_that_is_not_send`（`cargo check --target wasm32-unknown-unknown`）、`wasm/crates/glue` の同名の試験。どちらも CI で効く: glue の試験は `make wasm-verify` の wasm32 の clippy が型検査し、core 側の試験は同じ `make wasm-verify`（`scripts/wasm-verify.sh`）の `cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown`（既定の feature と `--all-features` の 2 回）が型検査する（実行はしない） |
 | 既存の型 | `fault::stub::LostCallback` は同じ型の再公開。`FaultStub` は `DeviceLostNotify` も実装する。wasm32 では登録された関数が `Send` でないので `FaultStub` は `Send` でない（native は `Send + Sync`） | `fault_stub_lost.rs` の `lost_is_notified_through_the_dyn_notify` |
 | 依存・unsafe | 外部依存は足していない（`wasm/` の glue に試験用の `core` への path 依存を足した）。`core` は `#![forbid(unsafe_code)]` | `make deps-check`・`make wasm-verify` |
 
