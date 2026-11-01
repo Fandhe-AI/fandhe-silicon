@@ -67,13 +67,59 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | core の中の試験 | 3 | `cargo test -p fandhe-silicon-core --lib capability_table` |
 | doctest | 2 | `cargo test -p fandhe-silicon-core --doc capability_table` |
 
+## 表の網羅の検査の道具と差分の台帳（3/6）
+
+### 所在
+
+- `crates/core/src/capability_table_check.rs`。公開のパスは `fandhe_silicon_core::capability_table_check`。
+- `crates/core/src/lib.rs` で feature `test-support` の裏に置かれ、製品の経路からは使わない。
+
+### 関数
+
+違反は全部集めて入力の順に返す。違反が無ければ `Ok(())`。重複は 2 回目以降の出現 1 つにつき 1 件。
+
+| 名前 | 入力 | 確かめること | 返す違反の型 |
+| ---- | ---- | ------------ | ------------ |
+| `check_key_list` | 鍵の一覧 | 鍵が空でない・互いに異なる | `KeyTableViolation` |
+| `check_table_keys` | 表と鍵の一覧 | 行の鍵が一覧にある・表の中で互いに異なる（一覧の鍵が表に無くてもよい） | `KeyTableViolation` |
+| `check_table_queries` | 表・鍵の一覧・`eval` | 一覧の各鍵で `query_from_table` の値が `check_query` を通る（一覧の外の鍵の行は評価しない） | `CapabilityRuleViolation` |
+| `check_ledger_keys` | 台帳と鍵の一覧 | 行の鍵が一覧にある・（鍵, 背後実装）が互いに異なる・試験の名前が空でない | `KeyTableViolation` |
+
+### 違反
+
+| variant | 出る条件 |
+| ------- | -------- |
+| `EmptyKey { index }` | 鍵の文字列が空、または最初の `:` の後が空 |
+| `DuplicateKey { key }` | 一覧の中で鍵が重なる |
+| `RowKeyNotInList { key }` | 表の行の鍵が一覧に無い |
+| `DuplicateRowKey { key }` | 表の中で行の鍵が重なる |
+| `LedgerKeyNotInList { key }` | 台帳の行の鍵が一覧に無い |
+| `DuplicateLedgerEntry { key, backend }` | 台帳の中で（鍵, 背後実装）が重なる |
+| `EmptyTestName { key, backend }` | 台帳の行の試験の名前が空 |
+
+### 台帳の行の型
+
+| 名前 | 内容 |
+| ---- | ---- |
+| `BaselineDiffEntry` | 欄は `feature`（鍵）・`backend`（背後実装）・`result`（`BaselineDiff`）・`test`（確かめる公開テストの名前） |
+| `BaselineDiff` | `Same`（比較基準と一致）・`Differs`（比較基準と違う） |
+
+台帳の行そのものは置かない。
+
+### 対応するテスト
+
+| 試験 | 件数（記録時点の値） | 確かめ方 |
+| ---- | -------------------- | -------- |
+| core の中の試験 | 9 | `cargo test -p fandhe-silicon-core --features test-support --lib capability_table_check` |
+| doctest | 4 | `cargo test -p fandhe-silicon-core --features test-support --doc capability_table_check` |
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
 | -- | -------- | ---- |
 | 1/6 | #6435 | 鍵の定数と一覧（本書の「現状の形（1/6）」） |
 | 2/6 | #6436 | 能力の表の行の型と引き方（本書の「能力の表の行の型と引き方（2/6）」） |
-| 3/6 | #6437 | 実装 |
+| 3/6 | #6437 | 表の網羅の検査の道具と差分の台帳（本書の「表の網羅の検査の道具と差分の台帳（3/6）」） |
 | 4/6 | #6438 | テスト |
 | 5/6 | #6439 | 検査と CI への組み込み |
 | 6/6 | #6440 | 完了の条件の確かめ |
