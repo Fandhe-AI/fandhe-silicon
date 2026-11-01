@@ -15,6 +15,7 @@
 //! エラー・完了状態・理由の型（`error` モジュール）と、能力問合せの型（`capability` モジュール）、device の要求・所有形態の型（`device` モジュール）も feature の条件なしで公開される。
 //! 描画先の handle の型と、device の識別子の照合の関数（`render_target` モジュール）も feature の条件なしで公開される。
 //! テクスチャの形式の型と、機材に依らない性質を返す関数（`texture_format` モジュール）も feature の条件なしで公開される。
+//! テクスチャの形式の問合せの鍵の一覧と、機能一覧の行・形式の値との対応の表（`texture_format_key` モジュール）も feature の条件なしで公開される。
 //! テクスチャの次元・大きさ・用途・記述子の型と、テクスチャを指す handle とその問い合わせ（`texture` モジュール）も feature の条件なしで公開される。
 //! SPIR-V のバイト列から語の列を作る型と関数（`spirv` モジュール）と、`const` の文脈で語の列を作るマクロ `spirv_words_const!`（crate の根）も feature の条件なしで公開される。
 //! 検証レイヤーの不正を利用側へ届ける受け口（`validation` モジュール）と、失敗の種類を返す入口（`error` モジュールの `FailureClass`）も同じく条件なしで公開される。
@@ -47,6 +48,7 @@ pub mod render_target;
 pub mod spirv;
 pub mod texture;
 pub mod texture_format;
+pub mod texture_format_key;
 pub mod validation;
 
 #[cfg(feature = "test-support")]
