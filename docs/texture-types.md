@@ -1,0 +1,73 @@
+# テクスチャの値・記述子・handle の型（TASK-371）の所在と本リポの現状
+
+TASK-371 の作業を進めるにあたり、記録の所在と本リポの現状の事実を置く。
+spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+本書の事実はすべて、本リポのコードと下の「確かめ方」のコマンドの出力から書いている。
+
+## 記録の所在
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-371。ポインタのみ）。
+内容・理由・経緯は本書に置かない。
+
+## 本リポの現状
+
+確かめ方は、リポジトリのルートで流したコマンドである。
+
+### core の構成
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 条件なしで公開する module | `artifact_cache`・`binding`・`capability`・`decision`・`device`・`device_lost`・`error`・`execution`・`hash`・`memory`・`render_target`・`spirv`・`texture`・`texture_format`・`validation` の 15 個（記録時点の値。今の一覧は右の確かめ方の結果を正とする） | `grep -n "pub mod" crates/core/src/lib.rs` |
+| feature の裏の module | `ext-interop` の裏に `interop`（記録時点の値）。`test-support` の裏に `capability_rule`・`parity`・`test_frame`・`rerun`・`stub_device`。`fault-injection` の裏に `fault`。`graphics` の裏に `graphics`（記録時点の値） | 同上 |
+| 外部依存 | 0 件 | `cargo tree -p fandhe-silicon-core -e normal --depth 1` |
+| unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/core/src/lib.rs` |
+
+### 先例の所在
+
+| 物 | 所在 | ポインタ |
+| -- | ---- | -------- |
+| `TextureFormat` | `crates/core/src/texture_format.rs` | TASK-1312 |
+| `BufferUsage`・`BufferHandle` | `crates/core/src/memory/buffer.rs` | TASK-308・TASK-310 |
+| `RenderTargetHandle` | `crates/core/src/render_target.rs` | TASK-375 |
+
+### 公開 API・依存の検査が core を既に覆っていること
+
+| 検査 | 入口 |
+| ---- | ---- |
+| 公開 API の wgpu 系の参照（TASK-10） | `make public-api-check` |
+| チップの SDK の crate（TASK-13） | `make public-api-sdk-check` |
+| 公開 API の名前 | `make public-name-check` |
+| 公開 API の WebGPU 系の名前 | `make public-api-webgpu-check` |
+| core の外部依存と feature の転送 | `make core-deps-check` |
+| 依存グラフの wgpu 系 crate | `make dep-graph-wgpu-check` |
+
+## 現状の形（1/6）
+
+所在は `crates/core/src/texture.rs`（`pub mod texture;`。feature の条件なし。crate の根の `pub use` は無い）。
+
+| 型 | 形 | derive | `#[non_exhaustive]` | 持たないもの |
+| -- | -- | ------ | ------------------- | ------------ |
+| `TextureDimension` | variant は `D1`・`D2`・`D3` | `Debug`・`Clone`・`Copy`・`PartialEq`・`Eq`・`Hash` | 付く | なし |
+| `TextureExtent` | 公開の欄 `width`・`height`・`depth_or_array_layers`（すべて `u32`） | 同上 | 付かない | `Default`・組み立ての関数 |
+| `TextureUsage` | 非公開の `u32`。定数 `COPY_SRC`=1・`COPY_DST`=2・`TEXTURE_BINDING`=4・`STORAGE_BINDING`=8・`RENDER_ATTACHMENT`=16・`TRANSIENT_ATTACHMENT`=32・`STORAGE_ATOMIC`=64。`empty`・`is_empty`・`bits`・`contains`・`\|`・`\|=` | 同上 | 付かない | ビットから作る口・`Default` |
+
+### 対応する doctest
+
+| 型 | 確かめること |
+| -- | ------------ |
+| `TextureDimension` | 外の crate の `_` の腕の無い `match` が `compile_fail,E0004`。`_` の腕つきは通る |
+| `TextureExtent` | 構造体式で作れる。コピー後も元を使える。`==` で比べられる |
+| `TextureUsage` | 7 定数のビット値。`\|` と `contains`。`empty`・`is_empty`。`\|=` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（通常 3 件・`compile_fail` 1 件、記録時点の値）。
+
+## 段の表
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/6 | #4557 | 次元・大きさ・用途の型 |
+| 2/6 | #4558 | 記述子 |
+| 3/6 | #4559 | handle と問い合わせ |
+| 4/6 | #4560 | 試験 |
+| 5/6 | #4561 | CI への組み込み |
+| 6/6 | #4562 | 完了の条件の確かめ |
