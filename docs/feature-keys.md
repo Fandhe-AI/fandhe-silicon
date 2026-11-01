@@ -188,6 +188,30 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 記録時点の base は `26a651c`。
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#6440）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1114）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 鍵の定数と一覧、行の型が共通の crate に feature の条件なしで置かれている | `grep -n 'pub mod feature_key\|pub mod capability_table' crates/core/src/lib.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `:40` の `pub mod capability_table;` と `:46` の `pub mod feature_key;`（どちらも前の行に `#[cfg` なし）。grep は `:62` の `capability_table_check` にも当たるが、これは `:61` の `#[cfg(feature = "test-support")]` の裏に置くもの。`cargo check` は終了コード 0 |
+| (2) | 鍵が 79 件・互いに異なる | `cargo test -p fandhe-silicon-core --features test-support --test feature_key_table`（`feature_query_keys_are_complete_list`）、`cargo test -p fandhe-silicon-core --lib feature_key`、`cargo run -q -p fandhe-silicon-core --example feature_keys \| wc -l`、同じ出力の `sort -u \| wc -l` | `feature_query_keys_are_complete_list` は ok（同じ試験の対象は 6 件で 6 passed）。`--lib feature_key` は 4 件 passed。行数 79・異なる行 79 |
+| (3) | 載っていない鍵・余分な鍵で検査が失敗する | `--test feature_key_table`（`missing_or_extra_key_is_detected`）、`make test-feature-key-check` | `missing_or_extra_key_is_detected` は ok。`make test-feature-key-check` は終了コード 0、`# passed: 23, failed: 0` |
+| (4) | 行の無い鍵の値が `NoApi` でない | `--test feature_key_table`（`unlisted_key_is_unknown_feature_not_no_api`）、`cargo test -p fandhe-silicon-core --lib capability_table`（feature なし） | `unlisted_key_is_unknown_feature_not_no_api` は ok。`--lib capability_table` は 3 件 passed（`test-support` を付けないので `capability_table_check` の試験は含まれない） |
+| (5) | `S3` 以上の値に根拠がある | `--test feature_key_table`（`s3_and_above_carry_evidence`） | ok |
+| (6) | 差分の台帳の行の型と検査 | `--test feature_key_table`（`ledger_entries_follow_key_list`）、`cargo test -p fandhe-silicon-core --features test-support --lib capability_table_check` | `ledger_entries_follow_key_list` は ok。`--lib capability_table_check` は 9 件 passed |
+| (7) | 実物の機能一覧との突き合わせ | `make feature-key-check` | 入力が private の submodule の中にあり、本リポの CI と自動実装の作業ツリーでは流さない。結果は private spec 側の記録に従う（ポインタのみ） |
+| (8) | 公開 API に wgpu の型が 0 件（TASK-10 のポインタ） | `make public-api-check` | 終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`（production・all-features とも） |
+| (9) | 公開 API にチップの SDK の型が 0 件（TASK-13 のポインタ） | `make public-api-sdk-check` | 終了コード 0。core の行は `sdk_type_refs=0 sdk_other_refs=0`（production・all-features とも） |
+| (10) | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | すべて終了コード 0。`name_hits_total=0`・`webgpu_names_total=0`・`unexpected=0 missing=0` |
+| (11) | CI で流れる場所 | 本書の 5/6 の「流れる場所」の表。`gh run list --branch main --workflow ci.yml --event push` | 1/6 のマージ `9950fdb` は run 41358114920 success、2/6 の `356e2b0` は run 41359320386 success、3/6 の `5ba9135` は run 41360949623 success、4/6 の `26a651c` は run 41362264239 success、5/6 の `274de7c` は run 41363951778 で記録時点は in_progress（結論は未確定） |
+| (12) | 依存 0・unsafe の追加 0 | `e339fcc` から `274de7c` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、新しい 5 つのファイル（`feature_key.rs`・`capability_table.rs`・`capability_table_check.rs`・`examples/feature_keys.rs`・`tests/feature_key_table.rs`）への `grep -c unsafe`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` は差分なし。`crates/core/Cargo.toml` の差分は `feature_key_table` の `[[test]]` 1 項目（`required-features = ["test-support"]`）だけ。承認の記録は 4 件のまま、`:35` に `#![forbid(unsafe_code)]`、`unsafe` は 5 ファイルとも 0 件、core の外部依存は 0 件 |
+| (13) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1114）。確かめた base は `274de7cbd47a111cabd326a52e5529526afd12d8`。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -197,4 +221,4 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 3/6 | #6437 | 表の網羅の検査の道具と差分の台帳（本書の「表の網羅の検査の道具と差分の台帳（3/6）」） |
 | 4/6 | #6438 | 鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（4/6）」） |
 | 5/6 | #6439 | 機能一覧との突き合わせの検査と CI への組み込み（本書の「機能一覧との突き合わせの検査と CI への組み込み（5/6）」） |
-| 6/6 | #6440 | 完了の条件の確かめ |
+| 6/6 | #6440 | 完了の条件の確かめ（本書の「完了の条件の確かめ（6/6）」） |
