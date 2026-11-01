@@ -42,7 +42,7 @@
 | ジョブ | 呼ぶ make ターゲット | 流れるもの | 確かめ方 |
 | ------ | -------------------- | ---------- | -------- |
 | `verify` | `make verify` | `--all-features` での `execution_*` の統合テストと `execution` の単体テスト | `scripts/verify.sh` |
-| `verify` | `make build-profiles` | `core` を feature なしで clippy（`-D warnings`）と test。`test-support` の要る試験は含まれず、型の試験はそれなしで通る | `grep -n CORE_PKG scripts/build-profiles.sh` |
+| `verify` | `make build-profiles` | `core` を feature なしで、および `test-support` だけで clippy（`-D warnings`）と test。feature なしでは `test-support` の要る試験は含まれず、型の試験はそれなしで通る | `grep -n CORE_PKG scripts/build-profiles.sh` |
 | `deny` | `make public-api-check` | `core` を production と all-features の 2 組で走査し、wgpu の型の参照が 0 件で合格する | `scripts/public-api-check.sh`、`.github/workflows/ci.yml` |
 
 ## 確かめ方

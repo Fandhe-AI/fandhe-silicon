@@ -54,7 +54,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `test-hooks` | `make test-session-record-check` | `scripts/test-session-record-check.sh` | 回ごとの記録の形の検査の回帰テスト |
 | `test-hooks` | `make test-metal-session` | `scripts/test-metal-session.sh` | Metal の実機の回の手順のスクリプトの回帰テスト |
 | `verify` | `make verify` | `scripts/verify.sh` | fmt・clippy・workspace の試験。試験の枠の記録から集計の表をジョブのログに出す（[test-frame](./test-frame.md)） |
-| `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check、`crates/wasm-abi` の scalar 版・simd128 版の release ビルド（成果物の在りかと wasm の先頭 4 バイトの確かめ）、core の feature なしの clippy・test |
+| `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check、`crates/wasm-abi` の scalar 版・simd128 版の release ビルド（成果物の在りかと wasm の先頭 4 バイトの確かめ）、core の feature なしの clippy・test、core の `test-support` だけの clippy・test |
 | `verify-macos` | `make verify` | `scripts/verify.sh` | `verify` と同じ fmt・clippy・workspace の試験を macOS で流す（`--all-features` に `backend-metal` が入る。`--ignored` は付けない） |
 | `verify-macos` | `make build-profiles` | `scripts/build-profiles.sh` | `verify` と同じ feature の組ごとの確かめを macOS で流す（`backend-metal` 単独の組と `--all-features` の組を含む。Linux では macOS 向けの依存がビルドされない） |
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |

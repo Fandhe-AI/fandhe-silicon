@@ -157,7 +157,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 組ごとの検査の step | CI の `verify` ジョブで、`make verify`（`--all-features`）の後に `make build-profiles` が流れる | `grep -n 'run: make' .github/workflows/ci.yml` |
-| 流れる組 | 既定の組、`NATIVE_SETS` の各組、core を feature なしで流す行、`--all-features`、`WASM_SETS` の `cargo check` | `grep -n '_SETS' scripts/build-profiles.sh` |
+| 流れる組 | 既定の組、`NATIVE_SETS` の各組、core を feature なしで流す行と `test-support` だけで流す行、`--all-features`、`WASM_SETS` の `cargo check` | `grep -n '_SETS' scripts/build-profiles.sh` |
 | 試験の拾われ方 | `crates/contract/tests/` の試験は、各組の `cargo test -p fandhe-silicon-contract` で自動で流れる（前例: [contract-feature-check](contract-feature-check.md) の「CI への組み込み（3/3）」）。core の試験は `crates/core/Cargo.toml` の `[[test]]` の `required-features` で feature に結び付く | `scripts/build-profiles.sh`、`crates/core/Cargo.toml` |
 | コンパイル失敗の枠 | `crates/contract/src/cfg_gate_doctest.rs` の doctest は組ごとの test で流れる（[feature-gate-compile-check](feature-gate-compile-check.md) の「CI への組み込み（3/4）」） | 同左 |
 | feature の裏のアイテム | `graphics`・`artifact-inspection` で切られたアイテムは今も 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
