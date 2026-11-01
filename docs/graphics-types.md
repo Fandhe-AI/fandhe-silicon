@@ -183,3 +183,5 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 ## 今の値
 
 「device の口と試験用の device（2/4）」の表の `create_render_encoder`・`create_render_encoder_with_depth`（描画先を検査せず）、`draw`・`draw_ex`・`copy_target_to_buffer`（何もせず `Unsupported`）、`submit_render`（`wait` の扱いの順）の行は、2/4 の記録時点の値で、書き換えない。今は別 device の描画先の handle とパイプラインを照らす（[render-target-handle](render-target-handle.md) の 5/5）。
+
+`PixelFormat`・`DepthFormat` から `TextureFormat` への `From` が、この module にある（[texture-format-types](texture-format-types.md) の 7/8）。
