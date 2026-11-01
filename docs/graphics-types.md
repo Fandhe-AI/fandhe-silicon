@@ -127,6 +127,50 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_de
 | `make wasm-verify` の core の wasm32 型検査（`scripts/wasm-verify.sh:39`） | core の試験の crate の wasm32 の `cargo check`（実行はしない） | `cargo check -p fandhe-silicon-core --tests --all-features --locked --target wasm32-unknown-unknown` |
 | `make public-api-check` の all-features の組（`scripts/public-api-check.sh:307`） | core の公開 API の文書化に graphics の項目が入る | `make public-api-check` |
 
+## 型の試験（4/4）
+
+外の crate から公開のパスだけで描画の型と `GraphicsOps` の形を確かめる統合テストを足した。`crates/core/tests/graphics_types.rs`（`crates/core/Cargo.toml` の `[[test]]` は `required-features = ["graphics"]`。`test-support` は要らない）。局所の型 `FixedGraphics` に 10 操作を実装し、固定の値を返す。
+
+| ファイル | 試験 | 確かめること |
+| -------- | ---- | ------------ |
+| `crates/core/tests/graphics_types.rs` | `graphics_ops_is_implementable_and_object_safe` | 局所の型で 10 操作を実装でき、`Box<dyn GraphicsOps>` 越しに 10 操作を呼べる。戻り値が固定の値と一致し、`submit_render` が記録先を値で受けて投入の印を返す |
+| 同上 | `value_types_have_listed_variants` | `PixelFormat` 3 値・`DepthFormat` 1 値・`CompareFunction` 3 値が、ワイルドカードの腕つきの `match` で想定の番号になる |
+| 同上 | `depth_config_is_built_from_outside` | 構造体式で `DepthConfig` を作れ、コピーの後も元を使え、欄の違いで `PartialEq` が分かれる |
+| 同上 | `render_encoder_is_static` | `RenderEncoder` が `'static` |
+
+```text
+cargo test -p fandhe-silicon-core --features graphics --test graphics_types
+```
+
+流れる組（各組のログに `Running tests/graphics_types.rs` が出ることを確かめた）:
+
+| 場所 | 事実 |
+| ---- | ---- |
+| `make verify`（`--all-features`） | 流れる |
+| `make build-profiles` の core の `graphics` だけの組 | 流れる |
+| `make build-profiles` の core の `test-support,graphics` の組 | 流れる |
+| `make wasm-verify` の core の `--all-features --tests` の wasm32 型検査 | 型検査に乗る（実行はしない） |
+| feature なしの `cargo test -p fandhe-silicon-core` | 流れない（`Running tests/graphics_types` が出ない） |
+
+## 完了の条件の確かめ（4/4）
+
+TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけを記録する。GPU の実機のない Linux の隔離した作業ツリー（base `2caa325`）で流した出力による。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 署名どおりの型がビルドできる | `make verify`・`make build-profiles` の終了コード。`grep -n 'fn ' crates/core/src/graphics.rs` | 終了コードは両方 0。`__backend_*` を除く `fn` の行のうち、`GraphicsOps` の 10 操作が `:204`〜`:283` に並ぶ（残りは doctest の `fn f`） |
+| 2 | `RenderEncoder`・`RenderTargetHandle` が公開の欄を持たない | `cargo test -p fandhe-silicon-core --features graphics --doc graphics`、`cargo test -p fandhe-silicon-core --doc render_target` | `graphics` は 9 件（通常 3・`compile_fail` 6）が `ok`。`RenderEncoder` の `line 119`（E0451）・`line 126`（E0599）は `compile fail ... ok`。`render_target` の `compile_fail` 2 件（`line 21`・`line 28`）も `ok` |
+| 3 | `submit_render` が `RenderEncoder` を消費する | 同じ `--doc graphics` | `GraphicsOps::submit_render (line 269) - compile fail ... ok` |
+| 4 | 公開 API に wgpu の型が 0 件（TASK-10） | `make public-api-check` | 終了コード 0。`documents=10 public_items_total=10388 wgpu_type_refs_total=0 wgpu_other_refs_total=0` |
+| 5 | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make core-deps-check` | 終了コードはすべて 0。`name_hits_total=0`・`webgpu_names_total=0`・`sdk_type_refs_total=0`・`core-deps-check` は `core_features=5 forwarded=5 forward_violations=0` |
+| 6 | `Device::graphics()` と試験用の device（DEV-59・DEV-60・DEV-63） | `--features test-support,graphics --test stub_device_graphics`、`--features graphics --test device_trait_shape`、`--features test-support,graphics --lib stub_device` | 13 件・7 件・7 件がすべて `ok`。`stub_device_graphics` の試験名は 2/4 の表と一致、`default_graphics_is_none_through_dyn_device` と `graphics_create_reports_exhausted_id_space` も `ok` |
+| 7 | 型の試験 | `cargo test -p fandhe-silicon-core --features graphics --test graphics_types` | `4 passed`（上の表の 4 本） |
+| 8 | CI で流れる場所 | 3/4 の節の表。`grep -n 'run: make' .github/workflows/ci.yml`。`gh run list --branch main --workflow ci.yml` | 3/4 の表の呼び出し（`make verify`・`make build-profiles`・`make deny`・`make wasm-verify`・`make public-api-check` など）が `ci.yml` に並ぶ。run は 1/4 `b990f42`（41308803435）・2/4 `a5f399a`（41310450220）・3/4 `2caa325`（41312795055）がすべて success（completed） |
+| 9 | 依存 0・unsafe の追加 0 | `git diff --stat b3e7d28 HEAD -- Cargo.lock deps-approved.toml`、`git diff --stat b3e7d28 HEAD -- crates/core/Cargo.toml crates/contract/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/graphics.rs` | `Cargo.lock`・`deps-approved.toml` の差分は空。2 つの `Cargo.toml` の差分は 8 行追加・1 行削除（core の `graphics` と `[[test]]` の項目、契約の crate の転送の行）。承認の記録は 4 件。`lib.rs:31` は `#![forbid(unsafe_code)]`。`graphics.rs` の `unsafe` は 0 |
+| 10 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-837）。確かめた base は `2caa325`。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
