@@ -37,8 +37,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `Device` | `crates/core/src/device.rs:101`。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
-| `DeviceProvider` | `crates/core/src/device.rs:151`。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
+| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
+| `DeviceProvider` | `crates/core/src/device.rs:151`（1/5 の時点の値。今は `:168`）。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
 | `MemoryOps` | `crates/core/src/memory/ops.rs:10`。必須は `allocate`・`upload`・`download_async`（native と wasm32 の 2 版）・`free`。`download_blocking` は feature `native-blocking-wait` の裏。`pending_release_count` は既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/memory/ops.rs` |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216`。必須は `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`（native と wasm32 の 2 版）・`dispatch_ex`。`wait_blocking` は feature `native-blocking-wait` の裏。`poll_ex`・`submit_ex`・`gpu_timing`・`dispatch` は既定の本体を持つ。`submit_exportable` は feature `ext-interop` の裏で既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/execution/submit.rs` |
 | `Capabilities` | `crates/core/src/capability.rs:114`。必須は `query`・`limits`。`query_ex` は既定の本体を持つ | `grep -nE '^\s*fn \|^pub ' crates/core/src/capability.rs` |
@@ -51,13 +51,13 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 型 | 所在 | 分類 |
 | -- | ---- | ---- |
-| `DeviceRequest`・`NativeDeviceHandle`・`DeviceDiagnostics` | `crates/core/src/device.rs:19`・`:58`・`:88` | device の要求・取り込み・診断の型 |
-| `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151` | device の口の trait |
+| `DeviceRequest`・`NativeDeviceHandle`・`DeviceDiagnostics` | `crates/core/src/device.rs:19`・`:58`・`:88`（1/5 の時点の値。今は `:29`・`:68`・`:98`） | device の要求・取り込み・診断の型 |
+| `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151`（1/5 の時点の値。今は `:111`・`:168`） | device の口の trait |
 | `DeviceLostNotify` | `crates/core/src/device_lost.rs:49` | ロストの通知先の trait |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216` | 投入の trait |
 | `FaultStub` | `crates/core/src/fault/stub.rs:27` | feature `fault-injection` の裏の部品 |
 | Metal の provider 3 件 | `crates/contract/src/backend_metal.rs:1367`・`:1390`・`:1413` | macOS だけ。うち 2 件は feature `fault-injection` の裏 |
-| `DeviceFaultHooksGate` | `crates/contract/src/cfg_gate_doctest.rs:70` | feature の有無でコンパイルの成否を切り替える doctest 用の置き場 |
+| `DeviceFaultHooksGate` | `crates/contract/src/cfg_gate_doctest.rs:70`（1/5 の時点の値。今は `:95`） | feature の有無でコンパイルの成否を切り替える doctest 用の置き場 |
 
 device の trait を実装する、公開の試験用の device の型は、この出力に無い（1/5 の時点の値）。今の値は、`StubDevice`・`StubDeviceProvider` が `crates/core/src/stub_device.rs` にある（feature `test-support` の裏）。
 
@@ -89,7 +89,7 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | 場所 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | `make verify` | `--all-features` で clippy と test を流す（doctest を含む） | `scripts/verify.sh` |
-| `make build-profiles` | core を feature なしで clippy と test に流す段（`scripts/build-profiles.sh:84`〜`:86`）と、contract の `test-support` 単独の組（`:39`）・`backend-metal,test-support` の組（`:40`） | `sed -n 82,87p scripts/build-profiles.sh` |
+| `make build-profiles` | core を feature なしで clippy と test に流す段（`scripts/build-profiles.sh:84`〜`:86`。1/5 の時点の値で、今は `:85`〜`:86`。`test-support` だけの組の clippy と test が `:89`・`:90` に加わった）と、contract の `test-support` 単独の組（`:39`）・`backend-metal,test-support` の組（`:40`） | `sed -n 82,87p scripts/build-profiles.sh` |
 | `make wasm-verify` | core の試験の wasm32 の型検査を既定（`scripts/wasm-verify.sh:36`）と `--all-features`（`:39`）で流す | `grep -n "cargo check -p fandhe-silicon-core" scripts/wasm-verify.sh` |
 | feature の有無でコンパイルの成否を切り替える doctest の対の先例 | `crates/contract/src/cfg_gate_doctest.rs`（[feature-gate-compile-check](feature-gate-compile-check.md)） | `grep -n "compile_fail" crates/contract/src/cfg_gate_doctest.rs` |
 
@@ -110,7 +110,7 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | ---- | ---- |
 | `StubDevice` | `StubDevice::new(req: DeviceRequest)` で作る。`Capabilities` と `Device` を実装する。`Send + Sync` を満たす |
 | `StubDeviceProvider` | 値を持たない型。`DeviceProvider::request` はどの要求にも `Ok(Box<dyn Device>)` を返す |
-| メモリの口・投入の口 | module の中の非公開の型で、`StubDevice::memory()`・`queue()` 越しにだけ届く |
+| メモリの口・投入の口 | module の中の非公開の型で、`StubDevice::memory()`・`queue()` 越しにだけ届く。今は compute の口（`crates/core/src/stub_device.rs` の非公開の型 `StubCompute`）も同じく module の中の非公開の型で、`StubDevice::compute()` 越しにだけ届く（[device-compute](device-compute.md)） |
 | feature の裏 | `download_blocking`・`wait_blocking` は feature `native-blocking-wait` の裏。`download_async`・`on_complete` は native と wasm32 の 2 版 |
 
 ### 1/5 の表からの変化
@@ -248,6 +248,8 @@ core の `all-features` の 1 件は、数え方が空振りでないことの�
 
 ### 既存の検査の結果
 
+上の「流れる場所」と、この表の `ci.yml` の行番号は記録時点の値で、書き換えない。今の main（`e4386fe`）では `verify` ジョブの `make verify` が `:177`、`make build-profiles` が `:181`、`deny` ジョブの `make deny` が `:246`、`make upper-layer-check` が `:254`、`make wasm-verify` が `:262`、`make public-api-check` が `:303`、`make public-name-check` が `:318`、`make public-api-sdk-check` が `:324`、`make core-deps-check` が `:330`、`make public-api-webgpu-check` が `:336` である（`grep -nE 'run: make ' .github/workflows/ci.yml`）。
+
 | 検査 | 呼ぶ CI のジョブ（`ci.yml`） | 結果 | 確かめたこと |
 | ---- | ---------------------------- | ---- | ------------ |
 | `make check` | `check` | 終了コード 0 | 整形の規約 |
@@ -309,6 +311,21 @@ TASK-156（DEV-34）の 5/5（#7566）として、本リポで観測できる事
 - `docs/spec` の参照先を進めたとき
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-156）。確かめた base は `8736023d571a6b2f881e3d10169ba115d3db7e0d`。
+
+### 今の main（`e4386fe`）での流し直し
+
+「再実行の契機」の最初の項目（`stub_device.rs` の変更）に当たる TASK-2956 の 1/3（#7590）の後に、上の表の方法を GPU のない Linux で流し直した。上の表は記録時点の値で、書き換えない。
+
+| 上の # | 今の結果 |
+| ------ | -------- |
+| 2 | 試験は 4 本になった（`stub_device_compute` が加わった）。`--features test-support` で compute 10・memory 11・queue 9・request 8・lib 5 がすべて `ok`、failed 0、ignored 0 |
+| 3 | `--all-features` で compute 10・memory 12・queue 10・request 8・lib 6 がすべて `ok` |
+| 4・5 | feature なしの `--doc` は `device.rs - device (line 13) - compile fail ... ok`（21 passed）、`--features test-support --doc` と `--all-features --doc` は `device.rs - device (line 13) ... ok`（26・27 passed） |
+| 6〜11 | `make public-api-check` は `public_items_total=10163`（記録時点は 10160）、ほかの `wgpu_*`・`*_hits_total`・`sdk_*`・`unexpected`・`missing`・`forward_violations`・`forbidden_features` は上の表と同じく 0。`make public-name-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make core-deps-check`・`make upper-layer-check` は終了コード 0 |
+| 12 | `crates/core/src/stub_device.rs` の `backend-` は 0 件。4 本の試験の `#[ignore` は 0 |
+| 14・16 | `make wasm-verify`・`make deps-check` は終了コード 0 |
+
+落ちたものは無い。`make verify`・`make deny`・`make build-profiles` は流していない（CI の `verify`・`deny` ジョブで流れる）。
 
 ## 段の表
 
