@@ -95,6 +95,61 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（この節で通常 3 件・`compile_fail` 1 件が増える）。
 
+## 現状の形（3/6）
+
+所在は `crates/core/src/texture.rs`（`fandhe_silicon_core::texture::TextureHandle`）。
+
+| 型 | derive | `#[non_exhaustive]` | 持たないもの |
+| -- | ------ | ------------------- | ------------ |
+| `TextureHandle` | `Debug` | 付かない | `Clone`・`Copy`・`PartialEq`・寿命の型引数 |
+
+欄はすべて非公開で、順と型は次のとおり。`label` と `view_formats` は持たない。
+
+| 欄 | 型 |
+| -- | -- |
+| `generation` | `u64` |
+| `id` | `u64` |
+| `device_id` | `u64` |
+| `dimension` | `TextureDimension` |
+| `size` | `TextureExtent` |
+| `mip_level_count` | `u32` |
+| `sample_count` | `u32` |
+| `format` | `TextureFormat` |
+| `usage` | `TextureUsage` |
+
+背後実装向けの口（`#[doc(hidden)]`。検査しない）。
+
+| 口 | 内容 |
+| -- | ---- |
+| `__backend_new(generation, id, device_id, &TextureDescriptor)` | 記述子の `dimension`・`size`・`mip_level_count`・`sample_count`・`format`・`usage` を写して持つ |
+| `__backend_generation` | 世代を返す |
+| `__backend_id` | 識別子を返す |
+| `__backend_device_id` | device の識別子を返す |
+
+問い合わせ（公開。`&self`。`Result` を返さない）。
+
+| 名前 | 戻り値 | 返す値（記述子の欄） |
+| ---- | ------ | -------------------- |
+| `size` | `TextureExtent` | `size` |
+| `width` | `u32` | `size.width` |
+| `height` | `u32` | `size.height` |
+| `depth_or_array_layers` | `u32` | `size.depth_or_array_layers` |
+| `mip_level_count` | `u32` | `mip_level_count` |
+| `sample_count` | `u32` | `sample_count` |
+| `dimension` | `TextureDimension` | `dimension` |
+| `format` | `TextureFormat` | `format` |
+| `usage` | `TextureUsage` | `usage` |
+
+### 対応する doctest
+
+| 確かめること | 種別 |
+| ------------ | ---- |
+| `__backend_new` に渡した値の往復と、9 つの問い合わせが記述子の値を返すこと | 通常 |
+| 外の crate の構造体式 | `compile_fail,E0451` |
+| `clone` の呼び出し | `compile_fail,E0599` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（この節で通常 1 件・`compile_fail` 2 件が増える）。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
