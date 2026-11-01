@@ -8,12 +8,13 @@
 # （`scripts/test-public-api-webgpu-check.sh`。合成 JSON と一時 workspace の実物の rustdoc の JSON を通す）。検査の枠（rustdoc の JSON を作る段）は
 # `scripts/public-api-check.sh --emit-json <dir> --without-feature <名前>` を呼んで共有し、
 # 抽出の実体と feature 列をここに持たない。(1)(2) は `native-blocking-wait` を外した組 A、(3) の G1 は `ext-interop` を外した組 B で、
-# JSON を作る呼び出しは 2 回になる（2 つを同時に外すと (1) の組が変わるため別々に作る）。
+# JSON を作る呼び出しは 3 回になる（2 つを同時に外すと (1) の組が変わるため別々に作る。3 回目は内容の (5) 用で `--without-feature` を付けない）。
 #
 # 使い方:
 #   scripts/public-api-webgpu-check.sh --config <path> [--json <path>...]
 #   --config  語の一覧（必須。書式は public-api-webgpu-check.conf の先頭）。語はこのスクリプトに持たない。
 #   --json    渡した rustdoc の JSON だけを検査する（cargo・git を呼ばない。組は `-` と表示）。無ければ JSON を作る。組 A として扱う。
+#   --token-json    内容の (5) 用の `all-features` の JSON（core・contract）。`--json` と一緒にだけ受け付ける（単独は誤用）。無ければ (5) をかけず、record の submit_token_checked=0 で示す。
 #   --interop-json  組 B の JSON。`--json` と一緒にだけ受け付ける（単独は誤用）。無ければ G1 をかけず、record の ext_interop_checked=0 で示す。
 # 終了コード: 0 一致が 0 件 / 1 一致が 1 件以上（違反） / 2 誤用・前提の不足・入力を読み切れない（成功扱いにしない）
 #   2 になるもの: 引数の誤用、設定の欠落・書式違反、指定のファイルが無い・読めない、JSON の形の不一致
@@ -63,7 +64,7 @@
 #   record に `pipeline_create_functions_total=<n> pipeline_input_checked=<0|1> pipeline_input_violations_total=<n>`、
 #   ok の末尾に `, pipeline input ok`。(2) の違反の行は `violation: crate=<c> features=<f> check=pipeline-input reason=<..>` と
 #   `violation: crate=<c> features=<f> item=<名前> kind=function check=pipeline-create reason=no-pipeline-input`。
-#   FAILED の件数は (1)(2)(3)(4) の合計。
+#   FAILED の件数は (1)(2)(3)(4)(5) の合計。
 #
 # 内容の (4) の照合の規則（TASK-155 のポインタ。対象は組 A と組 B の JSON）:
 #   H1 crate_id が 0 で visibility が public / default のアイテムのうち、inner が function・use・struct・enum・union・trait・
@@ -79,6 +80,19 @@
 #      関連型・関連定数・マクロ）は数えない。JSON は Linux で生成するので、`cfg(target_os)` で外れる面は見ない。
 #      外部 crate を指す glob の再公開・解決できない参照先は、組 A・B とも (1) と同じ規則で終了コード 2。
 #   commit は JSON を作る経路では ROOT_DIR の HEAD（変更が在れば末尾に `-dirty`）、--json の経路では `-`。
+#
+# 内容の (5) の照合の規則（TASK-313 のポインタ。対象は 3 回目の `public-api-check.sh --emit-json`〔`--without-feature` なし。
+#   `--document-hidden-items` なし〕が作る core・contract の `all-features` の JSON だけ。組 A・B の数えには混ぜない）:
+#   crate_id 0・公開の関数・メソッドのうち、`sig.inputs` の型の入れ子の中に core の `SubmitToken`（`paths` で引いた完全なパスの
+#   先頭が fandhe_silicon_core で末尾が SubmitToken）を含むもの、および core の `SubmitToken` の impl（blanket・自動 impl を除く）の
+#   メソッドで `Self` を受けるものの名前が、[submit-token-ops] の名前に完全一致しなければ違反（部分一致では当てない）。
+#   sig の崩れ・型の id が引けないは終了コード 2。一覧にあって JSON に無い名前は違反にしない。
+#   出力: scanned の末尾に `submit_token_ops=<n> submit_token_violations=<n>`、record の末尾に
+#   `submit_token_checked=<0|1> submit_token_ops_total=<n> submit_token_violations_total=<n>`、ok の末尾に `, submit token ops ok|skipped`、
+#   違反は `violation: crate=<c> features=<f> item=<名前> kind=function check=submit-token-op reason=not-allowed`。
+#   (5) の検査しないもの: `SubmitToken` を受けない口、名前だけで照合するので一覧と同じ名前の別の口、`cfg(target_os)` で外れる面、
+#   `#[doc(hidden)]` の公開の口、`SubmitToken` の impl に無い trait の既定の本体だけの `Self` メソッド、
+#   exec・upper・wasm-abi の公開面、production の組。
 #
 # 検査しないもの: 語を含まない名前のブロッキング待ち、完了の通知に非ブロッキングの形があるか、exec・upper の公開面、
 #   production から 1 つ外した組以外の feature の組、doc コメント・シグネチャの中の文字列。(2) では、名前に pipeline と
@@ -113,7 +127,11 @@ if sys.version_info < (3, 8):
 WITHOUT_BLOCKING = "native-blocking-wait"
 WITHOUT_INTEROP = "ext-interop"
 TARGET_PACKAGES = ("fandhe-silicon-core", "fandhe-silicon-contract")
-SECTIONS = ("blocking-words", "webgpu-words")
+SECTIONS = ("blocking-words", "webgpu-words", "submit-token-ops")
+# 内容の (5)（TASK-313 のポインタ）: 3 回目の JSON（`--without-feature` なし）の組の名前と、引数に受ける型の名前。
+ALL_FEATURES = "all-features"
+SUBMIT_TOKEN = "SubmitToken"
+WORD_GRAMMAR = {"submit-token-ops": r"[a-z_][a-z0-9_]*"}
 # 内容の (4) の対象（名前を持つ「操作」と型。const・static・field・module・マクロは数えない）。
 WEBGPU_KINDS = ("function", "use", "struct", "enum", "union", "trait", "trait_alias", "type_alias", "variant")
 NAME_TOKEN = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
@@ -171,7 +189,7 @@ def load_config(path):
             conf[cur] = []
             continue
         need(cur is not None, "word before the first config section")
-        need(re.fullmatch(r"[a-z0-9]+", line) is not None, "malformed word in a config section")
+        need(re.fullmatch(WORD_GRAMMAR.get(cur, r"[a-z0-9]+"), line) is not None, "malformed word in a config section")
         need(line not in conf[cur], "duplicate word in a config section")
         conf[cur].append(line)
     for sec in SECTIONS:
@@ -430,6 +448,104 @@ def inspect_interop(doc):
     return ext, ops, hdefs, submits, wait_results
 
 
+def mentions_submit_token(doc, node):
+    """型の入れ子の中に、core の `SubmitToken` に解決される resolved_path があるか。解決できない id は Misuse。"""
+    if isinstance(node, dict):
+        rp = node.get("resolved_path")
+        if isinstance(rp, dict) and is_int(rp.get("id")):
+            if is_submit_token_id(doc, rp["id"]):
+                return True
+        return any(mentions_submit_token(doc, v) for v in node.values())
+    if isinstance(node, list):
+        return any(mentions_submit_token(doc, v) for v in node)
+    return False
+
+
+def is_submit_token_id(doc, iid):
+    """id が core の `SubmitToken` を指すか。`paths` に無ければ局所の `index` を引き、どちらにも無ければ Misuse。"""
+    ent = doc["paths"].get(str(iid))
+    if isinstance(ent, dict):
+        need(isinstance(ent.get("path"), list) and all(isinstance(x, str) for x in ent["path"]),
+                "unresolved type id in a function signature")
+        pth = ent["path"]
+        return bool(pth) and pth[0] == CORE_CRATE and pth[-1] == SUBMIT_TOKEN
+    local = doc["index"].get(str(iid))
+    need(isinstance(local, dict), "unresolved type id in a function signature")
+    return False
+
+
+def mentions_self(node):
+    """型の入れ子の中に `Self`（`self`・`&self` の型）があるか。"""
+    if isinstance(node, dict):
+        return node.get("generic") == "Self" or any(mentions_self(v) for v in node.values())
+    if isinstance(node, list):
+        return any(mentions_self(v) for v in node)
+    return False
+
+
+def fn_inputs(item):
+    """関数アイテムの `sig.inputs`（[名前, 型] の並び）を返す。崩れていれば Misuse。"""
+    fn = item["inner"]["function"]
+    sig = fn.get("sig") if isinstance(fn, dict) else None
+    need(isinstance(sig, dict) and isinstance(sig.get("inputs"), list), "function lacks a valid sig")
+    for ent in sig["inputs"]:
+        need(isinstance(ent, list) and len(ent) == 2 and isinstance(ent[0], str), "function lacks a valid sig")
+    return sig["inputs"]
+
+
+def inspect_submit_token(doc):
+    """(5) 用に、inspect を通った JSON 1 本から `SubmitToken` を受ける公開の関数・メソッドの名前の並びを返す。
+    引数の型に SubmitToken を含むものと、SubmitToken の impl（blanket・自動 impl を除く）の中で `Self` を受けるメソッドを数える。"""
+    out = []
+    seen = set()
+    for it in doc["index"].values():
+        if it["crate_id"] != 0 or it.get("visibility") not in ("public", "default"):
+            continue
+        inner = it["inner"]
+        if "function" in inner:
+            nm = it.get("name")
+            need(isinstance(nm, str), "function lacks a name")
+            if it.get("id") not in seen and mentions_submit_token(doc, fn_inputs(it)):
+                out.append(clean(nm))
+                seen.add(it.get("id"))
+        elif isinstance(inner.get("impl"), dict):
+            imp = inner["impl"]
+            if imp.get("blanket_impl") is not None or imp.get("is_synthetic") is True:
+                continue
+            target = imp.get("for")
+            if not mentions_submit_token(doc, target):
+                continue
+            items = imp.get("items")
+            need(isinstance(items, list), "malformed impl items")
+            for mid in items:
+                m = doc["index"].get(str(mid))
+                if not isinstance(m, dict) or "function" not in m.get("inner", {}) or m.get("id") in seen:
+                    continue
+                if mentions_self(fn_inputs(m)):
+                    need(isinstance(m.get("name"), str), "function lacks a name")
+                    out.append(clean(m["name"]))
+                    seen.add(m.get("id"))
+    return out
+
+
+def run_token(inputs, allowed):
+    """(5) を JSON 1 本ずつにかけ、(口の数, 違反の数) の合計を返す。出力は scanned と violation の行。"""
+    ops_total = viol_total = 0
+    for _crate, label, path in inputs:
+        doc = load_json(path)
+        name, fv, public, _f, _h, _pd, _pf = inspect(doc, [])
+        names = inspect_submit_token(doc)
+        bad = [n for n in names if n not in allowed]
+        print("scanned: crate=%s features=%s format_version=%d public_items=%d submit_token_ops=%d submit_token_violations=%d"
+              % (clean(name), clean(label), fv, public, len(names), len(bad)))
+        for n in bad:
+            print("violation: crate=%s features=%s item=%s kind=function check=submit-token-op reason=not-allowed"
+                  % (clean(name), clean(label), n), file=sys.stderr)
+        ops_total += len(names)
+        viol_total += len(bad)
+    return ops_total, viol_total
+
+
 def _git(root, args):
     env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
     try:
@@ -454,11 +570,13 @@ def source_commit(root):
 
 
 def emit_docs(root, tmp, without):
-    """public-api-check.sh --emit-json --without-feature <without> で JSON を作り、対象 crate の (crate, 組, パス) を返す。"""
+    """public-api-check.sh --emit-json --without-feature <without> で JSON を作り、対象 crate の (crate, 組, パス) を返す。
+    without が None のときは `--without-feature` を付けず、`all-features` の組だけを採る（内容の (5)）。"""
     script = os.path.join(root, "scripts", "public-api-check.sh")
+    cmd = ["bash", script, "--emit-json", tmp] + ([] if without is None else ["--without-feature", without])
     try:
         done = subprocess.run(
-            ["bash", script, "--emit-json", tmp, "--without-feature", without],
+            cmd,
             cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, check=False)
     except OSError:
         raise Misuse("cannot run public-api-check.sh")
@@ -466,7 +584,7 @@ def emit_docs(root, tmp, without):
     found = {}
     for line in done.stdout.decode("utf-8", "replace").splitlines():
         m = re.fullmatch(r"emitted: crate=(\S+) features=(\S+) file=([A-Za-z0-9_.-]+\.json)", line)
-        if m and m.group(1) in TARGET_PACKAGES:
+        if m and m.group(1) in TARGET_PACKAGES and (without is not None or m.group(2) == ALL_FEATURES):
             need(m.group(1) not in found, "duplicate emitted document")
             found[m.group(1)] = (m.group(1), m.group(2), os.path.join(tmp, m.group(3)))
     # 片方でも欠けたまま合格にしない（fail-closed）。
@@ -597,18 +715,23 @@ def main():
     parser.add_argument("--config", required=True, metavar="PATH")
     parser.add_argument("--json", nargs="+", metavar="PATH")
     parser.add_argument("--interop-json", nargs="+", metavar="PATH")
+    parser.add_argument("--token-json", nargs="+", metavar="PATH")
     args = parser.parse_args(sys.argv[2:])
     need(args.interop_json is None or args.json is not None, "--interop-json requires --json")
+    need(args.token_json is None or args.json is not None, "--token-json requires --json")
 
     conf = load_config(args.config)
     words = conf["blocking-words"]
     wwords = conf["webgpu-words"]
+    token_ops = conf["submit-token-ops"]
     if args.json is not None:
         commit = "-"
         inputs = [("-", "-", p) for p in args.json]
         total = run_docs(inputs, words, "A", wwords)
         b_inputs = [("-", "-", p) for p in (args.interop_json or [])]
         btotal = run_docs(b_inputs, words, "B", wwords, total["wkeys"]) if b_inputs else None
+        t_inputs = [("-", "-", p) for p in (args.token_json or [])]
+        t_ops, t_viol = run_token(t_inputs, token_ops) if t_inputs else (0, 0)
     else:
         commit = source_commit(root)
         with tempfile.TemporaryDirectory() as tmp:
@@ -618,6 +741,9 @@ def main():
             b_inputs = emit_docs(root, os.path.join(tmp, "b"), WITHOUT_INTEROP)
             total = run_docs(inputs, words, "A", wwords)
             btotal = run_docs(b_inputs, words, "B", wwords, total["wkeys"])
+            os.mkdir(os.path.join(tmp, "t"))
+            t_inputs = emit_docs(root, os.path.join(tmp, "t"), None)
+            t_ops, t_viol = run_token(t_inputs, token_ops)
 
     wviol = total["wviol"] + (btotal["wviol"] if btotal else 0)
     iviol = total["iviol"] + (btotal["iviol"] if btotal else 0)
@@ -625,15 +751,17 @@ def main():
           " pipeline_create_functions_total=%d pipeline_input_checked=%d pipeline_input_violations_total=%d"
           " interop_documents=%d ext_interop_checked=%d external_interop_items_total=%d semaphore_handle_defined=%d"
           " submit_wait_params_total=%d interop_violations_total=%d webgpu_names_total=%d"
+          " submit_token_checked=%d submit_token_ops_total=%d submit_token_violations_total=%d"
           % (commit, len(inputs), total["public"], total["functions"], total["hits"],
               total["pcreate"], total["pchecked"], total["pviol"],
-              len(b_inputs), 1 if btotal else 0, total["ei"], total["handle_core"], total["waits"], iviol, wviol))
-    failed = total["hits"] + total["pviol"] + iviol + wviol
+              len(b_inputs), 1 if btotal else 0, total["ei"], total["handle_core"], total["waits"], iviol, wviol,
+              1 if t_inputs else 0, t_ops, t_viol))
+    failed = total["hits"] + total["pviol"] + iviol + wviol + t_viol
     if failed:
         print("FAILED: %d item(s)" % failed, file=sys.stderr)
         return 1
-    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop %s"
-          % (len(inputs), "ok" if btotal else "skipped"))
+    print("ok: %d public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop %s, submit token ops %s"
+          % (len(inputs), "ok" if btotal else "skipped", "ok" if t_inputs else "skipped"))
     return 0
 
 
