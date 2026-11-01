@@ -263,6 +263,25 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 
 上の表の部品が main に入ったら、同じ試験に確かめを足す。
 
+## 完了の条件の確かめ（8/8）
+
+8/8（#7577）で記録した。範囲は `docs/spec/05-tasks.md` の TASK-137（ポインタのみ）。結果は GPU の実機なしで、隔離した作業ツリー（base `4d0e20f`）で実際に流した出力による。コード・試験・CI は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 所有形態 3 × プロファイル 3 の組で `ownership()` が要求と一致（DEV-15 のポインタ） | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --test stub_device_profiles`、同 `--all-features --test stub_device_profiles` | 終了コード 0。前者は `test result: ok. 6 passed`、後者は `ok. 9 passed`。試験の名前は「契約テストの実装（7/8）」の確かめの表 |
+| (2) | `memory()`・`queue()` を `&dyn MemoryOps`・`&dyn CommandQueue` で受け、`CpuOnly` でも確保・投入・`poll` が通る（DEV-59・DEV-66 のポインタ） | `cargo test -p fandhe-silicon-contract --features test-support --test stub_device_profiles cpu_only`、`grep -n 'let m: &dyn MemoryOps\|let q: &dyn CommandQueue' crates/contract/tests/stub_device_profiles.rs` | `cpu_only_imported`・`cpu_only_product_independent`・`cpu_only_shared` の 3 件が `ok`（`3 passed`）。grep は 52・53 行目の 2 行 |
+| (3) | `query`・`limits` を呼べる（3 つの所有形態で） | `grep -n 'device.query\|device.limits' crates/contract/tests/stub_device_profiles.rs`、(1) の実行 | 76・77 行目の 2 行が共通の `check()` にあり、(1) の全試験が通る |
+| (4) | `fault-injection` がない構成で `fault_hooks()` が無い（DEV-80・TASK-271 のポインタ） | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc`、同 `--all-features --doc` | どちらも終了コード 0。前者に `cfg_gate_doctest::DeviceFaultHooksGate (line 87) - compile fail ... ok`、後者に `cfg_gate_doctest::DeviceFaultHooksGate (line 87) ... ok` |
+| (5) | `Device` から `ComputeOps`・描画の操作・`artifact-inspection` の口へ届く読み出しは本リポに無い | 「契約テストの実装（7/8）」の「本リポに無い部品」の確かめ方 | `git grep -n 'feature = "graphics"' -- crates/core` 0 件、`git grep -n 'artifact-inspection' -- crates/core` 0 件、`crates/core/Cargo.toml` に `graphics`・`artifact-inspection` の行 0 件。`Device` の method に `ComputeOps` を返すものは無い |
+| (6) | 組ごとの見え方と流れる場所、main の CI | `grep -n 'run: make' .github/workflows/ci.yml`、`grep -n 'test-support' scripts/build-profiles.sh`、`gh run view 41274870749 --json status,conclusion,headSha,jobs` | `make build-profiles` は `verify` ジョブ（181 行目）と `verify-macos` ジョブ（468 行目）が呼ぶ。`NATIVE_SETS` の `test-support` を含む組は 4 つ（39〜42 行目）。7/8 のマージ（`4d0e20f`）の push の run `41274870749` は取得時点で実行中。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)` を含む 6 つのジョブが completed / success、`make deny (cargo-deny)` は in_progress |
+| (7) | 依存 0・unsafe の追加 0 | `git diff --stat 2e08604 4d0e20f -- Cargo.lock deps-approved.toml`、`grep -c unsafe crates/contract/tests/stub_device_profiles.rs`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | 差分なし、0、4 |
+| (8) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | いずれも終了コード 0 |
+
+- wasm32 では contract の試験は既定の feature の型検査だけで、この試験（`test-support` が要る）は流れない。
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-137）。
+- 確かめた base: `4d0e20f`
+
 ## 本リポでの反映の方針
 
 本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
