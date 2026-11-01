@@ -113,6 +113,31 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 実物の入力（機能一覧と実行時列挙の記録）は private の submodule の中にあり、CI では流さない。
 
+## CI への組み込み（3/4）
+
+範囲の正は `docs/spec/05-tasks.md` の TASK-1313（ポインタのみ）。本段で足したのは make ターゲット 1 つ（`test-texture-format-key-check`）と、CI の `deny` ジョブの step 1 つで、ジョブは足していない（`ci-complete` の `needs` と必須チェックの名前は変わらない）。
+
+| 検査 | 入口 | CI のジョブ | 結果（記録時点） |
+| ---- | ---- | ----------- | ---------------- |
+| 突き合わせの検査の回帰テスト | `make test-texture-format-key-check` | `deny`（step 名は `make test-texture-format-key-check`） | 終了コード 0・35 件合格・0 件失敗 |
+| core の試験・doctest・example のビルド | `make verify`（`cargo clippy --all-targets`・`cargo test --workspace --all-features`） | `verify`・`verify-macos` | 終了コード 0 |
+| 1/4 の試験の wasm32 の型検査 | `make wasm-verify`（core の `--tests` の check） | `deny`・`wasm-macos` | 終了コード 0 |
+| CI の枠 | `make ci-frame-check`・`make test-ci-frame-check` | `deny` | 終了コード 0（48 件合格） |
+| 公開 API の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-api-webgpu-check`・`make public-name-check`・`make core-deps-check` | `deny` | いずれも終了コード 0。`record:` の `wgpu_type_refs_total=0`・`sdk_type_refs_total=0`・`name_hits_total=0`・`unexpected=0` |
+| 検査本体 | `scripts/texture-format-key-check.sh`（make ターゲットなし） | CI では流さない | 入力が private の submodule の中にある |
+
+値は記録時点（origin/main の `a202e0c`）のもの。
+
+### 確かめ方
+
+```bash
+grep -n 'test-texture-format-key-check' .github/workflows/ci.yml Makefile scripts/help.sh
+make ci-frame-check
+make test-texture-format-key-check
+make public-api-check && make public-api-sdk-check && make public-api-webgpu-check && make public-name-check && make core-deps-check
+make wasm-verify
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |

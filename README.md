@@ -69,7 +69,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.claude/workflows/` | `implement-issue-tree` の workflow（スキル内スクリプトへの symlink） |
 | `.agents/skills/`・`.claude/skills/` | エージェント用スキル（`skills-lock.json` で管理する外部取得物。`.claude/skills/` は `.agents/skills/` への symlink） |
 | `Makefile` | `scripts/` を呼ぶだけの薄い入口（`make help` で一覧） |
-| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `deps-check` / `test-deps-check` / `inventory-trace-check` / `test-inventory-trace-check` / `session-record-check`（make ターゲットなし・直接実行）/ `test-session-record-check` / `perf-record-check`（make ターゲットなし・直接実行）/ `test-perf-record-check` / `record-summary`（make ターゲットなし・直接実行）/ `test-record-summary` / `metal-session`（make ターゲットなし・直接実行）/ `test-metal-session` / `hooks/test-hooks`）。Make なしでも直接実行できる |
+| `scripts/` | 処理の実体（`help` / `doctor` / `setup` / `check` / `verify` / `build-profiles` / `deny` / `deps-check` / `test-deps-check` / `inventory-trace-check` / `test-inventory-trace-check` / `texture-format-key-check`（make ターゲットなし・直接実行）/ `test-texture-format-key-check` / `session-record-check`（make ターゲットなし・直接実行）/ `test-session-record-check` / `perf-record-check`（make ターゲットなし・直接実行）/ `test-perf-record-check` / `record-summary`（make ターゲットなし・直接実行）/ `test-record-summary` / `metal-session`（make ターゲットなし・直接実行）/ `test-metal-session` / `hooks/test-hooks`）。Make なしでも直接実行できる |
 | `scripts/hooks/` | lefthook から呼ばれる Git hooks の実体 |
 | `lefthook.yml` | Git hooks 定義（pre-commit / commit-msg）。編集方針は `.claude/rules/git-hooks.md`（フックの時間予算と CI との役割分担） |
 | `.editorconfig`・`.editorconfig-checker.json` | 文字コード・改行・インデントの宣言と、その検査の除外設定（ライセンス本文は除外） |
@@ -104,7 +104,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6） |
 | `docs/texture-format-types.md` | テクスチャの形式の型（TASK-1312）の所在と、本リポの現状の事実・現状の形（2/6）・CI への組み込み（3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6）・既存の 2 型からの変換（7/8）・完了の条件の確かめ（8/8） |
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
-| `docs/texture-format-keys.md` | テクスチャの形式の問合せの鍵の一覧と行の表の所在と、本リポの現状の事実・現状の形（1/4）・書き出しと一覧との突き合わせの検査（2/4）（TASK-1313） |
+| `docs/texture-format-keys.md` | テクスチャの形式の問合せの鍵の一覧と行の表の所在と、本リポの現状の事実・現状の形（1/4）・書き出しと一覧との突き合わせの検査（2/4）・CI への組み込み（3/4）（TASK-1313） |
 | `docs/indirect-args-types.md` | 間接実行の引数の型（TASK-1878）の所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6） |
 | `docs/artifact-cache-check.md` | 成果物キャッシュの照合（TASK-483）の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8） |
 | `docs/dispatch-operand-check.md` | 引数の宣言の C4〜C8 を判定する純粋関数（TASK-421・TASK-423）の所在・現状の振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（4/4）・現状と前提の確認（1/4）・C4 の容量不明・offset の試験（2/4）・alignment 0 の C5 の試験（3/4）・完了の条件の確かめ（4/4）（TASK-425）・C7 の実装（1/2）・統合テストと完了の条件の確かめ（2/2）（TASK-2952）・定数の C7 の試験（1/2）・完了の条件の確かめ（2/2）（TASK-424） |
@@ -201,6 +201,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
 | `make inventory-trace-check` | `scripts/inventory-trace-check.sh` | 一覧の各行の鍵が項目ファイルのどれかに現れるかを検査し（既定はファイル単位。項目の行への帰属は直接実行で `--item-rows` を付けたときだけ）、`--list` で対応の一覧を標準出力へ出す（手元だけ。`docs/spec` の取得が要り、無ければ終了コード 2。CI では実行しない。ソースは変更しない） |
 | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | `inventory-trace-check` 自体の回帰テスト（合成 fixture で終了コード・標準出力・標準エラーの文言・違反の件数・鍵の秘匿・入力を変更しないことを検証。bash + python3。ネットワーク不要・`docs/spec` の取得は不要。CI の `deny` ジョブも実行する） |
+| `make test-texture-format-key-check` | `scripts/test-texture-format-key-check.sh` | `texture-format-key-check` 自体の回帰テスト（合成の入力で終了コード・出力・違反の件数・鍵の秘匿・入力を変更しないことを検証し、cargo があれば example の実物の出力の形も確かめる。bash + python3。ネットワーク不要・`docs/spec` の取得は不要。CI の `deny` ジョブも実行する。検査本体は引数が要るため make ターゲットを持たない） |
 | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `.github/workflows/ci.yml` が CI の枠の事実（集約ジョブの網羅・実行場所・失敗の握りつぶしが無いこと）を保っているかの検査（bash + python3。ソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（rustdoc の JSON を数え、走査した公開アイテムの数を標準出力に出す。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
