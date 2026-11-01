@@ -1,4 +1,4 @@
-# 描画先の handle の型と照合の関数（TASK-375）の所在と本リポの現状
+# 描画先の handle の型（TASK-375）の所在と本リポの現状
 
 TASK-375 の作業の所在と、本リポの現状の事実を置く。spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 対応づけは TEX-12 のポインタだけにする。事実はリポジトリのルートで流したコマンドの出力から書く。
@@ -36,12 +36,3 @@ cargo test -p fandhe-silicon-core --doc render_target
 ```
 
 `--doc` 全体では 3 本とも `ok`（`34 passed; 0 failed`）。
-
-## 段の表
-
-| 段 | 中身 | Issue |
-| -- | ---- | ----- |
-| 1/4 | 型 | #4577 |
-| 2/4 | 照合の部品 | #4578 |
-| 3/4 | 試験 | #4579 |
-| 4/4 | 完了の条件の確かめ | #4580 |
