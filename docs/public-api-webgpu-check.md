@@ -177,3 +177,31 @@
 | 設定の書式 | 節 `[webgpu-words]` は必須。節の重複・空・大文字の語は終了コード 2 | `(4) 節の重複`・`(4) 節が空`・`(4) 節の欠落`・`(4) 大文字の語` |
 | 一時 workspace の実物 | 公開の自由関数 `as_<語>` や `<語>` を含む型を足すと終了コード 1。同じ語の定数・static は 0 件で通る | `real_webgpu_fn`・`real_webgpu_struct`・`real_webgpu_method`・`real_webgpu_trait_method`・`real_webgpu_const` |
 | 実物のリポジトリ | 引数なしで終了コード 0 | `make public-api-webgpu-check` |
+
+## 現状と前提の確認（1/4）（TASK-313）
+
+記録の正は private spec 側の記録に従う（`docs/spec/05-tasks.md` の TASK-313。関連: MEM-18・MEM-27。ポインタのみ）。
+
+1/4（#7650）では、コードと公開テストから観測できる事実だけを記録する。コード・スクリプト・設定は変えていない。
+
+### 現状
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 組 A・B の JSON の core の feature | `--without-feature` は contract の feature の列だけを変え、core は feature なしで作られる（core の `[features]` に `default` は無い）。このため組 A・B の core の JSON には feature の裏の口が入らない（`wait_blocking`〈`native-blocking-wait`〉、`submit_exportable` と `interop`〈`ext-interop`〉、`graphics`、`stub_device`〈`test-support`〉）。`--emit-json` だけの経路の `all-features` の組には入る | `grep -n -A8 'sets = \[' scripts/public-api-check.sh`・`sed -n '/^\[features\]/,/^\[/p' crates/core/Cargo.toml` |
+| contract の Metal の `impl CommandQueue` | `#[cfg(target_os = "macos")]` の `mod imp` の中にあり、Linux で作る JSON には出ない | `grep -n -E 'cfg\(target_os = "macos"\)\|^mod imp\|impl CommandQueue for' crates/contract/src/backend_metal.rs` |
+| exec・upper・wasm-abi の `SubmitToken` | ソースに 0 件 | `git grep -n SubmitToken -- crates/exec crates/upper crates/wasm-abi`（出力なし） |
+| `SubmitToken` の作り方 | `#[non_exhaustive]` で、crate の外から構造体式で作れないことを rustdoc の `compile_fail` の例が確かめる。`Default` の impl は無い。`__backend_new` は `#[doc(hidden)]` の `pub fn`（背後実装向け）。型の所在は [contract-submit-types](contract-submit-types.md)（TASK-588） | `grep -n -B12 'pub struct SubmitToken' crates/core/src/execution/submit.rs`・`git grep -n 'Default for SubmitToken' -- crates`（出力なし）・`cargo test -p fandhe-silicon-core --doc` |
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/4 | 現状と前提の確認 | #7650 |
+| 2/4 | 実装 | #7651 |
+| 3/4 | テスト | #7652 |
+| 4/4 | 試験と完了の条件の確かめ | #7653 |
+
+後の段で足す検査の振る舞い・試験は、その PR のコードと公開テストが示し、その PR で本書に節を足す。
+
+確かめた base のコミット: `5ba9135b867c0d0b6d3f0e62ecf39a5b1ac9c14b`。
