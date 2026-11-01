@@ -45,6 +45,7 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | `crates/core/tests/interop_device_accessors.rs` | `Device` の 2 つの口の既定と上書き |
 | `crates/core/tests/interop_extension_defaults.rs`（ERR-17） | 拡張 4 操作の返し。上書きしない型は操作ごとに `UnsupportedExtensionDefault { op: <操作の名前> }`、上書きした試験用の型は `Unsupported { op, backend }`、一部だけ上書きした型は上書きした操作だけが変わること。実際の背後実装の返しは含まない |
 | `crates/core/tests/interop_extension_defaults.rs`（INTEROP-43） | 必須の 4 操作だけの型が `Box<dyn ExternalInterop>` 越しで、拡張 4 操作に既定の値を返すこと |
+| `crates/contract/tests/interop_extension_defaults.rs` | 上の 2 行（ERR-17・INTEROP-43）と同じ確かめを契約の crate の側から行う。feature `ext-interop` の裏。`cargo test -p fandhe-silicon-contract --features ext-interop --test interop_extension_defaults` |
 
 ## 同一 GPU の判定（TASK-145）
 
