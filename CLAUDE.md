@@ -63,7 +63,7 @@ fandhe-silicon/
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）（TASK-2956）
-├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）（TASK-375）
+├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在と、本リポの現状の事実・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験と完了の条件の確かめ（4/4）（TASK-837）
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
 ├── docs/contract-interop-types.md  # 相互運用の公開の型と `ExternalInterop` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-717）

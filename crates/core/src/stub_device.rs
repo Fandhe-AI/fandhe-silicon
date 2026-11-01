@@ -7,7 +7,8 @@
 //! （所有形態によらない。TASK-2956 のポインタ）。
 //!
 //! feature `graphics` のビルドでは `Device::graphics()` も要求のプロファイルで答えが変わる。`CpuOnly`・`ComputeOnly` は `None`、
-//! `Graphics` は `Some` を返す（所有形態によらない。TASK-837 のポインタ）。
+//! `Graphics` は `Some` を返す（所有形態によらない。TASK-837 のポインタ）。描画の口は描画先の handle とパイプラインの
+//! device の識別子を `render_target::check_render_target_device` などで照らす（TASK-375・TEX-12 のポインタ）。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -29,7 +30,7 @@ use crate::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
 };
 #[cfg(feature = "graphics")]
-use crate::render_target::RenderTargetHandle;
+use crate::render_target::{RenderTargetHandle, check_render_target_device};
 
 /// 試験用の device の上限の表。確保の上限だけ持ち、dispatch・テクスチャは 0。
 const LIMITS: LimitsTable = LimitsTable {
@@ -483,7 +484,10 @@ impl ComputeOps for StubCompute {
 ///
 /// 入力・配置・形式・大きさは検査も解釈もせず、印の device の識別子は device の `generation()` と同じ値にする。
 /// パイプライン・描画先・記録先の通し番号は 1 つの源から 1 から増え、尽きたら `BackendFailure` を返す（panic しない）。
-/// `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
+/// 描画先の handle（`create_render_encoder*` の描画先、`copy_target_to_buffer` の描画先）と `draw`・`draw_ex` のパイプラインは
+/// `check_render_target_device` などで device の識別子を照らし、違えば `DeviceMismatch` を返す。
+/// `create_render_encoder*` は通し番号を取らず、`DeviceMismatch` を持つ識別子 `0` の記録先を返し、
+/// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 #[cfg(feature = "graphics")]
 struct StubGraphics {
@@ -539,6 +543,31 @@ impl StubGraphics {
         Ok(RenderTargetHandle::__backend_new(self.id, serial, self.id))
     }
 
+    /// `targets` を順に照らし、最初の不一致の値を持つ識別子 `0` の記録先を返す。通れば `encoder(op)`。
+    fn checked_encoder(&self, targets: &[&RenderTargetHandle], op: &'static str) -> RenderEncoder {
+        for target in targets {
+            if let Err(e) = check_render_target_device(target, self.id, self.id, false) {
+                return RenderEncoder::__backend_new_rejected(self.id, 0, self.id, e);
+            }
+        }
+        self.encoder(op)
+    }
+
+    /// 記録先が持つ拒否の値、無ければパイプラインの device の識別子の不一致を返す。
+    fn check_draw(
+        &self,
+        encoder: &RenderEncoder,
+        pipeline: &PipelineHandle,
+    ) -> Result<(), ContractError> {
+        if let Some(err) = encoder.__backend_rejected() {
+            return Err(err.clone());
+        }
+        if pipeline.__backend_device_id() != self.id {
+            return Err(ContractError::DeviceMismatch);
+        }
+        Ok(())
+    }
+
     fn encoder(&self, op: &'static str) -> RenderEncoder {
         match self.next() {
             Some(serial) => RenderEncoder::__backend_new(self.id, serial, self.id),
@@ -588,26 +617,27 @@ impl GraphicsOps for StubGraphics {
         Ok((self.target(op)?, self.target(op)?))
     }
 
-    fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
-        self.encoder("create_render_encoder")
+    fn create_render_encoder(&self, target: &RenderTargetHandle) -> RenderEncoder {
+        self.checked_encoder(&[target], "create_render_encoder")
     }
 
     fn create_render_encoder_with_depth(
         &self,
-        _target: &RenderTargetHandle,
-        _depth_target: &RenderTargetHandle,
+        target: &RenderTargetHandle,
+        depth_target: &RenderTargetHandle,
         _clear_color: [f32; 4],
     ) -> RenderEncoder {
-        self.encoder("create_render_encoder_with_depth")
+        self.checked_encoder(&[target, depth_target], "create_render_encoder_with_depth")
     }
 
     fn draw(
         &self,
-        _encoder: &mut RenderEncoder,
-        _pipeline: &PipelineHandle,
+        encoder: &mut RenderEncoder,
+        pipeline: &PipelineHandle,
         _vertex_buffer: &BufferHandle,
         _vertex_count: u32,
     ) -> Result<(), ContractError> {
+        self.check_draw(encoder, pipeline)?;
         Err(ContractError::Unsupported {
             op: "draw",
             backend: self.backend,
@@ -616,12 +646,13 @@ impl GraphicsOps for StubGraphics {
 
     fn draw_ex(
         &self,
-        _encoder: &mut RenderEncoder,
-        _pipeline: &PipelineHandle,
+        encoder: &mut RenderEncoder,
+        pipeline: &PipelineHandle,
         _vertex_buffer: &BufferHandle,
         _vertex_count: u32,
         _vertex_constants: &[ConstantBinding<'_>],
     ) -> Result<(), ContractError> {
+        self.check_draw(encoder, pipeline)?;
         Err(ContractError::Unsupported {
             op: "draw_ex",
             backend: self.backend,
@@ -633,14 +664,14 @@ impl GraphicsOps for StubGraphics {
         encoder: RenderEncoder,
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
+        if let Some(err) = encoder.__backend_rejected() {
+            return Err(err.clone());
+        }
         if !wait.is_empty() {
             return Err(ContractError::Unsupported {
                 op: "submit_render(wait)",
                 backend: self.backend,
             });
-        }
-        if let Some(err) = encoder.__backend_rejected() {
-            return Err(err.clone());
         }
         issue_token(&self.sequence, self.backend, self.id, "submit_render")
     }
@@ -648,10 +679,11 @@ impl GraphicsOps for StubGraphics {
     fn copy_target_to_buffer(
         &self,
         _encoder: &mut CommandEncoder,
-        _target: &RenderTargetHandle,
+        target: &RenderTargetHandle,
         _dst: &BufferHandle,
         _dst_offset: u64,
     ) -> Result<(), ContractError> {
+        check_render_target_device(target, self.id, self.id, false)?;
         Err(ContractError::Unsupported {
             op: "copy_target_to_buffer",
             backend: self.backend,
@@ -667,8 +699,9 @@ impl GraphicsOps for StubGraphics {
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
 ///
 /// feature `graphics` のビルドでは `graphics()` も `profile` で変わり、`CpuOnly`・`ComputeOnly` は `None`、`Graphics` は `Some` を返す。
-/// `Some` の描画パイプライン・描画先・記録先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
-/// `submit_render` の印は `queue()` の `poll` で `Complete` になる。`draw`・`draw_ex`・`copy_target_to_buffer` と、
+/// `Some` の描画パイプライン・描画先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
+/// 別 device の描画先やパイプラインを渡すと `DeviceMismatch` を返す（記録先の生成では、その値を持つ記録先を返す）。
+/// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
 pub struct StubDevice {
     backend: BackendKind,

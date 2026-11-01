@@ -117,6 +117,49 @@ TASK-375 の 4/4（#4580）として、本リポで観測できる事実だけ�
 
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-375）。確かめた base は `e599bceef2ca1fa9ad1959f7f1b59343b618d7da`。
 
+## 描画の操作越しの確かめ（5/5）
+
+試験用の device の描画の口（[graphics-types](graphics-types.md)。TASK-837 のポインタ）は、`check_render_target_device` などで device の識別子を照らす（TASK-375 の 5/5・#7613。ID は対応づけのポインタ TEX-12）。試験用の device はロストの状態を持たないので、ロストの引数は常に偽で渡す。
+
+### 照らす操作と返す値
+
+| 操作 | 照らすもの | 別 device の handle のときに返す値 | その値が出る呼び出し |
+| ---- | ---------- | ---------------------------------- | -------------------- |
+| `create_render_encoder` | 描画先 | `DeviceMismatch` を持つ識別子 `0` の記録先（通し番号は取らない） | 続く `draw`・`draw_ex`・`submit_render` |
+| `create_render_encoder_with_depth` | 描画先、深度の描画先の順 | 同上（最初の不一致の値） | 同上 |
+| `draw`・`draw_ex` | 記録先が持つ値、パイプライン | `DeviceMismatch` | その呼び出し |
+| `submit_render` | 記録先が持つ値（`wait` より先） | `DeviceMismatch` | その呼び出し |
+| `copy_target_to_buffer` | 描画先 | `DeviceMismatch` | その呼び出し |
+
+`draw`・`draw_ex` の頂点バッファと `copy_target_to_buffer` の記録先・書き込み先は照らさない。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は従来どおり `Unsupported` を返す。
+
+### 対応するテスト
+
+`crates/core/tests/render_target_graphics_check.rs`。device の要求は `BackendKind::Vulkan`・`Profile::Graphics`・`DeviceOwnership::ProductIndependent` で、device A の handle を device B の `graphics()` に渡す。
+
+| 試験名 | 確かめること |
+| ------ | ------------ |
+| `render_encoder_from_other_device_target_returns_device_mismatch` | A の描画先で作った記録先が `DeviceMismatch` を持ち、`submit_render` が `Err(DeviceMismatch)`。B の描画先なら `Ok` |
+| `render_encoder_with_depth_checks_both_targets` | 色と深度のどちらが A でも `submit_render` が `Err(DeviceMismatch)`。両方 B なら `Ok` |
+| `draw_returns_device_mismatch_held_by_encoder` | 拒否の値を持つ記録先を `draw`・`draw_ex` に渡すと `Err(DeviceMismatch)` |
+| `submit_render_returns_held_value_before_wait` | 拒否の値を持つ記録先と空でない `wait` で `Err(DeviceMismatch)` |
+| `draw_with_other_device_pipeline_returns_device_mismatch` | A のパイプラインで `draw`・`draw_ex` が `Err(DeviceMismatch)`。B のパイプラインなら `Unsupported` |
+| `copy_target_to_buffer_from_other_device_target_returns_device_mismatch` | A の描画先で `Err(DeviceMismatch)`。B の描画先なら `Unsupported` |
+| `rejection_matches_buffer_and_pipeline_rejection` | `BufferHandle`・`PipelineHandle`・描画先の拒否の `Err` が互いに等しい |
+| `rejected_encoder_does_not_advance_serial` | 拒否の記録先の識別子は `0` で、次の記録先の識別子は前の続きの値 |
+
+### 流れる組
+
+`make verify`（`--all-features`）、`make build-profiles` の core の `test-support,graphics` の組（`scripts/build-profiles.sh:95`・`:96`）、`make wasm-verify` の wasm32 の型検査（`scripts/wasm-verify.sh:39`）。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_graphics_check
+```
+
+実行の結果（base `760233c`）: `8 passed; 0 failed`。
+
 ## 段の表
 
 | 段 | 内容 | Issue |
@@ -125,3 +168,4 @@ TASK-375 の 4/4（#4580）として、本リポで観測できる事実だけ�
 | 2/4 | 現状の形（照合の関数） | #4578 |
 | 3/4 | 試験 | #4579 |
 | 4/4 | 完了の条件の確かめ | #4580 |
+| 5/5 | 描画の操作越しの確かめ | #7613 |

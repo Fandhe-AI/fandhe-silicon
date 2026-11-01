@@ -299,3 +299,7 @@ required-features = ["test-support", "graphics"]
 [[test]]
 name = "graphics_types"
 required-features = ["graphics"]
+
+[[test]]
+name = "render_target_graphics_check"
+required-features = ["test-support", "graphics"]
