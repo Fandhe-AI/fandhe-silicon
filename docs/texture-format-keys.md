@@ -138,6 +138,34 @@ make public-api-check && make public-api-sdk-check && make public-api-webgpu-che
 make wasm-verify
 ```
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#6716）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1313）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 共通の crate に feature の条件なしで置かれている | `crates/core/src/lib.rs:51` の `pub mod texture_format_key;`（前後の行に `#[cfg` なし）、`cargo check -p fandhe-silicon-core`（feature なし） | 終了コード 0 |
+| (2) | 鍵の件数・行の数・ASTC の行の鍵の数と名前の規則 | `cargo test -p fandhe-silicon-core --test texture_format_keys`（`query_keys_are_118_and_unique`・`query_keys_follow_all_formats`・`rows_are_77_with_unique_names`・`rows_flatten_to_query_keys`・`non_astc_rows_have_one_key_named_after_row`・`astc_row_has_block_by_channel_keys`・`astc_row_key_is_not_listed`・`keys_use_limited_characters`）、`--lib texture_format_key`、`--doc texture_format_key` | 8 件・3 件・2 件とも passed。`--all-features` 付きの `--test texture_format_keys` も 8 件 passed |
+| (3) | 表の書き出し | `cargo run -q -p fandhe-silicon-core --example texture_format_keys` の出力を `wc -l`、`cut -f1 \| sort -u \| wc -l`、`awk -F'\t' '$1=="Astc"' \| wc -l` | 118 行・先頭の列の異なる値 77・`Astc` の行 42 |
+| (4) | 突き合わせの検査の振る舞い | `make test-texture-format-key-check` | 終了コード 0。`# passed: 35, failed: 0`。実物の example の出力を通す 2 件を含む。`docs/spec` の取得は要らない |
+| (5) | 実物の入力での検査 | `scripts/texture-format-key-check.sh --enumerate-json <path> --enumerate-list <key> --enumerate-item <key>` | 入力が private の submodule の中にあり、本リポの CI と自動実装の作業ツリーでは流さない。結果は private spec 側の記録に従う（ポインタのみ） |
+| (6) | 公開 API に wgpu の型が 0 件（TASK-10 のポインタ） | `make public-api-check` | 終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`（production・all-features とも） |
+| (7) | 公開 API にチップの SDK の型が 0 件（TASK-13 のポインタ） | `make public-api-sdk-check` | 終了コード 0。core の行は `sdk_type_refs=0 sdk_other_refs=0`（production・all-features とも） |
+| (8) | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | すべて終了コード 0。`name_hits_total=0`・`webgpu_names_total=0`・`unexpected=0 missing=0` |
+| (9) | CI で流れる場所 | 上の 3/4 の節の表。`gh run list --branch main --workflow ci.yml` | 1/4 のマージ `1019d00` は run 41338767250 success、2/4 の `a202e0c` は run 41341611934 success、3/4 の `0667bc4` は run 41343032363 で記録時点は in_progress（結論は未確定） |
+| (10) | 依存 0・unsafe の追加 0 | `ea7567c` から `0667bc4` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture_format_key.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 3 ファイルとも差分なし、承認の記録 4 件のまま、`:33` に `#![forbid(unsafe_code)]`、`unsafe` は 0 件、core の外部依存は 0 件 |
+| (11) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1313）。確かめた base は `0667bc4796ec9d0e1a6052ec4fd0bee7fa621ff5`。
+
+### 再実行の契機
+
+- `crates/core/src/texture_format_key.rs`・`crates/core/tests/texture_format_keys.rs`・`crates/core/examples/texture_format_keys.rs`・`scripts/texture-format-key-check.sh` を変えたとき。
+- `TextureFormat` に値が増えたとき。
+- 公開 API の検査（`scripts/public-api-check.sh` ほか）を変えたとき。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
