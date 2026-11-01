@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし（試験の枠の
-# test-support を外した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
+# プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし・test-support だけ（試験の枠の
+# test-support を外した形と足した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
 # native では build / clippy（-D warnings）/ test、wasm32 では contract の check と wasm-abi の 2 版（scalar・simd128）の release ビルドを回す。
 # 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
 # feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
@@ -84,6 +84,10 @@ done
 # core を feature なしで（verify は --all-features だけなので、条件なしの型の試験が test-support 抜きでも通ることをここで拾う。spec TASK-470）
 run cargo clippy -p "${CORE_PKG}" --all-targets -- -D warnings
 run cargo test -p "${CORE_PKG}"
+
+# core を test-support だけで（verify は --all-features なので、fault-injection などを外した形の core 自身の試験と lint はここで拾う）
+run cargo clippy -p "${CORE_PKG}" --all-targets --features test-support -- -D warnings
+run cargo test -p "${CORE_PKG}" --features test-support
 
 # 全 feature（spec BUILD-6。後から増える feature も自動で含む）
 run cargo build -p "${PKG}" --all-features
