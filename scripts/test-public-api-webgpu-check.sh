@@ -465,6 +465,35 @@ put("w_other_kinds", wg([
 put("w_dup2", wg([("as_zzgpu", {"function": {}}, {}), ("as_zzgpu", {"function": {}}, {})]))
 put("w_two", wg([("as_zzgpu", {"function": {}}, {}), ("ZzgpuDevice", {"struct": {}}, {})]))
 
+# (5) SubmitToken を受ける口。paths に core の SubmitToken の id を置き、関数の引数に入れ子で含める。
+TOK_PATHS = {
+    "50": {"crate_id": 0, "path": ["fandhe_silicon_core", "submit", "SubmitToken"], "kind": "struct"},
+    "51": {"crate_id": 1, "path": ["core", "option", "Option"], "kind": "enum"},
+}
+
+
+def tok_ty():
+    return {"resolved_path": {"path": "SubmitToken", "id": 50, "args": None}}
+
+
+def tdoc(name, params, vis="public"):
+    d = base()
+    d["paths"] = dict(TOK_PATHS)
+    d["index"]["2"] = sfn(2, name, params, vis=vis)
+    return d
+
+
+put("t_ok", tdoc("zz_tok_op", [("t", sref(tok_ty()))]))
+put("t_bad", tdoc("zz_tok_other", [("t", sref(tok_ty()))]))
+put("t_nested", tdoc("zz_tok_nested", [("t", {"resolved_path": {"path": "Option", "id": 51, "args": {"angle_bracketed": {"args": [{"type": tok_ty()}], "constraints": []}}}})]))
+put("t_private", tdoc("zz_tok_private", [("t", sref(tok_ty()))], vis="crate"))
+put("t_no_token", tdoc("zz_tok_none", [("t", {"primitive": "u32"})]))
+put("t_unresolved", tdoc("zz_tok_unres", [("t", {"resolved_path": {"path": "X", "id": 99, "args": None}})]))
+put("t_bad_sig", tdoc("zz_tok_sig", [("t", sref(tok_ty()))]))
+_d = json.load(open(os.path.join(out, "t_bad_sig.json"), encoding="utf-8"))
+_d["index"]["2"]["inner"]["function"]["sig"]["inputs"] = [["t"]]
+put("t_bad_sig", _d)
+
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
 PY
@@ -472,6 +501,9 @@ PY
 # 設定の合成ファイル（テスト用のダミーの語）
 printf '# dummy\n[blocking-words]\nzzblock\nzzwait\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz_tok_op\n' >"${work}/ok.conf"
 printf '[webgpu-words]\nzzgpu\n[webgpu-words]\nzzgpu2\n' >"${work}/dup_wg_section.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n' >"${work}/missing_tok_section.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz\n[submit-token-ops]\nzz2\n' >"${work}/dup_tok_section.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nZz-Op\n' >"${work}/upper_tok_word.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nZzGpu\n' >"${work}/upper_wg_word.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\n# none\n' >"${work}/empty_wg_section.conf"
 printf '[blocking-words]\nzzblock\n' >"${work}/missing_wg_section.conf"
@@ -589,6 +621,18 @@ check "(4) 節の重複" 2 - "duplicate config section" --config "${work}/dup_wg
 check "(4) 大文字の語" 2 - "malformed word in a config section" --config "${work}/upper_wg_word.conf" --json "$(J clean)"
 check "(4) 節が空" 2 - "empty config section" --config "${work}/empty_wg_section.conf" --json "$(J clean)"
 check "(4) 節の欠落" 2 - "missing config section" --config "${work}/missing_wg_section.conf" --json "$(J clean)"
+check "(5) 一覧にある口は通る" 0 "submit token ops ok" - --config "${C}" --json "$(J clean)" --token-json "$(J t_ok)"
+check "(5) 一覧に無い口は違反" 1 "submit_token_violations_total=1" "item=zz_tok_other kind=function check=submit-token-op reason=not-allowed" --config "${C}" --json "$(J clean)" --token-json "$(J t_bad)"
+check "(5) 入れ子の型の中の SubmitToken も数える" 1 - "item=zz_tok_nested kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_nested)"
+check "(5) 非公開は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_private)"
+check "(5) SubmitToken を受けない口は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_no_token)"
+check "(5) --token-json を渡さなければ照合しない" 0 "submit token ops skipped" - --config "${C}" --json "$(J t_bad)"
+check "(5) --token-json 単独は誤用" 2 - "--token-json requires --json" --config "${C}" --token-json "$(J t_ok)"
+check "(5) 型の id が引けなければ終了コード 2" 2 - "unresolved type id in a function signature" --config "${C}" --json "$(J clean)" --token-json "$(J t_unresolved)"
+check "(5) sig の崩れは終了コード 2" 2 - "function lacks a valid sig" --config "${C}" --json "$(J clean)" --token-json "$(J t_bad_sig)"
+check "(5) 設定の節の欠落" 2 - "missing config section" --config "${work}/missing_tok_section.conf" --json "$(J clean)"
+check "(5) 設定の節の重複" 2 - "duplicate config section" --config "${work}/dup_tok_section.conf" --json "$(J clean)"
+check "(5) 設定の語の文法違反" 2 - "malformed word in a config section" --config "${work}/upper_tok_word.conf" --json "$(J clean)"
 
 # 終了コード 2（誤用・前提の不足・読み切れない入力）
 check "引数なし" 2 - -
