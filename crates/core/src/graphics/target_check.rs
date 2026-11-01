@@ -1,4 +1,4 @@
-//! 描画先の形式の 1 画素のバイト数と、描画先のバイト数を求める純粋関数（TASK-374。TEX-8・TEX-9・TEX-10 のポインタ）。
+//! 描画先の大きさの入力の検査と、描画先の形式の 1 画素のバイト数・描画先のバイト数を求める純粋関数（TASK-374。TEX-8・TEX-9・TEX-10 のポインタ）。
 //!
 //! `graphics` モジュールの一部で、公開のパスは `fandhe_silicon_core::graphics::…`。
 //! 背後実装の API は呼ばず、確保もしない（エラーの文字列を除く）。
@@ -63,6 +63,45 @@ pub fn offscreen_target_bytes(
         })
 }
 
+/// 描画先の幅・高さが 0 のとき、または `max_texture_size` を超えるときに拒む。上限ちょうどは通す。
+///
+/// ```
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::graphics::validate_offscreen_target_size;
+/// assert_eq!(validate_offscreen_target_size(1280, 720, 16384), Ok(()));
+/// assert_eq!(validate_offscreen_target_size(16384, 16384, 16384), Ok(()));
+/// assert!(matches!(
+///     validate_offscreen_target_size(0, 720, 16384),
+///     Err(ContractError::InvalidArgument(_))
+/// ));
+/// assert!(matches!(
+///     validate_offscreen_target_size(16385, 1, 16384),
+///     Err(ContractError::InvalidArgument(_))
+/// ));
+/// ```
+///
+/// # Errors
+///
+/// 幅または高さが 0 のとき、または幅か高さが `max_texture_size` を超えるとき
+/// `ContractError::InvalidArgument`。
+pub fn validate_offscreen_target_size(
+    width: u32,
+    height: u32,
+    max_texture_size: u32,
+) -> Result<(), ContractError> {
+    if width == 0 || height == 0 {
+        return Err(ContractError::InvalidArgument(format!(
+            "offscreen target size must be non-zero (width {width}, height {height})"
+        )));
+    }
+    if width > max_texture_size || height > max_texture_size {
+        return Err(ContractError::InvalidArgument(format!(
+            "offscreen target size exceeds max_texture_size {max_texture_size} (width {width}, height {height})"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +155,41 @@ mod tests {
             offscreen_target_bytes(u32::MAX, u32::MAX, 1),
             Ok(u64::from(u32::MAX) * u64::from(u32::MAX))
         );
+    }
+
+    fn is_invalid(r: Result<(), ContractError>) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(_)))
+    }
+
+    #[test]
+    fn target_check_size_zero_is_rejected() {
+        for (w, h) in [(0, 720), (1280, 0), (0, 0)] {
+            assert!(is_invalid(validate_offscreen_target_size(w, h, 16384)));
+        }
+    }
+
+    #[test]
+    fn target_check_size_over_limit_is_rejected() {
+        assert!(is_invalid(validate_offscreen_target_size(16385, 1, 16384)));
+        assert!(is_invalid(validate_offscreen_target_size(1, 16385, 16384)));
+    }
+
+    #[test]
+    fn target_check_size_limit_exact_passes() {
+        assert_eq!(validate_offscreen_target_size(16384, 16384, 16384), Ok(()));
+        assert_eq!(validate_offscreen_target_size(1280, 720, 16384), Ok(()));
+    }
+
+    #[test]
+    fn target_check_size_u32_max_limit_passes() {
+        assert_eq!(
+            validate_offscreen_target_size(u32::MAX, u32::MAX, u32::MAX),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn target_check_size_zero_limit_rejects() {
+        assert!(is_invalid(validate_offscreen_target_size(1, 1, 0)));
     }
 }
