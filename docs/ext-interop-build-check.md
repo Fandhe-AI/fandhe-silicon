@@ -20,14 +20,14 @@
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| feature の宣言 | `ext-interop = []`（含意も依存も無い）。`default` に入っていない。`backend-vulkan`・`backend-cuda` は `contract-core` だけを含意し、`ext-interop` を含意しない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml`、`cargo test -p fandhe-silicon-contract --test feature_gate_scope` |
+| feature の宣言 | `ext-interop = ["fandhe-silicon-core/ext-interop"]`（core の同名の feature への転送だけで、依存は増えない）。`default` に入っていない。`backend-vulkan`・`backend-cuda` は `contract-core` だけを含意し、`ext-interop` を含意しない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml`、`cargo test -p fandhe-silicon-contract --test feature_gate_scope` |
 | 背後実装のモジュールの `cfg` | `backend_vulkan`・`backend_cuda` は、それぞれの feature と `not(target_arch = "wasm32")` の両方でゲートされる。組の対象は native のみ | `grep -n 'cfg(' crates/contract/src/lib.rs` |
-| 背後実装の中の `ext-interop` | `backend_vulkan.rs`・`backend_vulkan/`・`backend_cuda.rs` に `ext-interop` の条件付きコンパイルは 0 件。両モジュールとも骨格のみで、相互運用の実装は無い | `grep -rn 'ext-interop\|ext_interop' crates/contract/src/backend_vulkan.rs crates/contract/src/backend_vulkan crates/contract/src/backend_cuda.rs`（出力なし） |
-| `crates/` で `ext-interop` の `cfg` を持つ物 | 門の目印（`crates/contract/src/cfg_gate_doctest.rs`）と、その有効側の試験（`crates/contract/tests/feature_gate_enabled.rs`）だけ（[feature-gate-compile-check](feature-gate-compile-check.md)） | `grep -rln 'feature = "ext-interop"' crates/` |
+| 背後実装の中の `ext-interop` | `crates/contract/src/backend_*.rs`（`backend_metal.rs`・`backend_vulkan.rs`・`backend_cuda.rs`）に `ext-interop` の条件付きコンパイルは 0 件。Vulkan・CUDA のモジュールに相互運用の実装は無い | `grep -n 'ext-interop\|ext_interop' crates/contract/src/backend_*.rs`（出力なし） |
+| `crates/` で `ext-interop` の `cfg` を持つ物 | 契約の crate は門の doctest（`crates/contract/src/cfg_gate_doctest.rs`）と有効側の試験（`crates/contract/tests/feature_gate_enabled.rs`）だけ（[feature-gate-compile-check](feature-gate-compile-check.md)）。相互運用の型と trait（`crates/core/src/lib.rs` の `interop` モジュール）、device の相互運用のアクセサ（`crates/core/src/device.rs`）、セマフォの export の宣言つきの投入 `submit_exportable`（`crates/core/src/execution/submit.rs`）、それらの core の試験は `crates/core` にある | `grep -rln 'feature = "ext-interop"' crates/` |
 | 組ごとの build / clippy / test | `scripts/build-profiles.sh` の `NATIVE_SETS` で `ext-interop` を含むのは、`backend-vulkan` と `backend-cuda` の両方を含む本番の組の行と、`ext-interop` 単独の行の 2 つだけ。`backend-vulkan` 単独・`backend-cuda` 単独の行はあるが、そのどちらか片方に `ext-interop` を足した組の行は無い。`WASM_SETS` に `ext-interop` を含む組は無い | `grep -n 'ext-interop' scripts/build-profiles.sh` |
 | 既存の試験が持つ組の写し | `crates/contract/tests/feature_default_scope.rs` の `PRODUCTION_SETS` は、`NATIVE_SETS` のうち BUILD-1〜BUILD-4 の注記がある 4 行の写し。試験は各組から含意をたどって到達できる feature を調べ、`build-profiles.sh` の注記行と写しが一致することも読んで照合する | `grep -n 'PRODUCTION_SETS' crates/contract/tests/feature_default_scope.rs` |
 | CI | `verify` ジョブが `make verify` と `make build-profiles` を呼ぶ。この件のための新しいジョブは無い | `grep -n 'make verify\|make build-profiles' .github/workflows/ci.yml` |
-| 依存 | 契約の crate の依存は `fandhe-silicon-core` だけ。本段で依存の記録は変えていない | `sed -n '/\[dependencies\]/,/^$/p' crates/contract/Cargo.toml` |
+| 依存 | 契約の crate の依存は `fandhe-silicon-core` と、macOS 向けにだけ宣言する Metal の依存（`backend-metal` の `dep:` でだけ有効になる。`[target.'cfg(target_os = "macos")'.dependencies]`）。`ext-interop` は依存を足さない。本段で依存の記録は変えていない | `sed -n '/\[dependencies\]/,/^$/p;/target.*dependencies/,/^$/p' crates/contract/Cargo.toml` |
 
 ### 段
 
