@@ -300,6 +300,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 - device のトレイトと device を返す入口は `crates/core/src/device.rs` にある（`Device`・`DeviceProvider`）
 - 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 13 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`・`DeviceLostNotify`・`ComputeOps`・`CommandQueue`・`ExternalInterop`・内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`）
 - 投入の列のトレイト `CommandQueue`、compute の口 `ComputeOps`、試験用の device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`。feature `test-support` の裏。試験は `crates/core/tests/stub_device_*.rs`）が `crates/core` にある。詳細は [stub-device](stub-device.md)
+- 前提の部品の Issue の今の状態（`gh issue view <番号> --json state`）は、#1100 が CLOSED、#696・#784・#1126・#447・#448・#1305・#1149 が OPEN。「#1100 は OPEN」「8 件とも OPEN」は記録時点の値で、書き換えない
 - 「前提の部品の Issue」や「部品が今も `crates/`・`wasm/` に無い」とする各段の記述（「テスト（4/6）」・「CI への組み込み（5/6）」・「確かめ（6/6）」の F2・F6・成果物の対応の表を含む）も記録時点の値で、書き換えない
 - `backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_cuda.rs` に `pub` の項目は無い
 - `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つで、「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない。`graphics` は今も `crates/contract` にしか無い（`crates/core/Cargo.toml` の `[features]`）
