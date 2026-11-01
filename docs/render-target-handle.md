@@ -68,3 +68,34 @@ cargo test -p fandhe-silicon-core --doc render_target
 ```
 
 `render_target` の doctest は 4 本とも `ok`。`cargo test -p fandhe-silicon-core --doc` は既定の feature で `23 passed; 0 failed`。
+
+## 試験（3/4）
+
+試験用の device（`StubDeviceProvider::request`）と `FaultStub` を使い、外の crate から公開のパスだけで `check_render_target_device` の返す値を確かめる統合テスト。device の要求は `BackendKind::Metal`・`Profile::ComputeOnly`・`DeviceOwnership::ProductIndependent`。自 device の識別子には `generation()` を使う。
+
+| ファイル | 試験名 | 確かめること |
+| -------- | ------ | ------------ |
+| `crates/core/tests/render_target_device_check.rs` | `handle_from_other_stub_device_is_device_mismatch` | 別の device の識別子で照らすと `Err(DeviceMismatch)`、同じ識別子なら `Ok(())` |
+| 同上 | `rejection_matches_buffer_handle_rejection` | 別の device へバッファの handle を渡した `upload` の `Err` と、描画先の handle の照合の `Err` が等しく `DeviceMismatch` |
+| 同上 | `handle_from_recreated_device_is_device_mismatch` | device を作り直すと識別子が変わり、前の識別子の handle は `Err(DeviceMismatch)` |
+| 同上 | `forged_handle_is_judged_by_device_id_only` | 世代・識別子が `0`・`u64::MAX` の handle も device の識別子だけで判定される |
+| `crates/core/tests/render_target_lost_check.rs` | `lost_stub_returns_device_lost_with_given_generation` | ロスト前は `Ok(())`、`simulate_device_lost` の後は `Err(DeviceLost { generation })`（渡した世代） |
+| 同上 | `lost_is_checked_before_device_id` | ロスト後は別の device の識別子でも `DeviceMismatch` でなく `DeviceLost` |
+
+### 流れる組
+
+| ファイル | 流れる場所 |
+| -------- | ---------- |
+| `render_target_device_check` | `make verify`（`--all-features`）と `make build-profiles` の core の `test-support` だけの組（`scripts/build-profiles.sh:88`〜`:90`） |
+| `render_target_lost_check` | `make verify` |
+
+2 つとも `make wasm-verify` の wasm32 の型検査（`scripts/wasm-verify.sh:39`）で通る。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-core --features test-support --test render_target_device_check
+cargo test -p fandhe-silicon-core --features test-support,fault-injection --test render_target_lost_check
+```
+
+出力はそれぞれ `4 passed`、`2 passed`。

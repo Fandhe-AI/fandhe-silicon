@@ -278,3 +278,11 @@ required-features = ["test-support"]
 [[test]]
 name = "stub_device_compute"
 required-features = ["test-support"]
+
+[[test]]
+name = "render_target_device_check"
+required-features = ["test-support"]
+
+[[test]]
+name = "render_target_lost_check"
+required-features = ["test-support", "fault-injection"]
