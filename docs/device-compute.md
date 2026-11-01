@@ -76,8 +76,24 @@ cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 feature なしの `cargo test -p fandhe-silicon-core` では、`stub_device_compute` は `required-features` により走らない。
 流れる場所は `make verify`（`--all-features`）と、`make build-profiles` の core の feature なしの段・`test-support` だけの段。
 
+## Metal の上書き（2/3）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 所在 | `crates/contract/src/backend_metal.rs:1912`。`impl Device for MetalDevice` の `compute()` が `Some(self)` を返す。実装は `cfg(target_os = "macos")` の `imp` の中にあり、ほかの OS ではコンパイルされない | `grep -n 'fn compute' crates/contract/src/backend_metal.rs` |
+| `request` が返す device | `request` は `CpuOnly` と、`graphics` が無効のときの `Graphics` を device を作る前に拒むので、得られる device は `ComputeOnly` か（`graphics` 有効時の）`Graphics` で、どれも `Some` | `request_rejects_cpu_only_as_invalid_combination`・`request_rejects_graphics_without_the_graphics_feature`（`crates/contract/tests/backend_metal_request.rs`。後者は `#[cfg(not(feature = "graphics"))]`） |
+| 対応するテスト | `crates/contract/tests/backend_metal_device.rs` の `compute_reaches_create_pipeline_through_the_public_device`（`#[ignore]`。required-features `backend-metal`・`native-blocking-wait`）。`ComputeOnly`・`ProductIndependent` の device で、MSL のカーネルと `BindingLayout::new(vec![0])` の `create_pipeline` が `Ok` | 下の確かめ方 |
+| 行頭の `#[ignore` の件数 | 51 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device -- --ignored compute_reaches_create_pipeline_through_the_public_device
+```
+
+device の試験は専用の実機の回だけで流す（手順は [metal-run-procedure](metal-run-procedure.md)）。
+
 ## 段の表
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 現状の形（実装とテスト） | #7587 |
+| 2/3 | Metal の上書き | #7588 |
