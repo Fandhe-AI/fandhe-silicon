@@ -108,6 +108,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 
 - `crates/` 配下に `NativeBlockingWaitEnabled`・`NativeBlockingWaitGate` の名前は残っていない
 - `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExtInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
+- `cfg_gate_doctest.rs` の doctest は 9 件（7 件に `GraphicsGate`・`DeviceGraphicsGate` を足した。[contract-device-stub-check](contract-device-stub-check.md) の「描画の口の契約テスト（10/10）」）
 
 ## アイテムへの差し替え（6/7）
 

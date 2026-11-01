@@ -13,7 +13,7 @@
 //! 置く対: 実在の feature ゲート `backend-metal`、`native-blocking-wait` の core の 2 アイテム
 //! （`MemoryOps::download_blocking`・`CommandQueue::wait_blocking`。別々の snippet）、
 //! `ext-interop` の core のアイテム（`ExternalInterop`）、
-//! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）。
+//! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）、`graphics`（core の `graphics` モジュールと `Device::graphics`。TASK-137）。
 //! feature に依らず通る `download_async`・`on_complete` の doctest も置く。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
@@ -93,3 +93,25 @@ pub struct FaultInjectionGate;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct DeviceFaultHooksGate;
+
+/// `graphics` を有効にしない構成では core の `graphics` モジュールが解決できずコンパイルエラーになる
+/// （contract の feature が core の同名 feature へ転送されることの確かめ）。
+#[cfg_attr(not(feature = "graphics"), doc = "```compile_fail")]
+#[cfg_attr(feature = "graphics", doc = "```")]
+#[doc = "use fandhe_silicon_core::graphics::GraphicsOps;"]
+#[doc = "fn probe(_: &dyn GraphicsOps) {}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct GraphicsGate;
+
+/// `graphics` を有効にしない構成では `Device::graphics` が解決できずコンパイルエラーになる
+/// （core の `Device` の既定メソッドが同じ feature の裏にあることの確かめ）。
+#[cfg_attr(not(feature = "graphics"), doc = "```compile_fail")]
+#[cfg_attr(feature = "graphics", doc = "```")]
+#[doc = "use fandhe_silicon_core::device::Device;"]
+#[doc = "fn probe(device: &dyn Device) {"]
+#[doc = "    let _ = device.graphics();"]
+#[doc = "}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct DeviceGraphicsGate;
