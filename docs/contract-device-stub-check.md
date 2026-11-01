@@ -261,7 +261,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 
 `fault-injection` がない構成で `fault_hooks()` が無いことは、`crates/contract/src/cfg_gate_doctest.rs` の `DeviceFaultHooksGate`（TASK-271 のポインタ）が確かめている。
 
-上の表の部品が main に入ったら、同じ試験に確かめを足す。
+上の表の部品が main に入ったら、同じ試験に確かめを足す。1 行目の `ComputeOps` への読み出しは今は `Device::compute()` として main にあり、その確かめは「compute の口の契約テスト（9/9）」に足した（この段の記録時点の値は書き換えない）。
 
 ## 完了の条件の確かめ（8/8）
 
@@ -281,6 +281,38 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 - wasm32 では contract の試験は既定の feature の型検査だけで、この試験（`test-support` が要る）は流れない。
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-137）。
 - 確かめた base: `4d0e20f`
+
+## compute の口の契約テスト（9/9）
+
+範囲は `docs/spec/05-tasks.md` の TASK-137（ポインタのみ。DEV-59・DEV-60 のポインタ）。`Device::compute()`（[device-compute](device-compute.md)）の確かめを、既存の契約テストの共通の `check()` に足した。新しい `#[test]` は足していない。
+
+### 足した確かめ
+
+`crates/contract/tests/stub_device_profiles.rs` の 80〜95 行目（`device.limits()` の後）。`Profile` は `#[non_exhaustive]` で contract は外の crate なので、網羅の `match` ではなく `matches!` で分ける。
+
+| プロファイル | 確かめ |
+| ------------ | ------ |
+| `CpuOnly` | `device.compute().is_none()` |
+| `ComputeOnly`・`Graphics` | `device.compute()` が `Some`。`create_pipeline(PipelineInput::Msl { source: "", entry_point: "main" }, &BindingLayout::new(vec![]))` が `Ok`。返った `PipelineHandle` の `__backend_device_id()` が `device.generation()` と等しい |
+
+先頭の `//!` にも、共通の確かめに `compute()` が入ることを足した。
+
+### どの組で何本流れるか
+
+- `make verify`（`--all-features`）: 9 本（3 プロファイル × 3 所有形態）
+- `make build-profiles` の `test-support` を含む各組（`graphics` 無し）: 6 本。`Graphics` の 3 本は feature `graphics` の裏
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test stub_device_profiles
+cargo test -p fandhe-silicon-contract --all-features --test stub_device_profiles
+sed -n 80,95p crates/contract/tests/stub_device_profiles.rs
+```
+
+### 実行の結果
+
+base `e4386fe` の作業ツリーで流した。前者は `test result: ok. 6 passed; 0 failed`、後者は `test result: ok. 9 passed; 0 failed`。
 
 ## 本リポでの反映の方針
 
