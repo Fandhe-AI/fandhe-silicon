@@ -1,7 +1,8 @@
 //! 試験用の device を `Box<dyn Device>` 越しに使い、プロファイル × 所有形態の組ごとに確かめる統合テスト（TASK-137。DEV-15・DEV-59・DEV-66 のポインタ）。
 //!
 //! 組ごとに `#[test]` を 1 本置く。`Graphics` の 3 本は feature `graphics` の裏にあるので、
-//! `graphics` の有無で流れる本数が変わる。試験用の device は core の feature `test-support` の裏にある。
+//! `graphics` の有無で流れる本数が変わる。
+//! 共通の確かめには `compute()` の口（`CpuOnly` は `None`、それ以外は `create_pipeline` が `Ok`）も含む。試験用の device は core の feature `test-support` の裏にある。
 
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +11,7 @@ use fandhe_silicon_core::device::{
     Device, DeviceOwnership, DeviceProvider, DeviceRequest, NativeDeviceHandle, Profile,
 };
 use fandhe_silicon_core::error::{CompletionState, ContractError};
-use fandhe_silicon_core::execution::CommandQueue;
+use fandhe_silicon_core::execution::{BindingLayout, CommandQueue, ComputeOps, PipelineInput};
 use fandhe_silicon_core::memory::{BufferUsage, MemoryOps};
 use fandhe_silicon_core::stub_device::StubDeviceProvider;
 
@@ -75,6 +76,23 @@ fn check(profile: Profile, kind: Kind) {
 
     let _level = device.query(FeatureId("any-feature"));
     let _limits = device.limits();
+
+    // compute の口は CpuOnly だけ無く、それ以外は入力を見ずにパイプラインを返す。
+    if matches!(profile, Profile::CpuOnly) {
+        assert!(device.compute().is_none());
+    } else {
+        let c: &dyn ComputeOps = device.compute().expect("compute");
+        let p = c
+            .create_pipeline(
+                PipelineInput::Msl {
+                    source: "",
+                    entry_point: "main",
+                },
+                &BindingLayout::new(vec![]),
+            )
+            .expect("pipeline");
+        assert_eq!(p.__backend_device_id(), device.generation());
+    }
 }
 
 #[test]
