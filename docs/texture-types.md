@@ -61,6 +61,40 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（通常 3 件・`compile_fail` 1 件、記録時点の値）。
 
+## 現状の形（2/6）
+
+所在は `crates/core/src/texture.rs`（`fandhe_silicon_core::texture::TextureDescriptor`）。
+
+| 型 | derive | `#[non_exhaustive]` | 持たないもの |
+| -- | ------ | ------------------- | ------------ |
+| `TextureDescriptor<'a>` | `Debug`・`Clone`・`PartialEq`・`Eq` | 付く | `Copy`・`Hash`・`Default` |
+
+欄はすべて公開で、順と型は次のとおり。
+
+| 欄 | 型 |
+| -- | -- |
+| `label` | `Option<&'a str>` |
+| `dimension` | `TextureDimension` |
+| `size` | `TextureExtent` |
+| `mip_level_count` | `u32` |
+| `sample_count` | `u32` |
+| `format` | `TextureFormat` |
+| `usage` | `TextureUsage` |
+| `view_formats` | `&'a [TextureFormat]` |
+
+`new(dimension, size, format, usage)` は `label` を `None`、`mip_level_count` と `sample_count` を 1、`view_formats` を空にし、ほかは引数をそのまま入れる。値は検査しない。
+
+### 対応する doctest
+
+| 確かめること | 種別 |
+| ------------ | ---- |
+| `new` の既定の値と、渡した値の保持 | 通常 |
+| 欄の書き換え（`label`・`mip_level_count`・`view_formats`） | 通常 |
+| 0 の大きさと空の用途を `new` がそのまま保持する | 通常 |
+| 外の crate の構造体式 | `compile_fail,E0639` |
+
+確かめ方: `cargo test -p fandhe-silicon-core --doc texture.rs`（この節で通常 3 件・`compile_fail` 1 件が増える）。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
