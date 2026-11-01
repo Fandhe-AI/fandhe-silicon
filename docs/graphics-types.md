@@ -121,7 +121,7 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_de
 | 場所 | 流れるもの | 確かめるコマンド |
 | ---- | ---------- | ---------------- |
 | `make verify`（`scripts/verify.sh` の `--all-features`） | core の graphics の doctest・`device_trait_shape`・`stub_device_graphics`・`stub_device` の `mod tests` を含む全部 | `make verify` |
-| `make build-profiles` の core の `graphics` だけの組（`scripts/build-profiles.sh:92`〜`:94`） | clippy（`-D warnings`）と test。graphics の doctest と `device_trait_shape` の `default_graphics_is_none_through_dyn_device`（`stub_device_graphics` は `required-features` で外れる） | `cargo test -p fandhe-silicon-core --features graphics` |
+| `make build-profiles` の core の `graphics` だけの組（`scripts/build-profiles.sh:93`〜`:94`） | clippy（`-D warnings`）と test。graphics の doctest と `device_trait_shape` の `default_graphics_is_none_through_dyn_device`（`stub_device_graphics` は `required-features` で外れる） | `cargo test -p fandhe-silicon-core --features graphics` |
 | `make build-profiles` の core の `test-support,graphics` の組（`scripts/build-profiles.sh:95`〜`:96`） | clippy と test。上に加えて `stub_device_graphics` と `stub_device` の `mod tests` の graphics の試験 | `cargo test -p fandhe-silicon-core --features test-support,graphics` |
 | `make build-profiles` の契約の crate の組（`scripts/build-profiles.sh:32`〜`:33`） | 契約の crate の `graphics` から core の `graphics` へ転送され、core の graphics module がビルドされる（core 自身の試験は流れない） | `cargo build -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics` |
 | `make wasm-verify` の core の wasm32 型検査（`scripts/wasm-verify.sh:39`） | core の試験の crate の wasm32 の `cargo check`（実行はしない） | `cargo check -p fandhe-silicon-core --tests --all-features --locked --target wasm32-unknown-unknown` |
