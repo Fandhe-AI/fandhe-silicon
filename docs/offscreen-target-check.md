@@ -72,6 +72,32 @@ make verify
 
 - 確かめ方: `cargo test -p fandhe-silicon-core --features graphics --test graphics_target_check`。`make verify` と `make wasm-verify` の型検査も拾う
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#4576）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-374。項目 `TEX-8`・`TEX-9`・`TEX-10`）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 部品が共通の crate にある | `grep -n 'mod target_check\|pub use target_check' crates/core/src/graphics.rs`、`cargo check -p fandhe-silicon-core --features graphics` | `graphics.rs` の 327 行目と 328 行目、終了コード 0 |
+| (2) | 0 の拒否（`TEX-9`） | `--test graphics_target_check` の `zero_width_or_height_is_rejected`、`--lib target_check` の `target_check_size_zero_is_rejected`・`target_check_size_zero_limit_rejects` | 3 本とも `ok` |
+| (3) | 上限ちょうどを通し上限 + 1 を拒む（`TEX-8`） | `limit_exact_is_accepted`・`limit_plus_one_is_rejected`・`limit_from_limits_table`（`LimitsTable` は TASK-157 のポインタ）、`target_check_size_limit_exact_passes`・`target_check_size_over_limit_is_rejected`・`target_check_size_u32_max_limit_passes` | 6 本とも `ok` |
+| (4) | バイト数の計算と `Rgba32Float`・深度の値（`TEX-10`） | `rgba32float_bytes_are_16_per_pixel`・`color_and_depth_bytes`、`target_check_pixel_format_bytes`・`target_check_depth_format_bytes`・`target_check_bytes_1280x720`、`--doc target_check` | 5 本とも `ok`、doctest 4 件 passed |
+| (5) | あふれの拒否 | `byte_count_overflow_is_rejected`、`target_check_bytes_overflow_is_rejected`・`target_check_bytes_max_without_overflow`、`rejection_is_repeatable`・`rejection_is_invalid_argument_only` | 5 本とも `ok` |
+| (6) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/graphics/target_check.rs`、`git diff --stat 4de70d8 3240ee9 -- crates/core/src/stub_device.rs crates/contract` | `use` は 2 行（`super::`・`crate::`）、差分 0 |
+| (7) | 依存 0・unsafe 0 | `git diff --stat 4de70d8 3240ee9 -- Cargo.lock deps-approved.toml`、`git diff 4de70d8 3240ee9 -- crates/core/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c unsafe crates/core/src/graphics/target_check.rs`、`grep -n forbid crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` は差分なし。`crates/core/Cargo.toml` の差分は `[[test]]` 1 項目（`graphics_target_check`、`required-features = ["graphics"]`）だけ。承認の記録 4 件、`unsafe` 0 件、33 行目に `#![forbid(unsafe_code)]`、core の外部依存 0 件 |
+| (8) | 試験の件数と CI | `cargo test -p fandhe-silicon-core --features graphics` の `--test graphics_target_check`・`--lib target_check`・`--doc target_check`、`gh run list --branch main --workflow ci.yml` | 9 passed・10 passed・4 passed。CI は 1/4 `8edda34` の run 41346789572 が success、2/4 `eaeae4d` の run 41348216175 が success、3/4 `3240ee9` の run 41349529572 は記録時点で in_progress |
+| (9) | 品質ゲート（本節を足した状態） | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 6 つとも終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-374）。確かめた base は `3240ee92e817682a381196c4445a37d3d154b6e3`。
+
+### 再実行の契機
+
+- `crates/core/src/graphics/target_check.rs`・`crates/core/tests/graphics_target_check.rs` を変えたとき
+- `PixelFormat`・`DepthFormat` に値が増えたとき
+- 公開 API の検査（`scripts/public-api-check.sh` ほか）を変えたとき
+
 ## 段の表
 
 | 段 | Issue | 内容 |
@@ -79,4 +105,4 @@ make verify
 | 1/4 | #4573 | 本頁の関数 |
 | 2/4 | #4574 | `validate_offscreen_target_size`（入力の検査） |
 | 3/4 | #4575 | `crates/core/tests/graphics_target_check.rs`（境界の入力の試験） |
-| 4/4 | #4576 | — |
+| 4/4 | #4576 | 完了の条件の確かめ（本頁の 4/4 の節） |
