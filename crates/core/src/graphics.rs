@@ -324,6 +324,9 @@ pub trait GraphicsOps {
     ) -> Result<(), ContractError>;
 }
 
+mod target_check;
+pub use target_check::{depth_format_bytes, offscreen_target_bytes, pixel_format_bytes};
+
 /// `PixelFormat`・`DepthFormat` の値の数と、`TextureFormat` への変換で名前が保たれることを core の中で固定する試験。
 /// 番号を返す `match` は `_` の腕を持たないので、値を足すとコンパイルが落ちて番号を足させる。
 /// 一覧への足し忘れは、各番号がちょうど 1 回ずつ現れるかを数える試験が落とす。
