@@ -30,7 +30,8 @@ contract-core = []
 cpu-isa = []
 cpu-ops = []
 native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
-graphics = []
+# 共通の crate の同名の feature へ転送する（描画の公開の型と GraphicsOps）。
+graphics = ["fandhe-silicon-core/graphics"]
 ext-interop = ["fandhe-silicon-core/ext-interop"]
 # backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
 backend-metal = ["contract-core", "dep:objc2", "dep:objc2-foundation", "dep:objc2-metal", "dep:objc2-core-graphics"]
