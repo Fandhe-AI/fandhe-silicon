@@ -147,3 +147,24 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 - `crates/` 配下に `ExtInteropEnabled`・`ExtInteropGate` の名前は残っていない
 - `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
 - `feature_gate_scope` の試験は 6 件
+
+## 完了の条件の確かめ（7/7）
+
+7/7（#7560）で、本リポで観測できる事実だけを記録する（TASK-233 のポインタ。`docs/spec/05-tasks.md`）。結果は隔離した作業ツリーで実際に流した出力による。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 無効の構成で 3 アイテムの門が通らない（BUILD-11・BUILD-12・BUILD-13） | `cargo test -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops --doc` | 終了コード 0。doctest 7 件のうち `DownloadBlockingGate`・`WaitBlockingGate`・`ExternalInteropGate` を含む 6 件が `compile fail ... ok`、`NonBlockingReadbackGate` が `ok` |
+| (2a) | `native-blocking-wait` 単独 | `cargo test -p fandhe-silicon-contract --no-default-features --features native-blocking-wait` | 終了コード 0。`DownloadBlockingGate`・`WaitBlockingGate` が `ok`、`ExternalInteropGate` が `compile fail ... ok`。`feature_gate_enabled` は `native_blocking_wait_gate_is_visible` の 1 件が通る |
+| (2b) | `ext-interop` 単独 | `cargo test -p fandhe-silicon-contract --no-default-features --features ext-interop` | 終了コード 0。`ExternalInteropGate` が `ok`、`DownloadBlockingGate`・`WaitBlockingGate` が `compile fail ... ok`。`feature_gate_enabled` は `ext_interop_gate_is_visible` の 1 件が通る |
+| (2c) | 全 feature | `cargo test -p fandhe-silicon-contract --all-features --doc` と `--all-features --test feature_gate_enabled` | 終了コード 0。doctest 7 件がすべて `ok`、`feature_gate_enabled` は 2 件が通る |
+| (3) | 常に通る読み戻しの口 | (1)・(2a)・(2b)・(2c) の `NonBlockingReadbackGate` の行 | どの組でも `ok` |
+| (4) | 本番の組と `ext-interop` | `cargo test -p fandhe-silicon-contract --test feature_gate_scope ext_interop` | 3 件が通る（`ext_interop_is_reached_only_from_the_interop_production_set`・`ext_interop_check_catches_a_wrong_production_set`・`ext_interop_check_follows_implications`） |
+| (5) | feature の範囲 | `cargo test -p fandhe-silicon-contract --test feature_gate_scope gated_features` と絞りなしの `--test feature_gate_scope` | 絞りありで 3 件、絞りなしで 6 件が通る |
+| (6) | 流れる場所と main の CI | `grep -n 'make build-profiles' .github/workflows/ci.yml`、`grep -n 'native-blocking-wait\|ext-interop' scripts/build-profiles.sh`、`gh run view 41266845012` | `ci.yml` の `verify` ジョブと `verify-macos` ジョブが `make build-profiles` を呼び、`build-profiles.sh` に `native-blocking-wait` 単独・`ext-interop` 単独の組がある。main の `6630725` の push の run では、`make verify + build-profiles (macos-latest)` と `make verify (fmt + clippy + test)` の job が success（記録の時点で run 全体は進行中） |
+| (7) | 依存 0・unsafe の追加 0 | `grep -c trybuild Cargo.lock`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c unsafe crates/contract/src/cfg_gate_doctest.rs`、`git diff --stat origin/main -- Cargo.lock deps-approved.toml` | 0 / 4（contract の macOS 向けの記録。先の「依存の承認の件数の現状」と同じ値）/ 0 / 差分なし |
+| (8) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | どれも終了コード 0 |
+
+- wasm32 の組は `cargo check` だけで doctest が流れないので、この表に含めない
+- 読み戻しの口の名前の側の機械の検査は `make public-api-webgpu-check` の (1) にある（TASK-241 のポインタ）
+- 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-233）
