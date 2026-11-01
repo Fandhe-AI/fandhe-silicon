@@ -210,6 +210,48 @@ cargo test -p fandhe-silicon-core --test texture_types
 cargo test -p fandhe-silicon-core --doc texture.rs
 ```
 
+## 完了の条件の確かめ（6/6）
+
+TASK-371 の 6/6（#4562）として、本リポで観測できる事実だけを記録する。GPU の実機のない Linux の隔離した作業ツリー（base `51be40a`）で流した出力による。
+9 つの問い合わせのポインタ: TEX-21〜TEX-29。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 型が共通の crate に条件なしで置かれている | `grep -n 'pub mod texture' crates/core/src/lib.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `lib.rs:48` が `pub mod texture;` で `cfg` は付かない。`cargo check` の終了コードは 0 |
+| 2 | 9 つの問い合わせが記述子の値と一致する値を返す（`size`・`width`・`height`・`depth_or_array_layers`・`mip_level_count`・`sample_count`・`dimension`・`format`・`usage`） | `cargo test -p fandhe-silicon-core --test texture_types queries_return_descriptor_values`、`cargo test -p fandhe-silicon-core --doc texture.rs` | `queries_return_descriptor_values` は `ok`。`texture::TextureHandle (line 294)` の doctest も `ok`（`check_queries` が 9 つの問い合わせを行ごとに突き合わせる） |
+| 3 | 作成時の値を保持して返す | `--test texture_types` | `handle_outlives_descriptor`・`queries_return_boundary_values_unchanged` が `ok`。`texture_types` 全体は `test result: ok. 7 passed` |
+| 4 | 記述子の形式の欄が `TextureFormat` を受ける | `grep -n 'pub format' crates/core/src/texture.rs`、`grep -n Astc crates/core/tests/texture_types.rs` | `texture.rs:254` が `pub format: TextureFormat`。試験の `:54` に `TextureFormat::Astc { block: AstcBlock::B4x4, channel: AstcChannel::Unorm }` を含む行がある |
+| 5 | 公開 API に wgpu の型が 0 件（TASK-10） | `make public-api-check` | 終了コード 0。`public_items_total=10844 wgpu_type_refs_total=0 wgpu_other_refs_total=0` |
+| 6 | 公開 API にチップの SDK の型が 0 件（TASK-13） | `make public-api-sdk-check` | 終了コード 0。`public_items_total=9205 sdk_type_refs_total=0 sdk_other_refs_total=0 common_chip_deps=0` |
+| 7 | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | 終了コードはすべて 0。`name_hits_total=0`・`blocking_wait_names_total=0 webgpu_names_total=0`・`unexpected=0 missing=0 forward_violations=0` |
+| 8 | CI で流れる場所 | 5/6 の節の表。`grep -n 'run: make' .github/workflows/ci.yml`。`gh run list --branch main --workflow ci.yml` | 5/6 の表の呼び出し（`make verify`・`make build-profiles`・`make deny`・`make wasm-verify`・`make public-api-check` など）が `ci.yml` に並ぶ。main の push の run は 1/6 `1a5c264`（41322889975）・2/6 `a6fc3d9`（41324185827）・3/6 `b63103e`（41325608467）・4/6 `fe83bbf`（41327418646）が success（completed）、5/6 `51be40a`（41328825333）は記録時点で in_progress |
+| 9 | 依存 0・unsafe の追加 0 | `git diff --stat 124f4da HEAD -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 3 つのファイルの差分は空。承認の記録は 4 件。`lib.rs:32` は `#![forbid(unsafe_code)]`。`texture.rs` の `unsafe` は 0。`cargo tree` は core 自身の 1 行だけ |
+| 10 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
+
+`texture.rs` の doctest は `cargo test --doc texture.rs` が 2 つの結果行を出し、通常の 7 件（`ok. 7 passed`）と `compile_fail` の 4 件（`ok. 4 passed`。`TextureDimension (line 13)`・`TextureDescriptor (line 223)`・`TextureHandle (line 325)`・`TextureHandle (line 345)`）である。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-371）。確かめた base は `51be40a`。
+
+### 確かめ方
+
+```text
+grep -n 'pub mod texture' crates/core/src/lib.rs
+cargo check -p fandhe-silicon-core
+cargo test -p fandhe-silicon-core --test texture_types
+cargo test -p fandhe-silicon-core --doc texture.rs
+make public-api-check
+make public-api-sdk-check
+make public-api-webgpu-check
+make public-name-check
+make core-deps-check
+make check
+make verify
+make deny
+make deps-check
+make build-profiles
+make wasm-verify
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
