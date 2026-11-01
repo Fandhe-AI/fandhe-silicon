@@ -28,7 +28,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ---- | -------- |
 | 条件なしで公開する module | `artifact_cache`・`binding`・`capability`・`decision`・`device`・`device_lost`・`error`・`execution`・`hash`・`memory`・`spirv`・`texture_format`・`validation` の 13 個 | `grep -n "pub mod" crates/core/src/lib.rs` |
 | feature の裏の module | `ext-interop` の裏に `interop`。`test-support` の裏に `capability_rule`・`parity`・`test_frame`・`rerun`。`fault-injection` の裏に `fault` | 同上 |
-| feature | `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つ。どれも `= []` で、`default` は無い | `crates/core/Cargo.toml` の `[features]` |
+| feature | `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つ（記録時点の値。今は `graphics` を含む 5 つ）。どれも `= []` で、`default` は無い | `crates/core/Cargo.toml` の `[features]` |
 | 外部依存 | 0 件（`cargo tree` に子が出ない） | `cargo tree -p fandhe-silicon-core -e normal --depth 1` |
 | unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/core/src/lib.rs` |
 

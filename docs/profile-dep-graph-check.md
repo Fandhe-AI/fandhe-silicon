@@ -182,6 +182,7 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 上の「feature の宣言」の行の `cfg` の所在は記録の時点の値で、書き換えない。今の値は次のとおり（`git grep -n -E 'feature = "(graphics|ext-interop)"' -- crates`）。
 
 - `cfg(not(feature = "graphics"))` が `crates/contract/src/backend_metal.rs`・`crates/contract/tests/backend_metal_fault.rs`・`crates/contract/tests/backend_metal_request.rs` にある
+- `graphics` の `cfg` は上の 3 件に加えて `crates/contract/tests/stub_device_profiles.rs` と、`crates/core`（`src/lib.rs`・`src/device.rs`・`src/stub_device.rs` と `tests/device_trait_shape.rs`）にもある。「`graphics` には無い」は記録時点の値
 - `ext-interop` の `cfg` は `crates/contract`（`src/cfg_gate_doctest.rs`・`tests/feature_gate_enabled.rs`）に加えて `crates/core`（`src/lib.rs`・`src/device.rs`・`src/execution/submit.rs` と `tests/` の 2 ファイル）にもある
 
 ### 段

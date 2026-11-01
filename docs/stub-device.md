@@ -29,7 +29,7 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 | feature `ext-interop` の裏の module | `interop` | 同上 |
 | feature `test-support` の裏の module | `capability_rule`・`parity`・`test_frame`・`rerun` | 同上 |
 | feature `fault-injection` の裏の module | `fault` | 同上 |
-| feature | `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つ。どれも空の一覧（`= []`）で、`default` は無い | `sed -n '/\[features\]/,/^\[\[test\]\]/p' crates/core/Cargo.toml` |
+| feature | `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つ（1/5 の時点の値。今は `graphics` を含む 5 つ）。どれも空の一覧（`= []`）で、`default` は無い | `sed -n '/\[features\]/,/^\[\[test\]\]/p' crates/core/Cargo.toml` |
 | 外部依存 | 0 件 | `cargo metadata --format-version 1 --no-deps \| jq '.packages[] \| select(.name=="fandhe-silicon-core") \| {features, dependencies}'` と `cargo tree -p fandhe-silicon-core -e normal --depth 1` |
 | unsafe | `#![forbid(unsafe_code)]`（`crates/core/src/lib.rs:28`） | `grep -n unsafe_code crates/core/src/lib.rs` |
 
@@ -37,7 +37,7 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持つ（`graphics` は持たない）。試験用の device の答えは [device-compute](device-compute.md)。さらに今は `graphics` も feature `graphics` の裏で既定の本体つきで持つ。試験用の device の答えは [graphics-types](graphics-types.md) | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
+| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持ち（試験用の device の答えは [device-compute](device-compute.md)）、`graphics` も feature `graphics` の裏で既定の本体つきで持つ（試験用の device の答えは [graphics-types](graphics-types.md)） | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
 | `DeviceProvider` | `crates/core/src/device.rs:151`（1/5 の時点の値。今は `:168`）。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
 | `MemoryOps` | `crates/core/src/memory/ops.rs:10`。必須は `allocate`・`upload`・`download_async`（native と wasm32 の 2 版）・`free`。`download_blocking` は feature `native-blocking-wait` の裏。`pending_release_count` は既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/memory/ops.rs` |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216`。必須は `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`（native と wasm32 の 2 版）・`dispatch_ex`。`wait_blocking` は feature `native-blocking-wait` の裏。`poll_ex`・`submit_ex`・`gpu_timing`・`dispatch` は既定の本体を持つ。`submit_exportable` は feature `ext-interop` の裏で既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/execution/submit.rs` |
