@@ -40,6 +40,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 4/6 | #3662 | テスト |
 | 5/6 | #3663 | CI への組み込み |
 | 6/6 | #3664 | 確かめ |
+| 7/8 | #7576 | 契約テストの実装 |
+| 8/8 | #7577 | 完了の条件の確かめ |
 
 ## 形の設計（2/6）
 
@@ -206,6 +208,60 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 「実装（3/6）」の「再開の条件」に従う。部品が main に入って契約テストを足す PR で、そのコードと公開テストに照らして本書の各段の記録を書き足す。段の表は変えない。残る段: なし。
 
 - 確かめた base: `229803f`、`docs/spec` の gitlink は `0a802d7081610a36991a94b1ef220075d0616a28`
+
+## 契約テストの実装（7/8）
+
+7/8（#7576）で記録した。範囲は `docs/spec/05-tasks.md` の TASK-137 の記録に従う（ポインタのみ）。DEV-15・DEV-59・DEV-66 のポインタ。結果は GPU の実機なしで観測した値。
+
+### 置き場
+
+- 試験のファイル: `crates/contract/tests/stub_device_profiles.rs`
+- `crates/contract/Cargo.toml` の `[[test]]`（`name = "stub_device_profiles"`・`required-features = ["test-support"]`。contract の `test-support` は core の同名 feature へ転送される）
+- 使う core のパス: `stub_device::StubDeviceProvider`・`device`・`memory`・`execution::CommandQueue`・`capability`・`error::CompletionState`
+- 要求する `backend` は `BackendKind::Metal` に固定している
+
+### 確かめの表
+
+各試験は `StubDeviceProvider::request` で得た `Box<dyn Device>` について、次を確かめる。`ownership()` が要求と一致する（`Imported` は中の値を読める）。`memory()`・`queue()` を `&dyn MemoryOps`・`&dyn CommandQueue` で受けられる。確保・書き込み・`download_async`・`free` と、`create_encoder`・`submit`・`poll`（`Complete`）が通る。`query`・`limits` を呼べる。
+
+| 試験の名前 | プロファイル | 所有形態 | 置き方 |
+| ---------- | ------------ | -------- | ------ |
+| `cpu_only_product_independent` | `CpuOnly` | `ProductIndependent` | 条件なし |
+| `cpu_only_shared` | `CpuOnly` | `Shared` | 条件なし |
+| `cpu_only_imported` | `CpuOnly` | `Imported` | 条件なし |
+| `compute_only_product_independent` | `ComputeOnly` | `ProductIndependent` | 条件なし |
+| `compute_only_shared` | `ComputeOnly` | `Shared` | 条件なし |
+| `compute_only_imported` | `ComputeOnly` | `Imported` | 条件なし |
+| `graphics_product_independent` | `Graphics` | `ProductIndependent` | feature `graphics` の裏 |
+| `graphics_shared` | `Graphics` | `Shared` | feature `graphics` の裏 |
+| `graphics_imported` | `Graphics` | `Imported` | feature `graphics` の裏 |
+
+### 組ごとの見え方
+
+`scripts/build-profiles.sh` の `NATIVE_SETS` のうち `test-support` を含む 4 組と、全 feature の行（`make verify` の `--all-features` も同じ）で流れる。手元で観測した `test result: ok. N passed` の N は次のとおり。
+
+| 実行 | N |
+| ---- | -- |
+| `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --test stub_device_profiles` | 6 |
+| 同 `--features backend-metal,test-support` | 6 |
+| 同 `--features backend-vulkan,test-support` | 6 |
+| 同 `--features backend-cuda,test-support` | 6 |
+| `cargo test -p fandhe-silicon-contract --all-features --test stub_device_profiles` | 9 |
+
+`test-support` を含まない組と既定の組では、この試験はビルドされない（`cargo test -p fandhe-silicon-contract` の出力に `stub_device_profiles` が出ない）。CI では `verify` ジョブの `make verify`・`make build-profiles` で流れる。wasm32 では contract の試験は既定の feature の型検査だけなので、この試験は流れない。
+
+### 本リポに無い部品
+
+| 部品 | 確かめ方 |
+| ---- | -------- |
+| `Device` から `ComputeOps` へ届く読み出しは無い | `crates/core/src/device.rs` の `Device` の method の一覧。`ComputeOps` を返す method が無い |
+| 描画の操作の trait と、それへ届く `Device` の読み出しは無い | `git grep -n 'feature = "graphics"' -- crates/core` が 0 件。描画の型は TASK-837 のポインタ |
+| `artifact-inspection` の裏の `Device` の読み出しは無い | `git grep -n 'artifact-inspection' -- crates/core` が 0 件 |
+| core の `[features]` に `graphics`・`artifact-inspection` は無い | `crates/core/Cargo.toml` |
+
+`fault-injection` がない構成で `fault_hooks()` が無いことは、`crates/contract/src/cfg_gate_doctest.rs` の `DeviceFaultHooksGate`（TASK-271 のポインタ）が確かめている。
+
+上の表の部品が main に入ったら、同じ試験に確かめを足す。
 
 ## 本リポでの反映の方針
 
