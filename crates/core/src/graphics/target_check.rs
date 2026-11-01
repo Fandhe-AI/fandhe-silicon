@@ -5,6 +5,7 @@
 
 use super::{DepthFormat, PixelFormat};
 use crate::error::ContractError;
+use crate::memory::validate_buffer_range;
 
 /// 色の形式の 1 画素のバイト数を返す。失敗しない。
 ///
@@ -102,6 +103,53 @@ pub fn validate_offscreen_target_size(
     Ok(())
 }
 
+/// `copy_target_to_buffer` の拒否の文言の先頭に操作名を付ける。`InvalidArgument` 以外はそのまま返す。
+fn with_copy_prefix(e: ContractError) -> ContractError {
+    match e {
+        ContractError::InvalidArgument(m) => {
+            ContractError::InvalidArgument(format!("copy_target_to_buffer: {m}"))
+        }
+        other => other,
+    }
+}
+
+/// 描画先からバッファへの写しの書き込み先を、背後実装を呼ばずに検査する。
+/// 必要なバイト数は幅 × 高さ × 形式の 1 画素のバイト数で、`dst_offset` から数えて `dst_len` に収まるかを見る。ちょうど収まる入力は通す。
+///
+/// ```
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::graphics::{validate_copy_target_to_buffer, PixelFormat};
+/// let need = 1280 * 720 * 4;
+/// assert_eq!(
+///     validate_copy_target_to_buffer(1280, 720, PixelFormat::Rgba8Unorm, 0, need),
+///     Ok(())
+/// );
+/// assert!(matches!(
+///     validate_copy_target_to_buffer(1280, 720, PixelFormat::Rgba8Unorm, 0, need - 1),
+///     Err(ContractError::InvalidArgument(_))
+/// ));
+/// assert_eq!(
+///     validate_copy_target_to_buffer(1280, 720, PixelFormat::Rgba8Unorm, 256, 256 + need),
+///     Ok(())
+/// );
+/// ```
+///
+/// # Errors
+///
+/// 必要なバイト数の積のあふれ、`dst_offset` との和のあふれ、書き込み先の長さの不足のいずれも
+/// `ContractError::InvalidArgument`。文言の先頭は `copy_target_to_buffer:`。
+pub fn validate_copy_target_to_buffer(
+    width: u32,
+    height: u32,
+    format: PixelFormat,
+    dst_offset: u64,
+    dst_len: u64,
+) -> Result<(), ContractError> {
+    let need = offscreen_target_bytes(width, height, pixel_format_bytes(format))
+        .map_err(with_copy_prefix)?;
+    validate_buffer_range(dst_offset, need, dst_len).map_err(with_copy_prefix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +239,61 @@ mod tests {
     #[test]
     fn target_check_size_zero_limit_rejects() {
         assert!(is_invalid(validate_offscreen_target_size(1, 1, 0)));
+    }
+
+    const COPY_NEED: u64 = 3_686_400;
+
+    fn copy_check(offset: u64, len: u64) -> Result<(), ContractError> {
+        validate_copy_target_to_buffer(1280, 720, PixelFormat::Rgba8Unorm, offset, len)
+    }
+
+    fn invalid_message(r: Result<(), ContractError>) -> String {
+        match r {
+            Err(ContractError::InvalidArgument(m)) => m,
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn target_check_copy_exact_passes() {
+        assert_eq!(copy_check(0, COPY_NEED), Ok(()));
+        assert_eq!(copy_check(256, 256 + COPY_NEED), Ok(()));
+        assert_eq!(copy_check(0, COPY_NEED + 1), Ok(()));
+    }
+
+    #[test]
+    fn target_check_copy_short_is_rejected() {
+        assert!(invalid_message(copy_check(0, COPY_NEED - 1)).contains("exceeds"));
+        assert!(invalid_message(copy_check(256, COPY_NEED)).contains("exceeds"));
+    }
+
+    #[test]
+    fn target_check_copy_product_overflow_is_rejected() {
+        let r = validate_copy_target_to_buffer(
+            u32::MAX,
+            u32::MAX,
+            PixelFormat::Rgba32Float,
+            0,
+            u64::MAX,
+        );
+        assert!(invalid_message(r).contains("overflows u64"));
+    }
+
+    #[test]
+    fn target_check_copy_sum_overflow_is_rejected() {
+        let m = invalid_message(copy_check(u64::MAX - COPY_NEED + 1, u64::MAX));
+        assert!(m.contains("overflows u64"));
+    }
+
+    #[test]
+    fn target_check_copy_message_has_prefix() {
+        let all = [
+            copy_check(0, COPY_NEED - 1),
+            copy_check(u64::MAX - COPY_NEED + 1, u64::MAX),
+            validate_copy_target_to_buffer(u32::MAX, u32::MAX, PixelFormat::Rgba8Unorm, 0, 0),
+        ];
+        for r in all {
+            assert!(invalid_message(r).starts_with("copy_target_to_buffer: "));
+        }
     }
 }
