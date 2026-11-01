@@ -35,7 +35,7 @@ TASK-375 の作業の所在と、本リポの現状の事実を置く。spec の
 cargo test -p fandhe-silicon-core --doc render_target
 ```
 
-`--doc` 全体では 3 本とも `ok`（`34 passed; 0 failed`）。
+上のコマンドの `render_target` のフィルタを外した `cargo test -p fandhe-silicon-core --doc`（既定の feature の組）の出力では、`RenderTargetHandle` の 3 本は `ok`。その出力の集計は `34 passed; 0 failed`（main `c51762c` で流した数）。
 
 ## 現状の形（2/4）
 
@@ -67,7 +67,7 @@ cargo test -p fandhe-silicon-core --doc render_target
 cargo test -p fandhe-silicon-core --doc render_target
 ```
 
-`render_target` の doctest は 4 本とも `ok`。`cargo test -p fandhe-silicon-core --doc` は既定の feature で `23 passed; 0 failed`。
+`render_target` の doctest は 4 本とも `ok`。フィルタを外した `cargo test -p fandhe-silicon-core --doc`（既定の feature の組で流した出力）の集計は `34 passed; 0 failed`（main `c51762c` で流した数）。
 
 ## 試験（3/4）
 
