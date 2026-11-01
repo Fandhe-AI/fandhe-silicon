@@ -32,7 +32,7 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | 拡張の操作 | 上書きしない型では `UnsupportedExtensionDefault { op }`（`op` は操作の名前）を返す | 同上 |
 | `Device` の口 | 既定は `None`。`Box<dyn Device>` 越しに上書きした値が届く。既存の `Device` の実装は変更不要 | `crates/core/tests/interop_device_accessors.rs` |
 | feature | `ext-interop` を外した構成では名前が現れない。`contract` の同名 feature が転送する | `make public-api-webgpu-check`、`make core-deps-check` |
-| 範囲の外 | `check_same_physical_gpu` と取り込み前の照合は含まない | - |
+| 範囲の外 | `check_same_physical_gpu` と取り込み前の照合は、この節の型の範囲に含めない（「同一 GPU の判定」の節。同じ feature の裏にある） | `crates/core/tests/interop_same_gpu.rs` |
 | 外部依存・unsafe | 足していない | `make deps-check`、`#![forbid(unsafe_code)]` |
 
 ## 対応するテスト
@@ -45,6 +45,7 @@ TASK-717 の作業の所在と、本リポの現状の事実を置く。spec の
 | `crates/core/tests/interop_device_accessors.rs` | `Device` の 2 つの口の既定と上書き |
 | `crates/core/tests/interop_extension_defaults.rs`（ERR-17） | 拡張 4 操作の返し。上書きしない型は操作ごとに `UnsupportedExtensionDefault { op: <操作の名前> }`、上書きした試験用の型は `Unsupported { op, backend }`、一部だけ上書きした型は上書きした操作だけが変わること。実際の背後実装の返しは含まない |
 | `crates/core/tests/interop_extension_defaults.rs`（INTEROP-43） | 必須の 4 操作だけの型が `Box<dyn ExternalInterop>` 越しで、拡張 4 操作に既定の値を返すこと |
+| `crates/contract/tests/interop_extension_defaults.rs` | 上の 2 行（ERR-17・INTEROP-43）と同じ確かめを契約の crate の側から行う。feature `ext-interop` の裏。`cargo test -p fandhe-silicon-contract --features ext-interop --test interop_extension_defaults` |
 
 ## 同一 GPU の判定（TASK-145）
 

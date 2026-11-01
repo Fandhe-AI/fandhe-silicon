@@ -17,7 +17,10 @@ test-support = []
 fault-injection = []
 # download_blocking（ブロッキング待ちの取り出し）を MemoryOps に載せる。native 向けで、既定にも本番の組にも入れない。
 native-blocking-wait = []
-# submit_exportable（セマフォを export する意図の宣言付きの投入）を CommandQueue に載せる。既定にも本番の組にも入れない。
+# 相互運用の口を載せる。既定にも本番の組にも入れない。裏にあるのは次の 3 つ（説明は docs/contract-interop-types.md）。
+#   - interop モジュール（相互運用の公開の型と ExternalInterop trait。照合の純粋関数を含む）
+#   - Device のアクセサ external_interop・physical_gpu_id
+#   - submit_exportable（セマフォを export する意図の宣言付きの投入。CommandQueue に載る）
 ext-interop = []
 
 [[test]]
