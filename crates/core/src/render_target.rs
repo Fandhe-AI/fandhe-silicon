@@ -1,6 +1,7 @@
 //! 描画先の handle の型を置く module（TASK-375、TEX-12 のポインタ）。
 //!
-//! 背後実装が作り、上の層が受け渡す不透明な値の型だけを持つ。feature の条件なしで公開される。
+//! 背後実装が作り、上の層が受け渡す不透明な値の型と、handle が自 device のものかを照らす純粋関数
+//! [`check_render_target_device`] を持つ。feature の条件なしで公開される。
 
 /// 描画先を指す不透明な handle（TEX-12、TASK-375 のポインタ）。
 ///
@@ -64,4 +65,62 @@ impl RenderTargetHandle {
     pub fn __backend_device_id(&self) -> u64 {
         self.device_id
     }
+}
+
+/// handle が自 device のものかを照らす純粋関数（TEX-12、TASK-375 のポインタ）。
+///
+/// 入力は照らす handle・自 device の識別子・呼んだ時点の世代・ロストの有無。
+/// 次の順で判定する。
+///
+/// 1. `lost` が真なら `Err(ContractError::DeviceLost { generation })`（渡した `generation` をそのまま載せる）
+/// 2. handle の device の識別子が `device_id` と違えば `Err(ContractError::DeviceMismatch)`
+/// 3. それ以外は `Ok(())`
+///
+/// handle の世代・識別子は見ない。状態を持たず、何も読み書きしない。
+///
+/// ```
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::render_target::{RenderTargetHandle, check_render_target_device};
+///
+/// // 同じ識別子でロストなし
+/// let h = RenderTargetHandle::__backend_new(5, 3, 1);
+/// assert_eq!(check_render_target_device(&h, 1, 9, false), Ok(()));
+///
+/// // 違う識別子
+/// assert_eq!(
+///     check_render_target_device(&h, 2, 9, false),
+///     Err(ContractError::DeviceMismatch)
+/// );
+///
+/// // ロストは渡した世代を載せる
+/// assert_eq!(
+///     check_render_target_device(&h, 1, 9, true),
+///     Err(ContractError::DeviceLost { generation: 9 })
+/// );
+///
+/// // ロストが識別子の違いより先
+/// assert_eq!(
+///     check_render_target_device(&h, 2, 9, true),
+///     Err(ContractError::DeviceLost { generation: 9 })
+/// );
+///
+/// // handle の世代・識別子は見ない
+/// let z = RenderTargetHandle::__backend_new(0, 0, 1);
+/// let m = RenderTargetHandle::__backend_new(u64::MAX, u64::MAX, 1);
+/// assert_eq!(check_render_target_device(&z, 1, 9, false), Ok(()));
+/// assert_eq!(check_render_target_device(&m, 1, 9, false), Ok(()));
+/// ```
+pub fn check_render_target_device(
+    handle: &RenderTargetHandle,
+    device_id: u64,
+    generation: u64,
+    lost: bool,
+) -> Result<(), crate::error::ContractError> {
+    if lost {
+        return Err(crate::error::ContractError::DeviceLost { generation });
+    }
+    if handle.__backend_device_id() != device_id {
+        return Err(crate::error::ContractError::DeviceMismatch);
+    }
+    Ok(())
 }
