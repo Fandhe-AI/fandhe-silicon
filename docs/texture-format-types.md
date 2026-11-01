@@ -261,6 +261,37 @@ cargo test -p fandhe-silicon-core --all-features
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1312）。確かめた base は `627d9fa36189ef0b34db37d3845bf1cfbaf98d10`。
 
+## 既存の 2 型からの変換（7/8）
+
+7/8（#7626）で、`PixelFormat`・`DepthFormat` から `TextureFormat` の同じ名前の値への `From` を足した（ポインタ: `docs/spec/05-tasks.md` の TASK-1312）。所在は `crates/core/src/graphics.rs`（feature `graphics` の裏。`TASK-837` の module）。変換は失敗しない。`TextureFormat` の側には何も足していない。
+
+### 値の対応
+
+| 変換元 | 変換先 |
+| ------ | ------ |
+| `PixelFormat::Rgba8Unorm` | `TextureFormat::Rgba8Unorm` |
+| `PixelFormat::Bgra8Unorm` | `TextureFormat::Bgra8Unorm` |
+| `PixelFormat::Rgba32Float` | `TextureFormat::Rgba32Float` |
+| `DepthFormat::Depth32Float` | `TextureFormat::Depth32Float` |
+
+### 対応するテスト
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `graphics.rs` の `mod tests`（`pixel_format_has_three_values`・`depth_format_has_one_value`・`conversions_keep_names`） | `PixelFormat` が 3 値・`DepthFormat` が 1 値であること、変換の前後で名前が同じこと |
+| `crates/core/tests/graphics_format_conversion.rs`（`pixel_format_converts_to_same_name`・`depth_format_converts_to_same_name`・`converted_values_are_distinct_and_listed`・`conversion_is_usable_as_into_bound`） | 外の crate から `from`・`into`・`Into` 境界で同じ名前の値になること、4 つの結果が互いに異なり `TextureFormat::all()` に含まれること |
+| `From` の doctest（2 本） | 外の crate からの書き方 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features graphics --lib graphics
+cargo test -p fandhe-silicon-core --features graphics --doc graphics
+cargo test -p fandhe-silicon-core --features graphics --test graphics_format_conversion
+```
+
+流れる組は、`make verify` の `--all-features`、`make build-profiles` の core の `--features graphics`・`--features test-support,graphics`、`make wasm-verify` の wasm32 の型検査（`--tests --all-features`）。feature なしでは流れない。
+
 ## 段の表
 
 | Issue | 内容 |
@@ -271,3 +302,9 @@ cargo test -p fandhe-silicon-core --all-features
 | #6710 | テスト |
 | #6711 | テスト |
 | #6712 | 確かめ |
+| #7626 | 既存の 2 型からの変換 |
+
+## 今の値
+
+- 上の 1/6〜6/6 の節にある「`PixelFormat`・`DepthFormat` は本リポに無い」の行は、記録時点の値で、書き換えない。
+- 今は 2 型が `crates/core/src/graphics.rs`（feature `graphics`）にあり、7/8 の変換で `TextureFormat` の同じ名前の値へ写せる。

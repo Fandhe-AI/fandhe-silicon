@@ -1,6 +1,7 @@
 //! 描画の公開の型と、描画の操作の trait [`GraphicsOps`] を置く module（TASK-837、DEV-63 のポインタ）。
 //!
 //! feature `graphics` の裏にあり、feature の無い構成では module ごと無い。
+//! `PixelFormat`・`DepthFormat` から `TextureFormat` への変換（TASK-1312）も置く。
 
 use crate::error::ContractError;
 use crate::execution::{
@@ -9,6 +10,7 @@ use crate::execution::{
 };
 use crate::memory::BufferHandle;
 use crate::render_target::RenderTargetHandle;
+use crate::texture_format::TextureFormat;
 
 /// 色の描画先の画素の形式。外の crate からは、ワイルドカードの腕の無い `match` は書けない。
 ///
@@ -48,6 +50,39 @@ pub enum PixelFormat {
 pub enum DepthFormat {
     /// 32 bit 浮動小数点の深度。
     Depth32Float,
+}
+
+/// 同じ名前の `TextureFormat` の値を返す。失敗しない（TASK-1312）。
+///
+/// ```
+/// use fandhe_silicon_core::graphics::PixelFormat;
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+/// assert_eq!(TextureFormat::from(PixelFormat::Bgra8Unorm), TextureFormat::Bgra8Unorm);
+/// ```
+impl From<PixelFormat> for TextureFormat {
+    fn from(p: PixelFormat) -> Self {
+        match p {
+            PixelFormat::Rgba8Unorm => TextureFormat::Rgba8Unorm,
+            PixelFormat::Bgra8Unorm => TextureFormat::Bgra8Unorm,
+            PixelFormat::Rgba32Float => TextureFormat::Rgba32Float,
+        }
+    }
+}
+
+/// 同じ名前の `TextureFormat` の値を返す。失敗しない（TASK-1312）。
+///
+/// ```
+/// use fandhe_silicon_core::graphics::DepthFormat;
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+/// let f: TextureFormat = DepthFormat::Depth32Float.into();
+/// assert_eq!(f, TextureFormat::Depth32Float);
+/// ```
+impl From<DepthFormat> for TextureFormat {
+    fn from(d: DepthFormat) -> Self {
+        match d {
+            DepthFormat::Depth32Float => TextureFormat::Depth32Float,
+        }
+    }
 }
 
 /// 深度の比較関数。外の crate からは、ワイルドカードの腕の無い `match` は書けない。
@@ -287,4 +322,68 @@ pub trait GraphicsOps {
         dst: &BufferHandle,
         dst_offset: u64,
     ) -> Result<(), ContractError>;
+}
+
+/// `PixelFormat`・`DepthFormat` の値の数と、`TextureFormat` への変換で名前が保たれることを core の中で固定する試験。
+/// 番号を返す `match` は `_` の腕を持たないので、値を足すとコンパイルが落ちて番号を足させる。
+/// 一覧への足し忘れは、各番号がちょうど 1 回ずつ現れるかを数える試験が落とす。
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PIXEL_VARIANTS: usize = 3;
+    const DEPTH_VARIANTS: usize = 1;
+
+    fn pixel_ordinal(p: PixelFormat) -> usize {
+        match p {
+            PixelFormat::Rgba8Unorm => 0,
+            PixelFormat::Bgra8Unorm => 1,
+            PixelFormat::Rgba32Float => 2,
+        }
+    }
+
+    fn depth_ordinal(d: DepthFormat) -> usize {
+        match d {
+            DepthFormat::Depth32Float => 0,
+        }
+    }
+
+    const PIXELS: [PixelFormat; 3] = [
+        PixelFormat::Rgba8Unorm,
+        PixelFormat::Bgra8Unorm,
+        PixelFormat::Rgba32Float,
+    ];
+    const DEPTHS: [DepthFormat; 1] = [DepthFormat::Depth32Float];
+
+    #[test]
+    fn pixel_format_has_three_values() {
+        assert_eq!(PIXELS.len(), PIXEL_VARIANTS);
+        let mut seen = [0usize; PIXEL_VARIANTS];
+        for p in PIXELS {
+            seen[pixel_ordinal(p)] += 1;
+        }
+        assert_eq!(seen, [1; PIXEL_VARIANTS]);
+    }
+
+    #[test]
+    fn depth_format_has_one_value() {
+        assert_eq!(DEPTHS.len(), DEPTH_VARIANTS);
+        let mut seen = [0usize; DEPTH_VARIANTS];
+        for d in DEPTHS {
+            seen[depth_ordinal(d)] += 1;
+        }
+        assert_eq!(seen, [1; DEPTH_VARIANTS]);
+    }
+
+    #[test]
+    fn conversions_keep_names() {
+        for p in PIXELS {
+            let t = TextureFormat::from(p);
+            assert_eq!(format!("{p:?}"), format!("{t:?}"));
+        }
+        for d in DEPTHS {
+            let t = TextureFormat::from(d);
+            assert_eq!(format!("{d:?}"), format!("{t:?}"));
+        }
+    }
 }
