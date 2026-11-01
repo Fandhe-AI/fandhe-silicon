@@ -27,6 +27,9 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | 2/4 | #3929 | 有効側の試験 |
 | 3/4 | #3930 | CI への組み込み |
 | 4/4 | #3931 | 完了の条件の確かめ |
+| 5/7 | #7558 | アイテムへの差し替え（native-blocking-wait） |
+| 6/7 | #7559 | アイテムへの差し替え（ext-interop） |
+| 7/7 | #7560 | 完了の条件の確かめ |
 
 ## CI への組み込み（3/4）
 
@@ -72,3 +75,36 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## アイテムへの差し替え（5/7）
+
+`native-blocking-wait` の門の目印の対を外し、core の 2 アイテムを使う対に差し替えた（TASK-233・BUILD-11・BUILD-12 のポインタ）。`ext-interop` は 6/7 の範囲で、目印の対のまま。
+
+### 差し替え前の所在
+
+- `MemoryOps::download_blocking`（`crates/core/src/memory/ops.rs`）と `CommandQueue::wait_blocking`（`crates/core/src/execution/submit.rs`）は、どちらも `#[cfg(feature = "native-blocking-wait")]` の裏にある
+- `download_async` と `on_complete` は feature に依らず存在する（native では callback に `Send` が要る）
+- `crates/contract/Cargo.toml` の `native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]` が core の同名 feature へ転送する
+- 目印は `NativeBlockingWaitEnabled` と、それを `use` する `NativeBlockingWaitGate` の doctest だった
+
+### 差し替え後の所在
+
+- `crates/contract/src/cfg_gate_doctest.rs`
+    - `DownloadBlockingGate`: `download_blocking` を呼ぶ snippet
+    - `WaitBlockingGate`: `wait_blocking` を呼ぶ snippet（片方だけ門の外に出ても気づけるよう、別の snippet にしてある）
+    - `NonBlockingReadbackGate`: `download_async` と `on_complete` を呼ぶ snippet（fence の切り替えなし。すべての組で通常の成功）
+- `crates/contract/tests/feature_gate_enabled.rs` の `native_blocking_wait_gate_is_visible`（名前は変えず、中身を core の 2 アイテムの参照にした）
+
+### 組ごとの見え方
+
+| 組 | `DownloadBlockingGate`・`WaitBlockingGate` | `NonBlockingReadbackGate` |
+| -- | -- | -- |
+| 既定の組・`ext-interop` 単独 | `compile fail ... ok` | `ok` |
+| `native-blocking-wait` 単独・`--all-features` | `ok` | `ok` |
+
+### 記録の時点の値
+
+上の表と 4/4 の表のうち、目印の名前（`NativeBlockingWaitGate`・`NativeBlockingWaitEnabled`）を挙げる行と、A2・A5 の doctest の件数は記録の時点の値で、書き換えない。今の値は次のとおり。
+
+- `crates/` 配下に `NativeBlockingWaitEnabled`・`NativeBlockingWaitGate` の名前は残っていない
+- `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExtInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
