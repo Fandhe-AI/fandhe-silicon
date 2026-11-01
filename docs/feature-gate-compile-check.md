@@ -108,3 +108,42 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 
 - `crates/` 配下に `NativeBlockingWaitEnabled`・`NativeBlockingWaitGate` の名前は残っていない
 - `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExtInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
+
+## アイテムへの差し替え（6/7）
+
+`ext-interop` の門の目印の対を外し、core の `ExternalInterop` を使う対に差し替えた（TASK-233・BUILD-13 のポインタ）。
+
+### 差し替え前の所在
+
+- `ExternalInterop`（`crates/core/src/interop.rs`）は、`crates/core/src/lib.rs` の `#[cfg(feature = "ext-interop")] pub mod interop;` の裏にある
+- `crates/contract/Cargo.toml` の `ext-interop = ["fandhe-silicon-core/ext-interop"]` が core の同名 feature へ転送する
+- 目印は `ExtInteropEnabled` と、それを `use` する `ExtInteropGate` の doctest だった
+
+### 差し替え後の所在
+
+- `crates/contract/src/cfg_gate_doctest.rs` の `ExternalInteropGate`: `use fandhe_silicon_core::interop::ExternalInterop;` と `fn probe(_: &dyn ExternalInterop) {}` の snippet
+- `crates/contract/tests/feature_gate_enabled.rs` の `ext_interop_gate_is_visible`（名前は変えず、中身を `ExternalInterop` の参照にした）
+
+### 組ごとの見え方
+
+| 組 | `ExternalInteropGate` |
+| -- | -- |
+| 既定の組・`native-blocking-wait` 単独 | `compile fail ... ok` |
+| `ext-interop` 単独・BUILD-4 の組・`backend-vulkan,ext-interop`・`backend-cuda,ext-interop`・`backend-metal,ext-interop`・`--all-features` | `ok` |
+
+### 本番の組の試験
+
+`crates/contract/tests/feature_gate_scope.rs` が `scripts/build-profiles.sh` の `# spec BUILD-1`〜`BUILD-4` の注記の 4 組を読み、feature の含意をたどって `ext-interop` に届くのが BUILD-4 の組だけであることを確かめる。
+
+- 実物: `ext_interop_is_reached_only_from_the_interop_production_set`
+- 陽性対照: `ext_interop_check_catches_a_wrong_production_set`（組の書き換え・組の数の不一致）、`ext_interop_check_follows_implications`（含意の経路）
+- 確かめ方: `cargo test -p fandhe-silicon-contract --test feature_gate_scope`
+- 4/4 の表の B2（grep による記録）は書き換えず、同じ点を試験でも確かめるようになった
+
+### 記録の時点の値
+
+3/4・4/4・5/7 の表のうち、目印の名前（`ExtInteropGate`・`ExtInteropEnabled`）を挙げる行と、A1・A4・A5 の件数、5/7 の doctest の一覧は記録の時点の値で、書き換えない。今の値は次のとおり。
+
+- `crates/` 配下に `ExtInteropEnabled`・`ExtInteropGate` の名前は残っていない
+- `cfg_gate_doctest.rs` の doctest は 7 件（`BackendMetalGate`・`DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`・`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）
+- `feature_gate_scope` の試験は 6 件
