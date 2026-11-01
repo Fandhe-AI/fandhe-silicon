@@ -127,10 +127,76 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | `stub_device_request_returns_ok_and_echoes_backend_and_ownership` | `request` が `Ok` で、`backend()` と `ownership()` が要求の値 |
 | `stub_device_round_trip_allocate_upload_download` | `allocate`・`upload`・`download_async` で同じバイト列が callback に 1 回届く |
 | `stub_device_is_send_and_sync` | `StubDevice` が `Send + Sync` |
+| `submit_many_rejects_out_of_range_sequence_without_claiming` | `submit_many` の `after` に範囲外の番号の印を渡すと `InvalidArgument` で、記録先は投入されないまま残り、新しい記録先で投入できる |
+| `wait_blocking_errors_match_poll_lost_tokens` | feature `native-blocking-wait` の裏。`poll` が `Lost` を返す印は `wait_blocking` で `InvalidArgument`・`DeviceLost`・`DeviceMismatch` に分かれる |
 
 ### 確かめ方
 
 `cargo test -p fandhe-silicon-core --features test-support --lib stub_device`
+
+## 試験（3/5）
+
+### 置き場
+
+`crates/core/tests/` の 3 ファイル。`crates/core/Cargo.toml` の `[[test]]` で `required-features = ["test-support"]` にしてあり、feature なしでは走らない。公開のパスだけを使う。
+
+### 対応するテスト
+
+`stub_device_request.rs`（要求・能力問合せ・診断）。
+
+| テスト | 確かめること |
+| ------ | ------------ |
+| `request_succeeds_for_every_backend_profile_ownership` | 4 つの backend・3 つのプロファイル・3 つの所有形態の 36 組すべてで `request` が `Ok`。`backend()` と `ownership()` が要求のとおりで、`Imported` は包んだ値を取り出せる |
+| `stub_device_new_matches_provider` | `StubDevice::new` でも `backend()`・`ownership()` が要求の値 |
+| `generation_is_positive_and_increases` | `generation()` は 1 以上で、後に作った device のほうが大きい |
+| `diagnostics_are_fixed_strings` | `diagnostics()` は全 backend で `adapter_name`・`backend_name` とも `"stub"` |
+| `query_is_unsupported_for_any_feature` | どの `FeatureId` でも `query` は `Unsupported` |
+| `query_ex_uses_default_body` | `query_ex` は `Unsupported`・理由なし・根拠なし |
+| `limits_table_is_fixed` | `max_buffer_bytes` が `1 << 28`、dispatch の各次元とテクスチャの大きさが 0 |
+| `provider_returns_boxed_device_and_stub_is_send_sync` | `request` の戻りの型が `Result<Box<dyn Device>, ContractError>` で、`StubDevice` が `Send + Sync` |
+
+`stub_device_memory.rs`（メモリの口）。
+
+| テスト | 確かめること |
+| ------ | ------------ |
+| `allocate_returns_zeroed_buffer_with_requested_size_and_usage` | 確保の直後は全バイトが 0 で、`size()`・`usage()` が確保の値 |
+| `upload_then_download_round_trips` | 書き込んだ範囲が読み出しで返る |
+| `download_async_calls_callback_once` | 成功でも失敗でも callback が 1 回 |
+| `allocation_over_limit_is_rejected` | 上限を 1 超えると `InvalidArgument`、上限ちょうどは `Ok` |
+| `range_end_equal_to_length_is_accepted` | 終端が確保長ちょうどの範囲（`offset` が確保長で長さ 0 を含む）は通る |
+| `range_past_end_or_overflow_is_rejected_without_change` | 終端超過・オーバーフローは `InvalidArgument` で、拒否の後も内容は変わらない |
+| `handle_from_other_device_is_device_mismatch` | 別 device のハンドルは `DeviceMismatch` |
+| `forged_handles_are_invalid_argument` | 表に無い id・世代違い・長さ違いのハンドルは `InvalidArgument` |
+| `freed_handle_is_invalid_argument` | `free` 済みのハンドルは `InvalidArgument` |
+| `free_ignores_foreign_and_unknown_handles` | 別 device のハンドルや表に無い id を `free` に渡しても、持ち主の元のハンドルは使える |
+| `pending_release_count_is_none` | `pending_release_count()` は `None` |
+| `download_blocking_matches_download_async` | feature `native-blocking-wait` の裏。成功と拒否の値が `download_async` と同じ |
+
+`stub_device_queue.rs`（投入の口）。
+
+| テスト | 確かめること |
+| ------ | ------------ |
+| `submit_then_poll_is_complete` | `submit` が `Ok` で、印の `poll` は `Complete`。印の `generation` は device の `generation()` と等しい |
+| `on_complete_reports_complete_once` | 払い出した印では `Complete`、別 device の印では `Lost` が、どちらも callback に 1 回 |
+| `submit_many_empty_is_invalid_argument` | 記録先が空の `submit_many` は `InvalidArgument` |
+| `submit_with_wait_is_unsupported` | `wait` が空でない `submit`・`submit_many` は、要求の backend を持つ `Unsupported` |
+| `submit_rejects_foreign_submitted_and_zero_encoders` | 別 device・投入済み・id 0 の記録先は `InvalidArgument`。拒否の後も新しい記録先で投入できる |
+| `dropped_encoder_does_not_block_next_submit` | 投入せずに破棄した記録先は、次の投入を妨げない |
+| `submit_many_with_foreign_after_is_device_mismatch` | `after` に別 device の印があると `DeviceMismatch` |
+| `poll_reports_lost_for_foreign_or_unissued_tokens` | 別 device の印・番号 0・未払い出しの番号・世代違いの印は `Lost` |
+| `dispatch_ex_and_dispatch_are_unsupported` | 4 つの backend それぞれで `dispatch_ex`・`dispatch` が `Unsupported { op: "dispatch_ex", backend }` |
+| `wait_blocking_returns_ok_for_issued_token` | feature `native-blocking-wait` の裏。払い出した印で `Ok(())` |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --features test-support --test stub_device_request --test stub_device_memory --test stub_device_queue`
+- `cargo test -p fandhe-silicon-core --all-features --test stub_device_request --test stub_device_memory --test stub_device_queue`（`native-blocking-wait` の裏の 2 件も走る）
+- feature なしの `cargo test -p fandhe-silicon-core` では、この 3 ファイルは `required-features` により走らない
+
+### 流れる場所
+
+- `make verify`（`--all-features` の test）
+- `make wasm-verify`（`--all-features` の wasm32 の型検査に 3 ファイルが入る）
 
 ## 段の表
 

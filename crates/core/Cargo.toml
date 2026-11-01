@@ -262,3 +262,15 @@ required-features = ["ext-interop"]
 [[test]]
 name = "capability_webgpu_ports"
 required-features = ["test-support"]
+
+[[test]]
+name = "stub_device_request"
+required-features = ["test-support"]
+
+[[test]]
+name = "stub_device_memory"
+required-features = ["test-support"]
+
+[[test]]
+name = "stub_device_queue"
+required-features = ["test-support"]
