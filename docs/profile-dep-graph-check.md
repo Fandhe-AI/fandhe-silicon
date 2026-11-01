@@ -179,6 +179,11 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。関連: BUILD-3・BUILD-4・B
 | CI | 本検査は CI の `deny` ジョブの `make deny`（`scripts/deny.sh`）の中で流れる | `grep -n profile-dep-graph scripts/deny.sh` |
 | 公開側の言及 | 本節の追加前は TASK-229 の言及が無かった | `git grep -n TASK-229 -- . ':!docs/spec'` |
 
+上の「feature の宣言」の行の `cfg` の所在は記録の時点の値で、書き換えない。今の値は次のとおり（`git grep -n -E 'feature = "(graphics|ext-interop)"' -- crates`）。
+
+- `cfg(not(feature = "graphics"))` が `crates/contract/src/backend_metal.rs`・`crates/contract/tests/backend_metal_fault.rs`・`crates/contract/tests/backend_metal_request.rs` にある
+- `ext-interop` の `cfg` は `crates/contract`（`src/cfg_gate_doctest.rs`・`tests/feature_gate_enabled.rs`）に加えて `crates/core`（`src/lib.rs`・`src/device.rs`・`src/execution/submit.rs` と `tests/` の 2 ファイル）にもある
+
 ### 段
 
 | 段 | Issue |

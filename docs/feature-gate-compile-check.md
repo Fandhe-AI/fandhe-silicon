@@ -14,8 +14,8 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | ---- | ---- | -------- |
 | feature の宣言 | `native-blocking-wait`・`ext-interop` は `crates/contract/Cargo.toml` に宣言済み。`default` には入らず、他の feature の有効化リストにも現れない | `cargo test -p fandhe-silicon-contract --test feature_gate_scope` |
 | コンパイル失敗の仕組み | 外部 crate を足さず、rustdoc の doctest の fence を `cfg_attr` で切り替える（feature なしは `compile_fail`、ありは通る）。置き場は `crates/contract/src/cfg_gate_doctest.rs`（doctest の収集のため `pub mod` にし、`#[doc(hidden)]` で文書の表示だけを隠している。外部 crate から参照はできる） | `cargo test -p fandhe-silicon-contract --doc` と `--features backend-metal` の両方 |
-| 仕組みの対照 | 実在の feature ゲート `backend-metal` の `backend_metal` モジュールの対と、`native-blocking-wait`・`ext-interop` それぞれの門の目印（値を持たない型）の対。目印は枠の確かめにとどまり、対象のアイテム自体の確かめではない | 同上と `--features native-blocking-wait`・`--features ext-interop` |
-| 有効側の試験 | feature を有効にした構成で目印が見えること。置き場は `crates/contract/tests/feature_gate_enabled.rs` | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
+| 仕組みの対照 | 実在の feature ゲート `backend-metal` の `backend_metal` モジュールの対（`BackendMetalGate`）と、`crates/core` の実物のアイテムを使う対。`DownloadBlockingGate`（`download_blocking`）・`WaitBlockingGate`（`wait_blocking`）・`ExternalInteropGate`（`ExternalInterop`）が feature なしで `compile_fail`、ありで通り、`NonBlockingReadbackGate` は常に通る。差し替えの経緯は「アイテムへの差し替え（5/7）」「アイテムへの差し替え（6/7）」の節 | 同上と `--features native-blocking-wait`・`--features ext-interop` |
+| 有効側の試験 | feature を有効にした構成で、`download_blocking`・`wait_blocking`・`ExternalInterop` を `&dyn` 越しに参照して型検査が通ること。置き場は `crates/contract/tests/feature_gate_enabled.rs` | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
 | 流れる場所 | feature なし側は `scripts/build-profiles.sh` の組、ありの側は `make verify`（`--all-features`）と、`scripts/build-profiles.sh` の `native-blocking-wait` 単独・`ext-interop` 単独の組（build / clippy / test）。どちらも `verify` ジョブが呼ぶ | `make build-profiles`、`make verify` |
 | wasm32 の組 | `cargo check` のみで doctest は流れない | `scripts/build-profiles.sh` |
 
@@ -55,13 +55,13 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | D | 品質ゲート | `make check`・`make verify`・`make deny` | 本 PR の作成時にいずれも終了コード 0 |
 
 - B2 は記録の時点の値。TASK-231 の 2/4 で `backend-vulkan,ext-interop`・`backend-cuda,ext-interop` の組が加わった（[ext-interop-build-check](ext-interop-build-check.md)）
-- 確かめたのは門の目印の対による枠の範囲で、対象のアイテム自体の確かめではない。対象の機能を使うコードの snippet は、そのコードを持つ PR で足す
+- 4/4 の時点で確かめたのは門の目印の対による枠の範囲だった。対象のアイテム自体を使う snippet への差し替えは「アイテムへの差し替え（5/7）」「アイテムへの差し替え（6/7）」の節に記録した
 - wasm32 の組は doctest が流れないので含めない
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-233）
 
 ## 本リポでの反映の方針
 
-- 対象の機能を使うコードの snippet は、そのコードを持つ PR で `cfg_gate_doctest.rs` に同じ形で足す（コードより先に具体を書かない）
+- 対象の機能を使うコードの snippet は、そのコードを持つ PR で `cfg_gate_doctest.rs` に同じ形で足す。`native-blocking-wait`・`ext-interop` の 3 アイテムは差し替え済み（「アイテムへの差し替え（5/7）」「アイテムへの差し替え（6/7）」の節）
 - 手順は [contract/procedure](contract/procedure.md) に従う
 
 ## 関連
@@ -161,7 +161,7 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | (3) | 常に通る読み戻しの口 | (1)・(2a)・(2b)・(2c) の `NonBlockingReadbackGate` の行 | どの組でも `ok` |
 | (4) | 本番の組と `ext-interop` | `cargo test -p fandhe-silicon-contract --test feature_gate_scope ext_interop` | 3 件が通る（`ext_interop_is_reached_only_from_the_interop_production_set`・`ext_interop_check_catches_a_wrong_production_set`・`ext_interop_check_follows_implications`） |
 | (5) | feature の範囲 | `cargo test -p fandhe-silicon-contract --test feature_gate_scope gated_features` と絞りなしの `--test feature_gate_scope` | 絞りありで 3 件、絞りなしで 6 件が通る |
-| (6) | 流れる場所と main の CI | `grep -n 'make build-profiles' .github/workflows/ci.yml`、`grep -n 'native-blocking-wait\|ext-interop' scripts/build-profiles.sh`、`gh run view 41266845012` | `ci.yml` の `verify` ジョブと `verify-macos` ジョブが `make build-profiles` を呼び、`build-profiles.sh` に `native-blocking-wait` 単独・`ext-interop` 単独の組がある。main の `6630725` の push の run では、`make verify + build-profiles (macos-latest)` と `make verify (fmt + clippy + test)` の job が success（記録の時点で run 全体は進行中） |
+| (6) | 流れる場所と main の CI | `grep -n 'make build-profiles' .github/workflows/ci.yml`、`grep -n 'native-blocking-wait\|ext-interop' scripts/build-profiles.sh`、`gh run view 41266845012` | `ci.yml` の `verify` ジョブと `verify-macos` ジョブが `make build-profiles` を呼び、`build-profiles.sh` に `native-blocking-wait` 単独・`ext-interop` 単独の組がある。main の `6630725` の push の run では、`make verify + build-profiles (macos-latest)` と `make verify (fmt + clippy + test)` の job が success。run `41266845012` は completed / success |
 | (7) | 依存 0・unsafe の追加 0 | `grep -c trybuild Cargo.lock`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c unsafe crates/contract/src/cfg_gate_doctest.rs`、`git diff --stat origin/main -- Cargo.lock deps-approved.toml` | 0 / 4（contract の macOS 向けの記録。先の「依存の承認の件数の現状」と同じ値）/ 0 / 差分なし |
 | (8) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | どれも終了コード 0 |
 
