@@ -89,6 +89,12 @@ run cargo test -p "${CORE_PKG}"
 run cargo clippy -p "${CORE_PKG}" --all-targets --features test-support -- -D warnings
 run cargo test -p "${CORE_PKG}" --features test-support
 
+# core を graphics だけ・test-support と graphics で（verify は --all-features なので、描画の型の doctest と試験をほかの feature 抜きでここで拾う。spec TASK-837）
+run cargo clippy -p "${CORE_PKG}" --all-targets --features graphics -- -D warnings
+run cargo test -p "${CORE_PKG}" --features graphics
+run cargo clippy -p "${CORE_PKG}" --all-targets --features test-support,graphics -- -D warnings
+run cargo test -p "${CORE_PKG}" --features test-support,graphics
+
 # 全 feature（spec BUILD-6。後から増える feature も自動で含む）
 run cargo build -p "${PKG}" --all-features
 run cargo clippy -p "${PKG}" --all-targets --all-features -- -D warnings
