@@ -10,7 +10,7 @@
 # 使い方:
 #   scripts/texture-format-key-check.sh --enumerate-json PATH --enumerate-list KEY --enumerate-item KEY
 #                                       [--table PATH] [--csv PATH] [--key-prefix STR] [--show-keys]
-#   --table           3 列（row / 鍵 / 形式の Debug）の TSV。省略時は example を cargo で実行して得る
+#   --table           3 列（row / 鍵 / 形式の Debug）の TSV。省略時は example を cargo で実行して得る（target 配下への書き込みが起き得る。上の注記）
 #   --csv             機能一覧の CSV（既定: 上のポインタのパス）。先頭のレコードを見出しとし、先頭の列を鍵の列にする
 #   --key-prefix      CSV の鍵がこれで始まる行だけを対象にする（既定: texformat:）
 #   --enumerate-json  実行時列挙の記録の JSON（既定値なし。3 つとも必須）
@@ -29,7 +29,10 @@
 #   1  違反（読めない・空の入力を含む）
 #   2  誤用・前提の不足（未知の引数・入力が無い・cargo が無い・JSON の 3 引数の欠け）
 #
-# 入力は読むだけ。ファイルを作らず、ネットワークを使わない。
+# 入力は読むだけ。`--table` を渡したときは、ファイルを作らず、ネットワークを使わない。
+# `--table` を省略したときは cargo 経由で example を実行するので、cargo の通常の動作として
+# target 配下へビルド成果物を書き、キャッシュの状態によっては依存の解決でネットワークも使う。
+# 読み取り専用の環境やネットワークを使えない環境では、`--table` に事前に得た表を渡す。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
