@@ -106,3 +106,5 @@ make verify
 | 2/4 | #4574 | `validate_offscreen_target_size`（入力の検査） |
 | 3/4 | #4575 | `crates/core/tests/graphics_target_check.rs`（境界の入力の試験） |
 | 4/4 | #4576 | 完了の条件の確かめ（本頁の 4/4 の節） |
+
+関連: 描画先からバッファへの写しの書き込み先の検査は [copy-target-check.md](copy-target-check.md)。
