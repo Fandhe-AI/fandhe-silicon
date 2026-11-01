@@ -49,16 +49,16 @@ impl FaultHooks for CellInner {}
 
 /// `AtomicU32` で数え、スタブへ口を委譲する `Send + Sync` の内側。
 #[derive(Default)]
-struct StubDevice {
+struct FaultTestDevice {
     queries: AtomicU32,
     stub: FaultStub,
 }
-impl fmt::Debug for StubDevice {
+impl fmt::Debug for FaultTestDevice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("StubDevice")
+        f.write_str("FaultTestDevice")
     }
 }
-impl Capabilities for StubDevice {
+impl Capabilities for FaultTestDevice {
     fn limits(&self) -> &fandhe_silicon_core::capability::LimitsTable {
         &TEST_LIMITS
     }
@@ -68,7 +68,7 @@ impl Capabilities for StubDevice {
         CapabilityLevel::S2
     }
 }
-impl FaultHooks for StubDevice {
+impl FaultHooks for FaultTestDevice {
     fn simulate_device_lost(&self, reason: DeviceLostReason) -> Result<(), ContractError> {
         self.stub.simulate_device_lost(reason)
     }
@@ -212,12 +212,12 @@ fn works_over_cell_inner() {
 
 #[test]
 fn works_over_sync_stub_inner() {
-    check_scripts(StubDevice::default);
+    check_scripts(FaultTestDevice::default);
 }
 
 #[test]
 fn works_over_type_erased_inner() {
-    check_scripts(|| BoxInner(Box::new(StubDevice::default())));
+    check_scripts(|| BoxInner(Box::new(FaultTestDevice::default())));
     check_scripts(|| BoxInner(Box::new(CellInnerSync)));
 }
 
@@ -236,9 +236,9 @@ impl FaultHooks for CellInnerSync {}
 
 #[test]
 fn type_erased_and_direct_inner_agree_on_inner_calls() {
-    let direct = FaultInjecting::new(StubDevice::default(), FaultScript::PassThrough);
+    let direct = FaultInjecting::new(FaultTestDevice::default(), FaultScript::PassThrough);
     let erased = FaultInjecting::new(
-        BoxInner(Box::new(StubDevice::default())),
+        BoxInner(Box::new(FaultTestDevice::default())),
         FaultScript::PassThrough,
     );
     assert_eq!(direct.query(A), erased.query(A));
@@ -298,11 +298,11 @@ fn decorator_over_sync_inner_is_send_sync_debug_and_coerces() {
     // wasm32 では `FaultStub` が `Send` でないので、この確かめは外す。
     #[cfg(not(target_arch = "wasm32"))]
     {
-        assert_send_sync::<FaultInjecting<StubDevice>>();
+        assert_send_sync::<FaultInjecting<FaultTestDevice>>();
         assert_send_sync::<FaultInjecting<BoxInner>>();
     }
-    assert_debug::<FaultInjecting<StubDevice>>();
-    let d = FaultInjecting::new(StubDevice::default(), FaultScript::PassThrough);
+    assert_debug::<FaultInjecting<FaultTestDevice>>();
+    let d = FaultInjecting::new(FaultTestDevice::default(), FaultScript::PassThrough);
     let hooks: &dyn FaultHooks = &d;
     let caps: &dyn Capabilities = &d;
     assert_eq!(hooks.arm_gate(), Ok(()));
@@ -315,12 +315,12 @@ fn decorator_over_sync_inner_is_send_sync_debug_and_coerces() {
 trait HasFaultHooks {
     fn fault_hooks(&self) -> Option<&dyn FaultHooks>;
 }
-impl HasFaultHooks for StubDevice {
+impl HasFaultHooks for FaultTestDevice {
     fn fault_hooks(&self) -> Option<&dyn FaultHooks> {
         Some(&self.stub)
     }
 }
-impl HasFaultHooks for FaultInjecting<StubDevice> {
+impl HasFaultHooks for FaultInjecting<FaultTestDevice> {
     fn fault_hooks(&self) -> Option<&dyn FaultHooks> {
         Some(self)
     }
@@ -366,14 +366,14 @@ fn exercise_stub_through(dev: &dyn HasFaultHooks, stub: &FaultStub) {
 
 #[test]
 fn inject_reaches_stub_through_accessor() {
-    let dev = StubDevice::default();
+    let dev = FaultTestDevice::default();
     exercise_stub_through(&dev, &dev.stub);
 }
 
 #[test]
 fn inject_reaches_stub_through_decorator_accessor() {
     for script in [FaultScript::PassThrough, FaultScript::CompletionUnknown] {
-        let dev = FaultInjecting::new(StubDevice::default(), script);
+        let dev = FaultInjecting::new(FaultTestDevice::default(), script);
         exercise_stub_through(&dev, &dev.inner().stub);
     }
 }
@@ -399,7 +399,7 @@ fn inject_through_default_inner_hooks_is_unsupported_default() {
 
 #[test]
 fn script_and_hooks_work_independently() {
-    let d = FaultInjecting::new(StubDevice::default(), FaultScript::CompletionUnknown);
+    let d = FaultInjecting::new(FaultTestDevice::default(), FaultScript::CompletionUnknown);
     let submits = Cell::new(0u32);
     let waits = Cell::new(0u32);
     let submit = || {

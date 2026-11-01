@@ -63,6 +63,8 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 
 名前に `Stub` を含むほかの型は、試験の中の局所の型だけである。確かめ方は `git grep -nE '(struct|enum|trait) [A-Za-z]*Stub' -- crates wasm`。当たる場所は `crates/core/tests/fault_parts_composition.rs:52`・`crates/core/tests/memory_types.rs:10`・`crates/core/tests/callback_send_requirement.rs:17`・`crates/contract/tests/callback_send_requirement.rs:19`（上の `FaultStub` を除く）。
 
+上の当たる場所は 1/5 の時点の値で、書き換えない。今は `crates/core/tests/fault_parts_composition.rs` の局所の型は `FaultTestDevice` で、この確かめ方では当たらない。
+
 ### feature の転送と、本番の組・上の層の検査
 
 | 項目 | 事実 | 確かめ方 |
