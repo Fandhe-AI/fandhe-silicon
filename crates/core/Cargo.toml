@@ -311,3 +311,7 @@ required-features = ["test-support", "graphics"]
 [[test]]
 name = "graphics_target_check"
 required-features = ["graphics"]
+
+[[test]]
+name = "graphics_copy_target_check"
+required-features = ["graphics"]
