@@ -66,7 +66,7 @@ fandhe-silicon/
 ├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在と、本リポの現状の事実・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験と完了の条件の確かめ（4/4）（TASK-837）
 ├── docs/offscreen-target-check.md  # 描画先の大きさとバイト数の純粋関数の所在・振る舞い・対応するテスト・確かめ方・入力の検査（2/4）・境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-374）
-├── docs/copy-target-check.md  # 描画先からバッファへの写しの書き込み先の検査の所在・振る舞い・対応するテスト・確かめ方（TASK-591）
+├── docs/copy-target-check.md  # 描画先からバッファへの写しの書き込み先の検査の所在・振る舞い・対応するテスト・確かめ方・境界の入力の全組の試験（2/2）・完了の条件の確かめ（2/2）（TASK-591）
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
 ├── docs/contract-interop-types.md  # 相互運用の公開の型と `ExternalInterop` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-717）
 ├── docs/contract-buffer-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6）（TASK-310）
