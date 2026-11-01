@@ -20,8 +20,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 既にある型 | device の要求・能力問合せの型は `crates/core` にある。定義と確かめは [contract-device-types](contract-device-types.md) を参照し、ここでは繰り返さない | `crates/core/src/device.rs`、`crates/core/src/capability.rs` |
-| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 7 件だけ（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕） | `git grep -nE 'pub trait' -- crates wasm` |
-| device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト、compute の口、試験用のスタブの device に当たる物は `crates/`・`wasm/` に無い（`pub trait` は上の 7 件だけ）。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、および `crates/contract/src/backend_metal.rs`（macOS だけ）の Metal の provider 3 件（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）、`Stub` を含む型は故障の差し込み用の `FaultStub` だけ。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
+| 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 13 件（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕、`DeviceLostNotify`、`ComputeOps`、`CommandQueue`、`ExternalInterop`、内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`） | `git grep -nE 'pub trait' -- crates wasm` |
+| device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト `CommandQueue`（`crates/core/src/execution/submit.rs`）、compute の口 `ComputeOps`（`crates/core/src/execution/compute.rs`）、試験用のスタブの device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`、feature `test-support` の裏。[stub-device](stub-device.md)）が `crates/core` にある。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、および `crates/contract/src/backend_metal.rs`（macOS だけ）の Metal の provider 3 件（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）、`Stub` を含む型は故障の差し込み用の `FaultStub` と上のスタブの device・provider。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
 | 故障の差し込み口 | `FaultHooks` はある。それを返す公開のアクセサを持つ device のトレイトは無い（`crates/core/tests/fault_parts_composition.rs` の同名メソッドは試験内の局所トレイト） | `crates/core/src/fault.rs`、`crates/core/tests/fault_parts_composition.rs` |
 | feature の裏のアイテム | `graphics`・`artifact-inspection` は `Cargo.toml` に宣言済みだが、これらで切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
@@ -77,6 +77,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 
 確かめ方: `git grep -nE 'pub trait' -- crates wasm`、`gh issue view <番号> --json state`。
 
+上の表の「無い」は記録時点の値で、書き換えない。今の値は、投入の列のトレイト `CommandQueue`・compute の口 `ComputeOps`・試験用の device の置き場 `crates/core/src/stub_device.rs`（`StubDevice`・`StubDeviceProvider`。feature `test-support` の裏。[stub-device](stub-device.md)）がいずれも `crates/core` にある。
+
 ### どの形でも守る本リポの規約
 
 | 項目 | 規約 | 所在 |
@@ -114,6 +116,8 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 - `git grep -nE 'pub trait' -- crates wasm`（5 件だけであること）
 - `git grep -nE 'pub (trait|struct) [A-Za-z]*(Device|Queue|Stub)' -- crates wasm`
 - `gh issue view 696 --json state`・`gh issue view 784 --json state`・`gh issue view 1100 --json state`
+
+上の表の「無い」と「5 件だけ」は記録時点の値で、書き換えない。今の値は末尾の「現状の公開のトレイトと背後実装の公開の項目」に書いた。
 
 ### 再開の条件
 
@@ -219,5 +223,7 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 「実装（3/6）」の「5 件だけ」、「テスト（4/6）」・「CI への組み込み（5/6）」の「4 件のまま」、「確かめ（6/6）」の F1 の「4 件」・F4 など、各段の公開のトレイトと device の口の件数・有無は記録時点の値で、書き換えない。今の値は次のとおり（冒頭の「本リポの現状」の表と同じ）。
 
 - device のトレイトと device を返す入口は `crates/core/src/device.rs` にある（`Device`・`DeviceProvider`）
-- 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 7 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`）
+- 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 13 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`・`DeviceLostNotify`・`ComputeOps`・`CommandQueue`・`ExternalInterop`・内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`）
+- 投入の列のトレイト `CommandQueue`、compute の口 `ComputeOps`、試験用の device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`。feature `test-support` の裏。試験は `crates/core/tests/stub_device_*.rs`）が `crates/core` にある。詳細は [stub-device](stub-device.md)
+- 「前提の部品の Issue」や「部品が今も `crates/`・`wasm/` に無い」とする各段の記述（「テスト（4/6）」・「CI への組み込み（5/6）」・「確かめ（6/6）」の F2・F6・成果物の対応の表を含む）も記録時点の値で、書き換えない
 - `backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_cuda.rs` に `pub` の項目は無い
