@@ -24,7 +24,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 ## 対応するテスト
 
-- doctest 4 本（各関数の `///`）
+- doctest 3 本（各関数の `///`）
 - `mod tests` 5 本: `target_check_pixel_format_bytes`・`target_check_depth_format_bytes`・`target_check_bytes_1280x720`・`target_check_bytes_overflow_is_rejected`・`target_check_bytes_max_without_overflow`
 
 ## 確かめ方
