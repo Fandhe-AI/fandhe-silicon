@@ -13,7 +13,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---------------- | ---------- | -------- | ---- |
 | TASK-5 | `crates/contract/Cargo.toml` の `[features]`、`crates/contract/src/lib.rs` の `cfg`、`scripts/build-profiles.sh` | 親の Issue の状態が CLOSED（`gh issue view 30 --json state`） | [contract-feature-check](contract-feature-check.md) |
 | TASK-23 | `crates/core/src/test_frame*`（`test-support` の裏） | 同上（`gh issue view 91 --json state`） | [test-frame](test-frame.md) |
-| TASK-136 | `crates/core/src/device.rs`・`capability.rs` | 同上（`gh issue view 411 --json state`） | [contract-device-types](contract-device-types.md) |
+| TASK-136 | `crates/core/src/device.rs`・`capability.rs` | 親の Issue #411 の状態は OPEN（`gh issue view 411 --json state`）。型は `crates/core` にあり、文書の列のテストで確かめる | [contract-device-types](contract-device-types.md) | [contract-device-types](contract-device-types.md) |
 
 ## 本リポの現状
 
@@ -23,12 +23,12 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 公開のトレイト | `crates/`・`wasm/` の `pub trait` は 13 件（`Capabilities`、`Device`・`DeviceProvider`〔`crates/core/src/device.rs`〕、`FaultHooks`〔`fault-injection` の裏〕、`MemoryOps`〔`crates/core/src/memory/ops.rs`〕、`Check`〔`test-support` の裏〕、`ValidationIntake`〔`crates/core/src/validation.rs`〕、`DeviceLostNotify`、`ComputeOps`、`CommandQueue`、`ExternalInterop`、内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`） | `git grep -nE 'pub trait' -- crates wasm` |
 | device まわりの口 | device のトレイト `Device` と device を返す入口 `DeviceProvider` は `crates/core/src/device.rs` にある。投入の列のトレイト `CommandQueue`（`crates/core/src/execution/submit.rs`）、compute の口 `ComputeOps`（`crates/core/src/execution/compute.rs`）、試験用のスタブの device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`、feature `test-support` の裏。[stub-device](stub-device.md)）が `crates/core` にある。メモリの操作のトレイト `MemoryOps` とバッファ型（`BufferHandle`・`BufferUsage`）は `crates/core/src/memory/` に既にある。名前に `Device` を含む型は要求・生ハンドル・診断の値の型と上の 2 つのトレイト、および `crates/contract/src/backend_metal.rs`（macOS だけ）の Metal の provider 3 件（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）、`Stub` を含む型は故障の差し込み用の `FaultStub` と上のスタブの device・provider。`crates/core/src/memory.rs` はそれらの再公開と引数検査の純粋関数（`validate_allocation_size`・`validate_buffer_range`）を持つ | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Memory\|Queue\|Stub)' -- crates wasm` |
 | 故障の差し込み口 | `FaultHooks` はある。それを返す公開のアクセサ `Device::fault_hooks()` が `crates/core/src/device.rs` にある（feature `fault-injection` の裏。既定は `None`）。`crates/core/tests/fault_parts_composition.rs` の同名メソッドは試験内の局所トレイト | `crates/core/src/fault.rs`、`crates/core/src/device.rs`、`crates/core/tests/fault_parts_composition.rs` |
-| feature の裏のアイテム | `graphics`・`artifact-inspection` は `crates/contract/Cargo.toml` に宣言済み。`graphics` で切られたアイテムは `crates/contract/src/backend_metal.rs` と `crates/contract/tests/backend_metal_fault.rs`・`backend_metal_request.rs` の `cfg(not(feature = "graphics"))` の 3 件、`artifact-inspection` で切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
+| feature の裏のアイテム | `graphics`・`artifact-inspection` は `crates/contract/Cargo.toml` に宣言済み。`graphics` で切られたアイテムは `crates/contract/src/backend_metal.rs` と `crates/contract/tests/backend_metal_fault.rs`・`backend_metal_request.rs` の `cfg(not(feature = "graphics"))` の 3 件と、`crates/contract/tests/stub_device_profiles.rs` の `cfg(feature = "graphics")` の 3 件（計 6 件）、`artifact-inspection` で切られたアイテムは 0 件 | `git grep -n 'feature = "graphics"' -- crates`、`git grep -n 'feature = "artifact-inspection"' -- crates` |
 | 組ごとのビルド検査 | `scripts/build-profiles.sh` の `NATIVE_SETS`（`graphics` を含む組と含まない組がある）と `WASM_SETS`。`make build-profiles`（CI の `verify` ジョブ） | `grep -n 'NATIVE_SETS\|WASM_SETS' scripts/build-profiles.sh` |
 | コンパイル失敗の既存の仕組み | feature の有無でコンパイルが落ちることを確かめる枠が `crates/contract/src/cfg_gate_doctest.rs` にある | [feature-gate-compile-check](feature-gate-compile-check.md) |
 | 走る場所 | `make verify`（`--all-features`）と `make build-profiles`。GPU の実機は要らない | `scripts/verify.sh`、`scripts/build-profiles.sh` |
 | 依存の承認 | 外部 crate は足さない。`deps-approved.toml` の記録の範囲に収める（`core` を `used_by` に持つ記録は無い） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
-| 本書の対象の言及 | TASK-137 の言及は本書、`CLAUDE.md`、`README.md` だけ | `git grep -nE 'TASK-137([^0-9]\|$)' -- . ':!docs/spec' ':!.agents'` |
+| 本書の対象の言及 | TASK-137 の言及は本書、`CLAUDE.md`、`README.md`、`crates/contract/tests/stub_device_profiles.rs` だけ | `git grep -nE 'TASK-137([^0-9]\|$)' -- . ':!docs/spec' ':!.agents'` |
 
 ## 段の表
 
@@ -301,6 +301,8 @@ TASK-137 を前提に引く背後実装側の TASK: TASK-195（#1126）・TASK-1
 - 公開のトレイト（`pub trait`）を `crates`・`wasm` から探すと 13 件（`Capabilities`・`Device`・`DeviceProvider`・`FaultHooks`・`MemoryOps`・`Check`・`ValidationIntake`・`DeviceLostNotify`・`ComputeOps`・`CommandQueue`・`ExternalInterop`・内部用の `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`）
 - 投入の列のトレイト `CommandQueue`、compute の口 `ComputeOps`、試験用の device `StubDevice` と provider `StubDeviceProvider`（`crates/core/src/stub_device.rs`。feature `test-support` の裏。試験は `crates/core/tests/stub_device_*.rs`）が `crates/core` にある。詳細は [stub-device](stub-device.md)
 - 前提の部品の Issue の今の状態（`gh issue view <番号> --json state`）は、#1100 が CLOSED、#696・#784・#1126・#447・#448・#1305・#1149 が OPEN。「#1100 は OPEN」「8 件とも OPEN」は記録時点の値で、書き換えない
+- 「確かめ（6/6）」の F7（言及の範囲）の「本書・`CLAUDE.md`・`README.md` だけ」は記録時点の値で、書き換えない。今の値は上の「本リポの現状」の「本書の対象の言及」の行のとおり
+- 「実装（7/8）」の「使う core のパス」に並ぶ `error::CompletionState` は記録時点の値で、書き換えない。`crates/contract/tests/stub_device_profiles.rs` は今 `error::ContractError` も import している
 - 「前提の部品の Issue」や「部品が今も `crates/`・`wasm/` に無い」とする各段の記述（「テスト（4/6）」・「CI への組み込み（5/6）」・「確かめ（6/6）」の F2・F6・成果物の対応の表を含む）も記録時点の値で、書き換えない
 - `backend_metal.rs` は macOS だけの `pub use` を持つ（`MetalDeviceProvider`、feature `fault-injection` の裏の `MetalCommandQueueNoneProvider`・`MetalDefaultDeviceNoneProvider`）。`backend_vulkan.rs` は `pub mod spirv_operands` だけ。`backend_cuda.rs` に `pub` の項目は無い
 - `crates/core` の feature は `test-support`・`fault-injection`・`native-blocking-wait`・`ext-interop` の 4 つで、「形が乗る既存のコード・検査の事実」の feature の行（3 つだけ）は記録時点の値で、書き換えない。`graphics` は今も `crates/contract` にしか無い（`crates/core/Cargo.toml` の `[features]`）
