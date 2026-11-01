@@ -17,6 +17,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 ## 本リポの現状
 
+この節は 1/5 の時点の事実である。2/5 以降の変化は各段の節に書く。
+
 各表の「確かめ方」は、リポジトリのルートで流すコマンドである。
 
 ### core の構成
@@ -92,6 +94,43 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 ### 関連する文書の記述
 
 [contract-device-stub-check](contract-device-stub-check.md) の 74 行目と 109 行目の表に、「試験用の device の置き場」の行がある。置き場の列は「無い」、前提の列は TASK-126、Issue の列は #1100 である。
+
+## 現状の形（2/5）
+
+### 置き場
+
+`crates/core/src/stub_device.rs`。feature `test-support` の裏にあり、新しい feature・外部依存は足していない（`#![forbid(unsafe_code)]` のまま）。
+公開のパスは `fandhe_silicon_core::stub_device::{StubDevice, StubDeviceProvider}`。
+
+### 公開のアイテム
+
+| 項目 | 事実 |
+| ---- | ---- |
+| `StubDevice` | `StubDevice::new(req: DeviceRequest)` で作る。`Capabilities` と `Device` を実装する。`Send + Sync` を満たす |
+| `StubDeviceProvider` | 値を持たない型。`DeviceProvider::request` はどの要求にも `Ok(Box<dyn Device>)` を返す |
+| メモリの口・投入の口 | module の中の非公開の型で、`StubDevice::memory()`・`queue()` 越しにだけ届く |
+| feature の裏 | `download_blocking`・`wait_blocking` は feature `native-blocking-wait` の裏。`download_async`・`on_complete` は native と wasm32 の 2 版 |
+
+### 1/5 の表からの変化
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| feature `test-support` の裏の module | `capability_rule`・`parity`・`test_frame`・`rerun` に `stub_device` が加わった | `grep -n "pub mod" crates/core/src/lib.rs` |
+| 型の件数 | `git grep` の出力が 12 件から 14 件になった（`StubDevice`・`StubDeviceProvider`） | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Queue\|Stub)' -- crates wasm` |
+
+### 対応するテスト
+
+`crates/core/src/stub_device.rs` の `mod tests`。
+
+| テスト | 確かめること |
+| ------ | ------------ |
+| `stub_device_request_returns_ok_and_echoes_backend_and_ownership` | `request` が `Ok` で、`backend()` と `ownership()` が要求の値 |
+| `stub_device_round_trip_allocate_upload_download` | `allocate`・`upload`・`download_async` で同じバイト列が callback に 1 回届く |
+| `stub_device_is_send_and_sync` | `StubDevice` が `Send + Sync` |
+
+### 確かめ方
+
+`cargo test -p fandhe-silicon-core --features test-support --lib stub_device`
 
 ## 段の表
 
