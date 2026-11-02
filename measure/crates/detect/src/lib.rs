@@ -3,6 +3,7 @@
 //! 測定専用の別 workspace `measure/` に置く crate で、製品の crate（`crates/`）からは使われない。
 //! 変異体 1 件の入力から分類を出す `classify` を持つ。
 //! 件数から検出率の下限・上限を出す `rate::bounds`・ラベルを出す `rate::label`・セルのラベルを出す `rate::judge_cell` も持つ。
+//! 件数を引数で受けて下限・上限とラベルを 1 行の JSON で出すコマンド `detect-bounds`（`src/bin/`）もある。
 //! 本 crate は device に触れず、ファイルを読まず、時計を使わない。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-1082（ポインタのみ）。
