@@ -4,7 +4,7 @@
 # 呼び出し元: `make wasm-verify`。CI の deny・wasm-macos ジョブも同じ make ターゲットを呼ぶ。
 # ソースは変更しない。外部依存（wasm-bindgen）があるので、初回は取得にネットワークが要る
 # （--locked で Cargo.lock の不一致を失敗させる）。wasm32 の target が無いときは skip せず失敗させる。
-# 製品の `crates/core` と `crates/contract` の試験の wasm32 の型検査（cargo check）と、wasm32 のコンパイル試験の検査
+# 製品の `crates/core` と `crates/contract` の試験の wasm32 の型検査（cargo check）、契約の crate の試験の wasm32 の simd128 の構成の clippy と、wasm32 のコンパイル試験の検査
 # （`wasm-compile-probe-check.sh`。一時の crate を wasm32 の組で cargo check して行ごとの期待と照らす）も流す。
 # 回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため。measure-verify.sh と同じ）。
 set -euo pipefail
@@ -43,6 +43,16 @@ main() {
   # --all-features は背後実装の feature を含み wasm32 では意味が違うので足さない。
   log "cargo check (crates/contract tests, wasm32-unknown-unknown, default features)"
   cargo check -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown
+
+  # 契約の crate の試験を wasm32 の simd128 の構成で clippy にかける（TASK-1351 のポインタ）。
+  # rustflags 系を外し、simd128 だけを足す。置き場は build-profiles.sh の simd128 の lint と同じ。
+  root_target_dir="$(cargo metadata --format-version 1 --no-deps --locked | jq -r '.target_directory')"
+  log "cargo clippy (crates/contract tests, wasm32-unknown-unknown, simd128) -D warnings"
+  env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
+    CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" \
+    cargo clippy -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown \
+    --no-default-features --features contract-core,cpu-isa,cpu-ops,test-support \
+    --target-dir "${root_target_dir}/wasm32-simd128" -- -D warnings
 
   # wasm32 の組で一時の crate を cargo check し、行ごとの期待と照らす（本体の失敗はそのまま伝わる）。
   log "wasm-compile-probe-check (wasm32 compile probes)"

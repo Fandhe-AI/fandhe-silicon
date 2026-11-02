@@ -176,3 +176,23 @@ RUSTFLAGS="-C target-feature=+simd128" cargo clippy -p fandhe-silicon-contract -
 ```
 
 simd128 の構成は型検査と lint までで、wasm32 上の実行は流していない（TASK-1351）。
+
+## simd128 の構成の試験の型検査と lint（8/9）
+
+`make wasm-verify` の中で、契約の crate の試験の wasm32 の型検査（既定の feature）の後、wasm32 のコンパイル試験の検査の前に、次の clippy を 1 回流す。
+
+| 項目 | 値 |
+| ---- | -- |
+| コマンド | `cargo clippy -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown --no-default-features -- -D warnings` |
+| feature | `contract-core,cpu-isa,cpu-ops,test-support` |
+| rustflags | 利用者の環境の rustflags 系 4 つを外し、`CARGO_ENCODED_RUSTFLAGS` で `-C target-feature=+simd128` だけを足す |
+| target ディレクトリ | `<target_directory>/wasm32-simd128`（`make build-profiles` の simd128 の lint と同じ置き場） |
+
+型検査と lint までで、wasm32 上の試験の実行はしない（runner は足していない）。
+
+### 確かめ方
+
+```text
+make wasm-verify
+CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" cargo clippy -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops,test-support --target-dir target/wasm32-simd128 -- -D warnings
+```
