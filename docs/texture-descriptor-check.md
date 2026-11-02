@@ -232,3 +232,5 @@ make wasm-verify
 | 4/6 | #7659 | 操作の時点の用途と view の形式の検査 |
 | 5/6 | #7660 | 項目ごとの受理と拒否の入力の試験 |
 | 6/6 | #7661 | 完了の条件の確かめ（本頁の 6/6 の節） |
+
+- 関連: storage texture のアクセスの型と束縛の検査は [storage-texture-access.md](storage-texture-access.md)（TASK-1944）。
