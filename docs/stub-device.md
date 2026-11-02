@@ -37,8 +37,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:111`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持ち（試験用の device の答えは [device-compute](device-compute.md)）、`graphics` も feature `graphics` の裏で既定の本体つきで持つ（試験用の device の答えは [graphics-types](graphics-types.md)） | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
-| `DeviceProvider` | `crates/core/src/device.rs:151`（1/5 の時点の値。今は `:168`）。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
+| `Device` | `crates/core/src/device.rs:101`（1/5 の時点の値。今は `:127`）。親は `Capabilities`。必須の method は `backend`・`ownership`・`generation`・`memory`・`queue`・`diagnostics`。既定の本体を持つ method は `external_interop`・`physical_gpu_id`（feature `ext-interop`）と `fault_hooks`（feature `fault-injection`）。`compute`・`graphics` の method は持たない（1/5 の時点の値）。今の値は、`compute` を既定の本体つきで持ち（試験用の device の答えは [device-compute](device-compute.md)）、`graphics` も feature `graphics` の裏で既定の本体つきで持つ（試験用の device の答えは [graphics-types](graphics-types.md)） | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/device.rs` |
+| `DeviceProvider` | `crates/core/src/device.rs:151`（1/5 の時点の値。今は `:192`）。`request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>`（`self` を取らない関連関数） | 同上 |
 | `MemoryOps` | `crates/core/src/memory/ops.rs:10`。必須は `allocate`・`upload`・`download_async`（native と wasm32 の 2 版）・`free`。`download_blocking` は feature `native-blocking-wait` の裏。`pending_release_count` は既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/memory/ops.rs` |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216`。必須は `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`（native と wasm32 の 2 版）・`dispatch_ex`。`wait_blocking` は feature `native-blocking-wait` の裏。`poll_ex`・`submit_ex`・`gpu_timing`・`dispatch` は既定の本体を持つ。`submit_exportable` は feature `ext-interop` の裏で既定の本体を持つ | `grep -nE '^\s*fn \|#\[cfg' crates/core/src/execution/submit.rs` |
 | `Capabilities` | `crates/core/src/capability.rs:114`。必須は `query`・`limits`。`query_ex` は既定の本体を持つ | `grep -nE '^\s*fn \|^pub ' crates/core/src/capability.rs` |
@@ -53,8 +53,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 型 | 所在 | 分類 |
 | -- | ---- | ---- |
-| `DeviceRequest`・`NativeDeviceHandle`・`DeviceDiagnostics` | `crates/core/src/device.rs:19`・`:58`・`:88`（1/5 の時点の値。今は `:29`・`:68`・`:98`） | device の要求・取り込み・診断の型 |
-| `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151`（1/5 の時点の値。今は `:111`・`:168`） | device の口の trait |
+| `DeviceRequest`・`NativeDeviceHandle`・`DeviceDiagnostics` | `crates/core/src/device.rs:19`・`:58`・`:88`（1/5 の時点の値。今は `:29`・`:68`・`:114`） | device の要求・取り込み・診断の型 |
+| `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151`（1/5 の時点の値。今は `:127`・`:192`） | device の口の trait |
 | `DeviceLostNotify` | `crates/core/src/device_lost.rs:49` | ロストの通知先の trait |
 | `CommandQueue` | `crates/core/src/execution/submit.rs:216` | 投入の trait |
 | `FaultStub` | `crates/core/src/fault/stub.rs:27` | feature `fault-injection` の裏の部品 |

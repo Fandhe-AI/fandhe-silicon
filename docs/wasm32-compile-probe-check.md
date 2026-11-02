@@ -247,6 +247,8 @@ test-wasm-compile-probe-check: 23 passed, 0 failed
 
 ## wasm32 の組の `Send`・`Sync` の行（TASK-553）
 
+この節の行は、型が `Send + Sync` の境界を満たすことと、満たさない値を包む・trait を実装する呼び出しが `E0277` で落ちることを確かめる。
+
 ### 記録の所在
 
 記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-553。ポインタのみ）。
@@ -264,7 +266,7 @@ test-wasm-compile-probe-check: 23 passed, 0 failed
 | `shared_closer_rejects_not_sync` | なし | fail（`E0277`・`Cell<u32>`） | `Cell<u32>` を持つ型に `__BackendSharedEncoderCloser` を実装する snippet が `error[E0277]` と `` `Cell<u32>` `` で落ちる |
 | `command_encoder_send_sync` | なし | pass | `CommandEncoder` が `Send + Sync` の境界を満たす snippet が通る |
 
-試験の表は 11 行になった。TASK-239 の節の 5 行の表と `record:` の 5 行は記録時点の値で、補足はこの節に置く。native の側の所在は `crates/core/tests/encoder_send_sync.rs`（TASK-590）。
+試験の表は 11 行になった。TASK-239 の節の 5 行の表と `record:` の 5 行は記録時点の値で、補足はこの節に置く。native の側の所在は `crates/core/tests/encoder_send_sync.rs`（TASK-590）。native の側では、`NativeDeviceHandle::new`（`crates/core/src/device.rs`）と `__BackendEncoderCloser`・`__BackendSharedEncoderCloser`（`crates/core/src/execution/submit.rs`）の rustdoc の `compile_fail,E0277` が `Rc`・`Cell` を持つ型を拒むことを、`make verify` の doctest で確かめる（[contract-submit-types](contract-submit-types.md)）。
 
 回帰テスト（`scripts/test-wasm-compile-probe-check.sh`）で足した場面:
 
@@ -407,6 +409,8 @@ CI の `make verify (fmt + clippy + test)` のログから絞った行:
 2026-11-02T11:06:07.6299740Z wasm-compile-probe-check: all probes passed
 ```
 
+回帰テストは `deny` のジョブだけが流すので、`wasm-macos` のログには回帰テストの最終行が無い。
+
 手元の `make test-wasm-compile-probe-check` の最終行:
 
 ```text
@@ -419,3 +423,5 @@ test-wasm-compile-probe-check: 25 passed, 0 failed
 | -- | ---- | ----- |
 | 1/2 | wasm32 のコンパイル試験に `Send`・`Sync` の行を足す | #7736 |
 | 2/2 | 完了の条件の確かめ | #7737 |
+
+親 Issue は #1166。

@@ -129,3 +129,7 @@ A4 の 0 件は、3 つの SDK がどの crate にも宣言されていないこ
 確かめた base は `6950c283b2867d2a1790385209dc523472a2553e`、`docs/spec` のサブモジュールの指す版は `f603cba40283866ca89338a66a85a9bde085a0d9`。
 
 記録の行（`deps:` の 9 行の値・A4・「そもそも載っていない」という趣旨の文）は記録時点の値で、書き換えない。今の値は「本リポの現状での実行結果」の節に書いてある（`backend-metal` の構成で `objc2-metal` が `native_n=1`・`wasm32_n=0`）。
+
+## 関連
+
+- [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
