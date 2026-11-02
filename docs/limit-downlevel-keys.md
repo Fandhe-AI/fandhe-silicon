@@ -15,8 +15,9 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | -------- | ---------- |
 | `crates/core/src/limit_key.rs` | `fandhe_silicon_core::limit_key` |
 | `crates/core/src/downlevel_key.rs` | `fandhe_silicon_core::downlevel_key` |
+| `crates/core/src/value_key.rs` | `fandhe_silicon_core::value_key` |
 
-- `crates/core/src/lib.rs` に `pub mod limit_key;` と `pub mod downlevel_key;` があり、feature の条件はない。crate の根の `pub use` は無い。
+- `crates/core/src/lib.rs` に `pub mod limit_key;`・`pub mod downlevel_key;`・`pub mod value_key;` があり、feature の条件はない。crate の根の `pub use` は無い。
 
 ## 現状の形（1/5）
 
@@ -47,12 +48,36 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 上限の一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc limit_key` |
 | downlevel の一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc downlevel_key` |
 
+## 値の鍵（2/5）
+
+### 型
+
+`ValueKey(pub &'static str)`。派生する trait は `Debug`・`Clone`・`Copy`・`PartialEq`・`Eq`・`Hash`。`FeatureId` とは別の型で、相互の変換は持たない。
+
+### 上限の値の鍵の定数
+
+57 件。名前は `limit_key` の定数と同じ名前（`LIMIT_` に続けて大文字の名前）で、文字列も同じ（例: `value_key::LIMIT_MAX_BUFFER_SIZE` は `"limit:max_buffer_size"`）。
+2 つの module を同時に glob で import すると名前があいまいになるので、完全なパスか module の別名で使う。
+
+### 一覧
+
+| 名前 | 内容 |
+| ---- | ---- |
+| `LIMIT_VALUE_KEYS` | `&[ValueKey]`。57 件で、鍵は互いに異なる。`LIMIT_QUERY_KEYS` と同じ並びで、同じ位置の鍵は同じ文字列を持つ |
+
+### 対応するテスト
+
+| 試験 | 件数（記録時点の値） | 確かめ方 |
+| ---- | -------------------- | -------- |
+| core の中の試験（件数・相異・`LIMIT_QUERY_KEYS` との位置ごとの一致・定数の抜き取り） | 4 | `cargo test -p fandhe-silicon-core --lib value_key` |
+| 一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc value_key` |
+
 ## 段の表
 
 | 段 | Issue | 題 |
 | -- | ----- | -- |
 | 1/5 | #7702 | 上限と downlevel の問合せの鍵の定数と一覧 |
-| 2/5 | #7703 | 値の鍵の型と上限の値の鍵の定数 |
+| 2/5 | #7703 | 値の鍵の型と上限の値の鍵の定数（本書の「値の鍵（2/5）」） |
 | 3/5 | #7704 | 上限と downlevel の鍵の一覧と表の枠の試験 |
 | 4/5 | #7705 | 上限と downlevel の鍵の一覧を機能一覧に突き合わせる検査 |
 | 5/5 | #7706 | 完了の条件の確かめ |
