@@ -108,10 +108,10 @@ done
 # simd128 構成は cfg で選ぶコードを含むので check だけでは lint が届かない。rustflags 系は wasm-abi の build と同じく外す。
 wasm_target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 wasm_lint_feats="contract-core,cpu-isa,cpu-ops"
-log "contract wasm32 scalar: cargo clippy -p ${PKG} --target ${WASM_TARGET} --features ${wasm_lint_feats} -- -D warnings"
+log "contract wasm32 scalar: cargo clippy -p ${PKG} --target ${WASM_TARGET} --no-default-features --features ${wasm_lint_feats} -- -D warnings"
 env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
   cargo clippy -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${wasm_lint_feats}" -- -D warnings
-log "contract wasm32 simd128: cargo clippy -p ${PKG} --target ${WASM_TARGET} --features ${wasm_lint_feats} -- -D warnings (+simd128)"
+log "contract wasm32 simd128: cargo clippy -p ${PKG} --target ${WASM_TARGET} --no-default-features --features ${wasm_lint_feats} -- -D warnings (+simd128)"
 env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
   CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" \
   cargo clippy -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${wasm_lint_feats}" \
