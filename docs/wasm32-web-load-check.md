@@ -189,6 +189,91 @@ test-wasm-web-load-check: 122 passed, 0 failed
 記録時点のコミットは `573a2e5`。CI の step は `.github/workflows/ci.yml` の `deny` ジョブにあり、
 `grep -n "test-wasm-web-load-check" .github/workflows/ci.yml` で確かめる。
 
+### 完了の条件の確かめ（4/4）
+
+1/4〜3/4 の検査・ビルドの経路・回帰テスト・make ターゲットと CI への組み込みを、手元の実行と `main` の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
+
+手元の実行は `origin/main` の `708a34a` の上の作業ツリー。CI は run `41548609028`（headSha `b83c546ca9a637a6c675b5e19bc3f08cb499925c`、conclusion `success`）のジョブ `make deny (cargo-deny)`（job `125630247457`）。
+
+| 確かめ | コマンド | 結果 |
+| ------ | -------- | ---- |
+| (1) 4 組の綴りと web の出力の置き方 | `grep -n '^COMBOS = \|^TARGET_DIR = \|^JS_FILE = \|^WASM_FILE = ' scripts/wasm-web-load-check.sh` | 下の (1) のブロック |
+| (2) 11 項目と export の対応 | `grep -n -A12 '^ITEMS = (' scripts/wasm-web-load-check.sh` | 下の (2) のブロック |
+| (3) `detect-isa-bits` の組ごとの期待の値 | `grep -n -A1 'def expected_isa' scripts/wasm-web-load-check.sh` | 下の (3) のブロック |
+| (4) glue の export の現状 | `grep -n wasm_bindgen wasm/crates/glue/src/lib.rs` | 下の (4) のブロック |
+| (5) 回帰テスト（手元と CI） | `make test-wasm-web-load-check` と、`gh run view --job 125630247457 -R Fandhe-AI/fandhe-silicon --log` を `test-wasm-web-load-check: ` で絞る | 下の (5) のブロック |
+| (6) export が無いときの出力の形の試験 | `grep -n '1 no exports\|1 44 missing-export' scripts/test-wasm-web-load-check.sh` | 下の (6) のブロック |
+| (7) 1/4〜3/4 の各コミットでの `crates`・`wasm/crates`・依存の変更 | コミットごとに `git diff --stat <c>^..<c> -- crates wasm/crates wasm/Cargo.toml wasm/Cargo.lock wasm/deps-approved.toml Cargo.lock deps-approved.toml`（`c01f972`・`573a2e5`・`b83c546`） | 下の (7) のブロック（diff の出力なし） |
+
+(1)
+
+```text
+72:COMBOS = ("release-scalar", "release-simd128", "wasm-size-scalar", "wasm-size-simd128")
+73:TARGET_DIR = "web"
+86:JS_FILE = "wasm_glue.js"
+87:WASM_FILE = "wasm_glue_bg.wasm"
+```
+
+(2)
+
+```text
+99:ITEMS = (
+100-    ("gemm-scalar-1", "gemm_scalar"),
+101-    ("gemm-scalar-2", "gemm_scalar"),
+102-    ("gemm-simd-1", "gemm_simd"),
+103-    ("gemm-simd-2", "gemm_simd"),
+104-    ("topk-scalar", "topk_scalar"),
+105-    ("topk-simd", "topk_simd"),
+106-    ("elementwise-scalar-relu", "elementwise_scalar"),
+107-    ("elementwise-scalar-add", "elementwise_scalar"),
+108-    ("elementwise-simd-relu", "elementwise_simd"),
+109-    ("elementwise-simd-add", "elementwise_simd"),
+110-    ("detect-isa-bits", "detect_isa_bits"),
+111-)
+```
+
+(3)
+
+```text
+140:def expected_isa(combo):
+141-    return 0 if combo.endswith("-scalar") else 1
+```
+
+(4)
+
+```text
+18:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+```
+
+(5)
+
+手元の最終行。
+
+```text
+test-wasm-web-load-check: 122 passed, 0 failed
+```
+
+CI のログ。
+
+```text
+make deny (cargo-deny)	make test-wasm-web-load-check	2026-11-02T23:54:15.9395478Z test-wasm-web-load-check: 122 passed, 0 failed
+```
+
+(6)
+
+```text
+163:expect "1 no exports" 1 "summary: combos=4 items=44 ok=0 ng=0 not-run=44" "reason=missing-export" "FAILED:"
+164:check "1 44 missing-export rows" "$([ "$(grep -c 'reason=missing-export' "${OUT_F}")" = 44 ] && echo 0 || echo 1)"
+```
+
+(7)
+
+```text
+== c01f972
+== 573a2e5
+== b83c546
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
