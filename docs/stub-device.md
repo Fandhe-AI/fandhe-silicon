@@ -33,6 +33,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 | 外部依存 | 0 件 | `cargo metadata --format-version 1 --no-deps \| jq '.packages[] \| select(.name=="fandhe-silicon-core") \| {features, dependencies}'` と `cargo tree -p fandhe-silicon-core -e normal --depth 1` |
 | unsafe | `#![forbid(unsafe_code)]`（`crates/core/src/lib.rs:28`） | `grep -n unsafe_code crates/core/src/lib.rs` |
 
+上の表の `lib.rs:28` は記録時点の値で、今は `lib.rs:38` が `#![forbid(unsafe_code)]` である。
+
 ### device の口と部品
 
 | 項目 | 事実 | 確かめ方 |

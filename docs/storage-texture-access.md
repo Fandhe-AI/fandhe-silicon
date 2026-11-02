@@ -1,4 +1,4 @@
-# storage texture のアクセスの型（TASK-1944）
+# storage texture のアクセスの型と束縛の検査の所在（TASK-1944）
 
 ## 記録の所在
 
@@ -110,3 +110,14 @@ cargo test -p fandhe-silicon-core --test texture_storage_access
 cargo check -p fandhe-silicon-core
 make wasm-verify
 ```
+
+## 段の表
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/4 | #7743 | アクセスの型 |
+| 2/4 | #7744 | 束縛の用途とシェーダーとの照合 |
+| 3/4 | #7745 | 項目ごとの受理と拒否の入力の試験 |
+| 4/4 | #7746 | 完了の条件の確かめ |
+
+親 Issue は #1823。

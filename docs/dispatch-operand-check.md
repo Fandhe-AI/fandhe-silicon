@@ -13,6 +13,10 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 | `fandhe_silicon_core::error::ContractError` | 違反はこの契約のエラー型の `InvalidArgument(String)` で返す。暫定の型 `OperandCheckError` は外した |
 | `OperandBinding`・`OperandConstant` | 検査の入力のための形。背後実装へ渡す束縛の型ではない |
 
+## 関連
+
+文言の先頭が `C2:` の拒否は、`texture` モジュールの `validate_storage_texture_shader_access` が返す（[storage-texture-access.md](storage-texture-access.md)、TASK-1944）。
+
 ## 現状の振る舞い
 
 - C8 を宣言ごとに先頭から判定し、続けて C7（宣言に無い `slot`・`slot` の重複）・C4（残容量）・C5（offset の境界）・C6（定数の長さ）を段ごとに全件見る。C4・C5・C6 は宣言の無い `slot` を見ない（C7 が先に拒否する）

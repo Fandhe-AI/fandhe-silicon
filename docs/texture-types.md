@@ -227,6 +227,8 @@ TASK-371 の 6/6（#4562）として、本リポで観測できる事実だけ�
 | 9 | 依存 0・unsafe の追加 0 | `git diff --stat 124f4da HEAD -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 3 つのファイルの差分は空。承認の記録は 4 件。`lib.rs:32` は `#![forbid(unsafe_code)]`。`texture.rs` の `unsafe` は 0。`cargo tree` は core 自身の 1 行だけ |
 | 10 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
 
+上の表の `lib.rs:48` は記録時点の値で、今は `lib.rs:58` が `pub mod texture;` である。
+
 `texture.rs` の doctest は `cargo test --doc texture.rs` が 2 つの結果行を出し、通常の 7 件（`ok. 7 passed`）と `compile_fail` の 4 件（`ok. 4 passed`。`TextureDimension (line 13)`・`TextureDescriptor (line 223)`・`TextureHandle (line 325)`・`TextureHandle (line 345)`）である。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-371）。確かめた base は `51be40a`。
@@ -263,3 +265,5 @@ make wasm-verify
 | 6/6 | #4562 | 完了の条件の確かめ |
 
 関連: テクスチャの作成の記述子の検査は [texture-descriptor-check.md](texture-descriptor-check.md)。
+
+関連: storage texture のアクセスの型と、束縛の用途・シェーダーとの照合の検査は [storage-texture-access.md](storage-texture-access.md)（TASK-1944）。
