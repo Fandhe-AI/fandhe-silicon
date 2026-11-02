@@ -35,7 +35,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 |---|---|---|
 | `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型（`execution`）とバッファの引数検査の純粋関数（`memory`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
 | `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ。`cpu-ops` の裏に CPU の演算（`cpu_ops`）を持つ |
-| `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する |
+| `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する。公開の型 `OptIn`・`Route`・`OpId`・`UnavailableReason` を持つ |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]` |
 
 依存の向きは `contract → core` / `exec → core` / `upper → core, exec` です。
@@ -89,6 +89,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実 |
 | `docs/parity-case-inputs.md` | 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）（TASK-977） |
 | `docs/parity-fallback-inputs.md` | 代わりの実行の試験の入力と CPU の参照の所在・`f16-fma`・`subgroup-sum`・`atomic-add` の入力と CPU の参照の振る舞い・出力の形の規則の試験・対応するテスト・本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-929） |
+| `docs/exec-skeleton-types.md` | 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）（TASK-919） |
 | `docs/sha256-hash.md` | SHA-256 の関数（TASK-471）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/decision-table.md` | 決定表の純関数と型（TASK-141・TASK-143）の所在・公開名・対応するテスト・確かめ方 |
 | `docs/artifact-input-types.md` | 成果物の受け付けに使う公開の型（TASK-470）の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6） |
