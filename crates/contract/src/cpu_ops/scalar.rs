@@ -1,9 +1,10 @@
 //! `cpu_ops` の scalar 版の計算と長さの判定（非公開）。
 //!
 //! `DefaultCpuOps` と `ReferenceCpuOps` の `*_scalar` から呼ばれる。GEMM は各出力要素を k の昇順の
-//! `f32::mul_add` で積む（spec CPU-1 のポインタ）。長さの判定は添字で触る前に置き、偽なら何も書かずに返る。
+//! `f32::mul_add` で積む（spec CPU-1 のポインタ）。長さの判定は添字で触る前に置き、合わなければ `out` に何も書かずに `InvalidArgument` を返す。
 
 use super::UnaryElementwiseOp;
+use fandhe_silicon_core::error::ContractError;
 
 /// GEMM の 3 つの slice の長さが `m`・`k`・`n` と合うか。積があふれる入力は偽。
 pub(super) fn gemm_lengths_ok(
@@ -26,10 +27,20 @@ pub(super) fn elementwise_lengths_ok(a_len: usize, out_len: usize) -> bool {
     a_len == out_len
 }
 
-/// 行優先の f32 の行列積 `a`（m×k）×`b`（k×n）を `out`（m×n）に書く。長さが合わなければ何もしない。
-pub(super) fn gemm(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) {
+/// 行優先の f32 の行列積 `a`（m×k）×`b`（k×n）を `out`（m×n）に書く。
+/// 長さが合わない・次元の積があふれるときは `out` に触れず `InvalidArgument` を返す。
+pub(super) fn gemm(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    out: &mut [f32],
+) -> Result<(), ContractError> {
     if !gemm_lengths_ok(a.len(), b.len(), out.len(), m, k, n) {
-        return;
+        return Err(ContractError::InvalidArgument(
+            "gemm slice lengths do not match m, k, n".into(),
+        ));
     }
     for i in 0..m {
         for j in 0..n {
@@ -40,12 +51,19 @@ pub(super) fn gemm(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut
             out[i * n + j] = acc;
         }
     }
+    Ok(())
 }
 
-/// 単項の要素ごと演算を `a` から `out` に書く。長さが違えば何もしない。
-pub(super) fn elementwise(op: UnaryElementwiseOp, a: &[f32], out: &mut [f32]) {
+/// 単項の要素ごと演算を `a` から `out` に書く。長さが違えば `out` に触れず `InvalidArgument` を返す。
+pub(super) fn elementwise(
+    op: UnaryElementwiseOp,
+    a: &[f32],
+    out: &mut [f32],
+) -> Result<(), ContractError> {
     if !elementwise_lengths_ok(a.len(), out.len()) {
-        return;
+        return Err(ContractError::InvalidArgument(
+            "elementwise input and output lengths differ".into(),
+        ));
     }
     for (o, &x) in out.iter_mut().zip(a) {
         *o = match op {
@@ -53,4 +71,5 @@ pub(super) fn elementwise(op: UnaryElementwiseOp, a: &[f32], out: &mut [f32]) {
             UnaryElementwiseOp::AddScalar(c) => x + c,
         };
     }
+    Ok(())
 }

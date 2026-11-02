@@ -22,7 +22,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 - GEMM は行優先の f32 で、各 `(i, j)` を k の昇順の `f32::mul_add` で積む。
 - 要素ごと演算は `Relu` が `x.max(0.0)`、`AddScalar(c)` が `x + c`。
-- 2 つの実装型は、この節の時点では 4 メソッドとも scalar の関数を呼ぶ。単体試験が同じ値を確かめる。
+- 4 メソッドはどれも `Result<(), ContractError>` を返す。長さが合わない・次元の積があふれる入力は `InvalidArgument` で返し、`out` には触れない。
+- `ReferenceCpuOps` は 4 メソッドとも scalar の計算をする。`DefaultCpuOps` の `*_simd` は simd 版が無いので `UnsupportedExtensionDefault` を返し、scalar へ黙って落とさない。単体試験が確かめる。
 
 ## 確かめ方
 
