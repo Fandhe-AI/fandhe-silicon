@@ -18,7 +18,7 @@ cat <<'EOF'
   setup           scripts/setup.sh               Git hooks 有効化と .env 雛形の配置（再実行しても安全）
   check           scripts/check.sh               editorconfig-checker + shellcheck（ソースは変更しない）
   verify          scripts/verify.sh              cargo fmt --check + clippy + test（ソースは変更しない。試験の枠の記録から集計の表を標準出力に出す）
-  build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check・wasm-abi の 2 版の release ビルド（ソースは変更しない）
+  build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check・契約の crate の wasm32 の lint（scalar・simd128）・wasm-abi の 2 版の release ビルド（ソースは変更しない）
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
   wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny・wasm-macos ジョブも実行する）

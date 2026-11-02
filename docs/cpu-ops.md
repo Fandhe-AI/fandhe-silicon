@@ -25,8 +25,28 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 - 4 メソッドはどれも `Result<(), ContractError>` を返す。長さが合わない・次元の積があふれる入力は `InvalidArgument` で返し、`out` には触れない。ただし `DefaultCpuOps` の `*_simd` は入力を検証せず、未対応の `UnsupportedExtensionDefault` を優先して返す。
 - `ReferenceCpuOps` は 4 メソッドとも scalar の計算をする。`DefaultCpuOps` の `*_simd` は simd 版が無いので `UnsupportedExtensionDefault` を返し、scalar へ黙って落とさない。単体試験が確かめる。
 
+## wasm32 の simd128 版（2/5）
+
+`DefaultCpuOps` の `gemm_simd`・`elementwise_simd` が呼ぶ版は、関数の項に付けたビルド時の `cfg` で選ぶ。実行時に CPU の機能は調べない。
+上の節の `*_simd` の記述は、下の表の「それ以外のビルド」の行の振る舞いに当たる。
+
+| ビルド | `*_simd` が呼ぶもの |
+| ---- | ---- |
+| `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | 非公開の `crates/contract/src/cpu_ops/simd128.rs` の 4 レーンの版（長さが合わなければ `InvalidArgument`、`out` には触れない） |
+| `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` | `UnsupportedExtensionDefault` |
+
+- `simd128.rs` は unsafe を使わず、`core::arch::wasm32` の値渡しの関数だけを使う。
+- `make build-profiles` は契約の crate の lib を wasm32 の scalar 構成と simd128 構成で `clippy -D warnings` にかける（lib のみ）。続けて wasm-abi の 2 版の release ビルドを流す。
+
 ## 確かめ方
 
 ```sh
 cargo test -p fandhe-silicon-contract --lib cpu_ops
+```
+
+wasm32 の 2 構成の lint は `make build-profiles` の中で流れる。単体では次を流す。
+
+```sh
+cargo clippy -p fandhe-silicon-contract --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops -- -D warnings
+CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" cargo clippy -p fandhe-silicon-contract --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops --target-dir target/wasm32-simd128 -- -D warnings
 ```
