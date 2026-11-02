@@ -158,3 +158,34 @@
 - `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --test detect_bounds_cmd`
 - `cargo run --manifest-path measure/Cargo.toml --locked -p measure-detect --bin detect-bounds -- 9 1 0`
 - `make measure-verify`
+
+## 完了の条件の確かめ（4/4）
+
+4/4 で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-1082）。
+GPU の実機なしで、末尾の base で実行した値。件数は実測。
+
+| 成果物 | 本書の節 | 試験 |
+| ------ | -------- | ---- |
+| `classify` | 変異体ごとの分類（1/4） | `measure/crates/detect/src/classify.rs` の単体試験と `tests/counting.rs` |
+| `rate` | 下限・上限とセルのラベル（2/4） | `measure/crates/detect/src/rate.rs` の単体試験と `tests/counting.rs` |
+| `detect-bounds` | コマンドと境界の入力の試験（3/4） | `measure/crates/detect/tests/detect_bounds_cmd.rs` |
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | crate が `measure/` の member で、製品の workspace の外にある | `grep -n members measure/Cargo.toml`、`grep -n exclude Cargo.toml`、`make upper-layer-check` | `members = ["crates/detect", "crates/perf"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` |
+| 2 | 分類の試験が通る | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --lib classify`、同じ形に `--test counting` | `--lib classify` は 11 passed; 0 failed; 0 ignored。`--test counting` の `classify_then_judge`・`classify_rejects_inconsistent_pairs`・`excluded_classes_are_counted_only` は ok |
+| 3 | 下限・上限とセルのラベルの境界の試験が通る | 同じ形に `--lib rate`、`--test counting` | `--lib rate` は 13 passed; 0 failed; 0 ignored。`--test counting` は 9 passed; 0 failed; 0 ignored（`ten_with_nine_detected_is_ok`・`eight_detected_two_indeterminate_is_indeterminate`・`two_or_more_missed_is_ng`・`fewer_than_ten_is_indeterminate`・`not_connected_is_indeterminate`・`threshold_constants` を含む） |
+| 4 | 閾値と最小の件数が定数で、差し替える口が無い | `grep -n 'pub const DETECTION_THRESHOLD\|pub const MIN_CELL_DENOMINATOR' measure/crates/detect/src/rate.rs`、`grep -rn 'env::var\|std::env' measure/crates/detect/src` | 前者は `rate.rs` の 28 行目と 34 行目。後者のヒットは `src/bin/detect-bounds.rs` の `std::env::args_os()` の 1 件だけ |
+| 5 | コマンドの試験が通り、合成の引数の出力が得られる | 同じ形に `--test detect_bounds_cmd`、`cargo run --manifest-path measure/Cargo.toml --locked -p measure-detect --bin detect-bounds -- 9 1 0` | 9 passed; 0 failed; 0 ignored。出力は `{"detected":9,"missed":1,"indeterminate":0,"denominator":10,"lower":{"numerator":9,"denominator":10},"upper":{"numerator":9,"denominator":10},"threshold":{"numerator":9,"denominator":10},"label":"ok","reason":null}`、終了コード 0 |
+| 6 | 依存 0・unsafe 0 | `measure/crates/detect/Cargo.toml` の `[dependencies]`、`grep -rc unsafe measure/crates/detect`、`make deps-check`、`git diff 1ad4cd1 origin/main -- measure/Cargo.lock` | `[dependencies]` は空。`unsafe` の件数はすべてのファイルで 0。`make deps-check` の終了コードは 0。`measure/Cargo.lock` の差分は `measure-detect`（version 0.0.0、依存なし）の package 1 ブロックの追加だけ（`1ad4cd1` は 1/4 の直前のコミット） |
+| 7 | CI で流れる場所 | `make measure-verify`（CI の `deny` ジョブが呼ぶ） | `measure-detect` の lib 24 passed、`tests/counting.rs` 9 passed、`tests/detect_bounds_cmd.rs` 9 passed（いずれも 0 failed; 0 ignored）。終了コードは 0 |
+| 8 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make measure-verify`・`make upper-layer-check`・`make build-profiles` | すべて終了コード 0 |
+
+### 再実行の契機
+
+- `measure/crates/detect/src/` の各ファイルまたは `measure/crates/detect/tests/` を変えたとき
+- `measure/Cargo.toml` または `measure/Cargo.lock` を変えたとき
+- `docs/spec` の gitlink を進めたとき
+
+確かめた base は `cd05d0a`、`docs/spec` の gitlink は `d15921d`。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1082）。
