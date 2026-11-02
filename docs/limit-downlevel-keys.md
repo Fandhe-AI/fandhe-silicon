@@ -115,6 +115,31 @@ scripts/feature-key-check.sh --example downlevel_keys --key-prefix downlevel:
 | 回帰テスト（`--example` の誤用と、example の実物の出力の形・合成の CSV での合格） | `make test-feature-key-check`（CI の `deny` ジョブが呼ぶ） |
 | 出力の行数 | `cargo run -q -p fandhe-silicon-core --example limit_keys \| wc -l`（57）、`--example downlevel_keys \| wc -l`（26） |
 
+## 完了の条件の確かめ（5/5）
+
+5/5（#7706）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1362）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 鍵の定数と一覧が共通の crate に feature の条件なしで置かれている | `grep -n 'pub mod limit_key\|pub mod downlevel_key\|pub mod value_key' crates/core/src/lib.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `:46` の `pub mod downlevel_key;`・`:53` の `pub mod limit_key;`・`:61` の `pub mod value_key;`（どれも前の行に `#[cfg` なし）。`cargo check` は終了コード 0 |
+| (2) | 上限 57 件・downlevel 26 件で、どれも互いに異なる | `cargo test -p fandhe-silicon-core --features test-support --test limit_downlevel_key_table`（`limit_and_downlevel_key_lists_are_complete`）、`cargo test -p fandhe-silicon-core --lib limit_key::`・`--lib downlevel_key::`、`cargo run -q -p fandhe-silicon-core --example limit_keys \| wc -l` と `\| sort -u \| wc -l`、`--example downlevel_keys` で同じ | `limit_and_downlevel_key_lists_are_complete` は ok（同じ試験の対象は 6 件で 6 passed）。`--lib limit_key::`・`--lib downlevel_key::` はそれぞれ 4 passed。limit は 57 行・異なる行 57、downlevel は 26 行・異なる行 26 |
+| (3) | 載っていない鍵・余分な鍵で検査が失敗する | `--test limit_downlevel_key_table`（`missing_or_extra_key_is_detected`）、`make test-feature-key-check` | `missing_or_extra_key_is_detected` は ok。`make test-feature-key-check` は終了コード 0、`# passed: 31, failed: 0` |
+| (4) | 行の無い鍵の値が `NoApi` でない | `--test limit_downlevel_key_table`（`unlisted_key_is_unknown_feature_not_no_api`） | ok |
+| (5) | `S3` 以上の値に根拠がある | `--test limit_downlevel_key_table`（`s3_and_above_carry_evidence`） | ok |
+| (6) | 値の鍵が上限の鍵と同じ文字列 | `cargo test -p fandhe-silicon-core --lib value_key`、`--test limit_downlevel_key_table`（`value_keys_follow_limit_keys`） | `--lib value_key` は 4 passed、`value_keys_follow_limit_keys` は ok |
+| (7) | 一覧どうしが共通の鍵を持たない | `--test limit_downlevel_key_table`（`key_lists_are_disjoint`） | ok |
+| (8) | 実物の機能一覧との突き合わせ | `scripts/feature-key-check.sh --example limit_keys --key-prefix limit:`、`scripts/feature-key-check.sh --example downlevel_keys --key-prefix downlevel:` | 入力が private の submodule の中にあり、本リポの CI と自動実装の作業ツリーでは流さない。結果は private spec 側の記録に従う（ポインタのみ） |
+| (9) | 公開 API に wgpu の型が 0 件（TASK-10 のポインタ） | `make public-api-check` | 終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`（production・all-features とも） |
+| (10) | 公開 API にチップの SDK の型が 0 件（TASK-13 のポインタ） | `make public-api-sdk-check` | 終了コード 0。core の行は `sdk_type_refs=0 sdk_other_refs=0`（production・all-features とも） |
+| (11) | ほかの公開 API の検査 | `make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | すべて終了コード 0。`name_hits_total=0`・`webgpu_names_total=0`・`unexpected=0 missing=0` |
+| (12) | CI で流れる場所 | `make verify`（1/5〜3/5 の試験と doctest、4/5 の example のビルド）、`make wasm-verify`、`deny` ジョブの `make test-feature-key-check`。`gh run list --branch main --workflow ci.yml --event push` | 1/5 のマージ `3b14e4b` は run 41395749496 success、2/5 の `8ecdcba` は run 41397517477 success、3/5 の `2ea8f74` は run 41399397222 success、4/5 の `80fd632` は run 41401196102（記録時点は queued で、結論は確かめていない） |
+| (13) | 依存 0・unsafe の追加 0 | `32c8e0b`（1/5 の親）から `80fd632` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、新しい 6 つのファイル（`limit_key.rs`・`downlevel_key.rs`・`value_key.rs`・`examples/limit_keys.rs`・`examples/downlevel_keys.rs`・`tests/limit_downlevel_key_table.rs`）への `grep -c unsafe`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` は差分なし。`crates/core/Cargo.toml` の差分は `limit_downlevel_key_table` の `[[test]]`（`required-features = ["test-support"]`）の 1 項目だけ。承認の記録は 4 件。`:37` に `#![forbid(unsafe_code)]`。`unsafe` は 6 ファイルとも 0 件。`cargo tree` は core 自身の 1 行だけで、外部依存は 0 件 |
+| (14) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1362）。確かめた base は `80fd63237a3251b38eeba84750a925f73d7cb286`。
+
 ## 段の表
 
 | 段 | Issue | 題 |
@@ -123,4 +148,4 @@ scripts/feature-key-check.sh --example downlevel_keys --key-prefix downlevel:
 | 2/5 | #7703 | 値の鍵の型と上限の値の鍵の定数（本書の「値の鍵（2/5）」） |
 | 3/5 | #7704 | 上限と downlevel の鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（3/5）」） |
 | 4/5 | #7705 | 上限と downlevel の鍵の一覧を機能一覧に突き合わせる検査（本書の「機能一覧との突き合わせの検査（4/5）」） |
-| 5/5 | #7706 | 完了の条件の確かめ |
+| 5/5 | #7706 | 完了の条件の確かめ（本書の「完了の条件の確かめ（5/5）」） |
