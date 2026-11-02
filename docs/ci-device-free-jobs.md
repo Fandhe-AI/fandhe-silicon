@@ -84,7 +84,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-api-sdk-check` | `scripts/test-public-api-sdk-check.sh` | 上の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、一時 workspace の実物） |
 | `deny` | `make core-deps-check` | `scripts/core-deps-check.sh` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査（件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-core-deps-check` | `scripts/test-core-deps-check.sh` | 上の回帰テスト（合成 metadata・偽のコマンド・一時 workspace の実物・TASK-13 の検査との突き合わせ） |
-| `deny` | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | 契約のコアの公開面の WebGPU 系の検査（内容の (1)(2)(3)。件数が `scanned:` / `record:` の行としてログに残る） |
+| `deny` | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | 契約のコアの公開面の WebGPU 系の検査（内容の (1)〜(5)〔TASK-241・TASK-155・TASK-313 のポインタ〕。件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-api-webgpu-check` | `scripts/test-public-api-webgpu-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（`make deny` の後のステップ。検出の件数が `record:` の行としてログに残り、狭い定義・広い定義・公開 API のどれかが 0 件なら失敗） |
 | `deny` | `make test-baseline-positive-control` | `scripts/test-baseline-positive-control.sh` | 上の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる） |

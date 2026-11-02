@@ -98,10 +98,10 @@ public-api-check: ## 4 crate の公開 API に wgpu 系（wgpu*・naga）の cra
 public-name-check: ## 製品の crate の公開アイテムの名前に語の一覧（public-name-check.conf）の語が出ていないことを、rustdoc の JSON から数えて検査する。--source でソースの単語・呼び出しの形、--exact-fields で struct の公開フィールドの集合も数える。この入口は決定表のソース（crates/core/src/decision.rs）と DecisionInput のフィールドを渡す（bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で作る。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/public-name-check.sh --config public-name-check.conf [--json <path>...] [--source <path>...] [--exact-fields <モジュール経路>::<名前>=<f1,f2,...>]
 	@scripts/public-name-check.sh --config public-name-check.conf --source crates/core/src/decision.rs --exact-fields decision::DecisionInput=capability,scale,residency,scalar
 
-public-api-webgpu-check: ## feature native-blocking-wait を外した構成で、契約のコアの公開面にブロッキング待ちの名前の公開アイテムが無いこと（内容の (1)）と、パイプライン生成の入力の形（PipelineInput の定義・Wgsl の variant・生成の関数の入力。内容の (2)）と、拡張 trait の feature ext-interop への閉じ込めと submit 系の wait 引数の形（内容の (3)）を、rustdoc の JSON から検査する（TASK-241。語は public-api-webgpu-check.conf。bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json --without-feature で外す feature ごとに 2 回作る。CI の deny ジョブも実行する）
+public-api-webgpu-check: ## feature native-blocking-wait を外した構成で、契約のコアの公開面にブロッキング待ちの名前の公開アイテムが無いこと（内容の (1)）と、パイプライン生成の入力の形（PipelineInput の定義・Wgsl の variant・生成の関数の入力。内容の (2)）と、拡張 trait の feature ext-interop への閉じ込めと submit 系の wait 引数の形（内容の (3)）と、WebGPU の語を名前に含む公開の操作・型が無いこと（内容の (4)。TASK-155）と、SubmitToken を受ける公開の口が設定の [submit-token-ops] の名前の一覧に入っていること（内容の (5)。TASK-313）を、rustdoc の JSON から検査する（TASK-241。語・名前は public-api-webgpu-check.conf。bash + python3 + cargo + git。JSON は public-api-check.sh --emit-json で 3 回作る: --without-feature で外す feature ごとに 2 回と、(5) 用に --without-feature なしの all-features で 1 回。CI の deny ジョブも実行する）
 	@scripts/public-api-webgpu-check.sh --config public-api-webgpu-check.conf
 
-test-public-api-webgpu-check: ## public-api-webgpu-check の回帰テスト（ダミーの語の一覧の合成 JSON と、一時 workspace の実物の rustdoc の JSON。TASK-241。bash + python3 + cargo + git。CI の deny ジョブも実行する）
+test-public-api-webgpu-check: ## public-api-webgpu-check の回帰テスト（ダミーの語の一覧の合成 JSON と、一時 workspace の実物の rustdoc の JSON。内容の (1)〜(5) を通す。TASK-241・TASK-155・TASK-313。bash + python3 + cargo + git。CI の deny ジョブも実行する）
 	@scripts/test-public-api-webgpu-check.sh
 
 test-public-name-check: ## public-name-check の回帰テスト（ダミーの語の一覧の合成 JSON・合成ソースと、一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-name-check.sh
