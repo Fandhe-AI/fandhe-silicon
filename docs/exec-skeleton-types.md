@@ -164,6 +164,44 @@ cargo test -p fandhe-silicon-exec --lib
 cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
 ```
 
+## opt-in の既定と呼び出しごとの上書きの試験（5/7）
+
+公開のパスだけを使う統合テストで、`Exec` の 7 つの入口の動きを確かめる。本体のコードは変えない。
+
+### 置き場
+
+| パス | 役割 |
+| ---- | ---- |
+| `crates/exec/tests/common/mod.rs` | 試験用の device `Scripted`。能力の問合せの値を差し込み、`query_ex`・`memory`・`queue` の呼び出し回数を数える |
+| `crates/exec/tests/opt_in_default.rs` | host の形の列での入口の試験（5 本） |
+| `crates/exec/tests/device_operands.rs` | device の形の列での入口の試験（1 本）。`Cargo.toml` の `[[test]]` で `native-blocking-wait` を要求する |
+
+### 試験用の device
+
+| device | 能力の問合せの値 |
+| ------ | ---------------- |
+| `Scripted::bare()` | 何も差し込まない。4 つの鍵とも `Unsupported`（理由 `UnknownFeature`） |
+| `Scripted::insufficient(鍵)` | 指定した鍵だけ `Unsupported`（理由 `NotSupported`）。入口ごとにその入口の鍵で作る |
+| `Scripted::query_fails()` | 4 つの鍵とも `S0` |
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `deny_default_without_override_is_unavailable` | 上の 3 つの device・`deny_by_default`・上書きなしで 4 入口 | `Ok(Outcome::Unavailable)`。`route` は `None`、`fallback_reason` は `OptInNotGiven`、`native_reason`・`observed_level` は device ごとの値。出力の列は不変 |
+| `override_applies_to_that_call_only` | 既定が拒否で C を許す上書き、既定が両方許すで拒否の上書き | 上書きはその呼び出しだけに効き、`default_opt_in()` は変わらない |
+| `each_flag_reaches_route_choice` | 非対応の 3 つの device・上書き G だけ・C だけ・両方・なし | G・C・両方は Unavailable でなく、なしは `OptInNotGiven` の Unavailable |
+| `chosen_route_does_not_write_output` | `bare`・C を許す上書きで 4 入口。3 入口は上書き 5 通り | `Err(ContractError::Unsupported)`。出力の列は不変 |
+| `entries_query_once_and_skip_memory_and_queue` | 呼び出し回数の計数 | 4 入口は 1 回につき `query_ex` 1 回、3 入口は 0 回。どれも `memory`・`queue` を呼ばない |
+| `unavailable_leaves_device_buffers_unchanged` | device の形の列（`f16_fma`・`atomic_add`）・上書きなし | Unavailable で、全 buffer の中身が不変 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --test opt_in_default
+cargo test -p fandhe-silicon-exec --features native-blocking-wait --test device_operands
+```
+
 ## 段の表
 
 | 段 | Issue | 題 |

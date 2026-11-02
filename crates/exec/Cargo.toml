@@ -20,5 +20,10 @@ native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
 [dev-dependencies]
 fandhe-silicon-core = { path = "../core", features = ["test-support", "fault-injection"] }
 
+# device の形の列を使う試験なので、feature native-blocking-wait のビルドでだけ流す。
+[[test]]
+name = "device_operands"
+required-features = ["native-blocking-wait"]
+
 [lints]
 workspace = true
