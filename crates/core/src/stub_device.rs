@@ -728,7 +728,10 @@ impl GraphicsOps for StubGraphics {
 
 /// GPU も背後実装も使わない試験用の device。
 ///
-/// 要求の `backend` と所有形態をそのまま持ち、能力問合せはどの機能も `Unsupported` を返す。
+/// 要求の `backend` と所有形態をそのまま持つ。
+/// 能力問合せは `query` がどの機能も `Unsupported` を返し、`query_ex` は鍵で返す値が変わる。
+/// WebGPU の口の 2 鍵には `WEBGPU_PORT_UNSUPPORTED`、形式の問合せの鍵には `Unsupported`・理由 `NotSupported`・根拠なし、
+/// それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
 /// メモリはホストの `Vec<u8>`、投入は即時に完了済みとして扱う。
 /// `compute()` は要求の `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
@@ -738,8 +741,6 @@ impl GraphicsOps for StubGraphics {
 /// 別 device の描画先やパイプラインを渡すと `DeviceMismatch` を返す（記録先の生成では、その値を持つ記録先を返す）。
 /// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
-/// 能力問合せの `query` はどの機能も `Unsupported` を返す。`query_ex` は WebGPU の口の 2 鍵には `WEBGPU_PORT_UNSUPPORTED`、
-/// 形式の問合せの鍵には `Unsupported`・理由 `NotSupported`・根拠なし、それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
