@@ -111,6 +111,35 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 
 流れる場所: `make verify`（`--all-features` の clippy・test）と `make wasm-verify`（`crates/core` の試験の wasm32 の型検査）。
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#6720）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1314）。GPU の実機なしで実行し、件数は実測。コードと試験は変えていない。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 検査の関数の module が feature `test-support` の裏にある | `crates/core/src/lib.rs:65` の `pub mod texture_format_query_check;`（直前に `#[cfg(feature = "test-support")]`）、`cargo check -p fandhe-silicon-core --features test-support` | 終了コード 0 |
+| (2) | 一覧の 118 鍵で試験用の device が `CapabilityQuery` を返し、規則と段階の一致の検査に通る | `cargo test -p fandhe-silicon-core --all-features --test texture_format_query_contract` の `stub_passes_texture_format_query_checks`・`stub_returns_row_values_for_query_keys` | 2 件とも ok |
+| (3) | 取得失敗の `S0` と `Unsupported` が別の値 | 同上の `failed_acquisition_s0_differs_from_stub_unsupported` | ok |
+| (4) | 壊れた値の検出 | `cargo test -p fandhe-silicon-core --features test-support --lib -- texture_format_query_check`、同 `--doc -- texture_format_query_check`、契約テストの `broken_implementations_are_reported` | `--lib` 6 件・`--doc` 3 件 passed、契約テストの 1 件 ok |
+| (5) | `texformat:Astc` と一覧に無い鍵が行の無い値 | `astc_row_key_returns_unlisted_value`、(2) の `stub_passes_texture_format_query_checks` の中の `check_rowless_texture_format_keys` | ok |
+| (6) | 試験用の device で 118 鍵が行の無い値に落ちない | `stub_passes_texture_format_query_checks` の `texture_format_keys_without_rows`、`cargo test -p fandhe-silicon-core --features test-support --lib -- stub_device` | 空の結果で ok、`--lib` 11 件 passed |
+| (7) | 実装を差し替えて流せる | `&dyn Device` を渡す `stub_passes_texture_format_query_checks`、部分の列の `checks_accept_key_subsets`、試験の枠（TASK-23 のポインタ）の `judge` に載せる `checks_compose_with_test_frame_judge` | 3 件とも ok |
+| (8) | 試験用の device での契約テストの記録 | `cargo test -p fandhe-silicon-core --all-features --test texture_format_query_contract` | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`（base `dc1228d`） |
+| (9) | 公開 API の検査 | `make public-api-check`（TASK-10 のポインタ）・`make public-api-sdk-check`（TASK-13 のポインタ）・`make public-name-check`・`make public-api-webgpu-check`・`make core-deps-check` | すべて終了コード 0。core の行は `wgpu_type_refs=0 wgpu_other_refs=0`・`sdk_type_refs=0 sdk_other_refs=0`・`name_hits=0`（production・all-features とも）。集計は `webgpu_names_total=0`・`unexpected=0 missing=0` |
+| (10) | CI で流れる場所 | 上の 3/4 の節の表。`gh run list --branch main --workflow ci.yml` | 1/4 のマージ `db4c842` は run 41370940336 success、2/4 の `ac8cb31` は run 41372460298 success、3/4 の `dc1228d` は run 41374030020 success |
+| (11) | 依存 0・unsafe の追加 0 | `7bbc838` から `dc1228d` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture_format_query_check.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` は差分なし、`crates/core/Cargo.toml` は `[[test]] texture_format_query_contract`（`required-features = ["test-support", "fault-injection"]`）の 4 行の追加、承認の記録 4 件のまま、`:35` に `#![forbid(unsafe_code)]`、`unsafe` は 0 件、core の外部依存は 0 件 |
+| (12) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1314）。確かめた base は `dc1228d54be1b56045e9ac93848f13cb5a31b8ee`。
+
+### 再実行の契機
+
+- `crates/core/src/texture_format_query_check.rs`・`crates/core/src/stub_device.rs`・`crates/core/tests/texture_format_query_contract.rs`・`crates/core/tests/stub_device_request.rs` を変えたとき。
+- `TEXTURE_FORMAT_QUERY_KEYS` の鍵が変わったとき。
+- 公開 API の検査（`scripts/public-api-check.sh` ほか）を変えたとき。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
