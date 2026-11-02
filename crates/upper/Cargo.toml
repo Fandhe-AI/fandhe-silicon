@@ -13,5 +13,9 @@ publish.workspace = true
 fandhe-silicon-core = { path = "../core" }
 fandhe-silicon-exec = { path = "../exec" }
 
+# wait_blocking を載せる。core・exec の同名 feature へ転送する。既定では無効。
+[features]
+native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait", "fandhe-silicon-exec/native-blocking-wait"]
+
 [lints]
 workspace = true
