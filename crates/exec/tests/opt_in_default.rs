@@ -43,6 +43,59 @@ struct Call {
     untouched: bool,
 }
 
+/// 4 つの入口のうち `entry` 番目（0: f16_fma・1: subgroup_sum_u32・2: subgroup_sum_f32・3: atomic_add）だけを 1 回呼ぶ。
+fn call_one(exec: &Exec<'_>, over: Option<OptIn>, entry: usize) {
+    let in16 = [1u16; 2];
+    let in_u = [1u32; 2];
+    let in_f = [1.0f32; 2];
+    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7.0f32; 2], [7.0f32; 2]);
+    match entry {
+        0 => {
+            let _ = exec.f16_fma(
+                over,
+                2,
+                F16FmaOperands::Host {
+                    a: &in16,
+                    b: &in16,
+                    c: &in16,
+                    out: &mut o16,
+                },
+            );
+        }
+        1 => {
+            let _ = exec.subgroup_sum_u32(
+                over,
+                2,
+                SubgroupSumU32Operands::Host {
+                    x: &in_u,
+                    out: &mut ou,
+                },
+            );
+        }
+        2 => {
+            let _ = exec.subgroup_sum_f32(
+                over,
+                2,
+                SubgroupSumF32Operands::Host {
+                    x: &in_f,
+                    out: &mut of,
+                },
+            );
+        }
+        _ => {
+            let _ = exec.atomic_add(
+                over,
+                2,
+                1,
+                AtomicAddOperands::Host {
+                    x: &in_f,
+                    out: &mut oa,
+                },
+            );
+        }
+    }
+}
+
 /// 4 つの入口を 1 回ずつ呼ぶ。
 fn call_four(exec: &Exec<'_>, over: Option<OptIn>) -> [Call; 4] {
     let in16 = [1u16; 2];
@@ -240,14 +293,16 @@ fn chosen_route_does_not_write_output() {
 
 #[test]
 fn entries_query_once_and_skip_memory_and_queue() {
-    // 4 つの入口は 1 回の呼び出しにつき能力を 1 回だけ問い合わせる。
+    // 4 つの入口は 1 回の呼び出しにつき能力を 1 回だけ問い合わせる（入口ごとに別の device で数える）。
     for over in [None, Some(C_ONLY)] {
-        let dev = Scripted::bare();
-        let exec = Exec::deny_by_default(&dev);
-        let _ = call_four(&exec, over);
-        assert_eq!(dev.query_ex_calls(), 4);
-        assert_eq!(dev.memory_calls(), 0);
-        assert_eq!(dev.queue_calls(), 0);
+        for entry in 0..4 {
+            let dev = Scripted::bare();
+            let exec = Exec::deny_by_default(&dev);
+            call_one(&exec, over, entry);
+            assert_eq!(dev.query_ex_calls(), 1, "entry {entry} with {over:?}");
+            assert_eq!(dev.memory_calls(), 0, "entry {entry} with {over:?}");
+            assert_eq!(dev.queue_calls(), 0, "entry {entry} with {over:?}");
+        }
     }
     // 3 つの入口は能力も問い合わせない。
     for over in [None, Some(NONE), Some(G_ONLY), Some(C_ONLY), Some(BOTH)] {
