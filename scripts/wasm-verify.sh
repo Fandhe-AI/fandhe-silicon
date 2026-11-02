@@ -39,6 +39,14 @@ main() {
   log "cargo check (crates/core tests, wasm32-unknown-unknown, all features)"
   cargo check -p fandhe-silicon-core --tests --all-features --locked --target wasm32-unknown-unknown
 
+  # exec と upper の試験の wasm32 での型検査（feature なしと native-blocking-wait 付き）。
+  for pkg in fandhe-silicon-exec fandhe-silicon-upper; do
+    log "cargo check (${pkg} tests, wasm32-unknown-unknown, default features)"
+    cargo check -p "${pkg}" --tests --locked --target wasm32-unknown-unknown
+    log "cargo check (${pkg} tests, wasm32-unknown-unknown, native-blocking-wait)"
+    cargo check -p "${pkg}" --tests --features native-blocking-wait --locked --target wasm32-unknown-unknown
+  done
+
   # 契約の crate の試験が wasm32 で型検査を通ること（コールバックに Send を要求しない側。TASK-240 のポインタ）。
   # --all-features は背後実装の feature を含み wasm32 では意味が違うので足さない。
   log "cargo check (crates/contract tests, wasm32-unknown-unknown, default features)"

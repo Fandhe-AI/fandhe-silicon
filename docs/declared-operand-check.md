@@ -33,3 +33,17 @@ make verify
 ```
 
 引数の宣言の C4〜C8 は [dispatch-operand-check.md](dispatch-operand-check.md)。
+
+## C1 の件数の試験（2/4）
+
+試験は `crates/core/tests/execution_declared_check.rs`。公開のパスだけを使い、feature なしで動く（TASK-420）。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `c1_binding_count_mismatch_is_rejected` | 宣言 1 件・`slots` 2 件 | `InvalidArgument`（先頭 `C1`） |
+| `c1_binding_count_match_is_accepted` | 宣言 2 件（`stride` の次元数を `shape` にそろえる）・`slots` 2 件 | `Ok(())` |
+
+```text
+cargo test -p fandhe-silicon-core --test execution_declared_check
+make verify
+```
