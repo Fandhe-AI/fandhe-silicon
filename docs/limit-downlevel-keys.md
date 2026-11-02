@@ -48,6 +48,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 上限の一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc limit_key` |
 | downlevel の一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc downlevel_key` |
 
+補足: 上の表の 4 は記録時点の値である。2/5 の後は `--lib limit_key` が名前の部分一致で `value_key::tests::constants_match_limit_key_constants` も拾い、いまは 5 件になる。`--lib limit_key::` で絞ると 4 件である。
+
 ## 値の鍵（2/5）
 
 ### 型
@@ -137,6 +139,8 @@ scripts/feature-key-check.sh --example downlevel_keys --key-prefix downlevel:
 | (12) | CI で流れる場所 | `make verify`（1/5〜3/5 の試験と doctest、4/5 の example のビルド）、`make wasm-verify`、`deny` ジョブの `make test-feature-key-check`。`gh run list --branch main --workflow ci.yml --event push` | 1/5 のマージ `3b14e4b` は run 41395749496 success、2/5 の `8ecdcba` は run 41397517477 success、3/5 の `2ea8f74` は run 41399397222 success、4/5 の `80fd632` は run 41401196102（記録時点は queued で、結論は確かめていない） |
 | (13) | 依存 0・unsafe の追加 0 | `32c8e0b`（1/5 の親）から `80fd632` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、新しい 6 つのファイル（`limit_key.rs`・`downlevel_key.rs`・`value_key.rs`・`examples/limit_keys.rs`・`examples/downlevel_keys.rs`・`tests/limit_downlevel_key_table.rs`）への `grep -c unsafe`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` は差分なし。`crates/core/Cargo.toml` の差分は `limit_downlevel_key_table` の `[[test]]`（`required-features = ["test-support"]`）の 1 項目だけ。承認の記録は 4 件。`:37` に `#![forbid(unsafe_code)]`。`unsafe` は 6 ファイルとも 0 件。`cargo tree` は core 自身の 1 行だけで、外部依存は 0 件 |
 | (14) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+補足: 上の表の (12) の 4/5 の run 41401196102 は記録時点は queued だった。その後、この run と 5/5 の run 41403155522 はどちらも success で終わったことを `gh run view <id> --json conclusion` で確かめた。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1362）。確かめた base は `80fd63237a3251b38eeba84750a925f73d7cb286`。
 

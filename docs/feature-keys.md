@@ -178,6 +178,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 試験の wasm32 の型検査 | `make wasm-verify`（core の `--tests` の check） | `deny`・`wasm-macos` | 終了コード 0 |
 | 公開 API の検査 | `make public-api-check`・`public-api-sdk-check`・`public-api-webgpu-check`・`public-name-check`・`core-deps-check` | `deny` | 新しい module を覆う |
 
+補足（時点が混ざる点）: 上の表の 23 件と、6/6 の表の (3) の 23 は記録時点の値である。この表の「検査の引数」の `--example` は後の追加で、回帰テストが `--example` の場合を足したので、いまの main で `make test-feature-key-check` を流すと終了コード 0・`# passed: 31, failed: 0` になる。増えた分は、回帰テストの出力にある `--example` を使う場合の行（`real limit_keys`・`real downlevel_keys` の実物の example を通す行を含む）で確かめられる。
+
 実物の機能一覧への実行（`make feature-key-check`）は、入力が private の submodule の中にあり、CI では流さない。
 
 ### 確かめ方
