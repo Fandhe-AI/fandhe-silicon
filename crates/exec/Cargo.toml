@@ -12,5 +12,9 @@ publish.workspace = true
 [dependencies]
 fandhe-silicon-core = { path = "../core" }
 
+# download_blocking を使う device の形の列の渡し方を載せる。core の同名 feature へ転送する。既定では無効。
+[features]
+native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
+
 [lints]
 workspace = true
