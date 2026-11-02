@@ -108,7 +108,7 @@ pub fn validate_query_resolve(
 
 /// パイプライン統計の 5 つのフラグの組。
 ///
-/// 外から作れるのは各定数と `|` だけで、5 つ以外のビットを持つ値は作れない。
+/// 外から作れるのは各定数・`empty()`・`|`・`|=` で、生のビットから作る口は無く、5 つ以外のビットを持つ値は作れない。
 ///
 /// ```
 /// use fandhe_silicon_core::execution::PipelineStatisticsFlags;
