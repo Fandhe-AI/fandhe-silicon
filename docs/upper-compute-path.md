@@ -145,3 +145,31 @@ cargo test -p fandhe-silicon-upper --features native-blocking-wait --test upper_
 cargo test -p fandhe-silicon-upper --features native-blocking-wait
 cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown --tests
 ```
+
+## 完了の条件の確かめ（5/5）
+
+5/5（#6900）で、上の層の crate（`crates/upper`）について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-2386（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 公開の型が上の層の crate の根にある | `grep -n 'pub use' crates/upper/src/lib.rs`、`cargo check -p fandhe-silicon-upper`（feature なし） | `lib.rs` の 15〜18 行に `Buffer`・`Queue`・`UpperDevice`・`CommandBuffer`・`CommandEncoder`・`SubmitId`・`ComputePass` の `pub use`。`cargo check` は終了コード 0 |
+| (2) | `finish`・`end` が契約の queue の操作を呼ばない | `cargo test -p fandhe-silicon-upper --test upper_compute_path` の `encoder_pass_and_finish_call_no_queue_operation` | `ok`（7 passed; 0 failed; 0 ignored） |
+| (3) | 投入・待ち・時刻の写し | 同 `--test upper_compute_path` の `submit_passes_empty_wait_and_wraps_the_token`・`submit_error_is_returned_as_is`・`gpu_timing_only_reads_and_returns_as_is`、`cargo test -p fandhe-silicon-upper --features native-blocking-wait --test upper_wait_blocking` の `wait_blocking_passes_token_and_timeout_as_is` | 4 本とも `ok`（後者の実行は 1 passed; 0 failed; 0 ignored） |
+| (4) | `Buffer` の口と、複製・二重の取り出しのコンパイルでの拒否 | `grep -n 'pub fn' crates/upper/src/buffer.rs`、`RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc`、`make doctest-error-code-check` | `pub fn` は `from_handle`・`handle`・`handle_mut`・`into_handle` の 4 つ（54・59・64・69 行）。`Buffer` の doctest（line 11・23 が compile fail、line 36 が compile）は `ok`。`make doctest-error-code-check` は `doctest error codes ok`、終了コード 0 |
+| (5) | 記録先・投入前の値・パスの型のコンパイルでの拒否 | 同じ `--doc` の `CommandEncoder`（line 16・30）・`CommandBuffer`（line 74）・`ComputePass`（line 16）・`Queue`（line 48。feature の門）の行 | feature なしは `3 passed` と `7 passed`（`Queue` は compile fail）、`--features native-blocking-wait` は `4 passed` と `6 passed`（`Queue` は通る例）。いずれも 0 failed |
+| (6) | device・queue が状態を持たない | `--test upper_compute_path` の `device_and_queue_hold_no_state`、`grep -rnE 'static\|thread_local\|Mutex\|RefCell\|Cell<\|Arc<' crates/upper/src` | `device_and_queue_hold_no_state` は `ok`。grep は 0 件 |
+| (7) | 依存 0・unsafe 0 | 4 コミット（`d909cc7`・`ac32709`・`d87360e`・`734d544`）それぞれの `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml Cargo.toml`、`make upper-layer-check`、`make deps-check`、`grep -n forbid crates/upper/src/lib.rs` | 4 コミットとも差分 0 件。`record:` の行は `rs_files=8 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0`、`ok:` で終了。`make deps-check` は `ok`、終了コード 0。`lib.rs` の 8 行に `#![forbid(unsafe_code)]` |
+| (8) | 流れる場所と feature の組 | `make verify`、`cargo clippy -p fandhe-silicon-upper --all-targets [--features native-blocking-wait] -- -D warnings`、`cargo test -p fandhe-silicon-upper [--features native-blocking-wait]`、`cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown`（`--tests`、`--tests --features native-blocking-wait` も） | `make verify` は終了コード 0 で、upper は統合試験 7 件と 1 件、doctest 4 件（通る）と 6 件（compile fail）。clippy は 2 組とも警告 0。`cargo test` は feature なしが 7 passed と doctest 3・7 passed、`native-blocking-wait` が 7・1 passed と doctest 4・6 passed。wasm32 の `cargo check` は 3 組とも終了コード 0 |
+
+確かめた時点は main の `734d5442c7c15642a8ec7396c24b76158d7c5a59`（`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`）。
+
+追加で流したコマンドと結果。
+
+```text
+make deny                  終了コード 0
+make public-api-check      ok: 10 public API document(s) checked, no wgpu-family references
+make public-name-check     ok: 10 public API document(s) and 1 source file(s) checked, no listed words
+make public-api-sdk-check  ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+```
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2386）。
