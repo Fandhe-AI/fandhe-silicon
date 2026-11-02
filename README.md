@@ -113,6 +113,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/failure-class-contract-test.md` | 失敗の種類を戻り値だけで区別する共通の契約テスト（TASK-272）の所在と、本リポの現状の事実・対応する試験・完了の条件の確かめ |
 | `docs/validation-intake.md` | 検証レイヤーの不正の受け口と失敗の種類の入口（TASK-554）の所在と、本リポの現状の事実・現状の形・段の表・確かめ方 |
 | `docs/device-lost-notify.md` | ロストの通知先の関数の型を native と wasm32 で確かめる試験（TASK-138）の所在と、本リポの現状の事実・確かめ方 |
+| `docs/error-scope.md` | 捕捉されなかったエラーの口とエラーの範囲（TASK-140）の所在と、本リポの現状の事実・捕捉されなかったエラーの口と保持（1/5） |
 | `docs/contract-limits-table.md` | 能力の問合せの上限の表（TASK-157）の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ |
 | `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6） |
 | `docs/capability-webgpu-ports.md` | WebGPU の口に当たる能力の問合せの行（TASK-155）の所在と現状の事実 |

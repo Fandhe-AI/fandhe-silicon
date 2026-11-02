@@ -23,7 +23,7 @@
 //! 値を指す鍵の型と、上限の値の鍵の定数と一覧（`value_key` モジュール）も feature の条件なしで公開される。
 //! テクスチャの次元・大きさ・用途・記述子の型と、テクスチャを指す handle とその問い合わせ（`texture` モジュール）も feature の条件なしで公開される。テクスチャの作成の記述子を照らす純粋関数、操作の時点の用途と view の形式を照らす純粋関数、storage texture の束縛のアクセスの値の型、その束縛の用途とシェーダーの宣言との照合の純粋関数も同じモジュールにある。
 //! SPIR-V のバイト列から語の列を作る型と関数（`spirv` モジュール）と、`const` の文脈で語の列を作るマクロ `spirv_words_const!`（crate の根）も feature の条件なしで公開される。
-//! 検証レイヤーの不正を利用側へ届ける受け口（`validation` モジュール）と、失敗の種類を返す入口（`error` モジュールの `FailureClass`）も同じく条件なしで公開される。
+//! 検証レイヤーの不正を利用側へ届ける受け口（`validation` モジュール）と、失敗の種類を返す入口（`error` モジュールの `FailureClass`）も同じく条件なしで公開される。捕捉されなかったエラーの口と保持の部品・エラーの範囲の種類の型（`error_scope` モジュール）も条件なしで公開される。
 //!
 //! feature `ext-interop` を有効にしたときだけ、相互運用の公開の型と `ExternalInterop` の trait（`interop` モジュール）が公開される。
 //!
@@ -88,3 +88,5 @@ pub mod fault;
 
 #[cfg(feature = "graphics")]
 pub mod graphics;
+
+pub mod error_scope;
