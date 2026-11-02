@@ -2,7 +2,7 @@
 
 ## 記録の所在
 
-private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1942。
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1942、項目 `TEX-50`・`TEX-54`・`TEX-56`・`TEX-58`・`TEX-59`・`TEX-60`・`TEX-61`・`TEX-62`・`TEX-63`・`TEX-64`・`TEX-65`（コードと試験のコメントに書いたポインタ）。
 
 ## 所在
 
@@ -44,8 +44,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `D2` 幅・高さ 8192 / 8193 | `Ok(())` / `InvalidArgument` |
 | `D2` 層 256 / 257 | `Ok(())` / `InvalidArgument` |
 | `D3` 3 辺 1024 / どれかが 1025 | `Ok(())` / `InvalidArgument` |
-| `D2` サンプル数 1・2・4・8・16・32 | `Ok(())` |
-| `D2` サンプル数 0・3・64 | `InvalidArgument` |
+| `D2` サンプル数 1・2・4・8・16・32（用途 `RENDER_ATTACHMENT`、mip 1） | `Ok(())` |
+| `D2` サンプル数 0・3・64（同上） | `InvalidArgument` |
 | `D1`・`D3` サンプル数 2 | `InvalidArgument` |
 
 ## 形式と次元の組・mip の段数（2/6）
@@ -203,7 +203,7 @@ make verify
 | (3) | `view_formats` の互換と view の形式 | 同上の `view_formats_compatibility` | `ok` |
 | (4) | 操作の時点の用途 | 同上の `usage_roles`・`render_attachment_dimension` | 2 本とも `ok` |
 | (5) | 一時的な描画先の作成の制約 | 同上の `transient_attachment_constraints` | `ok` |
-| (6) | 上限ちょうど・上限超過・用途が空・互換でない形式の入力が試験にある | `d1_limits`・`d2_limits`・`d3_limits`・`mip_level_count_limits`、`empty_usage_is_rejected`、`view_formats_compatibility`、`rejection_is_repeatable`・`rejection_is_invalid_argument_only` | 9 本とも `ok`（`--test texture_descriptor_check` 全体で 13 passed） |
+| (6) | 上限ちょうど・上限超過・用途が空・互換でない形式の入力が試験にある | `d1_limits`・`d2_limits`・`d3_limits`・`mip_level_count_limits`、`empty_usage_is_rejected`、`view_formats_compatibility`、`rejection_is_repeatable`・`rejection_is_invalid_argument_only` | 8 本とも `ok`（`--test texture_descriptor_check` 全体で 13 passed） |
 | (7) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/texture/*.rs`、`git show --stat <sha> -- crates/core/src/stub_device.rs crates/contract`（`ec6e802`・`6a5a9ca`・`d69aa27`・`d538c17`・`f72b280` のそれぞれ） | `use` はファイルごとに 3 行で `super::`・`crate::` だけ、5 コミットとも差分 0 |
 | (8) | 依存 0・unsafe 0 | 5 コミットそれぞれで `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/texture/*.rs`、`grep -n forbid crates/core/src/lib.rs`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 5 コミットとも差分 0、`unsafe` は 2 ファイルとも 0 件、35 行目に `#![forbid(unsafe_code)]`、承認の記録 4 件、core の外部依存 0 件 |
 | (9) | 試験の件数と CI | `--lib descriptor_check`・`--lib texture::usage_check`・`--doc validate_texture`・`--doc max_mip`、`make verify`、`make wasm-verify` | 16 passed・8 passed・3 passed・1 passed。`make verify`・`make wasm-verify` は終了コード 0 |
