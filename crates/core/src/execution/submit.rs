@@ -146,6 +146,16 @@ enum EncoderCloser {
 /// fn needs_send_sync<T: Send + Sync>() {}
 /// needs_send_sync::<std::rc::Rc<()>>();
 /// ```
+///
+/// 寿命の引数を持たないので、ほかの所有値と同じく寿命の指定の無い構造体の欄に置ける。
+/// 寿命の引数を持つ型は、寿命の指定の無い欄に置くと拒まれる（対照）:
+///
+/// ```compile_fail,E0106
+/// use fandhe_silicon_core::execution::ConstantBinding;
+/// struct Holder {
+///     c: ConstantBinding,
+/// }
+/// ```
 pub struct CommandEncoder {
     recorded: u32,
     id: u64,
@@ -378,6 +388,17 @@ pub trait CommandQueue {
     ///         _t: [u32; 3],
     ///         _m: &[ThreadgroupMemory],
     ///     ) -> Result<(), ContractError> { Ok(()) }
+    /// }
+    /// ```
+    /// 投入した記録先は値で移っているので、その後に `dispatch` へ渡すと所有権の移動のエラーになる（CMD-5）。
+    ///
+    /// ```compile_fail,E0382
+    /// use fandhe_silicon_core::execution::{CommandQueue, PipelineHandle};
+    /// fn f(queue: &dyn CommandQueue) {
+    ///     let mut encoder = queue.create_encoder();
+    ///     let pipeline = PipelineHandle::__backend_new(1, 1);
+    ///     let _ = queue.submit(encoder, &[]);
+    ///     let _ = queue.dispatch(&mut encoder, &pipeline, &[], [1, 1, 1]);
     /// }
     /// ```
     // 引数は dispatch の宣言の並びそのままで、まとめる型を挟まない。
