@@ -24,7 +24,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | wasm32 の check | `scripts/build-profiles.sh` の `WASM_SETS` は 4 組。`fandhe-silicon-contract` を `cargo check --target wasm32-unknown-unknown --no-default-features` で確かめるだけ（build・link・test はしない）。target が無ければ skip せず失敗する | `grep -n -e WASM_SETS -e 'cargo check' -e 'not installed' scripts/build-profiles.sh` |
 | wasm32 の check の呼び出し元 | `make build-profiles`、CI の `verify` ジョブ | `grep -n build-profiles Makefile .github/workflows/ci.yml` |
 | wasm32 での背後実装 | Vulkan・CUDA のモジュールは `not(target_arch = "wasm32")` で外れる。Metal は feature のみでゲートされる | `grep -n wasm32 crates/contract/src/lib.rs` |
-| CPU 部分 | `cpu-isa`・`cpu-ops` の feature は `crates/contract/Cargo.toml` にあり `default` に入るが、それでゲートされるモジュール・コードは無い。`crates/contract/src` は `lib.rs` と `backend_*` だけ | `ls crates/contract/src`、`grep -n 'pub mod' crates/contract/src/lib.rs`（背後実装の 3 つだけ）、`git grep -n -e 'feature = "cpu-' -- crates`（0 件）、`grep -rn -i cpu crates/contract/src`（0 件） |
+| CPU 部分 | `cpu-isa`・`cpu-ops` の feature は `crates/contract/Cargo.toml` にあり `default` に入る。`cpu-ops` は `cpu_ops` を公開している（[cpu-ops](cpu-ops.md)）。`crates/contract/src` は `lib.rs`・`cpu_ops` と `backend_*` | `ls crates/contract/src`、`grep -n -B1 'pub mod' crates/contract/src/lib.rs` |
 | cdylib | `crate-type` を持つ manifest は `wasm/crates/glue/Cargo.toml`（`["cdylib"]`）と製品の `crates/wasm-abi/Cargo.toml`（`["cdylib", "lib"]`。[wasm32-build](wasm32-build.md)）の 2 つ | `git grep -n crate-type -- '*.toml'` |
 | 製品の workspace | `members` は 5 crate、`exclude` は `baseline-wgpu`・`measure`・`wasm` | `grep -n -e members -e exclude Cargo.toml` |
 | 別 workspace の先例 | `measure/`・`baseline-wgpu/`・`wasm/` は自身の `Cargo.toml`・`Cargo.lock`・`deps-approved.toml` を持つ（`baseline-wgpu/` は自身の `deny.toml` も持つ） | `ls measure baseline-wgpu wasm`、[measurement-tool](measurement-tool.md)・[baseline-wgpu](baseline-wgpu.md) |
@@ -36,7 +36,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`。arm64）、`verify-macos`（`macos-latest`）。`ci-frame-check.sh` の許可ラベルは `ubuntu-latest`・`macos-latest` | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
 | CI の Node | `wasm-macos` ジョブが版固定・SHA256 検証済みの Node と wasm-bindgen の CLI を入れ、`make wasm-verify`・`make wasm-size`・`make wasm-node-check` を実物で流す。`deny` ジョブの `make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れる。`make build-profiles` は wasm32 の check（`verify` ジョブ） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
-補い: 契約の crate には `cpu_ops`（feature `cpu-ops`。[cpu-ops](cpu-ops.md)）がある。glue（`wasm/crates/glue`）は `cpu_ops` を呼ばず、契約の crate をリンクに入れるだけ。
+補い: glue（`wasm/crates/glue`）は `cpu_ops` を呼ばず、契約の crate をリンクに入れるだけ。
 
 ## 別 workspace `wasm/` の所在と検査の入口
 

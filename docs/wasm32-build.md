@@ -13,10 +13,8 @@ wasm32 向けの cdylib（製品の workspace の `crates/wasm-abi`）の所在�
 | feature | `contract-core`・`cpu-isa`・`cpu-ops` を契約の crate へそのまま転送する（`default` はこの 3 つ） | `crates/wasm-abi/Cargo.toml` |
 | `crate-type` | `["cdylib", "lib"]`。`lib` は公開 API の検査が lib target を要るために入れている | `cargo metadata --format-version 1 --no-deps` の kind |
 | export・公開アイテム | 無い（入口の `//!` と `forbid(unsafe_code)` のみ） | `crates/wasm-abi/src/lib.rs` |
-| 契約の crate の CPU 向けの feature | まだコードを持たない | `crates/contract/src` |
+| 契約の crate の CPU 向けの feature | `cpu-ops` が `cpu_ops` を公開している（[cpu-ops](cpu-ops.md)） | `grep -n -B1 'pub mod cpu_ops' crates/contract/src/lib.rs` |
 | 別 workspace `wasm/` の glue | 別の物。本 crate は `wasm/` を参照しない | [workspace-boundary](workspace-boundary.md) |
-
-補い: 契約の crate には `cpu_ops`（feature `cpu-ops`。[cpu-ops](cpu-ops.md)）がある。確かめ方は `grep -n -B1 'pub mod cpu_ops' crates/contract/src/lib.rs`。
 
 ## scalar 版のビルド（BUILD-19 のポインタ）
 
