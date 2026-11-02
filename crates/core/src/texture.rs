@@ -472,3 +472,6 @@ impl TextureHandle {
         self.usage
     }
 }
+
+mod descriptor_check;
+pub use descriptor_check::validate_texture_descriptor;
