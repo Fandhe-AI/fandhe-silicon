@@ -14,7 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::capability::{BackendKind, Capabilities, CapabilityLevel, FeatureId, LimitsTable};
+use crate::capability::{
+    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
+    WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
+};
 use crate::device::{
     Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
@@ -739,6 +742,20 @@ impl StubDevice {
 impl Capabilities for StubDevice {
     fn query(&self, _feature: FeatureId) -> CapabilityLevel {
         CapabilityLevel::Unsupported
+    }
+
+    /// WebGPU の口の 2 つの鍵には背後実装と同じ値（`WEBGPU_PORT_UNSUPPORTED`）を返し、
+    /// 共通の検査 `check_webgpu_ports` を通す。それ以外の鍵は既定の本体と同じ値
+    /// （`query` の段階・理由なし・根拠なし）を返す。鍵ごとの表を足すときはこの分岐に足す。
+    fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
+        if feature == WEBGPU_DEVICE_PORT || feature == WEBGPU_HANDLE_PORT {
+            return WEBGPU_PORT_UNSUPPORTED;
+        }
+        CapabilityQuery {
+            level: self.query(feature),
+            unsupported_reason: None,
+            evidence: None,
+        }
     }
 
     fn limits(&self) -> &LimitsTable {

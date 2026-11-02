@@ -4,8 +4,9 @@
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
-    WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT,
+    WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
 };
+use fandhe_silicon_core::capability_rule::check_webgpu_ports;
 use fandhe_silicon_core::device::{
     Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, NativeDeviceHandle,
     Profile,
@@ -126,7 +127,10 @@ fn query_is_unsupported_for_any_feature() {
 #[test]
 fn query_ex_uses_default_body() {
     let device = StubDevice::new(request(BackendKind::Vulkan));
-    for id in feature_ids() {
+    for id in feature_ids()
+        .into_iter()
+        .filter(|id| *id != WEBGPU_DEVICE_PORT && *id != WEBGPU_HANDLE_PORT)
+    {
         assert_eq!(
             device.query_ex(id),
             CapabilityQuery {
@@ -135,6 +139,18 @@ fn query_ex_uses_default_body() {
                 evidence: None,
             }
         );
+    }
+}
+
+#[test]
+fn query_ex_returns_webgpu_port_value_and_passes_shared_check() {
+    for backend in backends() {
+        let device = StubDevice::new(request(backend));
+        for id in [WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT] {
+            assert_eq!(device.query(id), CapabilityLevel::Unsupported);
+            assert_eq!(device.query_ex(id), WEBGPU_PORT_UNSUPPORTED);
+        }
+        assert_eq!(check_webgpu_ports(&device), Ok(()));
     }
 }
 
