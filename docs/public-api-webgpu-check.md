@@ -218,3 +218,25 @@
 | `--json` の経路 | `--token-json <path>...` を `--json` と一緒にだけ渡せる。渡さなければ照合せず `submit_token_checked=0` | スクリプトの先頭の使い方、`make test-public-api-webgpu-check`（`--token-json` の有無と単独の誤用） |
 | 検査しないもの | `SubmitToken` を受けない口、名前だけの照合なので一覧と同じ名前の別の口、`cfg(target_os)` で外れる面、`#[doc(hidden)]` の公開の口、trait の既定の本体だけの `Self` メソッド、exec・upper・wasm-abi の公開面、production の組 | スクリプトの先頭のコメント |
 | 現状 | `make public-api-webgpu-check` が終了コード 0。一覧から 1 件外すと、その名前の `violation:` で終了コード 1 になる | `make public-api-webgpu-check` |
+
+## SubmitToken を受ける口の検査の試験（3/4）（TASK-313）
+
+`scripts/test-public-api-webgpu-check.sh` に内容の (5) の回帰テストを足した。検査本体は変えていない。ここでは、コードと公開テストから観測できる事実だけを記録する。
+
+### 振る舞いとテストの対応
+
+| 振る舞い | 確かめ方 | 試験の名前 |
+| -------- | -------- | ---------- |
+| 一覧の名前だけなら通り、一覧の外は終了コード 1（値・参照・slice・入れ子の `Option`・trait のメソッド） | 合成 JSON（`--json`・`--token-json`） | `(5) 値で受ける口は違反`・`(5) 参照で受ける口は違反`・`(5) slice で受ける口は違反`・`(5) 入れ子の型の中の SubmitToken も数える`・`(5) trait のメソッド（default）も違反` |
+| 返すだけの関数・非公開・受けない口・core 以外のパス・局所の型の id は数えない | 合成 JSON | `(5) 返すだけの関数は数えない`・`(5) 非公開は数えない`・`(5) core 以外のパスの SubmitToken は数えない`・`(5) 局所の型の id は数えない` |
+| 名前は完全一致で、部分に含むだけでは通らない | 合成 JSON | `(5) 名前は完全一致で部分に含むだけは違反` |
+| `SubmitToken` の impl の `Self` を受けるメソッドは数え、blanket・自動の impl と `Self` を受けない関連関数は数えない。同じメソッドを 2 回数えない | 合成 JSON | `(5) impl の Self を受けるメソッドを数える`・`(5) blanket の impl は数えない`・`(5) 自動の impl は数えない`・`(5) Self を受けない関連関数は数えない`・`(5) 関数の枝と impl の枝の両方に当たる口は 1 件` |
+| `--token-json` の有無で `submit_token_checked` が 1 / 0、単独は終了コード 2。複数の JSON は合計し、(1) と (5) の違反は `FAILED:` に合計する | 合成 JSON | `(5) --token-json 無しの record`・`(5) --token-json を 2 本渡すと合計`・`(1) と (5) の違反は FAILED に合計`・`(5) 違反のとき ok を出さない` |
+| 形の崩れ（sig・impl の items・型の id）と設定の欠落・空・重複・文法違反は終了コード 2 で、締めの行を出さない | 合成 JSON・設定の合成ファイル | `(5) 関数に sig が無ければ終了コード 2`・`(5) impl の items が並びでなければ終了コード 2`・`(5) impl の for の id が引けなければ終了コード 2`・`(5) 設定の節が空`・`(5) 設定の語の重複` |
+| 実物の設定の各名前が読めて通り、接尾を足すと落ちる | 実物の設定から実行時に作る合成 JSON | `実物の一覧の名前は通る`・`実物の一覧の名前に接尾を足すと落ちる` |
+| 一時の設定の一覧どおりの trait は通り、一覧の外の口を core・contract に足すと落ちる（陽性対照）。core の feature の裏の口も `all-features` の組で落ちる。derive の impl のメソッドも数え、`#[doc(hidden)]` の口と返すだけの関数は数えない | 一時 workspace の実物の rustdoc の JSON | `real_tok_ok`・`real_tok_extra`・`real_tok_contract_extra`・`real_tok_gated`・`real_tok_self`・`real_tok_self_ctor`・`real_tok_derive`・`real_tok_hidden`・`real_tok_returns_only` |
+| 3 回目の JSON を作る段の失敗、core と contract の文書がそろわない場合は終了コード 2 | 一時 workspace の `public-api-check.sh` の差し替え | `real_third_emit_fail`・`real_third_core_only` |
+
+### 確かめ方
+
+`make test-public-api-webgpu-check` の最後の行が `failed=0`。

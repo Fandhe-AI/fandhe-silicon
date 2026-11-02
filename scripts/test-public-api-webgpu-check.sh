@@ -12,6 +12,9 @@
 #   (3) は合成 JSON〔組 A は --json、組 B は --interop-json。規則 G1〜G3 の合格・違反・形の崩れ〕と、一時 workspace の実物
 #   〔feature ext-interop の裏の拡張 trait は 0・裏から出すと落ちること、execution の型と submit 系の wait の形、
 #   2 回目の JSON を作る段だけ失敗させる差し替え〕で通す。
+#   (5) は合成 JSON〔--token-json の経路。一覧の中・外、値・参照・slice・trait のメソッド、impl の Self、形の崩れ、設定の崩れ〕と、
+#   一時 workspace の実物〔一時の設定の一覧どおりは 0・一覧の外の口を core・contract に足す・core の feature の裏の口を足すと落ちること、
+#   3 回目の JSON を作る段だけ失敗させる差し替え〕で通す（TASK-313 のポインタ）。
 #   ネットワーク不要・リポジトリを変更しない。
 # 呼び出し元: `make test-public-api-webgpu-check`（直接実行も可。CI の `deny` ジョブも実行する）。
 #   前提: python3・cargo・git（無ければ失敗。skip しない）。
@@ -31,6 +34,8 @@ require_cmd git
 
 CHECK="${DIR}/public-api-webgpu-check.sh"
 REAL_CONF="${DIR}/../public-api-webgpu-check.conf"
+# real() が検査へ渡す設定。既定は実物で、一時の設定を使うケースだけ差し替えて戻す。
+run_conf="${REAL_CONF}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/test-public-api-webgpu-check.XXXXXX")"
 trap 'rm -rf "${work:?}"' EXIT
 OUT_F="${work}/stdout.txt"
@@ -494,6 +499,57 @@ _d = json.load(open(os.path.join(out, "t_bad_sig.json"), encoding="utf-8"))
 _d["index"]["2"]["inner"]["function"]["sig"]["inputs"] = [["t"]]
 put("t_bad_sig", _d)
 
+# (5) の追加の入力（TASK-313 の 3/4）。値・参照・slice・trait のメソッド・返すだけ・部分一致・impl の Self など。
+def rref(elem):
+    return {"borrowed_ref": {"lifetime": None, "is_mutable": False, "type": elem}}
+
+
+put("t_value", tdoc("zz_tok_value", [("t", tok_ty())]))
+put("t_ref", tdoc("zz_tok_ref", [("t", rref(tok_ty()))]))
+put("t_slice", tdoc("zz_tok_slice", [("t", sref(tok_ty()))]))
+put("t_trait_method", tdoc("zz_tok_method", [("t", rref(tok_ty()))], vis="default"))
+d = tdoc("zz_tok_new", [])
+d["index"]["2"]["inner"]["function"]["sig"]["output"] = tok_ty()
+put("t_returns_only", d)
+d = tdoc("zz_tok_op2", [("t", sref(tok_ty()))])
+d["index"]["3"] = sfn(3, "pre_zz_tok_op", [("t", sref(tok_ty()))])
+put("t_partial", d)
+d = tdoc("zz_tok_other_crate", [("t", sref({"resolved_path": {"path": "SubmitToken", "id": 52, "args": None}}))])
+d["paths"]["52"] = {"crate_id": 1, "path": ["other_crate", "submit", "SubmitToken"], "kind": "struct"}
+put("t_other_crate_path", d)
+d = tdoc("zz_tok_local", [("t", sref({"resolved_path": {"path": "Local", "id": 60, "args": None}}))])
+d["index"]["60"] = item(60, "Local", {"struct": {}})
+put("t_local_id", d)
+d = tdoc("zz_tok_nosig", [("t", sref(tok_ty()))])
+del d["index"]["2"]["inner"]["function"]["sig"]
+put("t_no_sig", d)
+
+
+def idoc(mname, params, for_ty=None, blanket=None, synthetic=False, items=None):
+    d = base()
+    d["paths"] = dict(TOK_PATHS)
+    imp = {
+        "for": for_ty if for_ty is not None else tok_ty(),
+        "items": [4] if items is None else items,
+        "blanket_impl": blanket,
+        "is_synthetic": synthetic,
+        "trait": None,
+    }
+    d["index"]["3"] = item(3, "", {"impl": imp}, vis="default")
+    d["index"]["4"] = sfn(4, mname, params)
+    return d
+
+
+SELF_P = [("self", rref({"generic": "Self"}))]
+put("t_self_bad", idoc("zz_tok_look", SELF_P))
+put("t_self_ok", idoc("zz_tok_op", SELF_P))
+put("t_self_blanket", idoc("zz_tok_look", SELF_P, blanket={"generic": "T"}))
+put("t_self_synthetic", idoc("zz_tok_look", SELF_P, synthetic=True))
+put("t_self_assoc", idoc("zz_tok_make", []))
+put("t_self_and_token", idoc("zz_tok_both", SELF_P + [("other", rref(tok_ty()))]))
+put("t_impl_bad_items", idoc("zz_tok_look", SELF_P, items="x"))
+put("t_impl_unresolved_for", idoc("zz_tok_look", SELF_P, for_ty={"resolved_path": {"path": "X", "id": 99, "args": None}}))
+
 with open(os.path.join(out, "broken.json"), "w", encoding="utf-8") as f:
     f.write("{not json")
 PY
@@ -504,6 +560,8 @@ printf '[webgpu-words]\nzzgpu\n[webgpu-words]\nzzgpu2\n' >"${work}/dup_wg_sectio
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n' >"${work}/missing_tok_section.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz\n[submit-token-ops]\nzz2\n' >"${work}/dup_tok_section.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nZz-Op\n' >"${work}/upper_tok_word.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\n# none\n' >"${work}/empty_tok_section.conf"
+printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz_tok_op\nzz_tok_op\n' >"${work}/dup_tok_word.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\nZzGpu\n' >"${work}/upper_wg_word.conf"
 printf '[blocking-words]\nzzblock\n[webgpu-words]\n# none\n' >"${work}/empty_wg_section.conf"
 printf '[blocking-words]\nzzblock\n' >"${work}/missing_wg_section.conf"
@@ -633,6 +691,37 @@ check "(5) sig の崩れは終了コード 2" 2 - "function lacks a valid sig" -
 check "(5) 設定の節の欠落" 2 - "missing config section" --config "${work}/missing_tok_section.conf" --json "$(J clean)"
 check "(5) 設定の節の重複" 2 - "duplicate config section" --config "${work}/dup_tok_section.conf" --json "$(J clean)"
 check "(5) 設定の語の文法違反" 2 - "malformed word in a config section" --config "${work}/upper_tok_word.conf" --json "$(J clean)"
+check "(5) 値で受ける口は違反" 1 "submit_token_violations_total=1" "item=zz_tok_value kind=function check=submit-token-op reason=not-allowed" --config "${C}" --json "$(J clean)" --token-json "$(J t_value)"
+check "(5) 参照で受ける口は違反" 1 - "item=zz_tok_ref kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_ref)"
+check "(5) slice で受ける口は違反" 1 - "item=zz_tok_slice kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_slice)"
+check "(5) trait のメソッド（default）も違反" 1 - "item=zz_tok_method kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_trait_method)"
+check "(5) 返すだけの関数は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_returns_only)"
+check "(5) 名前は完全一致で部分に含むだけは違反" 1 "submit_token_violations_total=2" "item=pre_zz_tok_op kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_partial)"
+check "(5) core 以外のパスの SubmitToken は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_other_crate_path)"
+check "(5) 局所の型の id は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_local_id)"
+check "(5) 関数に sig が無ければ終了コード 2" 2 - "function lacks a valid sig" --config "${C}" --json "$(J clean)" --token-json "$(J t_no_sig)"
+check "(5) impl の Self を受けるメソッドを数える（一覧の外）" 1 "submit_token_ops_total=1" "item=zz_tok_look kind=function check=submit-token-op" --config "${C}" --json "$(J clean)" --token-json "$(J t_self_bad)"
+check "(5) impl の Self を受けるメソッド（一覧の中）は通る" 0 "submit_token_ops_total=1" - --config "${C}" --json "$(J clean)" --token-json "$(J t_self_ok)"
+check "(5) blanket の impl は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_self_blanket)"
+check "(5) 自動の impl は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_self_synthetic)"
+check "(5) Self を受けない関連関数は数えない" 0 "submit_token_ops_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_self_assoc)"
+check "(5) 関数の枝と impl の枝の両方に当たる口は 1 件" 1 "submit_token_ops_total=1" "item=zz_tok_both kind=function" --config "${C}" --json "$(J clean)" --token-json "$(J t_self_and_token)"
+check "(5) impl の items が並びでなければ終了コード 2" 2 - "malformed impl items" --config "${C}" --json "$(J clean)" --token-json "$(J t_impl_bad_items)"
+check "(5) impl の for の id が引けなければ終了コード 2" 2 - "unresolved type id in a function signature" --config "${C}" --json "$(J clean)" --token-json "$(J t_impl_unresolved_for)"
+check "(5) 設定の節が空" 2 - "empty config section" --config "${work}/empty_tok_section.conf" --json "$(J clean)"
+check "(5) 設定の語の重複" 2 - "duplicate word in a config section" --config "${work}/dup_tok_word.conf" --json "$(J clean)"
+check "(5) --token-json 無しの record" 0 "submit_token_checked=0 submit_token_ops_total=0 submit_token_violations_total=0" - --config "${C}" --json "$(J clean)"
+check "(5) 違反のとき scanned に件数" 1 "submit_token_ops=1 submit_token_violations=1" - --config "${C}" --json "$(J clean)" --token-json "$(J t_bad)"
+check "(5) --token-json を 2 本渡すと合計" 0 "submit_token_checked=1 submit_token_ops_total=2 submit_token_violations_total=0" - --config "${C}" --json "$(J clean)" --token-json "$(J t_ok)" "$(J t_ok)"
+check "(1) と (5) の違反は FAILED に合計" 1 - "FAILED: 2 item(s)" --config "${C}" --json "$(J fn_hit)" --token-json "$(J t_bad)"
+check "(1) の違反の行は (5) と同時でも変わらない" 1 - "violation: crate=dummy features=- item=zzblock_fn kind=function word=zzblock" --config "${C}" --json "$(J fn_hit)" --token-json "$(J t_bad)"
+check "(5) 違反のとき ok を出さない" 1 "record: commit=-" "FAILED:" --config "${C}" --json "$(J clean)" --token-json "$(J t_bad)"
+if grep -q '^ok:' "${OUT_F}"; then
+    failed=$((failed + 1))
+    echo "FAIL: (5) 違反のとき ok を出した" >&2
+else
+    passed=$((passed + 1))
+fi
 
 # 終了コード 2（誤用・前提の不足・読み切れない入力）
 check "引数なし" 2 - -
@@ -817,6 +906,55 @@ for f in "${work}"/gen/w*.json; do
     check "実物の語が当たる: $(basename "${f}")" 1 - "FAILED: 1 item(s)" --config "${REAL_CONF}" --json "${f}"
 done
 
+# 実物の設定の [submit-token-ops] の各名前が読めて通り、接尾を足すと落ちる（名前はテストに書き写さない）。
+python3 -I - "${REAL_CONF}" "${work}/gen" <<'PY'
+import json
+import os
+import re
+import sys
+
+conf, out = sys.argv[1], sys.argv[2]
+os.makedirs(out, exist_ok=True)
+names, sec = [], None
+for raw in open(conf, encoding="utf-8"):
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("["):
+        sec = line
+    elif sec == "[submit-token-ops]":
+        if re.fullmatch(r"[a-z_][a-z0-9_]*", line) is None:
+            sys.exit("malformed submit-token-ops word")
+        names.append(line)
+if not names:
+    sys.exit("no submit-token-ops words")
+tok = {"resolved_path": {"path": "SubmitToken", "id": 50, "args": None}}
+
+
+def doc(name):
+    ref = {"borrowed_ref": {"lifetime": None, "is_mutable": False, "type": {"slice": tok}}}
+    sig = {"inputs": [["t", ref]], "output": None, "is_c_variadic": False}
+    fn = {"id": 2, "crate_id": 0, "name": name, "visibility": "public",
+          "inner": {"function": {"sig": sig, "generics": {"params": [], "where_predicates": []}}}}
+    return {"root": 0, "format_version": 61, "includes_private": False, "external_crates": {},
+            "paths": {"50": {"crate_id": 0, "path": ["fandhe_silicon_core", "submit", "SubmitToken"], "kind": "struct"}},
+            "index": {"0": {"id": 0, "crate_id": 0, "name": "dummy", "visibility": "public",
+                            "inner": {"module": {"is_crate": True, "items": [1]}}},
+                      "1": {"id": 1, "crate_id": 0, "name": "Plain", "visibility": "public", "inner": {"struct": {}}},
+                      "2": fn}}
+
+
+for i, n in enumerate(names):
+    json.dump(doc(n), open(os.path.join(out, "tokname_%d.json" % i), "w", encoding="utf-8"))
+    json.dump(doc(n + "_zz"), open(os.path.join(out, "tokname_%d_zz.json" % i), "w", encoding="utf-8"))
+PY
+for f in "${work}"/gen/tokname_*.json; do
+    case "${f}" in
+        *_zz.json) check "実物の一覧の名前に接尾を足すと落ちる: $(basename "${f}")" 1 - "FAILED: 1 item(s)" --config "${REAL_CONF}" --json "$(J clean)" --token-json "${f}" ;;
+        *) check "実物の一覧の名前は通る: $(basename "${f}")" 0 "submit token ops ok" - --config "${REAL_CONF}" --json "$(J clean)" --token-json "${f}" ;;
+    esac
+done
+
 # ---- 後半: 実物の rustdoc の JSON（既定の経路）----
 # 一時 workspace に検査・public-api-check.sh・lib.sh を写して流す。依存なし。target は一時 workspace の中に出る
 # （.gitignore で dirty にしない）。語の一覧は実物の設定を渡す。
@@ -895,7 +1033,7 @@ real() {
     local name="$1" want="$2" want_out="$3" want_err="$4" ok=1
     rc=0
     (cd "${ws}" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR \
-        ./scripts/public-api-webgpu-check.sh --config "${REAL_CONF}") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+        ./scripts/public-api-webgpu-check.sh --config "${run_conf}") >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
     [[ "${rc}" -eq "${want}" ]] || ok=0
     if [[ "${want_out}" != "-" ]] && ! grep -qF -- "${want_out}" "${OUT_F}"; then ok=0; fi
     if [[ "${want_err}" != "-" ]] && ! grep -qF -- "${want_err}" "${ERR_F}"; then ok=0; fi
@@ -1160,6 +1298,83 @@ impl Queue {
 }"
     real real_submit_nowait 0 "submit_wait_params_total=0" -
 
+    # ---- (5) の実物（TASK-313 の 3/4）。一時の設定（workspace の外）の一覧どおりの trait は通り、外の口を足すと落ちる ----
+    printf '[blocking-words]\nzzblock\n[webgpu-words]\nzzgpu\n[submit-token-ops]\nzz_tok_peek\nzz_tok_list\n' >"${rw}/tok.conf"
+    run_conf="${rw}/tok.conf"
+    TOK_BASE='pub mod execution {
+    pub struct SubmitToken { pub sequence: u64 }
+    pub trait ZzQueue {
+        fn zz_tok_peek(&self, t: SubmitToken);
+        fn zz_tok_list(&self, after: &[SubmitToken]);
+    }
+}'
+    TOK_IMPL='pub struct ZzImpl;
+impl fandhe_silicon_core::execution::ZzQueue for ZzImpl {
+    fn zz_tok_peek(&self, t: fandhe_silicon_core::execution::SubmitToken) { let _ = t; }
+    fn zz_tok_list(&self, after: &[fandhe_silicon_core::execution::SubmitToken]) { let _ = after; }
+}'
+    libs "${CORE_OK}
+${TOK_BASE}" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_ok 0 "submit_token_checked=1 submit_token_ops_total=4 submit_token_violations_total=0" -
+    has_in real_tok_ok_ok "${OUT_F}" 'submit token ops ok$'
+    has_in real_tok_ok_core "${OUT_F}" '^scanned: crate=fandhe_silicon_core features=all-features '
+    has_in real_tok_ok_contract "${OUT_F}" '^scanned: crate=fandhe_silicon_contract features=all-features '
+    not_in real_tok_ok_no_violation "${ERR_F}" 'violation'
+    # 陽性対照: 一覧の外の自由関数を 1 つ足す。
+    libs "${CORE_OK}
+${TOK_BASE}
+pub fn zz_tok_extra(t: &execution::SubmitToken) { let _ = t; }" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_extra 1 - "violation: crate=fandhe_silicon_core features=all-features item=zz_tok_extra kind=function check=submit-token-op reason=not-allowed"
+    has_in real_tok_extra_failed "${ERR_F}" 'FAILED: 1 item\(s\)'
+    not_in real_tok_extra_no_ok "${OUT_F}" '^ok:'
+    # contract 側の一覧の外の口。
+    libs "${CORE_OK}
+${TOK_BASE}" "pub struct Own;
+${TOK_IMPL}
+pub fn zz_tok_contract_extra(t: fandhe_silicon_core::execution::SubmitToken) { let _ = t; }"
+    real real_tok_contract_extra 1 - "violation: crate=fandhe_silicon_contract features=all-features item=zz_tok_contract_extra kind=function check=submit-token-op"
+    # 陽性対照: core の feature の裏の口は all-features の組で拾う。
+    libs "${CORE_OK}
+${TOK_BASE}
+#[cfg(feature = \"zz-gate\")]
+pub fn zz_tok_gated(t: execution::SubmitToken) { let _ = t; }" "pub struct Own;
+${TOK_IMPL}"
+    cp "${ws}/crates/core/Cargo.toml" "${rw}/core-Cargo.toml.orig"
+    printf '\n[features]\nzz-gate = []\n' >>"${ws}/crates/core/Cargo.toml"
+    real real_tok_gated 1 - "violation: crate=fandhe_silicon_core features=all-features item=zz_tok_gated kind=function check=submit-token-op"
+    cp "${rw}/core-Cargo.toml.orig" "${ws}/crates/core/Cargo.toml"
+    # SubmitToken の impl の Self を受けるメソッド。
+    libs "${CORE_OK}
+${TOK_BASE}
+impl execution::SubmitToken { pub fn zz_tok_look(&self) {} }" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_self 1 - "item=zz_tok_look kind=function check=submit-token-op"
+    libs "${CORE_OK}
+${TOK_BASE}
+impl execution::SubmitToken { pub fn zz_tok_make() -> Self { Self { sequence: 0 } } }" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_self_ctor 0 "submit_token_violations_total=0" -
+    # derive の impl のメソッドも数える（一時の設定に clone は無い）。
+    libs "${CORE_OK}
+${TOK_BASE/pub struct SubmitToken/#[derive(Clone)] pub struct SubmitToken}" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_derive 1 - "item=clone kind=function check=submit-token-op"
+    # #[doc(hidden)] の口は数えない。
+    libs "${CORE_OK}
+${TOK_BASE}
+impl execution::SubmitToken { #[doc(hidden)] pub fn zz_tok_hidden(&self) {} }" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_hidden 0 "submit_token_violations_total=0" -
+    # 返すだけの関数は数えない。
+    libs "${CORE_OK}
+${TOK_BASE}
+pub fn zz_tok_new() -> execution::SubmitToken { execution::SubmitToken { sequence: 0 } }" "pub struct Own;
+${TOK_IMPL}"
+    real real_tok_returns_only 0 "submit_token_ops_total=4" -
+    run_conf="${REAL_CONF}"
+
     # (g) 2 回目（ext-interop を外す）の JSON を作る段だけ失敗させる。1 回目は写した本物へ渡す。
     cp "${DIR}/public-api-check.sh" "${ws}/scripts/public-api-check.real.sh"
     cat >"${ws}/scripts/public-api-check.sh" <<'SH'
@@ -1184,6 +1399,26 @@ done
 exec bash "${real}" "$@"
 SH
     real real_second_core_only 2 - "core and contract documents were not both emitted"
+
+    # 3 回目（--without-feature なし）の JSON を作る段だけ失敗させる。
+    cat >"${ws}/scripts/public-api-check.sh" <<'SH'
+#!/usr/bin/env bash
+for a in "$@"; do
+    if [[ "$a" == "--without-feature" ]]; then exec bash "$(dirname "${BASH_SOURCE[0]}")/public-api-check.real.sh" "$@"; fi
+done
+exit 1
+SH
+    libs "${CORE_OK}" 'pub struct Own;'
+    real real_third_emit_fail 2 - "public-api-check.sh --emit-json failed"
+    cat >"${ws}/scripts/public-api-check.sh" <<'SH'
+#!/usr/bin/env bash
+real="$(dirname "${BASH_SOURCE[0]}")/public-api-check.real.sh"
+for a in "$@"; do
+    if [[ "$a" == "--without-feature" ]]; then exec bash "${real}" "$@"; fi
+done
+bash "${real}" "$@" | grep -v fandhe-silicon-contract || true
+SH
+    real real_third_core_only 2 - "core and contract documents were not both emitted"
     rm -f "${ws}/scripts/public-api-check.real.sh"
     cp "${DIR}/public-api-check.sh" "${ws}/scripts/"
 
