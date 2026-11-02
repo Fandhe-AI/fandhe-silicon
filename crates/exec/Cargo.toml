@@ -16,5 +16,9 @@ fandhe-silicon-core = { path = "../core" }
 [features]
 native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait"]
 
+# 試験用の device を使う。core の試験用の feature を付ける。
+[dev-dependencies]
+fandhe-silicon-core = { path = "../core", features = ["test-support", "fault-injection"] }
+
 [lints]
 workspace = true
