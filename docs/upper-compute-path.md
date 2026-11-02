@@ -83,3 +83,34 @@ cargo test -p fandhe-silicon-upper --features native-blocking-wait
 cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown
 RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc
 ```
+
+## バッファの包み（3/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/upper/src/buffer.rs` |
+| 公開のパス | `fandhe_silicon_upper::Buffer` |
+
+| 操作 | 受けるもの | 呼ぶ契約の操作 | 返す値 |
+| ---- | ---------- | -------------- | ------ |
+| `from_handle` | `BufferHandle` | なし（値を移すだけ・失敗しない） | `Buffer` |
+| `handle` | `&Buffer` | なし | `&BufferHandle` |
+| `handle_mut` | `&mut Buffer` | なし | `&mut BufferHandle` |
+| `into_handle` | `Buffer` | なし（値を移すだけ・失敗しない） | `BufferHandle` |
+
+`Buffer` が持つのは契約の `BufferHandle` だけ。`Clone`・`Copy`・`Drop` を持たない。
+大きさと用途は `handle().size()`・`handle().usage()` で読む。
+
+コンパイルで拒否されるコードは doctest で確かめる。複製（E0599）、`into_handle` の 2 回目の呼び出し（E0382）。
+通る例は `from_handle` の後に `handle`・`handle_mut` を借りて `into_handle` で返すもの。
+
+### 確かめ方
+
+```text
+cargo clippy -p fandhe-silicon-upper --all-targets -- -D warnings
+cargo clippy -p fandhe-silicon-upper --all-targets --features native-blocking-wait -- -D warnings
+cargo test -p fandhe-silicon-upper
+cargo test -p fandhe-silicon-upper --features native-blocking-wait
+cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown
+RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc
+```
