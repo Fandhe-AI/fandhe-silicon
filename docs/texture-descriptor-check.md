@@ -10,13 +10,16 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 項目 | 内容 |
 | ---- | ---- |
 | 実装 | `crates/core/src/texture/descriptor_check.rs` |
-| 公開のパス | `fandhe_silicon_core::texture::validate_texture_descriptor`、`fandhe_silicon_core::texture::max_mip_level_count` |
+| 実装（操作の時点） | `crates/core/src/texture/usage_check.rs` |
+| 公開のパス | `fandhe_silicon_core::texture::validate_texture_descriptor`、`fandhe_silicon_core::texture::max_mip_level_count`、`fandhe_silicon_core::texture::TextureUsageRole`、`fandhe_silicon_core::texture::validate_texture_usage_for_role`、`fandhe_silicon_core::texture::validate_texture_view_format` |
 | feature | 条件なし |
 
 | 関数 | 入力 | 返し |
 | ---- | ---- | ---- |
 | `validate_texture_descriptor` | `&TextureDescriptor`、1 次元・2 次元・3 次元の大きさの上限、配列の層数の上限（すべて `u32`） | `Result<(), ContractError>` |
 | `max_mip_level_count` | `TextureDimension`、`TextureExtent` | `u32` |
+| `validate_texture_usage_for_role` | 作成の時に記録した `TextureUsage`、`TextureUsageRole` | `Result<(), ContractError>` |
+| `validate_texture_view_format` | 元の `TextureFormat`、`&[TextureFormat]`（`view_formats`）、求める `TextureFormat` | `Result<(), ContractError>` |
 
 型の所在は [texture-types.md](texture-types.md)（TASK-371）を参照。
 
@@ -109,11 +112,50 @@ mip の段数の検査に続けて、次の 3 つをこの順に照らす（番�
 | `Bgra8UnormSrgb` の `view_formats` が `[Bgra8Unorm]` | `Ok(())` |
 | ASTC 6x6 `Unorm` の `view_formats` が `[UnormSrgb]` / `[Unorm]` / `[Hdr]` | `Ok(())` / `Ok(())` / `InvalidArgument` |
 
+## 操作の時点の用途と view の形式（4/6）
+
+作成の記述子の検査とは別の関数で、背後実装が操作の前に、作成の時に記録した値を渡して呼ぶ。どちらも `ContractError::InvalidArgument` を返し、文言は固定しない。
+
+役割と要る用途（どれも 1 ビット）。
+
+| `TextureUsageRole` | 要る用途 |
+| ------------------ | -------- |
+| `CopySource` | `COPY_SRC` |
+| `CopyDestination` | `COPY_DST` |
+| `TextureBinding` | `TEXTURE_BINDING` |
+| `StorageBinding` | `STORAGE_BINDING` |
+| `StorageAtomic` | `STORAGE_ATOMIC` |
+| `RenderAttachment` | `RENDER_ATTACHMENT` |
+
+`validate_texture_usage_for_role` の返し。
+
+| 入力 | 返し |
+| ---- | ---- |
+| 要る用途だけ（6 役割とも） | `Ok(())` |
+| 要る用途だけを除いた残り（6 役割とも） | `InvalidArgument` |
+| 空の用途（6 役割とも） | `InvalidArgument` |
+| 7 つの用途すべての和（6 役割とも） | `Ok(())` |
+| `STORAGE_ATOMIC` だけで `StorageBinding` / `StorageAtomic` | `InvalidArgument` / `Ok(())` |
+| `COPY_SRC` と `TEXTURE_BINDING` の和で `CopySource` / `CopyDestination` | `Ok(())` / `InvalidArgument` |
+
+`validate_texture_view_format` の返し。
+
+| 入力 | 返し |
+| ---- | ---- |
+| 求める形式が元の形式と同じ | `Ok(())` |
+| 求める形式が `view_formats` にある | `Ok(())` |
+| 元の形式とも `view_formats` のどれとも違う | `InvalidArgument` |
+| `view_formats` が空で、求める形式が元の形式の sRGB の対 | `InvalidArgument` |
+
 ## 対応するテスト
 
 `crates/core/src/texture/descriptor_check.rs` の `mod tests`:
 `descriptor_check_empty_usage_is_rejected`・`descriptor_check_zero_extent_is_rejected`・`descriptor_check_d1_limits`・`descriptor_check_d2_limits`・`descriptor_check_d3_limits`・`descriptor_check_limits_are_not_swapped`・`descriptor_check_sample_count`・`descriptor_check_max_mip_level_count_values`・`descriptor_check_depth_stencil_and_transient_need_d2`・`descriptor_check_d1_rejects_compressed_and_render_attachment`・`descriptor_check_d3_compressed_formats`・`descriptor_check_compressed_block_multiple`・`descriptor_check_mip_level_count`・`descriptor_check_transient_attachment`・`descriptor_check_multisample`・`descriptor_check_view_formats_compatibility`。
 doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が空・幅 8193）、`max_mip_level_count` の `///` に 1 本。
+
+`crates/core/src/texture/usage_check.rs` の `mod tests`:
+`texture_usage_check_roles_accept_required_usage`・`texture_usage_check_roles_reject_missing_usage`・`texture_usage_check_empty_usage_is_rejected`・`texture_usage_check_all_usages_pass`・`texture_usage_check_storage_atomic_alone_is_not_storage_binding`・`texture_usage_check_roles_require_distinct_single_bits`・`texture_usage_check_error_names_role_and_usage`・`texture_usage_check_view_format`。
+doctest は `validate_texture_usage_for_role` と `validate_texture_view_format` の `///` に 1 本ずつ。
 
 ## 確かめ方
 
@@ -121,6 +163,9 @@ doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が
 cargo test -p fandhe-silicon-core --lib descriptor_check
 cargo test -p fandhe-silicon-core --doc validate_texture_descriptor
 cargo test -p fandhe-silicon-core --doc max_mip_level_count
+cargo test -p fandhe-silicon-core --lib texture::usage_check
+cargo test -p fandhe-silicon-core --doc validate_texture_usage_for_role
+cargo test -p fandhe-silicon-core --doc validate_texture_view_format
 make verify
 ```
 
