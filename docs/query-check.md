@@ -114,6 +114,24 @@ cargo test -p fandhe-silicon-core --all-features
 cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
 ```
 
+## 解決先の整列・範囲・長さの試験（4/5）
+
+`crates/core/src/` は変えず、試験のファイル `crates/core/tests/query_resolve.rs`（feature 不要）を 1 つ足した。公開 API は変わらない。期待は試験の中で `u128` で独立に数える。
+
+| テスト | 項目のポインタ | 入力 | 期待 |
+| ------ | -------------- | ---- | ---- |
+| `resolve_offset_alignment` | CMD-130 | `dst_offset` 0・256・512、1・8・255・257、`u64::MAX`、`u64::MAX - 255` | 256 の倍数は `Ok`、ほかは `InvalidArgument`（offset の語）。`u64::MAX - 255` は終端のあふれ・超過を区別して拒否 |
+| `resolve_boundaries` | CMD-129 | 長さちょうど・1 バイト不足、範囲ちょうど・1 超過、個数 0、`u32::MAX` | ちょうどは `Ok`、不足・超過は `InvalidArgument`、個数 0 は `Ok(0)`（`first_query` が `set_count` を超えれば拒否） |
+| `resolve_grid_matches_reference` | CMD-129・CMD-130 | `set_count` 4 値 × `stride` 5 値 × `first_query`・`query_count` × `dst_offset` × `dst_size` の格子 | 参照の分類どおり。誤りが 1 つなら文言の先頭の語まで、2 つ以上なら種類だけ照らす |
+| `resolve_stride_values` | CMD-129 | `stride` 0・7・9・`u64::MAX`、8・40・`u64::MAX - 7` | 8 の倍数でない・0 は `InvalidArgument`（stride の語）、8 の倍数は参照どおり |
+| `resolve_is_repeatable` | CMD-129 | `Ok` と各種の拒否の入力 | 同じ引数で 2 回呼んで結果が等しい |
+
+```sh
+cargo test -p fandhe-silicon-core --test query_resolve
+cargo test -p fandhe-silicon-core --all-features
+cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
