@@ -40,6 +40,41 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 cargo test -p fandhe-silicon-exec --lib
 ```
 
+## 経路の報告と結果の値の型（2/7）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/exec/src/report.rs` |
+| 公開のパス | `fandhe_silicon_exec::{RouteReport, Outcome, F32DenormalReport, F32DenormalBehavior, F32DenormalBasis}` |
+| feature の条件 | なし |
+
+| 型 | 値または欄 | derive | `#[non_exhaustive]` |
+| -- | ---------- | ------ | ------------------- |
+| `F32DenormalBehavior` | `Preserve`・`FlushToZero` | `Debug, Clone, Copy, PartialEq, Eq, Hash` | なし |
+| `F32DenormalBasis` | `Observed` | `Debug, Clone, Copy, PartialEq, Eq, Hash` | あり |
+| `F32DenormalReport` | 欄 `behavior`・`basis`・`documented` | `Debug, Clone, Copy, PartialEq, Eq` | あり |
+| `RouteReport` | 下の 6 欄 | `Debug, Clone, Copy, PartialEq, Eq` | あり |
+| `Outcome` | `Ran { report }`・`Unavailable { report }`（`#[must_use]`） | `Debug, Clone, Copy, PartialEq, Eq` | なし |
+
+`RouteReport` の欄:
+
+| 欄 | 型 | 表すもの |
+| -- | -- | -------- |
+| `op` | `OpId` | 対象の操作 |
+| `route` | `Option<Route>` | 選ばれた経路。`None` は経路が無いこと |
+| `native_reason` | `Option<UnavailableReason>` | device の機能をそのまま使えない理由 |
+| `fallback_reason` | `Option<UnavailableReason>` | 代わりの実行が使えない理由 |
+| `observed_level` | `Option<CapabilityLevel>` | 観察した能力の段階（`fandhe_silicon_core::capability::CapabilityLevel`） |
+| `f32_denormal` | `Option<F32DenormalReport>` | f32 の非正規化数の項 |
+
+`Outcome` は 2 つの場合のどちらでも `report()` で報告を返す。
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-exec --lib
+```
+
 ## 段の表
 
 | 段 | Issue | 題 |
