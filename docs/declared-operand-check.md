@@ -47,3 +47,18 @@ make verify
 cargo test -p fandhe-silicon-core --test execution_declared_check
 make verify
 ```
+
+## C3 の次元数の試験（3/4）
+
+試験は `crates/core/tests/execution_declared_check.rs`。公開のパスだけを使い、feature なしで動く（TASK-420）。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `c3_shape_stride_dimension_mismatch_is_rejected` | 宣言 1 件（`shape` `[4, 4]`・`stride` `[1]`）・`slots` 1 件 | `InvalidArgument`（先頭 `C3`） |
+| 同上の対照 | 宣言 1 件（`shape` `[4, 4]`・`stride` `[4, 1]`）・`slots` 1 件 | `Ok(())` |
+| `declared_check_return_type_is_pinned` | 署名 `fn(&[OperandSpec<'_>], &BindingLayout) -> Result<(), ContractError>` への代入・空の入力 | コンパイルが通り `Ok(())` |
+
+```text
+cargo test -p fandhe-silicon-core --test execution_declared_check
+make verify
+```
