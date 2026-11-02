@@ -1,0 +1,103 @@
+# 形式ごとの能力の値の型と問合せ（TASK-2566）の所在と本リポの現状
+
+TASK-2566 の作業を進めるにあたり、記録の所在と本リポの現状の事実を置く。
+spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+本書の事実はすべて、本リポのコードと下の「確かめ方」のコマンドの出力から書いている。
+
+## 記録の所在
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-2566。ポインタのみ）。
+内容・理由・経緯は本書に置かない。
+
+## 所在
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/core/src/texture_format_features.rs` |
+| 公開のパス | `fandhe_silicon_core::texture_format_features` |
+| 公開の条件 | feature の条件なし（`crates/core/src/lib.rs`） |
+
+| 名前 | 種類 | 役割 |
+| ---- | ---- | ---- |
+| `TextureFormatFeature` | 列挙（`#[non_exhaustive]`） | 形式ごとの能力の 18 の要素 |
+| `TextureFormatFeature::ALL` | 定数 | 18 要素を宣言の順に並べた一覧 |
+| `TextureFormatFeatures` | 構造体 | 形式の単位の値と要素ごとの値（欄は非公開） |
+| `TextureFormatFeatures::new` | 関数 | 規則に照らして値を組み立てる。外れる入力は `ContractError::InvalidArgument` |
+| `TextureFormatFeatures::capture_failed` | `const fn` | 形式の単位が `S0` で要素を持たない値 |
+| `TextureFormatFeatures::format_query` | 読み出し | 形式の単位の値 |
+| `TextureFormatFeatures::feature` | 読み出し | 要素の値 |
+| `TextureFormatFeatures::allowed_usages` | 読み出し | 使える段階の用途の要素に対応する `TextureUsage` の和 |
+| `TextureFormatFeatures::sample_count_supported` | 読み出し | サンプル数が使えるか |
+| `TextureFormatFeatures::supported_sample_counts` | 読み出し | 使えるサンプル数の昇順の列 |
+
+値の型は `CapabilityQuery`（TASK-136）、用途は `TextureUsage`（TASK-371）、形式の型は `TextureFormat`（TASK-1312）。
+
+## 型と組み立ての規則（1/4）
+
+要素（`TextureFormatFeature`。宣言の順）
+
+| 順 | 名前 | 意味 |
+| -- | ---- | ---- |
+| 0 | `Filterable` | フィルタ可 |
+| 1 | `Blendable` | ブレンド可 |
+| 2〜5 | `Multisample2`・`Multisample4`・`Multisample8`・`Multisample16` | サンプル数 2・4・8・16 |
+| 6 | `MultisampleResolve` | マルチサンプルの解決 |
+| 7〜10 | `StorageReadOnly`・`StorageWriteOnly`・`StorageReadWrite`・`StorageAtomic` | storage の読み取り専用・書き込み専用・読み書き・atomic |
+| 11〜17 | `UsageCopySrc`・`UsageCopyDst`・`UsageTextureBinding`・`UsageStorageBinding`・`UsageRenderAttachment`・`UsageTransientAttachment`・`UsageStorageAtomic` | 用途 `COPY_SRC`〜`STORAGE_ATOMIC` |
+
+`new` の照らす順（最初に当たった 1 件を `InvalidArgument` で返す。panic しない）
+
+| 群 | 拒否する入力 |
+| -- | ------------ |
+| 1 形式の単位 | `S0` が理由か根拠を持つ／`Unsupported` が理由を持たない／`S1`〜`S6` が理由を持つ／`S3`〜`S6` が根拠を持たない |
+| 2 形式と要素 | 形式の単位が `S0` か `Unsupported` で要素の列が空でない |
+| 3 要素 | 段階が `S0`／`Unsupported` で理由が無い／`Unsupported` でないのに理由がある／`S3`〜`S6` で根拠が無い／同じ要素が 2 回目に出る |
+| 4 用途と旗 | `UsageStorageBinding` が `S1`〜`S6` でないのに storage の 4 つの旗のどれかが `S1`〜`S6`／`UsageStorageAtomic` が `S1`〜`S6` なのに `StorageAtomic` が `S1`〜`S6` でない |
+
+「使える段階」は `S1`〜`S6`。`S0`・`Unsupported`・値の無い要素は使える段階でない。群 4 は上の 2 方向だけを照らす。
+
+読み出し
+
+| 関数 | 返し |
+| ---- | ---- |
+| `feature(f)` | 形式の単位が `S0` か `Unsupported` なら形式の単位の値（理由・根拠ごと）。そうでなく値があればその値。値が無ければ `UNLISTED_FEATURE_QUERY` |
+| `allowed_usages()` | 7 つの用途の要素のうち `feature(..)` が使える段階のものの `TextureUsage` の和 |
+| `sample_count_supported(n)` | 1 は常に `true`。2・4・8・16 は対応する要素が使える段階のとき `true`。ほか（0・3・32 など）は `false` |
+| `supported_sample_counts()` | `[1, 2, 4, 8, 16]` のうち `sample_count_supported` が `true` のものを昇順に（1 を含む） |
+| `capture_failed()` | 形式の単位が `S0`（理由・根拠なし）の値。`feature` は全要素で形式の単位の値を返す |
+
+## 対応するテスト
+
+`crates/core/src/texture_format_features.rs` の `mod tests`（10 本）
+
+| 名前 | 確かめること |
+| ---- | ------------ |
+| `all_has_eighteen_distinct` | `ALL` が 18 値で互いに違う |
+| `index_is_bijection` | 添字が 18 値で `0..18` への全単射 |
+| `format_query_rules` | 群 1 の各行 |
+| `unit_without_value_rejects_features` | 群 2 |
+| `feature_entry_rules` | 群 3 の各行 |
+| `usage_flag_pairs` | 群 4 の 2 方向と、通る組 |
+| `capture_failed_value` | `capture_failed()` の値 |
+| `feature_reads` | `feature` の 3 通り |
+| `allowed_usages_map_each_bit` | 用途の 7 要素と `TextureUsage` の 7 ビットの対応 |
+| `sample_counts` | `sample_count_supported`・`supported_sample_counts` |
+
+doctest（`TextureFormatFeatures`）: 値の組み立てと読み出し、規則に外れる入力の拒否。
+
+## 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --lib texture_format_features
+cargo test -p fandhe-silicon-core --doc TextureFormatFeatures
+grep -n 'pub mod texture_format_features' crates/core/src/lib.rs
+```
+
+## 段の表
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/4 | #7726 | 形式ごとの能力の値の型と組み立ての規則 |
+| 2/4 | #7727 | 能力の問合せの口に形式ごとの能力の値の操作を足す |
+| 3/4 | #7728 | 形式の鍵ごとの値と非対応の device の試験 |
+| 4/4 | #7729 | 完了の条件の確かめ |
