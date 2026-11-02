@@ -213,6 +213,8 @@ record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 expected_normal=- declar
 ok: common crate dependencies match the expected set and its features are forwarded from the contract crate
 ```
 
+上の記録は時点 `3ff6dea` の値で、`1ad4cd1` では `make public-api-check` が `public_items_total=12522`、`make public-name-check` と `make public-api-sdk-check` が `public_items_total=10775`、`make public-api-webgpu-check` が `public_items_total=3414`・`public_functions_total=450` で、`wgpu_*`・`sdk_*`・`name_hits_total`・`blocking_wait_names_total` はいずれも 0 である。
+
 #### (2) 走査の JSON に新しい項目が入ること
 
 `scripts/public-api-check.sh --emit-json <dir>` が書く core の JSON から、`crate_id==0` で visibility が `public` か `default` の項目を名前ごとに数えた。

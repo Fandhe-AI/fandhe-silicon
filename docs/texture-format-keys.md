@@ -158,6 +158,8 @@ make wasm-verify
 | (10) | 依存 0・unsafe の追加 0 | `ea7567c` から `0667bc4` までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture_format_key.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 3 ファイルとも差分なし、承認の記録 4 件のまま、`:33` に `#![forbid(unsafe_code)]`、`unsafe` は 0 件、core の外部依存は 0 件 |
 | (11) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
 
+上の表の `lib.rs:51` は記録時点の値で、今は `lib.rs:61` が `pub mod texture_format_key;` である。
+
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1313）。確かめた base は `0667bc4796ec9d0e1a6052ec4fd0bee7fa621ff5`。
 
 ### 再実行の契機
