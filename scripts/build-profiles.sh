@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし・test-support だけ（試験の枠の
+# プロファイルごとの feature の組で contract crate がビルドできることと、exec・upper が feature なしと native-blocking-wait 付きで
+# 通ることと、core crate が feature なし・test-support だけ（試験の枠の
 # test-support を外した形と足した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
 # native では build / clippy（-D warnings）/ test、wasm32 では contract の check と clippy（scalar・simd128 の 2 構成）と wasm-abi の 2 版（scalar・simd128）の release ビルドを回す。
 # 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
@@ -21,6 +22,8 @@ unset FANDHE_SILICON_TEST_RECORD_DIR
 
 readonly PKG="fandhe-silicon-contract"
 readonly CORE_PKG="fandhe-silicon-core"
+readonly EXEC_PKG="fandhe-silicon-exec"
+readonly UPPER_PKG="fandhe-silicon-upper"
 readonly WASM_TARGET="wasm32-unknown-unknown"
 readonly WASM_ABI_PKG="fandhe-silicon-wasm-abi"
 readonly WASM_ABI_LIB="fandhe_silicon_wasm_abi"
@@ -95,6 +98,15 @@ run cargo test -p "${CORE_PKG}" --features graphics
 run cargo clippy -p "${CORE_PKG}" --all-targets --features test-support,graphics -- -D warnings
 run cargo test -p "${CORE_PKG}" --features test-support,graphics
 
+# exec と upper を feature なしと native-blocking-wait 付きで（verify は --all-features だけなので、feature の組でだけ出る
+# ビルド失敗・未使用警告・試験の組み立てをここで拾う。upper は exec と core の同名 feature を転送する）
+for pkg in "${EXEC_PKG}" "${UPPER_PKG}"; do
+  run cargo clippy -p "${pkg}" --all-targets -- -D warnings
+  run cargo test -p "${pkg}"
+  run cargo clippy -p "${pkg}" --all-targets --features native-blocking-wait -- -D warnings
+  run cargo test -p "${pkg}" --features native-blocking-wait
+done
+
 # 全 feature（spec BUILD-6。後から増える feature も自動で含む）
 run cargo build -p "${PKG}" --all-features
 run cargo clippy -p "${PKG}" --all-targets --all-features -- -D warnings
@@ -116,6 +128,12 @@ env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TA
   CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" \
   cargo clippy -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${wasm_lint_feats}" \
   --target-dir "${wasm_target_dir}/wasm32-simd128" -- -D warnings
+
+# exec と upper の wasm32 の check（feature なしと native-blocking-wait 付き）。試験の型検査は wasm-verify.sh が受け持つ。
+for pkg in "${EXEC_PKG}" "${UPPER_PKG}"; do
+  run cargo check -p "${pkg}" --target "${WASM_TARGET}"
+  run cargo check -p "${pkg}" --target "${WASM_TARGET}" --features native-blocking-wait
+done
 
 # wasm-abi の cdylib の 2 版の release ビルド（spec BUILD-19・BUILD-20 のポインタ。TASK-237 の 4/4）。
 # 利用者の環境の rustflags 系を外し、simd128 版だけ CARGO_ENCODED_RUSTFLAGS で命令を足す（値は wasm-build-check.sh の SIMD_FLAGS と同じ）。
