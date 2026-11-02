@@ -20,7 +20,7 @@ wasm32 向けの feature の組で、呼べない呼び出しがコンパイル�
 
 ### wasm32 の組
 
-`scripts/build-profiles.sh` の注記 `# spec BUILD-19` で終わる行の引用符の中身を組とする。本体は `build-profiles.sh` を読むだけで、
+`scripts/build-profiles.sh` の `WASM_SETS` のうち、背後実装の feature を含まない行（行末の注記で 1 行に決まる。下の確かめ方の `grep` で出る行）の引用符の中身を組とする。本体は `build-profiles.sh` を読むだけで、
 実行も source もしない。確かめ方: `grep -n '# spec BUILD-19' scripts/build-profiles.sh`。
 
 ### 試験の行
@@ -34,6 +34,8 @@ wasm32 向けの feature の組で、呼べない呼び出しがコンパイル�
 | `nonblocking_readback` | なし | pass | `download_async` と `on_complete` を呼ぶ snippet が通る |
 | `download_blocking_gate_open` | `native-blocking-wait` | pass | 1 行目と同じ snippet が通る（陽性対照） |
 | `wait_blocking_gate_open` | `native-blocking-wait` | pass | 2 行目と同じ snippet が通る（陽性対照） |
+
+手元の実行の出力は「確かめ方」の節（記録時点 `473b99b`）にある。
 
 ### 一時の crate と流し方
 
@@ -88,6 +90,8 @@ record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=con
 wasm-compile-probe-check: all probes passed
 ```
 
+PR の CI の run `41412398011`（`8e4f92d`）の `make deny (cargo-deny)` と `wasm32 build + size + node (macos-latest)` の `make wasm-verify` の step のログにも、上と同じ `record:` の 5 行と `wasm-compile-probe-check: all probes passed` が出ている。
+
 ## CI への組み込み（3/4）
 
 足したのは既存の `deny` ジョブの step 1 つで、ジョブ・make ターゲット・スクリプトは足していない（`ci-complete` の `needs` と check 名は変わらない）。step に `continue-on-error`・`|| true`・`if:` は付けていないので、回帰テストの失敗はそのまま `deny` ジョブの失敗になる。`wasm-macos` には足していない。本体は 2/4 のとおり `make wasm-verify` の中で流れる。
@@ -103,6 +107,8 @@ wasm-compile-probe-check: all probes passed
 ```text
 test-wasm-compile-probe-check: 23 passed, 0 failed
 ```
+
+PR の CI の run `41414895973`（`fac357a`）の `make deny (cargo-deny)` の `make test-wasm-compile-probe-check` の step のログにも、上と同じ最終行が出ている。
 
 ## 完了の条件の確かめ（4/4）
 

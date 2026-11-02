@@ -41,7 +41,7 @@ deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検�
 measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
 	@scripts/measure-verify.sh
 
-wasm-verify: ## wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / core の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）。直接: scripts/wasm-verify.sh
+wasm-verify: ## wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny・wasm-macos ジョブも実行する）。直接: scripts/wasm-verify.sh
 	@scripts/wasm-verify.sh
 
 wasm-size: ## wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2・ネットワーク不要。手元と CI の wasm-macos ジョブ用で CI の deny ジョブは呼ばない）。直接: scripts/wasm-size.sh [--from-dir <dir>]
@@ -152,10 +152,10 @@ profile-dep-graph-positive-control: ## profile-dep-graph-check の陽性対照�
 test-profile-dep-graph-positive-control: ## profile-dep-graph-positive-control の回帰テスト（偽の内側の検査で判定と fail-closed を、実物のリポジトリでも確かめる。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-positive-control.sh
 	@scripts/test-profile-dep-graph-positive-control.sh
 
-profile-test-count-check: ## 契約の crate の試験 stub_device_profiles を build-profiles.sh の 3 つのプロファイルの組に test-support を足した組で流し、通った本数と graphics_ の試験の本数を期待と照らす（bash + cargo。ソースは変更しない・ネットワーク不要）。直接: scripts/profile-test-count-check.sh
+profile-test-count-check: ## 契約の crate の試験 stub_device_profiles を build-profiles.sh の 3 つのプロファイルの組に test-support を足した組で流し、通った本数と graphics_ の試験の本数を期待と照らす（bash + cargo。ソースは変更しない・ネットワーク不要。CI の verify・verify-macos ジョブも実行する）。直接: scripts/profile-test-count-check.sh
 	@scripts/profile-test-count-check.sh
 
-test-profile-test-count-check: ## profile-test-count-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-test-count-check.sh
+test-profile-test-count-check: ## profile-test-count-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない。CI の verify ジョブも実行する）。直接: scripts/test-profile-test-count-check.sh
 	@scripts/test-profile-test-count-check.sh
 
 baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
@@ -179,10 +179,10 @@ wasm-backend-check: ## 背後実装の feature を付けた wasm32 向けの契�
 test-wasm-backend-check: ## wasm-backend-check の回帰テスト（合成の rustdoc JSON・tree と偽の cargo、一時 workspace の実物の検査と陽性対照。bash + python3 + cargo + git + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-backend-check.sh
 	@scripts/test-wasm-backend-check.sh
 
-wasm-compile-probe-check: ## wasm32 の組（build-profiles.sh の注記の行の組）で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに record: で出す（bash + cargo + wasm32 の target。終了コード 0 全行 ok・1 ng あり・2 誤用か前提の不足。ソースは変更しない・ネットワーク不要）。直接: scripts/wasm-compile-probe-check.sh
+wasm-compile-probe-check: ## wasm32 の組（build-profiles.sh の注記の行の組）で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに record: で出す（bash + cargo + wasm32 の target。終了コード 0 全行 ok・1 ng あり・2 誤用か前提の不足。ソースは変更しない・ネットワーク不要。make wasm-verify の中でも流れる〔CI の deny・wasm-macos ジョブ〕）。直接: scripts/wasm-compile-probe-check.sh
 	@scripts/wasm-compile-probe-check.sh
 
-test-wasm-compile-probe-check: ## wasm-compile-probe-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-wasm-compile-probe-check.sh
+test-wasm-compile-probe-check: ## wasm-compile-probe-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-compile-probe-check.sh
 	@scripts/test-wasm-compile-probe-check.sh
 
 test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-build-check.sh
