@@ -4,7 +4,7 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 
 ## 記録の所在
 
-記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1877・`04-behavior/` の CMD-127〜CMD-130。ポインタのみ）。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1877。ポインタのみ）。
 
 ## 所在
 
@@ -25,7 +25,7 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 | `validate_query_set_count(count: u32) -> Result<(), ContractError>` | 個数が 1〜4096 かの検査 |
 | `validate_query_resolve(set_count, stride, first_query, query_count, dst_size, dst_offset) -> Result<u64, ContractError>` | 整列・範囲・長さを照らし、書くバイト数を返す |
 
-外から作れるのは定数と `|` だけで、生のビットから作る口は無い。
+外から作れるのは定数・`empty()`・`|`・`|=` で、生のビットから作る口は無い。
 
 ## 現状の形（1/5）
 
@@ -97,16 +97,16 @@ cargo test -p fandhe-silicon-core --doc validate_query
 
 `crates/core/src/` は変えず、試験のファイル `crates/core/tests/query_layout.rs`（feature 不要）を 1 つ足した。公開 API は変わらない。期待は試験の中で独立に数える。
 
-| テスト | 項目のポインタ | 入力 | 期待 |
-| ------ | -------------- | ---- | ---- |
-| `layout_all_31_combinations` | CMD-127 | 空でない 31 通りの組 | `count` が立てた数、`stride` が数 × 8、位置が小さいビットからの順で `0..count` を隙間なく埋め、立てていないフラグは `None` |
-| `layout_example_two_flags` | CMD-127 | `CLIPPER_PRIMITIVES_OUT` と `COMPUTE_SHADER_INVOCATIONS` の組 | `stride` 16、位置 0・1、バイトの位置 0・8 |
-| `layout_query_i_starts_at_offset_plus_i_stride` | CMD-127 | stride 16、offset 256、3 件、`dst_size` 304 | `Ok(48)`、先頭が 256・272・288、最後の終端が 304 |
-| `position_rejects_non_single_flag` | CMD-127 | 空・2 ビットの和・含まないフラグ | `None` |
-| `query_size_and_constants` | CMD-127〜CMD-130 | 定数 | 8・4096・256 |
-| `set_count_bounds` | CMD-128 | 1〜4096 の全件、0、4097 以上の刻み、`u32::MAX` | 1〜4096 は `Ok(())`、ほかは `Err(InvalidArgument)` |
-| `empty_flags_have_zero_stride` | CMD-127 | 空の組とその stride の解決 | `count`・`stride` が 0、`Err(InvalidArgument)`（stride の語） |
-| `rejection_is_invalid_argument_only` | CMD-128 | 個数 0・4097・`u32::MAX`、空の stride | `InvalidArgument` だけ |
+| テスト | 入力 | 期待 |
+| ------ | ---- | ---- |
+| `layout_all_31_combinations` | 空でない 31 通りの組 | `count` が立てた数、`stride` が数 × 8、位置が小さいビットからの順で `0..count` を隙間なく埋め、立てていないフラグは `None` |
+| `layout_example_two_flags` | `CLIPPER_PRIMITIVES_OUT` と `COMPUTE_SHADER_INVOCATIONS` の組 | `stride` 16、位置 0・1、バイトの位置 0・8 |
+| `layout_query_i_starts_at_offset_plus_i_stride` | stride 16、offset 256、3 件、`dst_size` 304 | `Ok(48)`、先頭が 256・272・288、最後の終端が 304 |
+| `position_rejects_non_single_flag` | 空・2 ビットの和・含まないフラグ | `None` |
+| `query_size_and_constants` | 定数 | 8・4096・256 |
+| `set_count_bounds` | 1〜4096 の全件、0、4097 以上の刻み、`u32::MAX` | 1〜4096 は `Ok(())`、ほかは `Err(InvalidArgument)` |
+| `empty_flags_have_zero_stride` | 空の組とその stride の解決 | `count`・`stride` が 0、`Err(InvalidArgument)`（stride の語） |
+| `rejection_is_invalid_argument_only` | 個数 0・4097・`u32::MAX`、空のフラグの組の stride を解決に渡した場合（`set_count` 4096・先頭 0・1 件・`dst_size` 512・`dst_offset` 256） | どれも `InvalidArgument` だけ |
 
 ```sh
 cargo test -p fandhe-silicon-core --test query_layout
@@ -118,13 +118,13 @@ cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
 
 `crates/core/src/` は変えず、試験のファイル `crates/core/tests/query_resolve.rs`（feature 不要）を 1 つ足した。公開 API は変わらない。期待は試験の中で `u128` で独立に数える。
 
-| テスト | 項目のポインタ | 入力 | 期待 |
-| ------ | -------------- | ---- | ---- |
-| `resolve_offset_alignment` | CMD-130 | `dst_offset` 0・256・512、1・8・255・257、`u64::MAX`、`u64::MAX - 255` | 256 の倍数は `Ok`、ほかは `InvalidArgument`（offset の語）。`u64::MAX - 255` は終端のあふれ・超過を区別して拒否 |
-| `resolve_boundaries` | CMD-129 | 長さちょうど・1 バイト不足、範囲ちょうど・1 超過、個数 0、`u32::MAX` | ちょうどは `Ok`、不足・超過は `InvalidArgument`、個数 0 は `Ok(0)`（`first_query` が `set_count` を超えれば拒否） |
-| `resolve_grid_matches_reference` | CMD-129・CMD-130 | `set_count` 4 値 × `stride` 5 値 × `first_query`・`query_count` × `dst_offset` × `dst_size` の格子 | 参照の分類どおり。誤りが 1 つなら文言の先頭の語まで、2 つ以上なら種類だけ照らす |
-| `resolve_stride_values` | CMD-129 | `stride` 0・7・9・`u64::MAX`、8・40・`u64::MAX - 7` | 8 の倍数でない・0 は `InvalidArgument`（stride の語）、8 の倍数は参照どおり |
-| `resolve_is_repeatable` | CMD-129 | `Ok` と各種の拒否の入力 | 同じ引数で 2 回呼んで結果が等しい |
+| テスト | 入力 | 期待 |
+| ------ | ---- | ---- |
+| `resolve_offset_alignment` | `dst_offset` 0・256・512、1・8・255・257、`u64::MAX`、`u64::MAX - 255` | 256 の倍数は `Ok`、ほかは `InvalidArgument`（offset の語）。`u64::MAX - 255` は終端のあふれ・超過を区別して拒否 |
+| `resolve_boundaries` | 長さちょうど・1 バイト不足、範囲ちょうど・1 超過、個数 0、`u32::MAX` | ちょうどは `Ok`、不足・超過は `InvalidArgument`、個数 0 は `Ok(0)`（`first_query` が `set_count` を超えれば拒否） |
+| `resolve_grid_matches_reference` | `set_count` 4 値 × `stride` 5 値 × `first_query`・`query_count` × `dst_offset` × `dst_size` の格子 | 参照の分類どおり。誤りが 1 つなら文言の先頭の語まで、2 つ以上なら種類だけ照らす |
+| `resolve_stride_values` | `stride` 0・7・9・`u64::MAX`、8・40・`u64::MAX - 7` | 8 の倍数でない・0 は `InvalidArgument`（stride の語）、8 の倍数は参照どおり |
+| `resolve_is_repeatable` | `Ok` と各種の拒否の入力 | 同じ引数で 2 回呼んで結果が等しい |
 
 ```sh
 cargo test -p fandhe-silicon-core --test query_resolve
@@ -139,10 +139,10 @@ cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
 | (1) | 型・定数・関数が共通の crate の feature の条件なしで公開されている | `grep -n 'mod query_check\|pub use query_check' crates/core/src/execution.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `execution.rs` の 11・24 行目、終了コード 0 |
-| (2) | 結果の配置（CMD-127 のポインタ） | `cargo test -p fandhe-silicon-core --test query_layout` の `layout_all_31_combinations`・`layout_example_two_flags`・`layout_query_i_starts_at_offset_plus_i_stride`・`position_rejects_non_single_flag`・`empty_flags_have_zero_stride`・`query_size_and_constants` | 6 本とも `ok`（全体で 8 passed） |
-| (3) | 個数の上限（CMD-128 のポインタ） | 同上の `set_count_bounds`・`rejection_is_invalid_argument_only`・`query_size_and_constants` | 3 本とも `ok` |
-| (4) | 結果の大きさと長さの不足の拒否（CMD-129 のポインタ） | `query_layout` の `layout_query_i_starts_at_offset_plus_i_stride`、`cargo test -p fandhe-silicon-core --test query_resolve` の `resolve_boundaries`・`resolve_grid_matches_reference`・`resolve_stride_values`・`resolve_is_repeatable` | 5 本とも `ok`（`query_resolve` 全体で 5 passed） |
-| (5) | 解決先の offset の整列（CMD-130 のポインタ） | `query_resolve` の `resolve_offset_alignment`・`resolve_grid_matches_reference` | 2 本とも `ok` |
+| (2) | 結果の配置 | `cargo test -p fandhe-silicon-core --test query_layout` の `layout_all_31_combinations`・`layout_example_two_flags`・`layout_query_i_starts_at_offset_plus_i_stride`・`position_rejects_non_single_flag`・`empty_flags_have_zero_stride`・`query_size_and_constants` | 6 本とも `ok`（全体で 8 passed） |
+| (3) | 個数の上限 | 同上の `set_count_bounds`・`rejection_is_invalid_argument_only`・`query_size_and_constants` | 3 本とも `ok` |
+| (4) | 結果の大きさと長さの不足の拒否 | `query_layout` の `layout_query_i_starts_at_offset_plus_i_stride`、`cargo test -p fandhe-silicon-core --test query_resolve` の `resolve_boundaries`・`resolve_grid_matches_reference`・`resolve_stride_values`・`resolve_is_repeatable` | 5 本とも `ok`（`query_resolve` 全体で 5 passed） |
+| (5) | 解決先の offset の整列 | `query_resolve` の `resolve_offset_alignment`・`resolve_grid_matches_reference` | 2 本とも `ok` |
 | (6) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/execution/query_check.rs`、`git show --stat <sha> -- crates/core/src/stub_device.rs crates/contract`（`e61106b`・`ba13ee7`・`7c5ef2b`・`bbb08ea` のそれぞれ） | `use` は 3 行で `core::ops`・`crate::` だけ、4 コミットとも差分 0 |
 | (7) | 依存 0・unsafe 0 | 4 コミットそれぞれで `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/execution/query_check.rs`、`grep -n forbid crates/core/src/lib.rs`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 4 コミットとも差分 0、`unsafe` は 0 件、35 行目に `#![forbid(unsafe_code)]`、承認の記録 4 件、core の外部依存 0 件 |
 | (8) | 試験の件数と CI | `--lib query_check`・`--doc PipelineStatisticsFlags`・`--doc validate_query`・`--test query_layout`・`--test query_resolve`、`--all-features` での `query_layout`・`query_resolve`、`make verify`・`make wasm-verify`・`make check`・`make deny`・`make deps-check` | 8 passed・1 passed・2 passed・8 passed・5 passed。`--all-features` でも 8 passed・5 passed。5 つの `make` は終了コード 0 |
