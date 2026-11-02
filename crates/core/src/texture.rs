@@ -474,4 +474,4 @@ impl TextureHandle {
 }
 
 mod descriptor_check;
-pub use descriptor_check::validate_texture_descriptor;
+pub use descriptor_check::{max_mip_level_count, validate_texture_descriptor};
