@@ -6,11 +6,13 @@
 # 呼び出し元: `make feature-key-check`（直接の実行も可。手元だけの検査で、CI は呼ばない）。
 #
 # 使い方:
-#   scripts/feature-key-check.sh [--keys PATH] [--csv PATH] [--key-prefix STR] [--show-keys]
+#   scripts/feature-key-check.sh [--keys PATH] [--csv PATH] [--key-prefix STR] [--show-keys] [--example NAME]
 #   --keys        鍵の一覧（1 行 1 鍵の 1 列のテキスト）。省略時は example を cargo で実行して得る（下の注記）
 #   --csv         機能一覧の CSV（既定: 上のポインタのパス）。先頭のレコードを見出しとし、先頭の列を鍵の列にする
 #   --key-prefix  鍵がこれで始まる行だけを CSV の対象にする（既定: feature:）
 #   --show-keys   違反の診断に鍵の文字列も出す（既定は件数と行番号だけ）
+#   --example     --keys を省いたときに cargo で実行する example の名前（既定: feature_keys）。
+#                 英小文字・数字・_ だけ。--keys との同時の指定は誤用。接頭辞は呼び手が --key-prefix で渡す
 #
 # 判定:
 #   (a) 一覧の形: 各行が 1 列（タブなし）で空でない・互いに異なる・どれも接頭辞で始まる
@@ -20,7 +22,7 @@
 # 終了コード:
 #   0  合格（標準出力に件数の 1 行）
 #   1  違反（読めない・空の入力を含む）
-#   2  誤用・前提の不足（未知の引数・入力が無い・cargo が無い・example の失敗）
+#   2  誤用・前提の不足（未知の引数・--example の誤用・入力が無い・cargo が無い・example の失敗）
 #
 # 入力は読むだけ。`--keys` を渡したときは、ファイルを作らず、ネットワークを使わない。
 # `--keys` を省略したときは cargo 経由で example を実行するので、cargo の通常の動作として
@@ -41,6 +43,7 @@ exec python3 -I - \
 import argparse
 import csv
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,7 +68,7 @@ def get_keys_text(args):
     if cargo is None:
         raise Usage("cargo not found (needed when --keys is not given)")
     proc = subprocess.run(
-        [cargo, "run", "-q", "-p", "fandhe-silicon-core", "--example", "feature_keys"],
+        [cargo, "run", "-q", "-p", "fandhe-silicon-core", "--example", args.example or "feature_keys"],
         cwd=args.root, capture_output=True, stdin=subprocess.DEVNULL,
     )
     if proc.returncode != 0:
@@ -174,9 +177,15 @@ def main():
     parser.add_argument("--csv")
     parser.add_argument("--key-prefix", default="feature:")
     parser.add_argument("--show-keys", action="store_true")
+    parser.add_argument("--example")
     args = parser.parse_args(sys.argv[1:])
     args.csv = args.csv or args.default_csv
     try:
+        # cargo の検索・実行より前に検証する（入力の値はメッセージに埋め込まない）。
+        if args.example is not None and re.fullmatch(r"[a-z0-9_]+", args.example) is None:
+            raise Usage("invalid --example name")
+        if args.keys is not None and args.example is not None:
+            raise Usage("--keys and --example cannot be used together")
         return run(args)
     except Usage as e:
         err(str(e))

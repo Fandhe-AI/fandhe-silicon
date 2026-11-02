@@ -207,6 +207,20 @@ PATH="${work}/bin" "$(command -v bash)" "${DIR}/feature-key-check.sh" --csv "${w
   >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
 expect_usage "no --keys and no cargo" "cargo not found"
 
+# --example の誤用。名前の検証は cargo の検索より前なので、cargo に届かない。
+fx
+for bad in 'bad-name' ''; do
+  rc=0
+  "${DIR}/feature-key-check.sh" --csv "${work}/inv.csv" --example "${bad}" \
+    >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+  expect_usage "invalid --example name '${bad}'" "invalid --example name" \
+    '!the key list example failed to run' '!cargo not found'
+done
+
+fx
+run_check --example limit_keys
+expect_usage "--keys and --example together" "--keys and --example cannot be used together"
+
 # ---- 秘匿 ----
 
 fx
@@ -263,6 +277,42 @@ if command -v cargo >/dev/null 2>&1; then
     "${DIR}/feature-key-check.sh" --csv "${work}/real.csv" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
     judge "real example: passes without --keys" 0 '[feature-key-check.sh] ok: keys=79 csv=79'
   fi
+  for name in limit_keys downlevel_keys; do
+    case "${name}" in
+      limit_keys) pfx='limit:' want=57 ;;
+      *) pfx='downlevel:' want=26 ;;
+    esac
+    rc=0
+    (cd "${DIR}/.." && cargo run -q -p fandhe-silicon-core --example "${name}") >"${real}" 2>"${ERR_F}" || rc=$?
+    : >"${OUT_F}"
+    if [ "${rc}" -ne 0 ]; then
+      report_fail "real ${name}: runs" "exit ${rc}"
+      continue
+    fi
+    lines="$(wc -l <"${real}" | tr -d ' ')"
+    uniq_lines="$(sort -u "${real}" | wc -l | tr -d ' ')"
+    others="$(grep -vc "^${pfx}" "${real}" || true)"
+    if [ "${lines}" = "${want}" ] && [ "${uniq_lines}" = "${want}" ] && [ "${others}" = 0 ]; then
+      report_ok "real ${name}: ${want} lines, all distinct, all start with ${pfx}"
+    else
+      report_fail "real ${name}: shape" "lines=${lines} distinct=${uniq_lines} others=${others}"
+    fi
+    {
+      printf 'key\n'
+      cat "${real}"
+    } >"${work}/real.csv"
+    rc=0
+    "${DIR}/feature-key-check.sh" --csv "${work}/real.csv" --example "${name}" --key-prefix "${pfx}" \
+      >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+    judge "real ${name}: passes with --example" 0 "[feature-key-check.sh] ok: keys=${want} csv=${want}"
+    if [ "${name}" = limit_keys ]; then
+      rc=0
+      "${DIR}/feature-key-check.sh" --csv "${work}/real.csv" --example "${name}" \
+        >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+      judge "real ${name}: default prefix is rejected" 1 "" \
+        "does not start with the prefix" "no rows with the key prefix"
+    fi
+  done
 else
   echo "skip: cargo not found; the real example block was not run" >&2
 fi

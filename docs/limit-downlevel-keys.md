@@ -90,6 +90,31 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | -------------------- | -------- |
 | 外の crate の試験 | 6 | `cargo test -p fandhe-silicon-core --features test-support --test limit_downlevel_key_table` |
 
+## 機能一覧との突き合わせの検査（4/5）
+
+鍵の一覧を 1 列のテキストで書き出す example を 2 本置き、既存の `scripts/feature-key-check.sh` に `--example` で渡す。
+
+| example | 一覧 | 出力の行数 |
+| ------- | ---- | ---------- |
+| `crates/core/examples/limit_keys.rs` | `LIMIT_QUERY_KEYS` | 57 |
+| `crates/core/examples/downlevel_keys.rs` | `DOWNLEVEL_QUERY_KEYS` | 26 |
+
+出力は見出しなしの 1 列で、1 行が鍵 1 件に当たる。引数は読まず、ファイルは作らない。
+
+`--example NAME` は `--keys` を省いたときに cargo で実行する example の名前で、既定は `feature_keys`。英小文字・数字・`_` だけを受け、外れたら終了コード 2。`--keys` と同時に渡しても終了コード 2。接頭辞は自動で決めないので、呼び手が `--key-prefix` で渡す。判定と終了コードは [feature-keys.md](feature-keys.md) の 5/6 の節に従う（TASK-1114 のポインタ）。
+
+実物の機能一覧は private の submodule の中にあり、CI では流さない。手元での形は次のとおり。
+
+```text
+scripts/feature-key-check.sh --example limit_keys --key-prefix limit:
+scripts/feature-key-check.sh --example downlevel_keys --key-prefix downlevel:
+```
+
+| 確かめること | 確かめ方 |
+| ------------ | -------- |
+| 回帰テスト（`--example` の誤用と、example の実物の出力の形・合成の CSV での合格） | `make test-feature-key-check`（CI の `deny` ジョブが呼ぶ） |
+| 出力の行数 | `cargo run -q -p fandhe-silicon-core --example limit_keys \| wc -l`（57）、`--example downlevel_keys \| wc -l`（26） |
+
 ## 段の表
 
 | 段 | Issue | 題 |
@@ -97,5 +122,5 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 1/5 | #7702 | 上限と downlevel の問合せの鍵の定数と一覧 |
 | 2/5 | #7703 | 値の鍵の型と上限の値の鍵の定数（本書の「値の鍵（2/5）」） |
 | 3/5 | #7704 | 上限と downlevel の鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（3/5）」） |
-| 4/5 | #7705 | 上限と downlevel の鍵の一覧を機能一覧に突き合わせる検査 |
+| 4/5 | #7705 | 上限と downlevel の鍵の一覧を機能一覧に突き合わせる検査（本書の「機能一覧との突き合わせの検査（4/5）」） |
 | 5/5 | #7706 | 完了の条件の確かめ |
