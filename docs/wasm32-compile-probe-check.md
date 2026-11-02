@@ -104,6 +104,89 @@ wasm-compile-probe-check: all probes passed
 test-wasm-compile-probe-check: 23 passed, 0 failed
 ```
 
+## 完了の条件の確かめ（4/4）
+
+1/4〜3/4 の検査・回帰テスト・`wasm-verify` からの呼び出し・CI への組み込みを、手元の実行と `main` の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
+
+手元の実行は `origin/main` の `7129b17` の上の作業ツリー。CI は run `41416189346`（headSha `7129b1783631959aaf0c03ef0b35097b6a8c62d5`、conclusion `success`）のジョブ `make deny (cargo-deny)`（job `125180496225`）と `wasm32 build + size + node (macos-latest)`（job `125180496408`）。
+
+| 確かめ | コマンド | 結果 |
+| ------ | -------- | ---- |
+| (1) 5 つの試験が記録の行と最終行を出す | `make wasm-compile-probe-check` | 下の (1) のブロック |
+| (2) ゲートを開けた 2 つの試験が通る | 同上 | 下の (2) のブロック |
+| (3) 検査が使う feature の組と、wasm 側に `native-blocking-wait` の記述が無いこと | `grep -n '# spec BUILD-19' scripts/build-profiles.sh` と `git grep -c native-blocking-wait -- crates/wasm-abi wasm; echo "rc=$?"` | 下の (3) のブロック |
+| (4) 回帰テスト | `make test-wasm-compile-probe-check` | 下の (4) のブロック |
+| (5) main の push の CI | `gh run view --job <job> -R Fandhe-AI/fandhe-silicon --log` を `record: probe=`・`wasm-compile-probe-check: `・`test-wasm-compile-probe-check: ` で絞る | 下の (5) のブロック |
+| (6) ゲートの型の所在 | `grep -n 'DownloadBlockingGate\|WaitBlockingGate\|NonBlockingReadbackGate' crates/contract/src/cfg_gate_doctest.rs` | 下の (6) のブロック（TASK-233 の試験。[feature-gate-compile-check.md](feature-gate-compile-check.md)） |
+| (7) `crates`・`scripts/build-profiles.sh`・`wasm` の変更 | `git diff --stat 473b99b..HEAD -- crates scripts/build-profiles.sh wasm` | 出力なし |
+| (8) 依存の変更 | `git diff --stat 473b99b..HEAD -- Cargo.lock deps-approved.toml wasm/Cargo.lock` | 出力なし |
+
+(1)
+
+```text
+[wasm-compile-probe-check.sh] cargo check --target wasm32-unknown-unknown (probe=download_blocking features=contract-core,cpu-isa,cpu-ops)
+record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+[wasm-compile-probe-check.sh] cargo check --target wasm32-unknown-unknown (probe=wait_blocking features=contract-core,cpu-isa,cpu-ops)
+record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+[wasm-compile-probe-check.sh] cargo check --target wasm32-unknown-unknown (probe=nonblocking_readback features=contract-core,cpu-isa,cpu-ops)
+record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+[wasm-compile-probe-check.sh] cargo check --target wasm32-unknown-unknown (probe=download_blocking_gate_open features=contract-core,cpu-isa,cpu-ops,native-blocking-wait)
+record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+[wasm-compile-probe-check.sh] cargo check --target wasm32-unknown-unknown (probe=wait_blocking_gate_open features=contract-core,cpu-isa,cpu-ops,native-blocking-wait)
+record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+wasm-compile-probe-check: all probes passed
+```
+
+(2)
+
+```text
+record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+```
+
+(3)
+
+```text
+52:  "contract-core,cpu-isa,cpu-ops"                 # spec BUILD-19
+rc=1
+```
+
+`git grep -c` の出力は無く、終了コードは 1。
+
+(4)
+
+```text
+test-wasm-compile-probe-check: 23 passed, 0 failed
+```
+
+(5)
+
+```text
+== make deny (cargo-deny)（job 125180496225）
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.0477322Z record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.1203021Z record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.1846391Z record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.4578256Z record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.5220618Z record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+make deny (cargo-deny)	make wasm-verify	2026-11-02T08:53:07.5221196Z wasm-compile-probe-check: all probes passed
+make deny (cargo-deny)	make test-wasm-compile-probe-check	2026-11-02T08:57:57.7323891Z test-wasm-compile-probe-check: 23 passed, 0 failed
+== wasm32 build + size + node (macos-latest)（job 125180496408）
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:08.4983230Z record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:08.6480760Z record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:08.7862860Z record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:09.3300730Z record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:09.4873260Z record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-02T08:53:09.4876360Z wasm-compile-probe-check: all probes passed
+```
+
+(6)
+
+```text
+37:pub struct DownloadBlockingGate;
+49:pub struct WaitBlockingGate;
+64:pub struct NonBlockingReadbackGate;
+```
+
 ## 対応するテスト
 
 `scripts/test-wasm-compile-probe-check.sh` は合成の `build-profiles.sh` と PATH の先頭に置く偽の cargo で判定を確かめる。
