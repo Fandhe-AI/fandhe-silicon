@@ -45,6 +45,7 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | `SubmitToken`・`CommandEncoder`・`CommandQueue::on_complete` の rustdoc（`compile_fail`） | 外からの構造体式の構築、`Clone`、native で `Send` でない callback が拒まれること |
 | `CommandQueue::submit` の rustdoc（`compile_fail,E0382`） | `submit` に渡した `CommandEncoder` の変数を再び使うと所有権の移動のエラーになること（CMD-5。TASK-590） |
 | `CommandEncoder` の rustdoc（`compile_fail`） | `Send + Sync` でない型（`Rc<()>`）が同じ境界で拒まれること。`Send + Sync` を確かめる検査が外れると落ちることの陽性対照（CMD-9。TASK-590） |
+| `CommandEncoder` の rustdoc（`compile_fail,E0106`） | 寿命の引数を持つ `ConstantBinding` を寿命の指定の無い構造体の欄に置くと拒まれること。`CommandEncoder` が寿命の引数を持たないことの対照（TASK-772） |
 | `crates/core/tests/encoder_send_sync.rs` | `CommandEncoder` が `Send + Sync` の境界を満たすこと、別スレッドへ移せること、複数スレッドから共有参照できること（CMD-9。TASK-590。スレッドを使う部分は wasm32 を除く） |
 
 ## 確かめ方

@@ -51,6 +51,7 @@ TASK-769 の作業の所在と、本リポの現状の事実を置く。spec の
 | `crates/core/tests/compute_ops_shape.rs` | `BindingLayout` の保持、`ComputeOps` の引数と結果のそのままの受け渡し、object safe |
 | `compute.rs` の rustdoc | 各型（`BindingLayout` を含む）の構造体式が拒まれること、`create_pipeline` を持たない `ComputeOps` の実装が拒まれること。`new` / `__backend_new` で作れる陽性対照つき |
 | `submit.rs` の rustdoc | `dispatch_ex` を持たない実装が拒まれること。持てば通る陽性対照つき |
+| `submit.rs` の rustdoc（`dispatch_ex`、`compile_fail,E0382`） | 投入した記録先を `dispatch` へ渡すと所有権の移動のエラーになること（TASK-772） |
 
 ## 確かめ方
 
