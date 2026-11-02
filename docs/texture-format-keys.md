@@ -174,3 +174,5 @@ make wasm-verify
 | 2/4 | #6714 | 表の書き出しと一覧との突き合わせの検査 |
 | 3/4 | #6715 | CI への組み込み |
 | 4/4 | #6716 | 確かめ |
+
+関連: `Capabilities::texture_format_features` の既定の実装は、`TEXTURE_FORMAT_ROWS` を先頭から探して形式の鍵を引く（内部の補助で、公開の関数ではない）。所在は [texture-format-features.md](texture-format-features.md)。

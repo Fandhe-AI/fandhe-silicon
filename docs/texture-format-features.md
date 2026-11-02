@@ -85,6 +85,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 doctest（`TextureFormatFeatures`）: 値の組み立てと読み出し、規則に外れる入力の拒否。
 
+1/4 で足した 10 本に 2/4 で `default_op` の 5 本が加わり、今は 15 本（`cargo test -p fandhe-silicon-core --lib texture_format_features`）。
+
 ## 確かめ方
 
 ```sh

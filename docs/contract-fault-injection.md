@@ -76,6 +76,8 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - 試験: `crates/core/tests/fault_decorator_capability.rs`
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection`
 
+`FaultInjecting<D>` は `texture_format_features` を上書きせず、既定の実装を受ける。`PassThrough` は包まない値と等しく、`CapabilityQueryFails` は全形式で形式の単位と要素が `S0`、`CapabilityInsufficient` は対象の鍵の形式だけ `Unsupported`・`NotSupported`（`decorator_keeps_format_query_consistent`）。
+
 ## 現状の形（5/8）
 
 型・メソッド・種類の名前は仮。コードと公開テストが示す事実だけを置く。

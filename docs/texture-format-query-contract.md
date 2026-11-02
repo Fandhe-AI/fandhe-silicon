@@ -149,4 +149,4 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 | 3/4 | #6719 | 契約テストと陽性対照 |
 | 4/4 | #6720 | 確かめ |
 
-関連: 形式ごとの能力の値の形式の単位の一致の検査は `docs/texture-format-features.md`。
+関連: 形式ごとの能力の値の形式の単位の一致の検査は [texture-format-features.md](texture-format-features.md)。

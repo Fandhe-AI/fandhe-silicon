@@ -37,6 +37,8 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-273 の言及は本書、`CLAUDE.md`、`README.md` と、2/6 の試験用の部品の `crates/core/src/capability_rule.rs`、`crates/core/tests/capability_rule_stub.rs`、`crates/core/tests/capability_rule_two_step.rs` と、3/6 の `crates/core/tests/capability_rule_contract.rs` と、4/6 の `crates/core/tests/capability_rule_check.rs` と、5/6 の `crates/core/tests/capability_rule_check_contract.rs` の 9 つだけ | `git grep -l TASK-273 -- . ':!docs/spec' ':!.agents'` |
 
+上の表の「問合せのトレイト」「背後実装の実装」の行は記録時点の値で、書き換えない。今は `Capabilities` に必須の `limits`（[contract-limits-table](contract-limits-table.md)）と、既定の実装つきの `texture_format_features`（[texture-format-features](texture-format-features.md)）もある。`Capabilities` の実装は `StubDevice`（`test-support` の裏）と `MetalDevice`（`backend-metal` の裏）にもある（`git grep -n -E 'impl.* Capabilities for' -- crates wasm`）。
+
 ## 現状の形（2/6）
 
 名前は仮で、列挙・device の本物の口が入る段（TASK-157 のポインタ）で形を合わせる。`crate::fault` は参照しない（`test-support` 単独の組でもビルドされる）。

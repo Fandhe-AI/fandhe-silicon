@@ -45,6 +45,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 | `BackendKind` | `crates/core/src/capability.rs:32`。値は `Metal`・`Vulkan`・`Cuda`・`Dx12Compute` の 4 つ | `sed -n 28,42p crates/core/src/capability.rs` |
 | `LimitsTable` | `crates/core/src/capability.rs:102` | 同上 |
 
+上の表の `Capabilities`・`BackendKind`・`LimitsTable` の行番号と method の一覧は記録時点の値で、書き換えない。今は `capability.rs` の `:118`・`:36`・`:106` で、`Capabilities` は既定の本体を持つ `texture_format_features` も持つ。試験用の device も全形式で値を返す（`stub_device_returns_value_for_every_key`）。`Device`・`DeviceProvider`・`DeviceDiagnostics` は今は `device.rs` の `:127`・`:192`・`:114`。
+
 ### 試験用の device に当たる型の有無
 
 `git grep -nE 'pub (trait|struct) [A-Za-z]*(Device|Queue|Stub)' -- crates wasm` の出力は 12 件である。

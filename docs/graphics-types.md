@@ -67,7 +67,7 @@ cargo test -p fandhe-silicon-core --features graphics --doc graphics
 
 ### `Device::graphics()`
 
-`crates/core/src/device.rs:141` の `fn graphics(&self) -> Option<&dyn GraphicsOps>`。feature `graphics` のビルドにだけある。既定の本体は `None`（確かめる試験は `crates/core/tests/device_trait_shape.rs` の `default_graphics_is_none_through_dyn_device`）。
+`crates/core/src/device.rs:157` の `fn graphics(&self) -> Option<&dyn GraphicsOps>`。feature `graphics` のビルドにだけある。既定の本体は `None`（確かめる試験は `crates/core/tests/device_trait_shape.rs` の `default_graphics_is_none_through_dyn_device`）。
 
 ### 試験用の device の答え
 
