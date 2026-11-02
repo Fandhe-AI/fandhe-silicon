@@ -328,6 +328,21 @@ TASK-156（DEV-34）の 5/5（#7566）として、本リポで観測できる事
 
 落ちたものは無い。`make verify`・`make deny`・`make build-profiles` は流していない（CI の `verify`・`deny` ジョブで流れる）。
 
+### main（`f72b280`）での流し直し
+
+「再実行の契機」の最初の項目（`stub_device.rs` の変更）に当たる #7670（WebGPU の口の 2 鍵の値）と #7676（形式の鍵の行）の後に、上の表の方法を GPU のない Linux で流し直した。上の表と直前の流し直しは記録時点の値で、書き換えない。`--lib stub_device` の件数は、名前に `stub_device` を含む試験の数。流したのは `f72b280` に `StubDevice` の rustdoc の文言だけを直した変更（コードと doc テストは変えていない）を足した状態。
+
+| 上の # | 今の結果 |
+| ------ | -------- |
+| 2 | `--features test-support` で compute 10・memory 11・queue 9・request 9・lib 11 がすべて `ok`、failed 0、ignored 0（各 `cargo test` の終了コード 0）。request は 8 から 9 に増えた（`query_ex` の試験が加わった） |
+| 3 | `--all-features` で compute 10・memory 12・queue 10・request 9・lib 14 がすべて `ok`（終了コード 0） |
+| 4・5 | feature なしの `--doc` は `device.rs - device (line 13) - compile fail ... ok`（39 passed）、`--features test-support --doc` は `device.rs - device (line 13) ... ok`（51 passed）、`--all-features --doc` も同じ行が `ok`（62 passed）。終了コードはいずれも 0 |
+| 6〜11 | `make public-api-check` は `public_items_total=11752`（`--all-features` の値）、`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0`。`make public-name-check` は `name_hits_total=0 source_hits_total=0 field_hits_total=0`、`make public-api-webgpu-check` は `documents=2 blocking_wait_names_total=0`、`make public-api-sdk-check` は `sdk_type_refs_total=0 common_declared_deps=0`、`make core-deps-check` は `unexpected=0 missing=0 forward_violations=0`、`make upper-layer-check` は `forbidden_features=0`。6 本とも終了コード 0 |
+| 12 | `crates/core/src/stub_device.rs` の `backend-` は 0 件。4 本の試験の `#[ignore` は 0 |
+| 14・16 | `make wasm-verify`・`make deps-check` は終了コード 0 |
+
+落ちたものは無い。`make verify`・`make deny`・`make build-profiles` は流していない（CI の `verify`・`deny` ジョブで流れる）。
+
 ## 段の表
 
 TASK-156 は次の 5 つの Issue に分けて進める。
