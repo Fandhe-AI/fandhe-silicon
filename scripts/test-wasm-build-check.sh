@@ -436,9 +436,10 @@ run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/miss
   --require-type dummy_mod::Alpha
 expect "cfg-source-root-missing" 2 "error: source root is not a directory"
 
-# 実物のリポジトリの crates/ の `//!` にある simd128 の語は、コメントなので数えない。
+# 実物のリポジトリの crates/ には simd128 の cfg 箇所が在り、すべて正しい形（match）になる。`//!` にある simd128 の語はコメントなので数えない。
+# 終了コードが 1 なのは、型の行が not-run のため（--require-type を渡していない）。
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm"
-expect "cfg-real-crates-comments-not-counted" 1 "cfg: sites=0 label=not-run reason=no-simd128-sites" "!violation:"
+expect "cfg-real-crates-comments-not-counted" 1 "label=match" "!reason=no-simd128-sites" "!violation:"
 
 # 4. 偽の cargo（既定の経路）
 run_fake --source-root "${S}/good"

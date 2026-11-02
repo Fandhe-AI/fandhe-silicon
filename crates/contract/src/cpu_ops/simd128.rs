@@ -10,7 +10,7 @@
 use super::UnaryElementwiseOp;
 use super::scalar::{elementwise_lengths_ok, gemm_lengths_ok};
 use core::arch::wasm32::{
-    f32x4, f32x4_add, f32x4_extract_lane, f32x4_max, f32x4_mul, f32x4_splat, v128,
+    f32x4, f32x4_add, f32x4_extract_lane, f32x4_gt, f32x4_mul, f32x4_splat, v128, v128_and,
 };
 use fandhe_silicon_core::error::ContractError;
 
@@ -79,7 +79,8 @@ pub(super) fn elementwise(
     for (o, x) in oc.iter_mut().zip(ac) {
         let v = f32x4(x[0], x[1], x[2], x[3]);
         let r = match op {
-            UnaryElementwiseOp::Relu => f32x4_max(v, f32x4_splat(0.0)),
+            // 比較の真偽のマスクで選ぶ。NaN は比較が偽になり 0.0 へ落ちるので、端数の `x.max(0.0)` と揃う。
+            UnaryElementwiseOp::Relu => v128_and(v, f32x4_gt(v, f32x4_splat(0.0))),
             UnaryElementwiseOp::AddScalar(c) => f32x4_add(v, f32x4_splat(c)),
         };
         *o = [
@@ -176,6 +177,21 @@ mod tests {
                 let gb: Vec<u32> = got.iter().map(|x| x.to_bits()).collect();
                 assert_eq!(wb, gb, "len={len}");
             }
+        }
+    }
+
+    #[test]
+    fn relu_nan_matches_scalar_in_lanes_and_remainder() {
+        for len in [4, 5, 9] {
+            let a = vec![f32::NAN; len];
+            let mut want = vec![7.0_f32; len];
+            let mut got = vec![7.0_f32; len];
+            scalar::elementwise(UnaryElementwiseOp::Relu, &a, &mut want).unwrap();
+            elementwise(UnaryElementwiseOp::Relu, &a, &mut got).unwrap();
+            let wb: Vec<u32> = want.iter().map(|x| x.to_bits()).collect();
+            let gb: Vec<u32> = got.iter().map(|x| x.to_bits()).collect();
+            assert_eq!(wb, gb, "len={len}");
+            assert!(got.iter().all(|v| *v == 0.0));
         }
     }
 
