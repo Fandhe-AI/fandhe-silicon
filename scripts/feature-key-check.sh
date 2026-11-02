@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 機能の問合せの鍵の一覧の突き合わせの検査（spec TASK-1114 のポインタ。親 Issue #948 の 5/6）。
-# core の鍵の一覧（`crates/core/examples/feature_keys.rs` の出力）を、機能一覧の CSV に突き合わせる。
+# 問合せの鍵の一覧の突き合わせの検査（spec TASK-1114・TASK-1362 のポインタ。TASK-1114 は親 Issue #948 の 5/6）。
+# core の鍵の一覧を、機能一覧の CSV に突き合わせる。一覧の出どころは `crates/core/examples/` の example の出力で、
+# `feature_keys.rs`（機能）・`limit_keys.rs`（上限）・`downlevel_keys.rs`（downlevel）を `--example` で選ぶ。
 # 一覧の既定のパスは `scripts/inventory-trace-check.sh`（TASK-16 のポインタ）と同じ。
 # 入力のポインタ: 一覧は docs/spec/03-poc/wgpu-feature-inventory/inventory.csv（private の submodule の中）。
 # 呼び出し元: `make feature-key-check`（直接の実行も可。手元だけの検査で、CI は呼ばない）。
