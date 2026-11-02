@@ -1,10 +1,61 @@
-//! テクスチャの作成の記述子を照らす純粋関数（TASK-1942。TEX-59〜TEX-62・TEX-64 のポインタ）。
+//! テクスチャの作成の記述子を照らす純粋関数（TASK-1942。TEX-59〜TEX-64 のポインタ）。
 //!
 //! `texture` モジュールの一部で、公開のパスは `fandhe_silicon_core::texture::…`。
 //! 背後実装の API は呼ばず、確保もしない（エラーの文字列を除く）。
 
-use super::{TextureDescriptor, TextureDimension};
+use super::{TextureDescriptor, TextureDimension, TextureExtent, TextureUsage};
 use crate::error::ContractError;
+use crate::texture_format::TextureFormat;
+
+/// 次元と大きさから mip の段数の上限を返す。
+///
+/// `D1` は 1。`D2` は幅と高さの大きい方、`D3` は 3 辺の最大を `m` として
+/// `32 - m.leading_zeros()`。その値と 16 の小さい方を返す。
+///
+/// ```
+/// use fandhe_silicon_core::texture::{max_mip_level_count, TextureDimension, TextureExtent};
+///
+/// let ext = |width, height, depth_or_array_layers| TextureExtent {
+///     width,
+///     height,
+///     depth_or_array_layers,
+/// };
+/// assert_eq!(max_mip_level_count(TextureDimension::D2, ext(1280, 720, 1)), 11);
+/// assert_eq!(max_mip_level_count(TextureDimension::D2, ext(65536, 1, 1)), 16);
+/// assert_eq!(max_mip_level_count(TextureDimension::D3, ext(4, 4, 32)), 6);
+/// assert_eq!(max_mip_level_count(TextureDimension::D1, ext(4096, 1, 1)), 1);
+/// ```
+#[must_use]
+pub fn max_mip_level_count(dimension: TextureDimension, size: TextureExtent) -> u32 {
+    let longest = match dimension {
+        TextureDimension::D1 => return 1,
+        TextureDimension::D2 => size.width.max(size.height),
+        TextureDimension::D3 => size.width.max(size.height).max(size.depth_or_array_layers),
+    };
+    (32 - longest.leading_zeros()).min(16)
+}
+
+/// 形式が BC 系か ASTC かを返す（3 次元で許す圧縮形式の見分けに使う）。
+fn is_bc_or_astc(format: TextureFormat) -> bool {
+    matches!(
+        format,
+        TextureFormat::Bc1RgbaUnorm
+            | TextureFormat::Bc1RgbaUnormSrgb
+            | TextureFormat::Bc2RgbaUnorm
+            | TextureFormat::Bc2RgbaUnormSrgb
+            | TextureFormat::Bc3RgbaUnorm
+            | TextureFormat::Bc3RgbaUnormSrgb
+            | TextureFormat::Bc4RUnorm
+            | TextureFormat::Bc4RSnorm
+            | TextureFormat::Bc5RgUnorm
+            | TextureFormat::Bc5RgSnorm
+            | TextureFormat::Bc6hRgbUfloat
+            | TextureFormat::Bc6hRgbFloat
+            | TextureFormat::Bc7RgbaUnorm
+            | TextureFormat::Bc7RgbaUnormSrgb
+            | TextureFormat::Astc { .. }
+    )
+}
 
 /// 記述子を上から順に照らし、最初に当たった 1 件を `InvalidArgument` で返す。
 ///
@@ -53,6 +104,11 @@ use crate::error::ContractError;
 ///   `depth_or_array_layers` が `max_texture_array_layers` を超える。`D3` は 3 辺のどれかが
 ///   `max_texture_dimension_3d` を超える
 /// - サンプル数が 0、2 の冪でない、または次元ごとの上限（`D1`・`D3` は 1、`D2` は 32）を超える
+/// - 次元が `D2` でないのに、形式が深度・ステンシルを持つか、用途に `TRANSIENT_ATTACHMENT` を含む
+/// - 次元が `D1` で、形式が圧縮形式か用途に `RENDER_ATTACHMENT` を含む。または次元が `D3` で、
+///   形式が BC・ASTC 以外の圧縮形式
+/// - 形式が圧縮形式で、幅か高さがブロックの大きさの倍数でない
+/// - `mip_level_count` が 0 か、`max_mip_level_count` を超える
 pub fn validate_texture_descriptor(
     desc: &TextureDescriptor<'_>,
     max_texture_dimension_1d: u32,
@@ -105,14 +161,47 @@ pub fn validate_texture_descriptor(
             desc.dimension
         )));
     }
+    let (format, usage) = (desc.format, desc.usage);
+    if desc.dimension != TextureDimension::D2
+        && (format.is_depth_stencil_format() || usage.contains(TextureUsage::TRANSIENT_ATTACHMENT))
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "texture format {format:?} or usage {usage:?} requires dimension D2 (got {:?})",
+            desc.dimension
+        )));
+    }
+    if desc.dimension == TextureDimension::D1
+        && (format.is_compressed() || usage.contains(TextureUsage::RENDER_ATTACHMENT))
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "texture dimension D1 does not support compressed format {format:?} or RENDER_ATTACHMENT usage {usage:?}"
+        )));
+    }
+    if desc.dimension == TextureDimension::D3 && format.is_compressed() && !is_bc_or_astc(format) {
+        return Err(ContractError::InvalidArgument(format!(
+            "texture dimension D3 does not support compressed format {format:?}"
+        )));
+    }
+    let (bw, bh) = format.block_dimensions();
+    if format.is_compressed() && (w % bw != 0 || h % bh != 0) {
+        return Err(ContractError::InvalidArgument(format!(
+            "texture size {w}x{h} is not a multiple of the block {bw}x{bh} of format {format:?}"
+        )));
+    }
+    let max_mips = max_mip_level_count(desc.dimension, desc.size);
+    let mips = desc.mip_level_count;
+    if mips == 0 || mips > max_mips {
+        return Err(ContractError::InvalidArgument(format!(
+            "texture mip_level_count {mips} is out of range (1..={max_mips})"
+        )));
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::texture::{TextureExtent, TextureUsage};
-    use crate::texture_format::TextureFormat;
+    use crate::texture_format::{AstcBlock, AstcChannel};
 
     const L1: u32 = 4096;
     const L2: u32 = 8192;
@@ -202,6 +291,139 @@ mod tests {
         assert!(is_invalid(&desc(TextureDimension::D2, 1, 1, 257)));
         assert!(is_invalid(&desc(TextureDimension::D3, 1025, 1025, 1025)));
         assert_eq!(check(&desc(TextureDimension::D2, 4097, 1, 1)), Ok(()));
+    }
+
+    fn ext(width: u32, height: u32, depth_or_array_layers: u32) -> TextureExtent {
+        TextureExtent {
+            width,
+            height,
+            depth_or_array_layers,
+        }
+    }
+
+    fn with(
+        dim: TextureDimension,
+        size: TextureExtent,
+        format: TextureFormat,
+        usage: TextureUsage,
+    ) -> TextureDescriptor<'static> {
+        TextureDescriptor::new(dim, size, format, usage)
+    }
+
+    #[test]
+    fn descriptor_check_max_mip_level_count_values() {
+        use TextureDimension::{D1, D2, D3};
+        assert_eq!(max_mip_level_count(D2, ext(1280, 720, 1)), 11);
+        assert_eq!(max_mip_level_count(D2, ext(16384, 16384, 1)), 15);
+        assert_eq!(max_mip_level_count(D2, ext(32768, 1, 1)), 16);
+        assert_eq!(max_mip_level_count(D2, ext(65536, 1, 1)), 16);
+        assert_eq!(max_mip_level_count(D2, ext(u32::MAX, 1, 1)), 16);
+        assert_eq!(max_mip_level_count(D2, ext(4, 4, 32)), 3);
+        assert_eq!(max_mip_level_count(D3, ext(4, 4, 32)), 6);
+        assert_eq!(max_mip_level_count(D1, ext(4096, 1, 1)), 1);
+    }
+
+    #[test]
+    fn descriptor_check_depth_stencil_and_transient_need_d2() {
+        use TextureDimension::{D1, D2, D3};
+        for dim in [D1, D3] {
+            for f in [TextureFormat::Depth32Float, TextureFormat::Stencil8] {
+                let d = with(dim, ext(4, 1, 1), f, TextureUsage::TEXTURE_BINDING);
+                assert!(is_invalid(&d), "{dim:?} {f:?}");
+            }
+            for u in [
+                TextureUsage::TRANSIENT_ATTACHMENT,
+                TextureUsage::TRANSIENT_ATTACHMENT | TextureUsage::RENDER_ATTACHMENT,
+            ] {
+                let d = with(dim, ext(4, 1, 1), TextureFormat::Rgba8Unorm, u);
+                assert!(is_invalid(&d), "{dim:?} {u:?}");
+            }
+        }
+        let d = with(
+            D2,
+            ext(4, 4, 1),
+            TextureFormat::Depth32Float,
+            TextureUsage::TEXTURE_BINDING,
+        );
+        assert_eq!(check(&d), Ok(()));
+    }
+
+    #[test]
+    fn descriptor_check_d1_rejects_compressed_and_render_attachment() {
+        let d1 = TextureDimension::D1;
+        let bc = with(
+            d1,
+            ext(8, 1, 1),
+            TextureFormat::Bc1RgbaUnorm,
+            TextureUsage::TEXTURE_BINDING,
+        );
+        assert!(is_invalid(&bc));
+        let ra = with(
+            d1,
+            ext(8, 1, 1),
+            TextureFormat::Rgba8Unorm,
+            TextureUsage::RENDER_ATTACHMENT,
+        );
+        assert!(is_invalid(&ra));
+    }
+
+    #[test]
+    fn descriptor_check_d3_compressed_formats() {
+        let d3 = TextureDimension::D3;
+        let u = TextureUsage::TEXTURE_BINDING;
+        let bc = with(d3, ext(8, 8, 2), TextureFormat::Bc1RgbaUnorm, u);
+        assert_eq!(check(&bc), Ok(()));
+        let astc = TextureFormat::Astc {
+            block: AstcBlock::B6x6,
+            channel: AstcChannel::Unorm,
+        };
+        assert_eq!(check(&with(d3, ext(12, 12, 2), astc, u)), Ok(()));
+        let etc2 = with(d3, ext(8, 8, 2), TextureFormat::Etc2Rgb8Unorm, u);
+        assert!(is_invalid(&etc2));
+        let ra = with(
+            d3,
+            ext(8, 8, 2),
+            TextureFormat::Rgba8Unorm,
+            TextureUsage::RENDER_ATTACHMENT,
+        );
+        assert_eq!(check(&ra), Ok(()));
+    }
+
+    #[test]
+    fn descriptor_check_compressed_block_multiple() {
+        let d2 = TextureDimension::D2;
+        let u = TextureUsage::TEXTURE_BINDING;
+        let bc = TextureFormat::Bc1RgbaUnorm;
+        assert_eq!(check(&with(d2, ext(8, 8, 1), bc, u)), Ok(()));
+        assert!(is_invalid(&with(d2, ext(6, 8, 1), bc, u)));
+        assert!(is_invalid(&with(d2, ext(8, 6, 1), bc, u)));
+        let astc = TextureFormat::Astc {
+            block: AstcBlock::B6x6,
+            channel: AstcChannel::Unorm,
+        };
+        assert_eq!(check(&with(d2, ext(12, 12, 1), astc, u)), Ok(()));
+        assert!(is_invalid(&with(d2, ext(8, 8, 1), astc, u)));
+        let rgba = TextureFormat::Rgba8Unorm;
+        assert_eq!(check(&with(d2, ext(7, 5, 1), rgba, u)), Ok(()));
+    }
+
+    #[test]
+    fn descriptor_check_mip_level_count() {
+        use TextureDimension::{D1, D2, D3};
+        let cases = [
+            (D2, ext(1280, 720, 1), 11),
+            (D3, ext(4, 4, 32), 6),
+            (D1, ext(8, 1, 1), 1),
+        ];
+        for (dim, size, max) in cases {
+            let mut d = desc(dim, size.width, size.height, size.depth_or_array_layers);
+            d.mip_level_count = max;
+            assert_eq!(check(&d), Ok(()), "{dim:?} mip {max}");
+            d.mip_level_count = max + 1;
+            assert!(is_invalid(&d), "{dim:?} mip {}", max + 1);
+            d.mip_level_count = 0;
+            assert!(is_invalid(&d), "{dim:?} mip 0");
+        }
     }
 
     #[test]

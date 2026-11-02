@@ -10,12 +10,13 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 項目 | 内容 |
 | ---- | ---- |
 | 実装 | `crates/core/src/texture/descriptor_check.rs` |
-| 公開のパス | `fandhe_silicon_core::texture::validate_texture_descriptor` |
+| 公開のパス | `fandhe_silicon_core::texture::validate_texture_descriptor`、`fandhe_silicon_core::texture::max_mip_level_count` |
 | feature | 条件なし |
 
 | 関数 | 入力 | 返し |
 | ---- | ---- | ---- |
 | `validate_texture_descriptor` | `&TextureDescriptor`、1 次元・2 次元・3 次元の大きさの上限、配列の層数の上限（すべて `u32`） | `Result<(), ContractError>` |
+| `max_mip_level_count` | `TextureDimension`、`TextureExtent` | `u32` |
 
 型の所在は [texture-types.md](texture-types.md)（TASK-371）を参照。
 
@@ -45,17 +46,56 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `D2` サンプル数 0・3・64 | `InvalidArgument` |
 | `D1`・`D3` サンプル数 2 | `InvalidArgument` |
 
+## 形式と次元の組・mip の段数（2/6）
+
+サンプル数の検査に続けて、次の 4 つをこの順に照らす。どれも `ContractError::InvalidArgument` を返し、文言は固定しない。
+
+5. 次元が `D2` でなく、形式が深度かステンシルを持つか、用途が `TRANSIENT_ATTACHMENT` を含む
+6. 次元が `D1` で、形式が圧縮形式か用途が `RENDER_ATTACHMENT` を含む。または次元が `D3` で、形式が BC・ASTC 以外の圧縮形式（ETC2・EAC）
+7. 形式が圧縮形式で、幅か高さがブロックの大きさの倍数でない
+8. `mip_level_count` が 0 か `max_mip_level_count` の超過
+
+`max_mip_level_count` は、`D1` が 1、`D2` が幅と高さの大きい方、`D3` が 3 辺の最大を `m` として `32 - m.leading_zeros()`、その値と 16 の小さい方を返す。
+
+| 入力 | 返し |
+| ---- | ---- |
+| `D2` 1280×720×1 | 11 |
+| `D2` 16384×16384×1 | 15 |
+| `D2` 幅 32768 / 65536 / `u32::MAX` | 16 |
+| `D2` 4×4×32 | 3 |
+| `D3` 4×4×32 | 6 |
+| `D1` 4096×1×1 | 1 |
+
+`validate_texture_descriptor` の返し（上限は 1/6 と同じ）。
+
+| 入力 | 返し |
+| ---- | ---- |
+| `D1`・`D3` の `Depth32Float`・`Stencil8` | `InvalidArgument` |
+| `D1`・`D3` の用途 `TRANSIENT_ATTACHMENT` | `InvalidArgument` |
+| `D2` の `Depth32Float` | `Ok(())` |
+| `D1` の `Bc1RgbaUnorm`、`D1` の用途 `RENDER_ATTACHMENT` | `InvalidArgument` |
+| `D3` の `Bc1RgbaUnorm` 8×8×2、ASTC 6x6 の 12×12×2 | `Ok(())` |
+| `D3` の `Etc2Rgb8Unorm` 8×8×2 | `InvalidArgument` |
+| `D3` の `Rgba8Unorm`、用途 `RENDER_ATTACHMENT` | `Ok(())` |
+| `D2` の `Bc1RgbaUnorm` 8×8 / 6×8 / 8×6 | `Ok(())` / `InvalidArgument` / `InvalidArgument` |
+| `D2` の ASTC 6x6 12×12 / 8×8 | `Ok(())` / `InvalidArgument` |
+| `D2` の `Rgba8Unorm` 7×5 | `Ok(())` |
+| `D2` 1280×720 の mip 11 / 12 / 0 | `Ok(())` / `InvalidArgument` / `InvalidArgument` |
+| `D3` 4×4×32 の mip 6 / 7 / 0 | `Ok(())` / `InvalidArgument` / `InvalidArgument` |
+| `D1` の mip 1 / 2 | `Ok(())` / `InvalidArgument` |
+
 ## 対応するテスト
 
 `crates/core/src/texture/descriptor_check.rs` の `mod tests`:
-`descriptor_check_empty_usage_is_rejected`・`descriptor_check_zero_extent_is_rejected`・`descriptor_check_d1_limits`・`descriptor_check_d2_limits`・`descriptor_check_d3_limits`・`descriptor_check_limits_are_not_swapped`・`descriptor_check_sample_count`。
-doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が空・幅 8193）。
+`descriptor_check_empty_usage_is_rejected`・`descriptor_check_zero_extent_is_rejected`・`descriptor_check_d1_limits`・`descriptor_check_d2_limits`・`descriptor_check_d3_limits`・`descriptor_check_limits_are_not_swapped`・`descriptor_check_sample_count`・`descriptor_check_max_mip_level_count_values`・`descriptor_check_depth_stencil_and_transient_need_d2`・`descriptor_check_d1_rejects_compressed_and_render_attachment`・`descriptor_check_d3_compressed_formats`・`descriptor_check_compressed_block_multiple`・`descriptor_check_mip_level_count`。
+doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が空・幅 8193）、`max_mip_level_count` の `///` に 1 本。
 
 ## 確かめ方
 
 ```sh
 cargo test -p fandhe-silicon-core --lib descriptor_check
 cargo test -p fandhe-silicon-core --doc validate_texture_descriptor
+cargo test -p fandhe-silicon-core --doc max_mip_level_count
 make verify
 ```
 
