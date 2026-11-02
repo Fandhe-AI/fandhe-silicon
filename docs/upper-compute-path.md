@@ -114,3 +114,34 @@ cargo test -p fandhe-silicon-upper --features native-blocking-wait
 cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown
 RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc
 ```
+
+## 試験用の device での試験（4/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 試験 | `crates/upper/tests/upper_compute_path.rs`・`crates/upper/tests/upper_wait_blocking.rs` |
+| 試験用の device | `crates/upper/tests/common/mod.rs`（core の `StubDevice` を包み、契約の queue の操作の呼び出しを順に記録する。戻り値の差し替えは `Overrides`） |
+| 組む条件 | `upper_compute_path` は feature の条件なし。`upper_wait_blocking` は feature `native-blocking-wait` の下だけ |
+| dev の依存 | `fandhe-silicon-core`（feature `test-support`）。製品の依存は変えない |
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `encoder_pass_and_finish_call_no_queue_operation` | 記録先の作成、パスの開始と終了、`finish` | その間の契約の queue の呼び出しは `create_encoder` の 1 件だけ。続く `submit` で 1 件増える |
+| `submit_passes_empty_wait_and_wraps_the_token` | `submit` の後に `gpu_timing` | `submit` が 1 回、待ちは空。`gpu_timing` が受ける印は `submit` が返した印。`SubmitId` と `SubmitToken` は同じ大きさ |
+| `submit_error_is_returned_as_is` | 契約の `submit` を `Err` にする | 上の層の `submit` が同じ `Err` を返す |
+| `gpu_timing_only_reads_and_returns_as_is` | `Pending`・`Reclaimed`・`Available` の差し替えと差し替えなし | 契約の `gpu_timing` が 1 回だけ呼ばれ、`poll` などは呼ばれない。値はそのまま返り、差し替えなしは `Unavailable` |
+| `wait_blocking_passes_token_and_timeout_as_is` | `None` と `Some(5ms)` の待ち、`Err` の差し替え | 契約の `wait_blocking` が印と上限を値のまま受け、結果を値のまま返す |
+| `device_and_queue_hold_no_state` | 2 つの device と、同じ `UpperDevice` からの 2 つの `Queue` | `UpperDevice`・`Queue` の大きさは `&dyn Device` と等しい。投入は対応する device の記録にだけ出る |
+| `buffer_wraps_the_handle` | 確保した handle を `Buffer` に包んで戻す | 大きさと用途が保たれ、戻した handle で `upload` が通る |
+| `checks_compose_with_test_frame_judge` | 投入と時刻の写しの確かめを試験の枠へ通す | 設定ありで `Ok`、壊した入力で `Ng`、設定なしで `NotRun` |
+
+### 確かめ方
+
+```text
+cargo clippy -p fandhe-silicon-upper --all-targets -- -D warnings
+cargo clippy -p fandhe-silicon-upper --all-targets --features native-blocking-wait -- -D warnings
+cargo test -p fandhe-silicon-upper --test upper_compute_path
+cargo test -p fandhe-silicon-upper --features native-blocking-wait --test upper_wait_blocking
+cargo test -p fandhe-silicon-upper --features native-blocking-wait
+cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown --tests
+```

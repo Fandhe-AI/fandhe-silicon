@@ -17,5 +17,14 @@ fandhe-silicon-exec = { path = "../exec" }
 [features]
 native-blocking-wait = ["fandhe-silicon-core/native-blocking-wait", "fandhe-silicon-exec/native-blocking-wait"]
 
+# 試験用の device（StubDevice）を使う統合テスト用。製品の依存には入らない。
+[dev-dependencies]
+fandhe-silicon-core = { path = "../core", features = ["test-support"] }
+
+# wait_blocking を呼ぶ統合テストは feature の下でだけ組む。
+[[test]]
+name = "upper_wait_blocking"
+required-features = ["native-blocking-wait"]
+
 [lints]
 workspace = true
