@@ -187,4 +187,4 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 
 ## 関連
 
-[measurement-tool](measurement-tool.md)・[perf-gate-rule](perf-gate-rule.md)・[measurement-record](measurement-record.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+[measurement-tool](measurement-tool.md)・[perf-gate-rule](perf-gate-rule.md)・[measurement-record](measurement-record.md)・[detection-counting](detection-counting.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
