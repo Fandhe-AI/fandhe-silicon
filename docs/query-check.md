@@ -93,6 +93,27 @@ cargo test -p fandhe-silicon-core --doc PipelineStatisticsFlags
 cargo test -p fandhe-silicon-core --doc validate_query
 ```
 
+## 結果の配置と個数の上限の試験（3/5）
+
+`crates/core/src/` は変えず、試験のファイル `crates/core/tests/query_layout.rs`（feature 不要）を 1 つ足した。公開 API は変わらない。期待は試験の中で独立に数える。
+
+| テスト | 項目のポインタ | 入力 | 期待 |
+| ------ | -------------- | ---- | ---- |
+| `layout_all_31_combinations` | CMD-127 | 空でない 31 通りの組 | `count` が立てた数、`stride` が数 × 8、位置が小さいビットからの順で `0..count` を隙間なく埋め、立てていないフラグは `None` |
+| `layout_example_two_flags` | CMD-127 | `CLIPPER_PRIMITIVES_OUT` と `COMPUTE_SHADER_INVOCATIONS` の組 | `stride` 16、位置 0・1、バイトの位置 0・8 |
+| `layout_query_i_starts_at_offset_plus_i_stride` | CMD-127 | stride 16、offset 256、3 件、`dst_size` 304 | `Ok(48)`、先頭が 256・272・288、最後の終端が 304 |
+| `position_rejects_non_single_flag` | CMD-127 | 空・2 ビットの和・含まないフラグ | `None` |
+| `query_size_and_constants` | CMD-127〜CMD-130 | 定数 | 8・4096・256 |
+| `set_count_bounds` | CMD-128 | 1〜4096 の全件、0、4097 以上の刻み、`u32::MAX` | 1〜4096 は `Ok(())`、ほかは `Err(InvalidArgument)` |
+| `empty_flags_have_zero_stride` | CMD-127 | 空の組とその stride の解決 | `count`・`stride` が 0、`Err(InvalidArgument)`（stride の語） |
+| `rejection_is_invalid_argument_only` | CMD-128 | 個数 0・4097・`u32::MAX`、空の stride | `InvalidArgument` だけ |
+
+```sh
+cargo test -p fandhe-silicon-core --test query_layout
+cargo test -p fandhe-silicon-core --all-features
+cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
