@@ -21,7 +21,7 @@ fandhe-silicon/
 ├── Cargo.lock
 ├── rust-toolchain.toml       # stable + rustfmt / clippy
 ├── public-name-check.conf    # public-name-check の語の一覧（`--config` で渡す）
-├── public-api-webgpu-check.conf  # public-api-webgpu-check の語の一覧（`--config` で渡す）
+├── public-api-webgpu-check.conf  # public-api-webgpu-check の語の一覧と、関数の名前の節 `[submit-token-ops]`（`--config` で渡す）
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止。baseline-wgpu/deny.toml は禁止を外した別 workspace 用）
 ├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。今は 4 件）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）（編集方針: .claude/rules/makefile.md）

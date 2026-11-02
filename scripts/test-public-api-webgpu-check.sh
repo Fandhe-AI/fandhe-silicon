@@ -12,6 +12,7 @@
 #   (3) は合成 JSON〔組 A は --json、組 B は --interop-json。規則 G1〜G3 の合格・違反・形の崩れ〕と、一時 workspace の実物
 #   〔feature ext-interop の裏の拡張 trait は 0・裏から出すと落ちること、execution の型と submit 系の wait の形、
 #   2 回目の JSON を作る段だけ失敗させる差し替え〕で通す。
+#   (4) は合成 JSON〔名前に WebGPU の語を含む公開の操作・型。TASK-155 のポインタ〕で通す。
 #   (5) は合成 JSON〔--token-json の経路。一覧の中・外、値・参照・slice・trait のメソッド、impl の Self、形の崩れ、設定の崩れ〕と、
 #   一時 workspace の実物〔一時の設定の一覧どおりは 0・一覧の外の口を core・contract に足す・core の feature の裏の口を足すと落ちること、
 #   3 回目の JSON を作る段だけ失敗させる差し替え〕で通す（TASK-313 のポインタ）。
