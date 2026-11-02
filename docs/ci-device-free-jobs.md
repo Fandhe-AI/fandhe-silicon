@@ -55,8 +55,11 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `test-hooks` | `make test-metal-session` | `scripts/test-metal-session.sh` | Metal の実機の回の手順のスクリプトの回帰テスト |
 | `verify` | `make verify` | `scripts/verify.sh` | fmt・clippy・workspace の試験。試験の枠の記録から集計の表をジョブのログに出す（[test-frame](./test-frame.md)） |
 | `verify` | `make build-profiles` | `scripts/build-profiles.sh` | feature の組ごとの build・clippy・test と wasm32 の check、`crates/wasm-abi` の scalar 版・simd128 版の release ビルド（成果物の在りかと wasm の先頭 4 バイトの確かめ）、core の feature なしの clippy・test、core の `test-support` だけの clippy・test |
+| `verify` | `make profile-test-count-check` | `scripts/profile-test-count-check.sh` | 契約の crate の試験 `stub_device_profiles` を、`build-profiles.sh` の 3 つのプロファイルの組に `test-support` を足した組で流し、通った本数と `graphics_` の試験の本数を期待と照らす（`record:` の行がログに残る。[profile-switch-check](./profile-switch-check.md)） |
+| `verify` | `make test-profile-test-count-check` | `scripts/test-profile-test-count-check.sh` | 上の回帰テスト（合成の `build-profiles.sh` と偽の cargo）。本体と同じジョブで流す |
 | `verify-macos` | `make verify` | `scripts/verify.sh` | `verify` と同じ fmt・clippy・workspace の試験を macOS で流す（`--all-features` に `backend-metal` が入る。`--ignored` は付けない） |
 | `verify-macos` | `make build-profiles` | `scripts/build-profiles.sh` | `verify` と同じ feature の組ごとの確かめを macOS で流す（`backend-metal` 単独の組と `--all-features` の組を含む。Linux では macOS 向けの依存がビルドされない） |
+| `verify-macos` | `make profile-test-count-check` | `scripts/profile-test-count-check.sh` | `verify` と同じ照合を macOS で流す（ComputeOnly の組が Metal の依存を実際にビルドする） |
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
