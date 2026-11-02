@@ -72,12 +72,30 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | core の中の試験（件数・相異・`LIMIT_QUERY_KEYS` との位置ごとの一致・定数の抜き取り） | 4 | `cargo test -p fandhe-silicon-core --lib value_key` |
 | 一覧の doctest | 1 | `cargo test -p fandhe-silicon-core --doc value_key` |
 
+## 鍵の一覧と表の枠の試験（3/5）
+
+`crates/core/tests/limit_downlevel_key_table.rs` に、公開のパスだけを使う外の crate の試験を置く。`crates/core/Cargo.toml` の `[[test]]` で feature `test-support` を要る（`required-features`）。
+上限の一覧と downlevel の一覧を、それぞれ [feature-keys.md](feature-keys.md) の能力の表の枠（`FeatureRow`・`query_from_table`・`UNLISTED_FEATURE_QUERY`・`check_key_list`・`check_table_keys`・`check_table_queries`）に載せる。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `limit_and_downlevel_key_lists_are_complete` | 上限の一覧が 57 件・downlevel の一覧が 26 件で、一覧ごとに `check_key_list` が通り、全鍵が `limit:`・`downlevel:` で始まる |
+| `missing_or_extra_key_is_detected` | 一覧ごとに、全鍵の行の表が `check_table_keys` を通る。一覧から 1 件を除くと `RowKeyNotInList`、架空の鍵・もう一方の一覧の鍵の行を足すと `RowKeyNotInList`、同じ鍵の行を 2 つにすると `DuplicateRowKey`、一覧に重複を足すと `DuplicateKey` |
+| `unlisted_key_is_unknown_feature_not_no_api` | 一覧ごとに、行の無い鍵は `UNLISTED_FEATURE_QUERY`（`Unsupported`・`UnknownFeature`・根拠なし）で `NoApi` ではなく、空の表では `eval` を呼ばない。行のある鍵は行の値を返す |
+| `s3_and_above_carry_evidence` | 一覧ごとに、`S1` 以上と `Unsupported` の根拠つきの表は `check_table_queries` を通り、根拠の無い `S3` の行を足すと `MissingEvidence` の 1 件になる |
+| `value_keys_follow_limit_keys` | `LIMIT_VALUE_KEYS` が `LIMIT_QUERY_KEYS` と同じ件数・同じ位置で同じ文字列で、互いに異なる |
+| `key_lists_are_disjoint` | 上限・downlevel・機能・テクスチャの形式の 4 つの鍵の一覧のどの 2 つも共通の鍵を持たない |
+
+| 試験 | 件数（記録時点の値） | 確かめ方 |
+| ---- | -------------------- | -------- |
+| 外の crate の試験 | 6 | `cargo test -p fandhe-silicon-core --features test-support --test limit_downlevel_key_table` |
+
 ## 段の表
 
 | 段 | Issue | 題 |
 | -- | ----- | -- |
 | 1/5 | #7702 | 上限と downlevel の問合せの鍵の定数と一覧 |
 | 2/5 | #7703 | 値の鍵の型と上限の値の鍵の定数（本書の「値の鍵（2/5）」） |
-| 3/5 | #7704 | 上限と downlevel の鍵の一覧と表の枠の試験 |
+| 3/5 | #7704 | 上限と downlevel の鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（3/5）」） |
 | 4/5 | #7705 | 上限と downlevel の鍵の一覧を機能一覧に突き合わせる検査 |
 | 5/5 | #7706 | 完了の条件の確かめ |
