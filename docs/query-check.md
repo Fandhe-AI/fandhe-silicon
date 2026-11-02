@@ -9,7 +9,7 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 ## 所在
 
 - ファイル: `crates/core/src/execution/query_check.rs`
-- 公開のパス: `fandhe_silicon_core::execution::{PipelineStatisticsFlags, QUERY_SIZE}`
+- 公開のパス: `fandhe_silicon_core::execution::{PipelineStatisticsFlags, QUERY_SIZE, QUERY_SET_MAX_QUERIES, QUERY_RESOLVE_BUFFER_ALIGNMENT, validate_query_set_count, validate_query_resolve}`
 - feature の条件なし。外部依存 0。`forbid(unsafe_code)` のまま
 
 | 名前 | 値・内容 |
@@ -20,6 +20,10 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 | `PipelineStatisticsFlags::FRAGMENT_SHADER_INVOCATIONS` | ビット `1 << 3` |
 | `PipelineStatisticsFlags::COMPUTE_SHADER_INVOCATIONS` | ビット `1 << 4` |
 | `QUERY_SIZE` | `8`（問合せの結果 1 つのバイト数） |
+| `QUERY_SET_MAX_QUERIES` | `4096`（`u32`。問合せの組の個数の上限） |
+| `QUERY_RESOLVE_BUFFER_ALIGNMENT` | `256`（`u64`。解決先の offset が倍数であるべき値） |
+| `validate_query_set_count(count: u32) -> Result<(), ContractError>` | 個数が 1〜4096 かの検査 |
+| `validate_query_resolve(set_count, stride, first_query, query_count, dst_size, dst_offset) -> Result<u64, ContractError>` | 整列・範囲・長さを照らし、書くバイト数を返す |
 
 外から作れるのは定数と `|` だけで、生のビットから作る口は無い。
 
@@ -36,6 +40,36 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 
 `position` の引数が 0 個または 2 個以上のビットを持つとき、また含まれないフラグのときは `None`。
 
+## 現状の形（2/5）
+
+どちらも引数の値だけを見る純粋関数で、拒否はすべて `ContractError::InvalidArgument`。
+
+`validate_query_set_count`
+
+| `count` | 返し |
+| ------- | ---- |
+| 0 | `Err(InvalidArgument)` |
+| 1 | `Ok(())` |
+| 4096 | `Ok(())` |
+| 4097 | `Err(InvalidArgument)` |
+| `u32::MAX` | `Err(InvalidArgument)` |
+
+`validate_query_resolve`（引数は `set_count, stride, first_query, query_count, dst_size, dst_offset` の順）
+
+| 入力 | 返し |
+| ---- | ---- |
+| `(4096, 16, 0, 2, 512, 256)` | `Ok(32)` |
+| `(4096, 16, 0, 2, 288, 256)`（終端が `dst_size` ちょうど） | `Ok(32)` |
+| `(4, 8, 2, 2, 8192, 0)`（範囲が `set_count` ちょうど） | `Ok(16)` |
+| `(4, 8, 0, 0, 256, 256)`（個数 0） | `Ok(0)` |
+| `dst_offset` が 256 の倍数でない（255） | `Err(InvalidArgument)` |
+| `stride` が 0 | `Err(InvalidArgument)` |
+| `stride` が 8 の倍数でない（12） | `Err(InvalidArgument)` |
+| `first_query + query_count` が `set_count` を超える | `Err(InvalidArgument)` |
+| `query_count × stride` が `u64` に収まらない | `Err(InvalidArgument)` |
+| 書き込みの終端が `u64` に収まらない（offset `u64::MAX - 255`・40 件） | `Err(InvalidArgument)` |
+| 書き込みの終端が `dst_size` を超える（287） | `Err(InvalidArgument)` |
+
 ## 対応するテスト
 
 | テスト | 内容 |
@@ -46,12 +80,17 @@ private spec の本文は転記しない。以下は本リポのコードと確�
 | `all_flags_have_count_five_and_stride_forty` | 全部の和の `count` 5・`stride` 40・位置 0〜4 |
 | `two_flags_report_count_stride_and_positions` | 例の組の値 |
 | `position_is_none_for_empty_multi_bit_or_absent_flag` | `None` の 3 通り |
+| doctest（`validate_query_set_count`・`validate_query_resolve`） | 個数 0・1・4096・4097、`Ok(32)`、offset 255、長さ 287 |
+| `set_count_accepts_1_and_4096_rejects_0_and_4097` | 個数の受理と拒否 |
+| `resolve_returns_bytes_for_valid_input` | `Ok` の 4 通り |
+| `resolve_rejects_each_single_fault` | 単独の誤りごとの拒否と文言の先頭の語 |
 
 ## 確かめ方
 
 ```sh
 cargo test -p fandhe-silicon-core --lib query_check
 cargo test -p fandhe-silicon-core --doc PipelineStatisticsFlags
+cargo test -p fandhe-silicon-core --doc validate_query
 ```
 
 ## 段の表
