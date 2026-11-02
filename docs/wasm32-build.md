@@ -102,6 +102,20 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 
 補い: 契約の crate に `cpu_ops`（[cpu-ops](cpu-ops.md)）が入った後の `abd6c95` で `make wasm-build-check` を流すと、`cfg:` の行は `sites=5 label=match`、`type:` の行は `label=not-run reason=no-required-types`、終了コードは 2 だった。
 
+## 現状の値の補い
+
+上の「本リポの現状での実行結果」の表と、その後の補い（`abd6c95`）は記録した時点の値で、書き換えていない。`d909cc7` で `make wasm-build-check` を流した結果は次のとおり。
+
+| 行 | 結果 |
+| -- | ---- |
+| `artifact:`（scalar） | `label=match simd128=absent bytes=300` |
+| `artifact:`（simd128） | `label=match simd128=present bytes=309` |
+| `type:` | `label=not-run reason=no-required-types` |
+| `cfg:` | `sites=5 label=match`（`simd128` の出現は 0 件ではない） |
+| `record:` | `artifact=2/2 types=0/0 cfg_sites=5 not_run=1` |
+
+終了コードは、`scripts/wasm-build-check.sh` を直接流すと 1、`make wasm-build-check` は make が包むので 2（make の出力に `Error 1` が出る）。`make` 経由の 2 は make の値で、スクリプトそのものの値ではない。
+
 ## CI への組み込み（4/4）
 
 既存のジョブへステップとして足した。新しいジョブ・runner・ツールは無く、check 名と `ci-complete` の `needs` は変わらない。

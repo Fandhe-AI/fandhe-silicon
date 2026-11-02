@@ -3,9 +3,9 @@
 //! wasm32 で `simd128` が有効なビルドでだけコンパイルされ、`DefaultCpuOps` の `*_simd` から呼ばれる。
 //! 長さの判定は scalar 版と同じ関数を添字で触る前に置き、合わなければ `out` に何も書かずに
 //! `InvalidArgument` を返す。GEMM は k を 4 つずつ 4 レーンの積と和（別の命令）で積み、4 レーンを
-//! 先頭から順に足して、端数の k を昇順の `f32::mul_add` で足す（spec CPU-3 のポインタ）。
-//! 要素ごと演算は 4 要素ずつ処理し、端数は scalar 版と同じ式で書く（spec CPU-6 のポインタ）。
-//! 実行時に CPU の機能を調べず、unsafe も使わない（spec CPU-20 のポインタ）。
+//! 先頭から順に足す（spec CPU-3 のポインタ）。端数の k は昇順の `f32::mul_add` で足す（spec CPU-6 のポインタ）。
+//! 要素ごと演算は 4 要素ずつ処理し、端数は scalar 版と同じ式で書く（spec CPU-20 のポインタ）。
+//! 実行時に CPU の機能を調べず、unsafe も使わない。
 
 use super::UnaryElementwiseOp;
 use super::scalar::{elementwise_lengths_ok, gemm_lengths_ok};

@@ -166,6 +166,8 @@ make wasm-verify
 
 この節より前の節の `UnsupportedExtensionDefault` の記述と `*_is_unsupported_without_simd128` の行は、7/9 の前の形。5/5 の確かめ表の行 (3) は 5/5 の時点の記録で、書き換えていない（現状は上の表と試験の変更のとおり）。
 
+補い: 上の試験の変更の表の「`simd128.rs` の単体試験 | 1 本減」は誤りで、`simd128.rs` の `#[test]` は 6 本のまま（`grep -c '#\[test\]' crates/contract/src/cpu_ops/simd128.rs` が 6）。
+
 ### 確かめ方
 
 ```text

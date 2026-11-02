@@ -54,6 +54,25 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | make deny での監査 | `scripts/deny.sh` が `wasm/` にルートの `deny.toml` をそのまま当て（wgpu 系・naga の禁止は残る）、deps-check も呼ぶ | `grep -n 'wasm/' scripts/deny.sh` |
 | CI | `deny` ジョブが `make wasm-verify` を呼ぶ。ジョブ・check 名は増えない | `grep -n -B1 -A2 wasm-verify .github/workflows/ci.yml` |
 
+補い: 上の表の「検査の入口」の行は記録した時点の段の並びで、書き換えていない。いまの `scripts/wasm-verify.sh` の段は次の順（`log` の行）。
+
+| 順 | 段 |
+| -- | -- |
+| 1 | `cargo fmt --all --check (wasm/)` |
+| 2 | `cargo clippy (wasm/, host) -D warnings` |
+| 3 | `cargo clippy (wasm/, wasm32-unknown-unknown) -D warnings` |
+| 4 | `cargo check (crates/core tests, wasm32-unknown-unknown, default features)` |
+| 5 | `cargo check (crates/core tests, wasm32-unknown-unknown, all features)` |
+| 6 | `cargo check (crates/contract tests, wasm32-unknown-unknown, default features)` |
+| 7 | `cargo clippy (crates/contract tests, wasm32-unknown-unknown, simd128) -D warnings` |
+| 8 | `wasm-compile-probe-check (wasm32 compile probes)` |
+| 9 | `cargo test (wasm/, host)` |
+| 10 | `cargo build (wasm/, wasm32-unknown-unknown, profile wasm-size)` |
+| 11 | `artifact: wasm_glue.wasm exists and is not empty` |
+| 12 | `deps-check (wasm/)` |
+
+確かめ方: `grep -n 'log "' scripts/wasm-verify.sh`
+
 ## glue 込みの量の測定（`scripts/wasm-size.sh`）
 
 TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ: BUILD-42・T-12）。本リポにはコードとテストで示せる事実だけを置く。
