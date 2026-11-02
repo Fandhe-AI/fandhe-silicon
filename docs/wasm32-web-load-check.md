@@ -163,6 +163,32 @@ test-wasm-web-load-check: 122 passed, 0 failed
 記録時点のコミットは `6f71964`。偽の cargo・rustc・wasm-bindgen・node によるビルドの経路の場面（組ごとの引数、
 `RUSTFLAGS` が渡らないこと、ビルドと生成の失敗、前提の不足）を含む。
 
+### make ターゲットと CI（3/4）
+
+| ターゲット | スクリプト | CI で呼ぶジョブ |
+| ---------- | ---------- | --------------- |
+| `make wasm-web-load-check` | `scripts/wasm-web-load-check.sh` | 呼ばない（手元の実行） |
+| `make test-wasm-web-load-check` | `scripts/test-wasm-web-load-check.sh` | `deny` |
+
+`make -n` の出力。
+
+```text
+$ make -n wasm-web-load-check
+scripts/wasm-web-load-check.sh
+$ make -n test-wasm-web-load-check
+scripts/test-wasm-web-load-check.sh
+```
+
+`make ci-frame-check` と `make test-wasm-web-load-check` の最終行。
+
+```text
+ok: ci workflow frame (8 jobs, rules F1-F6)
+test-wasm-web-load-check: 122 passed, 0 failed
+```
+
+記録時点のコミットは `573a2e5`。CI の step は `.github/workflows/ci.yml` の `deny` ジョブにあり、
+`grep -n "test-wasm-web-load-check" .github/workflows/ci.yml` で確かめる。
+
 ## 段
 
 | 段 | 内容 | Issue |

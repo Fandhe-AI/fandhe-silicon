@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check wasm-compile-probe-check test-wasm-compile-probe-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check wasm-compile-probe-check test-wasm-compile-probe-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check wasm-web-load-check test-wasm-web-load-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -82,6 +82,12 @@ wasm-node-check: ## wasm32 の .wasm を wasm-bindgen の glue 越しに Node �
 
 test-wasm-node-check: ## scripts/wasm-node-check.sh 自体の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果。run-glue.cjs は本物の node で偽の glue を読ませる。bash + python3 + node。ネットワーク不要）。直接: scripts/test-wasm-node-check.sh
 	@scripts/test-wasm-node-check.sh
+
+wasm-web-load-check: ## wasm-bindgen の --target web の出力を Node で読み込み、4 組 × 11 項目の行を出す検査（bash + python3 + node v24.13.0 + cargo + wasm-bindgen の CLI。終了コード 0・1・2。CI からは呼ばない）。直接: scripts/wasm-web-load-check.sh [--from-dir <dir>]
+	@scripts/wasm-web-load-check.sh
+
+test-wasm-web-load-check: ## scripts/wasm-web-load-check.sh 自体の回帰テスト（偽の node・cargo・wasm-bindgen と、本物の node で偽の glue を読む。bash + python3 + node・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-web-load-check.sh
+	@scripts/test-wasm-web-load-check.sh
 
 test-record-summary: ## scripts/record-summary.sh（試験の枠の記録の部品から集計の表を出す）と scripts/verify.sh の記録の扱いの回帰テスト（合成の部品と偽の cargo。bash + python3。ネットワーク不要）。集計の本体は引数（部品のディレクトリ）が要るので make ターゲットを持たない（直接: scripts/record-summary.sh <dir>）。直接: scripts/test-record-summary.sh
 	@scripts/test-record-summary.sh

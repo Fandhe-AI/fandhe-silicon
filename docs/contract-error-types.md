@@ -21,7 +21,7 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 対象の型の有無 | TASK-269 が定義する型は `crates/core/src/error.rs`・`capability.rs` にある（下の「現状の形（2/8）」）。ほかの既存の公開 enum は、各機能の内側の暫定・個別の型で、契約の共通の型として置かれたものではない | `git grep -n -E 'pub enum [A-Za-z]*(Error\|Reason)' -- crates wasm` |
-| 既存のエラー風の型（実行まわり） | 暫定の `OperandCheckError` は外した。`execution` の `validate_dispatch_operands` は `ContractError::InvalidArgument` を返す（TASK-2951） | `crates/core/src/execution/dispatch_check.rs` |
+| 既存のエラー風の型（実行まわり） | 暫定の `OperandCheckError` は外した。`execution` の `validate_dispatch_operands` は `ContractError::InvalidArgument` を返す（TASK-2951）。`validate_declared_operands`（C1・C3。[declared-operand-check](declared-operand-check.md)）も同じ型で拒否を返す（TASK-420） | `crates/core/src/execution/dispatch_check.rs` |
 | 既存のエラー風の型（成果物キャッシュ） | `core` の `artifact_cache` に `RejectReason`・`LoadOutcome`（`#[non_exhaustive]`） | `crates/core/src/artifact_cache.rs` |
 | 既存のエラー風の型（背後実装） | `contract` の `backend_vulkan::spirv_operands` に `SpirvExtractError`（feature `backend-vulkan` の裏。`#[non_exhaustive]`。`fmt::Display` と `std::error::Error` を実装） | `crates/contract/src/backend_vulkan/spirv_operands.rs` |
 | 既存のエラー風の型（試験の道具） | `parity`・`test_frame`・`rerun`（`test-support` の裏）にも個別のエラー型がある。契約の型ではなく検証用の道具の内側 | `git grep -n -E 'pub enum [A-Za-z]*(Error\|Reason)' -- crates/core/src` |
