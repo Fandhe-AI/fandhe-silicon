@@ -8,14 +8,18 @@
 //! 経路の報告 [`RouteReport`]（f32 の非正規化数の項 [`F32DenormalReport`]・
 //! [`F32DenormalBehavior`]・[`F32DenormalBasis`]）、結果の値 [`Outcome`]、
 //! 列の渡し方 [`F16FmaOperands`]・[`SubgroupSumU32Operands`]・[`SubgroupSumF32Operands`]・
-//! [`AtomicAddOperands`]（`docs/spec/05-tasks.md` の TASK-919）。
+//! [`AtomicAddOperands`]、
+//! device を借りて既定の印を持つ下-2 の値 [`Exec`] とその 7 つの入口（`docs/spec/05-tasks.md` の TASK-919）。
 #![forbid(unsafe_code)]
 
+mod entry;
 mod operands;
 mod opt_in;
 mod report;
 mod route;
+mod select;
 
+pub use entry::Exec;
 pub use operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };

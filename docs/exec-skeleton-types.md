@@ -103,6 +103,67 @@ cargo test -p fandhe-silicon-exec --lib
 cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
 ```
 
+## 下-2 の値と 7 つの入口（4/7）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/exec/src/entry.rs`・`crates/exec/src/select.rs`（選び方と報告の組み立ては crate の中だけの関数で公開しない） |
+| 公開のパス | `fandhe_silicon_exec::Exec` |
+| feature の条件 | なし（入口はどのビルドにも在る） |
+
+### `Exec` の作り方と既定の読み方
+
+| 関数 | 動き |
+| ---- | ---- |
+| `Exec::new(device, default_opt_in)` | device を借り、既定の印を持つ値を作る |
+| `Exec::deny_by_default(device)` | 既定の印を `OptIn::default()`（どちらも許さない）にして作る |
+| `default_opt_in(&self)` | 作るときに決めた既定の印を返す |
+
+作った後に既定を変える関数は無い。入口の `opt_in` に `Some` を渡すと、その呼び出しの印が既定を丸ごと置き換える（欄ごとには混ぜない）。`None` は既定の印を使う。
+
+### 7 つの入口
+
+どれも `&self` の関数で、戻り値は `Result<Outcome, ContractError>`。
+
+| 入口 | 引数（`opt_in: Option<OptIn>` の後） | 能力の鍵 |
+| ---- | ------------------------------------ | -------- |
+| `f16_fma` | `n: u64`・`F16FmaOperands` | `FEATURE_SHADER_F16` |
+| `subgroup_sum_u32` | `n: u64`・`SubgroupSumU32Operands` | `FEATURE_SUBGROUP` |
+| `subgroup_sum_f32` | `n: u64`・`SubgroupSumF32Operands` | `FEATURE_SUBGROUP` |
+| `atomic_add` | `n: u64`・`m: u64`・`AtomicAddOperands` | `FEATURE_SHADER_FLOAT32_ATOMIC` |
+| `external_interop_shared_memory` | なし | なし |
+| `hardware_ray_tracing` | なし | なし |
+| `unified_memory_sharing` | なし | なし |
+
+### 4 つの入口の動き
+
+1. 効く印を決める（上書きの `Some` ならその印、`None` なら既定）。
+2. 能力の鍵で device の `query_ex` を呼ぶ（入口 1 回につき 1 回）。
+3. 経路の届き方を決める。
+
+| 条件 | 経路 | `native_reason` | `fallback_reason` |
+| ---- | ---- | --------------- | ----------------- |
+| 段階が `S2`〜`S6` | `Native` | なし | なし |
+| 段階が `Unsupported` | 下の順 | `CapabilityUnsupported(問合せの理由)` | 下の順 |
+| 段階が `S0`・`S1` とそれ以外 | 下の順 | `CapabilityUnknown` | 下の順 |
+
+`Native` が届かないときは、`allow_gpu_emulated` が `true` なら `GpuEmulated`、そうでなく `allow_cpu` が `true` なら `Cpu`、どちらも `false` なら経路なしで `fallback_reason` は `OptInNotGiven`。
+
+4. 報告を組み立てる。`observed_level` は問合せの段階。`f32_denormal` はいつも `None`。
+5. 経路なしなら `Ok(Outcome::Unavailable { report })` を返す。
+6. 経路が決まれば `Err(ContractError::Unsupported { .. })` を返す（`op` は入口の関数名、`backend` は device の背後実装）。
+
+3 つの入口は能力を問い合わせず、`opt_in` の値によらず `Err(ContractError::Unsupported { .. })` を返す。
+
+どの入口も `n`・`m`・`operands` を読まず、出力の列・buffer に書かない。`Outcome::Ran` は返さない。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --lib
+cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
+```
+
 ## 段の表
 
 | 段 | Issue | 題 |
