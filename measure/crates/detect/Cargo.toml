@@ -1,0 +1,13 @@
+[package]
+name = "measure-detect"
+version = "0.0.0"
+description = "変異体の検出の結果を数える純粋関数"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

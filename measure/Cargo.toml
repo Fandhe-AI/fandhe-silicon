@@ -1,11 +1,12 @@
 # 性能を測る共通の道具と測定専用の crate を置く、製品の workspace の外の別 workspace
 # （spec TASK-27・TASK-6 のポインタ）。
+# 変異体の検出の結果を数える道具（crates/detect。spec TASK-1082 のポインタ）も本 workspace に置く。
 # 製品の crate（crates/ 配下）は本 workspace に依存しない。向きは測定 → 製品の一方向だけにする。
 # 依存の追加はユーザー承認制・=x.y.z 完全固定（.claude/rules/dependency-policy.md）。
 # 検査の入口は `make measure-verify`（scripts/measure-verify.sh）。
 [workspace]
 resolver = "3"
-members = ["crates/perf"]
+members = ["crates/detect", "crates/perf"]
 
 [workspace.package]
 edition = "2024"
