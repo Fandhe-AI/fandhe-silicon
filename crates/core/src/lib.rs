@@ -16,6 +16,7 @@
 //! 描画先の handle の型と、device の識別子の照合の関数（`render_target` モジュール）も feature の条件なしで公開される。
 //! テクスチャの形式の型と、機材に依らない性質を返す関数（`texture_format` モジュール）も feature の条件なしで公開される。
 //! テクスチャの形式の問合せの鍵の一覧と、機能一覧の行・形式の値との対応の表（`texture_format_key` モジュール）も feature の条件なしで公開される。
+//! 形式ごとの能力の値の型と組み立ての口（`texture_format_features` モジュール）も feature の条件なしで公開される。
 //! 機能の問合せの鍵の定数と一覧（`feature_key` モジュール）も feature の条件なしで公開される。
 //! 能力の表の行の型と、鍵で行を引く関数と行の無い鍵に返す値（`capability_table` モジュール）も feature の条件なしで公開される。
 //! 上限と downlevel の問合せの鍵の定数と一覧（`limit_key`・`downlevel_key` モジュール）も feature の条件なしで公開される。
@@ -56,6 +57,7 @@ pub mod render_target;
 pub mod spirv;
 pub mod texture;
 pub mod texture_format;
+pub mod texture_format_features;
 pub mod texture_format_key;
 pub mod validation;
 pub mod value_key;
