@@ -275,3 +275,43 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `topk_reference_ops_follow_scalar_path` | `ReferenceCpuOps` の 2 メソッドの出力が `DefaultCpuOps::topk_partial_scalar` と一致する |
 
 確かめ方は `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`。
+
+## 部分 Top-k の完了の条件の確かめ（TASK-1352 の 3/3）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1352。親 Issue は #931、この節（3/3）は #6351。
+
+実行環境は GPU なしの Linux で、確かめた base は `f7f37dd`。コード・試験・スクリプトは変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 2 メソッドと `ReferenceCpuOps::SENTINEL` が feature `cpu-ops` の下の `cpu_ops` に公開されている | `grep -n 'fn topk_partial_' crates/contract/src/cpu_ops.rs`、`grep -n 'SENTINEL' crates/contract/src/cpu_ops.rs`、`cargo check -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops` | `fn topk_partial_` は 70・78・177・185・243・251 行目の 6 箇所、`pub const SENTINEL` は 201 行目。`cargo check` は成功 |
+| (2) | scalar 版が CPU 参照と T-2 で一致する（3 ケースと符号付きの零の入力） | `cpu_ops_topk_reference` の `topk_scalar_matches_cpu_reference` | `ok` |
+| (3) | 出力に非有限のスロットが 0 件 | `topk_excludes_non_finite` | `ok` |
+| (4) | 先頭 k 件が埋まる | `topk_fills_first_k` | `ok` |
+| (5) | `topk_partial_simd` が `topk_partial_scalar` とバイトで一致し、`ReferenceCpuOps` が scalar と一致する | `topk_simd_matches_scalar_bytes`・`topk_reference_ops_follow_scalar_path` | 2 本とも `ok` |
+| (6) | wasm32 の scalar 版・simd128 版のビルドと lint | `make build-profiles`（契約の crate の wasm32 の clippy 2 構成と wasm-abi の 2 版の release ビルド）、`make wasm-verify`（契約の crate の試験の simd128 の構成の clippy の段を含む） | どちらも終了コード 0 |
+| (7) | 版の選択がビルド時の `cfg` だけで決まる | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` | 7 本とも `ok` |
+| (8) | 依存 0・unsafe 0・確保 0 | `git diff --stat 3b6fa07..HEAD -- Cargo.lock deps-approved.toml`、`git diff --stat 3b6fa07..HEAD -- crates/contract/Cargo.toml crates/contract/src/cpu_ops/simd128.rs`、`grep -c unsafe crates/contract/src/cpu_ops.rs crates/contract/src/cpu_ops/scalar.rs`、`grep -nE 'Vec\|Box\|collect\|to_vec' crates/contract/src/cpu_ops/scalar.rs` | `Cargo.lock`・`deps-approved.toml` は差分 0。`Cargo.toml` は +4 行（`[[test]] cpu_ops_topk_reference` の 1 項目）、`simd128.rs` は差分 0。`unsafe` の語は 2 ファイルとも 0。確保の語の grep は 0 件 |
+| (9) | CI で流れる場所と件数 | `cargo test -p fandhe-silicon-contract --lib cpu_ops`、`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`、`make verify`、`main` 上の `ab116f2`・`a60a547` の run（`gh run view <id> --json conclusion`） | `--lib cpu_ops` は 13 本、`cpu_ops_topk_reference` は 5 本が通過。`make verify` は終了コード 0。run 41532826696（`ab116f2`）・run 41535712313（`a60a547`）の結論はどちらも `success` |
+
+### 1/3〜2/3 の対応
+
+| 段 | PR | コミット |
+| -- | -- | -------- |
+| 1/3 | #7810 | `ab116f2` |
+| 2/3 | #7813 | `a60a547` |
+
+### 追加で流したコマンド
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference
+cargo test -p fandhe-silicon-contract --lib cpu_ops
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+make build-profiles
+make wasm-verify
+make verify
+```
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行や `scripts/wasm-verify.sh` の simd128 の lint の段を変えたときに、表を取り直す。
