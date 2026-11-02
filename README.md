@@ -134,6 +134,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/buffer-range-check.md` | バッファの引数検査の純粋関数（TASK-309 の 1/4）の所在・現状の振る舞い・対応するテスト・確かめ方・境界の入力の試験（2/4）・拒否のときの内容の不変の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/buffer-usage-check.md` | 用途の 12 値の対応表と用途と操作の対応の検査（TASK-1796）の所在・現状の振る舞い・対応するテスト・確かめ方 |
 | `docs/buffer-size-usage-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実 |
+| `docs/buffer-slice.md` | バッファの部分範囲の型（TASK-311）の所在・部分範囲の型と作る口（1/5）・確かめ方 |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
