@@ -3,6 +3,7 @@
 //! `fandhe-silicon-core` の共通型を入口に、Metal / Vulkan / CUDA の背後実装を
 //! `backend-*` feature で切り替えて提供する。`unsafe` と FFI はこの crate の backend
 //! モジュールに閉じ込め、公開 API は safe なラッパーとして下-2・上へ渡す。
+//! CPU の演算は feature `cpu-ops` の `cpu_ops` にある。
 
 // backend 以外のモジュールに `unsafe` を書けなくする（一次の守り）。内側の `allow` で外せるのは
 // `deny` だけなので `forbid` は使わない。個数の固定は tests/backend_*_unsafe_count.rs
@@ -38,3 +39,7 @@ pub mod backend_vulkan;
 #[cfg(all(feature = "backend-cuda", not(target_arch = "wasm32")))]
 #[allow(unsafe_code)]
 pub mod backend_cuda;
+
+// CPU の演算（TASK-1351 のポインタ）。
+#[cfg(feature = "cpu-ops")]
+pub mod cpu_ops;
