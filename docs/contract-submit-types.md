@@ -48,7 +48,7 @@ TASK-588 の作業の所在と、本リポの現状の事実を置く。spec の
 | `CommandEncoder` の rustdoc（`compile_fail,E0106`） | 寿命の引数を持つ `ConstantBinding` を寿命の指定の無い構造体の欄に置くと拒まれること。`CommandEncoder` が寿命の引数を持たないことの対照（TASK-772） |
 | `crates/core/tests/encoder_send_sync.rs` | `CommandEncoder` が `Send + Sync` の境界を満たすこと、別スレッドへ移せること、複数スレッドから共有参照できること（CMD-9。TASK-590。スレッドを使う部分は wasm32 を除く） |
 
-`__BackendEncoderCloser` は `Rc` を持つ型で、`__BackendSharedEncoderCloser` は `Cell` を持つ型で実装できない（各 trait の rustdoc の `compile_fail,E0277`。`Arc`・`Mutex` を持つ型の通る例と対）。`NativeDeviceHandle::new` に `Rc` を渡せないことも `device.rs` の rustdoc の `compile_fail,E0277` で確かめる。
+`__BackendEncoderCloser` は `Rc` を持つ型で、`__BackendSharedEncoderCloser` は `Cell` を持つ型で実装できない（各 trait の rustdoc の `compile_fail,E0277`。`Arc`・`Mutex` を持つ型の通る例と対）。`NativeDeviceHandle::new` に `Rc` を渡せないことも `device.rs` の rustdoc の `compile_fail,E0277` で確かめる。wasm32 の組で同じ境界を確かめる行は [wasm32-compile-probe-check](wasm32-compile-probe-check.md) の TASK-553 の節にある。
 
 ## 確かめ方
 

@@ -126,3 +126,7 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 | 回帰テストが通る | `make test-wasm-build-check` |
 | `deny` ジョブに足したステップ | `grep -n "wasm-build-check" .github/workflows/ci.yml` |
 | 本体が CI から呼ばれていない | `grep -n "run: make wasm-build-check" .github/workflows/ci.yml`（0 件） |
+
+## 関連
+
+- [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
