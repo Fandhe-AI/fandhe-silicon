@@ -12,6 +12,15 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 公開のパス | `fandhe_silicon_upper::{UpperDevice, Queue, CommandEncoder, CommandBuffer, SubmitId}` |
 | feature の条件 | `Queue::wait_blocking` だけ `native-blocking-wait` の裏 |
 
+補い: 上の表は 1/5 の時点の値で、書き換えていない。2/5 以降で次を足した。
+
+| 段 | 足した実装・試験 | 公開のパス |
+| -- | ---------------- | ---------- |
+| 2/5 | `crates/upper/src/pass.rs`、`crates/upper/src/encoder.rs` の `begin_compute_pass` | `ComputePass` |
+| 3/5 | `crates/upper/src/buffer.rs` | `Buffer` |
+| 4/5 | `crates/upper/tests/upper_compute_path.rs`・`crates/upper/tests/upper_wait_blocking.rs`・`crates/upper/tests/common/mod.rs` | なし |
+| 5/5 | なし（確かめの記録） | なし |
+
 ## device・queue・記録先・投入の印の型（1/5）
 
 ### 本リポの現状の事実
@@ -173,3 +182,13 @@ make public-api-sdk-check  ok: 10 public API document(s) checked, common crate d
 ```
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2386）。
+
+## 段の表
+
+| 段 | Issue | 題 |
+| -- | ----- | -- |
+| 1/5 | #7804 | feat(upper): TASK-2386 の 1/5 device・queue・記録先・投入の印の型 |
+| 2/5 | #7806 | feat(upper): TASK-2386 の 2/5 compute のパスの開始と終了 |
+| 3/5 | #7808 | feat(upper): TASK-2386 の 3/5 バッファの包み |
+| 4/5 | #7811 | test(upper): TASK-2386 の 4/5 試験用の device での投入・待ち・時刻の写しと状態を持たないことの試験 |
+| 5/5 | #7814 | docs: TASK-2386 の 5/5 完了の条件の確かめ |

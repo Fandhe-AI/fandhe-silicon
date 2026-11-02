@@ -19,6 +19,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 補い: 上の表の `crates/exec/Cargo.toml` の行のコマンド `wc -l crates/exec/Cargo.toml` は、いまは 29 行を返す。記録時点の行数は `git show 7894f38:crates/exec/Cargo.toml | wc -l`（16 行）で確かめる。
 
+補い: 上の表の `crates/upper/src/lib.rs` の行（5 行）は記録した時点の値で、書き換えていない。いまは 19 行で、`pub use` で `UpperDevice`・`Queue`・`CommandEncoder`・`CommandBuffer`・`SubmitId`・`ComputePass`・`Buffer` を公開する（[upper-compute-path](upper-compute-path.md)）。いまも `crates/upper/src` は `fandhe_silicon_exec` の項目を使っていない。
+
 ## opt-in の印と経路・操作・理由の型（1/7）
 
 | 項目 | 内容 |
