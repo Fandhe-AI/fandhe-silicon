@@ -329,5 +329,9 @@ name = "texture_format_query_contract"
 required-features = ["test-support", "fault-injection"]
 
 [[test]]
+name = "texture_format_features_contract"
+required-features = ["test-support", "fault-injection"]
+
+[[test]]
 name = "limit_downlevel_key_table"
 required-features = ["test-support"]
