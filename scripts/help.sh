@@ -21,7 +21,7 @@ cat <<'EOF'
   build-profiles  scripts/build-profiles.sh      feature の組ごとの build / clippy / test と wasm32 の check・wasm-abi の 2 版の release ビルド（ソースは変更しない）
   deny            scripts/deny.sh                cargo deny check + path が crates/ の外を指さない検査 + 依存グラフの wgpu 系の検査（python3・git も要る）+ 契約の crate のプロファイルごとの依存グラフの検査と陽性対照 + 別 workspace（measure/・baseline-wgpu/・wasm/）の cargo deny と baseline-wgpu/・wasm/ の deps-check（jq が要る）
   measure-verify  scripts/measure-verify.sh      測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）
-  wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / core の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny ジョブも実行する）
+  wasm-verify     scripts/wasm-verify.sh         wasm32 向けの別 workspace（wasm/）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る・CI の deny・wasm-macos ジョブも実行する）
   wasm-size       scripts/wasm-size.sh           wasm-bindgen の glue を含めた成果物の量（gzip 後）を 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。CI は wasm-macos ジョブが呼び、deny ジョブは呼ばない）。--from-dir <dir> なら生成済みの出力だけを測る
   deps-check      scripts/deps-check.sh          依存の版指定が =x.y.z の完全固定で承認の記録と一致するかを検査する（cargo metadata + jq）
   test-deps-check scripts/test-deps-check.sh     deps-check 自体の回帰テスト（一時 workspace の fixture。cargo + jq + python3）
@@ -48,8 +48,8 @@ cat <<'EOF'
   test-profile-dep-graph-check scripts/test-profile-dep-graph-check.sh  profile-dep-graph-check 自体の回帰テスト（合成 tree・偽の cargo / git と、一時 workspace の実物の cargo tree。bash + python3 + cargo + git）
   profile-dep-graph-positive-control scripts/profile-dep-graph-positive-control.sh  profile-dep-graph-check の陽性対照。判定の名前の一覧に実物の依存グラフへ載っている名前を 1 件足して流し、全プロファイルで違反が出ることを確かめる（make deny も呼ぶ。bash + python3 + cargo + git）
   test-profile-dep-graph-positive-control scripts/test-profile-dep-graph-positive-control.sh  profile-dep-graph-positive-control 自体の回帰テスト（偽の内側の検査と実物のリポジトリ。bash + python3 + cargo + git）
-  profile-test-count-check scripts/profile-test-count-check.sh  stub_device_profiles を 3 つのプロファイルの組に test-support を足して流し、通った本数と graphics_ の試験の本数を期待と照らす検査（bash + cargo）
-  test-profile-test-count-check scripts/test-profile-test-count-check.sh  profile-test-count-check 自体の回帰テスト（合成の build-profiles.sh と偽の cargo。bash）
+  profile-test-count-check scripts/profile-test-count-check.sh  stub_device_profiles を 3 つのプロファイルの組に test-support を足して流し、通った本数と graphics_ の試験の本数を期待と照らす検査（bash + cargo。CI の verify・verify-macos ジョブも実行する）
+  test-profile-test-count-check scripts/test-profile-test-count-check.sh  profile-test-count-check 自体の回帰テスト（合成の build-profiles.sh と偽の cargo。bash。CI の verify ジョブも実行する）
   baseline-positive-control scripts/baseline-positive-control.sh  比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用は終了コード 2。件数は record: の行。bash + python3 + cargo + git・make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）
   test-baseline-positive-control scripts/test-baseline-positive-control.sh  baseline-positive-control 自体の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる。python3 + cargo + git・ネットワーク不要・CI の deny ジョブも実行する）
   upper-layer-check scripts/upper-layer-check.sh  上の層（crates/upper）と測定の workspace（measure/）に、unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定のビルドで検証用の feature が有効でないことの 4 つの検査を当てる。合格は終了コード 0 と ok: の行・違反は 1・誤用や前提の不足は 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny には含めない・CI の deny ジョブが呼ぶ）
@@ -63,8 +63,8 @@ cat <<'EOF'
   test-wasm-backend-check scripts/test-wasm-backend-check.sh  wasm-backend-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物の検査と陽性対照。CI の deny ジョブも実行する）
   wasm-build-check scripts/wasm-build-check.sh   wasm32 の cdylib の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）
   test-wasm-build-check scripts/test-wasm-build-check.sh  wasm-build-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物のビルド。CI の deny ジョブも実行する）
-  wasm-compile-probe-check scripts/wasm-compile-probe-check.sh  wasm32 の組で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに出す（bash + cargo + wasm32 の target）
-  test-wasm-compile-probe-check scripts/test-wasm-compile-probe-check.sh  wasm-compile-probe-check 自体の回帰テスト（合成の build-profiles.sh と偽の cargo）
+  wasm-compile-probe-check scripts/wasm-compile-probe-check.sh  wasm32 の組で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに出す（bash + cargo + wasm32 の target。make wasm-verify の中でも流れる〔CI の deny・wasm-macos ジョブ〕）
+  test-wasm-compile-probe-check scripts/test-wasm-compile-probe-check.sh  wasm-compile-probe-check 自体の回帰テスト（合成の build-profiles.sh と偽の cargo。CI の deny ジョブも実行する）
   test-public-api-diff scripts/test-public-api-diff.sh  public-api-diff 自体の回帰テスト（合成 JSON だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/public-api-diff.sh <基準の JSON> <新しい版の JSON>（終了コード 0 差分なし・1 差分あり・2 誤用または前提の不足）
   test-rerun-compare scripts/test-rerun-compare.sh  rerun-compare 自体の回帰テスト（合成の記録の部品だけ。bash + python3）。本体は引数が要るため make ターゲットなし: scripts/rerun-compare.sh <前の記録のディレクトリ> <新しい記録のディレクトリ>（終了コード 0 差分なし・1 差分あり・2 誤用・前提の不足・読めない記録）
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>

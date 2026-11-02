@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # wasm32 向けの別 workspace（wasm/）の品質ゲート（非破壊）: fmt --check・clippy（ホストと wasm32、-D warnings）・
 # test（ホスト）・wasm32 の build（.wasm の存在確認）・依存の検査（ポインタ: TASK-22）。
-# 呼び出し元: `make wasm-verify`。CI の deny ジョブも同じ make ターゲットを呼ぶ。
+# 呼び出し元: `make wasm-verify`。CI の deny・wasm-macos ジョブも同じ make ターゲットを呼ぶ。
 # ソースは変更しない。外部依存（wasm-bindgen）があるので、初回は取得にネットワークが要る
 # （--locked で Cargo.lock の不一致を失敗させる）。wasm32 の target が無いときは skip せず失敗させる。
-# 製品の core の試験の wasm32 の型検査（cargo check）と、wasm32 のコンパイル試験の検査
+# 製品の `crates/core` と `crates/contract` の試験の wasm32 の型検査（cargo check）と、wasm32 のコンパイル試験の検査
 # （`wasm-compile-probe-check.sh`。一時の crate を wasm32 の組で cargo check して行ごとの期待と照らす）も流す。
 # 回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため。measure-verify.sh と同じ）。
 set -euo pipefail
