@@ -99,3 +99,24 @@ record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal
 record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
 profile-test-count-check: all profiles passed
 ```
+
+## CI への組み込み（3/4）（TASK-227）
+
+足したのは既存の `verify`・`verify-macos` ジョブの step で、ジョブ・make ターゲット・スクリプトは足していない（`ci-complete` の `needs` と check 名は変わらない）。どの step にも `continue-on-error`・`|| true`・`if:` は付けていない。
+
+| ジョブ（check 名） | step（make ターゲット） | 流すもの |
+| ------------------ | ----------------------- | -------- |
+| `verify`（`make verify (fmt + clippy + test)`） | `make profile-test-count-check` | 3 組の `cargo test ... --test stub_device_profiles` と本数の照合（`make build-profiles` の後） |
+| `verify` | `make test-profile-test-count-check` | 回帰テスト（合成の入力と偽の cargo） |
+| `verify-macos`（`make verify + build-profiles (macos-latest)`） | `make profile-test-count-check` | 同じ照合を macOS で（ComputeOnly の組が Metal の依存を実際にビルドする） |
+
+確かめ方は `grep -n 'profile-test-count-check' .github/workflows/ci.yml` と `make ci-frame-check`。
+
+手元（Linux）の実行の記録（作業のもとの HEAD は `ef5fcfc`）。`make profile-test-count-check` の標準出力:
+
+```text
+record: profile=CpuOnly features=contract-core,cpu-isa,cpu-ops,test-support passed=6 graphics=0
+record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal,test-support passed=6 graphics=0
+record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
+profile-test-count-check: all profiles passed
+```
