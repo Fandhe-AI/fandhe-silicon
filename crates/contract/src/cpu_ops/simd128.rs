@@ -97,3 +97,98 @@ pub(super) fn elementwise(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cpu_ops::scalar;
+
+    /// 決定的な疑似乱数の列（外部依存なし）。
+    fn fill(len: usize, seed: u32) -> Vec<f32> {
+        let mut s = seed;
+        (0..len)
+            .map(|_| {
+                s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((s >> 16) as f32 / 65_536.0) - 0.5
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gemm_matches_scalar_within_tolerance() {
+        for (m, k, n) in [
+            (1, 1, 1),
+            (2, 3, 2),
+            (3, 4, 3),
+            (2, 5, 3),
+            (3, 7, 2),
+            (2, 9, 4),
+        ] {
+            let a = fill(m * k, 1);
+            let b = fill(k * n, 2);
+            let mut want = vec![0.0_f32; m * n];
+            let mut got = vec![0.0_f32; m * n];
+            scalar::gemm(&a, &b, m, k, n, &mut want).unwrap();
+            gemm(&a, &b, m, k, n, &mut got).unwrap();
+            for (w, g) in want.iter().zip(&got) {
+                assert!((w - g).abs() <= 1e-5, "m={m} k={k} n={n}: {w} vs {g}");
+            }
+        }
+    }
+
+    #[test]
+    fn gemm_exact_on_small_integers() {
+        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let mut out = [0.0_f32; 4];
+        gemm(&a, &b, 2, 3, 2, &mut out).unwrap();
+        assert_eq!(out, [58.0, 64.0, 139.0, 154.0]);
+    }
+
+    #[test]
+    fn gemm_rejects_mismatch_without_writing() {
+        let a = [1.0_f32; 6];
+        let b = [1.0_f32; 6];
+        let mut out = [7.0_f32; 3];
+        assert!(matches!(
+            gemm(&a, &b, 2, 3, 2, &mut out),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert_eq!(out, [7.0; 3]);
+        let mut out = [7.0_f32; 4];
+        assert!(gemm(&a, &b, usize::MAX, 2, 2, &mut out).is_err());
+        assert_eq!(out, [7.0; 4]);
+    }
+
+    #[test]
+    fn elementwise_matches_scalar_for_all_lengths() {
+        for len in 0..=9 {
+            let a = fill(len, 3);
+            for op in [
+                UnaryElementwiseOp::Relu,
+                UnaryElementwiseOp::AddScalar(0.25),
+            ] {
+                let mut want = vec![0.0_f32; len];
+                let mut got = vec![0.0_f32; len];
+                scalar::elementwise(op, &a, &mut want).unwrap();
+                elementwise(op, &a, &mut got).unwrap();
+                let wb: Vec<u32> = want.iter().map(|x| x.to_bits()).collect();
+                let gb: Vec<u32> = got.iter().map(|x| x.to_bits()).collect();
+                assert_eq!(wb, gb, "len={len}");
+            }
+        }
+    }
+
+    #[test]
+    fn elementwise_rejects_mismatch_without_writing() {
+        let a = [1.0_f32; 5];
+        for olen in [4, 6] {
+            let mut out = vec![7.0_f32; olen];
+            assert!(matches!(
+                elementwise(UnaryElementwiseOp::Relu, &a, &mut out),
+                Err(ContractError::InvalidArgument(_))
+            ));
+            assert!(out.iter().all(|v| *v == 7.0));
+        }
+    }
+}

@@ -243,19 +243,52 @@ mod tests {
         assert_eq!(bits(&out), bits(&[-1.0, 0.5, 2.75, 3.5]));
     }
 
+    /// `simd128` が無効なビルドでは `DefaultCpuOps` の `*_simd` が未対応を返す。
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
     #[test]
-    fn reference_agrees_and_default_simd_unsupported() {
+    fn default_simd_unsupported_without_simd128() {
+        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let mut o = [0.0_f32; 4];
+        assert_eq!(
+            DefaultCpuOps.gemm_simd(&a, &b, 2, 3, 2, &mut o),
+            Err(ContractError::UnsupportedExtensionDefault { op: "gemm_simd" })
+        );
+        let x = [-1.5, 0.0, 2.25, 3.0];
+        let mut o = [0.0_f32; 4];
+        assert_eq!(
+            DefaultCpuOps.elementwise_simd(UnaryElementwiseOp::Relu, &x, &mut o),
+            Err(ContractError::UnsupportedExtensionDefault {
+                op: "elementwise_simd"
+            })
+        );
+    }
+
+    /// `simd128` が有効なビルドでは `DefaultCpuOps` の `*_simd` が実計算を返す。
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[test]
+    fn default_simd_computes_with_simd128() {
+        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let mut o = [0.0_f32; 4];
+        DefaultCpuOps.gemm_simd(&a, &b, 2, 3, 2, &mut o).unwrap();
+        assert_eq!(bits(&o), bits(&[58.0, 64.0, 139.0, 154.0]));
+        let x = [-1.5, 0.0, 2.25, 3.0];
+        let mut o = [9.0_f32; 4];
+        DefaultCpuOps
+            .elementwise_simd(UnaryElementwiseOp::Relu, &x, &mut o)
+            .unwrap();
+        assert_eq!(bits(&o), bits(&[0.0, 0.0, 2.25, 3.0]));
+    }
+
+    #[test]
+    fn reference_agrees_with_scalar() {
         let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
         let mut want = [0.0_f32; 4];
         DefaultCpuOps
             .gemm_scalar(&a, &b, 2, 3, 2, &mut want)
             .unwrap();
-        let mut o = [0.0_f32; 4];
-        assert_eq!(
-            DefaultCpuOps.gemm_simd(&a, &b, 2, 3, 2, &mut o),
-            Err(ContractError::UnsupportedExtensionDefault { op: "gemm_simd" })
-        );
         let mut o = [0.0_f32; 4];
         ReferenceCpuOps
             .gemm_scalar(&a, &b, 2, 3, 2, &mut o)
@@ -269,13 +302,6 @@ mod tests {
         let op = UnaryElementwiseOp::AddScalar(0.5);
         let mut want = [0.0_f32; 4];
         DefaultCpuOps.elementwise_scalar(op, &x, &mut want).unwrap();
-        let mut o = [0.0_f32; 4];
-        assert_eq!(
-            DefaultCpuOps.elementwise_simd(op, &x, &mut o),
-            Err(ContractError::UnsupportedExtensionDefault {
-                op: "elementwise_simd"
-            })
-        );
         let mut o = [0.0_f32; 4];
         ReferenceCpuOps.elementwise_scalar(op, &x, &mut o).unwrap();
         assert_eq!(bits(&o), bits(&want));
