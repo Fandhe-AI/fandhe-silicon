@@ -270,7 +270,7 @@ jobs:
         run: make measure-verify
 
       - name: make wasm-verify
-        # wasm32 向けの別 workspace（wasm/）の fmt / clippy / test / wasm32 の build / wasm32 のコンパイル試験の検査 / 依存の検査。ジョブを増やさず deny ジョブで流す
+        # wasm32 向けの別 workspace（wasm/）の fmt / clippy / test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査 / 依存の検査。ジョブを増やさず deny ジョブで流す
         run: make wasm-verify
 
       - name: Show jq / python3 versions

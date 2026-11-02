@@ -3,7 +3,7 @@
 # 合成の build-profiles.sh（ダミーの feature 名）と、PATH の先頭に置く偽の cargo で各判定を確かめる。
 # 実物の cargo は流さない（実物は本体の `make wasm-compile-probe-check` が持つ）。
 # リポジトリのファイルは変更しない・ネットワーク不要。
-# 呼び出し元: `make test-wasm-compile-probe-check`（直接実行も可）。
+# 呼び出し元: `make test-wasm-compile-probe-check`（直接実行も可）。CI の deny ジョブも同じ make ターゲットを呼ぶ。
 #
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」（先頭が `!` の語は含まれないこと）。
 # 期待値を緩めない。途中で止めず、最後に件数を出す。bash 3.2 互換。
