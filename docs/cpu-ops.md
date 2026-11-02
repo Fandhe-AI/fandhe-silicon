@@ -58,11 +58,40 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `gemm_simd_is_unsupported_without_simd128`・`elementwise_simd_is_unsupported_without_simd128` | `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` のビルドで `DefaultCpuOps` の `*_simd` が `UnsupportedExtensionDefault` を返す |
 | `gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` | `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` のビルドで `*_simd` が参照（GEMM は T1）・scalar（要素ごと演算はビット。長さ 0〜9 も含む）と一致する |
 
+## 版の選択の試験（4/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| ファイル | `crates/contract/tests/cpu_ops_build_selection.rs`（feature の条件なし） |
+| 読む対象 | `src/cpu_ops.rs` と `src/cpu_ops/` 直下の `.rs` 全部（読めない・0 件は失敗） |
+
+判定は `(ファイル名, 中身)` の列から問題の列を返す純粋関数で、外部 crate もコマンドの起動も使わない。
+
+| 項目 | 見るもの |
+| ---- | ---- |
+| (a) | 実行時の検出の字句（`is_x86_feature_detected`・`is_aarch64_feature_detected`・`is_arm_feature_detected`・`is_wasm_feature_detected`・`std_detect`・`std::detect`）がどのファイルにも無い（コメントも数える） |
+| (b) | `cpu_ops.rs` に `simd128` が有効な形と無効な形の `#[cfg(...)]` の行がそれぞれ 1 件以上ある |
+| (c) | `core::arch::wasm32`・`std::arch::wasm32` の字句は `cpu_ops/simd128.rs` の中だけにある |
+| (d) | `mod simd128;` の行がちょうど 1 行で、直前の属性が `simd128` が有効な形の `#[cfg(...)]` である |
+
+| 試験 | 入力の改変 | 出る問題 |
+| ---- | ---------- | -------- |
+| `selection_is_by_build_cfg_only` | なし（実物） | 0 件 |
+| `positive_control_runtime_detection` | `cpu_ops.rs` に検出の呼び出しの行を足す | (a) |
+| `positive_control_runtime_detection_in_comment` | `scalar.rs` にコメントだけで検出の字句を足す | (a) |
+| `positive_control_missing_not_cfg` | `cpu_ops.rs` から無効な形の `#[cfg(...)]` の行をすべて消す | (b) |
+| `positive_control_wasm32_arch_outside_simd128` | `scalar.rs` に `core::arch::wasm32` の `use` を足す | (c) |
+| `positive_control_simd128_file_missing` | `simd128.rs` を列から外す | (c) |
+| `positive_control_simd128_mod_without_cfg` | `mod simd128;` の直前の 1 行を消す | (d) |
+
+feature の条件が無いので、`make verify` の `cargo test` と `make build-profiles` の各組で流れ、`make wasm-verify` の wasm32 の型検査にも入る。
+
 ## 確かめ方
 
 ```sh
 cargo test -p fandhe-silicon-contract --lib cpu_ops
 cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
 ```
 
 wasm32 の 2 構成の lint は `make build-profiles` の中で流れる。単体では次を流す。

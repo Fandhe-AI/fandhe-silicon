@@ -1,0 +1,232 @@
+//! `cpu_ops` の `*_simd` の版の選び分けが、ビルド時の `cfg` だけで決まることを固定する試験（spec TASK-1351 のポインタ）。
+//!
+//! 見るのは次の 4 点。
+//! - (a) 実行時に CPU の機能を調べる字句（`is_*_feature_detected`・`std_detect`・`std::detect`）がどのファイルにも無い（コメントも数える）。
+//! - (b) `cpu_ops.rs` に、`simd128` が有効な形と無効な形の `#[cfg(...)]` の行がそれぞれ 1 件以上ある。
+//! - (c) `core::arch::wasm32`・`std::arch::wasm32` の字句は `cpu_ops/simd128.rs` の中だけにある。
+//! - (d) `mod simd128;` の行がちょうど 1 行で、直前の属性が `simd128` が有効な形の `#[cfg(...)]` である。
+//!
+//! 外部 crate もコマンドの起動も使わず、ソースの文字列だけを読む。
+//! 判定は純粋関数 `problems` に分け、実物を 1 か所だけ変えた入力を渡す陽性対照を常設する。
+//! 想定外の形は黙って通さず、問題として積んで落とす。
+//! 条件のない試験なので、feature の組や target に依らず同じ結果になる。
+
+/// 実行時の検出を表す字句。
+const DETECTION_WORDS: [&str; 6] = [
+    "is_x86_feature_detected",
+    "is_aarch64_feature_detected",
+    "is_arm_feature_detected",
+    "is_wasm_feature_detected",
+    "std_detect",
+    "std::detect",
+];
+/// `simd128` が有効なときの `cfg` の形。
+const SIMD128_CFG: &str = r#"#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]"#;
+/// `simd128` が無効なときの `cfg` の形。
+const NOT_SIMD128_CFG: &str =
+    r#"#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]"#;
+/// wasm32 の arch の字句。
+const WASM_ARCH_WORDS: [&str; 2] = ["core::arch::wasm32", "std::arch::wasm32"];
+const ROOT_FILE: &str = "cpu_ops.rs";
+const SIMD128_FILE: &str = "cpu_ops/simd128.rs";
+
+type Sources = Vec<(String, String)>;
+
+/// `cpu_ops.rs` と `cpu_ops/` 直下の `.rs` を（ファイル名, 中身）で返す。読めない・0 件は失敗。
+fn real_sources() -> Sources {
+    let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let mut out: Sources = Vec::new();
+    let root = format!("{src}/{ROOT_FILE}");
+    let body = std::fs::read_to_string(&root).unwrap_or_else(|e| panic!("cannot read {root}: {e}"));
+    out.push((ROOT_FILE.to_string(), body));
+    let dir = format!("{src}/cpu_ops");
+    let entries = std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot list {dir}: {e}"));
+    let mut sub: Sources = Vec::new();
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|e| panic!("cannot list {dir}: {e}"))
+            .path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("utf-8 name");
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        sub.push((format!("cpu_ops/{name}"), body));
+    }
+    assert!(!sub.is_empty(), "no .rs files under {dir}");
+    sub.sort();
+    out.extend(sub);
+    out
+}
+
+fn text_of<'a>(sources: &'a Sources, name: &str) -> Option<&'a str> {
+    sources
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, t)| t.as_str())
+}
+
+/// `decl` の行の直前の行が属性ならその行（`trim()` 済み）を返す。`decl` の行がちょうど 1 行でなければ `Err`。
+fn attr_before(text: &str, decl: &str) -> Result<Option<String>, String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let hits: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].trim() == decl)
+        .collect();
+    if hits.len() != 1 {
+        return Err(format!("expected one `{decl}`, found {}", hits.len()));
+    }
+    let i = hits[0];
+    Ok((i > 0 && lines[i - 1].trim().starts_with("#[")).then(|| lines[i - 1].trim().to_string()))
+}
+
+/// 問題の列を返す。先頭の `(a)`〜`(d)` が項目を表す。
+fn problems(sources: &Sources) -> Vec<String> {
+    let mut out = Vec::new();
+    // (a)
+    for (name, text) in sources {
+        for word in DETECTION_WORDS {
+            if text.contains(word) {
+                out.push(format!("(a) {name}: runtime detection `{word}`"));
+            }
+        }
+    }
+    // (b)・(d)
+    match text_of(sources, ROOT_FILE) {
+        None => out.push(format!("(b) {ROOT_FILE} is missing")),
+        Some(root) => {
+            let count = |form: &str| root.lines().filter(|l| l.trim() == form).count();
+            if count(SIMD128_CFG) == 0 {
+                out.push(format!("(b) {ROOT_FILE}: no `{SIMD128_CFG}` line"));
+            }
+            if count(NOT_SIMD128_CFG) == 0 {
+                out.push(format!("(b) {ROOT_FILE}: no `{NOT_SIMD128_CFG}` line"));
+            }
+            match attr_before(root, "mod simd128;") {
+                Err(e) => out.push(format!("(d) {ROOT_FILE}: {e}")),
+                Ok(Some(attr)) if attr == SIMD128_CFG => {}
+                Ok(other) => out.push(format!(
+                    "(d) {ROOT_FILE}: `mod simd128;` is preceded by {other:?}"
+                )),
+            }
+        }
+    }
+    // (c)
+    if text_of(sources, SIMD128_FILE).is_none() {
+        out.push(format!("(c) {SIMD128_FILE} is missing"));
+    }
+    for (name, text) in sources {
+        if name == SIMD128_FILE {
+            continue;
+        }
+        for word in WASM_ARCH_WORDS {
+            if text.contains(word) {
+                out.push(format!("(c) {name}: `{word}` outside {SIMD128_FILE}"));
+            }
+        }
+    }
+    out
+}
+
+/// 指定ファイルの中身だけを `f` で置き換えた複製。
+fn with_file(sources: &Sources, name: &str, f: impl Fn(&str) -> String) -> Sources {
+    let mut found = false;
+    let out = sources
+        .iter()
+        .map(|(n, t)| {
+            if n == name {
+                found = true;
+                (n.clone(), f(t))
+            } else {
+                (n.clone(), t.clone())
+            }
+        })
+        .collect();
+    assert!(found, "{name} not in sources");
+    out
+}
+
+/// 陽性対照の改変は必ず入力を変える。
+fn changed(orig: &str, new: String) -> String {
+    assert_ne!(orig, new, "mutation did not change the input");
+    new
+}
+
+fn flagged(sources: &Sources, tag: &str) -> bool {
+    problems(sources).iter().any(|p| p.starts_with(tag))
+}
+
+/// 実物のソースが 4 項目をすべて満たす（CPU-26 のポインタ）。
+#[test]
+fn selection_is_by_build_cfg_only() {
+    let p = problems(&real_sources());
+    assert!(p.is_empty(), "problems: {p:#?}");
+}
+
+#[test]
+fn positive_control_runtime_detection() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        changed(
+            t,
+            format!("{t}\nfn probe() {{ if is_x86_feature_detected!(\"avx2\") {{}} }}\n"),
+        )
+    });
+    assert!(flagged(&s, "(a)"));
+}
+
+#[test]
+fn positive_control_runtime_detection_in_comment() {
+    let s = with_file(&real_sources(), "cpu_ops/scalar.rs", |t| {
+        changed(t, format!("{t}\n// std::detect を使わない\n"))
+    });
+    assert!(flagged(&s, "(a)"));
+}
+
+#[test]
+fn positive_control_missing_not_cfg() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        let kept: Vec<&str> = t.lines().filter(|l| l.trim() != NOT_SIMD128_CFG).collect();
+        changed(t, kept.join("\n"))
+    });
+    assert!(flagged(&s, "(b)"));
+}
+
+#[test]
+fn positive_control_wasm32_arch_outside_simd128() {
+    let s = with_file(&real_sources(), "cpu_ops/scalar.rs", |t| {
+        changed(t, format!("{t}\nuse core::arch::wasm32::f32x4;\n"))
+    });
+    assert!(flagged(&s, "(c)"));
+}
+
+#[test]
+fn positive_control_simd128_file_missing() {
+    let s: Sources = real_sources()
+        .into_iter()
+        .filter(|(n, _)| n != SIMD128_FILE)
+        .collect();
+    assert!(flagged(&s, "(c)"));
+}
+
+#[test]
+fn positive_control_simd128_mod_without_cfg() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        let lines: Vec<&str> = t.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.trim() == "mod simd128;")
+            .expect("mod simd128; exists");
+        // 直前の 1 行だけを消す（同じ形の他の行は残す）。
+        let kept: Vec<&str> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i + 1 != at)
+            .map(|(_, l)| *l)
+            .collect();
+        changed(t, kept.join("\n"))
+    });
+    assert!(flagged(&s, "(d)"));
+}
