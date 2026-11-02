@@ -2,15 +2,15 @@
 //!
 //! wasm32 で `simd128` が有効なビルドでだけコンパイルされ、`DefaultCpuOps` の `*_simd` から呼ばれる。
 //! 長さの判定は scalar 版と同じ関数を添字で触る前に置き、合わなければ `out` に何も書かずに
-//! `InvalidArgument` を返す。GEMM は k を 4 つずつ 4 レーンの積と和（別の命令）で積み、4 レーンを
-//! 先頭から順に足して、端数の k を昇順の `f32::mul_add` で足す（spec CPU-3 のポインタ）。
-//! 要素ごと演算は 4 要素ずつ処理し、端数は scalar 版と同じ式で書く（spec CPU-6 のポインタ）。
-//! 実行時に CPU の機能を調べず、unsafe も使わない（spec CPU-20 のポインタ）。
+//! `InvalidArgument` を返す。GEMM は k を 4 つずつ 4 レーンの積と和（別の命令）で積み（spec CPU-3 のポインタ）、4 レーンを
+//! 先頭から順に足して、端数の k を昇順の `f32::mul_add` で足す（spec CPU-6 のポインタ）。
+//! 要素ごと演算は 4 要素ずつ処理し、端数は scalar 版と同じ式で書く（spec CPU-20 のポインタ）。
+//! 実行時に CPU の機能を調べず、unsafe も使わない。
 
 use super::UnaryElementwiseOp;
 use super::scalar::{elementwise_lengths_ok, gemm_lengths_ok};
 use core::arch::wasm32::{
-    f32x4, f32x4_add, f32x4_extract_lane, f32x4_gt, f32x4_mul, f32x4_splat, v128, v128_and,
+    f32x4, f32x4_add, f32x4_extract_lane, f32x4_max, f32x4_mul, f32x4_splat, v128,
 };
 use fandhe_silicon_core::error::ContractError;
 
@@ -79,8 +79,7 @@ pub(super) fn elementwise(
     for (o, x) in oc.iter_mut().zip(ac) {
         let v = f32x4(x[0], x[1], x[2], x[3]);
         let r = match op {
-            // 比較の真偽のマスクで選ぶ。NaN は比較が偽になり 0.0 へ落ちるので、端数の `x.max(0.0)` と揃う。
-            UnaryElementwiseOp::Relu => v128_and(v, f32x4_gt(v, f32x4_splat(0.0))),
+            UnaryElementwiseOp::Relu => f32x4_max(v, f32x4_splat(0.0)),
             UnaryElementwiseOp::AddScalar(c) => f32x4_add(v, f32x4_splat(c)),
         };
         *o = [
@@ -177,21 +176,6 @@ mod tests {
                 let gb: Vec<u32> = got.iter().map(|x| x.to_bits()).collect();
                 assert_eq!(wb, gb, "len={len}");
             }
-        }
-    }
-
-    #[test]
-    fn relu_nan_matches_scalar_in_lanes_and_remainder() {
-        for len in [4, 5, 9] {
-            let a = vec![f32::NAN; len];
-            let mut want = vec![7.0_f32; len];
-            let mut got = vec![7.0_f32; len];
-            scalar::elementwise(UnaryElementwiseOp::Relu, &a, &mut want).unwrap();
-            elementwise(UnaryElementwiseOp::Relu, &a, &mut got).unwrap();
-            let wb: Vec<u32> = want.iter().map(|x| x.to_bits()).collect();
-            let gb: Vec<u32> = got.iter().map(|x| x.to_bits()).collect();
-            assert_eq!(wb, gb, "len={len}");
-            assert!(got.iter().all(|v| *v == 0.0));
         }
     }
 

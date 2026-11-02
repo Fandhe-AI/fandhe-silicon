@@ -152,20 +152,7 @@ fn gemm_scalar_matches_cpu_reference() {
     }
 }
 
-/// simd128 が無効なビルドでは `DefaultCpuOps` の `gemm_simd` が未対応を返す。
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-#[test]
-fn gemm_simd_is_unsupported_without_simd128() {
-    for c in gemm_cases() {
-        assert_eq!(
-            DefaultCpuOps.simd_gemm(&c),
-            Err(ContractError::UnsupportedExtensionDefault { op: "gemm_simd" })
-        );
-    }
-}
-
-/// simd128 が有効なビルドでは `DefaultCpuOps` の `gemm_simd` が CPU 参照と T1 で一致する。
-#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+/// `DefaultCpuOps` の `gemm_simd` が CPU 参照と T1 で一致する（CPU-4）。
 #[test]
 fn gemm_simd_matches_cpu_reference() {
     for c in gemm_cases() {
@@ -219,23 +206,7 @@ fn elementwise_scalar_add_scalar() {
     assert_eq!(bits(&out), bits(&want));
 }
 
-/// simd128 が無効なビルドでは `DefaultCpuOps` の `elementwise_simd` が未対応を返す（CPU-20）。
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-#[test]
-fn elementwise_simd_is_unsupported_without_simd128() {
-    let a = elementwise_input();
-    for op in ops() {
-        assert_eq!(
-            DefaultCpuOps.simd_elementwise(op, &a),
-            Err(ContractError::UnsupportedExtensionDefault {
-                op: "elementwise_simd"
-            })
-        );
-    }
-}
-
-/// simd128 が有効なビルドでは `elementwise_simd` が scalar とビットまで一致する（CPU-20）。
-#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+/// `elementwise_simd` が scalar とビットまで一致する（CPU-20）。
 #[test]
 fn elementwise_simd_matches_scalar_bits() {
     let full = elementwise_input();
@@ -256,7 +227,7 @@ fn is_invalid(r: Result<(), ContractError>) -> bool {
     matches!(r, Err(ContractError::InvalidArgument(_)))
 }
 
-/// 長さが合わない・積があふれる入力でも panic せず `Err` で返る。
+/// 長さが合わない・積があふれる入力でも、4 メソッド × 2 型が panic せず `InvalidArgument` を返し、`out` に触れない。
 #[test]
 fn mismatched_lengths_do_not_panic() {
     // (m, k, n, a の長さ, b の長さ, out の長さ)
@@ -280,7 +251,8 @@ fn mismatched_lengths_do_not_panic() {
         assert!(is_invalid(
             ReferenceCpuOps.gemm_simd(&a, &b, m, k, n, &mut o)
         ));
-        assert!(DefaultCpuOps.gemm_simd(&a, &b, m, k, n, &mut o).is_err());
+        assert!(is_invalid(DefaultCpuOps.gemm_simd(&a, &b, m, k, n, &mut o)));
+        assert!(o.iter().all(|v| v.to_bits() == 7.0_f32.to_bits()));
     }
     for (al, ol) in [(4, 3), (4, 5)] {
         let a = vec![1.0_f32; al];
@@ -291,7 +263,8 @@ fn mismatched_lengths_do_not_panic() {
                 ReferenceCpuOps.elementwise_scalar(op, &a, &mut o)
             ));
             assert!(is_invalid(ReferenceCpuOps.elementwise_simd(op, &a, &mut o)));
-            assert!(DefaultCpuOps.elementwise_simd(op, &a, &mut o).is_err());
+            assert!(is_invalid(DefaultCpuOps.elementwise_simd(op, &a, &mut o)));
+            assert!(o.iter().all(|v| v.to_bits() == 7.0_f32.to_bits()));
         }
     }
 }

@@ -4,7 +4,7 @@
 //! [`DefaultCpuOps`]・[`ReferenceCpuOps`] を持つ。計算の本体は非公開の `scalar` module にある。
 //!
 //! `DefaultCpuOps` の `*_simd` の版はビルド時の `cfg` で選ぶ。wasm32 で `simd128` が有効なビルドでは
-//! 4 レーンの命令の版を使い、それ以外のビルドでは `UnsupportedExtensionDefault` を返す。
+//! 4 レーンの命令の版を使い、それ以外のビルドでは `*_scalar` と同じ計算をする。
 //! 実行時に CPU の機能を調べない（spec CPU-26 のポインタ）。
 
 mod scalar;
@@ -26,8 +26,6 @@ pub enum UnaryElementwiseOp {
 /// CPU の演算の口。行優先の f32 の行列積 `a`（m×k）×`b`（k×n）を `out`（m×n）に書くことと、
 /// 単項の要素ごと演算を `a` から `out` に書くことを持つ（spec CPU-25 のポインタ）。
 /// 長さが合わない入力は `ContractError::InvalidArgument` で返し、`out` には触れない。
-/// ただし wasm32 で `simd128` が有効でないビルドでは、[`DefaultCpuOps`] の `*_simd` は入力を見ずに
-/// `UnsupportedExtensionDefault` を返す（未対応を優先する）。
 pub trait CpuOps {
     /// scalar 版の行列積。`a`・`b` を読み、`out` に書く。
     fn gemm_scalar(
@@ -39,7 +37,7 @@ pub trait CpuOps {
         n: usize,
         out: &mut [f32],
     ) -> Result<(), ContractError>;
-    /// simd 版の行列積。`a`・`b` を読み、`out` に書く。対応しない実装は `Err` を返す。
+    /// simd 版の行列積。`a`・`b` を読み、`out` に書く。
     fn gemm_simd(
         &self,
         a: &[f32],
@@ -56,7 +54,7 @@ pub trait CpuOps {
         a: &[f32],
         out: &mut [f32],
     ) -> Result<(), ContractError>;
-    /// simd 版の要素ごと演算。`a` を読み、`out` に書く。対応しない実装は `Err` を返す。
+    /// simd 版の要素ごと演算。`a` を読み、`out` に書く。
     fn elementwise_simd(
         &self,
         op: UnaryElementwiseOp,
@@ -78,17 +76,17 @@ fn gemm_simd_impl(
     simd128::gemm(a, b, m, k, n, out)
 }
 
-/// `DefaultCpuOps::gemm_simd` の版（それ以外のビルド。未対応を返す）。
+/// `DefaultCpuOps::gemm_simd` の版（それ以外のビルド。scalar 版と同じ計算をする）。
 #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 fn gemm_simd_impl(
-    _a: &[f32],
-    _b: &[f32],
-    _m: usize,
-    _k: usize,
-    _n: usize,
-    _out: &mut [f32],
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    out: &mut [f32],
 ) -> Result<(), ContractError> {
-    Err(ContractError::UnsupportedExtensionDefault { op: "gemm_simd" })
+    scalar::gemm(a, b, m, k, n, out)
 }
 
 /// `DefaultCpuOps::elementwise_simd` の版（wasm32 で `simd128` が有効なビルド）。
@@ -101,20 +99,18 @@ fn elementwise_simd_impl(
     simd128::elementwise(op, a, out)
 }
 
-/// `DefaultCpuOps::elementwise_simd` の版（それ以外のビルド。未対応を返す）。
+/// `DefaultCpuOps::elementwise_simd` の版（それ以外のビルド。scalar 版と同じ計算をする）。
 #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 fn elementwise_simd_impl(
-    _op: UnaryElementwiseOp,
-    _a: &[f32],
-    _out: &mut [f32],
+    op: UnaryElementwiseOp,
+    a: &[f32],
+    out: &mut [f32],
 ) -> Result<(), ContractError> {
-    Err(ContractError::UnsupportedExtensionDefault {
-        op: "elementwise_simd",
-    })
+    scalar::elementwise(op, a, out)
 }
 
 /// [`CpuOps`] を実装する型。`*_simd` は、wasm32 で `simd128` が有効なビルドでは 4 レーンの版
-/// （長さが合わなければ `InvalidArgument`）を呼び、それ以外のビルドでは `UnsupportedExtensionDefault` を返す。
+/// を呼び、それ以外のビルドでは `*_scalar` と同じ計算をする。長さが合わなければどのビルドでも `InvalidArgument`。
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultCpuOps;
 
@@ -243,42 +239,22 @@ mod tests {
         assert_eq!(bits(&out), bits(&[-1.0, 0.5, 2.75, 3.5]));
     }
 
-    /// `simd128` が無効なビルドでは `DefaultCpuOps` の `*_simd` が未対応を返す。
-    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    /// `DefaultCpuOps` の `*_simd` が、どのビルドでも計算した値を返す。
     #[test]
-    fn default_simd_unsupported_without_simd128() {
-        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
-        let mut o = [0.0_f32; 4];
-        assert_eq!(
-            DefaultCpuOps.gemm_simd(&a, &b, 2, 3, 2, &mut o),
-            Err(ContractError::UnsupportedExtensionDefault { op: "gemm_simd" })
-        );
-        let x = [-1.5, 0.0, 2.25, 3.0];
-        let mut o = [0.0_f32; 4];
-        assert_eq!(
-            DefaultCpuOps.elementwise_simd(UnaryElementwiseOp::Relu, &x, &mut o),
-            Err(ContractError::UnsupportedExtensionDefault {
-                op: "elementwise_simd"
-            })
-        );
-    }
-
-    /// `simd128` が有効なビルドでは `DefaultCpuOps` の `*_simd` が実計算を返す。
-    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    #[test]
-    fn default_simd_computes_with_simd128() {
+    fn default_simd_values() {
         let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let b = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
         let mut o = [0.0_f32; 4];
         DefaultCpuOps.gemm_simd(&a, &b, 2, 3, 2, &mut o).unwrap();
         assert_eq!(bits(&o), bits(&[58.0, 64.0, 139.0, 154.0]));
-        let x = [-1.5, 0.0, 2.25, 3.0];
-        let mut o = [9.0_f32; 4];
-        DefaultCpuOps
-            .elementwise_simd(UnaryElementwiseOp::Relu, &x, &mut o)
-            .unwrap();
-        assert_eq!(bits(&o), bits(&[0.0, 0.0, 2.25, 3.0]));
+        let x = [-1.5, 0.0, 2.25, 3.0, -4.0];
+        for op in [UnaryElementwiseOp::Relu, UnaryElementwiseOp::AddScalar(0.5)] {
+            let mut want = [9.0_f32; 5];
+            let mut got = [9.0_f32; 5];
+            DefaultCpuOps.elementwise_scalar(op, &x, &mut want).unwrap();
+            DefaultCpuOps.elementwise_simd(op, &x, &mut got).unwrap();
+            assert_eq!(bits(&got), bits(&want));
+        }
     }
 
     #[test]
@@ -321,6 +297,9 @@ mod tests {
             DefaultCpuOps.gemm_scalar(&av, &bv, m, k, n, &mut ov)
         ));
         assert!(is_invalid(
+            DefaultCpuOps.gemm_simd(&av, &bv, m, k, n, &mut ov)
+        ));
+        assert!(is_invalid(
             ReferenceCpuOps.gemm_scalar(&av, &bv, m, k, n, &mut ov)
         ));
         assert!(is_invalid(
@@ -346,6 +325,7 @@ mod tests {
             let mut o = vec![7.0_f32; olen];
             for op in [UnaryElementwiseOp::Relu, UnaryElementwiseOp::AddScalar(1.0)] {
                 assert!(is_invalid(DefaultCpuOps.elementwise_scalar(op, &a, &mut o)));
+                assert!(is_invalid(DefaultCpuOps.elementwise_simd(op, &a, &mut o)));
                 assert!(is_invalid(
                     ReferenceCpuOps.elementwise_scalar(op, &a, &mut o)
                 ));

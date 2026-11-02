@@ -144,3 +144,35 @@ make wasm-verify
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行を変えたとき、`UnaryElementwiseOp` に値が増えたときに、表を取り直す。
+
+## simd128 でないビルドの版（7/9）
+
+`DefaultCpuOps` の `*_simd` が呼ぶものは、ビルド時の `cfg` で決まる（実行時に CPU の機能を調べない）。
+
+| ビルド | `*_simd` が呼ぶもの |
+| ------ | ------------------- |
+| `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | `simd128.rs` の 4 レーンの版 |
+| `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` | `scalar.rs` の関数（`*_scalar` と同じ計算） |
+
+4 メソッドの戻りは `Result<(), ContractError>` のまま。長さが合わない・積があふれる入力は、どのビルドでも 4 メソッド × 2 型が `InvalidArgument` を返し、`out` に書かない。
+
+### 試験の変更
+
+| 場所 | 変更 |
+| ---- | ---- |
+| lib（`cpu_ops`） | 2 本を `default_simd_values` に統合（`cfg` なし） |
+| `cpu_ops_reference` | `*_is_unsupported_without_simd128` の 2 本を削除。`gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` の `cfg` を外した。長さの試験に `DefaultCpuOps` の `*_simd` を追加 |
+| `simd128.rs` の単体試験 | 1 本減 |
+
+この節より前の節の `UnsupportedExtensionDefault` の記述と `*_is_unsupported_without_simd128` の行は、7/9 の前の形。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --lib cpu_ops
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+RUSTFLAGS="-C target-feature=+simd128" cargo clippy -p fandhe-silicon-contract --tests --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops,test-support --target-dir target/wasm32-simd128 -- -D warnings
+```
+
+simd128 の構成は型検査と lint までで、wasm32 上の実行は流していない（TASK-1351）。
