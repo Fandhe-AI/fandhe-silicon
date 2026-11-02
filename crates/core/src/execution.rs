@@ -1,13 +1,14 @@
-//! 3 段で受け渡す実行まわりの共通の型。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型・間接実行の引数の型を置く（TASK-470・TASK-1878 のポインタ）。
+//! 3 段で受け渡す実行まわりの共通の型。パイプライン生成の入力の型・引数の宣言の型・キャッシュキーの型・間接実行の引数の型・パイプライン統計のフラグの組を置く（TASK-470・TASK-1878・TASK-1877 のポインタ）。
 //!
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が組み立てた入力を、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が受け取るときの形を定める。
-//! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C4〜C8 を判定する純粋関数（`dispatch_check`）、間接実行の引数の固定長の構造体とバイト列との変換・開始位置の整列と範囲の検査・`first_instance` の判定（`indirect_args`）を置き、コンパイル・チップ固有の型は持たない。
+//! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C4〜C8 を判定する純粋関数（`dispatch_check`）、間接実行の引数の固定長の構造体とバイト列との変換・開始位置の整列と範囲の検査・`first_instance` の判定（`indirect_args`）、パイプライン統計のフラグの組と問合せの結果の大きさ・位置（`query_check`）を置き、コンパイル・チップ固有の型は持たない。
 //! 入力は借用で持つので、確保も所有権の移動も起きない。
 
 mod compute;
 mod dispatch_check;
 mod indirect_args;
+mod query_check;
 mod submit;
 
 pub use compute::{
@@ -20,6 +21,7 @@ pub use indirect_args::{
     DispatchIndirectArgs, DrawIndexedIndirectArgs, DrawIndirectArgs, FirstInstanceDecision,
     first_instance_decision, validate_indirect_args_range,
 };
+pub use query_check::{PipelineStatisticsFlags, QUERY_SIZE};
 #[doc(hidden)]
 pub use submit::{__BackendEncoderCloser, __BackendSharedEncoderCloser, __backend_next_encoder_id};
 pub use submit::{CommandEncoder, CommandQueue, GpuTiming, SubmitToken};
