@@ -93,11 +93,43 @@ cargo test -p fandhe-silicon-core --doc TextureFormatFeatures
 grep -n 'pub mod texture_format_features' crates/core/src/lib.rs
 ```
 
+## 能力の問合せの口の操作（2/4）
+
+`Capabilities` に既定の実装つきの操作 `fn texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures` がある（`crates/core/src/capability.rs`）。
+ジェネリクスを持たないので `&dyn Capabilities`・`&dyn Device` から呼べる。
+
+既定の実装は、形式からその形式の `texformat:` の鍵を引き（`TEXTURE_FORMAT_ROWS` を先頭から探す内部の補助。公開しない）、`query_ex` を 1 回だけ呼ぶ（`query` は呼ばない）。得た値を形式の単位にして、要素を持たない値を組み立てる。
+
+| `query_ex` の値 | 返る値 |
+| --------------- | ------ |
+| 共通の規則に合う値（`S1`〜`S6`、理由つきの `Unsupported`） | 形式の単位がその値で、要素なし |
+| `S0`（理由・根拠なし） | 形式の単位が `S0` |
+| 共通の規則に外れる値 | `TextureFormatFeatures::capture_failed()` と等しい値 |
+
+`test-support` の裏の `texture_format_query_check::check_texture_format_features(device, rows)` は、`rows` の各鍵で `texture_format_features(format).format_query()` と `query_ex(key)` を 1 回ずつ呼ぶ。
+
+| 入力 | 返り値 |
+| ---- | ------ |
+| 全鍵で一致 | `Ok(())` |
+| 食い違う鍵がある | 鍵の順に全部集めた `FeaturesFormatQueryMismatch` の `Err` |
+| 空の `rows` | `Ok(())` |
+
+2/4 で足した試験: `texture_format_features::tests::default_op` の 5 本（`format_key_covers_all_formats_in_key_order`・`calls_query_ex_once_and_query_never`・`valid_values_become_the_format_query_without_features`・`s0_value_stays_s0`・`rule_breaking_values_become_capture_failed`）、`texture_format_query_check::tests` の `features_check_accepts_empty_rows`・`features_check_collects_all_mismatches_in_key_order`、doctest（`Capabilities::texture_format_features`・`check_texture_format_features`）。
+
+```sh
+cargo test -p fandhe-silicon-core --lib texture_format_features
+cargo test -p fandhe-silicon-core --features test-support --lib texture_format_query_check
+cargo test -p fandhe-silicon-core --features test-support --doc texture_format_features
+cargo test -p fandhe-silicon-core --features test-support --doc check_texture_format_features
+grep -n 'fn texture_format_features' crates/core/src/capability.rs
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
 | 1/4 | #7726 | 形式ごとの能力の値の型と組み立ての規則 |
+| 2/4 | #7727 | 能力の問合せの口に形式ごとの能力の値の操作を足す |
 | 2/4 | #7727 | 能力の問合せの口に形式ごとの能力の値の操作を足す |
 | 3/4 | #7728 | 形式の鍵ごとの値と非対応の device の試験 |
 | 4/4 | #7729 | 完了の条件の確かめ |
