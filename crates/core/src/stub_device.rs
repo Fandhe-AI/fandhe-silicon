@@ -18,10 +18,11 @@ use crate::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
     WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
 };
+use crate::capability_table::{FeatureRow, query_from_table};
 use crate::device::{
     Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
-use crate::error::{CompletionState, ContractError};
+use crate::error::{CompletionState, ContractError, UnsupportedReason};
 use crate::execution::{
     __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
     CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
@@ -34,6 +35,7 @@ use crate::memory::{
 };
 #[cfg(feature = "graphics")]
 use crate::render_target::{RenderTargetHandle, check_render_target_device};
+use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
 
 /// 試験用の device の上限の表。確保の上限だけ持ち、dispatch・テクスチャは 0。
 const LIMITS: LimitsTable = LimitsTable {
@@ -41,6 +43,36 @@ const LIMITS: LimitsTable = LimitsTable {
     max_dispatch_dims: [0, 0, 0],
     max_texture_size: 0,
 };
+
+/// 形式の問合せの鍵（`TEXTURE_FORMAT_QUERY_KEYS`）の件数。表の長さに使う。
+const TEXTURE_FORMAT_KEY_COUNT: usize = TEXTURE_FORMAT_QUERY_KEYS.len();
+
+/// 形式の問合せの鍵の行に持たせる値。`Unsupported`・理由 `NotSupported`・根拠なし。
+const TEXTURE_FORMAT_ROW_QUERY: CapabilityQuery = CapabilityQuery {
+    level: CapabilityLevel::Unsupported,
+    unsupported_reason: Some(UnsupportedReason::NotSupported),
+    evidence: None,
+};
+
+/// 形式の問合せの鍵ごとの行。鍵は `TEXTURE_FORMAT_QUERY_KEYS` の並びのまま。
+/// `StubDevice::query_ex` が `query_from_table` で引く。
+static TEXTURE_FORMAT_QUERY_TABLE: [FeatureRow<CapabilityQuery>; TEXTURE_FORMAT_KEY_COUNT] =
+    texture_format_query_table();
+
+/// 鍵の一覧から `TEXTURE_FORMAT_QUERY_TABLE` の行を作る。鍵を手で書き写さないための関数。
+const fn texture_format_query_table() -> [FeatureRow<CapabilityQuery>; TEXTURE_FORMAT_KEY_COUNT] {
+    let mut rows = [FeatureRow {
+        feature: FeatureId(""),
+        rule: TEXTURE_FORMAT_ROW_QUERY,
+        source: "stub",
+    }; TEXTURE_FORMAT_KEY_COUNT];
+    let mut i = 0;
+    while i < TEXTURE_FORMAT_KEY_COUNT {
+        rows[i].feature = TEXTURE_FORMAT_QUERY_KEYS[i];
+        i += 1;
+    }
+    rows
+}
 
 /// device の識別子の源。device の世代とハンドル・印の `device_id` に同じ値を使う。
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -706,6 +738,8 @@ impl GraphicsOps for StubGraphics {
 /// 別 device の描画先やパイプラインを渡すと `DeviceMismatch` を返す（記録先の生成では、その値を持つ記録先を返す）。
 /// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
+/// 能力問合せの `query` はどの機能も `Unsupported` を返す。`query_ex` は WebGPU の口の 2 鍵には `WEBGPU_PORT_UNSUPPORTED`、
+/// 形式の問合せの鍵には `Unsupported`・理由 `NotSupported`・根拠なし、それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
@@ -745,17 +779,13 @@ impl Capabilities for StubDevice {
     }
 
     /// WebGPU の口の 2 つの鍵には背後実装と同じ値（`WEBGPU_PORT_UNSUPPORTED`）を返し、
-    /// 共通の検査 `check_webgpu_ports` を通す。それ以外の鍵は既定の本体と同じ値
-    /// （`query` の段階・理由なし・根拠なし）を返す。鍵ごとの表を足すときはこの分岐に足す。
+    /// 共通の検査 `check_webgpu_ports` を通す。形式の問合せの鍵（`TEXTURE_FORMAT_QUERY_KEYS`）には
+    /// `Unsupported`・理由 `NotSupported`・根拠なしを返す。それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
     fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
         if feature == WEBGPU_DEVICE_PORT || feature == WEBGPU_HANDLE_PORT {
             return WEBGPU_PORT_UNSUPPORTED;
         }
-        CapabilityQuery {
-            level: self.query(feature),
-            unsupported_reason: None,
-            evidence: None,
-        }
+        query_from_table(&TEXTURE_FORMAT_QUERY_TABLE, feature, |q| *q)
     }
 
     fn limits(&self) -> &LimitsTable {
@@ -827,6 +857,88 @@ mod tests {
             backend: BackendKind::Vulkan,
             profile: Profile::ComputeOnly,
             ownership: DeviceOwnership::Shared,
+        }
+    }
+
+    use crate::capability_table::UNLISTED_FEATURE_QUERY;
+    use crate::capability_table_check::{check_table_keys, check_table_queries};
+
+    fn table_device() -> StubDevice {
+        StubDevice::new(request())
+    }
+
+    #[test]
+    fn texture_format_table_follows_query_key_list() {
+        assert_eq!(
+            TEXTURE_FORMAT_QUERY_TABLE.len(),
+            TEXTURE_FORMAT_QUERY_KEYS.len()
+        );
+        for (row, key) in TEXTURE_FORMAT_QUERY_TABLE
+            .iter()
+            .zip(TEXTURE_FORMAT_QUERY_KEYS)
+        {
+            assert_eq!(row.feature, *key);
+            assert_eq!(row.source, "stub");
+        }
+    }
+
+    #[test]
+    fn texture_format_table_keys_and_queries_pass_shared_checks() {
+        assert_eq!(
+            check_table_keys(&TEXTURE_FORMAT_QUERY_TABLE, TEXTURE_FORMAT_QUERY_KEYS),
+            Ok(())
+        );
+        assert_eq!(
+            check_table_queries(
+                &TEXTURE_FORMAT_QUERY_TABLE,
+                TEXTURE_FORMAT_QUERY_KEYS,
+                |q| *q
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn query_ex_returns_row_value_for_texture_format_keys() {
+        let device = table_device();
+        for key in TEXTURE_FORMAT_QUERY_KEYS {
+            let q = device.query_ex(*key);
+            assert_eq!(q.level, CapabilityLevel::Unsupported);
+            assert_eq!(q.unsupported_reason, Some(UnsupportedReason::NotSupported));
+            assert_eq!(q.evidence, None);
+            assert_ne!(q, UNLISTED_FEATURE_QUERY);
+        }
+    }
+
+    #[test]
+    fn query_ex_returns_unlisted_value_for_keys_without_rows() {
+        let device = table_device();
+        for key in ["texformat:Astc", "", "any-feature"] {
+            assert_eq!(device.query_ex(FeatureId(key)), UNLISTED_FEATURE_QUERY);
+        }
+    }
+
+    #[test]
+    fn query_level_matches_query_ex_level() {
+        let device = table_device();
+        let mut keys: Vec<FeatureId> = TEXTURE_FORMAT_QUERY_KEYS.to_vec();
+        keys.extend([
+            FeatureId("texformat:Astc"),
+            FeatureId("any-feature"),
+            WEBGPU_DEVICE_PORT,
+            WEBGPU_HANDLE_PORT,
+        ]);
+        for key in keys {
+            assert_eq!(device.query(key), device.query_ex(key).level);
+        }
+    }
+
+    #[test]
+    fn webgpu_port_keys_are_not_texture_format_keys() {
+        let device = table_device();
+        for key in [WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT] {
+            assert!(!TEXTURE_FORMAT_QUERY_KEYS.contains(&key));
+            assert_eq!(device.query_ex(key), WEBGPU_PORT_UNSUPPORTED);
         }
     }
 

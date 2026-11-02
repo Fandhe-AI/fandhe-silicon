@@ -58,6 +58,34 @@ cargo test -p fandhe-silicon-core --features test-support --lib texture_format_q
 cargo test -p fandhe-silicon-core --features test-support --doc texture_format_query_check
 ```
 
+## 試験用の device の形式の鍵の行（2/4）
+
+試験用の device（`StubDevice`。TASK-156 のポインタ）の `query_ex` を、形式の問合せの鍵の行を持つ表の表引きにした。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 表の所在 | `crates/core/src/stub_device.rs` の非公開の `static`（行の型は `capability_table::FeatureRow`、TASK-1114 のポインタ） |
+| 鍵 | `texture_format_key::TEXTURE_FORMAT_QUERY_KEYS`（TASK-1313 のポインタ）の並びのまま |
+
+`query_ex` の返し
+
+| 鍵 | 返し |
+| -- | ---- |
+| 形式の問合せの鍵 | `Unsupported`・理由 `NotSupported`・根拠なし |
+| WebGPU の口の 2 鍵 | `WEBGPU_PORT_UNSUPPORTED` |
+| それ以外 | `UNLISTED_FEATURE_QUERY` |
+
+`query` は変わらずどの鍵にも `Unsupported` を返し、`limits` も変わらない。
+
+対応するテスト: `stub_device` の中の試験（`texture_format_table_follows_query_key_list`・`texture_format_table_keys_and_queries_pass_shared_checks`・`query_ex_returns_row_value_for_texture_format_keys`・`query_ex_returns_unlisted_value_for_keys_without_rows`・`query_level_matches_query_ex_level`・`webgpu_port_keys_are_not_texture_format_keys`）と、`tests/stub_device_request.rs` の `query_ex_returns_unlisted_value_for_keys_without_rows`。
+
+確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_request
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
