@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check wasm-compile-probe-check test-wasm-compile-probe-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -178,6 +178,12 @@ wasm-backend-check: ## 背後実装の feature を付けた wasm32 向けの契�
 
 test-wasm-backend-check: ## wasm-backend-check の回帰テスト（合成の rustdoc JSON・tree と偽の cargo、一時 workspace の実物の検査と陽性対照。bash + python3 + cargo + git + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-backend-check.sh
 	@scripts/test-wasm-backend-check.sh
+
+wasm-compile-probe-check: ## wasm32 の組（build-profiles.sh の注記の行の組）で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに record: で出す（bash + cargo + wasm32 の target。終了コード 0 全行 ok・1 ng あり・2 誤用か前提の不足。ソースは変更しない・ネットワーク不要）。直接: scripts/wasm-compile-probe-check.sh
+	@scripts/wasm-compile-probe-check.sh
+
+test-wasm-compile-probe-check: ## wasm-compile-probe-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-wasm-compile-probe-check.sh
+	@scripts/test-wasm-compile-probe-check.sh
 
 test-wasm-build-check: ## wasm-build-check の回帰テスト（合成の wasm・rustdoc JSON・ソースと偽の cargo、一時 workspace の実物のビルド。bash + python3 + cargo + wasm32 の target・ネットワーク不要・リポジトリのファイルは変更しない。CI の deny ジョブも実行する）。直接: scripts/test-wasm-build-check.sh
 	@scripts/test-wasm-build-check.sh
