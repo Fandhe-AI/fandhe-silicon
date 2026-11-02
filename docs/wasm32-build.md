@@ -130,3 +130,4 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
+- 契約の crate の CPU の演算（`cpu_ops`）: [cpu-ops](cpu-ops.md)
