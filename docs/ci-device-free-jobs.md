@@ -72,6 +72,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-wasm-build-check` | `scripts/test-wasm-build-check.sh` | wasm32 の cdylib の 2 版の検査 `scripts/wasm-build-check.sh` の回帰テスト（合成の入力・偽の cargo と一時 workspace のダミーの crate。ネットワーク不要） |
 | `deny` | `make test-wasm-size` | `scripts/test-wasm-size.sh` | glue 込みの量の測定の道具 `scripts/wasm-size.sh` の回帰テスト（合成の入力と偽のコマンド。wasm-bindgen の CLI は要らない） |
 | `deny` | `make test-wasm-node-check` | `scripts/test-wasm-node-check.sh` | Node での照合の土台（`scripts/wasm-node-check.sh`）の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果） |
+| `deny` | `make test-wasm-web-load-check` | `scripts/test-wasm-web-load-check.sh` | web の出力の Node での読み込みの検査 `scripts/wasm-web-load-check.sh` の回帰テスト（偽の node・cargo・wasm-bindgen と、本物の node で偽の glue を読む。ネットワーク不要。[wasm32-web-load-check](./wasm32-web-load-check.md)） |
 | `deny` | `make deps-check` | `scripts/deps-check.sh` | 依存の `=x.y.z` 固定と承認の記録の一致 |
 | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` | 上の回帰テスト |
 | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | 一覧と項目の対応の検査の回帰テスト（合成 fixture） |

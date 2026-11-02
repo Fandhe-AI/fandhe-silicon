@@ -70,6 +70,8 @@ cat <<'EOF'
   test-metal-session scripts/test-metal-session.sh  metal-session 自体の回帰テスト（偽のコマンドで macOS のコマンドを差し替える。bash + python3 + git）。本体は make ターゲットなし: scripts/metal-session.sh <probe|run|redact|scan>
   wasm-node-check scripts/wasm-node-check.sh     wasm32 の .wasm を glue 越しに Node で呼び参照と照合して行ごとに match / mismatch / not-run を出す土台（Node v24.13.0 と wasm-bindgen の CLI が要る実物の実行。CI の wasm-macos ジョブが呼ぶ。--record-dir と --record-combination を組で渡したときだけ行の結果を記録の部品へ書く。終了コード 0 全行一致・1 不一致か未実施・2 前提の不足か不正）
   test-wasm-node-check scripts/test-wasm-node-check.sh  wasm-node-check 自体の回帰テスト（偽の node・wasm-bindgen・cargo と合成の結果。bash + python3 + node。CI の deny ジョブも実行する）
+  wasm-web-load-check scripts/wasm-web-load-check.sh  wasm-bindgen の --target web の出力を Node で読み込み 4 組 × 11 項目の行を出す検査（Node v24.13.0 と wasm-bindgen の CLI が要る手元の実行。CI からは呼ばない）
+  test-wasm-web-load-check scripts/test-wasm-web-load-check.sh  wasm-web-load-check 自体の回帰テスト（偽の node・cargo・wasm-bindgen と、本物の node で偽の glue を読む。bash + python3 + node。CI の deny ジョブも実行する）
   test-hooks      scripts/hooks/test-hooks.sh    フックスクリプト自体の回帰テスト（bash + git のみ）
 
 Git hooks（lefthook.yml から呼ばれる。直接実行も可）:
