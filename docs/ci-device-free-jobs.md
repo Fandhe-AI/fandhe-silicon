@@ -75,6 +75,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make deps-check` | `scripts/deps-check.sh` | 依存の `=x.y.z` 固定と承認の記録の一致 |
 | `deny` | `make test-deps-check` | `scripts/test-deps-check.sh` | 上の回帰テスト |
 | `deny` | `make test-inventory-trace-check` | `scripts/test-inventory-trace-check.sh` | 一覧と項目の対応の検査の回帰テスト（合成 fixture） |
+| `deny` | `make test-texture-format-key-check` | `scripts/test-texture-format-key-check.sh` | テクスチャの形式の問合せの鍵の検査 `scripts/texture-format-key-check.sh`（make ターゲットなし）の回帰テスト（合成の入力。cargo があれば example の出力の形も確かめる。ネットワーク不要） |
+| `deny` | `make test-feature-key-check` | `scripts/test-feature-key-check.sh` | 機能の問合せの鍵の検査 `scripts/feature-key-check.sh` の回帰テスト（合成の入力。`docs/spec` の取得は不要。ネットワーク不要） |
 | `deny` | `make test-session-record-check` | `scripts/test-session-record-check.sh` | 上記 `test-hooks` と同じ回帰テスト |
 | `deny` | `make test-perf-record-check` | `scripts/test-perf-record-check.sh` | run ごとの記録の形の検査の回帰テスト（`test-hooks` では流さない） |
 | `deny` | `make ci-frame-check` | `scripts/ci-frame-check.sh` | `ci.yml` が枠の事実を保っているかの検査 |
@@ -88,6 +90,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-api-sdk-check` | `scripts/test-public-api-sdk-check.sh` | 上の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、一時 workspace の実物） |
 | `deny` | `make core-deps-check` | `scripts/core-deps-check.sh` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査（件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-core-deps-check` | `scripts/test-core-deps-check.sh` | 上の回帰テスト（合成 metadata・偽のコマンド・一時 workspace の実物・TASK-13 の検査との突き合わせ） |
+| `deny` | `make doctest-error-code-check` | `scripts/doctest-error-code-check.sh` | doctest の `compile_fail,E…` のエラーコードを `RUSTC_BOOTSTRAP=1` の `cargo test --doc` で照合する（ソースは変更しない・ネットワーク不要） |
+| `deny` | `make test-doctest-error-code-check` | `scripts/test-doctest-error-code-check.sh` | 上の回帰テスト（依存の無い一時 crate。正しいコードは通り誤ったコードは落ちること、素の stable では誤りが通る対照を確かめる） |
 | `deny` | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | 契約のコアの公開面の WebGPU 系の検査（内容の (1)〜(5)〔TASK-241・TASK-155・TASK-313 のポインタ〕。件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-public-api-webgpu-check` | `scripts/test-public-api-webgpu-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（`make deny` の後のステップ。検出の件数が `record:` の行としてログに残り、狭い定義・広い定義・公開 API のどれかが 0 件なら失敗） |
@@ -112,8 +116,11 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `dep-graph-wgpu-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `profile-dep-graph-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `profile-dep-graph-positive-control` | `make deny` の中で検査の直後に同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
+| `test-profile-dep-graph-check`・`test-profile-dep-graph-positive-control` | 本体は `make deny` の中で流れる。回帰テストは CI のジョブからは呼ばず、手元で流す（`CLAUDE.md` の品質ゲートの記述。[profile-dep-graph-check](./profile-dep-graph-check.md)） |
 | `wasm-build-check` | 型の名前を渡す呼び出しと `crates/` の `simd128` の `cfg` の出現がまだ無く、`type:`・`cfg:` が not-run で終了コード 1 になる。合格に見せる口は持たない（[wasm32-build.md](./wasm32-build.md)） |
+| `wasm-compile-probe-check` | `make wasm-verify` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/wasm-verify.sh`） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
+| `feature-key-check` | 入力が private 側にあり、本リポの CI には組み込まない（`scripts/feature-key-check.sh` の先頭コメント）。回帰テストの `test-feature-key-check` は `deny` ジョブが呼ぶ |
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
