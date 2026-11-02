@@ -22,18 +22,18 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 - GEMM は行優先の f32 で、各 `(i, j)` を k の昇順の `f32::mul_add` で積む。
 - 要素ごと演算は `Relu` が `x.max(0.0)`、`AddScalar(c)` が `x + c`。
-- 4 メソッドはどれも `Result<(), ContractError>` を返す。長さが合わない・次元の積があふれる入力は `InvalidArgument` で返し、`out` には触れない。ただし `DefaultCpuOps` の `*_simd` は入力を検証せず、未対応の `UnsupportedExtensionDefault` を優先して返す。
-- `ReferenceCpuOps` は 4 メソッドとも scalar の計算をする。`DefaultCpuOps` の `*_simd` は simd 版が無いので `UnsupportedExtensionDefault` を返し、scalar へ黙って落とさない。単体試験が確かめる。
+- 4 メソッドはどれも `Result<(), ContractError>` を返す。長さが合わない・次元の積があふれる入力は `InvalidArgument` で返し、`out` には触れない。`DefaultCpuOps` の `*_simd` も同じ（simd128 でないビルドは scalar と同じ計算。下の「7/9」の節）。
+- `ReferenceCpuOps` は 4 メソッドとも scalar の計算をする。`DefaultCpuOps` の `*_simd` は simd128 でないビルドで scalar と同じ計算をする（下の「7/9」の節）。
 
 ## wasm32 の simd128 版（2/5）
 
 `DefaultCpuOps` の `gemm_simd`・`elementwise_simd` が呼ぶ版は、関数の項に付けたビルド時の `cfg` で選ぶ。実行時に CPU の機能は調べない。
-上の節の `*_simd` の記述は、下の表の「それ以外のビルド」の行の振る舞いに当たる。
+「それ以外のビルド」の行は 7/9 で `UnsupportedExtensionDefault` から scalar と同じ計算に変わった（下の「7/9」の節）。
 
 | ビルド | `*_simd` が呼ぶもの |
 | ---- | ---- |
 | `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | 非公開の `crates/contract/src/cpu_ops/simd128.rs` の 4 レーンの版（長さが合わなければ `InvalidArgument`、`out` には触れない） |
-| `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` | `UnsupportedExtensionDefault` |
+| `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` | `scalar.rs` の関数（`*_scalar` と同じ計算） |
 
 - `simd128.rs` は unsafe を使わず、`core::arch::wasm32` の値渡しの関数だけを使う。
 - `make build-profiles` は契約の crate の lib を wasm32 の scalar 構成と simd128 構成で `clippy -D warnings` にかける（lib のみ）。続けて wasm-abi の 2 版の release ビルドを流す。
@@ -55,8 +55,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `elementwise_scalar_relu` | 各要素が `max(x, 0.0)` とビットで一致する |
 | `elementwise_scalar_add_scalar` | 各要素が `x + 0.5` とビットで一致する |
 | `mismatched_lengths_do_not_panic` | 長さが合わない・積があふれる入力でも 4 メソッドが panic せず `Err` を返す |
-| `gemm_simd_is_unsupported_without_simd128`・`elementwise_simd_is_unsupported_without_simd128` | `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` のビルドで `DefaultCpuOps` の `*_simd` が `UnsupportedExtensionDefault` を返す |
-| `gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` | `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` のビルドで `*_simd` が参照（GEMM は T1）・scalar（要素ごと演算はビット。長さ 0〜9 も含む）と一致する |
+| （7/9 で削除）`*_is_unsupported_without_simd128` の 2 本 | 削除前は `UnsupportedExtensionDefault` を返すことを確かめていた。現在は下の「7/9」の節のとおり scalar と同じ計算 |
+| `gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` | 7/9 以降はどのビルドでも `*_simd` が参照（GEMM は T1）・scalar（要素ごと演算はビット。長さ 0〜9 も含む）と一致する |
 
 ## 版の選択の試験（4/5）
 
@@ -144,3 +144,35 @@ make wasm-verify
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行を変えたとき、`UnaryElementwiseOp` に値が増えたときに、表を取り直す。
+
+## simd128 でないビルドの版（7/9）
+
+`DefaultCpuOps` の `*_simd` が呼ぶものは、ビルド時の `cfg` で決まる（実行時に CPU の機能を調べない）。
+
+| ビルド | `*_simd` が呼ぶもの |
+| ------ | ------------------- |
+| `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | `simd128.rs` の 4 レーンの版 |
+| `cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))` | `scalar.rs` の関数（`*_scalar` と同じ計算） |
+
+4 メソッドの戻りは `Result<(), ContractError>` のまま。長さが合わない・積があふれる入力は、どのビルドでも 4 メソッド × 2 型が `InvalidArgument` を返し、`out` に書かない。
+
+### 試験の変更
+
+| 場所 | 変更 |
+| ---- | ---- |
+| lib（`cpu_ops`） | 2 本を `default_simd_values` に統合（`cfg` なし） |
+| `cpu_ops_reference` | `*_is_unsupported_without_simd128` の 2 本を削除。`gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` の `cfg` を外した。長さの試験に `DefaultCpuOps` の `*_simd` を追加 |
+| `simd128.rs` の単体試験 | 1 本減 |
+
+この節より前の節の `UnsupportedExtensionDefault` の記述と `*_is_unsupported_without_simd128` の行は、7/9 の前の形。5/5 の確かめ表の行 (3) は 5/5 の時点の記録で、書き換えていない（現状は上の表と試験の変更のとおり）。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --lib cpu_ops
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+RUSTFLAGS="-C target-feature=+simd128" cargo clippy -p fandhe-silicon-contract --tests --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops,test-support --target-dir target/wasm32-simd128 -- -D warnings
+```
+
+simd128 の構成は型検査と lint までで、wasm32 上の実行は流していない（TASK-1351）。
