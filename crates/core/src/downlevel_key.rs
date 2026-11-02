@@ -1,4 +1,4 @@
-//! 能力問合せの口へ渡すdownlevelの鍵の静的な定数と、その一覧（TASK-1362）。
+//! 能力問合せの口へ渡す downlevel の鍵の静的な定数と、その一覧（TASK-1362）。
 //!
 //! 鍵は `FeatureId` の定数で、26 件ある。背後実装の型・規則は含まない。feature の条件なしで公開される。
 //!
@@ -94,7 +94,7 @@ pub const DOWNLEVEL_MSL2_1: FeatureId = FeatureId("downlevel:MSL2_1");
 /// `downlevel:TEXTURE_COMPRESSION` の鍵。
 pub const DOWNLEVEL_TEXTURE_COMPRESSION: FeatureId = FeatureId("downlevel:TEXTURE_COMPRESSION");
 
-/// downlevelの問合せの鍵の一覧。鍵は互いに異なる。
+/// downlevel の問合せの鍵の一覧。鍵は互いに異なる。
 ///
 /// # Examples
 ///
