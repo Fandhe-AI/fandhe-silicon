@@ -34,6 +34,8 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-269 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/error.rs`・`capability.rs`・`tests/error_types.rs`・`tests/completion_state_closed.rs`・`tests/error_non_exhaustive.rs`・`tests/error_fields.rs`・`tests/error_debug_format.rs`・`tests/error_display.rs`（と本書への関連のリンク）だけ | `git grep -n TASK-269 -- . ':!docs/spec' ':!.agents'` |
 
+補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -139,6 +141,8 @@ TASK-269 の作業を進めるにあたり、記録の所在と本リポの現�
 | C5 | 公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` | いずれも終了コード 0 |
 | E1 | base の CI | `gh run list --branch main --workflow ci.yml` | base のコミットの run（id 39470945757）が completed / success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+補い: 上の表の項目は記録した時点の値で、書き換えていない。いま同じコマンド（C3）を流すと、`crates/exec` では `src/entry.rs`・`tests/opt_in_default.rs`・`tests/reasons_and_denormal.rs`・`tests/unsupported_fields.rs` に当たる（`crates/contract`・`crates/upper` にも当たる）。
 
 ### 再実行の契機
 

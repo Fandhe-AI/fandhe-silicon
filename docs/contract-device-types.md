@@ -34,6 +34,8 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-136 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/capability.rs`・`device.rs`・`error.rs`、`crates/core/tests/device_capability_types.rs`・`device_request_fields.rs`・`device_capability_non_exhaustive.rs`・`capability_query_default.rs`・`device_lost_reason_values.rs`・`error_*.rs`、[contract-error-types](contract-error-types.md) だけ | `git grep -n TASK-136 -- . ':!docs/spec' ':!.agents'` |
 
+補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
+
 ## 現状の形（2/6）
 
 型は `crates/core` に置く（外部依存 0・`forbid(unsafe_code)` のまま）。置き場と形は TASK-136 の決定の記録に従う（ポインタのみ）。
@@ -136,6 +138,8 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | C5 | 公開 API・依存グラフの検査 | `make public-api-check`・`make test-public-api-check`・`make dep-graph-wgpu-check`・`make public-name-check`・`make public-api-sdk-check` | すべて終了コード 0。`scanned: crate=fandhe_silicon_core` は production が `public_items=1097`・all-features が `public_items=4243`、いずれも `wgpu_type_refs=0`・`wgpu_other_refs=0`（DEV-21） |
 | E1 | base の CI | `gh run list --branch main --workflow ci.yml` | 確かめた base のコミットの run `39491463730` が completed / success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
+
+補い: 上の C3 は記録した時点の値で、書き換えていない。いま同じ検索を流すと、`crates/exec` では `src/entry.rs`・`src/select.rs`・`tests/common/mod.rs` に当たる（`crates/contract` にも当たる）。
 
 - 実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない。
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-136）。
