@@ -114,3 +114,25 @@ fn stderr_does_not_echo_input_values() {
         }
     }
 }
+
+/// 非 Unicode の引数でも panic せず、終了コード 2・標準出力なし・入力のバイト列を出さない。
+#[cfg(unix)]
+#[test]
+fn non_unicode_arg_exits_two_without_echo() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let bad = OsString::from_vec(vec![0xff, 0xfe, 0x80]);
+    for pos in 0..3 {
+        let mut args: Vec<OsString> = vec!["1".into(), "1".into(), "1".into()];
+        args[pos] = bad.clone();
+        let o = Command::new(env!("CARGO_BIN_EXE_detect-bounds"))
+            .args(&args)
+            .output()
+            .expect("spawn detect-bounds");
+        assert_eq!(o.status.code(), Some(2), "pos={pos}");
+        assert!(o.stdout.is_empty());
+        assert!(!o.stderr.windows(3).any(|w| w == [0xff, 0xfe, 0x80]));
+        assert!(!String::from_utf8_lossy(&o.stderr).contains("panicked"));
+    }
+}
