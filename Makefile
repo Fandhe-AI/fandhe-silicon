@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -121,6 +121,12 @@ public-api-sdk-check: ## 製品の 4 crate の公開 API と共通の crate（cr
 
 test-public-api-sdk-check: ## public-api-sdk-check の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の rustdoc の JSON と cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-public-api-sdk-check.sh
 	@scripts/test-public-api-sdk-check.sh
+
+doctest-error-code-check: ## doctest の compile_fail,E… のエラーコードが期待どおりであることを RUSTC_BOOTSTRAP=1 の cargo test --doc で照合する（stable の rustdoc は照合しない。bash + cargo・ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/doctest-error-code-check.sh
+	@scripts/doctest-error-code-check.sh
+
+test-doctest-error-code-check: ## doctest-error-code-check の回帰テスト（実行時に作る依存の無い一時 crate で、正しいコードは通り誤ったコードは落ちること、素の stable では誤りが通る対照を確かめる。bash + cargo・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-doctest-error-code-check.sh
+	@scripts/test-doctest-error-code-check.sh
 
 core-deps-check: ## 共通の crate（crates/core）が宣言する外部の crate の一覧が決められた一覧と完全に一致することと、その feature が契約の crate（crates/contract）から転送されていることを cargo metadata から検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/core-deps-check.sh [--metadata-json <path>]
 	@scripts/core-deps-check.sh
