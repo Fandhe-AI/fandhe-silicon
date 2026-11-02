@@ -233,3 +233,23 @@ make wasm-build-check
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行や `scripts/wasm-verify.sh` の simd128 の lint の段を変えたとき、`UnaryElementwiseOp` に値が増えたときに、表を取り直す。
+
+## 部分 Top-k の 2 メソッドと番兵（TASK-1352 の 1/3）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1352。親 Issue は #931、この節（1/3）は #6349。
+
+上の節の `*_simd` の記述は `gemm_simd`・`elementwise_simd` に当たる。`topk_partial_simd` はどのビルドでも `topk_partial_scalar` と同じ計算をする。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| `CpuOps::topk_partial_scalar` | 引数 `scores: &[f32], k: usize, out: &mut [(u32, f32)]`、戻り `Result<(), ContractError>` |
+| `CpuOps::topk_partial_simd` | 同じ引数・戻り。`DefaultCpuOps`・`ReferenceCpuOps` とも `topk_partial_scalar` と同じ関数を呼ぶ |
+| `ReferenceCpuOps::SENTINEL` | `(u32::MAX, f32::NEG_INFINITY)` |
+
+- 有限のスコアだけが候補になる
+- スコアの降順（`f32::total_cmp`。`-0.0` は `+0.0` より小さい）、同点は `scores` の添字の昇順で、上位を `(添字, スコア)` で `out` の先頭に書く
+- 書く件数は `k`・有限のスコアの件数・`out` の長さの最小で、残りの位置は `SENTINEL` で埋める
+- `k` が 0・`scores` が空・`out` が空・`out` と `k` の長さが違う場合も `Err` を返さない
+- ヒープの確保をしない
+
+確かめ方は `cargo test -p fandhe-silicon-contract --lib cpu_ops`。

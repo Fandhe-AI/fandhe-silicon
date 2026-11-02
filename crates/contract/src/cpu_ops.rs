@@ -1,10 +1,11 @@
 //! CPU の演算の trait と型の置き場（feature `cpu-ops` の下にだけある。TASK-1351 のポインタ）。
 //!
-//! 上位の層から呼ばれる行列積と単項の要素ごと演算の口 [`CpuOps`] と、それを実装する
+//! 上位の層から呼ばれる行列積・単項の要素ごと演算・部分 Top-k の口 [`CpuOps`] と、それを実装する
 //! [`DefaultCpuOps`]・[`ReferenceCpuOps`] を持つ。計算の本体は非公開の `scalar` module にある。
 //!
-//! `DefaultCpuOps` の `*_simd` の版はビルド時の `cfg` で選ぶ。wasm32 で `simd128` が有効なビルドでは
-//! 4 レーンの命令の版を使い、それ以外のビルドでは `*_scalar` と同じ計算をする。
+//! `DefaultCpuOps` の `gemm_simd`・`elementwise_simd` の版はビルド時の `cfg` で選ぶ。wasm32 で `simd128` が
+//! 有効なビルドでは 4 レーンの命令の版を使い、それ以外のビルドでは `*_scalar` と同じ計算をする。
+//! `topk_partial_simd` はどのビルドでも `topk_partial_scalar` と同じ計算をする。
 //! 実行時に CPU の機能を調べない（spec CPU-26 のポインタ）。
 
 mod scalar;
@@ -24,8 +25,8 @@ pub enum UnaryElementwiseOp {
 }
 
 /// CPU の演算の口。行優先の f32 の行列積 `a`（m×k）×`b`（k×n）を `out`（m×n）に書くことと、
-/// 単項の要素ごと演算を `a` から `out` に書くことを持つ（spec CPU-25 のポインタ）。
-/// 長さが合わない入力は `ContractError::InvalidArgument` で返し、`out` には触れない。
+/// 単項の要素ごと演算を `a` から `out` に書くことと、部分 Top-k を `out` に書くことを持つ（spec CPU-25 のポインタ）。
+/// 行列積と要素ごと演算では、長さが合わない入力は `ContractError::InvalidArgument` で返し、`out` には触れない。
 pub trait CpuOps {
     /// scalar 版の行列積。`a`・`b` を読み、`out` に書く。
     fn gemm_scalar(
@@ -60,6 +61,25 @@ pub trait CpuOps {
         op: UnaryElementwiseOp,
         a: &[f32],
         out: &mut [f32],
+    ) -> Result<(), ContractError>;
+    /// scalar 版の部分 Top-k。有限のスコアだけを候補に、`f32::total_cmp` の降順（`-0.0` は `+0.0` より
+    /// 小さい）、同点は `scores` の添字（スロット番号）の昇順で並べ、上位を `(スロット番号, スコア)` で
+    /// `out` の先頭に書く。書く件数は `k`・有限のスコアの件数・`out` の長さの最小で、残りの位置には
+    /// [`ReferenceCpuOps::SENTINEL`] を書く。`k` と `out` の長さの組では `Err` を返さない
+    /// （spec CPU-10 のポインタ）。
+    fn topk_partial_scalar(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
+    ) -> Result<(), ContractError>;
+    /// simd 版の部分 Top-k。どの実装・どのビルドでも `topk_partial_scalar` と同じ計算をする
+    /// （spec CPU-16 のポインタ）。
+    fn topk_partial_simd(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
     ) -> Result<(), ContractError>;
 }
 
@@ -109,8 +129,9 @@ fn elementwise_simd_impl(
     scalar::elementwise(op, a, out)
 }
 
-/// [`CpuOps`] を実装する型。`*_simd` は、wasm32 で `simd128` が有効なビルドでは 4 レーンの版
-/// を呼び、それ以外のビルドでは `*_scalar` と同じ計算をする。長さが合わなければどのビルドでも `InvalidArgument`。
+/// [`CpuOps`] を実装する型。`gemm_simd`・`elementwise_simd` は、wasm32 で `simd128` が有効なビルドでは
+/// 4 レーンの版を呼び、それ以外のビルドでは `*_scalar` と同じ計算をする。長さが合わなければどのビルドでも
+/// `InvalidArgument`。`topk_partial_simd` はどのビルドでも `topk_partial_scalar` と同じ計算をする。
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultCpuOps;
 
@@ -153,11 +174,32 @@ impl CpuOps for DefaultCpuOps {
     ) -> Result<(), ContractError> {
         elementwise_simd_impl(op, a, out)
     }
+    fn topk_partial_scalar(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
+    ) -> Result<(), ContractError> {
+        scalar::topk_partial(scores, k, out)
+    }
+    fn topk_partial_simd(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
+    ) -> Result<(), ContractError> {
+        scalar::topk_partial(scores, k, out)
+    }
 }
 
 /// どのメソッドも `*_scalar` と同じ計算をする [`CpuOps`] の実装（spec CPU-27 のポインタ）。
 #[derive(Debug, Clone, Copy)]
 pub struct ReferenceCpuOps;
+
+impl ReferenceCpuOps {
+    /// 部分 Top-k が `out` の埋まらない位置に書く値（spec CPU-27 のポインタ）。
+    pub const SENTINEL: (u32, f32) = scalar::TOPK_SENTINEL;
+}
 
 impl CpuOps for ReferenceCpuOps {
     fn gemm_scalar(
@@ -197,6 +239,22 @@ impl CpuOps for ReferenceCpuOps {
         out: &mut [f32],
     ) -> Result<(), ContractError> {
         scalar::elementwise(op, a, out)
+    }
+    fn topk_partial_scalar(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
+    ) -> Result<(), ContractError> {
+        scalar::topk_partial(scores, k, out)
+    }
+    fn topk_partial_simd(
+        &self,
+        scores: &[f32],
+        k: usize,
+        out: &mut [(u32, f32)],
+    ) -> Result<(), ContractError> {
+        scalar::topk_partial(scores, k, out)
     }
 }
 
@@ -333,5 +391,90 @@ mod tests {
                 assert!(o.iter().all(|v| v.to_bits() == 7.0_f32.to_bits()));
             }
         }
+    }
+
+    /// 4 通り（2 実装 × 2 メソッド）の結果を `(スロット, スコアのビット)` の列で返す。4 通りは同じでなければならない。
+    fn topk_all(scores: &[f32], k: usize, out_len: usize) -> Vec<(u32, u32)> {
+        let mut results = Vec::new();
+        for which in 0..4 {
+            let mut out = vec![(7_u32, 7.0_f32); out_len];
+            let r = match which {
+                0 => DefaultCpuOps.topk_partial_scalar(scores, k, &mut out),
+                1 => DefaultCpuOps.topk_partial_simd(scores, k, &mut out),
+                2 => ReferenceCpuOps.topk_partial_scalar(scores, k, &mut out),
+                _ => ReferenceCpuOps.topk_partial_simd(scores, k, &mut out),
+            };
+            assert!(r.is_ok());
+            results.push(
+                out.iter()
+                    .map(|&(s, v)| (s, v.to_bits()))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert!(results.windows(2).all(|w| w[0] == w[1]));
+        results.swap_remove(0)
+    }
+
+    fn pair(slot: u32, v: f32) -> (u32, u32) {
+        (slot, v.to_bits())
+    }
+
+    const TOPK_INPUT: [f32; 7] = [1.0, f32::NAN, 3.0, 3.0, -0.0, 0.0, f32::INFINITY];
+
+    #[test]
+    fn topk_values() {
+        let s = ReferenceCpuOps::SENTINEL;
+        assert_eq!(
+            topk_all(&TOPK_INPUT, 5, 6),
+            vec![
+                pair(2, 3.0),
+                pair(3, 3.0),
+                pair(0, 1.0),
+                pair(5, 0.0),
+                pair(4, -0.0),
+                pair(s.0, s.1)
+            ]
+        );
+    }
+
+    #[test]
+    fn topk_short_out() {
+        assert_eq!(
+            topk_all(&TOPK_INPUT, 5, 2),
+            vec![pair(2, 3.0), pair(3, 3.0)]
+        );
+    }
+
+    #[test]
+    fn topk_k_zero_fills_sentinel() {
+        let s = ReferenceCpuOps::SENTINEL;
+        assert_eq!(topk_all(&TOPK_INPUT, 0, 3), vec![pair(s.0, s.1); 3]);
+    }
+
+    #[test]
+    fn topk_empty_scores_fills_sentinel() {
+        let s = ReferenceCpuOps::SENTINEL;
+        assert_eq!(topk_all(&[], 4, 3), vec![pair(s.0, s.1); 3]);
+    }
+
+    #[test]
+    fn topk_empty_out_is_ok() {
+        assert!(topk_all(&TOPK_INPUT, 3, 0).is_empty());
+    }
+
+    #[test]
+    fn topk_slot_range() {
+        assert!(scalar::topk_slots_fit(u32::MAX as usize));
+        #[cfg(target_pointer_width = "64")]
+        assert!(!scalar::topk_slots_fit(u32::MAX as usize + 1));
+    }
+
+    #[test]
+    fn sentinel_value() {
+        assert_eq!(ReferenceCpuOps::SENTINEL.0, u32::MAX);
+        assert_eq!(
+            ReferenceCpuOps::SENTINEL.1.to_bits(),
+            f32::NEG_INFINITY.to_bits()
+        );
     }
 }
