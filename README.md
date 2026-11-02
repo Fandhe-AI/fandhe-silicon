@@ -34,7 +34,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | パス | crate | 役割 |
 |---|---|---|
 | `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型（`execution`）とバッファの引数検査の純粋関数（`memory`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
-| `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ。`cpu-ops` の裏に CPU の演算（`cpu_ops`）を持つ |
+| `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ。`cpu-ops` の裏に CPU の演算（`cpu_ops`。部分 Top-k の 2 メソッドと番兵を含む）を持つ |
 | `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する。公開の型 `OptIn`・`Route`・`OpId`・`UnavailableReason`・`RouteReport`・`Outcome`・`F32DenormalReport`・`F32DenormalBehavior`・`F32DenormalBasis`・`F16FmaOperands`・`SubgroupSumU32Operands`・`SubgroupSumF32Operands`・`AtomicAddOperands`、下-2 の値 `Exec`（`new`・`deny_by_default`・`default_opt_in`）と 7 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing`）を持つ |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]`。公開の型: device・queue・記録先・投入前の値・投入の印・compute のパス・バッファ |
 
