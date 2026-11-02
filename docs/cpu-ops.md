@@ -196,3 +196,38 @@ simd128 の構成は型検査と lint までで、wasm32 上の実行は流し�
 make wasm-verify
 CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" cargo clippy -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops,test-support --target-dir target/wasm32-simd128 -- -D warnings
 ```
+
+## 完了の条件の確かめ（9/9）
+
+9/9（#7795）で、8/9 の後の `main` で観測できる事実を下の表に記録した。ポインタは `docs/spec/05-tasks.md` の TASK-1351。実行環境は GPU なしの Linux で、確かめた base は `abd6c95`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型と trait が feature `cpu-ops` の下で `cpu_ops` に公開されている | `grep -n -B1 'pub mod cpu_ops' crates/contract/src/lib.rs`、`cargo check -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops` | 44 行目が `#[cfg(feature = "cpu-ops")]`、45 行目が `pub mod cpu_ops;`。`cargo check` は成功 |
+| (2) | scalar の GEMM が CPU 参照と T-1 の範囲で一致する | `cpu_ops_reference` の `gemm_scalar_matches_cpu_reference` | `ok` |
+| (3) | そのビルドの `gemm_simd` が CPU 参照と T-1 の範囲で一致する | `cpu_ops_reference` の `gemm_simd_matches_cpu_reference`（`cfg` なし）、`main` 上の `fa47f60` の run のジョブ `make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`（`gh run view 41516178771 --json jobs`） | 試験は `ok`。2 つのジョブの結論は `success` |
+| (4) | 要素ごと演算の値と、`elementwise_simd` が `elementwise_scalar` とビット単位で一致する（長さ 1,000,003 を含む） | `elementwise_scalar_relu`・`elementwise_scalar_add_scalar`・`reference_ops_follow_scalar_path`・`elementwise_simd_matches_scalar_bits` | 4 本とも `ok` |
+| (5) | wasm32 の scalar 版・simd128 版のビルドと lint | `make build-profiles`（`contract wasm32 scalar`・`contract wasm32 simd128` の clippy と wasm-abi の 2 版の release ビルド）、`make wasm-verify`（`cargo clippy (crates/contract tests, wasm32-unknown-unknown, simd128) -D warnings` の段） | どちらも終了コード 0 |
+| (6) | 版の選択がビルド時の `cfg` だけで決まる | `cpu_ops_build_selection` | 7 本とも `ok` |
+| (7) | 依存 0・unsafe 0 | `git diff --stat 947283a..HEAD -- Cargo.lock deps-approved.toml`、`git diff --stat 947283a..HEAD -- crates/contract/Cargo.toml`、`grep -rc unsafe crates/contract/src/cpu_ops.rs crates/contract/src/cpu_ops/`、`unsafe {`・`unsafe fn`・`unsafe impl`・`unsafe trait`・`unsafe extern`・`allow(unsafe_code)` の grep、`grep -n 'deny(unsafe_code)' crates/contract/src/lib.rs` | 前の 2 つのうち `Cargo.lock`・`deps-approved.toml` は差分 0、`Cargo.toml` は +4 行。`unsafe` の語の grep は `simd128.rs` が 1、ほかは 0。絞った grep は 0 件。`lib.rs` の 11 行目は `#![deny(unsafe_code)]` |
+| (8) | 試験の件数と実行 | `cargo test -p fandhe-silicon-contract --lib cpu_ops`、`cpu_ops_reference`、`make verify`・`make build-profiles`・`make wasm-verify` | `--lib cpu_ops` は 6 本、`cpu_ops_reference` は 7 本が通過。3 つの `make` は終了コード 0 |
+
+5/5 の節の表は 5/5 の時点の記録で、書き換えていない。
+
+### 追加で流したコマンド
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
+cargo test -p fandhe-silicon-contract --lib cpu_ops
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+make build-profiles
+make verify
+make wasm-verify
+make wasm-build-check
+```
+
+`make wasm-build-check` の `cfg:` の行は `sites=5 label=match`（[wasm32-build](wasm32-build.md) の補い）。
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行や `scripts/wasm-verify.sh` の simd128 の lint の段を変えたとき、`UnaryElementwiseOp` に値が増えたときに、表を取り直す。

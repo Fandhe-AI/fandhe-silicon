@@ -16,6 +16,8 @@ wasm32 向けの cdylib（製品の workspace の `crates/wasm-abi`）の所在�
 | 契約の crate の CPU 向けの feature | まだコードを持たない | `crates/contract/src` |
 | 別 workspace `wasm/` の glue | 別の物。本 crate は `wasm/` を参照しない | [workspace-boundary](workspace-boundary.md) |
 
+補い: 契約の crate には `cpu_ops`（feature `cpu-ops`。[cpu-ops](cpu-ops.md)）がある。確かめ方は `grep -n -B1 'pub mod cpu_ops' crates/contract/src/lib.rs`。
+
 ## scalar 版のビルド（BUILD-19 のポインタ）
 
 `RUSTFLAGS` を付けずに、ルートで次を流す。
@@ -99,6 +101,8 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 | `artifact:`（scalar・simd128） | 2 行とも match（300 バイトと 309 バイト。simd128 版にだけ `+simd128`） | 空の crate でも `target_features` で判別できる |
 | `type:` | not-run | `--require-type` を渡していない |
 | `cfg:` | not-run | コメントを除くと `simd128` の出現が `crates/` に 0 件 |
+
+補い: 契約の crate に `cpu_ops`（[cpu-ops](cpu-ops.md)）が入った後の `abd6c95` で `make wasm-build-check` を流すと、`cfg:` の行は `sites=5 label=match`、`type:` の行は `label=not-run reason=no-required-types`、終了コードは 2 だった。
 
 ## CI への組み込み（4/4）
 

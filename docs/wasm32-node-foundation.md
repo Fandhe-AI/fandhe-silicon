@@ -36,6 +36,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | CI の runner | `runs-on` は `ubuntu-latest` と `test-hooks` の matrix（`ubuntu-latest`・`macos-latest`）、`wasm-macos`（`macos-latest`。arm64）、`verify-macos`（`macos-latest`）。`ci-frame-check.sh` の許可ラベルは `ubuntu-latest`・`macos-latest` | `grep -n runs-on .github/workflows/ci.yml`、`grep -n ALLOWED_LABELS scripts/ci-frame-check.sh` |
 | CI の Node | `wasm-macos` ジョブが版固定・SHA256 検証済みの Node と wasm-bindgen の CLI を入れ、`make wasm-verify`・`make wasm-size`・`make wasm-node-check` を実物で流す。`deny` ジョブの `make test-wasm-size`・`make test-wasm-node-check` は偽のコマンドで流れる。`make build-profiles` は wasm32 の check（`verify` ジョブ） | `grep -n -i -e node -e wasm .github/workflows/ci.yml` |
 
+補い: 契約の crate には `cpu_ops`（feature `cpu-ops`。[cpu-ops](cpu-ops.md)）がある。glue（`wasm/crates/glue`）は `cpu_ops` を呼ばず、契約の crate をリンクに入れるだけ。
+
 ## 別 workspace `wasm/` の所在と検査の入口
 
 | 項目 | 事実 | 確かめ方 |

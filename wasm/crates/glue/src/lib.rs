@@ -7,7 +7,7 @@
 //!
 //! 手で書く unsafe は持たない。配列の受け渡しは wasm-bindgen の型の変換に任せる。
 
-// 製品の crate をリンクに入れる。今の CPU 向けの feature はコードを持たないので、使うシンボルは無い。
+// 製品の crate をリンクに入れる。glue は契約の crate の `cpu_ops` を呼ばない。リンクに入れるだけ。
 use fandhe_silicon_contract as _;
 
 /// 受け取った `f32` の列を、同じ値・同じ順序で新しい `Vec` に写して返す。
