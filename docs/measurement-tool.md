@@ -291,6 +291,7 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 - [measurement-record](measurement-record.md)
 - [perf-gate-rule](perf-gate-rule.md)
 - [perf-variation-rule](perf-variation-rule.md)
+- [detection-counting](detection-counting.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 
 ## 依存の承認の件数の現状
@@ -302,3 +303,5 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
 
 測定の道具に関わる件数は、`grep -c '^used_by = .*measure-perf' deps-approved.toml` が 0 を返す（ルートに `measure-perf` を `used_by` に持つ記録は無い）。
+
+今の `measure/Cargo.lock` の `[[package]]` は `fandhe-silicon-core`・`measure-detect`・`measure-perf` の 3 件である（`grep -c '^\[\[package\]\]' measure/Cargo.lock` が 3 を返す）。

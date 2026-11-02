@@ -3,6 +3,17 @@
 検出の結果を数える道具の現状について、本リポのコードと公開テストから説明できる事実を記録する。
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-1082。ポインタのみ）。spec の本文・値・規則は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
+親 Issue は #1451。
+
+## 段の表
+
+| 段 | Issue |
+| -- | ----- |
+| 1/4 変異体ごとの分類 | #7748 |
+| 2/4 検出率の下限・上限とセルのラベル | #7749 |
+| 3/4 件数から下限・上限を出すコマンドと境界の入力の試験 | #7750 |
+| 4/4 完了の条件の確かめ | #7751 |
+
 ## 変異体ごとの分類（1/4）
 
 ### 所在
@@ -143,14 +154,15 @@
 | `ten_with_nine_detected_is_ok` | 検出 9・見逃し 1 | 下限・上限 9/10、`Ok` |
 | `eight_detected_two_indeterminate_is_indeterminate` | 検出 8・判定不能 2 | 下限 8/10・上限 10/10、`REASON_BETWEEN_BOUNDS` |
 | `two_or_more_missed_is_ng` | 10 件で見逃し 2・3・10 | `Ng` |
-| `fewer_than_ten_is_indeterminate` | 検出 9。型で拒否・等価・未実施を足した 10 件 | `REASON_FEWER_THAN_MIN`。足しても分母 10 のまま `Ok` |
+| `fewer_than_ten_is_indeterminate` | 検出 9。型で拒否・等価・流していないを足した 10 件 | `REASON_FEWER_THAN_MIN`。足しても分母 10 のまま `Ok` |
 | `not_connected_is_indeterminate` | 検出 10、未接続 | `REASON_NOT_CONNECTED` |
-| `excluded_classes_are_counted_only` | 分母 10 に型で拒否・等価・未実施 | 件数と理由の昇順の件数にだけ現れる |
+| `excluded_classes_are_counted_only` | 分母 10 に型で拒否・等価・流していない | 件数と理由の昇順の件数にだけ現れる |
 | `classify_then_judge` | `Ran` を 10 件、数える組 2〜3 | 分類を通した件数とラベル |
 | `classify_rejects_inconsistent_pairs` | 空・重複・欠け・余分・結果の重複 | それぞれ対応する `DetectError` |
 | `threshold_constants` | 定数 | 9/10 と 10 |
 
 `detect_bounds_cmd.rs`: `9 1 0`（`ok`）・`8 0 2`（`indeterminate`）・`8 2 0`（`ng`）の出力と終了コード 0、`0 0 0` と `u64` の最大値を含む組の終了コード 1、引数の数の違い・`-1`・`1.5`・`abc`・`+1`・`u64` 超え・空の引数の終了コード 2、標準エラーに入力の値が出ないこと。
+`--help`（`-h`）の終了コード 0（`help_exits_zero_with_usage`）と、Unix では Unicode でない引数の終了コード 2 と標準エラーにその値が出ないこと（`non_unicode_arg_exits_two_without_echo`）も確かめる。
 
 ### 確かめ方
 
@@ -181,6 +193,8 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 | 7 | CI で流れる場所 | `make measure-verify`（CI の `deny` ジョブが呼ぶ） | `measure-detect` の lib 24 passed、`tests/counting.rs` 9 passed、`tests/detect_bounds_cmd.rs` 9 passed（いずれも 0 failed; 0 ignored）。終了コードは 0 |
 | 8 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make measure-verify`・`make upper-layer-check`・`make build-profiles` | すべて終了コード 0 |
 
+(6) の `git diff 1ad4cd1 origin/main` は記録時点の書き方で、再現は `git diff 1ad4cd1 cd05d0a -- measure/Cargo.lock` で行う。
+
 ### 再実行の契機
 
 - `measure/crates/detect/src/` の各ファイルまたは `measure/crates/detect/tests/` を変えたとき
@@ -189,3 +203,7 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 
 確かめた base は `cd05d0a`、`docs/spec` の gitlink は `d15921d`。
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1082）。
+
+## 関連
+
+[measurement-tool](measurement-tool.md)・[workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
