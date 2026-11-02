@@ -5,10 +5,23 @@
 //! 組み立ての口 [`TextureFormatFeatures::new`] は共通の規則に外れる入力を `Err` で拒むので、
 //! 外から規則に外れる値は作れない。項目は COVT-131。
 
-use crate::capability::{CapabilityLevel, CapabilityQuery};
+use crate::capability::{CapabilityLevel, CapabilityQuery, FeatureId};
 use crate::capability_table::UNLISTED_FEATURE_QUERY;
 use crate::error::ContractError;
 use crate::texture::TextureUsage;
+use crate::texture_format::TextureFormat;
+use crate::texture_format_key::TEXTURE_FORMAT_ROWS;
+
+/// 形式から、その形式の問合せの鍵を引く。`TEXTURE_FORMAT_ROWS` を先頭から探す。
+///
+/// `Capabilities::texture_format_features` の既定の実装が呼ぶ。公開しない。
+pub(crate) fn format_key(format: TextureFormat) -> Option<FeatureId> {
+    TEXTURE_FORMAT_ROWS
+        .iter()
+        .flat_map(|r| r.keys.iter())
+        .find(|k| k.format == format)
+        .map(|k| k.key)
+}
 
 /// 形式ごとの能力の要素の数。
 const FEATURE_COUNT: usize = 18;
@@ -417,6 +430,105 @@ mod tests {
     }
     fn rejected(r: Result<TextureFormatFeatures, ContractError>) -> bool {
         matches!(r, Err(ContractError::InvalidArgument(_)))
+    }
+
+    mod default_op {
+        use super::*;
+        use crate::capability::{Capabilities, LimitsTable};
+        use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
+        use std::cell::Cell;
+
+        static LIMITS: LimitsTable = LimitsTable {
+            max_buffer_bytes: 0,
+            max_dispatch_dims: [0, 0, 0],
+            max_texture_size: 0,
+        };
+
+        struct Counting {
+            value: CapabilityQuery,
+            query_calls: Cell<u32>,
+            query_ex_calls: Cell<u32>,
+        }
+
+        impl Counting {
+            fn new(value: CapabilityQuery) -> Self {
+                Self {
+                    value,
+                    query_calls: Cell::new(0),
+                    query_ex_calls: Cell::new(0),
+                }
+            }
+        }
+
+        impl Capabilities for Counting {
+            fn query(&self, _feature: FeatureId) -> CapabilityLevel {
+                self.query_calls.set(self.query_calls.get() + 1);
+                self.value.level
+            }
+            fn limits(&self) -> &LimitsTable {
+                &LIMITS
+            }
+            fn query_ex(&self, _feature: FeatureId) -> CapabilityQuery {
+                self.query_ex_calls.set(self.query_ex_calls.get() + 1);
+                self.value
+            }
+        }
+
+        #[test]
+        fn format_key_covers_all_formats_in_key_order() {
+            let all = TextureFormat::all();
+            assert_eq!(all.len(), TEXTURE_FORMAT_QUERY_KEYS.len());
+            for (i, f) in all.iter().enumerate() {
+                assert_eq!(format_key(*f), Some(TEXTURE_FORMAT_QUERY_KEYS[i]), "{f:?}");
+            }
+        }
+
+        #[test]
+        fn calls_query_ex_once_and_query_never() {
+            let dev = Counting::new(uns());
+            let _ = dev.texture_format_features(TextureFormat::Rgba8Unorm);
+            assert_eq!(dev.query_ex_calls.get(), 1);
+            assert_eq!(dev.query_calls.get(), 0);
+        }
+
+        #[test]
+        fn valid_values_become_the_format_query_without_features() {
+            for v in [uns(), s2()] {
+                let dev = Counting::new(v);
+                let got = dev.texture_format_features(TextureFormat::Rgba8Unorm);
+                assert_eq!(got.format_query(), v);
+                assert_eq!(got, TextureFormatFeatures::new(v, &[]).unwrap());
+                let expected = if v.level == CapabilityLevel::Unsupported {
+                    v
+                } else {
+                    UNLISTED_FEATURE_QUERY
+                };
+                assert_eq!(got.feature(F::Filterable), expected);
+            }
+        }
+
+        #[test]
+        fn s0_value_stays_s0() {
+            let dev = Counting::new(q(CapabilityLevel::S0));
+            let got = dev.texture_format_features(TextureFormat::R8Unorm);
+            assert_eq!(got.format_query(), q(CapabilityLevel::S0));
+        }
+
+        #[test]
+        fn rule_breaking_values_become_capture_failed() {
+            let no_reason = CapabilityQuery {
+                level: CapabilityLevel::Unsupported,
+                unsupported_reason: None,
+                evidence: None,
+            };
+            for v in [no_reason, q(CapabilityLevel::S3)] {
+                let dev = Counting::new(v);
+                assert_eq!(
+                    dev.texture_format_features(TextureFormat::R8Unorm),
+                    TextureFormatFeatures::capture_failed()
+                );
+            }
+        }
     }
     fn with(entries: &[(F, CapabilityQuery)]) -> TextureFormatFeatures {
         TextureFormatFeatures::new(s2(), entries).unwrap()

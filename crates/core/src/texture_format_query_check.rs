@@ -10,6 +10,8 @@ use crate::capability::{Capabilities, CapabilityLevel, CapabilityQuery, FeatureI
 use crate::capability_rule::{CapabilityRuleViolation, check_query};
 use crate::capability_table::UNLISTED_FEATURE_QUERY;
 use crate::error::UnsupportedReason;
+use crate::texture_format::TextureFormat;
+use crate::texture_format_key::TextureFormatRow;
 
 /// 形式の問合せの戻り値が検査に外れた 1 件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +37,101 @@ pub enum TextureFormatQueryViolation {
         /// `query_ex` が返した値。
         query: CapabilityQuery,
     },
+    /// `texture_format_features` の形式の単位が、その形式の鍵の `query_ex` の値と違う。
+    FeaturesFormatQueryMismatch {
+        /// 検査した鍵。
+        feature: FeatureId,
+        /// 鍵に対応する形式。
+        format: TextureFormat,
+        /// `texture_format_features` の形式の単位の値。
+        features_query: CapabilityQuery,
+        /// `query_ex` が返した値。
+        query: CapabilityQuery,
+    },
+}
+
+/// `rows` の各鍵で `texture_format_features(format).format_query()` と `query_ex(key)` を 1 回ずつ呼び、
+/// 食い違いを鍵の順に全部集める。要素ごとの値の規則は見ない。`rows` が空なら `Ok`。
+///
+/// ```
+/// use fandhe_silicon_core::capability::{
+///     Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
+/// };
+/// use fandhe_silicon_core::capability_rule::CapabilityTable;
+/// use fandhe_silicon_core::error::UnsupportedReason;
+/// use fandhe_silicon_core::texture_format::TextureFormat;
+/// use fandhe_silicon_core::texture_format_features::TextureFormatFeatures;
+/// use fandhe_silicon_core::texture_format_key::{TEXTURE_FORMAT_QUERY_KEYS, TEXTURE_FORMAT_ROWS};
+/// use fandhe_silicon_core::texture_format_query_check::{
+///     check_texture_format_features, TextureFormatQueryViolation,
+/// };
+///
+/// static LIMITS: LimitsTable = LimitsTable {
+///     max_buffer_bytes: 0,
+///     max_dispatch_dims: [0, 0, 0],
+///     max_texture_size: 0,
+/// };
+/// let row = CapabilityQuery {
+///     level: CapabilityLevel::Unsupported,
+///     unsupported_reason: Some(UnsupportedReason::NotSupported),
+///     evidence: None,
+/// };
+/// let mut table = CapabilityTable::new();
+/// for key in TEXTURE_FORMAT_QUERY_KEYS {
+///     table = table.with(*key, row);
+/// }
+/// assert_eq!(check_texture_format_features(&table, TEXTURE_FORMAT_ROWS), Ok(()));
+///
+/// struct Skewed(CapabilityTable, CapabilityQuery);
+/// impl Capabilities for Skewed {
+///     fn query(&self, f: FeatureId) -> CapabilityLevel {
+///         self.0.query(f)
+///     }
+///     fn limits(&self) -> &LimitsTable {
+///         &LIMITS
+///     }
+///     fn query_ex(&self, f: FeatureId) -> CapabilityQuery {
+///         self.0.query_ex(f)
+///     }
+///     fn texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
+///         if format == TextureFormat::Rgba8Unorm {
+///             TextureFormatFeatures::capture_failed()
+///         } else {
+///             TextureFormatFeatures::new(self.1, &[]).unwrap()
+///         }
+///     }
+/// }
+/// let err = check_texture_format_features(&Skewed(table, row), TEXTURE_FORMAT_ROWS).unwrap_err();
+/// assert_eq!(err.len(), 1);
+/// assert!(matches!(
+///     err[0],
+///     TextureFormatQueryViolation::FeaturesFormatQueryMismatch { .. }
+/// ));
+/// ```
+pub fn check_texture_format_features<D: Capabilities + ?Sized>(
+    device: &D,
+    rows: &[TextureFormatRow],
+) -> Result<(), Vec<TextureFormatQueryViolation>> {
+    let mut violations = Vec::new();
+    for row in rows {
+        for k in row.keys {
+            let features_query = device.texture_format_features(k.format).format_query();
+            let query = device.query_ex(k.key);
+            if features_query != query {
+                violations.push(TextureFormatQueryViolation::FeaturesFormatQueryMismatch {
+                    feature: k.key,
+                    format: k.format,
+                    features_query,
+                    query,
+                });
+            }
+        }
+    }
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
 }
 
 /// 行の無い鍵の試しに使う鍵。一覧に無い綴りで、互いに異なる。
@@ -188,6 +285,61 @@ mod tests {
         unsupported_reason: Some(UnsupportedReason::NotSupported),
         evidence: None,
     };
+
+    /// `texture_format_features` を上書きして、指定した形式だけ外した値を返す試験用の実装。
+    struct Skewed {
+        table: CapabilityTable,
+        bad: &'static [TextureFormat],
+    }
+
+    impl Capabilities for Skewed {
+        fn query(&self, f: FeatureId) -> CapabilityLevel {
+            self.table.query(f)
+        }
+        fn limits(&self) -> &LimitsTable {
+            &LIMITS
+        }
+        fn query_ex(&self, f: FeatureId) -> CapabilityQuery {
+            self.table.query_ex(f)
+        }
+        fn texture_format_features(
+            &self,
+            format: TextureFormat,
+        ) -> crate::texture_format_features::TextureFormatFeatures {
+            use crate::texture_format_features::TextureFormatFeatures;
+            if self.bad.contains(&format) {
+                TextureFormatFeatures::capture_failed()
+            } else {
+                TextureFormatFeatures::new(ROW, &[]).unwrap()
+            }
+        }
+    }
+
+    #[test]
+    fn features_check_accepts_empty_rows() {
+        let dev = Skewed {
+            table: passing_table(),
+            bad: &[TextureFormat::R8Unorm],
+        };
+        assert_eq!(check_texture_format_features(&dev, &[]), Ok(()));
+    }
+
+    #[test]
+    fn features_check_collects_all_mismatches_in_key_order() {
+        let dev = Skewed {
+            table: passing_table(),
+            bad: &[TextureFormat::Rgba8Unorm, TextureFormat::R8Unorm],
+        };
+        let err = check_texture_format_features(&dev, TEXTURE_FORMAT_ROWS).unwrap_err();
+        let formats: Vec<TextureFormat> = err
+            .iter()
+            .map(|v| match v {
+                TextureFormatQueryViolation::FeaturesFormatQueryMismatch { format, .. } => *format,
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(formats, [TextureFormat::R8Unorm, TextureFormat::Rgba8Unorm]);
+    }
 
     fn passing_table() -> CapabilityTable {
         let mut t = CapabilityTable::new().with_default(UNLISTED_FEATURE_QUERY);

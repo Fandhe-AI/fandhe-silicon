@@ -3,9 +3,13 @@
 //! 背後実装の種類・機能の識別子・能力の段階・判定の根拠・問合せの結果・問合せのトレイトを置く。
 //! `error` モジュールの `ContractError` もこれらを参照する。
 //! 定義の持ち主は TASK-136（ポインタ）。上限の表 `LimitsTable` と `Capabilities::limits()` もここに置く（TASK-157・DEV-110・DEV-114・DEV-115。ポインタ）。
+//! 形式ごとの能力の値を返す操作 `texture_format_features` も `Capabilities` にある（TASK-2566。ポインタ）。
 //! 背後実装（下-1）が値を作り、上・下-2 が受け取って比べる。
 
+use crate::capability_table::UNLISTED_FEATURE_QUERY;
 use crate::error::UnsupportedReason;
+use crate::texture_format::TextureFormat;
+use crate::texture_format_features::{TextureFormatFeatures, format_key};
 
 /// WebGPU の device を取り出す口に当たる行の鍵（DEV-35。ポインタ）。
 ///
@@ -124,6 +128,57 @@ pub trait Capabilities {
             level: self.query(feature),
             unsupported_reason: None,
             evidence: None,
+        }
+    }
+
+    /// 形式ごとの能力の値を返す。形式の単位は、その形式の `texformat:` の鍵の `query_ex` の値と同じ。
+    ///
+    /// 既定の実装は `query_ex` を 1 回だけ呼び、要素を持たない値を返す。
+    /// `query_ex` の値が共通の規則に外れるときは、形式の単位が `S0` の値を返す。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::capability::{
+    ///     Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
+    /// };
+    /// use fandhe_silicon_core::error::UnsupportedReason;
+    /// use fandhe_silicon_core::texture_format::TextureFormat;
+    /// use fandhe_silicon_core::texture_format_features::TextureFormatFeature;
+    ///
+    /// static LIMITS: LimitsTable = LimitsTable {
+    ///     max_buffer_bytes: 0,
+    ///     max_dispatch_dims: [0, 0, 0],
+    ///     max_texture_size: 0,
+    /// };
+    /// const ROW: CapabilityQuery = CapabilityQuery {
+    ///     level: CapabilityLevel::Unsupported,
+    ///     unsupported_reason: Some(UnsupportedReason::NotSupported),
+    ///     evidence: None,
+    /// };
+    /// struct Dev;
+    /// impl Capabilities for Dev {
+    ///     fn query(&self, _: FeatureId) -> CapabilityLevel {
+    ///         CapabilityLevel::Unsupported
+    ///     }
+    ///     fn limits(&self) -> &LimitsTable {
+    ///         &LIMITS
+    ///     }
+    ///     fn query_ex(&self, _: FeatureId) -> CapabilityQuery {
+    ///         ROW
+    ///     }
+    /// }
+    ///
+    /// let v = Dev.texture_format_features(TextureFormat::Rgba8Unorm);
+    /// assert_eq!(v.format_query(), ROW);
+    /// assert_eq!(v.feature(TextureFormatFeature::Filterable), ROW);
+    /// ```
+    fn texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
+        let unit = match format_key(format) {
+            Some(key) => self.query_ex(key),
+            None => UNLISTED_FEATURE_QUERY,
+        };
+        match TextureFormatFeatures::new(unit, &[]) {
+            Ok(v) => v,
+            Err(_) => TextureFormatFeatures::capture_failed(),
         }
     }
 }
