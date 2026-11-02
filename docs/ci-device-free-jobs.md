@@ -62,8 +62,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `verify-macos` | `make profile-test-count-check` | `scripts/profile-test-count-check.sh` | `verify` と同じ照合を macOS で流す（ComputeOnly の組が Metal の依存を実際にビルドする） |
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
-| `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / 依存の検査（回帰テストは持たない） |
-| `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
+| `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / wasm32 のコンパイル試験の検査（[wasm32-compile-probe-check](./wasm32-compile-probe-check.md)）/ 依存の検査（回帰テストは持たない） |
+| `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / wasm32 のコンパイル試験の検査（[wasm32-compile-probe-check](./wasm32-compile-probe-check.md)）/ 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
 | `wasm-macos` | `make wasm-size` | `scripts/wasm-size.sh` | glue 込みの量（gzip 後）を 8 組で測って閾値と比べる実物の測定 |
 | `wasm-macos` | `make wasm-node-check` | `scripts/wasm-node-check.sh` | wasm32 の `.wasm` を glue 越しに Node で呼び参照と照合する実物の実行 |
 | `deny` | `make wasm-backend-check` | `scripts/wasm-backend-check.sh` | 背後実装の feature を付けた wasm32 の cargo check・モジュールの有無・wasm32 の依存グラフのチップの SDK の件数（[wasm32-backend-check.md](./wasm32-backend-check.md)） |
