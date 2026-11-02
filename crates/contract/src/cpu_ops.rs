@@ -20,6 +20,7 @@ pub enum UnaryElementwiseOp {
 /// CPU の演算の口。行優先の f32 の行列積 `a`（m×k）×`b`（k×n）を `out`（m×n）に書くことと、
 /// 単項の要素ごと演算を `a` から `out` に書くことを持つ（spec CPU-25 のポインタ）。
 /// 長さが合わない入力は `ContractError::InvalidArgument` で返し、`out` には触れない。
+/// ただし [`DefaultCpuOps`] の `*_simd` は入力を見ずに `UnsupportedExtensionDefault` を返す（未対応を優先する）。
 pub trait CpuOps {
     /// scalar 版の行列積。`a`・`b` を読み、`out` に書く。
     fn gemm_scalar(
