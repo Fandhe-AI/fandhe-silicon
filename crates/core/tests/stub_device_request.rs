@@ -3,10 +3,11 @@
 //! 公開のパス（`fandhe_silicon_core::stub_device` と `device`・`capability`）だけを使う。
 
 use fandhe_silicon_core::capability::{
-    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
-    WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
+    BackendKind, Capabilities, CapabilityLevel, FeatureId, LimitsTable, WEBGPU_DEVICE_PORT,
+    WEBGPU_HANDLE_PORT, WEBGPU_PORT_UNSUPPORTED,
 };
 use fandhe_silicon_core::capability_rule::check_webgpu_ports;
+use fandhe_silicon_core::capability_table::UNLISTED_FEATURE_QUERY;
 use fandhe_silicon_core::device::{
     Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, NativeDeviceHandle,
     Profile,
@@ -125,20 +126,13 @@ fn query_is_unsupported_for_any_feature() {
 }
 
 #[test]
-fn query_ex_uses_default_body() {
+fn query_ex_returns_unlisted_value_for_keys_without_rows() {
     let device = StubDevice::new(request(BackendKind::Vulkan));
     for id in feature_ids()
         .into_iter()
         .filter(|id| *id != WEBGPU_DEVICE_PORT && *id != WEBGPU_HANDLE_PORT)
     {
-        assert_eq!(
-            device.query_ex(id),
-            CapabilityQuery {
-                level: CapabilityLevel::Unsupported,
-                unsupported_reason: None,
-                evidence: None,
-            }
-        );
+        assert_eq!(device.query_ex(id), UNLISTED_FEATURE_QUERY);
     }
 }
 
