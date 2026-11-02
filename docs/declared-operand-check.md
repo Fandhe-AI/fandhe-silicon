@@ -80,3 +80,7 @@ make verify
 | 9 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-420）。確かめた base は `6f71964`、`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`。
+
+## 現状の値の補い
+
+上の表の項目 8 の `41543512673` は記録した時点の値（in_progress）で、書き換えていない。`gh run view 41543512673 -R Fandhe-AI/fandhe-silicon --json conclusion` の結果はいま `success`。
