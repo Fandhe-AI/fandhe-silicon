@@ -482,4 +482,6 @@ pub use usage_check::{
 };
 
 mod storage_access;
-pub use storage_access::StorageTextureAccess;
+pub use storage_access::{
+    StorageTextureAccess, validate_storage_texture_shader_access, validate_storage_texture_usage,
+};
