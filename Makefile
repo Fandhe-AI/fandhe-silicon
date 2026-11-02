@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
+.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check test-upper-layer-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -151,6 +151,12 @@ profile-dep-graph-positive-control: ## profile-dep-graph-check の陽性対照�
 
 test-profile-dep-graph-positive-control: ## profile-dep-graph-positive-control の回帰テスト（偽の内側の検査で判定と fail-closed を、実物のリポジトリでも確かめる。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-dep-graph-positive-control.sh
 	@scripts/test-profile-dep-graph-positive-control.sh
+
+profile-test-count-check: ## 契約の crate の試験 stub_device_profiles を build-profiles.sh の 3 つのプロファイルの組に test-support を足した組で流し、通った本数と graphics_ の試験の本数を期待と照らす（bash + cargo。ソースは変更しない・ネットワーク不要）。直接: scripts/profile-test-count-check.sh
+	@scripts/profile-test-count-check.sh
+
+test-profile-test-count-check: ## profile-test-count-check の回帰テスト（合成の build-profiles.sh と偽の cargo。bash のみ・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-profile-test-count-check.sh
+	@scripts/test-profile-test-count-check.sh
 
 baseline-positive-control: ## 比較基準の別 workspace（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗・読めない入力や誤用や前提の不足は終了コード 2。件数は record: の行に残る（bash + python3 + cargo + git。ソースは変更しない・依存の取得後に流す。make deny には含めない・CI の deny ジョブが make deny の後に呼ぶ）。直接: scripts/baseline-positive-control.sh
 	@scripts/baseline-positive-control.sh
