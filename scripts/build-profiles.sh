@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # プロファイルごとの feature の組で contract crate がビルドできることと、core crate が feature なし・test-support だけ（試験の枠の
 # test-support を外した形と足した形）で clippy と test を通ることを確かめる（非破壊。core の spec 対応は TASK-470）。
-# native では build / clippy（-D warnings）/ test、wasm32 では contract の check と wasm-abi の 2 版（scalar・simd128）の release ビルドを回す。
+# native では build / clippy（-D warnings）/ test、wasm32 では contract の check と clippy（scalar・simd128 の 2 構成）と wasm-abi の 2 版（scalar・simd128）の release ビルドを回す。
 # 呼び出し元: `make build-profiles`、CI の verify ジョブ。verify は --all-features しか見ないため、
 # feature の組でだけ出るビルド失敗・未使用警告をここで拾う。
 # 組の spec 対応は ID のポインタだけを添える（本文は転記しない）。
@@ -104,6 +104,19 @@ for feats in "${WASM_SETS[@]}"; do
   run cargo check -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${feats}"
 done
 
+# 契約の crate の lib を wasm32 の scalar 構成・simd128 構成で clippy にかける（TASK-1351 のポインタ）。
+# simd128 構成は cfg で選ぶコードを含むので check だけでは lint が届かない。rustflags 系は wasm-abi の build と同じく外す。
+wasm_target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+wasm_lint_feats="contract-core,cpu-isa,cpu-ops"
+log "contract wasm32 scalar: cargo clippy -p ${PKG} --target ${WASM_TARGET} --features ${wasm_lint_feats} -- -D warnings"
+env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
+  cargo clippy -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${wasm_lint_feats}" -- -D warnings
+log "contract wasm32 simd128: cargo clippy -p ${PKG} --target ${WASM_TARGET} --features ${wasm_lint_feats} -- -D warnings (+simd128)"
+env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
+  CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" \
+  cargo clippy -p "${PKG}" --target "${WASM_TARGET}" --no-default-features --features "${wasm_lint_feats}" \
+  --target-dir "${wasm_target_dir}/wasm32-simd128" -- -D warnings
+
 # wasm-abi の cdylib の 2 版の release ビルド（spec BUILD-19・BUILD-20 のポインタ。TASK-237 の 4/4）。
 # 利用者の環境の rustflags 系を外し、simd128 版だけ CARGO_ENCODED_RUSTFLAGS で命令を足す（値は wasm-build-check.sh の SIMD_FLAGS と同じ）。
 # 2 版の判別（target_features）は wasm-build-check.sh の受け持ちで、ここでは成果物の在りかと wasm の先頭 4 バイトだけを確かめる。
@@ -125,7 +138,6 @@ wasm_abi_build() {
   fi
 }
 
-wasm_target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 wasm_abi_build scalar "" "${wasm_target_dir}"
 wasm_abi_build simd128 "$(printf -- '-C\037target-feature=+simd128')" "${wasm_target_dir}/wasm32-simd128"
 
