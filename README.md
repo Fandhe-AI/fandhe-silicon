@@ -140,7 +140,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4） |
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2） |
-| `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4） |
+| `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実（TASK-23） |
 | `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14・TASK-113） |
@@ -263,7 +263,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make wasm-backend-check` | `scripts/wasm-backend-check.sh` | 背後実装の feature を付けた wasm32 の cargo check・Vulkan と CUDA のモジュールの除外と Metal のモジュールが空であること・wasm32 の依存グラフのチップの SDK の件数を行ごとに出す（bash + python3 + cargo + wasm32 の target。CI の `deny` ジョブも実行する） |
 | `make test-wasm-backend-check` | `scripts/test-wasm-backend-check.sh` | `make wasm-backend-check` の回帰テスト（合成の rustdoc JSON・tree と偽の cargo、一時 workspace の実物の検査と陽性対照。ネットワーク不要。リポジトリのファイルは変更しない。CI の `deny` ジョブも実行する） |
 | `make wasm-compile-probe-check` | `scripts/wasm-compile-probe-check.sh` | wasm32 の組（`build-profiles.sh` の注記の行の組）で一時の crate を `cargo check` し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに出す（bash + cargo + wasm32 の target） |
-| `make test-wasm-compile-probe-check` | `scripts/test-wasm-compile-probe-check.sh` | `make wasm-compile-probe-check` の回帰テスト（合成の `build-profiles.sh` と偽の cargo） |
+| `make test-wasm-compile-probe-check` | `scripts/test-wasm-compile-probe-check.sh` | `make wasm-compile-probe-check` の回帰テスト（合成の `build-profiles.sh` と偽の cargo。CI の `deny` ジョブも実行する） |
 | `make test-wasm-build-check` | `scripts/test-wasm-build-check.sh` | `make wasm-build-check` の回帰テスト（合成の入力・偽の cargo と一時 workspace のダミーの crate。ネットワーク不要。リポジトリのファイルは変更しない。CI の `deny` ジョブも実行する） |
 | `make test-session-record-check` | `scripts/test-session-record-check.sh` | `session-record-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/session-record-check.sh <path>` を直接実行する |
 | `make test-perf-record-check` | `scripts/test-perf-record-check.sh` | `perf-record-check` 自体の回帰テスト（合成 fixture。bash + python3。cargo・ネットワーク不要）。検査本体は引数が要るため make ターゲットを持たず、`scripts/perf-record-check.sh <path>` または `--session <回の記録> [<path>...]` を直接実行する |
