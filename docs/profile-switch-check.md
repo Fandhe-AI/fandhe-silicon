@@ -13,7 +13,7 @@ Rust の規約は [coding-rust](../.claude/rules/coding-rust.md) に従う。
 | ---- | ---- | -------- |
 | (a) crate の構成 | ルートの `members` は 5 件（`crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi`）で、1 行の配列。各 member の `[package] name` に `cpu-only`・`compute-only`・`cpuonly`・`computeonly`・`profile`（`-` と `_`・大文字小文字を問わない）を含むものは無い。`[[test]]` の `name` は読まない | `grep -n '^members' Cargo.toml` |
 | (b) feature の名前 | 5 つの member の `[features]` の名前に (a) と同じ語を含むものは無い。`[features]` を持たない member は空として読む。`graphics` は語に入れない | `grep -n '^\[features\]' crates/*/Cargo.toml` |
-| (c) 組の関係 | `scripts/build-profiles.sh` の 注記（`# spec BUILD-` に 1〜3 の番号が付いたもの）で終わる行が番号ごとにちょうど 1 行。1 つ目の組は契約の crate の `default` と一致する。2 つ目は 1 つ目に `backend-` で始まる feature を 1 つ足したもので `graphics` を含まない。3 つ目は 1 つ目に `backend-` で始まる feature を 1 つ以上と `graphics` を足したもので、それ以外を含まない。3 つの組のどの名前も契約の crate の `[features]` に宣言されている | `grep -n '# spec BUILD-[123]$' scripts/build-profiles.sh` |
+| (c) 組の関係 | `scripts/build-profiles.sh` の注記（`# spec BUILD-` に 1〜3 の番号が付いたもの）で終わる行が番号ごとにちょうど 1 行。1 つ目の組は契約の crate の `default` と一致する。2 つ目は 1 つ目に `backend-` で始まる feature を 1 つ足したもので `graphics` を含まない。3 つ目は 1 つ目に `backend-` で始まる feature を 1 つ以上と `graphics` を足したもので、それ以外を含まない。3 つの組のどの名前も契約の crate の `[features]` に宣言されている | `grep -n '# spec BUILD-[123]$' scripts/build-profiles.sh` |
 | (d) モジュールの単位 | 契約の crate の `src/lib.rs` の `pub mod backend_metal;`・`pub mod backend_vulkan;`・`pub mod backend_cuda;` はそれぞれ 1 行で、直前の連続した属性の行に対応する `feature = "backend-<名前>"` を含む `#[cfg(...)]` がある。共通の crate の `src/lib.rs` の `pub mod graphics;` の直前に `#[cfg(feature = "graphics")]` がある | `grep -n 'pub mod backend_' crates/contract/src/lib.rs` と `grep -n 'pub mod graphics;' crates/core/src/lib.rs` |
 | 陽性対照 | 実物を 1 か所だけ変えた入力で違反が出る。変更後の入力が元と同じなら試験自体が落ちる。変えるのは、`members` への追加・削除・glob 化、package 名への語の混入、各 member の `[features]` への `profile-cpu-only` の追加（節の無い member は節ごと追加）、注記の組への `graphics` の追加・`backend-` の 2 つ化・`graphics` の除去・宣言の無い名前の追加・注記の行の重複、`#[cfg(...)]` の行の削除、契約の crate の `[features]` の欠落 | 下の「対応するテスト」 |
 | `default` などの試験 | `default` の完全一致、既定で無効な feature が `default` から届かないこと、本番の組の写しとスクリプトの一致は `crates/contract/tests/feature_default_scope.rs`（TASK-226、[contract-feature-check](contract-feature-check.md)） | `cargo test -p fandhe-silicon-contract --test feature_default_scope` |
@@ -60,7 +60,7 @@ test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 組の取り方 | `scripts/build-profiles.sh` の 注記（`# spec BUILD-` に 1〜3 の番号が付いたもの）で終わる行が番号ごとにちょうど 1 行。その行の最初の引用符の中身を組とし、スクリプトの中で末尾に `,test-support` を足す（注記の行そのものには足さない）。`build-profiles.sh` は読むだけで実行しない。名前は順に `CpuOnly`・`ComputeOnly`・`Graphics` | `grep -n '# spec BUILD-[123]$' scripts/build-profiles.sh` |
+| 組の取り方 | `scripts/build-profiles.sh` の注記（`# spec BUILD-` に 1〜3 の番号が付いたもの）で終わる行が番号ごとにちょうど 1 行。その行の最初の引用符の中身を組とし、スクリプトの中で末尾に `,test-support` を足す（注記の行そのものには足さない）。`build-profiles.sh` は読むだけで実行しない。名前は順に `CpuOnly`・`ComputeOnly`・`Graphics` | `grep -n '# spec BUILD-[123]$' scripts/build-profiles.sh` |
 | 流すコマンド | 組ごとに `cargo test -p fandhe-silicon-contract --no-default-features --features "<組>,test-support" --test stub_device_profiles`（`-q` なし）。`FANDHE_SILICON_TEST_RECORD_DIR` は外す | `grep -n 'cargo test' scripts/profile-test-count-check.sh` |
 | 期待の定数 | 通った本数は `CpuOnly` が 6・`ComputeOnly` が 6・`Graphics` が 9。`graphics_` で始まる試験の本数は 0・0・3。スクリプトの `expected_passed`・`expected_graphics` の 1 か所にある。`stub_device_profiles.rs` の `#[test]` を足す・消すときは、同じ変更で定数も直す | `grep -n -A8 '^expected_' scripts/profile-test-count-check.sh` |
 | 合格の条件 | cargo の終了コードが 0。`test result:` の行がちょうど 1 行で `ok. N passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` の形、N が期待どおり。`test <名前> ... ok` の行が N 本で、`ok` でない `test` の行が 0。`graphics_` で始まる行が期待どおり。どれか 1 つでも外れた組は標準エラーに `FAILED: profile=<名前> reason=<語>` を出し、3 組とも判定してから終了コード 1 | `bash scripts/test-profile-test-count-check.sh` |
@@ -120,6 +120,8 @@ record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal
 record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
 profile-test-count-check: all profiles passed
 ```
+
+PR の CI の run `41404335582`（`6a075de`）の `make verify (fmt + clippy + test)` と `make verify + build-profiles (macos-latest)` のログにも、上と同じ `record:` の 3 行と `profile-test-count-check: all profiles passed` が出ている（`verify` のログには `test-profile-test-count-check: 27 passed, 0 failed` も）。
 
 ## 完了の条件の確かめ（4/4）（TASK-227）
 

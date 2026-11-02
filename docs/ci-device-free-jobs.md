@@ -16,7 +16,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | ジョブ | 用意しているもの | 足せるステップ |
 | ------ | ---------------- | -------------- |
 | `check` | 版固定の editorconfig-checker・shellcheck（Rust の toolchain は入れていない） | 書式・シェルの静的検査 |
-| `verify` | `rust-toolchain.toml` の toolchain | workspace のビルド・lint・試験、feature の組・target ごとの確かめ |
+| `verify` | `rust-toolchain.toml` の toolchain | workspace のビルド・lint・試験、feature の組・target ごとの確かめ、足した検査の回帰テスト（本体と同じジョブ） |
 | `deny` | toolchain、版固定の cargo-deny、runner 同梱の jq・python3 | 依存グラフ・manifest・`ci.yml` を読む検査、検査スクリプト自体の回帰テスト |
 | `test-hooks` | bash + git、runner 同梱の python3（ubuntu・macOS） | `scripts/hooks/` と、macOS の上で直接実行する手順のスクリプトの回帰テスト |
 | `wasm-macos` | toolchain、版固定・SHA256 検証済みの Node と wasm-bindgen の CLI（arm64）、runner 同梱の jq・python3 | wasm32 のビルド・glue 込みの量・Node での照合（実物の道具が要るもの） |
