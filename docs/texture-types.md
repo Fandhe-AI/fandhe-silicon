@@ -261,3 +261,5 @@ make wasm-verify
 | 4/6 | #4560 | 試験 |
 | 5/6 | #4561 | CI への組み込み |
 | 6/6 | #4562 | 完了の条件の確かめ |
+
+関連: テクスチャの作成の記述子の検査は [texture-descriptor-check.md](texture-descriptor-check.md)。
