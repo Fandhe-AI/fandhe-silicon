@@ -17,6 +17,8 @@ TASK-421 の 1/4〜4/4（BIND-35〜BIND-37、ART-67・ART-68・ART-85 のポイ�
 
 文言の先頭が `C2:` の拒否は、`texture` モジュールの `validate_storage_texture_shader_access` が返す（[storage-texture-access.md](storage-texture-access.md)、TASK-1944）。
 
+文言の先頭が `C1:`・`C3:` の拒否は、`execution` の `validate_declared_operands` が返す（[declared-operand-check.md](declared-operand-check.md)、TASK-420）。
+
 ## 現状の振る舞い
 
 - C8 を宣言ごとに先頭から判定し、続けて C7（宣言に無い `slot`・`slot` の重複）・C4（残容量）・C5（offset の境界）・C6（定数の長さ）を段ごとに全件見る。C4・C5・C6 は宣言の無い `slot` を見ない（C7 が先に拒否する）
