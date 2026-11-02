@@ -34,6 +34,8 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | 依存の承認 | `deps-approved.toml` に `fandhe-silicon-core` を `used_by` に持つ記録は無い（記録は `crates/contract` の macOS 向けの 4 件だけ） | `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | 走る場所 | `make verify` は workspace の全 feature で試験を流すので doctest も走る。GPU の実機は要らない | `scripts/verify.sh` |
 
+補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |
@@ -150,6 +152,8 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | C6 | 対象外の事実 | 各「試験」の節の対象外 | 実行時の二重解放の検査、背後実装の `allocate` が実際に受け付けること、背後実装が返す `pending_release_count` の値は範囲の外（背後実装ごとのタスクのポインタ） |
 | E1 | base の CI | `gh run list --branch main --workflow ci.yml` | base の run 39522744374 は completed・success |
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | 4 つとも終了コード 0 |
+
+補い: 上の C2 は記録した時点の値で、書き換えていない。いま同じコマンドを流すと、`crates/exec` では `src/operands.rs`・`tests/common/mod.rs`・`tests/device_operands.rs` に当たる（`crates/upper/src/buffer.rs` にも当たる。当たりは `memory_free_doctest.rs` だけではない）。
 
 - C4 で `--tests` により全部の試験を一度に検査する形は使っていない。別件の `test_frame_decide` が wasm32 でコンパイルできないため（本件では直さない）
 - 実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない
