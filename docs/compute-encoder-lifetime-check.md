@@ -26,7 +26,7 @@ TASK-772 の作業の所在と、本リポの現状の事実を置く。spec の
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 引き継がない | 同じ記録先で `dispatch_ex` に定数を渡した後、定数なしの `dispatch_ex` と簡易版 `dispatch` を続けると、後の 2 回の `consts` は空（統合テスト `constants_are_not_carried_to_the_next_call`） | `cargo test -p fandhe-silicon-core --test dispatch_constants_per_call` |
-| 呼び出しの時点の写し | 試験の queue が写した値は、呼び出しの後に元を書き換えても、捨てても、呼び出しの時点のまま（`constants_are_copied_during_the_call`） | 同上 |
+| 借用が呼び出しで終わる | 定数のバイト列の借用は呼び出しの間だけで足り、呼び出しの後に元を書き換えても捨てても型として成り立つ。確かめるのは借用の制約で、試験用の queue が取った写しが呼び出しの時点のままであること。製品側の実装がコピーすることの確認ではない（`constants_borrow_ends_with_the_call`） | 同上 |
 | 同じ記録先の投入 | 上のどの試験も、最後に同じ記録先を `submit` へ値で渡せる | 同上 |
 | 定数を受ける公開の口 | trait のメソッドの引数として `ConstantBinding` の列を受けるのは `CommandQueue::dispatch_ex` の `consts` と、feature `graphics` の `GraphicsOps::draw_ex` の `vertex_constants` だけ（ほかの行は型の定義・`impl`・rustdoc の例・`stub_device.rs` の実装）。`CommandEncoder` に定数を設定する公開のメソッドは無い（上の「公開のメソッド」） | `git grep -n 'ConstantBinding<' crates/core/src` |
 

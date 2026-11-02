@@ -143,8 +143,10 @@ fn constants_are_not_carried_to_the_next_call() {
     assert!(queue.submit(encoder, &[]).is_ok());
 }
 
+/// 定数の借用が呼び出しの間だけで足りること（型の借用制約）の確認。
+/// 製品側の実装がコピーすることの確認ではない。ここでの写しは試験用の queue 自身が取る。
 #[test]
-fn constants_are_copied_during_the_call() {
+fn constants_borrow_ends_with_the_call() {
     let queue = Recording::new();
     let pipeline = PipelineHandle::__backend_new(1, 1);
     let mut encoder = queue.create_encoder();
@@ -163,7 +165,7 @@ fn constants_are_copied_during_the_call() {
                 &[],
             )
             .unwrap();
-        // 呼び出しの後に元を書き換えても、記録は呼び出しの時点の値のまま。
+        // 呼び出しの後に元を書き換えても、試験用の queue が取った写しは呼び出しの時点の値のまま。
         bytes[0] = 0;
         assert_eq!(bytes, vec![0, 8, 7]);
     }
