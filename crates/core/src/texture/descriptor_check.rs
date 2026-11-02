@@ -1,4 +1,4 @@
-//! テクスチャの作成の記述子を照らす純粋関数（TASK-1942。TEX-59〜TEX-64 のポインタ）。
+//! テクスチャの作成の記述子を照らす純粋関数（TASK-1942。TEX-56・TEX-59〜TEX-65 のポインタ）。
 //!
 //! `texture` モジュールの一部で、公開のパスは `fandhe_silicon_core::texture::…`。
 //! 背後実装の API は呼ばず、確保もしない（エラーの文字列を除く）。
@@ -109,6 +109,11 @@ fn is_bc_or_astc(format: TextureFormat) -> bool {
 ///   形式が BC・ASTC 以外の圧縮形式
 /// - 形式が圧縮形式で、幅か高さがブロックの大きさの倍数でない
 /// - `mip_level_count` が 0 か、`max_mip_level_count` を超える
+/// - 用途に `TRANSIENT_ATTACHMENT` を含み、用途が `TRANSIENT_ATTACHMENT | RENDER_ATTACHMENT` と
+///   同じでないか、`mip_level_count`・`depth_or_array_layers` が 1 でないか、`view_formats` が空でない
+/// - `sample_count` が 1 より大きく、`mip_level_count` が 1 でないか、用途に `STORAGE_BINDING` を含むか、
+///   `RENDER_ATTACHMENT` を含まない
+/// - `view_formats` の要素が元の形式と同じでなく、`remove_srgb_suffix()` も元の形式のそれと同じでない
 pub fn validate_texture_descriptor(
     desc: &TextureDescriptor<'_>,
     max_texture_dimension_1d: u32,
@@ -193,6 +198,34 @@ pub fn validate_texture_descriptor(
     if mips == 0 || mips > max_mips {
         return Err(ContractError::InvalidArgument(format!(
             "texture mip_level_count {mips} is out of range (1..={max_mips})"
+        )));
+    }
+    let transient = TextureUsage::TRANSIENT_ATTACHMENT | TextureUsage::RENDER_ATTACHMENT;
+    if usage.contains(TextureUsage::TRANSIENT_ATTACHMENT)
+        && (usage != transient || mips != 1 || d != 1 || !desc.view_formats.is_empty())
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "transient attachment texture requires usage {transient:?}, mip_level_count 1, depth_or_array_layers 1 and no view_formats (got usage {usage:?}, mips {mips}, layers {d}, view_formats {})",
+            desc.view_formats.len()
+        )));
+    }
+    if samples > 1
+        && (mips != 1
+            || usage.contains(TextureUsage::STORAGE_BINDING)
+            || !usage.contains(TextureUsage::RENDER_ATTACHMENT))
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "multisampled texture (sample_count {samples}) requires mip_level_count 1, RENDER_ATTACHMENT usage and no STORAGE_BINDING (got mips {mips}, usage {usage:?})"
+        )));
+    }
+    let base = format.remove_srgb_suffix();
+    if let Some(v) = desc
+        .view_formats
+        .iter()
+        .find(|v| **v != format && v.remove_srgb_suffix() != base)
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "view_formats entry {v:?} is not compatible with texture format {format:?}"
         )));
     }
     Ok(())
@@ -445,5 +478,94 @@ mod tests {
             d.sample_count = 2;
             assert!(is_invalid(&d));
         }
+    }
+
+    #[test]
+    fn descriptor_check_transient_attachment() {
+        let tr = TextureUsage::TRANSIENT_ATTACHMENT | TextureUsage::RENDER_ATTACHMENT;
+        let mk = |u| {
+            with(
+                TextureDimension::D2,
+                ext(16, 16, 1),
+                TextureFormat::Rgba8Unorm,
+                u,
+            )
+        };
+        let mut d = mk(tr);
+        assert_eq!(check(&d), Ok(()));
+        d.sample_count = 4;
+        assert_eq!(check(&d), Ok(()));
+        assert!(is_invalid(&mk(tr | TextureUsage::COPY_SRC)));
+        assert!(is_invalid(&mk(TextureUsage::TRANSIENT_ATTACHMENT)));
+        let mut d = mk(tr);
+        d.mip_level_count = 2;
+        assert!(is_invalid(&d));
+        let d = with(
+            TextureDimension::D2,
+            ext(16, 16, 2),
+            TextureFormat::Rgba8Unorm,
+            tr,
+        );
+        assert!(is_invalid(&d));
+        let mut d = mk(tr);
+        d.view_formats = &[TextureFormat::Rgba8UnormSrgb];
+        assert!(is_invalid(&d));
+    }
+
+    #[test]
+    fn descriptor_check_multisample() {
+        let mut d = desc(TextureDimension::D2, 16, 16, 1);
+        d.usage = TextureUsage::RENDER_ATTACHMENT;
+        d.sample_count = 4;
+        assert_eq!(check(&d), Ok(()));
+        let mut m = d.clone();
+        m.mip_level_count = 2;
+        assert!(is_invalid(&m));
+        let mut s = d.clone();
+        s.usage = TextureUsage::RENDER_ATTACHMENT | TextureUsage::STORAGE_BINDING;
+        assert!(is_invalid(&s));
+        let mut n = d.clone();
+        n.usage = TextureUsage::TEXTURE_BINDING;
+        assert!(is_invalid(&n));
+        let mut one = n.clone();
+        one.sample_count = 1;
+        one.mip_level_count = 2;
+        one.usage = TextureUsage::STORAGE_BINDING;
+        assert_eq!(check(&one), Ok(()));
+    }
+
+    #[test]
+    fn descriptor_check_view_formats_compatibility() {
+        use TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba8Unorm, Rgba8UnormSrgb};
+        let u = TextureUsage::TEXTURE_BINDING;
+        let mk = |size, f| with(TextureDimension::D2, size, f, u);
+        let mut d = mk(ext(16, 16, 1), Rgba8Unorm);
+        d.view_formats = &[Rgba8UnormSrgb];
+        assert_eq!(check(&d), Ok(()));
+        d.view_formats = &[Rgba8Unorm];
+        assert_eq!(check(&d), Ok(()));
+        d.view_formats = &[Bgra8Unorm];
+        assert!(is_invalid(&d));
+        d.view_formats = &[Rgba8UnormSrgb, Bgra8Unorm];
+        assert!(is_invalid(&d));
+        let mut d = mk(ext(16, 16, 1), Bgra8UnormSrgb);
+        d.view_formats = &[Bgra8Unorm];
+        assert_eq!(check(&d), Ok(()));
+        const fn astc(channel: AstcChannel) -> TextureFormat {
+            TextureFormat::Astc {
+                block: AstcBlock::B6x6,
+                channel,
+            }
+        }
+        const UNORM: TextureFormat = astc(AstcChannel::Unorm);
+        const SRGB: TextureFormat = astc(AstcChannel::UnormSrgb);
+        const HDR: TextureFormat = astc(AstcChannel::Hdr);
+        let mut d = mk(ext(12, 12, 1), UNORM);
+        d.view_formats = &[SRGB];
+        assert_eq!(check(&d), Ok(()));
+        d.view_formats = &[UNORM];
+        assert_eq!(check(&d), Ok(()));
+        d.view_formats = &[HDR];
+        assert!(is_invalid(&d));
     }
 }
