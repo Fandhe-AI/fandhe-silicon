@@ -41,6 +41,13 @@ pub fn __backend_next_encoder_id() -> Option<u64> {
 /// use fandhe_silicon_core::execution::SubmitToken;
 /// let _ = SubmitToken { generation: 0, sequence: 0 };
 /// ```
+///
+/// 構造体式のほか `Default` でも作れない（`Default` の impl が無い）。
+///
+/// ```compile_fail
+/// use fandhe_silicon_core::execution::SubmitToken;
+/// let _: SubmitToken = Default::default();
+/// ```
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubmitToken {

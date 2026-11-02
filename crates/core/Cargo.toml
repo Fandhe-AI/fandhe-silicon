@@ -319,3 +319,7 @@ required-features = ["graphics"]
 [[test]]
 name = "feature_key_table"
 required-features = ["test-support"]
+
+[[test]]
+name = "stub_device_unsubmitted"
+required-features = ["test-support"]
