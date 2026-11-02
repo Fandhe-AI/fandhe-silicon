@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn usage_flag_pairs() {
-        // COVT-131: 用途と旗の組。
+        // 用途と旗の組。
         for flag in [
             F::StorageReadOnly,
             F::StorageWriteOnly,

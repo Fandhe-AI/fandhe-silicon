@@ -52,6 +52,7 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 - 対応するテスト: `crates/core/tests/device_capability_types.rs`（構築と呼び出しだけを見る最小の試験）
 - 確かめ方: `cargo test -p fandhe-silicon-core --test device_capability_types`
 - 残る段: フィールド・`#[non_exhaustive]`・既定の実装の値の試験は 3/6 以降
+- 上の表の `Capabilities` の行は記録時点の値で、書き換えない。今は必須の `limits` と、既定の実装つきの `texture_format_features` もあり、`&dyn Capabilities` から呼べる（`every_texture_format_key_returns_a_value`）。
 
 ## 現状の形（3/6）
 
