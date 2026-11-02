@@ -26,6 +26,8 @@
 - [spec-confidentiality](./spec-confidentiality.md) の禁止事項（private spec 側の状態・日付・内部判断など）
 
 公開側に書けるのは、ID のポインタと「private spec 側の記録に従う（ポインタのみ）」の 1 行まで。
+PR 本文・Issue のコメントは、後で直しても編集の前の版が編集履歴として公開で残る（API では消せない）。書いてから直すのではなく、最初の版から書かない。
+main セッションへの申し送り（直すべき点など）は PR 本文の「対象外」の欄に書かず、[contract-shaping-escalation](./contract-shaping-escalation.md) の伺いと同じく作業の summary で返す。summary にも [spec-confidentiality](./spec-confidentiality.md) の「運用」が当たるので、抜粋の文は書き写さず、ID のポインタとコードの事実で書く。「対象外」の欄はコードの事実だけにする。
 公開 API の rustdoc と契約の文書は、[spec-confidentiality](./spec-confidentiality.md) の「公開 API の振る舞いの契約の書き方」のとおり、コードと公開テストが示す振る舞いだけを書く。
 
 ## 受け入れ条件と親を閉じる段
