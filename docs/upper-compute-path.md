@@ -55,3 +55,31 @@ cargo test -p fandhe-silicon-upper --features native-blocking-wait
 cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown
 RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc
 ```
+
+## compute のパスの開始と終了（2/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/upper/src/pass.rs`・`crates/upper/src/encoder.rs` |
+| 公開のパス | `fandhe_silicon_upper::ComputePass` |
+
+| 型 | 操作 | 呼ぶ契約の操作 | 返す値 |
+| -- | ---- | -------------- | ------ |
+| `CommandEncoder<'d>` | `begin_compute_pass` | なし（値を移すだけ・失敗しない） | `ComputePass<'d>` |
+| `ComputePass<'d>` | `end` | なし（値を移すだけ・失敗しない） | `CommandEncoder<'d>` |
+
+`ComputePass` が持つのは契約の `CommandEncoder` だけ。
+
+コンパイルで拒否されるコードは doctest で確かめる。パスを始めた後の元の記録先の `finish`（E0382）。
+通る例は `begin_compute_pass().end().finish()` の後の `submit`。
+
+### 確かめ方
+
+```text
+cargo clippy -p fandhe-silicon-upper --all-targets -- -D warnings
+cargo clippy -p fandhe-silicon-upper --all-targets --features native-blocking-wait -- -D warnings
+cargo test -p fandhe-silicon-upper
+cargo test -p fandhe-silicon-upper --features native-blocking-wait
+cargo check -p fandhe-silicon-upper --target wasm32-unknown-unknown
+RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-upper --doc
+```
