@@ -86,6 +86,31 @@ cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 cargo test -p fandhe-silicon-core --features test-support --test stub_device_request
 ```
 
+## 契約テスト（3/4）
+
+外の crate の統合テスト `crates/core/tests/texture_format_query_contract.rs`（公開のパスだけを使う。feature `test-support` と `fault-injection` が要る）。スレッド・ファイル・環境変数は使わず、設定は `RunSetting::from_lookup` へ渡す。
+
+| 試験 | 入力 | 確かめること |
+| ---- | ---- | ------------ |
+| `stub_passes_texture_format_query_checks` | 背後実装 4 値 × プロファイル 3 値の試験用の device（`&dyn Device`） | 3 つの関数が `Ok`・`Ok`・空（12 組） |
+| `stub_returns_row_values_for_query_keys` | 一覧の 118 鍵 | `query` が `Unsupported`、`query_ex` が `Unsupported`・`NotSupported`・根拠なしで `UNLISTED_FEATURE_QUERY` と違う |
+| `astc_row_key_returns_unlisted_value` | `texformat:Astc` | `query_ex` が `UNLISTED_FEATURE_QUERY`、`query` が `Unsupported`。一覧に無い |
+| `failed_acquisition_s0_differs_from_stub_unsupported` | `FaultInjecting` + `CapabilityQueryFails` の試験用の device | 118 鍵で `query` と `query_ex` の段階が `S0`、理由・根拠なし、素の device の `query` と違う、`check_texture_format_queries` が `Ok` |
+| `checks_accept_key_subsets` | 一覧の先頭 15 件だけ行を持つ表と試験用の device | 部分の列で `Ok`・行の無い鍵が空、全体の一覧では残り 103 件が順に返る |
+| `broken_implementations_are_reported` | 壊れた行を 1 件ずつ入れた表と、段階が食い違う実装 | `Rule` の 3 種・`LevelMismatch`・`RowlessKeyMismatch`・行を外した鍵の検出、複数の違反が鍵の順に集まる |
+| `panic_in_query_reaches_caller` | 特定の鍵で panic する実装 | panic が呼び出し元へ伝わる |
+| `checks_compose_with_test_frame_judge` | 試験の枠の `judge` の本体で 3 つの関数をかける | 試験用の device で `Label::Ok`、壊れた表で `Label::Ng`、未設定で本体を呼ばず `NotRun` |
+
+対応するテスト（記録時点）: 8 本。
+
+確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features test-support,fault-injection --test texture_format_query_contract
+```
+
+流れる場所: `make verify`（`--all-features` の clippy・test）と `make wasm-verify`（`crates/core` の試験の wasm32 の型検査）。
+
 ## 段の表
 
 | 段 | Issue | 内容 |

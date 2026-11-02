@@ -323,3 +323,7 @@ required-features = ["test-support"]
 [[test]]
 name = "stub_device_unsubmitted"
 required-features = ["test-support"]
+
+[[test]]
+name = "texture_format_query_contract"
+required-features = ["test-support", "fault-injection"]
