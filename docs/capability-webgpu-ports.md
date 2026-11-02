@@ -18,5 +18,5 @@
 
 ## 現状
 
-- 2 件の鍵に上の値を求める規則を `check_webgpu_ports` が確かめる。core の試験は表を持つスタブ（`CapabilityTable`）などの実装に当てる
+- 2 件の鍵に上の値を求める規則を `check_webgpu_ports` が確かめる。core の試験は表を持つスタブ（`CapabilityTable`）などの実装に当てる。試験用の device（`StubDevice`）も 2 つの鍵に同じ値を返し、この検査を通す
 - 公開の名前の検査 `scripts/public-api-webgpu-check.sh` の範囲は [public-api-webgpu-check](public-api-webgpu-check.md) に従う

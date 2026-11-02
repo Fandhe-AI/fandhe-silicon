@@ -153,7 +153,8 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | `generation_is_positive_and_increases` | `generation()` は 1 以上で、後に作った device のほうが大きい |
 | `diagnostics_are_fixed_strings` | `diagnostics()` は全 backend で `adapter_name`・`backend_name` とも `"stub"` |
 | `query_is_unsupported_for_any_feature` | どの `FeatureId` でも `query` は `Unsupported` |
-| `query_ex_uses_default_body` | `query_ex` は `Unsupported`・理由なし・根拠なし |
+| `query_ex_uses_default_body` | WebGPU の口の 2 つの鍵を除くどの鍵でも `query_ex` は `Unsupported`・理由なし・根拠なし |
+| `query_ex_returns_webgpu_port_value_and_passes_shared_check` | 4 つの backend で、2 つの鍵の `query` は `Unsupported`、`query_ex` は `WEBGPU_PORT_UNSUPPORTED`。`check_webgpu_ports` が `Ok`（TASK-156・TASK-155。DEV-35・DEV-36 のポインタ） |
 | `limits_table_is_fixed` | `max_buffer_bytes` が `1 << 28`、dispatch の各次元とテクスチャの大きさが 0 |
 | `provider_returns_boxed_device_and_stub_is_send_sync` | `request` の戻りの型が `Result<Box<dyn Device>, ContractError>` で、`StubDevice` が `Send + Sync` |
 
