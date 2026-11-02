@@ -227,6 +227,23 @@ cargo test -p fandhe-silicon-exec --features native-blocking-wait --test device_
 cargo test -p fandhe-silicon-exec --test reasons_and_denormal
 ```
 
+## 完了の条件の確かめ（7/7）
+
+7/7（#5993）で、下-2 の crate（`crates/exec`）について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-919（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 依存と unsafe | `cargo metadata --no-deps` の `fandhe-silicon-exec` の依存、`grep -rc unsafe crates/exec/src`、`grep -n forbid crates/exec/src/lib.rs`、`make upper-layer-check`、`make deps-check` | 依存は `fandhe-silicon-core` だけ（normal は feature なし、dev は `test-support`・`fault-injection` 付き）。`unsafe` の出現は `lib.rs` の 1 件だけ（ほか 6 ファイルは 0 件）で、その行は `13:#![forbid(unsafe_code)]`。`make upper-layer-check` の `record:` の行は `rs_files=4 direct_deps=2 forbid=yes unsafe_total=0`（upper の crate の記録の行）。`make deps-check` は終了コード 0 |
+| (2) | 公開の型と入口 | `grep -rn 'pub fn\|pub struct\|pub enum' crates/exec/src` | 25 行。`pub struct`・`pub enum` が 14 行、`pub fn` が 11 行 |
+| (3) | 既定を変える操作・環境・ファイル・`static` | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|&mut self' crates/exec/src` | 2 行だけ。`entry.rs:57` の `name: &'static str,` と `entry.rs:71` の `fn unsupported(&self, op: &'static str) -> ContractError {` |
+| (4) | 統合テストと lib の件数 | `cargo test -p fandhe-silicon-exec --test opt_in_default` / `--test reasons_and_denormal` / `--lib` / `--lib --features native-blocking-wait` / `--features native-blocking-wait --test device_operands` | `opt_in_default` は 5 passed; 0 failed; 0 ignored。`reasons_and_denormal` は 4 passed; 0 failed; 0 ignored。`--lib` は 17 passed、`native-blocking-wait` 付きは 18 passed（どちらも 0 failed; 0 ignored）。`device_operands` は 1 passed; 0 failed; 0 ignored |
+| (5) | feature なし・`native-blocking-wait`・wasm32 | `cargo clippy -p fandhe-silicon-exec --all-targets -- -D warnings`（feature なしと `--features native-blocking-wait`）、`cargo test -p fandhe-silicon-exec`（同）、`cargo check -p fandhe-silicon-exec --target wasm32-unknown-unknown`（`--tests` 付きも） | clippy は両方とも終了コード 0。`cargo test` は feature なしが終了コード 0 で合計 26 passed（17 + 5 + 4 + doctest 0）、`native-blocking-wait` 付きが終了コード 0 で合計 28 passed（18 + 1 + 5 + 4 + doctest 0）。いずれも 0 failed; 0 ignored。wasm32 の `cargo check` は `--tests` の有無とも終了コード 0 |
+| (6) | 公開名・公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` の `scanned: crate=fandhe_silicon_exec` の行 | 3 つとも終了コード 0。`public-api-check` は production で `public_items=457 wgpu_type_refs=0 wgpu_other_refs=0`、all-features で `public_items=471 wgpu_type_refs=0 wgpu_other_refs=0`。`public-name-check` は production で `public_items=402 named_items=122 name_hits=0`、all-features で `public_items=416 named_items=136 name_hits=0`。`public-api-sdk-check` は両方とも `sdk_type_refs=0 sdk_other_refs=0 external_crates=alloc,core,fandhe_silicon_core` |
+
+確かめた時点は main の `ac32709`、`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-919）。
+
 ## 段の表
 
 | 段 | Issue | 題 |
