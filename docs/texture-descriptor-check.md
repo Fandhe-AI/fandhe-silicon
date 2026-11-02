@@ -3,7 +3,6 @@
 ## 記録の所在
 
 private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1942。
-項目のポインタは `TEX-50`〜`TEX-54`・`TEX-56`・`TEX-58`〜`TEX-65`。
 
 ## 所在
 
@@ -157,6 +156,29 @@ doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が
 `texture_usage_check_roles_accept_required_usage`・`texture_usage_check_roles_reject_missing_usage`・`texture_usage_check_empty_usage_is_rejected`・`texture_usage_check_all_usages_pass`・`texture_usage_check_storage_atomic_alone_is_not_storage_binding`・`texture_usage_check_roles_require_distinct_single_bits`・`texture_usage_check_error_names_role_and_usage`・`texture_usage_check_view_format`。
 doctest は `validate_texture_usage_for_role` と `validate_texture_view_format` の `///` に 1 本ずつ。
 
+`crates/core/tests/texture_descriptor_check.rs`（外の crate の統合の試験）:
+`empty_usage_is_rejected`・`d1_limits`・`d2_limits`・`d3_limits`・`mip_level_count_limits`・`sample_count_values`・`transient_attachment_constraints`・`view_formats_compatibility`・`compressed_block_multiple`・`usage_roles`・`render_attachment_dimension`・`rejection_is_repeatable`・`rejection_is_invalid_argument_only`。
+
+## 項目ごとの受理と拒否の入力の試験（5/6）
+
+置き場は `crates/core/tests/texture_descriptor_check.rs`（feature なし。公開のパスだけを使う外の crate の試験）。記述子は `TextureDescriptor::new` で作って欄を書き換え、上限は 1 次元 4096・2 次元 8192・3 次元 1024・層 256 の互いに違う値で渡す。拒否は `ContractError::InvalidArgument` の種類まで照らし、文言は照らさない。
+
+| 試験の名前 | 入力 | 期待 |
+| ---------- | ---- | ---- |
+| `empty_usage_is_rejected` | 3 つの次元で用途が空 | `InvalidArgument` |
+| `d1_limits` | 幅 4096 / 4097、高さ 2、層 2、サンプル 2、mip 2、`Depth32Float`、`Bc1RgbaUnorm`、`RENDER_ATTACHMENT`、`TRANSIENT_ATTACHMENT` | `Ok(())` / 残りは `InvalidArgument` |
+| `d2_limits` | 幅・高さ 8192、層 256 / それぞれ + 1 と 0 | `Ok(())` / `InvalidArgument` |
+| `d3_limits` | 3 辺 1024 / 各辺 1025、サンプル 2、`Depth32Float`、`TRANSIENT_ATTACHMENT`、`Etc2Rgb8Unorm` 8×8×2 / `Bc1RgbaUnorm` 8×8×2、ASTC 6x6 の 12×12×2、`RENDER_ATTACHMENT` | `Ok(())` / `InvalidArgument` / `Ok(())` |
+| `mip_level_count_limits` | `D2` 1280×720 の mip 11 / 12 / 0、`D3` 4×4×32 の mip 6 / 7 / 0、2 次元の上限 65536 で幅 65536 の mip 16 / 17、`max_mip_level_count` の値（11・16・6・1） | `Ok(())` / `InvalidArgument` / `InvalidArgument` |
+| `sample_count_values` | `D2` で 1・2・4・8・16・32 / 0・3・64、サンプル 4 で mip 2・`STORAGE_BINDING` を足す・`RENDER_ATTACHMENT` なし | `Ok(())` / `InvalidArgument` |
+| `transient_attachment_constraints` | `TRANSIENT_ATTACHMENT \| RENDER_ATTACHMENT`（サンプル 1 / 4） / `COPY_SRC` を足す、`TRANSIENT_ATTACHMENT` だけ、mip 2、層 2、`view_formats` あり | `Ok(())` / `InvalidArgument` |
+| `view_formats_compatibility` | 記述子の `view_formats`（`Rgba8Unorm` に `[Rgba8UnormSrgb]`・`[Rgba8Unorm]`、`Bgra8UnormSrgb` に `[Bgra8Unorm]`、ASTC 6x6 `Unorm` に `[UnormSrgb]`）/ （`Rgba8Unorm` に `[Bgra8Unorm]`・`[Rgba8UnormSrgb, Bgra8Unorm]`、ASTC 6x6 `Unorm` に `[Hdr]`）。`validate_texture_view_format` は元と同じ・列にある / どちらでもない / 列が空で元と同じだけ | `Ok(())` / `InvalidArgument` |
+| `compressed_block_multiple` | `Bc1RgbaUnorm` 8×8 / 6×8 / 8×6、ASTC 6x6 の 12×12 / 8×8 | `Ok(())` / `InvalidArgument` |
+| `usage_roles` | 6 役割の要る用途だけ・7 つの和 / 要る用途を除いた残り・空、`STORAGE_ATOMIC` だけで `StorageBinding`、`STORAGE_BINDING \| STORAGE_ATOMIC` で両方、`STORAGE_BINDING` だけで `StorageAtomic` | `Ok(())` / `InvalidArgument` |
+| `render_attachment_dimension` | 用途 `RENDER_ATTACHMENT` の `D1` / `D2`・`D3` | `InvalidArgument` / `Ok(())` |
+| `rejection_is_repeatable` | 拒否の入力と受理の入力を同じ引数で 2 回 | 同じ `Err`、同じ `Ok(())` |
+| `rejection_is_invalid_argument_only` | 拒否の入力の一覧（記述子・役割・view の形式） | どれも `InvalidArgument` だけ |
+
 ## 確かめ方
 
 ```sh
@@ -166,6 +188,7 @@ cargo test -p fandhe-silicon-core --doc max_mip_level_count
 cargo test -p fandhe-silicon-core --lib texture::usage_check
 cargo test -p fandhe-silicon-core --doc validate_texture_usage_for_role
 cargo test -p fandhe-silicon-core --doc validate_texture_view_format
+cargo test -p fandhe-silicon-core --test texture_descriptor_check
 make verify
 ```
 
