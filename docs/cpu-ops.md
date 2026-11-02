@@ -109,7 +109,7 @@ CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" cargo cli
 | - | ------------ | ---- | ---- |
 | (1) | 型と trait が feature `cpu-ops` の下で `cpu_ops` に公開されている | `crates/contract/src/lib.rs` の 44〜45 行目（`#[cfg(feature = "cpu-ops")]` と `pub mod cpu_ops;`）、`cargo check -p fandhe-silicon-contract --no-default-features --features contract-core,cpu-isa,cpu-ops` | 行は上のとおり。`cargo check` は成功 |
 | (2) | scalar の GEMM が CPU 参照と一致する | `cpu_ops_reference` の `gemm_scalar_matches_cpu_reference` | `ok` |
-| (3) | （7/9 で置き換え）`simd128` が無効なビルドの `DefaultCpuOps` の `*_simd` は 7/9 の節のとおり scalar と同じ計算 | 7/9 の節の試験 | 7/9 の節のとおり |
+| (3) | `simd128` が無効なビルドで `DefaultCpuOps` の `*_simd` が `UnsupportedExtensionDefault` を返す | `gemm_simd_is_unsupported_without_simd128`・`elementwise_simd_is_unsupported_without_simd128` | どちらも `ok` |
 | (4) | 要素ごと演算の値と `ReferenceCpuOps` が scalar と一致する | `elementwise_scalar_relu`・`elementwise_scalar_add_scalar`・`reference_ops_follow_scalar_path` | 3 本とも `ok` |
 | (5) | 長さが合わない入力で panic しない | `mismatched_lengths_do_not_panic` | `ok` |
 | (6) | wasm32 の scalar・simd128 の lint とビルド | `make build-profiles`（wasm32 の契約の crate の clippy 2 構成と wasm-abi の 2 版の release ビルドを含む） | 終了コード 0 |
@@ -164,7 +164,7 @@ make wasm-verify
 | `cpu_ops_reference` | `*_is_unsupported_without_simd128` の 2 本を削除。`gemm_simd_matches_cpu_reference`・`elementwise_simd_matches_scalar_bits` の `cfg` を外した。長さの試験に `DefaultCpuOps` の `*_simd` を追加 |
 | `simd128.rs` の単体試験 | 1 本減 |
 
-この節より前の節の `UnsupportedExtensionDefault` の記述と `*_is_unsupported_without_simd128` の行は、7/9 の前の形。
+この節より前の節の `UnsupportedExtensionDefault` の記述と `*_is_unsupported_without_simd128` の行は、7/9 の前の形。5/5 の確かめ表の行 (3) は 5/5 の時点の記録で、書き換えていない（現状は上の表と試験の変更のとおり）。
 
 ### 確かめ方
 
