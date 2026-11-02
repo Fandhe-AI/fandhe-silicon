@@ -100,3 +100,61 @@
 
 - `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --lib rate`
 - `make measure-verify`
+
+## コマンドと境界の入力の試験（3/4）
+
+### 所在
+
+| 物 | パス |
+| -- | ---- |
+| 件数から下限・上限とラベルを出すコマンド | `measure/crates/detect/src/bin/detect-bounds.rs` |
+| 分類からセルのラベルまでの境界の入力の試験 | `measure/crates/detect/tests/counting.rs` |
+| コマンドを起動して確かめる試験 | `measure/crates/detect/tests/detect_bounds_cmd.rs` |
+
+### コマンド
+
+使い方は `detect-bounds <detected> <missed> <indeterminate>`（10 進の非負整数 3 つ）。`rate::bounds` と `rate::label` を呼び、標準出力に 1 行の JSON を出す。セルの規則（最小件数・未接続）は当てない。ファイル・環境変数・時計・ネットワークは使わず、ファイルを作らない。
+
+| キー | 中身 |
+| ---- | ---- |
+| `detected`・`missed`・`indeterminate` | 引数の件数 |
+| `denominator` | 3 つの和 |
+| `lower`・`upper` | `numerator` と `denominator`（約分しない） |
+| `threshold` | `DETECTION_THRESHOLD` の分子・分母 |
+| `label` | `"ok"`・`"ng"`・`"indeterminate"` |
+| `reason` | 判定不能のときだけ理由の定数の文字列、ほかは `null` |
+
+小数・丸めの値は出さない。
+
+| 終了コード | 意味 |
+| ---------- | ---- |
+| 0 | 出力した（`--help` を含む） |
+| 1 | 入力の違反（分母 0・あふれ）。JSON は出さない |
+| 2 | 誤用（引数の数が 3 でない・非負整数でない・`-` で始まる引数） |
+
+標準エラーには固定の英語の文言と引数の番号だけを出し、入力の値は出さない。先頭の 0 は受け、`+`・空・小数・英字・`u64` を超える値は誤用になる。
+
+### 試験
+
+`counting.rs`（値は合成）:
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `ten_with_nine_detected_is_ok` | 検出 9・見逃し 1 | 下限・上限 9/10、`Ok` |
+| `eight_detected_two_indeterminate_is_indeterminate` | 検出 8・判定不能 2 | 下限 8/10・上限 10/10、`REASON_BETWEEN_BOUNDS` |
+| `two_or_more_missed_is_ng` | 10 件で見逃し 2・3・10 | `Ng` |
+| `fewer_than_ten_is_indeterminate` | 検出 9。型で拒否・等価・未実施を足した 10 件 | `REASON_FEWER_THAN_MIN`。足しても分母 10 のまま `Ok` |
+| `not_connected_is_indeterminate` | 検出 10、未接続 | `REASON_NOT_CONNECTED` |
+| `excluded_classes_are_counted_only` | 分母 10 に型で拒否・等価・未実施 | 件数と理由の昇順の件数にだけ現れる |
+| `classify_then_judge` | `Ran` を 10 件、数える組 2〜3 | 分類を通した件数とラベル |
+| `classify_rejects_inconsistent_pairs` | 空・重複・欠け・余分・結果の重複 | それぞれ対応する `DetectError` |
+| `threshold_constants` | 定数 | 9/10 と 10 |
+
+`detect_bounds_cmd.rs`: `9 1 0`（`ok`）・`8 0 2`（`indeterminate`）・`8 2 0`（`ng`）の出力と終了コード 0、`0 0 0` と `u64` の最大値を含む組の終了コード 1、引数の数の違い・`-1`・`1.5`・`abc`・`+1`・`u64` 超え・空の引数の終了コード 2、標準エラーに入力の値が出ないこと。
+
+### 確かめ方
+
+- `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --test counting`
+- `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --test detect_bounds_cmd`
+- `cargo run --manifest-path measure/Cargo.toml --locked -p measure-detect --bin detect-bounds -- 9 1 0`
+- `make measure-verify`
