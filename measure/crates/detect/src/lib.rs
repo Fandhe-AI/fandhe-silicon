@@ -2,11 +2,13 @@
 //!
 //! 測定専用の別 workspace `measure/` に置く crate で、製品の crate（`crates/`）からは使われない。
 //! 変異体 1 件の入力から分類を出す `classify` を持つ。
+//! 件数から検出率の下限・上限を出す `rate::bounds`・ラベルを出す `rate::label`・セルのラベルを出す `rate::judge_cell` も持つ。
 //! 本 crate は device に触れず、ファイルを読まず、時計を使わない。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-1082（ポインタのみ）。
 
 pub mod classify;
+pub mod rate;
 
 use std::fmt;
 
@@ -24,6 +26,10 @@ pub enum DetectError {
     UnexpectedResult,
     /// 同じ組の結果が重複している。
     DuplicateResult,
+    /// 分母が 0。
+    ZeroDenominator,
+    /// 件数または積の計算があふれた。
+    Overflow,
 }
 
 impl fmt::Display for DetectError {
@@ -34,6 +40,8 @@ impl fmt::Display for DetectError {
             Self::MissingResult => "a counted pair has no result",
             Self::UnexpectedResult => "a result is not in the counted pairs",
             Self::DuplicateResult => "a pair has more than one result",
+            Self::ZeroDenominator => "denominator is zero",
+            Self::Overflow => "arithmetic overflow",
         };
         f.write_str(msg)
     }

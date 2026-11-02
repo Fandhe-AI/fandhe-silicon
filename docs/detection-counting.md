@@ -49,3 +49,54 @@
 
 - `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --lib classify`
 - `make measure-verify`
+
+## 下限・上限とセルのラベル（2/4）
+
+### 所在
+
+| 物 | パス |
+| -- | ---- |
+| 下限・上限・ラベル・セルのラベルの型と関数・定数 | `measure/crates/detect/src/rate.rs` |
+| 追加した `DetectError` の variant（`ZeroDenominator`・`Overflow`） | `measure/crates/detect/src/lib.rs` |
+
+### 定数
+
+| 名前 | 値 |
+| ---- | -- |
+| `DETECTION_THRESHOLD` | 9/10 |
+| `MIN_CELL_DENOMINATOR` | 10 |
+
+どちらも関数の引数にせず、環境変数・ファイル・setter などの差し替えの口は無い。判定の関数はこの定数を読む。
+
+### 関数
+
+| 関数 | 入力 | 返し |
+| ---- | ---- | ---- |
+| `bounds` | 検出・見逃し・判定不能の件数 | 下限 = 検出 / 分母、上限 = （検出 + 判定不能）/ 分母（約分しない。分母は 3 つの和） |
+| `label` | `Bounds` | 下限が閾値以上なら `Ok`、そうでなく上限が閾値未満なら `Ng`、ほかは `Indeterminate { reason: REASON_BETWEEN_BOUNDS }` |
+| `judge_cell` | `MutantClass` の列と接続の有無 | `CellResult`（各件数・理由の昇順の `not_run`・分母が 0 より大きいときだけ `Some` の `bounds`・ラベル） |
+
+- 比較は浮動小数を使わず、整数の交差の積で行う。上限が閾値ちょうどのときは `Ng` にならない
+- `judge_cell` の判定の順は、未接続 → 分母が 10 件未満 → 下限・上限。分母が 10 件未満なら下限が閾値以上でも `Ok` にならない
+- 型で拒否・等価・流していないは分母に入れず、件数だけ `CellResult` に出る
+
+### 判定不能の理由の定数
+
+| 名前 | 文字列 |
+| ---- | ------ |
+| `REASON_FEWER_THAN_MIN` | `fewer than 10 mutants in the denominator` |
+| `REASON_NOT_CONNECTED` | `device not connected` |
+| `REASON_BETWEEN_BOUNDS` | `bounds straddle the threshold` |
+
+### Err になる入力
+
+| 入力 | variant |
+| ---- | ------- |
+| `bounds`: 3 つの件数の和が 0 | `ZeroDenominator` |
+| `label`: 分母が 0 の `Bounds` | `ZeroDenominator` |
+| 件数の和・積があふれる | `Overflow` |
+
+### 確かめ方
+
+- `cargo test --manifest-path measure/Cargo.toml --locked -p measure-detect --lib rate`
+- `make measure-verify`
