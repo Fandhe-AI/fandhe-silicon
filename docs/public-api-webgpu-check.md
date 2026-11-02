@@ -240,3 +240,32 @@
 ### 確かめ方
 
 `make test-public-api-webgpu-check` の最後の行が `failed=0`。
+
+## 未投入の印の試験（4/4）（TASK-313）
+
+試験を足しただけで、検査本体・`SubmitToken` の形は変えていない。コードと公開テストから観測できる事実だけを記録する。
+
+| 試験の名前 | 入力 | 期待 |
+| ---------- | ---- | ---- |
+| `SubmitToken` の rustdoc の 2 つ目の `compile_fail` の例（`crates/core/src/execution/submit.rs`） | `let _: SubmitToken = Default::default();` | コンパイルが通らない（`Default` の impl が無い）。1 つ目の例は構造体式 |
+| `submit_returns_token`（`crates/core/tests/stub_device_unsubmitted.rs`） | `create_encoder` した記録先を `submit(enc, &[])` する | `Ok(token)` で、`poll(token)` が `Complete` |
+| `dropped_encoder_issues_no_token` | `submit` で `t1` を得る。`create_encoder` した記録先を投入せずに `drop` し、もう一度 `submit` して `t2` を得る | `t2.sequence == t1.sequence + 1` |
+| `rejected_submit_issues_no_token` | `submit` で `t1` を得る。`submit_many(vec![], &[], &[])` と、空でない `wait` を付けた `submit` を呼ぶ。そのあと `submit` で `t2` を得る | 拒まれた 2 つの呼び出しはどちらも `Err`。`t2.sequence == t1.sequence + 1` |
+
+### 確かめ方
+
+- `cargo test -p fandhe-silicon-core --features test-support --test stub_device_unsubmitted`
+- `cargo test -p fandhe-silicon-core --doc`
+
+## 完了の条件の確かめ（4/4）（TASK-313）
+
+確かめた時点のコミット: `22a158f823e37954bb382bf6eb19d185ef016734`（base）に本 PR の差分を載せた作業ツリー。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `SubmitToken` を受ける公開の口が設定の一覧の中だけにある | `make public-api-webgpu-check` | 終了コード 0。`record:` の末尾は `submit_token_checked=1 submit_token_ops_total=11 submit_token_violations_total=0`、締めの `ok:` は `ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok` |
+| 2 | 一覧の外の口を足すと落ちる | 3/4 の陽性対照 `real_tok_extra`・`real_tok_contract_extra`・`real_tok_gated`。`make test-public-api-webgpu-check` | 最後の行は `test-public-api-webgpu-check: passed=329 failed=0` |
+| 3 | 構造体式・`Default` では作れない | `cargo test -p fandhe-silicon-core --doc`（`SubmitToken` の 2 つの `compile_fail` の例） | 2 つとも ok |
+| 4 | 印は `submit` の戻り値で得られ、投入せずに落とした記録先からも拒まれた投入からも払い出されない | `submit_returns_token`・`dropped_encoder_issues_no_token`・`rejected_submit_issues_no_token` | 3 本とも ok |
+| 5 | 払い出していない印を `poll` が受け付けない | `poll_reports_lost_for_foreign_or_unissued_tokens`（`crates/core/tests/stub_device_queue.rs`、TASK-156） | ok |
+| 6 | unsafe・依存の差分が 0 | `git diff --stat origin/main`・`make deps-check` | `Cargo.lock`・`deps-approved.toml` の差分なし。`make deps-check` は終了コード 0 |
