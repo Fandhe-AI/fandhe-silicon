@@ -296,8 +296,126 @@ wasm-compile-probe-check: all probes passed
 test-wasm-compile-probe-check: 25 passed, 0 failed
 ```
 
+### 完了の条件の確かめ（2/2）
+
+1/2 の試験の行と回帰テストを、手元の実行と `main` の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
+
+手元の実行は `origin/main` の `4a4a3e0` の上の作業ツリー。CI は run `41433953714`（headSha `4a4a3e04dcb803317e311aa77b4b76d597fa0adc`、conclusion `success`）のジョブ `make deny (cargo-deny)`（job `125239083058`）、`wasm32 build + size + node (macos-latest)`（job `125239082977`）、`make verify (fmt + clippy + test)`（job `125239083135`）。
+
+| 確かめ | コマンド | 結果 |
+| ------ | -------- | ---- |
+| (1) `NativeDeviceHandle` の行 | `make wasm-compile-probe-check` | 下の (1) のブロック |
+| (2) 記録先の後始末のフックの行 | 同上 | 下の (2) のブロック |
+| (3) `CommandEncoder` の行 | 同上と `make wasm-verify` と `grep -n 'require_send_sync' crates/core/tests/encoder_send_sync.rs`（TASK-590 の試験の所在） | 下の (3) のブロック |
+| (4) 型の定義の所在 | `grep -n -B1 'inner: Box<dyn Any + Send + Sync>\|pub fn new<T: Any + Send + Sync>' crates/core/src/device.rs` と `grep -n -B3 'pub trait __BackendEncoderCloser: Send + Sync\|pub trait __BackendSharedEncoderCloser: Send + Sync' crates/core/src/execution/submit.rs` | 下の (4) のブロック |
+| (5) wasm32 向けのビルド | `make build-profiles; echo "rc=$?"` と、CI の verify ジョブのログを絞った行 | 下の (5) のブロック |
+| (6) main の push の CI | `gh run view --job <job> -R Fandhe-AI/fandhe-silicon --log` を `record: probe=`・`wasm-compile-probe-check: `・`test-wasm-compile-probe-check: ` で絞る | 下の (6) のブロック |
+| (7) `crates`・`scripts/build-profiles.sh`・`scripts/wasm-verify.sh`・`wasm`・`.github` の変更 | `git diff --stat b6c80bb 4a4a3e0 -- crates scripts/build-profiles.sh scripts/wasm-verify.sh wasm .github` | 出力なし |
+| (8) 依存の変更 | `git diff --stat b6c80bb 4a4a3e0 -- Cargo.lock deps-approved.toml wasm/Cargo.lock` | 出力なし |
+
+(1)
+
+```text
+record: probe=native_handle_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=native_handle_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+```
+
+(2)
+
+```text
+record: probe=encoder_closer_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=encoder_closer_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+record: probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+```
+
+(3)
+
+```text
+record: probe=command_encoder_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+[wasm-verify.sh] cargo check (crates/core tests, wasm32-unknown-unknown, default features)
+9:fn require_send_sync<T: Send + Sync>() {}
+19:    require_send_sync::<CommandEncoder>();
+```
+
+`make wasm-verify` の終了コードは 0。
+
+(4)
+
+```text
+68-pub struct NativeDeviceHandle {
+69:    inner: Box<dyn Any + Send + Sync>,
+--
+89-    /// ```
+90:    pub fn new<T: Any + Send + Sync>(value: T) -> Self {
+128-/// ```
+129-#[doc(hidden)]
+130-#[allow(non_camel_case_types)]
+131:pub trait __BackendEncoderCloser: Send + Sync {
+--
+161-/// ```
+162-#[doc(hidden)]
+163-#[allow(non_camel_case_types)]
+164:pub trait __BackendSharedEncoderCloser: Send + Sync {
+```
+
+(5)
+
+手元の `make build-profiles` の終了コード:
+
+```text
+rc=0
+```
+
+CI の `make verify (fmt + clippy + test)` のログから絞った行:
+
+```text
+== make verify (fmt + clippy + test)（job 125239083135）
+2026-11-02T11:09:32.6829936Z [build-profiles.sh] cargo check -p fandhe-silicon-contract --target wasm32-unknown-unknown --no-default-features --features contract-core,cpu-isa,cpu-ops
+2026-11-02T11:09:33.5908563Z [build-profiles.sh] wasm-abi scalar: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir /home/runner/work/fandhe-silicon/fandhe-silicon/target
+2026-11-02T11:09:35.2200029Z [build-profiles.sh] wasm-abi simd128: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir /home/runner/work/fandhe-silicon/fandhe-silicon/target/wasm32-simd128
+```
+
+(6)
+
+```text
+== make deny (cargo-deny)（job 125239083058）
+2026-11-02T11:06:28.9512315Z record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+2026-11-02T11:06:29.0133748Z record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+2026-11-02T11:06:29.0678112Z record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:29.3334963Z record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+2026-11-02T11:06:29.3865399Z record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+2026-11-02T11:06:29.4383517Z record: probe=native_handle_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:29.5121768Z record: probe=native_handle_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:29.5640210Z record: probe=encoder_closer_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:29.6201389Z record: probe=encoder_closer_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:29.6777737Z record: probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:29.7278154Z record: probe=command_encoder_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:29.7278845Z wasm-compile-probe-check: all probes passed
+2026-11-02T11:11:15.0870188Z test-wasm-compile-probe-check: 25 passed, 0 failed
+== wasm32 build + size + node (macos-latest)（job 125239082977）
+2026-11-02T11:06:04.9590540Z record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+2026-11-02T11:06:05.2339710Z record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+2026-11-02T11:06:05.4305270Z record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:06.2751550Z record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+2026-11-02T11:06:06.4484520Z record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+2026-11-02T11:06:06.6098650Z record: probe=native_handle_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:06.8084870Z record: probe=native_handle_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:06.9806120Z record: probe=encoder_closer_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:07.2279810Z record: probe=encoder_closer_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:07.4411340Z record: probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+2026-11-02T11:06:07.6219810Z record: probe=command_encoder_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+2026-11-02T11:06:07.6299740Z wasm-compile-probe-check: all probes passed
+```
+
+手元の `make test-wasm-compile-probe-check` の最終行:
+
+```text
+test-wasm-compile-probe-check: 25 passed, 0 failed
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | wasm32 のコンパイル試験に `Send`・`Sync` の行を足す | #7736 |
+| 2/2 | 完了の条件の確かめ | #7737 |
