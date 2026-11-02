@@ -331,3 +331,5 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_format_con
 
 - 上の 1/6〜6/6 の節にある「`PixelFormat`・`DepthFormat` は本リポに無い」の行は、記録時点の値で、書き換えない。
 - 今は 2 型が `crates/core/src/graphics.rs`（feature `graphics`）にあり、7/8 の変換で `TextureFormat` の同じ名前の値へ写せる。
+
+関連: 形式ごとの能力の値の型と、形式を受けてその値を返す `Capabilities::texture_format_features` は [texture-format-features.md](texture-format-features.md)。

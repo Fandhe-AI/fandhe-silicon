@@ -225,3 +225,5 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 4/6 | #6438 | 鍵の一覧と表の枠の試験（本書の「鍵の一覧と表の枠の試験（4/6）」） |
 | 5/6 | #6439 | 機能一覧との突き合わせの検査と CI への組み込み（本書の「機能一覧との突き合わせの検査と CI への組み込み（5/6）」） |
 | 6/6 | #6440 | 完了の条件の確かめ（本書の「完了の条件の確かめ（6/6）」） |
+
+関連: `FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` の `query_ex` の値だけが違う 2 つの実装で形式ごとの能力の値が変わらないことの試験は [texture-format-features.md](texture-format-features.md)（`format_values_do_not_depend_on_adapter_specific_feature_row`）。

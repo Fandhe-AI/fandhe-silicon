@@ -16,6 +16,8 @@ TASK-2956 の作業の所在と、本リポの現状の事実を置く。spec �
 | 所在 | `crates/core/src/device.rs:133`。`fn compute(&self) -> Option<&dyn crate::execution::ComputeOps>` | `grep -n 'fn compute' crates/core/src/device.rs` |
 | 既定の本体 | `None` を返す。feature の条件はない | 同上 |
 
+（上の表の行番号は記録時点の値。今は `:149`）
+
 ### 試験用の device の答え
 
 `StubDevice`（`crates/core/src/stub_device.rs`。feature `test-support` の裏）は要求の `profile` を保持し、`compute()` の答えを次のとおり返す。所有形態（`ProductIndependent`・`Shared`・`Imported`）によらず同じ。
