@@ -108,5 +108,9 @@ required-features = ["ext-interop"]
 name = "stub_device_profiles"
 required-features = ["test-support"]
 
+[[test]]
+name = "cpu_ops_reference"
+required-features = ["cpu-ops", "test-support"]
+
 [lints]
 workspace = true
