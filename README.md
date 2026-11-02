@@ -105,7 +105,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6） |
 | `docs/contract-binding-types.md` | 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型（TASK-419）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
-| `docs/compute-encoder-lifetime-check.md` | compute の記録先の借用の寿命と定数の渡し方の試験（TASK-772）の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3） |
+| `docs/compute-encoder-lifetime-check.md` | compute の記録先の借用の寿命と定数の渡し方の試験（TASK-772）の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/contract-submit-types.md` | 投入まわりの公開の型と `CommandQueue`（TASK-588）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-interop-types.md` | 相互運用の公開の型と `ExternalInterop`（TASK-717）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-buffer-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6） |
