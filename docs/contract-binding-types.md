@@ -61,3 +61,7 @@ cargo test -p fandhe-silicon-core --doc binding
 make verify && make check && make deny
 make public-api-check && make public-name-check && make public-api-webgpu-check && make wasm-verify
 ```
+
+## 関連
+
+storage texture の束縛のアクセスの値の型 `StorageTextureAccess` と、束縛の用途・シェーダーとの照合の純粋関数は `texture` モジュールにある（[storage-texture-access.md](storage-texture-access.md)、TASK-1944）。今の `BindingType` の変種は `Buffer` だけである。
