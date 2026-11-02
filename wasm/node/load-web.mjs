@@ -41,7 +41,8 @@ async function observe(dir) {
   if (found.includes("detect_isa_bits")) {
     try {
       const v = ns.detect_isa_bits();
-      result.detect_isa_bits = typeof v === "number" ? v >>> 0 : "call-failed";
+      result.detect_isa_bits =
+        Number.isInteger(v) && v >= 0 && v <= 0xffffffff ? v : "call-failed";
     } catch {
       result.detect_isa_bits = "call-failed";
     }

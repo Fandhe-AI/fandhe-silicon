@@ -371,10 +371,17 @@ runreal "${gd}"
 realeq "r1 all seven exports" '{"init":"ok","exports":["gemm_scalar","gemm_simd","topk_scalar","topk_simd","elementwise_scalar","elementwise_simd","detect_isa_bits"],"detect_isa_bits":1}'
 check "r1 compute exports not called" "$([ ! -e "${marker}" ] && echo 0 || echo 1)"
 
-mkglue neg "${INIT_OK}
-export function detect_isa_bits() { return -1; }"
+for case in "neg:-1" "nan:NaN" "frac:0.5" "big:4294967296" "inf:Infinity" "str:'1'"; do
+  mkglue "bad_${case%%:*}" "${INIT_OK}
+export function detect_isa_bits() { return ${case#*:}; }"
+  runreal "${gd}"
+  realeq "r2 invalid return ${case%%:*} is call-failed" '{"init":"ok","exports":["detect_isa_bits"],"detect_isa_bits":"call-failed"}'
+done
+
+mkglue maxu32 "${INIT_OK}
+export function detect_isa_bits() { return 4294967295; }"
 runreal "${gd}"
-realeq "r2 negative wraps to u32" '{"init":"ok","exports":["detect_isa_bits"],"detect_isa_bits":4294967295}'
+realeq "r2 max u32 accepted" '{"init":"ok","exports":["detect_isa_bits"],"detect_isa_bits":4294967295}'
 
 mkglue throws "${INIT_OK}
 export function detect_isa_bits() { throw new Error('boom'); }"
