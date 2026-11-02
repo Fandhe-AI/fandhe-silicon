@@ -64,3 +64,26 @@ cargo test -p fandhe-silicon-core --doc StorageTextureAccess
 cargo test -p fandhe-silicon-core --lib texture::storage_access
 cargo test -p fandhe-silicon-core --doc validate_storage_texture
 ```
+
+## 項目ごとの受理と拒否の入力の試験（3/4）
+
+置き場は `crates/core/tests/texture_storage_access.rs`（feature なし。公開のパスだけを使う外の crate の試験）。照合は形式 `R32Float` でそろえて呼ぶ。拒否は `InvalidArgument` の種類を照らし、照合の拒否は文言の先頭の `C2:` までを照らす。
+
+| 試験の名前 | 入力 | 期待 |
+| ---------- | ---- | ---- |
+| `access_values` | `ALL` | 4 値を宣言の順に並べた一覧。`writes`・`reads` は `WriteOnly` が真・偽、`ReadOnly` が偽・真、`ReadWrite`・`Atomic` が真・真 |
+| `write_only_binding_usage`・`read_only_binding_usage`・`read_write_binding_usage` | `STORAGE_BINDING` のみ・過申告 / `TEXTURE_BINDING` のみ・空 | Ok / `InvalidArgument` |
+| `atomic_binding_usage` | `STORAGE_BINDING` と `STORAGE_ATOMIC` の両方・過申告 / `STORAGE_BINDING` のみ・`STORAGE_ATOMIC` のみ・空 | Ok / `InvalidArgument` |
+| `read_only_layout_rejects_writing_shader` | 配置 `ReadOnly`、シェーダー 4 値 | `ReadOnly` だけ Ok、残りは `C2:` の `InvalidArgument` |
+| `read_write_layout_shader_access` | 配置 `ReadWrite`、シェーダー 4 値 | `ReadWrite`・`WriteOnly` は Ok、`ReadOnly`・`Atomic` は `C2:` の `InvalidArgument` |
+| `write_only_layout_shader_access` | 配置 `WriteOnly`、シェーダー 4 値 | `WriteOnly` だけ Ok、残りは `C2:` の `InvalidArgument` |
+| `atomic_layout_shader_access` | 配置 `Atomic`、シェーダー 4 値 | `Atomic` だけ Ok、残りは `C2:` の `InvalidArgument` |
+| `shader_format_must_match` | 4 アクセスそれぞれで配置とシェーダーに同じアクセス、形式は `R32Float` と `R32Uint`・`Rgba8Unorm` と `Rgba8UnormSrgb`（逆向きも） | `C2:` の `InvalidArgument` |
+| `rejection_is_repeatable` | 拒否・受理の入力を同じ引数で 2 回 | 2 回とも同じ結果 |
+| `rejection_is_invalid_argument_only` | 用途と照合の拒否の入力 | どれも `InvalidArgument` |
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-core --test texture_storage_access
+```
