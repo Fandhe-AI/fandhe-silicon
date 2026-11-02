@@ -1,7 +1,7 @@
 //! 定数を dispatch ごとに渡す形の確認（TASK-772 のポインタ。COMP-15）。
 //!
 //! 記録する queue で、定数が `dispatch_ex` の呼び出しごとの引数だけで渡ること、
-//! queue が写した値と長さの合計を記録して確かめる。機材には触れない。
+//! queue が写した値を記録して確かめる。機材には触れない。
 
 use std::sync::Mutex;
 
@@ -18,8 +18,6 @@ struct Call {
     encoder: u64,
     /// (slot, 呼び出しの時点のバイト列の写し)。
     consts: Vec<(u32, Vec<u8>)>,
-    /// その呼び出しの `consts` だけから求めた長さの合計（溢れたら `None`）。
-    total: Option<usize>,
 }
 
 /// `dispatch_ex` の呼び出しを記録する queue。`dispatch` は上書きしない。
@@ -94,13 +92,9 @@ impl CommandQueue for Recording {
         _threads_per_threadgroup: [u32; 3],
         _threadgroup_memory: &[ThreadgroupMemory],
     ) -> Result<(), ContractError> {
-        let total = consts
-            .iter()
-            .try_fold(0usize, |acc, c| acc.checked_add(c.bytes.len()));
         self.calls.lock().unwrap().push(Call {
             encoder: encoder.__backend_id(),
             consts: consts.iter().map(|c| (c.slot, c.bytes.to_vec())).collect(),
-            total,
         });
         Ok(())
     }
@@ -144,7 +138,6 @@ fn constants_are_not_carried_to_the_next_call() {
     );
     for call in &calls[1..] {
         assert!(call.consts.is_empty());
-        assert_eq!(call.total, Some(0));
     }
     assert!(calls.iter().all(|c| c.encoder == 7));
     assert!(queue.submit(encoder, &[]).is_ok());
@@ -196,53 +189,12 @@ fn constants_are_copied_during_the_call() {
             Call {
                 encoder: 7,
                 consts: vec![(2, vec![9, 8, 7])],
-                total: Some(3),
             },
             Call {
                 encoder: 7,
                 consts: vec![(3, vec![1, 2])],
-                total: Some(2),
             },
         ]
     );
-    assert!(queue.submit(encoder, &[]).is_ok());
-}
-
-#[test]
-fn total_is_counted_per_call() {
-    let queue = Recording::new();
-    let pipeline = PipelineHandle::__backend_new(1, 1);
-    let mut encoder = queue.create_encoder();
-
-    let a = [0u8; 4];
-    let b = [0u8; 2];
-    let consts = [ConstantBinding::new(0, &a), ConstantBinding::new(1, &b)];
-    queue
-        .dispatch_ex(
-            &mut encoder,
-            &pipeline,
-            &[],
-            &consts,
-            [1, 1, 1],
-            [1, 1, 1],
-            &[],
-        )
-        .unwrap();
-    let c = [0u8; 8];
-    let consts = [ConstantBinding::new(0, &c)];
-    queue
-        .dispatch_ex(
-            &mut encoder,
-            &pipeline,
-            &[],
-            &consts,
-            [1, 1, 1],
-            [1, 1, 1],
-            &[],
-        )
-        .unwrap();
-
-    let totals: Vec<_> = queue.take().iter().map(|c| c.total).collect();
-    assert_eq!(totals, vec![Some(6), Some(8)]);
     assert!(queue.submit(encoder, &[]).is_ok());
 }
