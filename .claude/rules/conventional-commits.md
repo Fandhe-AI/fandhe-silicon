@@ -41,6 +41,8 @@
 | exec | `crates/exec`（下-2） |
 | upper | `crates/upper`（上） |
 | wasm-abi | `crates/wasm-abi`（wasm32 向けの cdylib） |
+| measure | `measure/`（測定専用の別 workspace） |
+| wasm | `wasm/`（wasm32 向けの別 workspace） |
 | deps | `Cargo.toml` の依存・`Cargo.lock`・`deny.toml` |
 | spec | `docs/spec` submodule 参照の更新 |
 | skills | `.claude/skills`・`.agents/skills`・`skills-lock.json` |
