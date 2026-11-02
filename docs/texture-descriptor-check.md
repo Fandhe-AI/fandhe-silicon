@@ -2,7 +2,7 @@
 
 ## 記録の所在
 
-private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1942、項目 `TEX-50`・`TEX-54`・`TEX-56`・`TEX-58`・`TEX-59`・`TEX-60`・`TEX-61`・`TEX-62`・`TEX-63`・`TEX-64`・`TEX-65`（コードと試験のコメントに書いたポインタ）。
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1942。
 
 ## 所在
 
