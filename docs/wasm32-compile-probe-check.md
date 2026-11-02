@@ -88,6 +88,22 @@ record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=con
 wasm-compile-probe-check: all probes passed
 ```
 
+## CI への組み込み（3/4）
+
+足したのは既存の `deny` ジョブの step 1 つで、ジョブ・make ターゲット・スクリプトは足していない（`ci-complete` の `needs` と check 名は変わらない）。step に `continue-on-error`・`|| true`・`if:` は付けていないので、回帰テストの失敗はそのまま `deny` ジョブの失敗になる。`wasm-macos` には足していない。本体は 2/4 のとおり `make wasm-verify` の中で流れる。
+
+| ジョブ（check 名） | runner | step（make ターゲット） | 流すもの |
+| ------------------ | ------ | ----------------------- | -------- |
+| `deny`（`make deny (cargo-deny)`） | `ubuntu-latest` | `make test-wasm-compile-probe-check` | 回帰テスト（合成の `build-profiles.sh` と偽の cargo。実物の cargo とネットワークは使わない） |
+
+確かめ方: `grep -n 'test-wasm-compile-probe-check' .github/workflows/ci.yml` と `make ci-frame-check`
+
+手元の実行（`origin/main` の `8ec33a8` の上の作業ツリー）の `make test-wasm-compile-probe-check` の最終行:
+
+```text
+test-wasm-compile-probe-check: 23 passed, 0 failed
+```
+
 ## 対応するテスト
 
 `scripts/test-wasm-compile-probe-check.sh` は合成の `build-profiles.sh` と PATH の先頭に置く偽の cargo で判定を確かめる。
@@ -135,7 +151,7 @@ test-wasm-compile-probe-check: 23 passed, 0 failed
 | -- | ---- | ----- |
 | 1/4 | wasm32 のコンパイル試験の検査と回帰テスト | #3944 |
 | 2/4 | wasm-verify からの呼び出し | #3945 |
-| 3/4 | 回帰テストの CI への組み込み | #3946 |
+| 3/4 | CI への組み込み | #3946 |
 | 4/4 | 完了の条件の確かめ | #3947 |
 
 親 Issue は #463。
