@@ -480,3 +480,6 @@ mod usage_check;
 pub use usage_check::{
     TextureUsageRole, validate_texture_usage_for_role, validate_texture_view_format,
 };
+
+mod storage_access;
+pub use storage_access::StorageTextureAccess;
