@@ -38,6 +38,12 @@ wait_blocking|-|fail|E0599|wait_blocking|queue
 nonblocking_readback|-|pass|-|-|nonblocking
 download_blocking_gate_open|native-blocking-wait|pass|-|-|memory
 wait_blocking_gate_open|native-blocking-wait|pass|-|-|queue
+native_handle_send_sync|-|pass|-|-|native_handle
+native_handle_rejects_not_send|-|fail|E0277|Rc<u8>|native_handle_rc
+encoder_closer_send_sync|-|pass|-|-|closer
+encoder_closer_rejects_not_send|-|fail|E0277|Rc<()>|closer_rc
+shared_closer_rejects_not_sync|-|fail|E0277|Cell<u32>|shared_closer_cell
+command_encoder_send_sync|-|pass|-|-|encoder
 TABLE
 }
 
@@ -66,6 +72,78 @@ use fandhe_silicon_core::memory::{BufferHandle, MemoryOps};
 pub fn probe(ops: &dyn MemoryOps, buffer: &BufferHandle, queue: &dyn CommandQueue, token: SubmitToken) {
     ops.download_async(buffer, 0, 4, Box::new(|_: Result<Vec<u8>, ContractError>| {}));
     queue.on_complete(token, Box::new(|_: CompletionState| {}));
+}
+SNIP
+}
+
+# 以下の 6 つの snippet の行は spec TASK-553・BUILD-30 のポインタ（親 Issue #1166 の 1/2）。
+snippet_native_handle() {
+  cat <<'SNIP'
+use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, NativeDeviceHandle};
+use std::sync::Arc;
+fn require_send_sync<T: Send + Sync>() {}
+pub fn probe() -> DeviceOwnership {
+    require_send_sync::<NativeDeviceHandle>();
+    require_send_sync::<DeviceOwnership>();
+    require_send_sync::<DeviceRequest>();
+    DeviceOwnership::Imported { native: NativeDeviceHandle::new(Arc::new(0u8)) }
+}
+SNIP
+}
+snippet_native_handle_rc() {
+  cat <<'SNIP'
+use fandhe_silicon_core::device::NativeDeviceHandle;
+use std::rc::Rc;
+pub fn probe() -> NativeDeviceHandle {
+    NativeDeviceHandle::new(Rc::new(0u8))
+}
+SNIP
+}
+snippet_closer() {
+  cat <<'SNIP'
+use fandhe_silicon_core::execution::{CommandEncoder, __BackendEncoderCloser, __BackendSharedEncoderCloser};
+use std::sync::Arc;
+struct Closer(u32);
+impl __BackendEncoderCloser for Closer {
+    fn close(&mut self) { self.0 += 1; }
+}
+struct Shared;
+impl __BackendSharedEncoderCloser for Shared {
+    fn close(&self, _id: u64) {}
+}
+pub fn probe() -> (CommandEncoder, CommandEncoder) {
+    let boxed = CommandEncoder::__backend_new(1, Some(Box::new(Closer(0))));
+    let shared = CommandEncoder::__backend_new_shared(2, Arc::new(Shared));
+    (boxed, shared)
+}
+SNIP
+}
+snippet_closer_rc() {
+  cat <<'SNIP'
+use fandhe_silicon_core::execution::__BackendEncoderCloser;
+use std::rc::Rc;
+struct Closer(Rc<()>);
+impl __BackendEncoderCloser for Closer {
+    fn close(&mut self) {}
+}
+SNIP
+}
+snippet_shared_closer_cell() {
+  cat <<'SNIP'
+use fandhe_silicon_core::execution::__BackendSharedEncoderCloser;
+use std::cell::Cell;
+struct Shared(Cell<u32>);
+impl __BackendSharedEncoderCloser for Shared {
+    fn close(&self, _id: u64) { self.0.set(self.0.get() + 1); }
+}
+SNIP
+}
+snippet_encoder() {
+  cat <<'SNIP'
+use fandhe_silicon_core::execution::CommandEncoder;
+fn require_send_sync<T: Send + Sync>() {}
+pub fn probe() {
+    require_send_sync::<CommandEncoder>();
 }
 SNIP
 }

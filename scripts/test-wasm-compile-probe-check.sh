@@ -64,7 +64,25 @@ fail_with() { # <コード> <識別子>
   echo "  --> ${manifest}:3:1" >&2
   exit 101
 }
+fail_bound() { # <型>
+  echo "error[E0277]: \`$1\` cannot be shared between threads safely" >&2
+  echo "  --> ${manifest}:3:1" >&2
+  exit 101
+}
+# TASK-553 の行の分岐。
 case "${pkg}" in
+  wasm-compile-probe-native-handle-rejects-not-send|wasm-compile-probe-encoder-closer-rejects-not-send)
+    [ "${mode}" = bounds-relaxed ] && exit 0
+    case "${pkg}" in *native-handle*) fail_bound 'Rc<u8>' ;; *) fail_bound 'Rc<()>' ;; esac ;;
+  wasm-compile-probe-shared-closer-rejects-not-sync)
+    case "${mode}" in
+      bounds-relaxed) exit 0 ;;
+      bound-other-type) fail_bound 'Rc<u8>' ;;
+      *) fail_bound 'Cell<u32>' ;;
+    esac ;;
+  wasm-compile-probe-native-handle-send-sync|wasm-compile-probe-command-encoder-send-sync)
+    [ "${mode}" = bounds-relaxed ] && { echo "error[E0277]: \`(dyn Any + 'static)\` cannot be sent between threads safely" >&2; exit 101; }
+    exit 0 ;;
   wasm-compile-probe-download-blocking)
     case "${mode}" in
       fail-row-passes) exit 0 ;;
@@ -170,6 +188,12 @@ expect "good" 0 \
   "record: probe=nonblocking_readback target=wasm32-unknown-unknown features=aa,bb,cc expect=pass code=- result=ok" \
   "record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=aa,bb,cc,native-blocking-wait expect=pass code=- result=ok" \
   "record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=aa,bb,cc,native-blocking-wait expect=pass code=- result=ok" \
+  "record: probe=native_handle_send_sync target=wasm32-unknown-unknown features=aa,bb,cc expect=pass code=- result=ok" \
+  "record: probe=native_handle_rejects_not_send target=wasm32-unknown-unknown features=aa,bb,cc expect=fail code=E0277 result=ok" \
+  "record: probe=encoder_closer_send_sync target=wasm32-unknown-unknown features=aa,bb,cc expect=pass code=- result=ok" \
+  "record: probe=encoder_closer_rejects_not_send target=wasm32-unknown-unknown features=aa,bb,cc expect=fail code=E0277 result=ok" \
+  "record: probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=aa,bb,cc expect=fail code=E0277 result=ok" \
+  "record: probe=command_encoder_send_sync target=wasm32-unknown-unknown features=aa,bb,cc expect=pass code=- result=ok" \
   "wasm-compile-probe-check: all probes passed" "!result=ng"
 expect_log "good-args" \
   "ARGS: check" "--offline" "--target wasm32-unknown-unknown" "--manifest-path" "--target-dir" "!--locked" "!-D"
@@ -199,6 +223,10 @@ run_fake pass-row-fails --build-profiles "${BP}"
 expect "pass-row-fails" 1 "probe=nonblocking_readback target=wasm32-unknown-unknown features=aa,bb,cc expect=pass code=- result=ng" "error: boom" "1 probe(s) failed"
 run_fake control-row-fails --build-profiles "${BP}"
 expect "control-row-fails" 1 "2 probe(s) failed" "!all probes passed"
+run_fake bound-other-type --build-profiles "${BP}"
+expect "bound-other-type" 1 "probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=aa,bb,cc expect=fail code=E0277 result=ng" "1 probe(s) failed"
+run_fake bounds-relaxed --build-profiles "${BP}"
+expect "bounds-relaxed" 1 "probe=native_handle_send_sync target" "probe=command_encoder_send_sync target" "5 probe(s) failed" "!all probes passed"
 run_fake no-target --build-profiles "${BP}"
 expect "no-target" 2 "target is not installed" "!all probes passed" "!record:"
 

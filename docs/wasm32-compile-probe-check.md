@@ -244,3 +244,60 @@ test-wasm-compile-probe-check: 23 passed, 0 failed
 | 4/4 | 完了の条件の確かめ | #3947 |
 
 親 Issue は #463。
+
+## wasm32 の組の `Send`・`Sync` の行（TASK-553）
+
+### 記録の所在
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-553。ポインタのみ）。
+
+### 試験の行と回帰テスト（1/2）
+
+`scripts/wasm-compile-probe-check.sh` の試験の表に 6 行を足した。足す feature は 6 行とも無し（wasm32 の組そのまま）。
+
+| 行 | wasm32 の組に足す feature | 期待 | 確かめ方 |
+| -- | ------------------------- | ---- | -------- |
+| `native_handle_send_sync` | なし | pass | `NativeDeviceHandle`・`DeviceOwnership`・`DeviceRequest` が `Send + Sync` の境界を満たし、`Arc` の値を包める snippet が通る |
+| `native_handle_rejects_not_send` | なし | fail（`E0277`・`Rc<u8>`） | `NativeDeviceHandle::new` に `Rc<u8>` を渡す snippet が `error[E0277]` と `` `Rc<u8>` `` で落ちる |
+| `encoder_closer_send_sync` | なし | pass | `__BackendEncoderCloser`・`__BackendSharedEncoderCloser` を実装した型で `CommandEncoder` を作る snippet が通る |
+| `encoder_closer_rejects_not_send` | なし | fail（`E0277`・`Rc<()>`） | `Rc<()>` を持つ型に `__BackendEncoderCloser` を実装する snippet が `error[E0277]` と `` `Rc<()>` `` で落ちる |
+| `shared_closer_rejects_not_sync` | なし | fail（`E0277`・`Cell<u32>`） | `Cell<u32>` を持つ型に `__BackendSharedEncoderCloser` を実装する snippet が `error[E0277]` と `` `Cell<u32>` `` で落ちる |
+| `command_encoder_send_sync` | なし | pass | `CommandEncoder` が `Send + Sync` の境界を満たす snippet が通る |
+
+試験の表は 11 行になった。TASK-239 の節の 5 行の表と `record:` の 5 行は記録時点の値で、補足はこの節に置く。native の側の所在は `crates/core/tests/encoder_send_sync.rs`（TASK-590）。
+
+回帰テスト（`scripts/test-wasm-compile-probe-check.sh`）で足した場面:
+
+| 場面 | 期待の終了コード | 見る出力 |
+| ---- | ---------------- | -------- |
+| `bound-other-type` | 1 | `shared_closer_rejects_not_sync` の行が `result=ng`、`1 probe(s) failed` |
+| `bounds-relaxed` | 1 | `native_handle_send_sync`・`command_encoder_send_sync` の行、`5 probe(s) failed`、`all probes passed` が出ない |
+
+手元の実行（ベース `b6c80bb` の上の作業ツリー）の `make wasm-compile-probe-check` の出力:
+
+```text
+record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+record: probe=native_handle_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=native_handle_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+record: probe=encoder_closer_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=encoder_closer_rejects_not_send target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+record: probe=shared_closer_rejects_not_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0277 result=ok
+record: probe=command_encoder_send_sync target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+wasm-compile-probe-check: all probes passed
+```
+
+`make test-wasm-compile-probe-check` の最終行:
+
+```text
+test-wasm-compile-probe-check: 25 passed, 0 failed
+```
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/2 | wasm32 のコンパイル試験に `Send`・`Sync` の行を足す | #7736 |
