@@ -130,11 +130,12 @@ mod tests {
 
     fn gemm_all(m: usize, k: usize, n: usize, a: usize, b: usize, o: usize) {
         let (av, bv) = (vec![1.0_f32; a], vec![1.0_f32; b]);
-        let mut ov = vec![0.0_f32; o];
+        let mut ov = vec![7.0_f32; o];
         DefaultCpuOps.gemm_scalar(&av, &bv, m, k, n, &mut ov);
         DefaultCpuOps.gemm_simd(&av, &bv, m, k, n, &mut ov);
         ReferenceCpuOps.gemm_scalar(&av, &bv, m, k, n, &mut ov);
         ReferenceCpuOps.gemm_simd(&av, &bv, m, k, n, &mut ov);
+        assert!(ov.iter().all(|v| v.to_bits() == 7.0_f32.to_bits()));
     }
 
     #[test]
@@ -151,12 +152,13 @@ mod tests {
     fn mismatched_elementwise_lengths_return() {
         for (alen, olen) in [(4, 3), (4, 5)] {
             let a = vec![1.0_f32; alen];
-            let mut o = vec![0.0_f32; olen];
+            let mut o = vec![7.0_f32; olen];
             for op in [UnaryElementwiseOp::Relu, UnaryElementwiseOp::AddScalar(1.0)] {
                 DefaultCpuOps.elementwise_scalar(op, &a, &mut o);
                 DefaultCpuOps.elementwise_simd(op, &a, &mut o);
                 ReferenceCpuOps.elementwise_scalar(op, &a, &mut o);
                 ReferenceCpuOps.elementwise_simd(op, &a, &mut o);
+                assert!(o.iter().all(|v| v.to_bits() == 7.0_f32.to_bits()));
             }
         }
     }
