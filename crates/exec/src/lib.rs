@@ -4,11 +4,15 @@
 //! 能力が無い場合の代わりの実行もここで扱う。
 //!
 //! 公開の型は opt-in の印 [`OptIn`]、経路 [`Route`]、操作の識別子 [`OpId`]、
-//! 使えない理由 [`UnavailableReason`]（`docs/spec/05-tasks.md` の TASK-919）。
+//! 使えない理由 [`UnavailableReason`]、
+//! 経路の報告 [`RouteReport`]（f32 の非正規化数の項 [`F32DenormalReport`]・
+//! [`F32DenormalBehavior`]・[`F32DenormalBasis`]）、結果の値 [`Outcome`]（`docs/spec/05-tasks.md` の TASK-919）。
 #![forbid(unsafe_code)]
 
 mod opt_in;
+mod report;
 mod route;
 
 pub use opt_in::OptIn;
+pub use report::{F32DenormalBasis, F32DenormalBehavior, F32DenormalReport, Outcome, RouteReport};
 pub use route::{OpId, Route, UnavailableReason};
