@@ -152,7 +152,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-api-webgpu-check.md` | 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6）・現状と前提の確認（1/4）・SubmitToken を受ける公開の口の検査の実装（2/4）・SubmitToken を受ける口の検査の試験（3/4）・未投入の印の試験（4/4）・完了の条件の確かめ（4/4）（TASK-313） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
 | `docs/contract-feature-check.md` | `default` feature とテスト・診断専用 feature の検査（TASK-226）の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3） |
-| `docs/profile-switch-check.md` | プロファイルの切替の検査（TASK-227）の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4） |
+| `docs/profile-switch-check.md` | プロファイルの切替の検査（TASK-227）の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4） |
 | `docs/ext-interop-build-check.md` | `ext-interop` と片方の背後実装の組のビルドの確かめ（TASK-231）の所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4） |
 | `docs/feature-gate-compile-check.md` | feature ゲートのコンパイル失敗の試験（TASK-233）の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7） |
 | `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）・完了の条件の確かめと件数・差の記録（6/6）（TASK-229） |
@@ -248,6 +248,8 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make dep-graph-wgpu-check` | `scripts/dep-graph-wgpu-check.sh` | 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数える検査。件数を標準出力の `record:` の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。`make deny` も呼ぶ） |
 | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗。件数は `record:` の行。bash + python3 + cargo + git。`make deny` には含めず、CI の `deny` ジョブが `make deny` の後に呼ぶ） |
 | `make test-baseline-positive-control` | `scripts/test-baseline-positive-control.sh` | `make baseline-positive-control` の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる。python3 + cargo + git・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make profile-test-count-check` | `scripts/profile-test-count-check.sh` | 契約の crate の試験 `stub_device_profiles` を `build-profiles.sh` の 3 つのプロファイルの組に `test-support` を足した組で流し、通った本数と `graphics_` の試験の本数を期待と照らす検査（bash + cargo。ソースは変更しない・ネットワーク不要） |
+| `make test-profile-test-count-check` | `scripts/test-profile-test-count-check.sh` | `make profile-test-count-check` の回帰テスト（合成の `build-profiles.sh` と偽の cargo。bash・ネットワーク不要） |
 | `make upper-layer-check` | `scripts/upper-layer-check.sh` | 上の層（`crates/upper`）と測定の workspace に、unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定のビルドで検証用の feature が有効でないことの 4 つの検査を当てる（件数は `record:` の行。bash + python3 + cargo + git・ネットワーク不要。`make deny` には含めず、CI の `deny` ジョブが呼ぶ） |
 | `make test-upper-layer-check` | `scripts/test-upper-layer-check.sh` | `make upper-layer-check` の回帰テスト（合成の入力・偽のコマンド・一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-dep-graph-wgpu-check` | `scripts/test-dep-graph-wgpu-check.sh` | `scripts/dep-graph-wgpu-check.sh` の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
