@@ -75,6 +75,34 @@ cargo test -p fandhe-silicon-exec --lib
 cargo test -p fandhe-silicon-exec --lib
 ```
 
+## 列の渡し方の型（3/7）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/exec/src/operands.rs` |
+| 公開のパス | `fandhe_silicon_exec::{F16FmaOperands, SubgroupSumU32Operands, SubgroupSumF32Operands, AtomicAddOperands}` |
+| feature の条件 | `Device` の形は `native-blocking-wait` のときだけ在る |
+
+4 型はどれも `enum` で、derive は `Debug`、`#[non_exhaustive]` はなし。`Host` の欄はホストのスライス、`Device` の欄は `fandhe_silicon_core::memory::BufferHandle` の排他の借用（`&mut`）。
+
+| 型 | `Host` の欄 | `Device` の欄 |
+| -- | ----------- | ------------- |
+| `F16FmaOperands<'a>` | `a`・`b`・`c`: `&[u16]`、`out`: `&mut [u16]`（f16 はビット列） | `a`・`b`・`c`・`out` |
+| `SubgroupSumU32Operands<'a>` | `x`: `&[u32]`、`out`: `&mut [u32]` | `x`・`out` |
+| `SubgroupSumF32Operands<'a>` | `x`: `&[f32]`、`out`: `&mut [f32]` | `x`・`out` |
+| `AtomicAddOperands<'a>` | `x`: `&[f32]`、`out`: `&mut [f32]` | `x`・`out` |
+
+| feature | 転送先 | 既定 |
+| ------- | ------ | ---- |
+| `native-blocking-wait` | `fandhe-silicon-core/native-blocking-wait` | 無効 |
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-exec --lib
+cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
+```
+
 ## 段の表
 
 | 段 | Issue | 題 |
