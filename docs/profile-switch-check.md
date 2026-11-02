@@ -120,3 +120,53 @@ record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal
 record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
 profile-test-count-check: all profiles passed
 ```
+
+## 完了の条件の確かめ（4/4）（TASK-227）
+
+時点のコミットは `f28db54`。CI の run は 3/4 のマージの main の push の run（ID `41405921122`、`headSha` は `c2cbc0e`）。
+
+| 確かめ | コマンド | 結果 |
+| ------ | -------- | ---- |
+| (1) 構成の試験 | `cargo test -p fandhe-silicon-contract --test profile_feature_sets` | `test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| (2) 既存の feature の試験（TASK-226） | `cargo test -p fandhe-silicon-contract --test feature_default_scope` | `test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| (3) 本数の検査 | `make profile-test-count-check` | 下の「(3) の出力」 |
+| (4) feature ゲートの doctest（TASK-137・TASK-837） | 3 組それぞれで `cargo test -p fandhe-silicon-contract --no-default-features --features "<組>,test-support" --doc` のうち `GraphicsGate` を含む行 | 下の「(4) の出力」 |
+| (5) CI の run | `gh run view 41405921122 --json conclusion,headSha,jobs` と、ログの `record:` の行と最終行 | run の `conclusion` は `success`。`make verify (fmt + clippy + test)` と `make verify + build-profiles (macos-latest)` の `conclusion` はどちらも `success`。ログの行は下の「(5) の出力」 |
+| (6) 1/4 の試験・組の注記・`Cargo.toml` の差 | `git diff --stat 2ea8f74..HEAD -- crates/contract/tests/stub_device_profiles.rs scripts/build-profiles.sh crates/contract/Cargo.toml`（`2ea8f74` は 1/4 の PR のコミットの親） | （出力なし） |
+| (7) 依存と unsafe の差 | `git diff --stat 2ea8f74..HEAD -- Cargo.lock deps-approved.toml`、`git diff 2ea8f74..HEAD -- crates/ \| grep -c '^+.*unsafe'` | 前者は（出力なし）、後者は `0` |
+
+(3) の出力:
+
+```text
+record: profile=CpuOnly features=contract-core,cpu-isa,cpu-ops,test-support passed=6 graphics=0
+record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal,test-support passed=6 graphics=0
+record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
+profile-test-count-check: all profiles passed
+```
+
+(4) の出力（組は `scripts/build-profiles.sh` の 3 組の順）:
+
+```text
+## contract-core,cpu-isa,cpu-ops
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::GraphicsGate (line 99) - compile fail ... ok
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::DeviceGraphicsGate (line 109) - compile fail ... ok
+## contract-core,cpu-isa,cpu-ops,backend-metal
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::GraphicsGate (line 99) - compile fail ... ok
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::DeviceGraphicsGate (line 109) - compile fail ... ok
+## contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::DeviceGraphicsGate (line 109) ... ok
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::GraphicsGate (line 99) ... ok
+```
+
+(5) の出力（ログから `record:` の行と最終行だけ。上が `make verify (fmt + clippy + test)`、下が `make verify + build-profiles (macos-latest)`）:
+
+```text
+record: profile=CpuOnly features=contract-core,cpu-isa,cpu-ops,test-support passed=6 graphics=0
+record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal,test-support passed=6 graphics=0
+record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
+profile-test-count-check: all profiles passed
+record: profile=CpuOnly features=contract-core,cpu-isa,cpu-ops,test-support passed=6 graphics=0
+record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal,test-support passed=6 graphics=0
+record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
+profile-test-count-check: all profiles passed
+```
