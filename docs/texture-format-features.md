@@ -124,6 +124,38 @@ cargo test -p fandhe-silicon-core --features test-support --doc check_texture_fo
 grep -n 'fn texture_format_features' crates/core/src/capability.rs
 ```
 
+## 形式の鍵ごとの値と非対応の device の試験（3/4）
+
+外の crate の試験が公開のパスだけで確かめる。
+
+| ファイル | feature の条件 |
+| -------- | -------------- |
+| `crates/core/tests/texture_format_features_values.rs` | なし |
+| `crates/core/tests/texture_format_features_contract.rs` | `test-support`・`fault-injection` |
+
+`texture_format_features_values.rs`（試験の中だけの `Capabilities` の実装を使う）
+
+| 名前 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `feature_kinds_are_eighteen` | `TextureFormatFeature::ALL` | 18 値で互いに違う |
+| `builder_rules_reject_each_violation` | `new` の 4 群それぞれの代表の入力 | `InvalidArgument` だけで、同じ引数で同じ結果。通る入力は `Ok` |
+| `every_texture_format_key_returns_a_value` | 全形式の鍵が `S2`・`RuntimeApi` の実装（`&dyn Capabilities` 越しを含む）。1 つの鍵だけ `Unsupported`・`NotSupported` にした実装 | 118 形式の全部で形式の単位が `query_ex(鍵)` と等しく、18 要素が行の無い値、用途が空、サンプル数が `[1]`。1 つの鍵だけ変えると、その形式だけ形式の単位と 18 要素が変わる |
+| `format_values_do_not_depend_on_adapter_specific_feature_row` | `FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` の `query_ex` だけが違う 2 つの実装（上書きあり・なし） | 118 形式の全部で戻りが等しい。上書きした形式では `Unsupported` の要素が使える段階に変わらない |
+| `overridden_values_follow_read_rules` | 1 形式を上書きした実装 | サンプル数 1・2・4・8・16・3・32 の可否、`supported_sample_counts`、`allowed_usages`。形式の単位が `Unsupported` の形式は全要素がその値 |
+
+`texture_format_features_contract.rs`
+
+| 名前 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `stub_device_returns_value_for_every_key` | 試験用の device（背後実装 4 値 × プロファイル 3 値の 12 組。`&dyn Device`） | `check_texture_format_features` が `Ok`。118 形式の全部で形式の単位・18 要素が `Unsupported`・`NotSupported`・根拠なし。上の鍵の `query_ex` が行の無い値（`Unsupported`）でも値が返る |
+| `checker_reports_mismatch` | 1 形式だけ `capture_failed()` を返す実装 | `FeaturesFormatQueryMismatch` が 1 件で、その形式 |
+| `decorator_keeps_format_query_consistent` | `FaultInjecting` で包んだ試験用の device と表。筋書き `PassThrough`・`CapabilityQueryFails`・`CapabilityInsufficient` | どれも `check_texture_format_features` が `Ok`。`PassThrough` は包まない値と等しい。`CapabilityQueryFails` は全形式の形式の単位・要素が `S0`。`CapabilityInsufficient` は指定した形式だけ `Unsupported`・`NotSupported` で、ほかの 117 形式は変わらない |
+
+```sh
+cargo test -p fandhe-silicon-core --test texture_format_features_values
+cargo test -p fandhe-silicon-core --features test-support,fault-injection --test texture_format_features_contract
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
