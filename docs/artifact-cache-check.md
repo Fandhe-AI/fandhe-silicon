@@ -31,6 +31,8 @@ TASK-483 の作業を進めるにあたり、記録の所在と本リポの現�
 | 走る場所 | `core` の試験は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-483 の言及は本書、`CLAUDE.md`、`README.md`、`crates/core/src/artifact_cache.rs`、`crates/core/tests/artifact_cache_*.rs` にある。TASK-460 の言及は本書だけ | `git grep -n -e TASK-483 -e TASK-460 -- . ':!docs/spec'` |
 
+補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |

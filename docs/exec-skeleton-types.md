@@ -17,6 +17,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
 | upper からの参照 | `crates/upper/Cargo.toml` が exec に依存する。`crates/upper/src/lib.rs` は 5 行で exec の項目を使っていない | `grep -rn fandhe_silicon_exec crates/upper/src` |
 
+補い: 上の表の `crates/exec/Cargo.toml` の行のコマンド `wc -l crates/exec/Cargo.toml` は、いまは 29 行を返す。記録時点の行数は `git show 7894f38:crates/exec/Cargo.toml | wc -l`（16 行）で確かめる。
+
 ## opt-in の印と経路・操作・理由の型（1/7）
 
 | 項目 | 内容 |
@@ -151,7 +153,7 @@ cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
 
 4. 報告を組み立てる。`observed_level` は問合せの段階。`f32_denormal` はいつも `None`。
 5. 経路なしなら `Ok(Outcome::Unavailable { report })` を返す。
-6. 経路が決まれば `Err(ContractError::Unsupported { .. })` を返す（`op` は入口の関数名、`backend` は device の背後実装）。
+6. 経路が決まれば `Err(ContractError::Unsupported { .. })` を返す（`op` は入口の関数名、`backend` は device の背後実装。`crates/exec/tests/unsupported_fields.rs` が 7 つの入口で固定する）。
 
 3 つの入口は能力を問い合わせず、`opt_in` の値によらず `Err(ContractError::Unsupported { .. })` を返す。
 
@@ -183,6 +185,8 @@ cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
 | `Scripted::bare()` | 何も差し込まない。4 つの鍵とも `Unsupported`（理由 `UnknownFeature`） |
 | `Scripted::insufficient(鍵)` | 指定した鍵だけ `Unsupported`（理由 `NotSupported`）。入口ごとにその入口の鍵で作る |
 | `Scripted::query_fails()` | 4 つの鍵とも `S0` |
+
+補い: 能力の鍵は 3 つ（`FEATURE_SHADER_F16`・`FEATURE_SUBGROUP`・`FEATURE_SHADER_FLOAT32_ATOMIC`）で、`subgroup_sum_u32` と `subgroup_sum_f32` が `FEATURE_SUBGROUP` を共有する。上の表の「4 つの鍵とも」は、4 つの入口が使う鍵（3 つ）とも、と読む。
 
 ### 試験
 
@@ -227,6 +231,20 @@ cargo test -p fandhe-silicon-exec --features native-blocking-wait --test device_
 cargo test -p fandhe-silicon-exec --test reasons_and_denormal
 ```
 
+## `Unsupported` の `op` と `backend` の欄の試験
+
+公開のパスだけを使う統合テストで、経路が決まった入口と能力を問い合わせない入口が返す `ContractError::Unsupported` の欄を確かめる。本体のコードは変えない。
+
+| パス | 試験 | 入力 | 期待 |
+| ---- | ---- | ---- | ---- |
+| `crates/exec/tests/unsupported_fields.rs` | `unsupported_carries_entry_name_and_device_backend` | `Scripted::bare()`・`deny_by_default`。4 入口は C を許す上書き、3 入口は上書きなし | 7 入口とも `Err(ContractError::Unsupported { op, backend })`。`op` は入口の関数名（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing`）、`backend` は `Device::backend()` の値（この device は `BackendKind::Metal`） |
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-exec --test unsupported_fields
+```
+
 ## 完了の条件の確かめ（7/7）
 
 7/7（#5993）で、下-2 の crate（`crates/exec`）について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-919（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
@@ -239,6 +257,8 @@ cargo test -p fandhe-silicon-exec --test reasons_and_denormal
 | (4) | 統合テストと lib の件数 | `cargo test -p fandhe-silicon-exec --test opt_in_default` / `--test reasons_and_denormal` / `--lib` / `--lib --features native-blocking-wait` / `--features native-blocking-wait --test device_operands` | `opt_in_default` は 5 passed; 0 failed; 0 ignored。`reasons_and_denormal` は 4 passed; 0 failed; 0 ignored。`--lib` は 17 passed、`native-blocking-wait` 付きは 18 passed（どちらも 0 failed; 0 ignored）。`device_operands` は 1 passed; 0 failed; 0 ignored |
 | (5) | feature なし・`native-blocking-wait`・wasm32 | `cargo clippy -p fandhe-silicon-exec --all-targets -- -D warnings`（feature なしと `--features native-blocking-wait`）、`cargo test -p fandhe-silicon-exec`（同）、`cargo check -p fandhe-silicon-exec --target wasm32-unknown-unknown`（`--tests` 付きも） | clippy は両方とも終了コード 0。`cargo test` は feature なしが終了コード 0 で合計 26 passed（17 + 5 + 4 + doctest 0）、`native-blocking-wait` 付きが終了コード 0 で合計 28 passed（18 + 1 + 5 + 4 + doctest 0）。いずれも 0 failed; 0 ignored。wasm32 の `cargo check` は `--tests` の有無とも終了コード 0 |
 | (6) | 公開名・公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` の `scanned: crate=fandhe_silicon_exec` の行 | 3 つとも終了コード 0。`public-api-check` は production で `public_items=457 wgpu_type_refs=0 wgpu_other_refs=0`、all-features で `public_items=471 wgpu_type_refs=0 wgpu_other_refs=0`。`public-name-check` は production で `public_items=402 named_items=122 name_hits=0`、all-features で `public_items=416 named_items=136 name_hits=0`。`public-api-sdk-check` は両方とも `sdk_type_refs=0 sdk_other_refs=0 external_crates=alloc,core,fandhe_silicon_core` |
+
+補い: 上の表 (4)(5) の件数は記録した時点の値で、書き換えていない。`unsupported_fields` の 1 本が加わり、いま `cargo test -p fandhe-silicon-exec` は feature なしで合計 27 passed、`native-blocking-wait` 付きで合計 29 passed（いずれも 0 failed; 0 ignored）。
 
 確かめた時点は main の `ac32709`、`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`。
 

@@ -29,6 +29,8 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 | 走る場所 | `core` の `parity_*` は `make verify`（`--all-features`）で走る。GPU の実機は要らない | `scripts/verify.sh` |
 | 本書の対象の言及 | TASK-928 の言及は本書、`crates/core/src/parity.rs`、`crates/core/src/parity/fallback_compare.rs`、`crates/core/tests/parity_fallback_compare.rs`、`CLAUDE.md`、`README.md` にある | `git grep -n TASK-928 -- . ':!docs/spec'` |
 
+補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
+
 ## 所在（2/8）
 
 | 項目 | 事実 | 確かめ方 |
