@@ -190,3 +190,33 @@ fn topk_reference_ops_follow_scalar_path() {
         }
     }
 }
+
+#[test]
+fn topk_longer_out_keeps_sentinel_tail() {
+    // CPU-14: out が k より長く、有限のスコアの件数が k を超える入力。
+    // 先頭の k 件は CPU 参照と一致し、k 件目より後の位置はすべて番兵のまま。
+    let sentinel = ReferenceCpuOps::SENTINEL;
+    for (name, scores, k) in [
+        ("batch", batch_input(), 8usize),
+        ("ties", ties_input(), 5),
+        ("non_finite", non_finite_input(), 3),
+    ] {
+        let finite = scores.iter().filter(|x| x.is_finite()).count();
+        assert!(finite > k, "{name}");
+        let out_len = k + 7;
+        for (label, ops, method) in combos() {
+            let mut out = vec![(7u32, 7.0f32); out_len];
+            let r = match method {
+                Method::Scalar => ops.topk_partial_scalar(&scores, k, &mut out),
+                Method::Simd => ops.topk_partial_simd(&scores, k, &mut out),
+            };
+            assert!(r.is_ok(), "{name} {label}");
+            let (head, tail) = out.split_at(k);
+            assert_matches_reference(name, &scores, k, head);
+            for (s, v) in tail {
+                assert_eq!(*s, sentinel.0, "{name} {label}");
+                assert_eq!(v.to_bits(), sentinel.1.to_bits(), "{name} {label}");
+            }
+        }
+    }
+}

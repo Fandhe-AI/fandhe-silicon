@@ -25,6 +25,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 - 4 メソッドはどれも `Result<(), ContractError>` を返す。長さが合わない・次元の積があふれる入力は `InvalidArgument` で返し、`out` には触れない。`DefaultCpuOps` の `*_simd` も同じ（simd128 でないビルドは scalar と同じ計算。下の「7/9」の節）。
 - `ReferenceCpuOps` は 4 メソッドとも scalar の計算をする。`DefaultCpuOps` の `*_simd` は simd128 でないビルドで scalar と同じ計算をする（下の「7/9」の節）。
 
+補い: `CpuOps` はいまは 6 メソッドで、部分 Top-k の `topk_partial_scalar`・`topk_partial_simd` が足されている（下の「部分 Top-k の 2 メソッドと番兵」の節）。試験のファイルは `crates/contract/tests/cpu_ops_topk_reference.rs`。
+
 ## wasm32 の simd128 版（2/5）
 
 `DefaultCpuOps` の `gemm_simd`・`elementwise_simd` が呼ぶ版は、関数の項に付けたビルド時の `cfg` で選ぶ。実行時に CPU の機能は調べない。
@@ -92,6 +94,12 @@ feature の条件が無いので、`make verify` の `cargo test` と `make buil
 cargo test -p fandhe-silicon-contract --lib cpu_ops
 cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
 cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+```
+
+補い: 部分 Top-k の試験は次で流す。
+
+```sh
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference
 ```
 
 wasm32 の 2 構成の lint は `make build-profiles` の中で流れる。単体では次を流す。
@@ -273,6 +281,20 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `topk_fills_first_k` | 4 つの組の出力の k 件がすべて有限のスコアで、番兵のスロット番号でない |
 | `topk_simd_matches_scalar_bytes` | 2 型それぞれで `topk_partial_simd` の出力が `topk_partial_scalar` とスロット番号・スコアのビットまで一致する |
 | `topk_reference_ops_follow_scalar_path` | `ReferenceCpuOps` の 2 メソッドの出力が `DefaultCpuOps::topk_partial_scalar` と一致する |
+
+確かめ方は `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`。
+
+## 部分 Top-k の out が k より長い入力の試験（TASK-1352）
+
+`crates/contract/tests/cpu_ops_topk_reference.rs` の `topk_longer_out_keeps_sentinel_tail`。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 入力 | 20,000 件・k=8、同点ありの 200 件・k=5、非有限ありの 200 件・k=3。どれも有限のスコアの件数が k を超え、`out` の長さは `k + 7` |
+| 呼び方 | `DefaultCpuOps`・`ReferenceCpuOps` の 2 型と `topk_partial_scalar`・`topk_partial_simd` の 2 メソッドの 4 つの組 |
+| 確かめる値 | 戻りが `Ok`。先頭の `k` 件が CPU 参照と一致する。`k` 件目より後の位置がすべて `ReferenceCpuOps::SENTINEL` と（スコアはビットまで）等しい |
+
+書く件数を `out` の長さにする変更、番兵の埋めを外す変更、書く件数を 1 件減らす変更は、この試験が落とす。
 
 確かめ方は `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`。
 
