@@ -132,6 +132,36 @@ cargo test -p fandhe-silicon-core --all-features
 cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
 ```
 
+## 完了の条件の確かめ（5/5）
+
+5/5（#7687）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1877）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型・定数・関数が共通の crate の feature の条件なしで公開されている | `grep -n 'mod query_check\|pub use query_check' crates/core/src/execution.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `execution.rs` の 11・24 行目、終了コード 0 |
+| (2) | 結果の配置（CMD-127 のポインタ） | `cargo test -p fandhe-silicon-core --test query_layout` の `layout_all_31_combinations`・`layout_example_two_flags`・`layout_query_i_starts_at_offset_plus_i_stride`・`position_rejects_non_single_flag`・`empty_flags_have_zero_stride`・`query_size_and_constants` | 6 本とも `ok`（全体で 8 passed） |
+| (3) | 個数の上限（CMD-128 のポインタ） | 同上の `set_count_bounds`・`rejection_is_invalid_argument_only`・`query_size_and_constants` | 3 本とも `ok` |
+| (4) | 結果の大きさと長さの不足の拒否（CMD-129 のポインタ） | `query_layout` の `layout_query_i_starts_at_offset_plus_i_stride`、`cargo test -p fandhe-silicon-core --test query_resolve` の `resolve_boundaries`・`resolve_grid_matches_reference`・`resolve_stride_values`・`resolve_is_repeatable` | 5 本とも `ok`（`query_resolve` 全体で 5 passed） |
+| (5) | 解決先の offset の整列（CMD-130 のポインタ） | `query_resolve` の `resolve_offset_alignment`・`resolve_grid_matches_reference` | 2 本とも `ok` |
+| (6) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/execution/query_check.rs`、`git show --stat <sha> -- crates/core/src/stub_device.rs crates/contract`（`e61106b`・`ba13ee7`・`7c5ef2b`・`bbb08ea` のそれぞれ） | `use` は 3 行で `core::ops`・`crate::` だけ、4 コミットとも差分 0 |
+| (7) | 依存 0・unsafe 0 | 4 コミットそれぞれで `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/execution/query_check.rs`、`grep -n forbid crates/core/src/lib.rs`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 4 コミットとも差分 0、`unsafe` は 0 件、35 行目に `#![forbid(unsafe_code)]`、承認の記録 4 件、core の外部依存 0 件 |
+| (8) | 試験の件数と CI | `--lib query_check`・`--doc PipelineStatisticsFlags`・`--doc validate_query`・`--test query_layout`・`--test query_resolve`、`--all-features` での `query_layout`・`query_resolve`、`make verify`・`make wasm-verify`・`make check`・`make deny`・`make deps-check` | 8 passed・1 passed・2 passed・8 passed・5 passed。`--all-features` でも 8 passed・5 passed。5 つの `make` は終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1877）。確かめた base は `bbb08ea518203c33fa8c2f4427851dbf5f0dfc5a`。
+
+追加で流したコマンド。
+
+```text
+cargo check -p fandhe-silicon-core
+make wasm-verify
+```
+
+### 再実行の契機
+
+- `crates/core/src/execution/query_check.rs`・`crates/core/tests/query_layout.rs`・`crates/core/tests/query_resolve.rs` を変えたとき
+- `validate_buffer_range` を変えたとき
+- `PipelineStatisticsFlags` に定数が増えたとき
+
 ## 段の表
 
 | 段 | Issue | 内容 |
@@ -140,4 +170,4 @@ cargo check -p fandhe-silicon-core --tests --target wasm32-unknown-unknown
 | 2/5 | #7684 | 実装 |
 | 3/5 | #7685 | テスト |
 | 4/5 | #7686 | テスト |
-| 5/5 | #7687 | 確かめ |
+| 5/5 | #7687 | 完了の条件の確かめ（本頁の 5/5 の節） |
