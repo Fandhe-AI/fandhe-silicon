@@ -281,8 +281,12 @@ FAKE_NODE_RC=3 w --from-dir "${fx}"
 expect "14 node run failed" 2 "node run failed" "!summary:"
 
 # 15. 引数の誤用
-w
-expect "15a no args" 2 "usage:"
+mkbin "${work}/nocargo" dirname basename sed head mktemp rm cat grep python3
+cp "${bin}/node" "${work}/nocargo/node"
+# 15a 引数なしはビルドの経路に入る（cargo の無い最小の PATH では前提の不足で止まる）
+rc=0
+PATH="${work}/nocargo" "${BASH}" "${WWL}" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "15a no args enters build route" 2 "required command not found on PATH: cargo" "!usage:" "!summary:"
 w --from-dir
 expect "15b no value" 2 "usage:"
 w --from-dir ""
@@ -318,6 +322,158 @@ mkbin "${work}/nopy" dirname basename sed head mktemp rm cat grep
 cp "${bin}/node" "${work}/nopy/node"
 w_min "${work}/nopy"
 expect "18b python3 missing" 2 "python3"
+
+# ---- ビルドの経路（偽の cargo・rustc・wasm-bindgen・node） ----
+
+bb="${work}/bbin"
+mkbin "${bb}" bash env dirname basename mkdir cp mktemp rm cat sed head grep python3
+cp "${bin}/node" "${bb}/node"
+export FAKE_BLOG="${work}/build.log"
+export FAKE_TARGET_DIR="${work}/faketarget"
+export FAKE_SYSROOT="${work}/sysroot"
+mkdir -p "${FAKE_SYSROOT}/lib/rustlib/wasm32-unknown-unknown" "${work}/sysroot-empty"
+printf '#!/bin/sh\n%s\n' 'case "$1" in
+metadata)
+  echo "meta" >>"$FAKE_BLOG"
+  [ "${FAKE_CARGO_META_RC:-0}" = 0 ] || exit 1
+  printf "{\"target_directory\": \"%s\"}\n" "$FAKE_TARGET_DIR"
+  exit 0 ;;
+build)
+  shift
+  td=""; prof=""; tgt=""; pkg=""; locked=no; offline=no
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --target-dir) td="$2"; shift ;;
+      --profile) prof="$2"; shift ;;
+      --target) tgt="$2"; shift ;;
+      -p) pkg="$2"; shift ;;
+      --locked) locked=yes ;;
+      --offline) offline=yes ;;
+    esac
+    shift
+  done
+  isa="$(basename "$td")"
+  echo "build profile=$prof isa=$isa target=$tgt pkg=$pkg locked=$locked offline=$offline encoded=$CARGO_ENCODED_RUSTFLAGS rustflags=${RUSTFLAGS:-unset}" >>"$FAKE_BLOG"
+  [ "${FAKE_BUILD_FAIL:-}" != "$prof-$isa" ] || exit 1
+  mkdir -p "$td/$tgt/$prof"
+  echo wasm >"$td/$tgt/$prof/wasm_glue.wasm"
+  exit 0 ;;
+esac
+exit 0' >"${bb}/cargo"
+printf '#!/bin/sh\n%s\n' 'if [ "$1" = "--print" ]; then echo "${FAKE_SYSROOT_OVERRIDE:-$FAKE_SYSROOT}"; exit 0; fi
+echo "rustc 1.0.0"' >"${bb}/rustc"
+printf '#!/bin/sh\n%s\n' 'if [ "$1" = "--version" ]; then echo "${FAKE_BINDGEN_VERSION-wasm-bindgen 0.2.128}"; exit 0; fi
+[ "$1" = "--target" ] && [ "$2" = "web" ] || exit 9
+echo "bindgen target=$2 out=$4" >>"$FAKE_BLOG"
+case "$4" in */"${FAKE_BINDGEN_FAIL:-none}"/web) exit 1 ;; esac
+echo js >"$4/wasm_glue.js"; echo wasm >"$4/wasm_glue_bg.wasm"' >"${bb}/wasm-bindgen"
+chmod +x "${bb}/cargo" "${bb}/rustc" "${bb}/wasm-bindgen"
+check "b0 real cargo hidden" "$(PATH="${bb}" command -v cargo | grep -q "${bb}" && echo 0 || echo 1)"
+GLUE_VER="$(sed -n 's/^wasm-bindgen = "=\(.*\)"$/\1/p' "${ROOT_DIR}/wasm/crates/glue/Cargo.toml" | head -1)"
+check "b0 glue manifest version found" "$([ -n "${GLUE_VER}" ] && echo 0 || echo 1)"
+export FAKE_BINDGEN_VERSION="wasm-bindgen ${GLUE_VER}"
+
+# wb <引数...>: 最小の PATH で本体を流す。
+wb() {
+  rc=0
+  : >"${FAKE_LOG}"
+  : >"${FAKE_BLOG}"
+  PATH="${bb}" "${BASH}" "${WWL}" "$@" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+}
+nbuilds() { grep -c '^build ' "${FAKE_BLOG}" || true; }
+
+# b1 4 組とも出力ができ、7 名とも無い
+setres '{"init":"ok","exports":[]}'
+wb
+expect "b1 build route" 1 "summary: combos=4 items=44 ok=0 ng=0 not-run=44" "reason=missing-export" "FAILED:" "!reason=build-failed" "!reason=bindgen-failed"
+check "b1 four builds" "$([ "$(nbuilds)" = 4 ] && echo 0 || echo 1)"
+check "b1 two release builds" "$([ "$(grep -c '^build profile=release ' "${FAKE_BLOG}")" = 2 ] && echo 0 || echo 1)"
+check "b1 two wasm-size builds" "$([ "$(grep -c '^build profile=wasm-size ' "${FAKE_BLOG}")" = 2 ] && echo 0 || echo 1)"
+check "b1 locked offline wasm32 pkg" "$([ "$(grep -c 'target=wasm32-unknown-unknown pkg=wasm-glue locked=yes offline=yes' "${FAKE_BLOG}")" = 4 ] && echo 0 || echo 1)"
+check "b1 four bindgen web" "$([ "$(grep -c '^bindgen target=web' "${FAKE_BLOG}")" = 4 ] && echo 0 || echo 1)"
+check "b1 node once per combo" "$([ "$(grep -c '^node ' "${FAKE_LOG}")" = 4 ] && echo 0 || echo 1)"
+
+# b2 detect_isa_bits が組に合う
+setres_isa 0 1
+wb
+expect "b2 isa matches built combos" 1 "ok=4 ng=0 not-run=40" "item: combo=release-simd128 item=detect-isa-bits export=detect_isa_bits label=ok value=1" "item: combo=wasm-size-scalar item=detect-isa-bits export=detect_isa_bits label=ok value=0"
+
+# b3 RUSTFLAGS は子に渡らない
+setres '{"init":"ok","exports":[]}'
+RUSTFLAGS="-C target-cpu=native" wb
+expect "b3 rustflags run" 1 "summary:"
+check "b3 rustflags unset in all builds" "$([ "$(grep -c 'rustflags=unset' "${FAKE_BLOG}")" = 4 ] && echo 0 || echo 1)"
+check "b3 scalar encoded empty" "$([ "$(grep -c 'isa=scalar .*encoded= rustflags' "${FAKE_BLOG}")" = 2 ] && echo 0 || echo 1)"
+check "b3 simd128 encoded set" "$([ "$(grep -c 'isa=simd128 .*encoded=-C.*target-feature=+simd128 rustflags' "${FAKE_BLOG}")" = 2 ] && echo 0 || echo 1)"
+
+# b4 1 組のビルドの失敗
+FAKE_BUILD_FAIL=release-simd128 wb
+expect "b4 build failed" 1 "init: combo=release-simd128 target=web result=not-run reason=build-failed" "item: combo=release-simd128 item=topk-simd export=topk_simd label=not-run reason=build-failed" "!bindgen-failed"
+check "b4 eleven build-failed rows" "$([ "$(grep -c 'item: combo=release-simd128 .*reason=build-failed' "${OUT_F}")" = 11 ] && echo 0 || echo 1)"
+check "b4 node skipped for the failed combo" "$(grep -q 'node release-simd128' "${FAKE_LOG}" && echo 1 || echo 0)"
+check "b4 three bindgen" "$([ "$(grep -c '^bindgen' "${FAKE_BLOG}")" = 3 ] && echo 0 || echo 1)"
+
+# b5 1 組の wasm-bindgen の失敗
+FAKE_BINDGEN_FAIL=wasm-size-scalar wb
+expect "b5 bindgen failed" 1 "init: combo=wasm-size-scalar target=web result=not-run reason=bindgen-failed" "!reason=build-failed"
+check "b5 twelve bindgen-failed rows" "$([ "$(grep -c 'combo=wasm-size-scalar .*reason=bindgen-failed' "${OUT_F}")" = 12 ] && echo 0 || echo 1)"
+check "b5 node skipped for the failed combo" "$(grep -q 'node wasm-size-scalar' "${FAKE_LOG}" && echo 1 || echo 0)"
+check "b5 node called three times" "$([ "$(grep -c '^node ' "${FAKE_LOG}")" = 3 ] && echo 0 || echo 1)"
+
+# b6 wasm-bindgen が無い・版違い
+mv "${bb}/wasm-bindgen" "${bb}/wasm-bindgen.off"
+wb
+expect "b6a bindgen missing" 2 "wasm-bindgen" "!summary:"
+check "b6a no cargo build" "$([ "$(nbuilds)" = 0 ] && echo 0 || echo 1)"
+mv "${bb}/wasm-bindgen.off" "${bb}/wasm-bindgen"
+for v in "wasm-bindgen 0.2.127" "wasm-bindgen ${GLUE_VER}0" "wasm-bindgen ${GLUE_VER} extra" "garbage" ""; do
+  FAKE_BINDGEN_VERSION="${v}" wb
+  expect "b6b bindgen version '${v}'" 2 "version does not match" "!summary:"
+  check "b6b no cargo build '${v}'" "$([ "$(nbuilds)" = 0 ] && echo 0 || echo 1)"
+done
+
+# b7 target が無い
+FAKE_SYSROOT_OVERRIDE="${work}/sysroot-empty" wb
+expect "b7 target missing" 2 "is not installed" "!summary:"
+check "b7 no cargo build" "$([ "$(nbuilds)" = 0 ] && echo 0 || echo 1)"
+
+# b8 cargo metadata の失敗
+FAKE_CARGO_META_RC=1 wb
+expect "b8 metadata failed" 2 "make wasm-verify" "!summary:"
+check "b8 no cargo build" "$([ "$(nbuilds)" = 0 ] && echo 0 || echo 1)"
+
+# b9 cargo・rustc が無い
+for t in cargo rustc; do
+  mv "${bb}/${t}" "${bb}/${t}.off"
+  wb
+  expect "b9 ${t} missing" 2 "required command not found on PATH: ${t}" "!summary:"
+  mv "${bb}/${t}.off" "${bb}/${t}"
+done
+
+# b10 node の版違い
+FAKE_NODE_VERSION=v24.21.0 wb
+expect "b10 node version mismatch" 2 "node version mismatch" "!summary:"
+check "b10 cargo not called" "$([ ! -s "${FAKE_BLOG}" ] && echo 0 || echo 1)"
+
+# b11 パスが出ない
+wb
+expect "b11 no path leak" 1 "!${work}" "!${FAKE_TARGET_DIR}"
+
+# b12 専用のディレクトリだけを作り直す
+mkdir -p "${FAKE_TARGET_DIR}/glue-size" "${FAKE_TARGET_DIR}/glue-web-load"
+echo keep >"${FAKE_TARGET_DIR}/glue-size/keep"
+echo stale >"${FAKE_TARGET_DIR}/glue-web-load/stale"
+wb
+expect "b12 dedicated dir" 1 "summary:"
+check "b12 sibling kept" "$([ -f "${FAKE_TARGET_DIR}/glue-size/keep" ] && echo 0 || echo 1)"
+check "b12 stale removed" "$([ ! -e "${FAKE_TARGET_DIR}/glue-web-load/stale" ] && echo 0 || echo 1)"
+check "b12 outputs under glue-web-load" "$([ -f "${FAKE_TARGET_DIR}/glue-web-load/target/scalar/wasm32-unknown-unknown/release/wasm_glue.wasm" ] && echo 0 || echo 1)"
+
+# b13 --from-dir の経路は cargo・wasm-bindgen を呼ばない
+newfix
+wb --from-dir "${fx}"
+expect "b13 from-dir needs no cargo" 1 "summary: combos=4 items=44 ok=0 ng=0 not-run=44"
+check "b13 no cargo call" "$([ ! -s "${FAKE_BLOG}" ] && echo 0 || echo 1)"
 
 # ---- 本物の node で load-web.mjs を直接流す ----
 # 偽の glue は ESM（package.json の type で明示）。計算の 6 名は呼ばれたら 97 で終わり、マーカーを書く。
