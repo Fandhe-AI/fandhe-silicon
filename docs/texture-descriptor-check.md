@@ -84,10 +84,35 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `D3` 4×4×32 の mip 6 / 7 / 0 | `Ok(())` / `InvalidArgument` / `InvalidArgument` |
 | `D1` の mip 1 / 2 | `Ok(())` / `InvalidArgument` |
 
+## 一時的な描画先・マルチサンプル・view_formats（3/6）
+
+mip の段数の検査に続けて、次の 3 つをこの順に照らす（番号は上の続き）。どれも `ContractError::InvalidArgument` を返し、文言は固定しない。
+
+9. 用途が `TRANSIENT_ATTACHMENT` を含み、用途が `TRANSIENT_ATTACHMENT | RENDER_ATTACHMENT` とちょうど同じでないか、`mip_level_count` が 1 でないか、`depth_or_array_layers` が 1 でないか、`view_formats` が空でない
+10. サンプル数が 1 より大きく、`mip_level_count` が 1 でないか、用途が `STORAGE_BINDING` を含むか、`RENDER_ATTACHMENT` を含まない
+11. `view_formats` のどれかの要素が、元の形式と同じでなく、`remove_srgb_suffix()` が元の形式の `remove_srgb_suffix()` と同じでもない
+
+照らす順の全体は 1〜11 の番号の順（用途の空、大きさの 0、次元ごとの上限、サンプル数、次元との組、D1・D3 の圧縮と描画先、ブロックの倍数、mip の段数、9、10、11）。
+
+`D2` 16×16 の `Rgba8Unorm`、上限は 1/6 と同じ。
+
+| 入力 | 返し |
+| ---- | ---- |
+| 用途 `TRANSIENT_ATTACHMENT \| RENDER_ATTACHMENT`、mip 1、層 1、`view_formats` 空（サンプル数 1 / 4） | `Ok(())` |
+| 上に `COPY_SRC` を足す、または `TRANSIENT_ATTACHMENT` だけ | `InvalidArgument` |
+| 上の用途で mip 2、層 2、`view_formats` に `Rgba8UnormSrgb` | `InvalidArgument` |
+| サンプル数 4、用途 `RENDER_ATTACHMENT`、mip 1 | `Ok(())` |
+| サンプル数 4 で mip 2、`STORAGE_BINDING` を足す、`RENDER_ATTACHMENT` なし | `InvalidArgument` |
+| サンプル数 1 で mip 2・`STORAGE_BINDING`・`RENDER_ATTACHMENT` なし | `Ok(())` |
+| `Rgba8Unorm` の `view_formats` が `[Rgba8UnormSrgb]` / `[Rgba8Unorm]` | `Ok(())` |
+| `Rgba8Unorm` の `view_formats` が `[Bgra8Unorm]` / `[Rgba8UnormSrgb, Bgra8Unorm]` | `InvalidArgument` |
+| `Bgra8UnormSrgb` の `view_formats` が `[Bgra8Unorm]` | `Ok(())` |
+| ASTC 6x6 `Unorm` の `view_formats` が `[UnormSrgb]` / `[Unorm]` / `[Hdr]` | `Ok(())` / `Ok(())` / `InvalidArgument` |
+
 ## 対応するテスト
 
 `crates/core/src/texture/descriptor_check.rs` の `mod tests`:
-`descriptor_check_empty_usage_is_rejected`・`descriptor_check_zero_extent_is_rejected`・`descriptor_check_d1_limits`・`descriptor_check_d2_limits`・`descriptor_check_d3_limits`・`descriptor_check_limits_are_not_swapped`・`descriptor_check_sample_count`・`descriptor_check_max_mip_level_count_values`・`descriptor_check_depth_stencil_and_transient_need_d2`・`descriptor_check_d1_rejects_compressed_and_render_attachment`・`descriptor_check_d3_compressed_formats`・`descriptor_check_compressed_block_multiple`・`descriptor_check_mip_level_count`。
+`descriptor_check_empty_usage_is_rejected`・`descriptor_check_zero_extent_is_rejected`・`descriptor_check_d1_limits`・`descriptor_check_d2_limits`・`descriptor_check_d3_limits`・`descriptor_check_limits_are_not_swapped`・`descriptor_check_sample_count`・`descriptor_check_max_mip_level_count_values`・`descriptor_check_depth_stencil_and_transient_need_d2`・`descriptor_check_d1_rejects_compressed_and_render_attachment`・`descriptor_check_d3_compressed_formats`・`descriptor_check_compressed_block_multiple`・`descriptor_check_mip_level_count`・`descriptor_check_transient_attachment`・`descriptor_check_multisample`・`descriptor_check_view_formats_compatibility`。
 doctest は `validate_texture_descriptor` の `///` に 1 本（`Ok`・用途が空・幅 8193）、`max_mip_level_count` の `///` に 1 本。
 
 ## 確かめ方
