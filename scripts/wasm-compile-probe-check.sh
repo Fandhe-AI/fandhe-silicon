@@ -9,6 +9,7 @@
 # リポジトリのファイルは変更しない。
 #
 # 呼び出し元: `make wasm-compile-probe-check`（回帰テストは `make test-wasm-compile-probe-check`）。
+# `scripts/wasm-verify.sh`（`make wasm-verify`。CI の `deny`・`wasm-macos` ジョブ）からも引数なしで呼ばれる。
 # 要るもの: bash・cargo・grep・sed・wc・tr・cat・mktemp・wasm32-unknown-unknown の target。
 #
 # 使い方: scripts/wasm-compile-probe-check.sh [--build-profiles <path>]

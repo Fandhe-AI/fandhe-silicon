@@ -4,7 +4,8 @@
 # 呼び出し元: `make wasm-verify`。CI の deny ジョブも同じ make ターゲットを呼ぶ。
 # ソースは変更しない。外部依存（wasm-bindgen）があるので、初回は取得にネットワークが要る
 # （--locked で Cargo.lock の不一致を失敗させる）。wasm32 の target が無いときは skip せず失敗させる。
-# 製品の core の試験の wasm32 の型検査（cargo check）も流す。
+# 製品の core の試験の wasm32 の型検査（cargo check）と、wasm32 のコンパイル試験の検査
+# （`wasm-compile-probe-check.sh`。一時の crate を wasm32 の組で cargo check して行ごとの期待と照らす）も流す。
 # 回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため。measure-verify.sh と同じ）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +43,10 @@ main() {
   # --all-features は背後実装の feature を含み wasm32 では意味が違うので足さない。
   log "cargo check (crates/contract tests, wasm32-unknown-unknown, default features)"
   cargo check -p fandhe-silicon-contract --tests --locked --target wasm32-unknown-unknown
+
+  # wasm32 の組で一時の crate を cargo check し、行ごとの期待と照らす（本体の失敗はそのまま伝わる）。
+  log "wasm-compile-probe-check (wasm32 compile probes)"
+  "${DIR}/wasm-compile-probe-check.sh"
 
   log "cargo test (wasm/, host)"
   cargo test --manifest-path wasm/Cargo.toml --workspace --locked

@@ -65,6 +65,29 @@ wasm32 向けの feature の組で、呼べない呼び出しがコンパイル�
 native の側では `crates/contract/src/cfg_gate_doctest.rs` の `DownloadBlockingGate`・`WaitBlockingGate`・`NonBlockingReadbackGate`
 （TASK-233）が同じ 3 つの snippet を doctest として持つ。詳細は [feature-gate-compile-check](feature-gate-compile-check.md)。
 
+## wasm-verify からの呼び出し（2/4）
+
+`scripts/wasm-verify.sh` が `scripts/wasm-compile-probe-check.sh` を引数なしで呼ぶ。呼ぶ位置は、contract の試験の wasm32 の型検査の後・`wasm/` の `cargo test` の前。
+`wasm-verify.sh` は `set -euo pipefail` なので、本体が失敗すると `make wasm-verify` も失敗する。`ci.yml` の step は増やしていない。
+
+| ジョブ（check 名） | runner | step | 本体が流れる位置 |
+| ------------------ | ------ | ---- | ---------------- |
+| `deny`（`make deny (cargo-deny)`） | `ubuntu-latest` | `make wasm-verify` | `wasm-verify.sh` の中 |
+| `wasm-macos`（`wasm32 build + size + node (macos-latest)`） | `macos-latest`（arm64） | `make wasm-verify` | `wasm-verify.sh` の中 |
+
+確かめ方: `grep -n 'wasm-compile-probe-check' scripts/wasm-verify.sh`
+
+手元の実行（`origin/main` の `76e52b6` の上の作業ツリー）の `make wasm-verify`（終了コード 0）から抜いた行:
+
+```text
+record: probe=download_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+record: probe=wait_blocking target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=fail code=E0599 result=ok
+record: probe=nonblocking_readback target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops expect=pass code=- result=ok
+record: probe=download_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+record: probe=wait_blocking_gate_open target=wasm32-unknown-unknown features=contract-core,cpu-isa,cpu-ops,native-blocking-wait expect=pass code=- result=ok
+wasm-compile-probe-check: all probes passed
+```
+
 ## 対応するテスト
 
 `scripts/test-wasm-compile-probe-check.sh` は合成の `build-profiles.sh` と PATH の先頭に置く偽の cargo で判定を確かめる。
@@ -111,7 +134,7 @@ test-wasm-compile-probe-check: 23 passed, 0 failed
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | wasm32 のコンパイル試験の検査と回帰テスト | #3944 |
-| 2/4 | `make wasm-verify` からの呼び出し | #3945 |
+| 2/4 | wasm-verify からの呼び出し | #3945 |
 | 3/4 | 回帰テストの CI への組み込み | #3946 |
 | 4/4 | 完了の条件の確かめ | #3947 |
 
