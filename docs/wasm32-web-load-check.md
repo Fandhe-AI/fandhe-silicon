@@ -20,7 +20,7 @@ wasm-bindgen の `--target web` の出力を Node の ESM で読み込み、決�
 | 検査の本体（判定） | `scripts/wasm-web-load-check.sh` |
 | 回帰テスト | `scripts/test-wasm-web-load-check.sh` |
 
-本体は `--from-dir <dir>` を必須とし、無ければ使い方の誤りで終了コード 2 になる。
+本体は `--from-dir <dir>` を付けると生成済みの出力だけを読む（省いた経路は「ビルドの経路（2/4）」）。
 node は `v24.13.0` と厳密に一致しなければ、組を読む前に終了コード 2 になる。
 
 #### 組
@@ -106,6 +106,62 @@ test-wasm-web-load-check: 67 passed, 0 failed
 ```
 
 記録時点のコミットは `d4ed11c`。偽の node による判定の全経路と、本物の node で `load-web.mjs` を偽の glue に直接当てる試験を含む。
+
+### ビルドの経路（2/4）
+
+`--from-dir` を省くと、`wasm/` の glue を 4 組でビルドし、wasm-bindgen の CLI で `--target web` の出力を一時ディレクトリの
+`<組>/web/` に作ってから、1/4 と同じ判定にかける。`--from-dir` の経路の振る舞いは変わらない（cargo も CLI も呼ばない）。
+
+#### 前提
+
+外れたら cargo を呼ぶ前に終了コード 2 になる。CLI の入手は試みない。
+
+| 前提 | 確かめ方 |
+| ---- | -------- |
+| python3 3.8 以上 | 本体の python3 の版の確認 |
+| node `v24.13.0` | `node --version` の厳密一致（`--from-dir` の経路と共通） |
+| cargo・rustc・`wasm-bindgen` が PATH にある | 無ければ `required command not found on PATH` |
+| `wasm-bindgen --version` が `wasm/crates/glue/Cargo.toml` の版と一致 | 1 行目が `wasm-bindgen <版>` と厳密一致 |
+| `wasm32-unknown-unknown` の target | `rustc --print sysroot` の `lib/rustlib/wasm32-unknown-unknown` |
+| 依存が手元にある | `cargo metadata --locked --offline` が成功する（取得は `make wasm-verify`） |
+
+#### 組ごとのビルド
+
+成果物は cargo の `target_directory` の下の専用のディレクトリ `glue-web-load` に出す（`wasm-size.sh` の `glue-size` と
+製品のビルドとは共有しない）。開始時にこのディレクトリだけを作り直す。`RUSTFLAGS` は子に渡さない。
+
+| 組 | `--profile` | `CARGO_ENCODED_RUSTFLAGS` | wasm-bindgen |
+| -- | ----------- | ------------------------- | ------------ |
+| `release-scalar` | `release` | 空 | `wasm-bindgen --target web --out-dir <一時>/out/release-scalar/web <wasm>` |
+| `release-simd128` | `release` | `-C\x1ftarget-feature=+simd128` | 同上（組の名前だけ違う） |
+| `wasm-size-scalar` | `wasm-size` | 空 | 同上 |
+| `wasm-size-simd128` | `wasm-size` | `-C\x1ftarget-feature=+simd128` | 同上 |
+
+cargo は共通で `build --manifest-path wasm/Cargo.toml -p wasm-glue --target wasm32-unknown-unknown --locked --offline`。
+
+#### `not-run` の理由（ビルドの経路）
+
+組の `init:` 行と 11 項目の `item:` 行が同じ理由の `not-run` になる（終了コードは 1。2 にはしない）。その組の node は流さない。
+
+| 理由 | 出る場面 |
+| ---- | -------- |
+| `build-failed` | cargo の失敗、または成果物 `wasm_glue.wasm` が無い |
+| `bindgen-failed` | wasm-bindgen の失敗 |
+
+#### 手元で流す方法
+
+`make wasm-verify` の後に `scripts/wasm-web-load-check.sh` を流す（Node v24.13.0 と wasm-bindgen の CLI が要る）。
+
+#### 確かめ方
+
+```text
+$ bash scripts/test-wasm-web-load-check.sh
+...
+test-wasm-web-load-check: 122 passed, 0 failed
+```
+
+記録時点のコミットは `6f71964`。偽の cargo・rustc・wasm-bindgen・node によるビルドの経路の場面（組ごとの引数、
+`RUSTFLAGS` が渡らないこと、ビルドと生成の失敗、前提の不足）を含む。
 
 ## 段
 
