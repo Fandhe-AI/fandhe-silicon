@@ -156,6 +156,106 @@ cargo test -p fandhe-silicon-core --test texture_format_features_values
 cargo test -p fandhe-silicon-core --features test-support,fault-injection --test texture_format_features_contract
 ```
 
+## 公開 API の検査の走査と完了の条件の確かめ（4/4）
+
+4/4（#7729）で、本リポで観測できる事実だけを記録する。GPU の実機は使っていない。コードと試験は変えていない。
+時点: `3ff6dea`（作業ツリーが clean の状態で実行。フルの SHA は `3ff6dea95eeeac8cd6a7554da4d90c375c59faf7`）。
+
+### 検査ごとの走査の範囲
+
+| 検査 | 入口 | 走査する組 | 当てるもの | 新しい型が入るか |
+| ---- | ---- | ---------- | ---------- | ---------------- |
+| wgpu 系の参照 | `make public-api-check` | workspace の lib crate 全部。production と `--all-features` の 2 組 | wgpu 系の型・経路の参照の数 | 入る（観測 (2)） |
+| チップの SDK の参照 | `make public-api-sdk-check` | 同じ 2 組の JSON と `cargo metadata` | チップの SDK の crate の参照の数 | 入る（観測 (2)） |
+| 名前 | `make public-name-check` | 同じ 2 組の JSON | `public-name-check.conf` の語を公開アイテムの名前に部分一致で当てる | 入る（観測 (2)） |
+| WebGPU 系の名前 | `make public-api-webgpu-check` | `without-native-blocking-wait`・`without-ext-interop` の組 | ブロッキング待ちの名前・`PipelineInput` の形・拡張 trait の閉じ込め | 入る（`public_items` に含まれる） |
+| 共通の crate の依存 | `make core-deps-check` | `crates/core/Cargo.toml` と contract の feature の転送 | 外部依存の一覧の完全一致 | 依存の追加なし |
+
+`--emit-json` の経路には `--document-hidden-items` は付かない。
+
+### 観測の記録
+
+#### (1) 5 検査の終了コードと締めの行
+
+5 つとも終了コード 0。core の行と `record:`・`ok:` の行を出力のまま示す。
+
+```text
+$ make public-api-check
+scanned: crate=fandhe_silicon_core features=production format_version=61 public_items=3777 wgpu_type_refs=0 wgpu_other_refs=0
+scanned: crate=fandhe_silicon_core features=all-features format_version=61 public_items=7976 wgpu_type_refs=0 wgpu_other_refs=0
+record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 documents=10 public_items_total=12430 wgpu_type_refs_total=0 wgpu_other_refs_total=0
+ok: 10 public API document(s) checked, no wgpu-family references
+
+$ make public-api-sdk-check
+scanned: crate=fandhe_silicon_core features=production format_version=61 public_items=3369 sdk_type_refs=0 sdk_other_refs=0 external_crates=alloc,core
+scanned: crate=fandhe_silicon_core features=all-features format_version=61 public_items=7116 sdk_type_refs=0 sdk_other_refs=0 external_crates=alloc,core,std
+record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 documents=10 public_items_total=10693 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+
+$ make public-name-check
+scanned: crate=fandhe_silicon_core features=production format_version=61 public_items=3369 named_items=1419 name_hits=0
+scanned: crate=fandhe_silicon_core features=all-features format_version=61 public_items=7116 named_items=2746 name_hits=0
+record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 documents=10 public_items_total=10693 name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0
+ok: 10 public API document(s) and 1 source file(s) checked, no listed words
+
+$ make public-api-webgpu-check
+scanned: crate=fandhe_silicon_core features=without-native-blocking-wait format_version=61 public_items=3369 public_functions=442 blocking_wait_names=0 pipeline_create_functions=1 pipeline_input_violations=0 external_interop_items=0 semaphore_handle_defs=1 submit_functions=3 submit_wait_params=3 interop_violations=0 webgpu_names=0
+scanned: crate=fandhe_silicon_core features=without-ext-interop format_version=61 public_items=3369 external_interop_items=0 interop_op_names=0 semaphore_handle_defs=1 submit_functions=3 submit_wait_params=3 interop_violations=0 webgpu_names=0
+record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 documents=2 public_items_total=3373 public_functions_total=442 blocking_wait_names_total=0 pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0 interop_documents=2 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=1 submit_wait_params_total=3 interop_violations_total=0 webgpu_names_total=0 submit_token_checked=1 submit_token_ops_total=11 submit_token_violations_total=0
+ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok
+
+$ make core-deps-check
+scanned: check=core-deps manifest=crates/core/Cargo.toml package=fandhe-silicon-core normal=- build=- dev=-
+scanned: check=feature-forward manifest=crates/contract/Cargo.toml package=fandhe-silicon-contract core_features=5 forwarded=5
+record: commit=3ff6dea95eeeac8cd6a7554da4d90c375c59faf7 expected_normal=- declared_normal=- unexpected=0 missing=0 declared_build=0 declared_dev=0 core_features=5 forwarded=5 forward_violations=0
+ok: common crate dependencies match the expected set and its features are forwarded from the contract crate
+```
+
+#### (2) 走査の JSON に新しい項目が入ること
+
+`scripts/public-api-check.sh --emit-json <dir>` が書く core の JSON から、`crate_id==0` で visibility が `public` か `default` の項目を名前ごとに数えた。
+
+```text
+$ jq -r '[.index[] | select(.crate_id==0 and (.visibility=="public" or .visibility=="default") and (.name=="TextureFormatFeatures" or .name=="TextureFormatFeature" or .name=="texture_format_features"))] | group_by(.name) | map("\(.[0].name)=\(length)") | join(" ")' <dir>/fandhe_silicon_core.<組>.json
+production:   TextureFormatFeature=1 TextureFormatFeatures=1 texture_format_features=2
+all-features: TextureFormatFeature=1 TextureFormatFeatures=1 texture_format_features=2
+```
+
+`texture_format_features` の 2 件は module と trait の操作。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型が共通の crate に feature の条件なしで公開されている | `grep -n 'pub mod texture_format_features' crates/core/src/lib.rs`、`cargo check -p fandhe-silicon-core` | `pub mod texture_format_features;` が 1 件。`cargo check` は `Finished` |
+| (2) | 型が 18 の要素と読み出しを持つ | `cargo test -p fandhe-silicon-core --lib texture_format_features`、`--test texture_format_features_values` | lib 15 件 ok（`all_has_eighteen_distinct`・`feature_reads` ほか）。`feature_kinds_are_eighteen` ok |
+| (3) | 組み立ての口が規則を確かめる | 同上 | `feature_entry_rules`・`format_query_rules`・`unit_without_value_rejects_features` ok。`builder_rules_reject_each_violation` ok |
+| (4) | 公開 API に wgpu の型が 0 件 | `make public-api-check`、観測 (2) | `wgpu_type_refs_total=0`。新しい項目が 2 組の走査に入る |
+| (5) | チップの SDK の型が 0 件 | `make public-api-sdk-check` | `sdk_type_refs_total=0`、`common_chip_deps=0` |
+| (6) | `texformat:` の鍵ごとに値が返る | `cargo test -p fandhe-silicon-core --test texture_format_features_values`、`--features test-support,fault-injection --test texture_format_features_contract` | `every_texture_format_key_returns_a_value`・`stub_device_returns_value_for_every_key` ok。試験が 118 形式を確かめる |
+| (7) | 形式単位の能力の機能が非対応の device の返し | 同上 | `format_values_do_not_depend_on_adapter_specific_feature_row`・`stub_device_returns_value_for_every_key` ok。契約の試験 3 件 ok、values の試験 5 件 ok |
+| (8) | 依存 0・unsafe 0 | `git diff --stat ea6e77f 3ff6dea -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/texture_format_features.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | `Cargo.lock`・`deps-approved.toml` の差分なし。`crates/core/Cargo.toml` は `[[test]] texture_format_features_contract` の 4 行の追加だけ。`#![forbid(unsafe_code)]`、`unsafe` は 0 件、`cargo tree` は core 1 件のみ。`core-deps-check` は終了コード 0 |
+| (9) | CI で流れる場所 | `make verify`、`make wasm-verify` | `make verify` の出力に lib の 15 件、`texture_format_features_values`・`texture_format_features_contract` の実行、doc の 3 件（`Capabilities::texture_format_features`・`TextureFormatFeatures`・`check_texture_format_features`）。`make verify` と `make wasm-verify` は終了コード 0 |
+| (10) | 品質ゲート | `make check`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2566）。確かめた base は `3ff6dea95eeeac8cd6a7554da4d90c375c59faf7`。
+
+### 確かめ方
+
+```sh
+make public-api-check
+make public-api-sdk-check
+make public-name-check
+make public-api-webgpu-check
+make core-deps-check
+d=$(mktemp -d) && scripts/public-api-check.sh --emit-json "$d"
+grep -n 'pub mod texture_format_features' crates/core/src/lib.rs
+cargo test -p fandhe-silicon-core --lib texture_format_features
+cargo test -p fandhe-silicon-core --test texture_format_features_values
+cargo test -p fandhe-silicon-core --features test-support,fault-injection --test texture_format_features_contract
+make check && make verify && make deny && make deps-check && make build-profiles && make wasm-verify
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
@@ -163,4 +263,4 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 | 1/4 | #7726 | 形式ごとの能力の値の型と組み立ての規則 |
 | 2/4 | #7727 | 能力の問合せの口に形式ごとの能力の値の操作を足す |
 | 3/4 | #7728 | 形式の鍵ごとの値と非対応の device の試験 |
-| 4/4 | #7729 | 完了の条件の確かめ |
+| 4/4 | #7729 | 公開 API の検査の走査と完了の条件の確かめ |
