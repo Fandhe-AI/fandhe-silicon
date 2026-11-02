@@ -69,7 +69,13 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `args()` は非 Unicode で panic し入力のバイト列を診断に出すため `args_os()` で取る。
+    // 変換できない引数は、数字でも `-` 始まりでもない固定の 1 文字に置き換え、
+    // ふつうの非整数と同じ終了コード 2・固定の文言に落とす（入力の値は出さない）。
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string().unwrap_or_else(|_| "\u{FFFD}".to_string()))
+        .collect();
     match run(&args) {
         Ok(line) => {
             println!("{line}");
