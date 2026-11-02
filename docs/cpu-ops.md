@@ -253,3 +253,25 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 - ヒープの確保をしない
 
 確かめ方は `cargo test -p fandhe-silicon-contract --lib cpu_ops`。
+
+## 部分 Top-k を CPU 参照と比べる試験（TASK-1352 の 2/3）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1352。親 Issue は #931、この節（2/3）は #6350。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| ファイル | `crates/contract/tests/cpu_ops_topk_reference.rs`（`Cargo.toml` の `[[test]]` に `required-features = ["cpu-ops", "test-support"]`） |
+| 比べの基準 | `fandhe_silicon_core::parity::topk` の `reference_topk_f32`・`compare_topk`（TASK-24 のポインタ） |
+| 入力 | `SplitMix64`・`GEMM_INPUT_SEED`（TASK-1005 のポインタ）と `SIGNED_ZERO_INPUTS`（TASK-976 のポインタ） |
+
+入力は 20,000 件・k=64、同点ありの 200 件・k=10、非有限ありの 200 件・k=10、`SIGNED_ZERO_INPUTS` の全件。`DefaultCpuOps`・`ReferenceCpuOps` の 2 型と `topk_partial_scalar`・`topk_partial_simd` の 2 メソッドの 4 つの組を公開のパスから呼ぶ。
+
+| 試験 | 内容 |
+| ---- | ---- |
+| `topk_scalar_matches_cpu_reference` | `DefaultCpuOps::topk_partial_scalar` の出力が CPU 参照と位置ごとにスロット番号・スコアのビットまで一致する（符号付きの零の入力は `expected()` とも） |
+| `topk_excludes_non_finite` | 4 つの組の出力に非有限のスコアも、非有限の位置のスロット番号も入らない |
+| `topk_fills_first_k` | 4 つの組の出力の k 件がすべて有限のスコアで、番兵のスロット番号でない |
+| `topk_simd_matches_scalar_bytes` | 2 型それぞれで `topk_partial_simd` の出力が `topk_partial_scalar` とスロット番号・スコアのビットまで一致する |
+| `topk_reference_ops_follow_scalar_path` | `ReferenceCpuOps` の 2 メソッドの出力が `DefaultCpuOps::topk_partial_scalar` と一致する |
+
+確かめ方は `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`。
