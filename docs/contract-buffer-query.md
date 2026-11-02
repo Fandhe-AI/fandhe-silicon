@@ -65,6 +65,8 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 | `import_memory` | 本リポに無い | `git grep -n import_memory -- crates wasm measure` |
 | `docs/contract/` の項目ファイル | 項目ごとのファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` のみ） | `ls docs/contract` |
 
+補い: 上の表の `.usage()`・`.size()` の行は記録した時点の値で、書き換えていない。いま同じコマンドを流すと、`crates/upper/src/buffer.rs` の rustdoc の例の 1 行（`b.handle().size()`）にも当たる。製品の処理としての呼び出しではない。`impl MemoryOps` の行はいまも `crates/upper` に当たらない。
+
 方針:
 
 - この TASK が `core` で受け持つのは、`size`・`usage` の 2 つの関数、`allocate` の rustdoc の契約、試験用の実装による試験だけ

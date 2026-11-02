@@ -193,6 +193,8 @@
 | exec・upper・wasm-abi の `SubmitToken` | ソースに 0 件 | `git grep -n SubmitToken -- crates/exec crates/upper crates/wasm-abi`（出力なし） |
 | `SubmitToken` の作り方 | `#[non_exhaustive]` で、crate の外から構造体式で作れないことを rustdoc の `compile_fail` の例が確かめる。`Default` の impl は無い。`__backend_new` は `#[doc(hidden)]` の `pub fn`（背後実装向け）。型の所在は [contract-submit-types](contract-submit-types.md)（TASK-588） | `grep -n -B12 'pub struct SubmitToken' crates/core/src/execution/submit.rs`・`git grep -n 'Default for SubmitToken' -- crates`（出力なし）・`cargo test -p fandhe-silicon-core --doc` |
 
+補い: 上の表の「exec・upper・wasm-abi の `SubmitToken`」の行は記録した時点の値で、書き換えていない。いま同じコマンドを流すと、`crates/upper/src/encoder.rs` の 5 件に当たる（`crates/upper/tests` にも当たる。`crates/exec`・`crates/wasm-abi` は 0 件）。
+
 ### 段
 
 | 段 | 内容 | Issue |

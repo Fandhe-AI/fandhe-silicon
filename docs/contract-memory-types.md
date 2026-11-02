@@ -36,6 +36,8 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 
 補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
 
+補い: 上の表の `upper` の行も記録した時点の事実で、書き換えていない。いまの `crates/upper` は device・queue・記録先・投入の印・compute のパス・バッファの型を持つ（[upper-compute-path](upper-compute-path.md)）。
+
 ## 段の表
 
 | 段 | イシュー | 内容 |

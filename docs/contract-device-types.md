@@ -36,6 +36,8 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 
 補い: 上の表の `exec` の行は記録した時点の事実で、書き換えていない。いまの `crates/exec` は入口・選び方・報告の型を持つ（[exec-skeleton-types](exec-skeleton-types.md)）。
 
+補い: 上の表の `upper` の行も記録した時点の事実で、書き換えていない。いまの `crates/upper` は device・queue・記録先・投入の印・compute のパス・バッファの型を持つ（[upper-compute-path](upper-compute-path.md)）。
+
 ## 現状の形（2/6）
 
 型は `crates/core` に置く（外部依存 0・`forbid(unsafe_code)` のまま）。置き場と形は TASK-136 の決定の記録に従う（ポインタのみ）。
@@ -140,6 +142,8 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check` | いずれも終了コード 0 |
 
 補い: 上の C3 は記録した時点の値で、書き換えていない。いま同じ検索を流すと、`crates/exec` では `src/entry.rs`・`src/select.rs`・`tests/common/mod.rs` に当たる（`crates/contract` にも当たる）。
+
+補い: 上の C3 の `crates/upper` は、いま `crates/upper/tests/common/mod.rs` にも当たる。
 
 - 実機の run は含めない。`make inventory-trace-check` は `docs/spec` の取得が要るので含めない。
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-136）。
