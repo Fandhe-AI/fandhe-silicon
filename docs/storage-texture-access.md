@@ -87,3 +87,26 @@ cargo test -p fandhe-silicon-core --doc validate_storage_texture
 ```text
 cargo test -p fandhe-silicon-core --test texture_storage_access
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#7746）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1944）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型と検査が共通の crate に公開されている | `grep -n 'mod storage_access\|pub use storage_access' crates/core/src/texture.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `texture.rs` の 484・485 行目、終了コード 0 |
+| (2) | アクセスの 4 値と書く・読むの問い | `cargo test -p fandhe-silicon-core --test texture_storage_access` の `access_values` | `ok` |
+| (3) | `STORAGE_BINDING`（`Atomic` では `STORAGE_ATOMIC` も）の無い申告の拒否 | 同上の `write_only_binding_usage`・`read_only_binding_usage`・`read_write_binding_usage`・`atomic_binding_usage` | 4 本とも `ok` |
+| (4) | 読み取りだけの配置に書き込むシェーダーの拒否と、アクセス・形式の照合 | 同上の `read_only_layout_rejects_writing_shader`・`read_write_layout_shader_access`・`write_only_layout_shader_access`・`atomic_layout_shader_access`・`shader_format_must_match`・`rejection_is_repeatable`・`rejection_is_invalid_argument_only` | 7 本とも `ok`（`--test texture_storage_access` 全体で 12 passed） |
+| (5) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/texture/storage_access.rs`、`git show --stat --format= <sha> -- crates/core/src/stub_device.rs crates/core/src/binding.rs crates/contract`（`fcfdec1`・`1039dcf`・`dda18a1` のそれぞれ） | `use` は 3 行で `super::`・`crate::` だけ、3 コミットとも差分 0 |
+| (6) | 依存 0・unsafe 0 | 3 コミットそれぞれで `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/texture/storage_access.rs`、`grep -n forbid crates/core/src/lib.rs` | 3 コミットとも差分 0、`unsafe` は 0 件、38 行目に `#![forbid(unsafe_code)]` |
+| (7) | 試験の件数と CI | `--lib texture::storage_access`、`--doc StorageTextureAccess`、`--doc validate_storage_texture`、`make verify`、`make wasm-verify` | 7 passed・2 passed・2 passed。`make verify` の `texture_storage_access` の試験は 12 passed。`make verify`・`make wasm-verify` は終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1944）。確かめた base は `dda18a1f827f5a55a1f6a5c54d5f31175aaef0d0`。
+
+追加で流したコマンド。
+
+```text
+cargo check -p fandhe-silicon-core
+make wasm-verify
+```
