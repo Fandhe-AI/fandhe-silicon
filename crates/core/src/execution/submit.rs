@@ -104,6 +104,28 @@ pub enum GpuTiming {
 /// 共通の crate は `CommandEncoder` の `Drop` で高々 1 回だけ `close` を呼ぶ。
 /// 実装する背後実装は、投入の内部で記録先を先に片付けていても `close` が無害であるようにする（二重の後始末にならない）。
 /// `Send + Sync` を要求するのは `CommandEncoder` の `Send + Sync` を保つため。
+///
+/// `Arc` を持つ型は実装できる。
+///
+/// ```
+/// use fandhe_silicon_core::execution::__BackendEncoderCloser;
+///
+/// struct Closer(std::sync::Arc<()>);
+/// impl __BackendEncoderCloser for Closer {
+///     fn close(&mut self) {}
+/// }
+/// ```
+///
+/// `Rc` を持つ型は `Send` でも `Sync` でもないので実装できない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::execution::__BackendEncoderCloser;
+///
+/// struct Closer(std::rc::Rc<()>);
+/// impl __BackendEncoderCloser for Closer {
+///     fn close(&mut self) {}
+/// }
+/// ```
 #[doc(hidden)]
 #[allow(non_camel_case_types)]
 pub trait __BackendEncoderCloser: Send + Sync {
@@ -115,6 +137,28 @@ pub trait __BackendEncoderCloser: Send + Sync {
 ///
 /// `Arc` の複製で各記録先に渡すので、記録先ごとの確保が起きない。共通の crate が呼ぶ回数と
 /// 実装側に求める条件は `__BackendEncoderCloser` と同じ。
+///
+/// `Mutex` を持つ型は実装できる。
+///
+/// ```
+/// use fandhe_silicon_core::execution::__BackendSharedEncoderCloser;
+///
+/// struct Closer(std::sync::Mutex<u32>);
+/// impl __BackendSharedEncoderCloser for Closer {
+///     fn close(&self, _id: u64) {}
+/// }
+/// ```
+///
+/// `Cell` を持つ型は `Sync` でないので実装できない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::execution::__BackendSharedEncoderCloser;
+///
+/// struct Closer(std::cell::Cell<u32>);
+/// impl __BackendSharedEncoderCloser for Closer {
+///     fn close(&self, _id: u64) {}
+/// }
+/// ```
 #[doc(hidden)]
 #[allow(non_camel_case_types)]
 pub trait __BackendSharedEncoderCloser: Send + Sync {

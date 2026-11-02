@@ -70,7 +70,23 @@ pub struct NativeDeviceHandle {
 }
 
 impl NativeDeviceHandle {
-    /// 値を包んでハンドルを作る。
+    /// 値を包んでハンドルを作る。`Send + Sync` の値だけを受け付ける。
+    ///
+    /// `Arc` のような `Send + Sync` の値は包める。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::device::NativeDeviceHandle;
+    ///
+    /// let _h = NativeDeviceHandle::new(std::sync::Arc::new(0u8));
+    /// ```
+    ///
+    /// `Rc` のような `Send` でも `Sync` でもない値は包めない。
+    ///
+    /// ```compile_fail,E0277
+    /// use fandhe_silicon_core::device::NativeDeviceHandle;
+    ///
+    /// let _h = NativeDeviceHandle::new(std::rc::Rc::new(0u8));
+    /// ```
     pub fn new<T: Any + Send + Sync>(value: T) -> Self {
         Self {
             inner: Box::new(value),
