@@ -202,6 +202,31 @@ cargo test -p fandhe-silicon-exec --test opt_in_default
 cargo test -p fandhe-silicon-exec --features native-blocking-wait --test device_operands
 ```
 
+## 理由の値の区別と f32 の非正規化数の項の試験（6/7）
+
+公開のパスだけを使う統合テストで、使えない理由の値の区別と、経路の無い報告での f32 の非正規化数の項を確かめる。本体のコードは変えない。
+
+### 置き場
+
+| パス | 役割 |
+| ---- | ---- |
+| `crates/exec/tests/reasons_and_denormal.rs` | 理由の値と報告の欄の試験（4 本）。試験用の device は `crates/exec/tests/common/mod.rs` の `Scripted` を使う |
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `reasons_are_distinct` | `UnavailableReason` の 8 値（`CapabilityUnsupported` は理由なし・`NoApi`・`NotSupported`・`UnknownFeature` の 4 通り） | どの 2 つも等しくない |
+| `unavailable_report_reasons_are_told_apart` | `bare` と `query_fails` の device・`deny_by_default`・上書きなしで 4 入口 | どちらも `Unavailable`。`native_reason` は前者が `CapabilityUnsupported(_)`、後者が `CapabilityUnknown` で等しくない。`fallback_reason` はどちらも `OptInNotGiven` |
+| `f32_denormal_absent_on_unavailable` | `bare`・`insufficient(FEATURE_SUBGROUP)`・`query_fails` の device・上書きなしと既定の `OptIn` で 4 入口 | どれも `Unavailable` で、`f32_denormal` は `None`。`SubgroupSumF32`・`AtomicAdd` を含む |
+| `report_items_are_readable` | `bare` の device・上書きなしで 4 入口 | `Outcome::report` から 6 欄を読め、`route` は `None`、`native_reason` は `CapabilityUnsupported(Some(UnknownFeature))`、`fallback_reason` は `OptInNotGiven`、`observed_level` は `Unsupported`、`f32_denormal` は `None` |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --test reasons_and_denormal
+```
+
 ## 段の表
 
 | 段 | Issue | 題 |
