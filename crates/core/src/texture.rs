@@ -475,3 +475,8 @@ impl TextureHandle {
 
 mod descriptor_check;
 pub use descriptor_check::{max_mip_level_count, validate_texture_descriptor};
+
+mod usage_check;
+pub use usage_check::{
+    TextureUsageRole, validate_texture_usage_for_role, validate_texture_view_format,
+};
