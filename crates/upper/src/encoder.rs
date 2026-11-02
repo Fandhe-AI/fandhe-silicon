@@ -7,6 +7,8 @@ use core::marker::PhantomData;
 
 use fandhe_silicon_core::execution::{CommandEncoder as ContractEncoder, SubmitToken};
 
+use crate::pass::ComputePass;
+
 /// 契約の記録先を値で持ち回す記録先。`Queue::create_command_encoder` が作る。
 ///
 /// `finish` は自身を消費するので、`finish` の後に同じ値を使うコードはコンパイルできない。
@@ -49,6 +51,11 @@ impl<'d> CommandEncoder<'d> {
             inner,
             _device: PhantomData,
         }
+    }
+
+    /// compute のパスを始める。中の契約の記録先をパスへ移すだけで、契約の操作は呼ばず、失敗しない。
+    pub fn begin_compute_pass(self) -> ComputePass<'d> {
+        ComputePass::from_contract(self.inner)
     }
 
     /// 記録を終え、投入前の値を返す。中の値を移すだけで、契約の操作は呼ばず、失敗しない。
