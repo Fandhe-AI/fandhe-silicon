@@ -61,10 +61,12 @@ git grep -n 'ConstantBinding<' crates/core/src
 | (3) 寿命の引数 | `git grep -n 'pub struct CommandEncoder' crates/` | `crates/core/src/execution/submit.rs:159:pub struct CommandEncoder {` |
 | (4) 公開のメソッド | `awk '/^impl CommandEncoder/,/^}/' crates/core/src/execution/submit.rs \| grep -B1 'pub fn'` | 下の出力 (4) |
 | (5) 定数を受ける口 | `git grep -n 'ConstantBinding<' crates/core/src` | 下の出力 (5) |
-| (6) feature の条件 | `grep -n 'backend-' crates/core/tests/encoder_borrow_lifetime.rs crates/core/tests/dispatch_constants_per_call.rs; echo "exit=$?"` と `grep -n 'cfg(feature' crates/core/tests/encoder_borrow_lifetime.rs crates/core/tests/dispatch_constants_per_call.rs`。背後実装の feature（`backend-*`）の条件が 2 本の試験に無いこと、feature の `cfg` は `native-blocking-wait` の `wait_blocking`（試験用 queue の実装）だけに付くことを確かめる | 1 つ目は出力なしで `exit=1`（一致なし）。2 つ目は下の出力 (6) |
+| (6) feature | `grep -n 'cfg(feature' crates/core/tests/encoder_borrow_lifetime.rs crates/core/tests/dispatch_constants_per_call.rs` | 下の出力 (6) |
 | (6) feature なしの実行 | `cargo test -p fandhe-silicon-core --no-default-features --test encoder_borrow_lifetime --test dispatch_constants_per_call` | `test result: ok. 2 passed` と `test result: ok. 3 passed`（どちらも 0 failed, 0 ignored） |
 | (7) wasm32 の型検査 | `make wasm-verify; echo "exit=$?"` | `exit=0` |
 | (8) 変更の範囲 | `git show --stat --format= <sha> -- crates/` | 下の出力 (8) |
+
+(6) の補足（`32c8e0b` で流し直した。上の表は時点の記録で、書き換えない）: 2 本の試験に背後実装の feature（`backend-*`）の条件は無い（`grep -n 'backend-' crates/core/tests/encoder_borrow_lifetime.rs crates/core/tests/dispatch_constants_per_call.rs; echo "exit=$?"` は出力なしで `exit=1`）。出力 (6) の `cfg(feature` の行は、`native-blocking-wait` の `wait_blocking`（試験用 queue の実装）に付くもの。
 
 出力 (2)（`cargo test -p fandhe-silicon-core --doc` の `submit.rs` の行と `test result:` の行）
 
