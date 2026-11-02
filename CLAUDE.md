@@ -119,7 +119,7 @@ fandhe-silicon/
 ├── docs/wasm32-compile-probe-check.md  # wasm32 のコンパイル試験の検査の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-239）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553）
 ├── docs/wasm32-node-foundation.md  # wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）
 ├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）
-├── docs/cpu-ops.md           # 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）（TASK-1351）
+├── docs/cpu-ops.md           # 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）・決定表の語彙の検査（ソースの語・呼び出しと `DecisionInput` の公開フィールドの集合。TASK-142）
