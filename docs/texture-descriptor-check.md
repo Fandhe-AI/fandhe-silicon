@@ -192,6 +192,36 @@ cargo test -p fandhe-silicon-core --test texture_descriptor_check
 make verify
 ```
 
+## 完了の条件の確かめ（6/6）
+
+6/6（#7661）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-1942。項目 `TEX-50`〜`TEX-54`・`TEX-56`・`TEX-58`〜`TEX-65`）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 検査が共通の crate の純粋関数として公開されている | `grep -n 'mod descriptor_check\|mod usage_check\|pub use' crates/core/src/texture.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | `texture.rs` の 476・477・479・480 行目、終了コード 0 |
+| (2) | 記述子の検査（`TEX-59`〜`TEX-64`、`TEX-54` を含む） | `cargo test -p fandhe-silicon-core --test texture_descriptor_check` の `empty_usage_is_rejected`・`d1_limits`・`d2_limits`・`d3_limits`・`mip_level_count_limits`・`sample_count_values`・`compressed_block_multiple`・`render_attachment_dimension` | 8 本とも `ok` |
+| (3) | `view_formats` の互換と view の形式（`TEX-65`） | 同上の `view_formats_compatibility` | `ok` |
+| (4) | 操作の時点の用途（`TEX-50`〜`TEX-54`・`TEX-58`） | 同上の `usage_roles`・`render_attachment_dimension` | 2 本とも `ok` |
+| (5) | 一時的な描画先の作成の制約（`TEX-56`） | 同上の `transient_attachment_constraints` | `ok` |
+| (6) | 上限ちょうど・上限超過・用途が空・互換でない形式の入力が試験にある | `d1_limits`・`d2_limits`・`d3_limits`・`mip_level_count_limits`、`empty_usage_is_rejected`、`view_formats_compatibility`、`rejection_is_repeatable`・`rejection_is_invalid_argument_only` | 9 本とも `ok`（`--test texture_descriptor_check` 全体で 13 passed） |
+| (7) | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/texture/*.rs`、`git show --stat <sha> -- crates/core/src/stub_device.rs crates/contract`（`ec6e802`・`6a5a9ca`・`d69aa27`・`d538c17`・`f72b280` のそれぞれ） | `use` はファイルごとに 3 行で `super::`・`crate::` だけ、5 コミットとも差分 0 |
+| (8) | 依存 0・unsafe 0 | 5 コミットそれぞれで `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/texture/*.rs`、`grep -n forbid crates/core/src/lib.rs`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 5 コミットとも差分 0、`unsafe` は 2 ファイルとも 0 件、35 行目に `#![forbid(unsafe_code)]`、承認の記録 4 件、core の外部依存 0 件 |
+| (9) | 試験の件数と CI | `--lib descriptor_check`・`--lib texture::usage_check`・`--doc validate_texture`・`--doc max_mip`、`make verify`、`make wasm-verify` | 16 passed・8 passed・3 passed・1 passed。`make verify`・`make wasm-verify` は終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1942）。確かめた base は `f72b280ade1ad80a3c5c2ab4495a6c053addeb77`。
+
+追加で流したコマンド。
+
+```text
+cargo check -p fandhe-silicon-core
+make wasm-verify
+```
+
+### 再実行の契機
+
+- `crates/core/src/texture/descriptor_check.rs`・`crates/core/src/texture/usage_check.rs`・`crates/core/tests/texture_descriptor_check.rs` を変えたとき
+- `TextureFormat`・`TextureUsage` に値が増えたとき
+
 ## 段の表
 
 | 段 | Issue | 内容 |
@@ -201,4 +231,4 @@ make verify
 | 3/6 | #7658 | 一時的な描画先・マルチサンプル・view_formats の互換の検査 |
 | 4/6 | #7659 | 操作の時点の用途と view の形式の検査 |
 | 5/6 | #7660 | 項目ごとの受理と拒否の入力の試験 |
-| 6/6 | #7661 | 完了の条件の確かめ |
+| 6/6 | #7661 | 完了の条件の確かめ（本頁の 6/6 の節） |
