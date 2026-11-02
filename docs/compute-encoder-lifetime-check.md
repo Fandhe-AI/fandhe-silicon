@@ -13,7 +13,7 @@ TASK-772 の作業の所在と、本リポの現状の事実を置く。spec の
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
 | 寿命の指定の無い構造体の欄 | `CommandEncoder` を寿命の引数を書かない構造体の欄に置いて持ち回し、`dispatch` を記録した後、欄から値で取り出して `submit` へ渡せる（統合テスト `encoder_sits_in_struct_without_lifetime_and_submits`） | `cargo test -p fandhe-silicon-core --test encoder_borrow_lifetime` |
-| 呼び出しの後に残る借用 | バッファの束縛と定数の束縛を `dispatch_ex` へ渡し、値を捨てた（または書き換えた）後も同じ記録先で `dispatch` と `submit` ができる。記録は呼び出しの時点の値（`bindings_and_constants_do_not_outlive_the_call`） | 同上 |
+| 呼び出しの後に残る借用 | バッファの束縛と定数の束縛を `dispatch_ex` へ渡し、値を捨てた（または書き換えた）後も同じ記録先で `dispatch` と `submit` ができる。試験の中の queue が写した記録は呼び出しの時点の値（`bindings_and_constants_do_not_outlive_the_call`） | 同上 |
 | `submit` の前の再利用 | 同じ記録先を `dispatch`・`dispatch_ex` へ `&mut` で複数回渡せる（`encoder_is_reused_by_mut_until_submit`） | 同上 |
 | `dispatch_ex` の rustdoc | 投入した記録先を `dispatch` へ渡すと `compile_fail,E0382` | `cargo test -p fandhe-silicon-core --doc` |
 | `CommandEncoder` の rustdoc | 寿命の引数を持つ `ConstantBinding` を寿命の指定の無い欄に置くと `compile_fail,E0106`（対照） | 同上 |
@@ -65,6 +65,8 @@ git grep -n 'ConstantBinding<' crates/core/src
 | (6) feature なしの実行 | `cargo test -p fandhe-silicon-core --no-default-features --test encoder_borrow_lifetime --test dispatch_constants_per_call` | `test result: ok. 2 passed` と `test result: ok. 3 passed`（どちらも 0 failed, 0 ignored） |
 | (7) wasm32 の型検査 | `make wasm-verify; echo "exit=$?"` | `exit=0` |
 | (8) 変更の範囲 | `git show --stat --format= <sha> -- crates/` | 下の出力 (8) |
+
+(6) の補足（`32c8e0b` で流し直した。上の表は時点の記録で、書き換えない）: 2 本の試験に背後実装の feature（`backend-*`）の条件は無い（`grep -n 'backend-' crates/core/tests/encoder_borrow_lifetime.rs crates/core/tests/dispatch_constants_per_call.rs; echo "exit=$?"` は出力なしで `exit=1`）。出力 (6) の `cfg(feature` の行は、`native-blocking-wait` の `wait_blocking`（試験用 queue の実装）に付くもの。
 
 出力 (2)（`cargo test -p fandhe-silicon-core --doc` の `submit.rs` の行と `test result:` の行）
 
