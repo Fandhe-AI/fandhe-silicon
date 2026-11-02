@@ -149,6 +149,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | `--keys PATH` | なし | 上の 1 列のテキスト。省略時は example を cargo で実行して得る（cargo が無ければ終了コード 2） |
 | `--csv PATH` | `docs/spec/03-poc/wgpu-feature-inventory/inventory.csv` | 機能一覧の CSV。先頭のレコードを見出しとし、先頭の列を鍵の列にする |
 | `--key-prefix STR` | `feature:` | 鍵がこれで始まる行だけを CSV の対象にする |
+| `--example NAME` | `feature_keys` | `--keys` を省いたときに cargo で実行する example の名前。英小文字・数字・`_` だけを受け、外れたら終了コード 2。`--keys` と同時に渡しても終了コード 2 |
 | `--show-keys` | 無効 | 違反の診断に鍵の文字列も出す（既定は件数と行番号だけ） |
 
 ### 判定
@@ -166,7 +167,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ------ | ---- |
 | 0 | 合格 |
 | 1 | 違反（読めない・空の入力を含む） |
-| 2 | 誤用・前提の不足（未知の引数・入力が無い・cargo が無い・example の失敗） |
+| 2 | 誤用・前提の不足（未知の引数・`--example` の誤用・入力が無い・cargo が無い・example の失敗） |
 
 ### 流れる場所
 
