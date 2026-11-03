@@ -62,3 +62,24 @@ cargo test -p fandhe-silicon-core --doc sampler
 cargo test -p fandhe-silicon-core --lib sampler
 cargo test -p fandhe-silicon-core --doc sampler
 ```
+
+## 外の crate からの試験（3/4）
+
+置き場は `crates/core/tests/sampler_types.rs`。feature なしで流れる、公開のパス `fandhe_silicon_core::sampler::…` だけを使う外の crate の試験で、記述子は `default()` の後に欄を書き換えて作る。
+
+| 試験の名前 | 入力 | 期待 |
+| ---------- | ---- | ---- |
+| `descriptor_default_values` | `SamplerDescriptor::default()` | 11 欄が記述子の表の既定の値と等しい |
+| `descriptor_fields_hold_written_values` | 既定から 11 欄を別の値に書き換える | 読み戻した値が書いた値と等しい |
+| `descriptor_holds_values_unchecked` | 下限が上限より大きい LOD、`anisotropy_clamp` の 0 と `u16::MAX`、`lod_min_clamp` の NaN、境界色なしの `ClampToBorder` | そのまま保持される |
+| `descriptor_clone_and_eq` | 既定と、1 欄だけ書き換えた記述子 | `clone` は元と等しく、1 欄違いは既定と等しくない |
+| `value_defaults` | 3 つの列挙の `default()` | `ClampToEdge`・`Nearest`・`Nearest` |
+| `value_enums_are_distinct` | 4 つの列挙の全値を `HashSet` に入れる | 要素数が 4・2・2・4 |
+| `value_enums_match_with_wildcard` | `_` の腕つきの `match` で各値を名前に写す | 各値が期待の名前に写る |
+| `handle_round_trip` | `__backend_new` に 0・1・`u64::MAX` を含む組 | 3 つの読み出しが入れた値を返す |
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --test sampler_types
+```
