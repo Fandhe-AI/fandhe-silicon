@@ -68,3 +68,19 @@ cargo test -p fandhe-silicon-core --features test-support --test dispatch_inputs
 cargo test -p fandhe-silicon-core --features test-support --lib dispatch_inputs
 make verify
 ```
+
+## 完了の条件の確かめ（2/2）（TASK-2944。以下は当時の base の記録）
+
+2/2（#6931）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-2944）。GPU の実機は使わず、下の base で実行した値を書く。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 入力の一覧と当たる検査の対応が頁の表にある | `grep -c 'name: "' crates/core/src/dispatch_inputs.rs`・本書の「入力の一覧」の表のデータ行の数・`--lib dispatch_inputs` の `dispatch_inputs_names_are_unique`・`dispatch_inputs_cover_every_expected_check` | module の入力は 13 件、表のデータ行は 13 行。2 件が ok |
+| 2 | C1・C3〜C8 の 8 入力が対応する接頭辞で拒否される | `cargo test -p fandhe-silicon-core --features test-support --test dispatch_inputs_stub` の `c_inputs_hit_their_prefix` | ok |
+| 3 | `Pass` の 3 入力で 2 関数とも `Ok(())` | 同上の `pass_inputs_return_ok` | ok |
+| 4 | dims の 2 入力で 2 関数とも `Ok(())` | 同上の `dims_inputs_pass_the_c_checks` | ok。統合テストは 4 passed、0 failed |
+| 5 | 入力を作る関数が試験用の device で契約の型の値を作る | 同上の `inputs_build_contract_values`・`cargo test -p fandhe-silicon-core --features test-support --lib dispatch_inputs` | `inputs_build_contract_values` が ok。単体テストは 4 passed、0 failed |
+| 6 | 依存 0・unsafe 0 | 1/2 の親（`d180582`）から 1/2 のコミット（`6cdfdc8`）までの `crates/core/Cargo.toml`・`Cargo.lock`・`deps-approved.toml`・`deny.toml` の差分の統計・`grep -c unsafe crates/core/src/dispatch_inputs.rs crates/core/tests/dispatch_inputs_stub.rs`・`make core-deps-check`・`make deps-check` | 差分は `crates/core/Cargo.toml` の 4 行の追加だけ（`[[test]]` の 1 組）。unsafe は各 0 件。`core-deps-check` は `unexpected=0 missing=0 forward_violations=0` で終了コード 0。`deps-check` の終了コードは 0 |
+| 7 | CI で流れる場所 | `make verify`（`cargo test --workspace --all-features`）・`gh run list --workflow ci.yml --branch main` の 1/2 のコミットの run | `make verify` の終了コードは 0。`dispatch_inputs_stub` の 4 件と単体テストの 4 件が ok。CI の run `41652555921` は観測時の status が queued |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2944）。確かめた base は `6cdfdc8`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
