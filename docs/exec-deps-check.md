@@ -74,6 +74,8 @@ cargo が失敗したときに検査を飛ばして 0 にしない。
 - 対象の feature の形
 - `unsafe` の有無
 
+節 4 の tree は実物の `cargo tree` の出力を通す。tree の読み取りは `[dev-dependencies]`・`[build-dependencies]` のような節の見出し行を区切りとして読み飛ばし、見出しの後の行を判定に流す（節 1 の `tree_header_*` が合成の入力で確かめる）。
+
 ### 確かめ方
 
 ```bash

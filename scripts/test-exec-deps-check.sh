@@ -204,6 +204,17 @@ for nm in objc2 objc2-foundation objc2-metal objc2-core-foundation ash cudarc fa
     TREE_EXTRA="3${nm} v0.1.0"
     syn "tree_depth3_${nm}" 1 "e:violation: check=tree-forbidden depth=3 name=${nm}" "!ok: "
 done
+# 実物の cargo tree が挟みうる節の見出し行は区切りとして読み飛ばし、見出しの後の行は判定に流す
+TREE_EXTRA='[dev-dependencies]
+1fandhe-silicon-contract v0.1.0 (/x)'
+syn tree_header_dev 1 "e:violation: check=tree-direct name=fandhe-silicon-contract" \
+    "e:violation: check=tree-forbidden depth=1 name=fandhe-silicon-contract" "!error:" "!ok: "
+TREE_EXTRA='1[build-dependencies]
+1ash v0.1.0'
+syn tree_header_build 1 "e:violation: check=tree-direct name=ash" "e:violation: check=tree-forbidden depth=1 name=ash" "!error:" "!ok: "
+TREE_EXTRA='[dev-dependencies]
+2some-external v0.1.0'
+syn tree_header_external_ok 0 "o:ok: " "!violation"
 TREE_EXTRA='2some-external v0.1.0'
 syn tree_depth2_external_ok 0 "o:ok: " "!violation"
 TREE_RAW='0fandhe-silicon-core v0.1.0 (@D@/crates/core)'
