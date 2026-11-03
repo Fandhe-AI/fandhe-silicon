@@ -80,3 +80,23 @@ make doctest-error-code-check
 ```sh
 cargo test -p fandhe-silicon-core --test memory_buffer_slice
 ```
+
+## 入れ子と全体の範囲の試験（4/5）
+
+同じ `crates/core/tests/memory_buffer_slice.rs` が、入れ子の範囲と全体の範囲 `as_entire_slice` を外の crate から公開のパスで確かめる。拒否の文言の字句は比べず、`==`・`matches!` だけで比べる。`validate_buffer_range`（TASK-309）は入れ子の検査の突き合わせにだけ引く。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `nested_slice_is_relative_to_parent` | 大きさ 16 の親 `(4, 8)` から `(2, 2)` | `offset()` は 6、`size()` は 2。`buffer()` は元のハンドルと同じ参照 |
+| `nested_slice_is_checked_against_parent_size` | 同じ親から `(2, 7)`・`(8, 0)`・`(9, 0)`・`(u64::MAX, 1)` | `(8, 0)` は `Ok`（`offset()` は 12）。ほかは `InvalidArgument` |
+| `nested_slice_matches_validate_buffer_range` | 親 3 通りと `offset`・`size` の全組 | 親の大きさでの `validate_buffer_range` と一致し、開始位置は親の開始位置との和 |
+| `multi_level_nesting_offsets_accumulate` | 大きさ 32 から 4 段の入れ子 | 各段の `offset()` は元の先頭からの和、`size()` は渡した値、`buffer()` は元のハンドル |
+| `entire_slice_covers_whole_buffer` | 大きさ 0・1・16・`u64::MAX` | `offset()` は 0、`size()` はバッファの大きさ。そこからの絞りは `BufferHandle::slice` と一致 |
+| `slices_are_copy_and_coexist` | 同じハンドルの 2 範囲と入れ子、コピー | 同時に持て、値が変わらない |
+| `slice_is_repeatable` | 受理と拒否の入力を 2 回ずつ | 同じ結果 |
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --test memory_buffer_slice
+```
