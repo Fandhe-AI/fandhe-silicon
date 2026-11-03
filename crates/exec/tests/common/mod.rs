@@ -50,6 +50,13 @@ impl Scripted {
         dev
     }
 
+    /// `feature` の問合せだけ `query` の値に差し替える device（`FaultScript::CapabilityOverride`）。
+    ///
+    /// ほかの鍵は内側の `StubDevice` の値のまま返る。
+    pub fn overriding(feature: FeatureId, query: CapabilityQuery) -> Self {
+        Self::with(FaultScript::CapabilityOverride { feature, query })
+    }
+
     /// 何も差し込まない device。
     pub fn bare() -> Self {
         Self::with(FaultScript::PassThrough)

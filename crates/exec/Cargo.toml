@@ -27,5 +27,10 @@ fandhe-silicon-core = { path = "../core", features = ["test-support", "fault-inj
 name = "device_operands"
 required-features = ["native-blocking-wait"]
 
+# 試験用の口（能力の差し替え・Native を外す指定・判定の差し込み）を使う試験なので、feature fault-injection のビルドでだけ流す。
+[[test]]
+name = "fault_injection_ports"
+required-features = ["fault-injection"]
+
 [lints]
 workspace = true
