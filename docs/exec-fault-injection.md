@@ -173,3 +173,33 @@ cargo test -p fandhe-silicon-exec --features fault-injection
 cargo check -p fandhe-silicon-exec --target wasm32-unknown-unknown --features fault-injection
 cargo check -p fandhe-silicon-exec --tests --features fault-injection --locked --target wasm32-unknown-unknown
 ```
+
+## 完了の条件の確かめ（6/6）
+
+6/6（#6006）で、下-2 の crate（`crates/exec`）と core の試験用の口について、本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-921（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 3 つの口を試験から使う | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override`、`cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports`、`cargo test -p fandhe-silicon-exec --features fault-injection --lib` | 順に 3 passed、8 passed、43 passed。3 本とも 0 failed; 0 ignored |
+| (2) | 口が feature の下にある | `grep -rn 'feature = "fault-injection"' crates/exec/src crates/exec/Cargo.toml`、`grep -n 'fault-injection' crates/exec/Cargo.toml`、`grep -n '^default' crates/exec/Cargo.toml` | 1 つ目は 20 行で、`select.rs`（28・47・56・77・734 行）・`route.rs`（48・82 行）・`lib.rs`（21・34 行）・`report.rs`（25・30 行）・`entry.rs`（43・53・69・86・117・123・134・546・652 行）。`Cargo.toml` の行は無い。2 つ目は `Cargo.toml` の 19 行（`fault-injection = ["fandhe-silicon-core/fault-injection"]`）・23 行（dev-dependencies の core の features）・30 行（コメント）・33 行（`required-features = ["fault-injection"]`）。3 つ目は出力が空（終了コード 1） |
+| (3) | 報告の欄 | `cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports` と `--lib` の `ok` の行 | `ForcedUnsupported` の試験: `test entry::forced_tests::forced_entry_reports_actual_level ... ok`、`test force_applies_to_the_target_op_only ... ok`、`test forced_op_follows_opt_in ... ok`。`Injected` の試験: `test entry::injected_tests::injected_fallback_route_is_reported ... ok`、`test injection_reaches_reports ... ok` |
+| (4) | 依存・unsafe・差分 | `cargo metadata --no-deps` の `fandhe-silicon-exec` の依存、`grep -rc unsafe crates/exec/src`、`grep -n forbid crates/exec/src/lib.rs`、`git diff --stat 2085eb6 -- Cargo.lock deps-approved.toml`、`make deps-check`、`make exec-deps-check` | 依存は `fandhe-silicon-core`（normal）と `fandhe-silicon-core`（dev）の 2 件。`unsafe` の数は `lib.rs` が 1、ほかの 7 ファイルが 0（`lib.rs` の 1 行は `lib.rs:18` の `#![forbid(unsafe_code)]`）。`git diff --stat` の出力は空。`make deps-check` は終了コード 0 で `ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml`。`make exec-deps-check` は終了コード 0 で `ok: 15 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0` |
+| (5) | feature の 4 組と wasm32 | exec の 4 組（feature なし・`--features fault-injection`・`--features native-blocking-wait`・`--all-features`）それぞれで `cargo clippy -p fandhe-silicon-exec --all-targets <組> -- -D warnings` と `cargo test -p fandhe-silicon-exec <組>`、`cargo check -p fandhe-silicon-exec --tests --target wasm32-unknown-unknown`（feature なしと `--features fault-injection`）、`cargo test -p fandhe-silicon-core --features fault-injection` | clippy は 4 組とも終了コード 0。test の合計は feature なし 46（lib 30・`opt_in_default` 5・`reasons_and_denormal` 4・`route_query` 6・`unsupported_fields` 1）、`--features fault-injection` 67（lib 43・`fault_injection_ports` 8・`opt_in_default` 5・`reasons_and_denormal` 4・`route_query` 6・`unsupported_fields` 1）、`--features native-blocking-wait` 48（lib 31・`device_operands` 1・`opt_in_default` 5・`reasons_and_denormal` 4・`route_query` 6・`unsupported_fields` 1）、`--all-features` 69（lib 44・`device_operands` 1・`fault_injection_ports` 8・`opt_in_default` 5・`reasons_and_denormal` 4・`route_query` 6・`unsupported_fields` 1）。doctest は 4 組とも 0 passed。すべて 0 failed; 0 ignored。wasm32 の check は 2 組とも終了コード 0。core の `--features fault-injection` の test は合計 856 passed; 0 failed |
+| (6) | 公開名・公開 API の検査 | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` の `scanned: crate=fandhe_silicon_exec` と `scanned: crate=fandhe_silicon_core` の行 | 3 つとも終了コード 0。`public-api-check`: exec は production の `public_items=458`・all-features の `public_items=511`、core は production の `public_items=4174`・all-features の `public_items=8850`、4 行とも `wgpu_type_refs=0 wgpu_other_refs=0`。`public-name-check`: exec は production の `public_items=403 named_items=123`・all-features の `public_items=451 named_items=149`、core は production の `public_items=3714 named_items=1530`・all-features の `public_items=7882 named_items=3014`、4 行とも `name_hits=0`。`public-api-sdk-check`: exec と core の production・all-features の 4 行とも `sdk_type_refs=0 sdk_other_refs=0` |
+
+補い: 上の表 (5) の `device_operands` は `native-blocking-wait` の下の試験で、feature なしと `--features fault-injection` では流れない。`fault_injection_ports` は `required-features = ["fault-injection"]` の試験で、`--features native-blocking-wait` では流れない。
+
+確かめた時点は main の `1d7d7b1`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-921）。
+
+## 段の表
+
+| 段 | Issue | 題 |
+| -- | ----- | -- |
+| 1/6 | #6001 | feat(core): TASK-921 の 1/6 能力の問合せの値を差し替える筋書き |
+| 2/6 | #6002 | feat(exec): TASK-921 の 2/6 試験用の feature と操作ごとに Native を外す口 |
+| 3/6 | #6003 | feat(exec): TASK-921 の 3/6 f32 の非正規化数の判定を差し込む口 |
+| 4/6 | #6004 | test(exec): TASK-921 の 4/6 3 つの口を公開のパスから使う試験と使い方 |
+| 5/6 | #6005 | ci(scripts): TASK-921 の 5/6 build-profiles と wasm-verify に exec の fault-injection の組を足す |
+| 6/6 | #6006 | docs: TASK-921 の 6/6 完了の条件の確かめ |
