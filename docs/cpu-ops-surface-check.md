@@ -32,3 +32,28 @@ cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled
 - 1 本目は `CpuOpsGate ... compile fail ... ok`
 - 2 本目は `CpuOpsGate ... ok`（`9 passed; 0 failed`）
 - 3 本目は `cpu_ops_gate_is_visible ... ok`（`3 passed; 0 failed`）
+
+## `contract-core` だけの組（2/4）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2457。親 Issue は #1074、この節（2/4）は #6963。
+
+### 所在
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 足した組 | `scripts/build-profiles.sh` の `NATIVE_SETS` の `"contract-core"` の行 |
+| 流れる段 | `cargo build`・`cargo clippy --all-targets -D warnings`・`cargo test`（`--no-default-features --features contract-core`） |
+| 流れる場所 | `make build-profiles`（CI の `verify`・`verify-macos` ジョブ） |
+
+### 振る舞い
+
+この組の `cargo test` の doctest で、`CpuOpsGate` が `compile fail ... ok` になる。
+
+### 確かめ方
+
+```sh
+cargo build -p fandhe-silicon-contract --no-default-features --features contract-core
+cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --features contract-core -- -D warnings
+cargo test -p fandhe-silicon-contract --no-default-features --features contract-core
+grep -n '"contract-core"' scripts/build-profiles.sh
+```

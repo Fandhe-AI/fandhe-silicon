@@ -155,7 +155,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）（TASK-248） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）（TASK-2954） |
 | `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）（TASK-1352） |
-| `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）（TASK-2457） |
+| `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）（TASK-2457） |
 | `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）（TASK-2455） |
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2） |
 | `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553） |
