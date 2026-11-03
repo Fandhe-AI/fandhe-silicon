@@ -9,11 +9,12 @@
 //! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など）の `cargo test`、
 //! 有効側は `make verify`（`--all-features`）の doctest と、`scripts/build-profiles.sh` の feature 単独の組。
 //! 有効側の確かめは `tests/feature_gate_enabled.rs` が受け持つ。
-//! spec との対応: TASK-233 の 1/4〜3/4・5/7・6/7、BUILD-11〜13（ポインタ表記）。
+//! spec との対応: TASK-233 の 1/4〜3/4・5/7・6/7、TASK-2457、BUILD-11〜13（ポインタ表記）。
 //! 置く対: 実在の feature ゲート `backend-metal`、`native-blocking-wait` の core の 2 アイテム
 //! （`MemoryOps::download_blocking`・`CommandQueue::wait_blocking`。別々の snippet）、
 //! `ext-interop` の core のアイテム（`ExternalInterop`）、
-//! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）、`graphics`（core の `graphics` モジュールと `Device::graphics`。TASK-137）。
+//! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）、`graphics`（core の `graphics` モジュールと `Device::graphics`。TASK-137）、
+//! `cpu-ops`（契約の crate の `cpu_ops` モジュール。TASK-2457）。
 //! feature に依らず通る `download_async`・`on_complete` の doctest も置く。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
@@ -115,3 +116,12 @@ pub struct GraphicsGate;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct DeviceGraphicsGate;
+
+/// `cpu-ops` を有効にしない構成では契約の crate の `cpu_ops` モジュールが無く、参照するとコンパイルエラーになる（CPU-28）。
+#[cfg_attr(not(feature = "cpu-ops"), doc = "```compile_fail")]
+#[cfg_attr(feature = "cpu-ops", doc = "```")]
+#[doc = "use fandhe_silicon_contract::cpu_ops;"]
+#[doc = "fn probe(_: &dyn cpu_ops::CpuOps) {}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct CpuOpsGate;
