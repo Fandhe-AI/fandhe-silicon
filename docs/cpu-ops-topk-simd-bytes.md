@@ -32,3 +32,40 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 ```sh
 cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference
 ```
+
+## 完了の条件の確かめ（2/2）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2452。親 Issue は #1071、この節（2/2）は #6953。
+
+実行環境は GPU なしの Linux。確かめた base のコミットは `24eaeca`。コード・試験・スクリプトは変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 3 つの入力（20,000 件・k=64、同点ありの 200 件・k=10、非有限ありの 200 件・k=10）で、2 型のそれぞれの `topk_partial_simd` と `topk_partial_scalar` の出力のバイトの列が一致し、違うバイトが 0、比べたバイトの数が入力の件数から求めた合計と等しく、どちらの出力も前詰めの値を残さない | `cpu_ops_topk_reference` の `topk_simd_scalar_byte_sequences_match` | `ok` |
+| (2) | 比べの関数が 1 ビットの違い・件の入れ替え・件数の違いを数える | `topk_byte_count_detects_divergence` | `ok` |
+| (3) | 既存の組の比べの試験も通る | 既存の `topk_simd_matches_scalar_bytes` | `ok` |
+| (4) | 同じファイルの試験が合わせて通る | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` | `12 passed; 0 failed; 0 ignored` |
+| (5) | wasm32 の構成で試験が lint を通る | `make wasm-verify`（契約の crate の試験の wasm32 の clippy の段〈simd128 なし・あり〉を含む） | 終了コード 0 |
+| (6) | 製品のコード・依存に差分が無い | `git diff --stat bba66a5..HEAD -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml` | 出力なし（差分 0） |
+| (7) | CI で流れる場所 | `main` 上の 1/2 のコミット `24eaeca` の `ci.yml` の run 41670055160（`gh run view 41670055160 --json conclusion`） | 結論は `success` |
+| (8) | CI のジョブ `verify`（表示名 `make verify (fmt + clippy + test)`、`runs-on: ubuntu-latest`）のログ | `gh run view 41670055160 --json jobs -q '.jobs[] \| "\(.databaseId) \(.name)"'` でジョブ 126035691449 を引き、`gh run view 41670055160 --log --job 126035691449` を読む | `make verify` の段の `cpu_ops_topk_reference` は `12 passed; 0 failed; 0 ignored`。`make build-profiles` の段の同じ試験の行も `12 passed; 0 failed; 0 ignored` |
+| (9) | CI のジョブ `verify-macos`（表示名 `make verify + build-profiles (macos-latest)`、`runs-on: macos-latest`）のログ | 同じ jobs の問合せでジョブ 126035691524 を引き、`gh run view 41670055160 --log --job 126035691524` を読む | `make verify` の段の `cpu_ops_topk_reference` は `12 passed; 0 failed; 0 ignored`。`make build-profiles` の段の同じ試験の行も `12 passed; 0 failed; 0 ignored` |
+
+### 1/2 の対応
+
+| 段 | PR | コミット |
+| -- | -- | -------- |
+| 1/2 | #7918 | `24eaeca` |
+
+### 追加で流したコマンド
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference   # 12 passed
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection                          # 7 passed
+make build-profiles                                                                           # 終了コード 0
+make wasm-verify                                                                              # 終了コード 0
+```
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたときに、この表を取り直す。
