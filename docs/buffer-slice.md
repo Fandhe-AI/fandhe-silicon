@@ -59,3 +59,24 @@ cargo test -p fandhe-silicon-core --lib memory::slice
 cargo test -p fandhe-silicon-core --doc memory::slice
 make doctest-error-code-check
 ```
+
+## 境界の入力の試験（3/5）
+
+`crates/core/tests/memory_buffer_slice.rs`（feature の条件なし）が、`BufferHandle::slice` の境界の入力を外の crate から公開のパスで確かめる。拒否の文言の字句は比べず、種類（`InvalidArgument`）と `validate_buffer_range`（TASK-309）との `==` で確かめる。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `slice_end_at_allocation_length_is_accepted` | 大きさ 16 で `(0, 16)`・`(8, 8)`・`(16, 0)` | `Ok`。`offset()`・`size()` は渡した値 |
+| `slice_past_allocation_length_is_rejected` | 大きさ 16 で `(0, 17)`・`(8, 9)`・`(17, 0)` | `InvalidArgument` |
+| `slice_end_overflow_is_rejected` | 大きさ `u64::MAX` で `(u64::MAX, 1)`・`(1, u64::MAX)` | `InvalidArgument` |
+| 同上 | 大きさ `u64::MAX` で `(u64::MAX, 0)`・`(0, u64::MAX)` | `Ok` |
+| `zero_length_slices` | 大きさ 16 で `(0, 0)`・`(16, 0)`。大きさ 0 で `(0, 0)`・`(1, 0)` | 前 3 つは `Ok` で `size() == 0`。`(1, 0)` は `InvalidArgument` |
+| `slice_matches_validate_buffer_range` | 大きさ・`offset`・`size` の全組 | `slice` の結果と `validate_buffer_range` の結果が一致 |
+| `slice_accessors_return_inputs` | `slice(4, 8)` | `buffer()` は元のハンドルと同じ参照。`offset()` は 4、`size()` は 8 |
+| `slice_rejection_is_invalid_argument_only` | 上の拒否の入力 | `InvalidArgument` だけ |
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --test memory_buffer_slice
+```
