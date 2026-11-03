@@ -183,3 +183,59 @@ make verify
 make wasm-verify
 make profile-test-count-check
 ```
+
+## テクスチャと view の破棄の操作
+
+所在: `crates/core/src/texture/ops.rs`（trait `TextureOps`）、`crates/core/src/stub_device.rs`（試験用の device の `StubTextures`）、`crates/core/tests/texture_destroy.rs`（外の crate の試験）。ポインタ: `docs/spec/05-tasks.md` の TASK-372。
+
+`TextureOps` は `create_texture` のほかに 2 つの操作を持つ。どちらも既定の本体は無く、実装する側は両方を実装する。
+
+| 操作 | 署名 | 戻り |
+| ---- | ---- | ---- |
+| `destroy_texture` | `fn destroy_texture(&self, texture: TextureHandle)` | 無し（`Result` を返さない） |
+| `destroy_view` | `fn destroy_view<'t>(&self, view: TextureView<'t>)` | 無し（`Result` を返さない） |
+
+handle と view は値で受けて消費する。コンパイルで拒まれる使い方は doctest の `compile_fail` で確かめる。
+
+| 使い方 | doctest | error コード |
+| ------ | ------- | ------------ |
+| `destroy_texture` の後に同じ handle を使う | `destroy_texture` の `compile_fail` | E0382 |
+| 同じ handle を 2 回 `destroy_texture` する | `destroy_texture` の `compile_fail` | E0382 |
+| view が残る間に元の handle を `destroy_texture` する | `destroy_texture` の `compile_fail` | E0505 |
+| `destroy_view` の後に同じ view を使う | `destroy_view` の `compile_fail` | E0382 |
+
+通る例は `&dyn TextureOps` 越しの `destroy_texture` と、`destroy_view` の後の `destroy_texture`。
+
+試験用の device の `StubTextures` は、作ったテクスチャの識別子の表を持つ。入力ごとの動きは次のとおり。
+
+| 入力 | 表 | 次に作る識別子 |
+| ---- | -- | -------------- |
+| 作ったテクスチャの `destroy_texture` | その識別子を除く | 破棄した識別子と違う |
+| 作っていない識別子の handle の `destroy_texture` | 変わらない | 続きの番号 |
+| 別 device の handle の `destroy_texture` | 自分の項目は残る | 続きの番号 |
+| view の `destroy_view` | 変わらない（元の識別子も残る） | 続きの番号 |
+
+試験:
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `stub_device` の `destroy_texture_removes_own_entry` | 作って破棄する | 表から消える |
+| 同 `destroy_texture_of_other_device_keeps_own_entry` | 同じ番号で device の識別子だけ違う handle を破棄する | 自分の項目が残る |
+| 同 `destroy_unknown_texture_keeps_entries` | 作っていない番号の handle を破棄する | 表が変わらない |
+| 同 `destroy_view_keeps_texture_entry` | 作ったテクスチャの view を破棄する | 元の識別子が残る |
+| 同 `destroyed_texture_id_is_not_reused` | 破棄の後に作る | 識別子が前と違う |
+| `texture_destroy` の `destroyed_texture_id_is_not_reused` | `ComputeOnly`・`Graphics` の両方で作る・破棄する・作る | 識別子が前と違う |
+| 同 `destroying_unknown_texture_keeps_numbering` | 作っていない番号の handle を破棄する | panic せず、次の識別子は前の続き |
+| 同 `destroying_other_device_texture_is_noop` | 2 つの device の handle を取り違えて破棄する | panic せず、どちらの device も続けて作れる |
+| 同 `destroy_view_then_texture_through_dyn` | `&dyn TextureOps` 越しに `destroy_view`、`destroy_texture` | panic しない |
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-core --doc texture::ops
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+cargo test -p fandhe-silicon-core --features test-support --test texture_destroy
+cargo test -p fandhe-silicon-core --all-features
+make doctest-error-code-check
+make verify
+```

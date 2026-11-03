@@ -347,3 +347,7 @@ required-features = ["test-support", "graphics"]
 [[test]]
 name = "graphics_signatures"
 required-features = ["graphics"]
+
+[[test]]
+name = "texture_destroy"
+required-features = ["test-support"]
