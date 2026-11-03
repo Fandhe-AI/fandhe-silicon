@@ -251,3 +251,7 @@ make verify
 ```
 
 今の値の補い（base 1890c9a）: `TextureOps` の操作は今は 4 つ（`create_texture`・`destroy_texture`・`destroy_view`・`create_sampler`）で、どれも既定の本体は無い。`create_sampler` の所在は [device-textures.md](device-textures.md)（TASK-150）。
+
+## 今の値の補い（base 6b35dd9）
+
+上の表の項目 (7) の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が 177・505 行目、`make wasm-verify` が 276・466 行目、`make profile-test-count-check` が 186・511 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。

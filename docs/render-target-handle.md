@@ -169,3 +169,7 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test render
 | 3/4 | 試験 | #4579 |
 | 4/4 | 完了の条件の確かめ | #4580 |
 | 5/5 | 描画の操作越しの確かめ | #7613 |
+
+## 今の値の補い（base 6b35dd9）
+
+上の表の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が `:177`・`:505`、`make build-profiles` が `:181`・`:508`、`make wasm-verify` が `:276`・`:466` である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。

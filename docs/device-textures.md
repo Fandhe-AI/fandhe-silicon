@@ -156,3 +156,7 @@ cargo test -p fandhe-silicon-core --doc texture::ops
 cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 cargo test -p fandhe-silicon-core --features test-support --test stub_device_samplers
 ```
+
+## 今の値の補い（base 6b35dd9）
+
+上の表の項目 7 の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が 177・505 行目、`make wasm-verify` が 276・466 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。

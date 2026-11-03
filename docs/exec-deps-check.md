@@ -170,3 +170,15 @@ TASK-259 の 1/4〜3/4 を入れた後の実物で観測した結果を表にす
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-259）。
 
 確かめた base は `567e7cda2b7b56c04b2add0995d2cbed74aeab1e`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
+
+## 今の値の補い（base 6b35dd9）
+
+上の記録の節は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `cargo tree --locked --offline -p fandhe-silicon-exec --all-features -e normal,build,dev --target all --prefix depth` の出力に `[dev-dependencies]` のような節の見出し行は出ない（実物を流して確かめた。出力は深さ 0 の 1 行と深さ 1 の 2 行）。検査の本体は、見出し行が出たときは読み飛ばす。上の「cargo tree が種別ごとに見出し行を挟む」という記述は、この出力には当たらない。
+- 上の表の項目 7 の「`ok:` の行は観測していない」について、CI の `deny` ジョブのログに `ok:` の行がある（`gh run view --job <id> --log`）。
+
+| run | job | `record:` の `commit=` | `ok:` の行 | `make test-exec-deps-check` の最後の行 |
+| --- | --- | ---------------------- | ---------- | ------------------------------------- |
+| `41620565383` | `125864898315` | `1e1ab401966c81aaaa12b30a267dbb1c0433ac82` | `ok: 12 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0` | `passed=110 failed=0` |
+| `41623102841` | `125873537161` | `31a50d5c4fbe5913a439ec228779b9ad14b4ff80` | 同じ | `passed=110 failed=0` |
