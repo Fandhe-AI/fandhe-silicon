@@ -169,6 +169,26 @@ fn check_scripts<D: Capabilities + FaultHooks>(make: impl Fn() -> D) {
     assert_eq!(d.query(A), CapabilityLevel::S0);
     assert_eq!(d.query(B), CapabilityLevel::S0);
 
+    // 能力の差し替え（A だけ）
+    let d = FaultInjecting::new(
+        make(),
+        FaultScript::CapabilityOverride {
+            feature: A,
+            query: CapabilityQuery {
+                level: CapabilityLevel::S1,
+                unsupported_reason: None,
+                evidence: None,
+            },
+        },
+    );
+    assert_eq!(d.query(A), CapabilityLevel::S1);
+    assert_eq!(d.query(B), CapabilityLevel::S2);
+    assert_eq!(d.query_ex(A).level, CapabilityLevel::S1);
+    assert_eq!(d.query_ex(B).level, CapabilityLevel::S2);
+    assert_eq!(d.wait_blocking_with(wait), Ok(()));
+    assert_eq!(wait_calls.replace(0), 1);
+    assert!(d.create_pipeline_with(|_| Ok(1u32)).is_ok());
+
     // 確保の失敗
     let d = FaultInjecting::new(make(), FaultScript::AllocationFails);
     assert_eq!(
