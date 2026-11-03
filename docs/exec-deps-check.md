@@ -82,3 +82,49 @@ scripts/exec-deps-check.sh | grep '^record:'
 ```
 
 実物の `crates/exec` に当てて、終了コード 0 と `ok:` の行が出る。
+
+## 回帰テストと向きの違う依存の陽性対照（2/4）
+
+### 所在
+
+| 項目 | 内容 |
+| ---- | ---- |
+| スクリプト | `scripts/test-exec-deps-check.sh` |
+| 呼び出し | `make test-exec-deps-check` |
+| 前提 | python3・cargo・git（無ければ失敗。skip しない）。製品の依存が取得済みであること以外ネットワーク不要 |
+| 書くもの | 一時ディレクトリだけ。リポジトリのファイルは変更しない |
+
+### 節の構成
+
+| 節 | 入力 | 確かめること |
+| -- | ---- | ------------ |
+| 1 合成の節 | 一時ディレクトリの合成の metadata・tree・ソース（`--metadata-json` と `--tree-text`。cargo・git を呼ばない） | 合格、(a)(b)(c) それぞれの違反、誤用の終了コード 2 |
+| 2 ツールが無いとき | PATH を絞った環境 | python3・cargo・git の未導入が終了コード 2 |
+| 3 偽のコマンド | PATH の先頭の偽の cargo・git | 引数なしの経路の cargo への引数、cargo・git の失敗や読めない出力が終了コード 2 |
+| 4 一時 workspace の実物 | 空の path crate の一時 workspace と実物の cargo metadata / cargo tree | 合格のあと、向きの違う依存を 1 つずつ足すと落ちること |
+| 5 実物のリポジトリ | `crates/exec` | 合格（件数の値は固定しない） |
+
+違反と誤用のケースでは `ok:` と（誤用では）`record:` が出ないこと、ホストの絶対パスが出ないことも見る。
+
+### 陽性対照
+
+節 4 で exec の Cargo.toml（または core の Cargo.toml、ソース）に足す内容と、落ちる検査・出る `check=` は次のとおり。
+
+| 足す内容 | 落ちる検査 | 出る `check=` |
+| -------- | ---------- | ------------- |
+| `[dependencies]` に契約の crate | (a)(b) | `dep-allow`・`tree-direct`・`tree-forbidden`（深さ 1） |
+| `[dev-dependencies]` に契約の crate | (a)(b) | 同上（`kind=dev`） |
+| `[build-dependencies]` にチップの crate `ash` | (a)(b) | `dep-allow`（`kind=build`）・`tree-direct`・`tree-forbidden`（深さ 1） |
+| `[dependencies]` に上の層の crate | (a)(b) | `dep-allow`・`tree-direct`・`tree-forbidden`（深さ 1） |
+| `[target.'cfg(target_os = "macos")'.dependencies]` にチップの crate `objc2-metal` | (a)(b) | `dep-allow`・`tree-direct`・`tree-forbidden`（深さ 1。Linux のホストでも落ちる） |
+| `[dev-dependencies]` に `plain-dummy` | (a)(b) | `dep-allow`・`tree-direct`（`tree-forbidden` は出ない） |
+| core の `[dependencies]` に `ash`（exec の宣言は変えない） | (b) | `tree-forbidden`（深さ 2） |
+| 宣言を変えず exec のソースに `use fandhe_silicon_contract;` | (c) | `source-name` |
+
+### 確かめ方
+
+```bash
+make test-exec-deps-check
+```
+
+最後の行が `passed=<n> failed=0` で、終了コードが 0 になる。
