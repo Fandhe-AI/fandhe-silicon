@@ -192,6 +192,7 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 
 - 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
 - 関連: 描画パスの状態を設定する操作と、試験用の device のその返しは [render-pass-types.md](render-pass-types.md)（TASK-838）。
+- 関連: mesh shader の描画の操作と、試験用の device のその返しは [draw-ops-types.md](draw-ops-types.md)（TASK-839）。
 
 ## 今の値の補い
 

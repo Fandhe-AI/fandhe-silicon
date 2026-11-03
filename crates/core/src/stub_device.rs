@@ -624,6 +624,7 @@ impl TextureOps for StubTextures {
 /// `create_render_encoder*` は通し番号を取らず、`DeviceMismatch` を持つ識別子 `0` の記録先を返し、
 /// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
 /// 描画パスの状態を設定する 8 操作（`set_pipeline` ほか）は、記録先の照合（`set_pipeline` はパイプラインの device の識別子も）を通ると何もせず `Unsupported` を返す。引数の値は照らさない。
+/// mesh shader の描画の 4 操作（`draw_mesh_tasks` ほか）は、引数を照らさず何もせず `Unsupported` を返す。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
 /// 破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡すと `InvalidArgument` を返す。別の device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
@@ -974,6 +975,57 @@ impl GraphicsOps for StubGraphics {
         })
     }
 
+    fn draw_mesh_tasks(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _group_count: [u32; 3],
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "draw_mesh_tasks",
+            backend: self.backend,
+        })
+    }
+
+    fn draw_mesh_tasks_indirect(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "draw_mesh_tasks_indirect",
+            backend: self.backend,
+        })
+    }
+
+    fn multi_draw_mesh_tasks_indirect(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+        _count: u32,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "multi_draw_mesh_tasks_indirect",
+            backend: self.backend,
+        })
+    }
+
+    fn multi_draw_mesh_tasks_indirect_count(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+        _count_buffer: &BufferHandle,
+        _count_offset: u64,
+        _max_count: u32,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "multi_draw_mesh_tasks_indirect_count",
+            backend: self.backend,
+        })
+    }
+
     fn submit_render(
         &self,
         encoder: RenderEncoder,
@@ -1037,6 +1089,7 @@ impl GraphicsOps for StubGraphics {
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す。破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡しても同じ。別 device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
 /// 描画パスの状態を設定する 8 操作（`set_pipeline` ほか）は、記録先の照合を通ると何もせず `Unsupported` を返し、引数の値は照らさない。
+/// mesh shader の描画の 4 操作（`draw_mesh_tasks` ほか）は、引数を照らさず何もせず `Unsupported` を返す。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
@@ -1835,6 +1888,86 @@ mod tests {
         for (name, r) in call_state_ops(&g, &mut enc, &pipeline) {
             assert!(is_invalid_argument(r), "{name}");
         }
+    }
+
+    /// mesh shader の描画の 4 操作を同じ記録先で呼び、（操作名, 結果）を返す。
+    #[cfg(feature = "graphics")]
+    fn call_mesh_ops(
+        g: &StubGraphics,
+        enc: &mut RenderEncoder,
+    ) -> Vec<(&'static str, Result<(), ContractError>)> {
+        let buf = BufferHandle::__backend_new(5, 1, 5, 4, BufferUsage::STORAGE);
+        vec![
+            ("draw_mesh_tasks", g.draw_mesh_tasks(enc, [1, 1, 1])),
+            (
+                "draw_mesh_tasks_indirect",
+                g.draw_mesh_tasks_indirect(enc, &buf, 0),
+            ),
+            (
+                "multi_draw_mesh_tasks_indirect",
+                g.multi_draw_mesh_tasks_indirect(enc, &buf, 0, 1),
+            ),
+            (
+                "multi_draw_mesh_tasks_indirect_count",
+                g.multi_draw_mesh_tasks_indirect_count(enc, &buf, 0, &buf, 0, 1),
+            ),
+        ]
+    }
+
+    #[cfg(feature = "graphics")]
+    fn assert_mesh_ops_unsupported(results: Vec<(&'static str, Result<(), ContractError>)>) {
+        assert_eq!(results.len(), 4);
+        for (name, r) in results {
+            assert!(
+                matches!(r, Err(ContractError::Unsupported { op, .. }) if op == name),
+                "{name}"
+            );
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn mesh_ops_on_live_encoder_return_unsupported_with_op_name() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = g.create_render_encoder(&target);
+        assert_mesh_ops_unsupported(call_mesh_ops(&g, &mut enc));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn mesh_ops_ignore_encoder_carrying_a_rejection() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let foreign = RenderTargetHandle::__backend_new(9, 1, 9);
+        let mut enc = g.create_render_encoder(&foreign);
+        assert!(enc.__backend_rejected().is_some());
+        assert_mesh_ops_unsupported(call_mesh_ops(&g, &mut enc));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn mesh_ops_ignore_encoder_of_another_device() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let other = StubGraphics::new(BackendKind::Vulkan, 6, Arc::new(AtomicU64::new(1)));
+        let target = other
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = other.create_render_encoder(&target);
+        assert_mesh_ops_unsupported(call_mesh_ops(&g, &mut enc));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn mesh_ops_ignore_encoder_of_destroyed_target() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = g.create_render_encoder(&target);
+        g.destroy_offscreen_target(target);
+        assert_mesh_ops_unsupported(call_mesh_ops(&g, &mut enc));
     }
 
     #[cfg(feature = "graphics")]

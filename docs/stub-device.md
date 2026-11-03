@@ -366,6 +366,7 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 
 - 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
 - 関連: 描画パスの状態を設定する操作と、試験用の device のその返しは [render-pass-types.md](render-pass-types.md)（TASK-838）。
+- 関連: mesh shader の描画の操作と、試験用の device のその返しは [draw-ops-types.md](draw-ops-types.md)（TASK-839）。
 
 ## 今の値の補い（base 6b35dd9）
 
