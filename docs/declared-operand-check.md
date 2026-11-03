@@ -84,3 +84,5 @@ make verify
 ## 現状の値の補い
 
 上の表の項目 8 の `41543512673` は記録した時点の値（in_progress）で、書き換えていない。`gh run view 41543512673 -R Fandhe-AI/fandhe-silicon --json conclusion` の結果はいま `success`。
+
+関連: dispatch の検査の入力の組は [dispatch-check-inputs.md](dispatch-check-inputs.md)（TASK-2944）。
