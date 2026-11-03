@@ -1,4 +1,4 @@
-# テクスチャのコピーの指定・view の型・描画先の破棄の操作の所在（TASK-372）
+# テクスチャのコピーの指定・view の型・描画先の破棄の操作・テクスチャと view の破棄の操作の所在（TASK-372）
 
 ## 記録の所在
 
@@ -13,6 +13,14 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | feature の条件 | なし |
 
 テクスチャの型の所在は [texture-types.md](texture-types.md)（TASK-371）。
+
+所在の補い（`TextureOps` の破棄の操作と試験用の device）: 上の表の外に、次のファイルがある。詳しくは末尾の「テクスチャと view の破棄の操作」。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| `TextureOps` の破棄の 2 操作 | `crates/core/src/texture/ops.rs` の `destroy_texture`・`destroy_view` |
+| 試験用の device の表 | `crates/core/src/stub_device.rs` の `StubTextures` |
+| 外の crate の試験 | `crates/core/tests/texture_destroy.rs`（feature `test-support`） |
 
 ## コピーの転送元・転送先の指定の型（1/5）
 
@@ -167,6 +175,8 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test render
 | (7) | CI で流れる場所と件数 | `make verify`、`make wasm-verify`、`make profile-test-count-check`、`grep -n 'run: make' .github/workflows/ci.yml` | 3 つとも終了コード 0。`make verify` の出力で `render_target_destroy` は 10 passed、`texture_view_copy_spec` は 8 passed。`profile-test-count-check` の `record:` は CpuOnly が passed=6 graphics=0、ComputeOnly が passed=6 graphics=0、Graphics が passed=9 graphics=3。`ci.yml` の `make verify` は 177・498 行目、`make wasm-verify` は 275・459 行目、`make profile-test-count-check` は 186・504 行目 |
 
 今の件数の補い: (4) の `render_target_destroy` は、上の 2 本が加わって 12 passed（`cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_destroy`）。
+
+doctest の件数の補い: (4) の「doctest は 1 passed」は通常の 1 本の件数で、`compile_fail` の 1 本（`destroy_offscreen_target` の 285 行目）は別に数える。`cargo test -p fandhe-silicon-core --features graphics --doc destroy_offscreen_target` の今の値は、通常 1 passed・`compile_fail` 1 passed。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-372）。確かめた base は `e46aa2ee8c6f1e24ac67b064a6bff6b60d640b52`。
 

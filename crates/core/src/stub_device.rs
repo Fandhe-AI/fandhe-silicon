@@ -1213,6 +1213,28 @@ mod tests {
 
     // TEX-19
     #[test]
+    fn destroy_texture_with_other_generation_keeps_own_entry() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let desc = texture_desc();
+        let h = textures.create_texture(&desc).expect("texture");
+        let id = h.__backend_id();
+        textures.destroy_texture(TextureHandle::__backend_new(5, id, 9, &desc));
+        assert!(lock(&textures.live).contains(&id));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroy_texture_with_other_device_id_keeps_own_entry() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let desc = texture_desc();
+        let h = textures.create_texture(&desc).expect("texture");
+        let id = h.__backend_id();
+        textures.destroy_texture(TextureHandle::__backend_new(9, id, 5, &desc));
+        assert!(lock(&textures.live).contains(&id));
+    }
+
+    // TEX-19
+    #[test]
     fn destroy_unknown_texture_keeps_entries() {
         let textures = StubTextures::new(BackendKind::Vulkan, 5);
         let desc = texture_desc();
