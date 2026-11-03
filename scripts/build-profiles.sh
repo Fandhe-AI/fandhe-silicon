@@ -48,6 +48,7 @@ NATIVE_SETS=(
   "backend-vulkan,ext-interop"                                                     # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
   "backend-cuda,ext-interop"                                                       # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
   "backend-metal,ext-interop"                                                      # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
+  "contract-core"                                                                  # spec TASK-2457（cpu-ops を含まない組）
 )
 
 # wasm32 の組
