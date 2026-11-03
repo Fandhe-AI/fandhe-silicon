@@ -96,11 +96,11 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/spirv-words.md` | SPIR-V のバイト列から語の列を作る操作（TASK-1682）の所在と、本リポの現状の事実・現状の形（2/5・3/5）・試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/contract-error-types.md` | 契約のエラー・完了状態の型（TASK-269）の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8） |
 | `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6） |
-| `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）（TASK-137） |
-| `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5） |
-| `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3） |
-| `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作（TASK-150） |
-| `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5） |
+| `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）・今の値の補い（base 6b35dd9）（TASK-137） |
+| `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9） |
+| `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9） |
+| `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）（TASK-150） |
+| `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9） |
 | `docs/graphics-types.md` | 描画の公開の型と操作の trait（TASK-837）の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い |
 | `docs/render-pass-types.md` | 描画パスの状態の値の型と範囲つきの描画の範囲の型と検査（TASK-838）の所在と、本リポの現状の事実・描画パスの状態の値の型と範囲の型と検査（1/4）・描画パスの状態を設定する操作と試験用の device の返し（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/graphics-signature-check.md` | 描画の操作の引数と戻りの型を固定する試験（TASK-908）の所在と、本リポの現状の事実・署名の型の試験（1/2）・完了の条件の確かめ（2/2） |
@@ -125,8 +125,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
 | `docs/texture-descriptor-check.md` | テクスチャの作成の記述子の検査の所在と、本リポの現状の事実・現状の振る舞い（1/6）・形式と次元の組・mip の段数（2/6）・一時的な描画先・マルチサンプル・view_formats（3/6）・操作の時点の用途と view の形式（4/6）・対応するテスト・項目ごとの受理と拒否の入力の試験（5/6）・確かめ方・完了の条件の確かめ（6/6）・段の表（TASK-1942） |
 | `docs/storage-texture-access.md` | storage texture のアクセスの型と束縛の検査の所在・アクセスの型（1/4）・束縛の用途とシェーダーとの照合（2/4）・項目ごとの受理と拒否の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1944） |
-| `docs/texture-view-destroy-copy.md` | テクスチャのコピーの指定の型・view の型・描画先の破棄の操作・テクスチャと view の破棄の操作の所在・コピーの転送元・転送先の指定の型（1/5）・view の型と元のテクスチャの問い合わせ（2/5）・描画先の破棄の操作と試験用の device の描画先の表（3/5）・項目ごとの共通の試験（4/5）・完了の条件の確かめ（5/5）・テクスチャと view の破棄の操作（TASK-372） |
-| `docs/sampler-types.md` | サンプラーの記述子の型の所在・値の型（1/4）・記述子と handle（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4）（TASK-373） |
+| `docs/texture-view-destroy-copy.md` | テクスチャのコピーの指定の型・view の型・描画先の破棄の操作・テクスチャと view の破棄の操作の所在・コピーの転送元・転送先の指定の型（1/5）・view の型と元のテクスチャの問い合わせ（2/5）・描画先の破棄の操作と試験用の device の描画先の表（3/5）・項目ごとの共通の試験（4/5）・完了の条件の確かめ（5/5）・テクスチャと view の破棄の操作・今の値の補い（base 6b35dd9）（TASK-372） |
+| `docs/sampler-types.md` | サンプラーの記述子の型の所在・値の型（1/4）・記述子と handle（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）（TASK-373） |
 | `docs/texture-format-keys.md` | テクスチャの形式の問合せの鍵の一覧と行の表の所在と、本リポの現状の事実・現状の形（1/4）・書き出しと一覧との突き合わせの検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-1313） |
 | `docs/feature-keys.md` | 機能の問合せの鍵の一覧と能力の表の枠の所在と、本リポの現状の事実・現状の形（1/6）・能力の表の行の型と引き方（2/6）・表の網羅の検査の道具と差分の台帳（3/6）・鍵の一覧と表の枠の試験（4/6）・機能一覧との突き合わせの検査と CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-1114） |
 | `docs/limit-downlevel-keys.md` | 上限と downlevel の問合せの鍵の定数と一覧の所在と、本リポの現状の事実・現状の形（1/5）・値の鍵（2/5）・鍵の一覧と表の枠の試験（3/5）・機能一覧との突き合わせの検査（4/5）・完了の条件の確かめ（5/5）（TASK-1362） |
@@ -159,7 +159,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実（TASK-14・TASK-113） |
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方 |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
-| `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-259） |
+| `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）（TASK-259） |
 | `docs/public-api-sdk-check.md` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧のまとめと完了の条件の確かめ（4/4）（TASK-253） |
@@ -198,7 +198,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | [rustup](https://rustup.rs/) | Rust ツールチェーン（`rust-toolchain.toml` に従い自動導入） | ✓ |
 | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) 0.20.2 | 依存の監査（`make deny`。CI と同じ版を推奨） | 任意 |
 | [jq](https://jqlang.org/) | 依存の版指定の検査（`make deps-check` / `make test-deps-check`） | 任意 |
-| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make feature-key-check` / `make test-feature-key-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make test-public-api-sdk-check` / `make dep-graph-wgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make deny` / `make public-name-check` / `make public-api-sdk-check` / `make test-public-api-diff` / `make test-rerun-compare` / `make wasm-size` / `make test-wasm-size` / `make wasm-verify` / `make test-wasm-node-check` / `make wasm-web-load-check` / `make test-wasm-web-load-check` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` は 3.8 以上で動く） | 任意 |
+| [Python](https://www.python.org/) 3.11 以上 | TOML 解析（`make deps-check` / `make test-deps-check`。標準ライブラリの `tomllib`。`make inventory-trace-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make feature-key-check` / `make test-feature-key-check` も使う。`make test-session-record-check`・`make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make test-public-api-sdk-check` / `make dep-graph-wgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make deny` / `make public-name-check` / `make public-api-sdk-check` / `make test-public-api-diff` / `make test-rerun-compare` / `make wasm-size` / `make test-wasm-size` / `make wasm-verify` / `make test-wasm-node-check` / `make wasm-web-load-check` / `make test-wasm-web-load-check` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` と `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh`・`scripts/core-deps-check.sh`・`scripts/test-core-deps-check.sh`・`scripts/exec-deps-check.sh`・`scripts/test-exec-deps-check.sh` は 3.8 以上で動く） | 任意 |
 | [Python](https://www.python.org/) 3.8 以上 | `make verify` が試験の枠の記録から集計の表を作る（`scripts/record-summary.sh`。標準ライブラリだけ）。`make doctor` は無いとき・3.8 未満のときに失敗として知らせる | ✓ |
 | [lefthook](https://lefthook.dev/) | Git hooks | ✓ |
 | [editorconfig-checker](https://github.com/editorconfig-checker/editorconfig-checker) | `.editorconfig` 準拠チェック | ✓ |

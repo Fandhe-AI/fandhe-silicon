@@ -366,3 +366,20 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 
 - 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
 - 関連: 描画パスの状態を設定する操作と、試験用の device のその返しは [render-pass-types.md](render-pass-types.md)（TASK-838）。
+
+## 今の値の補い（base 6b35dd9）
+
+上の「既存の検査の結果」の表と、その前の `ci.yml` の行番号の補いは記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` の `run:` の行は次のとおり（`grep -nE 'run: make ' .github/workflows/ci.yml`）。
+
+| 検査 | ジョブ | 今の `run:` の行 |
+| ---- | ------ | ---------------- |
+| `make verify` | `verify` | `:177` |
+| `make build-profiles` | `verify` | `:181` |
+| `make deny` | `deny` | `:260` |
+| `make upper-layer-check` | `deny` | `:268` |
+| `make wasm-verify` | `deny` | `:276` |
+| `make public-api-check` | `deny` | `:326` |
+| `make public-name-check` | `deny` | `:341` |
+| `make public-api-sdk-check` | `deny` | `:347` |
+| `make core-deps-check` | `deny` | `:353` |
+| `make public-api-webgpu-check` | `deny` | `:371` |

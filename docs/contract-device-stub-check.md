@@ -387,3 +387,7 @@ base `760233c` の作業ツリーで流した。
 - 上の `crates/core` の feature の行と末尾の表の「描画の操作の trait …は無い」「core の `[features]` に `graphics` … は無い」は記録時点の値で、書き換えない。今は core の `[features]` に `graphics` があり（契約の crate の `graphics` から転送）、`crates/core/src/graphics.rs` に `GraphicsOps` がある（[graphics-types](graphics-types.md)）。公開のトレイトは `GraphicsOps` を足して 14 件
 - 末尾の表の「描画の操作の trait と、それへ届く `Device` の読み出しは無い」は記録時点の値で、書き換えない。今は `Device::graphics()` が feature `graphics` の裏で `crates/core/src/device.rs` にある（既定は `None`。[graphics-types](graphics-types.md)）
 - `Device::graphics()` の確かめは今は「描画の口の契約テスト（10/10）」にある。「契約テストの実装（7/8）」の「本リポに無い部品」の 2 行目と「完了の条件の確かめ（8/8）」の (5) の描画の操作の部分は記録時点の値で、書き換えない
+
+## 今の値の補い（base 6b35dd9）
+
+上の表の `make build-profiles` を呼ぶ行（`verify` ジョブの 181 行目と `verify-macos` ジョブの 468 行目）は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `verify` ジョブが 181 行目、`verify-macos` ジョブが 508 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
