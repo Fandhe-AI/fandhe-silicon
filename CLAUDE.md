@@ -53,7 +53,7 @@ fandhe-silicon/
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）
 ├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-2387）
 ├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状の事実・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）（TASK-262）
-├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）（TASK-260）
+├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表（TASK-260）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
