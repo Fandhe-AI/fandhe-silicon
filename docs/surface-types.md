@@ -91,6 +91,29 @@ cargo test -p fandhe-silicon-core --features graphics --doc SurfaceStatus
 cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_types
 ```
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#5350）の時点で本リポで観測できた事実だけを記録する（ポインタ: `docs/spec/05-tasks.md` の TASK-654）。GPU の実機なしで実行した。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 検査と型が共通の crate の `graphics` に公開されている | `grep -n 'mod surface\|pub use surface' crates/core/src/graphics.rs`、`cargo check -p fandhe-silicon-core --features graphics`、`cargo check -p fandhe-silicon-core` | `graphics.rs:356` の `mod surface;` と `:357` の `pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};`。2 つの `cargo check` はどちらも終了コード 0 |
+| 2 | 大きさの検査が TASK-374 の部品を使う | `grep -n validate_offscreen_target_size crates/core/src/graphics/surface.rs` | `surface.rs:6` の `use` と `:36` の呼び出し（`:4` は doc の言及） |
+| 3 | 0・上限ちょうど・上限 +1 の入力の返し | `cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_types` | `zero_size_is_rejected`・`exact_limit_is_accepted`・`limit_plus_one_is_rejected`・`same_result_as_offscreen_check` ほか計 9 本が ok（9 passed） |
+| 4 | 取得の結果の型 | 同じ試験、`cargo test -p fandhe-silicon-core --features graphics --lib graphics::surface`、`cargo test -p fandhe-silicon-core --features graphics --doc surface` | `only_success_and_suboptimal_carry_value`・`status_mapping`・`outdated_carries_no_value`・`status_all_values` が ok。`--lib` は 8 passed。`--doc` は `CurrentSurfaceTexture`・`validate_surface_size` の 2 passed と、`compile_fail` の `CurrentSurfaceTexture`・`SurfaceStatus` の 2 passed |
+| 5 | 公開 API の検査の通過 | `make public-api-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make public-name-check` | 終了コードはいずれも 0。`record:` の行はいずれも `commit=e04133f758d39cfc9407573e976e54462dc9b63e`。`public-api-check` は `documents=10 public_items_total=14778`、`public-api-sdk-check` は `documents=10 public_items_total=12761 sdk_type_refs_total=0 sdk_other_refs_total=0`、`public-name-check` は `documents=10 public_items_total=12761 name_hits_total=0` |
+| 6 | 背後実装を呼ばない | `grep -n '^use ' crates/core/src/graphics/surface.rs`、コミットごとの `git show --stat <sha> -- crates/core/src/stub_device.rs crates/contract`（`3448ff9`・`52f4438`・`e04133f`） | `use` は `super::validate_offscreen_target_size`（`:6`）と `crate::error::ContractError`（`:7`）の 2 行。3 コミットとも出力 0 行 |
+| 7 | 依存 0・unsafe 0 | コミットごとの `git show --stat <sha> -- Cargo.lock deps-approved.toml`、`git show e04133f -- crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/graphics/surface.rs`、`grep -n forbid crates/core/src/lib.rs`、`cargo tree -p fandhe-silicon-core -e normal --depth 1` | 3 コミットとも出力 0 行。`Cargo.toml` の差分は `[[test]]` 1 項目（`graphics_surface_types`、`required-features = ["graphics"]`）。`unsafe` は 0 件。`lib.rs:39` に `#![forbid(unsafe_code)]`。`cargo tree` は `fandhe-silicon-core` 1 行のみ |
+| 8 | CI で流れる場所 | `make verify`、`make wasm-verify` | `make verify` の `cargo test` の中で `tests/graphics_surface_types.rs` が実行され、終了コード 0。`make wasm-verify` は終了コード 0 |
+
+品質ゲートの終了コード: `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` はいずれも 0。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-654）。確かめた base は `e04133f758d39cfc9407573e976e54462dc9b63e`。
+
+### 再実行の契機
+
+`crates/core/src/graphics/surface.rs`・`crates/core/tests/graphics_surface_types.rs` を変えたとき、`scripts/public-api-check.sh` などの公開 API の検査のスクリプトを変えたとき。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
@@ -98,3 +121,4 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_ty
 | 1/4 | #5347 | 本頁の関数 |
 | 2/4 | #5348 | 取得の結果の 2 つの型と対応 |
 | 3/4 | #5349 | 外の crate からの境界の入力と対応の試験 |
+| 4/4 | #5350 | 完了の条件の確かめ（本頁の 4/4 の節） |
