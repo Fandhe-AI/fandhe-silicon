@@ -120,5 +120,9 @@ required-features = ["cpu-ops", "test-support"]
 name = "cpu_ops_topk_reference"
 required-features = ["cpu-ops", "test-support"]
 
+[[test]]
+name = "cpu_ops_public_surface"
+required-features = ["cpu-ops"]
+
 [lints]
 workspace = true
