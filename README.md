@@ -168,7 +168,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方 |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
 | `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）（TASK-259） |
-| `docs/exec-surface-check.md` | 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）（TASK-923） |
+| `docs/exec-surface-check.md` | 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）（TASK-923） |
 | `docs/public-api-sdk-check.md` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧（4/4）・完了の条件の確かめ（4/4）・段の表・本リポでの反映の方針（TASK-253） |
@@ -277,8 +277,8 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-core-deps-check` | `scripts/test-core-deps-check.sh` | `scripts/core-deps-check.sh` の回帰テスト（合成 metadata・偽のコマンド・実行時に作る一時 workspace の実物・公開 API の検査〔`make public-api-sdk-check`〕との突き合わせ。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make exec-deps-check` | `scripts/exec-deps-check.sh` | 下-2 の crate（`crates/exec`）の依存の向きの検査（依存の宣言・依存グラフ・ソースの crate 名。`--metadata-json` と `--tree-text` の組で差し替え可。終了コード 0 合格・1 違反・2 誤用または前提の不足。合格時は `ok:`、件数は `record:` の行。bash + python3 + cargo + git〔未導入は失敗〕。ソースは変更しない・ネットワーク不要。`make deny` には含めない・CI の deny ジョブも実行する） |
 | `make test-exec-deps-check` | `scripts/test-exec-deps-check.sh` | `scripts/exec-deps-check.sh` の回帰テスト（合成の metadata・tree、偽のコマンドと、一時 workspace の実物の cargo metadata / cargo tree。向きの違う依存を 1 つ足すと落ちることを確かめる。bash + python3 + cargo + git・製品の依存が取得済みであること以外ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する） |
-| `make exec-surface-check` | `scripts/exec-surface-check.sh` | 下-2 の crate（`crates/exec`）のソースの環境変数・ファイルの読み取りの字句の検査（`--crate-dir` で差し替え可。終了コード 0 合格・1 違反・2 誤用または前提の不足。bash + python3 + git・ソースは変更しない・ネットワーク不要） |
-| `make test-exec-surface-check` | `scripts/test-exec-surface-check.sh` | `scripts/exec-surface-check.sh` の回帰テスト（合成の入力と、実物の `crates/exec` を写した変異体。bash + python3・ネットワーク不要・リポジトリのファイルは変更しない） |
+| `make exec-surface-check` | `scripts/exec-surface-check.sh` | 下-2 の crate（`crates/exec`）のソースの環境変数・ファイルの読み取りの字句と、既定の feature の公開の面にある試験用の口の名前の検査（`--crate-dir`・`--json-default`/`--json-all` で差し替え可。cargo を呼ぶ。終了コード 0 合格・1 違反・2 誤用または前提の不足。bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要） |
+| `make test-exec-surface-check` | `scripts/test-exec-surface-check.sh` | `scripts/exec-surface-check.sh` の回帰テスト（合成の入力と、実物の `crates/exec` を写した変異体。bash + python3 + cargo・ネットワーク不要・リポジトリのファイルは変更しない） |
 | `make dep-graph-wgpu-check` | `scripts/dep-graph-wgpu-check.sh` | 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数える検査。件数を標準出力の `record:` の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。`make deny` も呼ぶ） |
 | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（狭い定義・広い定義・公開 API のそれぞれが 1 件以上で合格・どれか 0 件なら失敗。件数は `record:` の行。bash + python3 + cargo + git。`make deny` には含めず、CI の `deny` ジョブが `make deny` の後に呼ぶ） |
 | `make test-baseline-positive-control` | `scripts/test-baseline-positive-control.sh` | `make baseline-positive-control` の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる。python3 + cargo + git・ネットワーク不要。CI の `deny` ジョブも実行する） |

@@ -13,6 +13,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 reject_args "$(basename "$0")" "$@"
 require_cmd python3
+require_cmd cargo
 
 TOOL="${DIR}/exec-surface-check.sh"
 REAL_CRATE="${ROOT_DIR}/crates/exec"
@@ -90,9 +91,65 @@ sys.exit(1)
 ' "$1" "$2" "$3"
 }
 
+
+# gen_json <出力> <指定>...: 実物の形を真似た最小の rustdoc の JSON を書く。
+# 指定: item:<名前>:<種類>[:<crate_id>] / use:<名前> / root:<名前> / private / fv:str / top:array / badcid
+GEN="${work}/gen_json.py"
+cat >"${GEN}" <<'PYEOF'
+import json
+import sys
+
+out = sys.argv[1]
+specs = sys.argv[2:]
+root_name = "fandhe_silicon_exec"
+index = {}
+nid = 10
+doc = {"format_version": 61, "includes_private": False, "paths": {}, "external_crates": {}}
+for sp in specs:
+    parts = sp.split(":")
+    kind = parts[0]
+    if kind == "root":
+        root_name = parts[1]
+    elif kind == "private":
+        doc["includes_private"] = True
+    elif kind == "fv":
+        doc["format_version"] = "61"
+    elif kind == "top":
+        doc = []
+    elif kind == "badcid":
+        index[str(nid)] = {"id": nid, "name": "x", "inner": {"function": {}}}
+        nid += 1
+    elif kind == "item":
+        cid = int(parts[3]) if len(parts) > 3 else 0
+        index[str(nid)] = {"id": nid, "crate_id": cid, "name": parts[1], "visibility": "public", "inner": {parts[2]: {}}}
+        nid += 1
+    elif kind == "use":
+        index[str(nid)] = {"id": nid, "crate_id": 0, "name": None, "visibility": "public",
+                            "inner": {"use": {"name": parts[1], "source": "a::b", "id": None, "is_glob": False}}}
+        nid += 1
+if isinstance(doc, dict):
+    index["0"] = {"id": 0, "crate_id": 0, "name": root_name, "visibility": "public", "inner": {"module": {"items": []}}}
+    index["1"] = {"id": 1, "crate_id": 1, "name": "external_thing", "visibility": "public", "inner": {"function": {}}}
+    doc["root"] = 0
+    doc["index"] = index
+with open(out, "w", encoding="utf-8") as fh:
+    json.dump(doc, fh)
+PYEOF
+gen_json() {
+  local out="$1"
+  shift
+  python3 -I "${GEN}" "${out}" "$@"
+}
+J_DEF="${work}/j_default.json"
+J_ALL="${work}/j_all.json"
+gen_json "${J_DEF}" item:other_fn:function
+gen_json "${J_ALL}" item:other_fn:function item:force_unsupported:function item:inject_denormal:function \
+  item:ForcedUnsupported:variant item:DenormalInjection:enum item:Injected:variant
+SYN=(--json-default "${J_DEF}" --json-all "${J_ALL}")
+
 # ---- 実物の合格 ----
 run_tool
-judge "real crate passes" 0 "o:ok: exec surface check passed" "o:record: commit=" "o:env_fs=0" "o:scanned: file=src/lib.rs" "o:scanned: file=tests/common/mod.rs" "e:!violation" "!error:" "!${ROOT_DIR}"
+judge "real crate passes" 0 "o:ok: exec surface check passed" "o:record: commit=" "o:env_fs=0" "o:scanned: features=default" "o:scanned: features=all-features" "o:port_names_default=0" "o:port_names_missing_all=0" "o:scanned: file=src/lib.rs" "o:scanned: file=tests/common/mod.rs" "e:!violation" "!error:" "!${ROOT_DIR}"
 
 # ---- 変異体（終了コード 1）----
 # 行: 名前|語|対象ファイル|アンカー|足す行。対象ファイルが実物に無ければ新しいファイル（アンカーは -）。
@@ -130,7 +187,7 @@ for row in "${mutants[@]}"; do
     rm -rf "${COPY}"
     continue
   fi
-  run_tool --crate-dir "${COPY}"
+  run_tool --crate-dir "${COPY}" "${SYN[@]}"
   yes_build="o:build_rs=no"
   if [ "${file}" = "build.rs" ]; then yes_build="o:build_rs=yes"; fi
   judge "mutant ${name}" 1 "e:violation: check=env-fs" "e:word=${word}" "e:file=${file}" "e:FAILED:" "o:record: commit=-" "${yes_build}" "o:!ok:" "!${ROOT_DIR}" "!${work}"
@@ -144,7 +201,7 @@ for d in target .hidden src/.hidden; do
   printf 'fn f() { let _ = std::env::args(); let _ = std::fs::metadata("x"); }\n' >"${COPY}/${d}/x.rs"
 done
 printf 'fn from_env() {}\nfn xenv() { let _ = 1; }\nfn fsx() {}\nuse std::{io};\n' >"${COPY}/src/names.rs"
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "negative controls pass" 0 "o:ok: exec surface check passed" "o:env_fs=0" "o:scanned: file=src/names.rs" "o:!.hidden" "o:!target/" "e:!violation"
 rm -rf "${COPY}"
 
@@ -160,31 +217,31 @@ judge "missing crate dir" 2 "e:error: crate directory not found" "o:!ok:" "o:!re
 
 fresh_copy empty
 find "${COPY}" -name '*.rs' -delete
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "no rs files" 2 "e:error: no .rs file" "o:!ok:" "o:!record:" "!${work}"
 rm -rf "${COPY}"
 
 fresh_copy badutf
 printf '\377\n' >"${COPY}/src/bad.rs"
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "non-utf8 source" 2 "e:error: source is not valid UTF-8" "o:!ok:" "o:!record:"
 rm -rf "${COPY}"
 
 fresh_copy symlink
 ln -s lib.rs "${COPY}/src/link.rs"
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "symlink to a file" 2 "e:error: symbolic link" "o:!ok:" "o:!record:"
 rm -rf "${COPY}"
 
 fresh_copy symdir
 ln -s src "${COPY}/linked"
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "symlink to a directory" 2 "e:error: symbolic link" "o:!ok:" "o:!record:"
 rm -rf "${COPY}"
 
 fresh_copy unclosed
 printf 'use std::{io, fs\n' >"${COPY}/src/open.rs"
-run_tool --crate-dir "${COPY}"
+run_tool --crate-dir "${COPY}" "${SYN[@]}"
 judge "unclosed use brace" 2 "e:error: unclosed use std brace" "o:!ok:" "o:!record:"
 rm -rf "${COPY}"
 
@@ -194,7 +251,7 @@ if [ "$(id -u)" -ne 0 ]; then
   mkdir "${COPY}/src/locked"
   printf 'pub fn f() {}\n' >"${COPY}/src/locked/a.rs"
   chmod 000 "${COPY}/src/locked"
-  run_tool --crate-dir "${COPY}"
+  run_tool --crate-dir "${COPY}" "${SYN[@]}"
   judge "unreadable subdirectory" 2 "e:error: source directory cannot be read" "o:!ok:" "o:!record:"
   chmod 755 "${COPY}/src/locked"
   rm -rf "${COPY}"
@@ -216,8 +273,83 @@ PATH="${work}/nogit" "$(command -v bash)" "${TOOL}" >"${OUT_F}" 2>"${ERR_F}" || 
 judge "no revision tool: default scan" 2 "e:error: cannot resolve the source commit" "o:!ok:"
 fresh_copy norev
 rc=0
-PATH="${work}/nogit" "$(command -v bash)" "${TOOL}" --crate-dir "${COPY}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+PATH="${work}/nogit" "$(command -v bash)" "${TOOL}" --crate-dir "${COPY}" "${SYN[@]}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 judge "no revision tool: crate dir scan" 0 "o:record: commit=-" "o:ok: exec surface check passed"
+rm -rf "${COPY}"
+
+
+# ---- 公開の面の名前（FB-10）: 合成の JSON ----
+run_tool "${SYN[@]}"
+judge "synthetic json passes" 0 "o:ok: exec surface check passed" "o:port_names_default=0" "o:port_names_missing_all=0" "o:scanned: features=default items=" "o:scanned: features=all-features items=" "e:!violation"
+
+# default に名前を 1 つ足す（名前ごと・種類を変えて）。
+pn_rows=(
+  'force_unsupported|item:force_unsupported:function'
+  'inject_denormal|item:inject_denormal:function'
+  'ForcedUnsupported|item:ForcedUnsupported:variant'
+  'DenormalInjection|item:DenormalInjection:enum'
+  'Injected|item:Injected:struct_field'
+  'Injected|use:Injected'
+  'force_unsupported|use:force_unsupported'
+)
+n=0
+for row in "${pn_rows[@]}"; do
+  IFS='|' read -r pname pspec <<<"${row}"
+  n=$((n + 1))
+  gen_json "${work}/pn_def.json" item:other_fn:function "${pspec}"
+  run_tool --json-default "${work}/pn_def.json" --json-all "${J_ALL}"
+  judge "default has ${pspec}" 1 "e:violation: check=port-name features=default name=${pname} count=1" "e:FAILED:" "o:port_names_default=1" "o:!ok:"
+done
+
+# all-features から 1 つの名前を消す。
+gen_json "${work}/pos_all.json" item:force_unsupported:function item:inject_denormal:function item:ForcedUnsupported:variant item:DenormalInjection:enum
+run_tool --json-default "${J_DEF}" --json-all "${work}/pos_all.json"
+judge "all-features lacks a name" 1 "e:violation: check=port-name-positive features=all-features name=Injected" "e:FAILED:" "o:port_names_missing_all=1" "o:!ok:"
+
+# 陰性: crate_id 1 の同名、部分的に含む別の名前。
+gen_json "${work}/neg_def.json" item:force_unsupported:function:1 item:ForcedUnsupported:variant:2 item:force_unsupported_count:function item:MyInjected:variant
+run_tool --json-default "${work}/neg_def.json" --json-all "${J_ALL}"
+judge "other crate and partial names pass" 0 "o:ok:" "o:port_names_default=0" "e:!violation"
+
+# 誤用: 口の指定。
+run_tool --json-default "${J_DEF}"
+judge "only --json-default" 2 "e:error:" "o:!record:" "o:!ok:"
+run_tool --json-all "${J_ALL}"
+judge "only --json-all" 2 "e:error:" "o:!record:" "o:!ok:"
+run_tool --json-default "${J_DEF}" --json-default "${J_DEF}" --json-all "${J_ALL}"
+judge "duplicate --json-default" 2 "e:error: duplicate --json-default" "o:!record:" "o:!ok:"
+
+# 誤用: JSON の中身。
+printf 'not json\n' >"${work}/notjson.json"
+gen_json "${work}/top_array.json" top:array
+gen_json "${work}/private.json" private
+gen_json "${work}/fv_str.json" fv:str
+gen_json "${work}/badcid.json" badcid
+gen_json "${work}/other_root.json" root:some_other_crate
+bad_rows=(
+  "missing file|${work}/no-such.json"
+  "not json|${work}/notjson.json"
+  "top level array|${work}/top_array.json"
+  "includes_private true|${work}/private.json"
+  "format_version string|${work}/fv_str.json"
+  "item without crate_id|${work}/badcid.json"
+  "root of another crate|${work}/other_root.json"
+)
+for row in "${bad_rows[@]}"; do
+  IFS='|' read -r bname bpath <<<"${row}"
+  run_tool --json-default "${bpath}" --json-all "${J_ALL}"
+  judge "bad json: ${bname}" 2 "e:error:" "o:!record:" "o:!ok:" "!${work}"
+done
+
+# cargo の無い PATH: --json-* を渡さない流しは cargo を呼べず 2。
+fresh_copy nocargo
+mkdir "${work}/nocargo-bin"
+ln -s "$(command -v dirname)" "${work}/nocargo-bin/dirname"
+ln -s "$(command -v python3)" "${work}/nocargo-bin/python3"
+ln -s "$(command -v git)" "${work}/nocargo-bin/git"
+rc=0
+PATH="${work}/nocargo-bin" "$(command -v bash)" "${TOOL}" --crate-dir "${COPY}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+judge "cargo missing" 2 "e:error: cannot run cargo" "o:!record:" "o:!ok:"
 rm -rf "${COPY}"
 
 echo "passed=${passed} failed=${failed}"
