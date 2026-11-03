@@ -13,6 +13,8 @@
 //! 入口を呼ぶ前に経路の報告を返す `Exec::query_route`（同 TASK-920）。
 //! feature `fault-injection` の下では、指定した操作で `Native` を候補に入れない `Exec::force_unsupported` と
 //! 理由の値 `UnavailableReason::ForcedUnsupported` を持つ（同 TASK-921）。
+//! 同じ feature の下で、`Exec::inject_denormal` と判定の値 `DenormalInjection`、
+//! 報告の根拠の値 `F32DenormalBasis::Injected` も持つ（同 TASK-921）。
 #![forbid(unsafe_code)]
 
 mod entry;
@@ -29,5 +31,7 @@ pub use operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };
 pub use opt_in::OptIn;
+#[cfg(feature = "fault-injection")]
+pub use report::DenormalInjection;
 pub use report::{F32DenormalBasis, F32DenormalBehavior, F32DenormalReport, Outcome, RouteReport};
 pub use route::{OpId, Route, UnavailableReason};

@@ -21,6 +21,21 @@ pub enum F32DenormalBehavior {
 pub enum F32DenormalBasis {
     /// 実行して観察した。
     Observed,
+    /// `Exec::inject_denormal` で差し込んだ値で経路が決まった。
+    #[cfg(feature = "fault-injection")]
+    Injected,
+}
+
+/// `Exec::inject_denormal` で差し込む、f32 の非正規化数の判定の値。
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DenormalInjection {
+    /// 非正規化数を保つと判定する。
+    Preserve,
+    /// 非正規化数を 0 に流すと判定する。
+    FlushToZero,
+    /// 判定できないとする。
+    Unknown,
 }
 
 /// f32 の非正規化数の項。
