@@ -64,6 +64,44 @@ origin/main のコミット `422787d`、`docs/spec` の gitlink は `c7887a1` �
 | `wasm/Cargo.lock` | 0 | `grep -c 'name = "fandhe-silicon-upper"' wasm/Cargo.lock` |
 | `baseline-wgpu/Cargo.lock` | 0 | `grep -c 'name = "fandhe-silicon-upper"' baseline-wgpu/Cargo.lock` |
 
+## 単独のビルドと feature の木の記録（2/3）
+
+origin/main のコミット `567e7cd`、`docs/spec` の gitlink は `c7887a1` の時点で、作業ツリーから流した結果。
+`make upper-layer-check` の終了コードは 0 で、`ok:` の行が出た。
+
+### 単独のビルド
+
+| 対象 | 結果 | 確かめ方 |
+| ---- | ---- | -------- |
+| feature なしの単独のビルド | 終了コード 0 | `cargo build --locked --offline -p fandhe-silicon-upper` |
+| `native-blocking-wait` を付けた単独のビルド | 終了コード 0 | `cargo build --locked --offline -p fandhe-silicon-upper --features native-blocking-wait` |
+| 上の層の依存の木に現れる契約の crate の行 | 0 | `cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e normal,build,dev --prefix none \| grep -c fandhe-silicon-contract` |
+| crate ディレクトリの外から読むファイルの指定（`#[path]`・`include!` の類） | 0 | `git grep -nE '#\[path\|include!\|include_str!\|include_bytes!' -- crates/upper \| wc -l` |
+
+### 上の層の feature の木の `test-support`・`fault-injection`
+
+| 辺 | feature | 行数 | 確かめ方 |
+| -- | ------- | ---- | -------- |
+| 通常・build | 指定なし | 0 | `cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build \| grep -cE 'test-support\|fault-injection'` |
+| 通常・build | `--all-features` | 0 | `cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e features,normal,build \| grep -cE 'test-support\|fault-injection'` |
+| 通常・build・dev | 指定なし | 1 | `cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build,dev \| grep -cE 'test-support\|fault-injection'` |
+| 通常・build・dev | `--all-features` | 1 | `cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e features,normal,build,dev \| grep -cE 'test-support\|fault-injection'` |
+
+- dev の辺を含めた木で当たる 1 行は、`[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`
+
+### 測定の workspace の feature の木
+
+| 対象 | 値 | 確かめ方 |
+| ---- | -- | -------- |
+| 通常・build の辺の `test-support`・`fault-injection` の行 | 0 | `cargo tree --locked --offline --target all --manifest-path measure/Cargo.toml --workspace --all-features -e features,normal,build \| grep -cE 'test-support\|fault-injection'` |
+| 通常・build・dev の辺の `test-support`・`fault-injection` の行 | 1 | `cargo tree --locked --offline --target all --manifest-path measure/Cargo.toml --workspace --all-features -e features,normal,build,dev \| grep -cE 'test-support\|fault-injection'` |
+| `measure/Cargo.lock` の `fandhe-silicon-contract` の package | 0 | `grep -c 'name = "fandhe-silicon-contract"' measure/Cargo.lock` |
+| `record:` の `measure_pkgs` | 2 | `make upper-layer-check \| grep '^record:'` |
+| `record:` の `measure_contract_pkgs` | 0 | 同上 |
+| `record:` の `measure_forbidden` | 0 | 同上 |
+
+- dev の辺を含めた木で当たる 1 行は、`measure-perf` の `[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`
+
 ## 本リポでの反映の方針
 
 本書には、同じ PR の作業ツリーで流したコマンドとその出力だけを置く。節を足すときは前の節を書き換えず、新しい節を足す。
