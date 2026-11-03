@@ -246,3 +246,65 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 | `:126` | `scripts/build-profiles.sh:32`〜`:33`（契約の crate の組） | 組の一覧は `:33`〜`:37`、ビルドの呼び出しは `:81`〜`:85` |
 | `:127` | `scripts/wasm-verify.sh:39` | `:41` |
 | `:128` | `scripts/public-api-check.sh:307` | `:307`（変わらない） |
+
+## 今の値の補い（base 8deff9f）
+
+上の「今の値」「今の値の補い」の表は記録の時点の値で、書き換えない。今の値は次のとおり（コードの事実だけ）。TASK-837 のポインタ。
+
+### `crates/core/src/graphics.rs` の所在
+
+数えたコマンドは `grep -n 'pub enum PixelFormat\|pub enum DepthFormat\|pub enum CompareFunction\|pub struct DepthConfig\|pub struct RenderEncoder\|pub trait GraphicsOps' crates/core/src/graphics.rs` と、`GraphicsOps` の本体の `    fn ` の行（`grep -n '^    fn ' crates/core/src/graphics.rs` の `:490` 以降）。
+
+| 項目 | 今の値 |
+| ---- | ------ |
+| 型の行 | `PixelFormat :31`・`DepthFormat :52`・`CompareFunction :104`・`DepthConfig :126`・`RenderEncoder :169` |
+| `pub trait GraphicsOps` | `:490` |
+| 操作の数 | 19 個（`fn` の行は `:492`〜`:666`） |
+| `destroy_offscreen_target` | `:546` |
+| `submit_render` | `:659` |
+| 状態を設定する 8 操作 | `set_pipeline :579`・`set_vertex_buffer :586`・`set_index_buffer :596`・`set_immediates :606`・`set_viewport :623`・`set_scissor_rect :630`・`set_blend_constant :637`・`set_stencil_reference :644` |
+
+### doctest の行と件数
+
+数えたコマンドは `cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics`。すべて `ok`。
+
+| 項目 | 今の値 |
+| ---- | ------ |
+| 件数 | 通常 22 件・`compile_fail` 22 件（計 44 件）。`graphics/` 以下の `draw_range.rs`・`pass_state.rs`・`surface.rs`・`target_check.rs` の doctest も同じ絞りに入る |
+| 型の `compile_fail` | `PixelFormat` line 19・`DepthFormat` line 42・`CompareFunction` line 92・`RenderEncoder` line 156・line 163 |
+| 通常の doctest | `DepthConfig` line 115・`RenderEncoder` line 142・`GraphicsOps` line 233・`GraphicsOps::destroy_offscreen_target` line 528 |
+| `GraphicsOps` の `compile_fail,E0046` | 8 本（line 245・276・307・338・369・400・431・462） |
+| 操作の `compile_fail,E0382` | `GraphicsOps::destroy_offscreen_target` line 538・`GraphicsOps::submit_render` line 652 |
+| `Default` を持たない型の `compile_fail,E0277` | 4 本（`pass_state.rs` の `Viewport` line 18・`ScissorRect` line 51、`draw_range.rs` の `DrawRange` line 19・`IndexedDrawRange` line 52） |
+
+### 操作の数と試験の件数
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| 操作の数 | `GraphicsOps` は 11 操作 | 19 操作（上の 11 個に、状態を設定する 8 操作が加わる。8 操作は [render-pass-types.md](render-pass-types.md)・TASK-838） |
+| `StubGraphics` | 11 操作 | `impl GraphicsOps for StubGraphics` は `crates/core/src/stub_device.rs:781`、操作は 19 個。`destroy_offscreen_target` は `:826`、`submit_render` は `:977` |
+| `FixedGraphics` | 11 操作 | `crates/core/tests/graphics_types.rs:21` の `impl GraphicsOps for FixedGraphics`、操作は 19 個 |
+| `stub_device_graphics` | 13 件 | 13 件（`--test stub_device_graphics`） |
+| `device_trait_shape` | 8 件 | 8 件（`--test device_trait_shape`） |
+| `graphics_types` | 4 件 | 4 件（`--test graphics_types`） |
+| `stub_device` の `--lib` | 27 件 | 43 件（`--features test-support,graphics --lib stub_device`） |
+| `crates/core/src/lib.rs` | `:39` | `:39` |
+
+数えたコマンドは、`awk` で `stub_device.rs:781` と `graphics_types.rs:21` の `impl` の本体の `    fn ` の行を数えたもの、`cargo test -p fandhe-silicon-core --features test-support,graphics --test <名前>`、`grep -n 'forbid(unsafe_code)' crates/core/src/lib.rs`。
+
+## 描画パスの状態の操作の型の試験の補い
+
+状態を設定する 8 操作を足した後に加わった試験の名前・所在・確かめ方（TASK-838 のポインタ）。
+
+| 試験 | 所在 | 確かめること |
+| ---- | ---- | ------------ |
+| `GraphicsOps` の `compile_fail,E0046` 8 本 | `crates/core/src/graphics.rs` の `GraphicsOps` の rustdoc（line 245〜462） | 状態を設定する 8 操作のうち 1 つを欠く実装が、操作の欠けで通らない |
+| `Default` を持たない 4 型の `compile_fail,E0277` | `crates/core/src/graphics/pass_state.rs`（`Viewport`・`ScissorRect`）、`crates/core/src/graphics/draw_range.rs`（`DrawRange`・`IndexedDrawRange`） | `T: Default` を求める関数に型を渡すコードが通らない |
+| `pass_state_ops_reject_encoder_of_another_device` | `crates/core/tests/graphics_pass_stub.rs` | 別の device で作った記録先を渡すと、8 操作すべてが `DeviceMismatch` を返し、記録先は持ち主の device で使い続けられる |
+
+```text
+cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics
+cargo test -p fandhe-silicon-core --features graphics,test-support --test graphics_pass_stub
+```
+
+`graphics_pass_stub` は `6 passed; 0 failed; 0 ignored`。

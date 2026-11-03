@@ -143,6 +143,20 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test graphi
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-838）。確かめた base は `f7578eb2e072123ffe3eace8defb308a6cd6fdbf`。
 
+### 今の値の補い（base 8deff9f）
+
+上の「完了の条件の確かめ（4/4）」の表は記録の時点の値で、書き換えない。今の値は次のとおり。
+
+| 表の行 | 記録の時点の値 | 今の値 |
+| ------ | -------------- | ------ |
+| (1) | `graphics.rs:433`・`:434`・`:436`・`:437` | `:684` が `mod pass_state;`、`:685` が `pub use pass_state::{...}`、`:687` が `mod draw_range;`、`:688` が `pub use draw_range::{`。`fn set_` は 579・586・596・606・623・630・637・644 行目の 8 行 |
+| (3) | doctest は通常が 4 passed、`compile_fail,E0004`（`pass_state.rs:60`）が 1 passed | 通常が 4 passed、`compile_fail` が 3 passed（`compile_fail,E0004` は `pass_state.rs:76`、`compile_fail,E0277` は `pass_state.rs:18`・`:51`） |
+| (5) | `compile_fail,E0382`（`graphics.rs:401`）が 1 passed。`graphics.rs` の `compile_fail,E0382` は 287・401 行目の 2 つ | `compile_fail,E0382`（`graphics.rs:652`）が 1 passed。`graphics.rs` の `compile_fail,E0382` は 538・652 行目の 2 つ |
+| (6) | `impl` は `stub_device.rs:781` と `graphics_types.rs:21`。`fn set_` は前者に 8 本（874・886・901・916・929・941・953・965 行目） | 変わらない。`graphics_types.rs` の `fn set_` は 99・107・118・129・138・146・154・162 行目の 8 本 |
+| (7)・(10) | `graphics_pass_stub` は 5 passed | 6 passed（`pass_state_ops_reject_encoder_of_another_device` が加わる） |
+
+数えたコマンドは `grep -n 'mod pass_state\|mod draw_range\|pub use pass_state\|pub use draw_range' crates/core/src/graphics.rs`、`grep -n 'fn set_' crates/core/src/graphics.rs`、`grep -n 'compile_fail,E0' crates/core/src/graphics.rs crates/core/src/graphics/pass_state.rs`、上の「確かめ方（4/4）」の `--doc pass_state`・`--doc submit_render`・`--test graphics_pass_stub`。
+
 ### 確かめ方（4/4）
 
 ```sh

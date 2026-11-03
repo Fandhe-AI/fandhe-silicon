@@ -22,17 +22,17 @@
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
-    /// 左端の位置。
+    /// 描画範囲の x の位置。
     pub x: f32,
-    /// 上端の位置。
+    /// 描画範囲の y の位置。
     pub y: f32,
     /// 幅。
     pub width: f32,
     /// 高さ。
     pub height: f32,
-    /// 深度の範囲の下端。
+    /// 深度の範囲の最小値。
     pub min_depth: f32,
-    /// 深度の範囲の上端。
+    /// 深度の範囲の最大値。
     pub max_depth: f32,
 }
 
@@ -55,9 +55,9 @@ pub struct Viewport {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScissorRect {
-    /// 左端の位置。
+    /// 描画範囲の x の位置。
     pub x: u32,
-    /// 上端の位置。
+    /// 描画範囲の y の位置。
     pub y: u32,
     /// 幅。
     pub width: u32,
