@@ -2,15 +2,19 @@
 # wasm32 向けの cdylib（crates/wasm-abi）の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを確かめる
 # （spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4・4/4）。
 # 呼び出し元: `make wasm-build-check`（手元で流す。CI からは呼ばない。理由は docs/wasm32-build.md の「CI への組み込み（4/4）」）。
+# `--cfg-only` は `scripts/wasm-verify.sh` が呼ぶ（CI の deny・wasm-macos ジョブ。spec TASK-2954 のポインタ）。
 # 回帰テストは `make test-wasm-build-check`（`scripts/test-wasm-build-check.sh`）。
 #
 # 使い方:
 #   scripts/wasm-build-check.sh [--require-type <path>]... [--from-dir <scalar.wasm> <simd128.wasm>]
 #                               [--source-root <dir>] [--rustdoc-json <path>]
+#   scripts/wasm-build-check.sh --cfg-only [--source-root <dir>]
 #     --require-type   公開アイテムに在るべき型の path（crate 名の有無はどちらでもよい。複数可。確かめる名前はこのスクリプトに持たせない）
 #     --from-dir       ビルドせず、渡した 2 つの wasm を判別する（回帰テスト用。順は scalar、simd128。名前に反してファイルを 2 つ取る）
 #     --source-root    cfg の走査の起点（既定は crates/）
 #     --rustdoc-json   cargo を呼ばずにこの rustdoc JSON で（2 版とも）型を確かめる（回帰テスト用）
+#     --cfg-only       `cfg:` の行だけを流す。ビルドしない・cargo を呼ばない。`--source-root` 以外との併用は誤用（終了コード 2）。
+#                      前提は python3 3.8 以上だけ。`record:` は `mode=cfg-only` を持つ。出現が 0 件なら not-run で終了コード 1。
 # 終了コード: 0 全行が match / 1 mismatch または not-run が 1 行以上 / 2 誤用・前提の不足・読めない入力。
 # 標準出力: 行ごとの `artifact:`・`type:`・`cfg:`（label は match / mismatch / not-run。理由は reason=）、
 #   終了コード 0 と 1 のときだけ `record:`、合格時の `ok:`。標準エラー: `error:`（2）・`FAILED:`（1）。
@@ -70,8 +74,13 @@ def fail2(msg):
     sys.exit(2)
 
 
+def usage():
+    fail2("usage: wasm-build-check.sh [--require-type <path>]... [--from-dir <scalar.wasm> <simd128.wasm>] "
+          "[--source-root <dir>] [--rustdoc-json <path>] | --cfg-only [--source-root <dir>]")
+
+
 def parse_args(argv):
-    a = {"types": [], "from": None, "src": None, "json": None}
+    a = {"types": [], "from": None, "src": None, "json": None, "cfg_only": False}
     i = 0
     n = len(argv)
     while i < n:
@@ -88,9 +97,13 @@ def parse_args(argv):
         elif t == "--rustdoc-json" and i + 1 < n:
             a["json"] = argv[i + 1]
             i += 2
+        elif t == "--cfg-only":
+            a["cfg_only"] = True
+            i += 1
         else:
-            fail2("usage: wasm-build-check.sh [--require-type <path>]... [--from-dir <scalar.wasm> <simd128.wasm>] "
-                  "[--source-root <dir>] [--rustdoc-json <path>]")
+            usage()
+    if a["cfg_only"] and (a["types"] or a["from"] is not None or a["json"] is not None):
+        usage()
     return a
 
 
@@ -513,9 +526,29 @@ def commit(root):
         return "-"
 
 
+def main_cfg_only(root, a):
+    # cfg の行だけを出す入口。cargo も wasm も rustdoc も使わない（wasm-verify.sh から呼ばれる）。
+    try:
+        cfg, sites = cfg_rows(root, a["src"] or os.path.join(root, "crates"))
+    except Misuse as e:
+        fail2(str(e))
+    for text, _ in cfg:
+        print(text)
+    labels = [lab for _, lab in cfg if lab]
+    not_run = sum(1 for lab in labels if lab == "not-run")
+    print("record: commit=%s mode=cfg-only cfg_sites=%d not_run=%d" % (commit(root), sites, not_run))
+    if all(lab == "match" for lab in labels):
+        print("ok: all rows match")
+        return 0
+    print("FAILED: at least one row is mismatch or not-run", file=sys.stderr)
+    return 1
+
+
 def main():
     root = sys.argv[1]
     a = parse_args(sys.argv[2:])
+    if a["cfg_only"]:
+        return main_cfg_only(root, a)
     try:
         td = None
         if a["from"] is None or (a["types"] and a["json"] is None):

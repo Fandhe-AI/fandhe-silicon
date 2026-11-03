@@ -418,6 +418,63 @@ expect "cfg-source-root-missing" 2 "error: source root is not a directory"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm"
 expect "cfg-real-crates-all-match" 1 "label=match" "!reason=no-simd128-sites" "!violation:"
 
+# TASK-2954: cfg の行だけを流す入口 --cfg-only（ビルドしない・wasm-verify.sh から呼ばれる）。
+run_case --cfg-only --source-root "${S}/good"
+expect "cfg-only-good" 0 "cfg: sites=1 label=match" "mode=cfg-only" "ok:" "!artifact:" "!type:"
+run_case --cfg-only --source-root "${S}/not_form"
+expect "cfg-only-not-form" 0 "cfg: sites=2 label=match" "ok:"
+run_case --cfg-only --source-root "${S}/runtime"
+expect "cfg-only-runtime" 1 "reason=runtime-detection" "FAILED:"
+run_case --cfg-only --source-root "${S}/only_feature"
+expect "cfg-only-only-feature" 1 "reason=unsupported-cfg-form"
+run_case --cfg-only --source-root "${S}/none"
+expect "cfg-only-zero-sites" 1 "label=not-run reason=no-simd128-sites" "not_run=1" "!ok:"
+run_case --cfg-only --source-root "${S}/missing_dir"
+expect "cfg-only-source-root-missing" 2 "error: source root is not a directory" "!record:"
+run_case --cfg-only --require-type dummy_mod::Alpha
+expect "cfg-only-misuse-require-type" 2 "usage:" "!record:"
+run_case --cfg-only --from-dir "${F}/scalar.wasm" "${F}/simd.wasm"
+expect "cfg-only-misuse-from-dir" 2 "usage:" "!record:"
+run_case --cfg-only --rustdoc-json "${F}/doc.json"
+expect "cfg-only-misuse-rustdoc-json" 2 "usage:" "!record:"
+# ビルドしない: 偽の cargo は呼ばれれば必ず ARGS の行を残す。
+run_fake --cfg-only --source-root "${S}/good"
+expect "cfg-only-fake-ok" 0 "mode=cfg-only" "ok:"
+expect_log "cfg-only-fake-no-cargo" "!ARGS"
+# 実物の crates/ は全部 match（出現の件数は固定しない）。
+run_case --cfg-only
+expect "cfg-only-real-crates" 0 "cfg: sites=" "label=match" "!violation:" "ok:"
+
+# 陽性対照: 実物の crates/ の写しに 1 点だけ手を入れると落ちる。
+for pc in runtime-detection unsupported-cfg-form; do
+  copy="${work}/pc-${pc}"
+  cp -R "${DIR}/../crates" "${copy}"
+  pc_rc=0
+  python3 -I - "${copy}/contract/src/cpu_ops.rs" "${pc}" <<'PY' || pc_rc=$?
+import sys
+
+path, kind = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+if kind == "runtime-detection":
+    text += '\npub fn probe_runtime() -> bool {\n    std::arch::is_x86_feature_detected!("simd128")\n}\n'
+else:
+    old = '#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]\nmod simd128;'
+    if text.count(old) != 1:
+        sys.exit(3)
+    text = text.replace(old, '#[cfg(target_feature = "simd128")]\nmod simd128;')
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+  if [ "${pc_rc}" -ne 0 ]; then
+    echo "FAIL cfg-only-positive-control-${pc}: cannot prepare the copy" >&2
+    failed=$((failed + 1))
+    continue
+  fi
+  run_case --cfg-only --source-root "${copy}"
+  expect "cfg-only-positive-control-${pc}" 1 "reason=${pc}" "violation: file=contract/src/cpu_ops.rs"
+done
+
 # 4. 偽の cargo（既定の経路）
 run_fake --source-root "${S}/good"
 expect "fake-default" 1 "artifact: kind=scalar label=match" "artifact: kind=simd128 label=match" "type: label=not-run reason=no-required-types" "cfg: sites=1 label=match"

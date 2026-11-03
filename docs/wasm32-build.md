@@ -143,6 +143,55 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 | `deny` ジョブに足したステップ | `grep -n "wasm-build-check" .github/workflows/ci.yml` |
 | 本体が CI から呼ばれていない | `grep -n "run: make wasm-build-check" .github/workflows/ci.yml`（0 件） |
 
+## simd128 の cfg の検査の CI での実行（TASK-2954）
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-2954 のポインタ）。
+
+### cfg の行だけを流す入口と wasm-verify からの呼び出し（1/2）
+
+`scripts/wasm-build-check.sh --cfg-only` は、`crates/` の走査（`cfg:` の行）だけを流す。cargo を呼ばず、wasm も rustdoc も作らない。前提は python3 3.8 以上だけ。全行の経路（`--cfg-only` なし）の判定・出力・終了コードは上の節のまま。
+
+| 入力 | 出す行 | 終了コード |
+| ---- | ------ | ---------- |
+| 出現がすべて正しい形で、実行時の検出が無い | `cfg: sites=N label=match`・`record: commit=... mode=cfg-only cfg_sites=N not_run=0`・`ok: all rows match` | 0 |
+| 正しくない形か実行時の検出がある | `cfg: ... label=mismatch reason=...`・`violation:` の行・`record:`・標準エラーに `FAILED:` | 1 |
+| 出現が 0 件 | `cfg: sites=0 label=not-run reason=no-simd128-sites`・`not_run=1`（合格に数えない） | 1 |
+| `--require-type`・`--from-dir`・`--rustdoc-json` のどれかとの併用（`--source-root` は併用してよい） | 標準エラーに `usage:` | 2 |
+| 起点のディレクトリが無い | 標準エラーに `error: source root is not a directory` | 2 |
+
+呼ぶ場所:
+
+| ジョブ | runner | 呼ぶステップ | 呼ぶ場所 |
+| ------ | ------ | ------------ | -------- |
+| `deny` | `ubuntu-latest` | `make wasm-verify` の中 | `scripts/wasm-verify.sh` が `wasm-compile-probe-check.sh` の後で `wasm-build-check.sh --cfg-only` を呼ぶ |
+| `wasm-macos` | `macos-latest` | `make wasm-verify` の中 | 同上 |
+
+`ci.yml` のステップは増えていない。
+
+回帰テスト（`scripts/test-wasm-build-check.sh`）に足したケース:
+
+| ケース | 入力 | 期待の終了コード | 見る出力 |
+| ------ | ---- | ---------------- | -------- |
+| `cfg-only-good`・`cfg-only-not-form` | 正しい形の合成ソース | 0 | `label=match`・`mode=cfg-only`・`ok:`（`artifact:`・`type:` は出ない） |
+| `cfg-only-runtime`・`cfg-only-only-feature` | 実行時の検出・`all(...)` でない形 | 1 | `reason=runtime-detection`・`reason=unsupported-cfg-form` |
+| `cfg-only-zero-sites` | 出現が 0 件 | 1 | `label=not-run`・`not_run=1`・`ok:` が出ない |
+| `cfg-only-source-root-missing` | 起点が無い | 2 | `error: source root is not a directory` |
+| `cfg-only-misuse-*` | 3 つの併用 | 2 | `usage:` |
+| `cfg-only-fake-*` | 偽の cargo を `PATH` に置いて流す | 0 | `ok:`。偽の cargo の記録に呼び出しが無い |
+| `cfg-only-real-crates` | 実物の `crates/` | 0 | `label=match`・`violation:` が出ない（件数は固定しない） |
+| `cfg-only-positive-control-*` | 実物の `crates/` の一時の写しに、実行時の検出を 1 行足す／`mod simd128;` の属性を `cfg(target_feature = "simd128")` だけにする | 1 | `reason=runtime-detection`・`reason=unsupported-cfg-form`、`violation: file=contract/src/cpu_ops.rs` |
+
+確かめ方:
+
+| 確かめること | コマンド |
+| ------------ | -------- |
+| 入口が `wasm-verify.sh` から呼ばれる | `grep -n 'cfg-only' scripts/wasm-verify.sh` |
+| 実物の `crates/` が通る | `scripts/wasm-build-check.sh --cfg-only`（終了コード 0） |
+| 併用は誤用 | `scripts/wasm-build-check.sh --cfg-only --require-type X`（終了コード 2） |
+| 回帰テストが通る | `make test-wasm-build-check` |
+
+重なる既存の試験の所在: `crates/contract/tests/cpu_ops_build_selection.rs`（TASK-1351。`make verify` が流す）。
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
