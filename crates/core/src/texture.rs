@@ -491,3 +491,6 @@ pub use ops::TextureOps;
 
 mod copy_spec;
 pub use copy_spec::{TextureCopySpec, TextureOrigin};
+
+mod view;
+pub use view::TextureView;
