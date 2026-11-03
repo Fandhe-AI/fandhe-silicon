@@ -461,4 +461,259 @@ mod tests {
             }
         }
     }
+
+    /// 能力の値・印・判定の答えの全組み合わせを、候補を並べて先頭から当てる規則で数えて確かめる。
+    mod combination_tests {
+        use super::*;
+
+        type Answer = Result<DenormalJudgment, ContractError>;
+        type Outcome = (Result<SelectionOutput, ContractError>, Vec<Route>);
+
+        const ROUTES: [Route; 3] = [Route::Native, Route::GpuEmulated, Route::Cpu];
+
+        struct Case {
+            op: OpId,
+            opt_in: OptIn,
+            query: CapabilityQuery,
+            /// `Native`・`GpuEmulated`・`Cpu` の順の答え。判定しない操作は `None`。
+            answers: Option<[Answer; 3]>,
+        }
+
+        fn queries() -> Vec<CapabilityQuery> {
+            let mut v: Vec<CapabilityQuery> = [
+                CapabilityLevel::S0,
+                CapabilityLevel::S1,
+                CapabilityLevel::S2,
+                CapabilityLevel::S3,
+                CapabilityLevel::S4,
+                CapabilityLevel::S5,
+                CapabilityLevel::S6,
+            ]
+            .into_iter()
+            .map(|l| query(l, None))
+            .collect();
+            for r in [
+                None,
+                Some(UnsupportedReason::NoApi),
+                Some(UnsupportedReason::NotSupported),
+                Some(UnsupportedReason::UnknownFeature),
+            ] {
+                v.push(query(CapabilityLevel::Unsupported, r));
+            }
+            v
+        }
+
+        fn answer(i: usize) -> Answer {
+            match i {
+                0 => Ok(DenormalJudgment::Preserve),
+                1 => Ok(DenormalJudgment::FlushToZero),
+                2 => Ok(DenormalJudgment::Unknown),
+                _ => Err(ContractError::Timeout),
+            }
+        }
+
+        fn cases() -> Vec<Case> {
+            let mut v = Vec::new();
+            for q in queries() {
+                for o in ALL_OPT {
+                    for op in [OpId::F16Fma, OpId::SubgroupSumU32] {
+                        v.push(Case {
+                            op,
+                            opt_in: o,
+                            query: q,
+                            answers: None,
+                        });
+                    }
+                    for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+                        for n in 0..64 {
+                            v.push(Case {
+                                op,
+                                opt_in: o,
+                                query: q,
+                                answers: Some([answer(n % 4), answer(n / 4 % 4), answer(n / 16)]),
+                            });
+                        }
+                    }
+                }
+            }
+            v
+        }
+
+        fn behavior(j: DenormalJudgment) -> Option<F32DenormalBehavior> {
+            match j {
+                DenormalJudgment::Preserve => Some(F32DenormalBehavior::Preserve),
+                DenormalJudgment::FlushToZero => Some(F32DenormalBehavior::FlushToZero),
+                DenormalJudgment::Unknown => None,
+            }
+        }
+
+        /// 候補を並べ、先頭から判定の答えを当てた期待の結果と呼ばれた経路の並び。
+        fn expected(c: &Case) -> Outcome {
+            let reachable = [
+                CapabilityLevel::S2,
+                CapabilityLevel::S3,
+                CapabilityLevel::S4,
+                CapabilityLevel::S5,
+                CapabilityLevel::S6,
+            ]
+            .contains(&c.query.level);
+            let mut native_reason = if reachable {
+                None
+            } else if c.query.level == CapabilityLevel::Unsupported {
+                Some(UnavailableReason::CapabilityUnsupported(
+                    c.query.unsupported_reason,
+                ))
+            } else {
+                Some(UnavailableReason::CapabilityUnknown)
+            };
+            let mut candidates = Vec::new();
+            if reachable {
+                candidates.push(Route::Native);
+            }
+            if c.opt_in.allow_gpu_emulated {
+                candidates.push(Route::GpuEmulated);
+            }
+            if c.opt_in.allow_cpu {
+                candidates.push(Route::Cpu);
+            }
+            let fallback_allowed = c.opt_in.allow_gpu_emulated || c.opt_in.allow_cpu;
+            let mut called = Vec::new();
+            let mut chosen: Option<(Route, Option<F32DenormalBehavior>)> = None;
+            match &c.answers {
+                None => chosen = candidates.first().map(|r| (*r, None)),
+                Some(answers) => {
+                    for r in &candidates {
+                        called.push(*r);
+                        let idx = ROUTES.iter().position(|x| x == r).unwrap();
+                        match &answers[idx] {
+                            Err(e) => return (Err(e.clone()), called),
+                            Ok(DenormalJudgment::Unknown) => {
+                                if *r == Route::Native {
+                                    native_reason =
+                                        Some(UnavailableReason::F32DenormalBehaviorUnknown);
+                                }
+                            }
+                            Ok(j) => {
+                                chosen = Some((*r, behavior(*j)));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            let out = match chosen {
+                Some((route, f32_denormal)) => SelectionOutput {
+                    route: Some(route),
+                    native_reason: if route == Route::Native {
+                        None
+                    } else {
+                        native_reason
+                    },
+                    fallback_reason: None,
+                    f32_denormal,
+                },
+                None => SelectionOutput {
+                    route: None,
+                    native_reason,
+                    fallback_reason: Some(if fallback_allowed {
+                        UnavailableReason::F32DenormalBehaviorUnknown
+                    } else {
+                        UnavailableReason::OptInNotGiven
+                    }),
+                    f32_denormal: None,
+                },
+            };
+            (Ok(out), called)
+        }
+
+        fn actual(c: &Case) -> Outcome {
+            let table: Vec<(Route, Answer)> = match &c.answers {
+                Some(a) => ROUTES.iter().copied().zip(a.iter().cloned()).collect(),
+                None => Vec::new(),
+            };
+            run(c.op, c.opt_in, c.query, &table)
+        }
+
+        #[test]
+        fn every_combination_matches_candidate_rule() {
+            let all = cases();
+            assert_eq!(all.len(), 11 * 4 * (2 + 2 * 64));
+            let mut checked = 0;
+            for c in &all {
+                let (want, want_called) = expected(c);
+                let (got, got_called) = actual(c);
+                assert_eq!(got, want, "{:?} {:?} {:?}", c.op, c.opt_in, c.query);
+                assert_eq!(got_called, want_called);
+                checked += 1;
+            }
+            assert_eq!(checked, 5720);
+        }
+
+        #[test]
+        fn unsupported_rows_keep_query_reason() {
+            // FB-6
+            let mut seen = 0;
+            for c in cases()
+                .iter()
+                .filter(|c| c.query.level == CapabilityLevel::Unsupported)
+            {
+                let (got, called) = actual(c);
+                assert!(!called.contains(&Route::Native));
+                if let Ok(out) = got {
+                    assert_eq!(
+                        out.native_reason,
+                        Some(UnavailableReason::CapabilityUnsupported(
+                            c.query.unsupported_reason
+                        ))
+                    );
+                }
+                seen += 1;
+            }
+            assert_eq!(seen, 4 * 4 * (2 + 2 * 64));
+        }
+
+        #[test]
+        fn unknown_levels_never_choose_native() {
+            // FB-7
+            let mut seen = 0;
+            for c in cases()
+                .iter()
+                .filter(|c| matches!(c.query.level, CapabilityLevel::S0 | CapabilityLevel::S1))
+            {
+                let (got, called) = actual(c);
+                assert!(!called.contains(&Route::Native));
+                if let Ok(out) = got {
+                    assert_ne!(out.route, Some(Route::Native));
+                    assert_eq!(
+                        out.native_reason,
+                        Some(UnavailableReason::CapabilityUnknown)
+                    );
+                }
+                seen += 1;
+            }
+            assert_eq!(seen, 2 * 4 * (2 + 2 * 64));
+        }
+
+        #[test]
+        fn report_f32_item_follows_judged_route() {
+            for c in &cases() {
+                let (want, _) = expected(c);
+                let Ok(want) = want else { continue };
+                let (got, _) = actual(c);
+                let out = got.unwrap();
+                let input = selection_input(c.op, c.opt_in, c.query);
+                let report = build_report(&input, &out);
+                let has = matches!(c.op, OpId::SubgroupSumF32 | OpId::AtomicAdd);
+                let exp = match (has, want.route, want.f32_denormal) {
+                    (true, Some(_), Some(behavior)) => Some(F32DenormalReport {
+                        behavior,
+                        basis: F32DenormalBasis::Observed,
+                        documented: None,
+                    }),
+                    _ => None,
+                };
+                assert_eq!(report.f32_denormal, exp);
+            }
+        }
+    }
 }
