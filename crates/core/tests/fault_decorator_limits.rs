@@ -3,7 +3,7 @@
 use std::cell::Cell;
 
 use fandhe_silicon_core::capability::{
-    BackendKind, Capabilities, CapabilityLevel, FeatureId, LimitsTable,
+    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
 };
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::fault::decorator::{FaultInjecting, FaultScript};
@@ -125,7 +125,7 @@ fn limits_without_override_is_inner_table() {
 
 #[test]
 fn limits_table_override_applies_to_limits_for_every_script() {
-    // `FaultScript` の全 6 種類を並べる（バリアントを足したらここも足す）。
+    // `FaultScript` の全 7 種類を並べる（バリアントを足したらここも足す）。
     let scripts = [
         FaultScript::PassThrough,
         FaultScript::CompletionUnknown,
@@ -135,6 +135,14 @@ fn limits_table_override_applies_to_limits_for_every_script() {
         },
         FaultScript::CapabilityQueryFails,
         FaultScript::AllocationFails,
+        FaultScript::CapabilityOverride {
+            feature: FeatureId("feature:X"),
+            query: CapabilityQuery {
+                level: CapabilityLevel::S1,
+                unsupported_reason: None,
+                evidence: None,
+            },
+        },
         FaultScript::RuntimeError {
             backend: BackendKind::Vulkan,
             detail: "x".into(),
@@ -158,4 +166,20 @@ fn other_type_override_leaves_limits_on_inner_table() {
     assert_eq!(*d.limits(), INNER_TABLE);
     let r = d.limits_with::<LimitsTable, _>(|i| *i.limits());
     assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+}
+
+#[test]
+fn capability_override_script_leaves_limits_on_inner_table() {
+    let d = FaultInjecting::new(
+        LimitsInner(INNER_TABLE),
+        FaultScript::CapabilityOverride {
+            feature: FeatureId("feature:X"),
+            query: CapabilityQuery {
+                level: CapabilityLevel::S1,
+                unsupported_reason: None,
+                evidence: None,
+            },
+        },
+    );
+    assert_eq!(*d.limits(), INNER_TABLE);
 }

@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel, FeatureId};
+use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel, CapabilityQuery, FeatureId};
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::fault::decorator::{FaultInjecting, FaultScript};
 
@@ -21,6 +21,14 @@ fn scripts() -> Vec<FaultScript> {
         },
         FaultScript::CapabilityQueryFails,
         FaultScript::AllocationFails,
+        FaultScript::CapabilityOverride {
+            feature: FeatureId("feature:A"),
+            query: CapabilityQuery {
+                level: CapabilityLevel::S1,
+                unsupported_reason: None,
+                evidence: None,
+            },
+        },
         FaultScript::RuntimeError {
             backend: BackendKind::Metal,
             detail: String::new(),
