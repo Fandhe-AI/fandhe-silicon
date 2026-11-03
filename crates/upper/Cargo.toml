@@ -26,5 +26,10 @@ fandhe-silicon-core = { path = "../core", features = ["test-support"] }
 name = "upper_wait_blocking"
 required-features = ["native-blocking-wait"]
 
+# 上の層の buffer と device を下-2 に渡す統合テストは feature の下でだけ組む。
+[[test]]
+name = "cross_layer_types"
+required-features = ["native-blocking-wait"]
+
 [lints]
 workspace = true
