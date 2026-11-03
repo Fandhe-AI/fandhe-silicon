@@ -77,3 +77,13 @@ make profile-test-count-check    profile-test-count-check: all profiles passed
 | 完了の条件の確かめ（2/2）の (2) | 4 本とも `ok`、`4 passed; 0 failed; 0 ignored` → 同じ（4 passed）。この試験が確かめるのは、同じ device を下-2 の値と上の層の device（`UpperDevice::new`）に渡して作れることまで。2 つが同じ device を持つことは比べていない。上の層の device は作るだけである（`upper_buffers_pass_to_exec_device_operands` は `_upper` に束ねるだけで使わない。`upper_submit_and_wait_on_the_same_device` は上の層の queue で投入と待ちをするが、下-2 の値の device との同一は比べない） | `grep -n 'UpperDevice::new\|queue()' crates/upper/tests/cross_layer_types.rs`（104・212・216 行目） |
 | 完了の条件の確かめ（2/2）の (7) | `make verify` の `test result:` は 218 行、2221 passed・0 failed・7 ignored → 221 行、2234 passed・0 failed・7 ignored。`cross_layer_types` は 4 passed; 0 failed; 0 ignored のまま | `make verify > <ログ> 2>&1`、`grep -c '^test result:' <ログ>`、`grep '^test result:' <ログ> \| awk '{p+=$4; f+=$6; i+=$8} END{print p,f,i}'` |
 | 完了の条件の確かめ（2/2）の (1) と (6) | `Cargo.toml` の 31・32 行目、feature なしで `Running tests/cross_layer_types.rs` が出ない、`record:` の `rs_files=9 direct_deps=3` → どれも同じ | `grep -n -A2 'cross_layer_types' crates/upper/Cargo.toml`、`cargo test -p fandhe-silicon-upper`、`make upper-layer-check` |
+
+## 今の値の補い（base c956c96）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 所在の表 | 上の層と下-2 を 1 つの device で通す試験への案内は無い → 同じ `crates/upper/tests/` に `upper_exec_same_device.rs` があり、所在と記録は [upper-exec-same-device.md](upper-exec-same-device.md) | `ls crates/upper/tests` |
+| 完了の条件の確かめ（2/2）の (7) | `make verify` の `test result:` は 221 行、2234 passed・0 failed・7 ignored → 223 行、2258 passed・0 failed・7 ignored。`cross_layer_types` は 4 passed; 0 failed; 0 ignored のまま | `make verify > <ログ> 2>&1`、`grep -c '^test result:' <ログ>`、`grep '^test result:' <ログ> \| awk '{p+=$4; f+=$6; i+=$8} END{print p,f,i}'` |
+| 完了の条件の確かめ（2/2）の (6) の `record:` | `rs_files=9 direct_deps=3` → `rs_files=10 direct_deps=3` | `make upper-layer-check \| grep '^record:'` |
