@@ -6,7 +6,7 @@
 //! 有効側の成功は「snippet の import が正しい」ことを担保する（stable の rustdoc は
 //! エラーコードを照合しないので、この対で失敗の理由の取り違えを防ぐ）。
 //!
-//! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など）の `cargo test`、
+//! 流れる場所: 無効側は `scripts/build-profiles.sh` の組（既定の組など。`cpu-ops` の対の無効側は `contract-core` だけの組などで流れる）の `cargo test`、
 //! 有効側は `make verify`（`--all-features`）の doctest と、`scripts/build-profiles.sh` の feature 単独の組。
 //! 有効側の確かめは `tests/feature_gate_enabled.rs` が受け持つ。
 //! spec との対応: TASK-233 の 1/4〜3/4・5/7・6/7、TASK-2457、BUILD-11〜13（ポインタ表記）。
@@ -14,7 +14,7 @@
 //! （`MemoryOps::download_blocking`・`CommandQueue::wait_blocking`。別々の snippet）、
 //! `ext-interop` の core のアイテム（`ExternalInterop`）、
 //! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）、`graphics`（core の `graphics` モジュールと `Device::graphics`。TASK-137）、
-//! `cpu-ops`（契約の crate の `cpu_ops` モジュール。TASK-2457）。
+//! `cpu-ops`（契約の crate の `cpu_ops` モジュールと、`UnaryElementwiseOp` の網羅の `match` が E0004 で落ちること。TASK-2457）。
 //! feature に依らず通る `download_async`・`on_complete` の doctest も置く。
 
 /// `backend-metal` を有効にしない構成では `backend_metal` が解決できずコンパイルエラーになる。
@@ -125,3 +125,18 @@ pub struct DeviceGraphicsGate;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct CpuOpsGate;
+
+/// `cpu-ops` を有効にした構成では、外の crate からの `UnaryElementwiseOp` の網羅の `match` は `_` が無いと E0004 で落ちる
+/// （`#[non_exhaustive]` の確かめ。CPU-28）。無効な構成では `cpu_ops` が無く別の理由で落ちるので `ignore` にする。
+#[cfg_attr(feature = "cpu-ops", doc = "```compile_fail,E0004")]
+#[cfg_attr(not(feature = "cpu-ops"), doc = "```ignore")]
+#[doc = "use fandhe_silicon_contract::cpu_ops::UnaryElementwiseOp;"]
+#[doc = "fn probe(op: UnaryElementwiseOp) -> f32 {"]
+#[doc = "    match op {"]
+#[doc = "        UnaryElementwiseOp::Relu => 0.0,"]
+#[doc = "        UnaryElementwiseOp::AddScalar(x) => x,"]
+#[doc = "    }"]
+#[doc = "}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct CpuOpsNonExhaustiveGate;
