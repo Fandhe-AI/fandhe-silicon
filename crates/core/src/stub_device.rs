@@ -1323,6 +1323,17 @@ mod tests {
         assert_eq!(sampler.__backend_id(), 1);
     }
 
+    // DEV-154: サンプラーを先に作っても、テクスチャの最初の通し番号は 1 のまま。
+    #[test]
+    fn texture_numbering_is_unaffected_by_earlier_samplers() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        textures
+            .create_sampler(&SamplerDescriptor::default())
+            .expect("sampler");
+        let texture = textures.create_texture(&texture_desc()).expect("texture");
+        assert_eq!(texture.__backend_id(), 1);
+    }
+
     // DEV-154: 通し番号が尽きたら panic せず BackendFailure を返す。
     #[test]
     fn create_sampler_reports_exhausted_id_space() {

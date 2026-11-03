@@ -249,3 +249,5 @@ cargo test -p fandhe-silicon-core --all-features
 make doctest-error-code-check
 make verify
 ```
+
+今の値の補い（base 1890c9a）: `TextureOps` の操作は今は 4 つ（`create_texture`・`destroy_texture`・`destroy_view`・`create_sampler`）で、どれも既定の本体は無い。`create_sampler` の所在は [device-textures.md](device-textures.md)（TASK-150）。

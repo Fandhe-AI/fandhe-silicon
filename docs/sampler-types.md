@@ -120,3 +120,5 @@ make public-api-webgpu-check
 make verify
 make wasm-verify
 ```
+
+サンプラーを作る操作 `TextureOps::create_sampler` の所在は [device-textures.md](device-textures.md)（TASK-150）。
