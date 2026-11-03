@@ -161,3 +161,50 @@ origin/main のコミット `b74ecdb`、`docs/spec` の gitlink は `c7887a1` �
 - `crates/upper` の `Cargo.toml`・`src/`・`tests/` が変わったとき
 - `crates/exec/Cargo.toml` の `[features]` が変わったとき
 - `scripts/upper-layer-check.sh` の数え方の定義が変わったとき
+
+## 完了の条件の確かめ（3/3）
+
+origin/main のコミット `7dcbd25`、`docs/spec` の gitlink は `c7887a1` の時点で、1/3・2/3 の節を入れた後の作業ツリー（clean）から、GPU の実機の無い Linux で観測し直した結果。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の所在と feature | 3/3 のコマンド 1・2 | `crates/upper/Cargo.toml` の 36・37 行目に `name = "upper_exec_same_device"` と `required-features = ["native-blocking-wait"]`。feature なしの実行に `Running tests/upper_exec_same_device.rs` は出ない（ほかの試験は 7 passed・3 passed・7 passed、いずれも 0 failed） |
+| (2) | 上の層と下-2 の呼び出しが 1 つの device の列に届く | 3/3 のコマンド 3 | `upper_and_exec_calls_reach_one_device ... ok`、`exec_failure_does_not_change_upper_submit ... ok`、`2 passed; 0 failed; 0 ignored` |
+| (3) | 下-2 の入口の後も上の層の投入と待ちが通り、buffer の中身が変わらない | 3/3 のコマンド 3 | `upper_and_exec_calls_reach_one_device ... ok` |
+| (4) | `unsafe`・チップの crate・直接依存 | `make upper-layer-check`、2/3 のコマンド 1・2 | 終了コード 0。`record:` は `rs_files=10 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0`、`ok:` の行あり。直接依存は通常・build が `fandhe-silicon-core`・`fandhe-silicon-exec`、dev が `fandhe-silicon-core`。上の層へ向く依存の木の行数は 1 |
+| (5) | 契約の crate・ほかの crate のファイルの指定・試験の中の名前 | 単独のビルド 2 つ、3/3 のコマンド 3、2/3 のコマンド 3〜6 | feature なしのビルドの終了コード 0、`--features native-blocking-wait` のビルドの終了コード 0、試験は 2 passed・0 failed。`fandhe-silicon-contract` の行 0、`#[path`・`include!` 系の行 0、試験に現れる名前は `fandhe_silicon_core`・`fandhe_silicon_exec`・`fandhe_silicon_upper`、故障の差し込み・非対応の強制・非正規化の注入・`__backend` の行 0 |
+| (6) | feature の木 | 2/3 のコマンド 7〜14、`make upper-layer-check` の `record:` | コマンド 7〜14 の行数は 0・0・1・1・0・0・1・0。dev の辺で当たる 1 行は `fandhe-silicon-core feature "test-support"`。`measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` |
+| (7) | CI で流れる場所 | `make verify`、`make build-profiles`、`make wasm-verify`、3/3 のコマンド 4・5 | `make verify` の終了コード 0。`Running tests/upper_exec_same_device.rs` の後に `running 2 tests`、`test result: ok. 2 passed; 0 failed; 0 ignored`。`make build-profiles` の終了コード 0。`native-blocking-wait` つきの `cargo test -p fandhe-silicon-upper` の実行にだけ同じ行が 1 回出る。`make wasm-verify` の終了コード 0。`cargo check (fandhe-silicon-upper tests, wasm32-unknown-unknown, default features)` と `... native-blocking-wait)` の 2 つの log の行あり。`.github/workflows/ci.yml` の 269 行目に `run: make upper-layer-check` |
+| (8) | 依存 0・unsafe 0・ソースの変更 0（1/3 のコミット `b74ecdb` の差分） | 3/3 のコマンド 6〜8 | `Cargo.lock`・`deps-approved.toml`・ルートの `Cargo.toml`・`crates/*/src`・`crates/exec`・`crates/core` の差分は 0 行。`crates/upper/Cargo.toml` の追加は空行・コメント 1 行・`[[test]]`・`name`・`required-features` の 5 行。`crates/upper/tests/common/mod.rs` の追加は `enum Call` の doc コメント 1 行と `QueryEx { feature: FeatureId },` の 1 行、`query_ex` の中の `self.record(Call::QueryEx { feature });` の 1 行の計 3 行 |
+
+そのほかの make ターゲットの観測。
+
+| make のターゲット | 観測 | 終了コード |
+| ----------------- | ---- | ---------- |
+| `make upper-source-check` | `record:` は `rs_files=5 build_rs=no global_state=0 env_fs=0 table_fns=4 contract_ops=12 contract_calls=2 contract_call_mismatch=0 dispatch_ex=0 failure_constructs=0`、`ok: upper source scan passed` | 0 |
+| `make exec-deps-check` | `record:` は `rs_files=15 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0`、`ok:` の行あり | 0 |
+| `make deps-check` | `ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml` | 0 |
+| `make verify` | 全体の `test result:` の行は 223、passed の合計 2258、failed の合計 0、ignored の合計 7 | 0 |
+
+### 3/3 のコマンド
+
+```text
+# 1: grep -n -A2 'upper_exec_same_device' crates/upper/Cargo.toml
+# 2: cargo test --locked --offline -p fandhe-silicon-upper
+# 3: cargo test --locked --offline -p fandhe-silicon-upper --features native-blocking-wait --test upper_exec_same_device
+# 4: grep -n 'run: make upper-layer-check' .github/workflows/ci.yml
+# 5: make verify の出力の行を数える。grep -c 'test result:' と、各行の passed・failed・ignored の合計
+# 6: git diff --stat b74ecdb~1 b74ecdb -- Cargo.lock deps-approved.toml Cargo.toml 'crates/*/src' crates/exec crates/core
+# 7: git diff b74ecdb~1 b74ecdb -- crates/upper/Cargo.toml
+# 8: git diff b74ecdb~1 b74ecdb -- crates/upper/tests/common/mod.rs
+```
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-261）。
+
+## 段の表
+
+| 段 | Issue | 題 |
+| -- | ----- | -- |
+| 1/3 | #4000 | test(upper): TASK-261 の 1/3 上の層と下-2 を 1 つの device で通す試験 |
+| 2/3 | #4001 | docs: TASK-261 の 2/3 上の層の検査を新しい試験を含む構成に当てた記録 |
+| 3/3 | #4002 | docs: TASK-261 の 3/3 完了の条件の確かめ |
