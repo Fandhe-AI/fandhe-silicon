@@ -33,7 +33,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 
 | パス | crate | 役割 |
 |---|---|---|
-| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型と引数の宣言の検査の純粋関数（C4〜C8 の `validate_dispatch_operands`・C1・C3 の `validate_declared_operands`）（`execution`）とバッファの引数検査の純粋関数（`memory`）とテクスチャを作る操作の trait `TextureOps`（`texture`）と device の口 `Device::textures()`（`device`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
+| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型と引数の宣言の検査の純粋関数（C4〜C8 の `validate_dispatch_operands`・C1・C3 の `validate_declared_operands`）（`execution`）とバッファの引数検査の純粋関数（`memory`）とテクスチャを作る操作の trait `TextureOps`・コピーの転送元・転送先の指定の型 `TextureCopySpec`・`TextureOrigin`・view の型 `TextureView`（`texture`）とサンプラーの記述子の値の型・記述子・handle（`sampler`）と device の口 `Device::textures()`（`device`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
 | `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ。`cpu-ops` の裏に CPU の演算（`cpu_ops`。部分 Top-k の 2 メソッドと番兵を含む）を持つ |
 | `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する。公開の型 `OptIn`・`Route`・`OpId`・`UnavailableReason`・`RouteReport`・`Outcome`・`F32DenormalReport`・`F32DenormalBehavior`・`F32DenormalBasis`・`F16FmaOperands`・`SubgroupSumU32Operands`・`SubgroupSumF32Operands`・`AtomicAddOperands`、下-2 の値 `Exec`（`new`・`deny_by_default`・`default_opt_in`）と 7 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing`）を持つ |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]`。公開の型: device・queue・記録先・投入前の値・投入の印・compute のパス・バッファ |
@@ -123,7 +123,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
 | `docs/texture-descriptor-check.md` | テクスチャの作成の記述子の検査の所在と、本リポの現状の事実・現状の振る舞い（1/6）・形式と次元の組・mip の段数（2/6）・一時的な描画先・マルチサンプル・view_formats（3/6）・操作の時点の用途と view の形式（4/6）・対応するテスト・項目ごとの受理と拒否の入力の試験（5/6）・確かめ方・完了の条件の確かめ（6/6）・段の表（TASK-1942） |
 | `docs/storage-texture-access.md` | storage texture のアクセスの型と束縛の検査の所在・アクセスの型（1/4）・束縛の用途とシェーダーとの照合（2/4）・項目ごとの受理と拒否の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1944） |
-| `docs/texture-view-destroy-copy.md` | テクスチャのコピーの指定の型の所在・コピーの転送元・転送先の指定の型（1/5）・view の型と元のテクスチャの問い合わせ（2/5）・描画先の破棄の操作と試験用の device の描画先の表（3/5）・項目ごとの共通の試験（4/5）・完了の条件の確かめ（5/5）（TASK-372） |
+| `docs/texture-view-destroy-copy.md` | テクスチャのコピーの指定の型・view の型・描画先の破棄の操作の所在・コピーの転送元・転送先の指定の型（1/5）・view の型と元のテクスチャの問い合わせ（2/5）・描画先の破棄の操作と試験用の device の描画先の表（3/5）・項目ごとの共通の試験（4/5）・完了の条件の確かめ（5/5）（TASK-372） |
 | `docs/sampler-types.md` | サンプラーの記述子の型の所在・値の型（1/4）・記述子と handle（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4）（TASK-373） |
 | `docs/texture-format-keys.md` | テクスチャの形式の問合せの鍵の一覧と行の表の所在と、本リポの現状の事実・現状の形（1/4）・書き出しと一覧との突き合わせの検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-1313） |
 | `docs/feature-keys.md` | 機能の問合せの鍵の一覧と能力の表の枠の所在と、本リポの現状の事実・現状の形（1/6）・能力の表の行の型と引き方（2/6）・表の網羅の検査の道具と差分の台帳（3/6）・鍵の一覧と表の枠の試験（4/6）・機能一覧との突き合わせの検査と CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-1114） |

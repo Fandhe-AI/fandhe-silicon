@@ -1,4 +1,4 @@
-# テクスチャのコピーの指定などの所在（TASK-372）
+# テクスチャのコピーの指定・view の型・描画先の破棄の操作の所在（TASK-372）
 
 ## 記録の所在
 
@@ -95,6 +95,10 @@ handle を値で受けて消費し、`Result` は返さない。破棄の後に�
 記録先を作った後に、その描画先を破棄してから `submit_render` に渡すと `InvalidArgument` を返す。
 破棄した描画先の識別子は再利用しない。
 
+今の補い: 記録先を作った後にその描画先を破棄してから `draw`・`draw_ex` に渡すと `InvalidArgument` を返す。
+別 device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
+外の crate の試験は `crates/core/tests/render_target_destroy.rs` の `recorded_then_destroyed_target_rejects_draw` と `other_device_encoder_is_mismatch_for_draw_and_submit`（#7855）。
+
 確かめ方:
 
 ```text
@@ -161,6 +165,8 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test render
 | (5) | 試験用の device で確かめていること | `grep -n -A2 'render_target_destroy' crates/core/Cargo.toml`、`grep -n 'all-features' scripts/verify.sh` | `[[test]]` の `required-features = ["test-support", "graphics"]`。`verify.sh` の 23・39・62 行目が `cargo test --workspace --all-features`（60 行目は clippy の `--all-features`） |
 | (6) | 依存 0・unsafe 0 | 1/5〜4/5 の 4 コミット（3343dba・a9c082a・c3f387d・e46aa2e）それぞれで `Cargo.lock`・`deps-approved.toml`・`crates/contract`・`crates/core/src/texture/ops.rs`・`crates/core/src/device.rs`・`crates/core/Cargo.toml` の差分を見る、`grep -c unsafe crates/core/src/texture/copy_spec.rs crates/core/src/texture/view.rs`、`grep -n forbid crates/core/src/lib.rs` | 4 コミットとも `Cargo.lock`・`deps-approved.toml`・`crates/contract`・`ops.rs`・`device.rs` の差分は 0。`crates/core/Cargo.toml` は e46aa2e の 4 行の追加（`[[test]]` の 1 項目）だけ。`unsafe` は 2 ファイルとも 0 件。`lib.rs` の 38 行目に `#![forbid(unsafe_code)]` |
 | (7) | CI で流れる場所と件数 | `make verify`、`make wasm-verify`、`make profile-test-count-check`、`grep -n 'run: make' .github/workflows/ci.yml` | 3 つとも終了コード 0。`make verify` の出力で `render_target_destroy` は 10 passed、`texture_view_copy_spec` は 8 passed。`profile-test-count-check` の `record:` は CpuOnly が passed=6 graphics=0、ComputeOnly が passed=6 graphics=0、Graphics が passed=9 graphics=3。`ci.yml` の `make verify` は 177・498 行目、`make wasm-verify` は 275・459 行目、`make profile-test-count-check` は 186・504 行目 |
+
+今の件数の補い: (4) の `render_target_destroy` は、上の 2 本が加わって 12 passed（`cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_destroy`）。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-372）。確かめた base は `e46aa2ee8c6f1e24ac67b064a6bff6b60d640b52`。
 

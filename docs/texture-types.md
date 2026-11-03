@@ -228,6 +228,7 @@ TASK-371 の 6/6（#4562）として、本リポで観測できる事実だけ�
 | 10 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
 
 上の表の `lib.rs:48` は記録時点の値で、今は `lib.rs:58` が `pub mod texture;` である。
+その後 `lib.rs` に行が入り、今は `lib.rs:60` が `pub mod texture;` である。
 
 `texture.rs` の doctest は `cargo test --doc texture.rs` が 2 つの結果行を出し、通常の 7 件（`ok. 7 passed`）と `compile_fail` の 4 件（`ok. 4 passed`。`TextureDimension (line 13)`・`TextureDescriptor (line 223)`・`TextureHandle (line 325)`・`TextureHandle (line 345)`）である。
 
