@@ -208,3 +208,40 @@ fn handle_round_trip() {
         assert_eq!(h.__backend_device_id(), dev);
     }
 }
+
+type Change = fn(&mut SamplerDescriptor<'static>);
+
+#[test]
+fn descriptor_each_field_changes_equality() {
+    // TEX-39
+    let base = SamplerDescriptor::default();
+    let changes: [(&str, Change); 11] = [
+        ("label", |d| d.label = Some("x")),
+        ("address_mode_u", |d| d.address_mode_u = AddressMode::Repeat),
+        ("address_mode_v", |d| d.address_mode_v = AddressMode::Repeat),
+        ("address_mode_w", |d| d.address_mode_w = AddressMode::Repeat),
+        ("mag_filter", |d| d.mag_filter = FilterMode::Linear),
+        ("min_filter", |d| d.min_filter = FilterMode::Linear),
+        ("mipmap_filter", |d| {
+            d.mipmap_filter = MipmapFilterMode::Linear
+        }),
+        ("lod_min_clamp", |d| d.lod_min_clamp = 1.0),
+        ("lod_max_clamp", |d| d.lod_max_clamp = 16.0),
+        ("anisotropy_clamp", |d| d.anisotropy_clamp = 2),
+        ("border_color", |d| {
+            d.border_color = Some(SamplerBorderColor::Zero)
+        }),
+    ];
+    for (name, change) in changes {
+        let mut d = SamplerDescriptor::default();
+        change(&mut d);
+        assert_ne!(d, base, "{name}");
+    }
+}
+
+#[test]
+fn descriptor_and_handle_debug_are_not_empty() {
+    // TEX-39
+    assert!(!format!("{:?}", SamplerDescriptor::default()).is_empty());
+    assert!(!format!("{:?}", SamplerHandle::__backend_new(1, 2, 3)).is_empty());
+}
