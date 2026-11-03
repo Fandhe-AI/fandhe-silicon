@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# upper-source-check.sh の回帰テスト（spec TASK-2387 のポインタ。親 Issue #1059 の 2/4）。
+# upper-source-check.sh の回帰テスト（spec TASK-2387 のポインタ。親 Issue #1059 の 1/4〜3/4）。
 # 実物の crates/upper の src/ と Cargo.toml を一時ディレクトリへ写し、1 か所だけ字句を足した変異体を
 # --crate-dir で走査させて検出を確かめる。陰性の対照・誤用の入力・実物の合格も確かめる。
 # リポジトリのファイルは変更しない（実物は読むだけ）・ネットワーク不要。

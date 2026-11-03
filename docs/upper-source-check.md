@@ -27,6 +27,8 @@
 | 1 | 違反あり |
 | 2 | 誤用・前提の不足・読み切れない入力（未知の引数、crate や `src/` が無い、`src/` の `.rs` が 0 件、UTF-8 でない、シンボリックリンク、`use std::{` の対応する `}` が無い、python3 が無い） |
 
+今の値の補い（base 8c52335）: 上の表の「2 つの走査」は、2/4 で関数ごとの 2 つが加わって今は 4 つ（終了コード 0 は 4 つがすべて合格したとき）。終了コード 2 には、2/4 の節の追加に加えて、`src/` 以下のディレクトリやファイルが読めないときも入る（ディレクトリは `error: source directory cannot be read`、ファイルは `error: source cannot be read`。`scripts/test-upper-source-check.sh` の場面 `unreadable subdirectory` が前者を確かめる）。
+
 ### 出力の読み方
 
 | 出力 | 形 |
@@ -91,6 +93,8 @@ make test-upper-source-check
 
 終了コード 2 に次が加わる: 閉じていないコメント・文字列・文字のリテラル、関数の表の関数が 0 件または 2 件以上、関数の本体が無い（`{` の前に `;` が来る）、本体が閉じない、trait のファイルが無い・シンボリックリンク・UTF-8 でない、trait が 1 件でない、trait の操作が 0 件、関数の表の操作が trait に無い。
 
+今の値の補い（base 8c52335）: 上の終了コード 2 の一覧にも、`src/` 以下のディレクトリやファイルが読めないときが入る（`scripts/upper-source-check.sh` の `collect_files` と `read_text` が `Misuse` を上げる）。
+
 ### 関数の表
 
 関数の名前（`Queue::`・`CommandEncoder::` の関数。impl の型は照らさず、名前が `src/` 全体でちょうど 1 件であることを求める）と、本体で期待する契約の呼び出しの数。行を足すと関数が増える。
@@ -127,6 +131,8 @@ grep -n 'pub trait CommandQueue' crates/core/src/execution/submit.rs
 | `r"…"`・`r#"…"#`・`br#"…"#`・`cr"…"`（`#` の数を数える） | 空白にする |
 | `'x'`・`'\n'`・`'\''`・`'\u{…}'`・`b'x'` | 空白にする |
 | 寿命（`'d`・`'static`・`'_`）・`r#ident` | そのまま残す |
+
+今の値の補い（base 8c52335）: 上の「(3)(4)」は `scripts/upper-source-check.sh` の走査の番号で、契約の呼び出しの走査と失敗の構築の走査を指す。4/4 の確かめの表の (3)(4) は別の振り方（グローバルな状態、環境変数・ファイルの読み取り）。
 
 ### 失敗の構築の字句
 
@@ -195,6 +201,14 @@ grep -n "run: make upper-source-check\|run: make test-upper-source-check" .githu
 make ci-frame-check
 ```
 
+今の値の補い（base 8c52335）: 3/4 の PR #7902 の CI は run `41640787531`（headSha `31a7185fcfc0b1a3a23b47b3ce2b7590106fdf5b`、conclusion `success`）。ジョブ `make deny (cargo-deny)`（job `125933470851`）のログ（`gh run view --job 125933470851 --log`）に次の 3 行がある。
+
+```text
+record: commit=b7da0bb139d1 rs_files=5 build_rs=no global_state=0 env_fs=0 table_fns=4 contract_ops=12 contract_calls=2 contract_call_mismatch=0 dispatch_ex=0 failure_constructs=0
+ok: upper source scan passed
+passed=71 failed=0
+```
+
 ## 完了の条件の確かめ（4/4）
 
 1/4〜3/4 の走査・回帰テスト・CI への組み込みを、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写した。
@@ -239,6 +253,8 @@ passed=71 failed=0
 | リビジョンを読むコマンドが無いとき | 0 | 1 |
 | 合計 | | 71 |
 
+今の値の補い（base 8c52335）: 上の表の誤用・前提の不足の 24 件のうち `unreadable subdirectory` の 1 件は、`scripts/test-upper-source-check.sh` が uid 0 で流れたときは飛ばす（`id -u` が 0 でないときだけ流す）。uid 0 で流すと最終行は `passed=70 failed=0`、uid 0 以外では `passed=71 failed=0`（base 8c52335 で両方流した）。
+
 (6) の `grep -n`:
 
 ```text
@@ -273,5 +289,7 @@ gh run view 41642253222 --json conclusion,headSha
 | 2/4 | #6905（PR #7900） | 関数ごとの契約の呼び出しと失敗の構築の走査（2/4） |
 | 3/4 | #6906（PR #7902） | CI への組み込み（3/4） |
 | 4/4 | #6907 | 完了の条件の確かめ（4/4） |
+
+今の値の補い（base 8c52335）: 上の表の 4/4 は PR #7906（コミット 8c52335）。
 
 親 Issue は #1059。

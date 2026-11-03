@@ -118,6 +118,8 @@ origin/main のコミット `31a50d5`、`docs/spec` の gitlink は `c7887a1` �
 | 6 | feature の木の `test-support`・`fault-injection` | `cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build \| grep -cE 'test-support\|fault-injection'`（`--all-features` 付きも）、同じコマンドの `-e features,normal,build,dev` 版（`--all-features` 付きも）、`measure/` は `--manifest-path measure/Cargo.toml --workspace --all-features` を付けた同形の 2 つ、`grep -c 'name = "fandhe-silicon-contract"' measure/Cargo.lock` | 通常・build の辺は指定なし・`--all-features` とも 0。dev の辺を含めると 1（`[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`）。`measure/` は通常・build の辺が 0、dev の辺を含めると 1（`measure-perf` の `[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`）。`measure/Cargo.lock` の契約の crate は 0。`record:` は `measure_pkgs=2`・`measure_contract_pkgs=0`・`measure_forbidden=0` |
 | 7 | 検査が CI で流れる場所 | `grep -n 'run: make upper-layer-check\|run: make test-upper-layer-check' .github/workflows/ci.yml` と `make test-upper-layer-check` | `.github/workflows/ci.yml` の 268 行目が `run: make upper-layer-check`、338 行目が `run: make test-upper-layer-check`。`make test-upper-layer-check` の最後の行は `passed=746 failed=0` |
 
+今の値の補い（base 8c52335）: 上の表の 7 の `ci.yml` の行番号は、今の `.github/workflows/ci.yml` では `run: make upper-layer-check` が 269 行目、`run: make test-upper-layer-check` が 343 行目（`grep -n 'run: make upper-layer-check\|run: make test-upper-layer-check' .github/workflows/ci.yml` の出力）。
+
 ### 成果物と節の対応
 
 | 成果物 | 節 |
@@ -203,6 +205,8 @@ grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/
 | :97 | measure、通常・build・dev | 1 |
 | :118 | :85〜:88・:96・:97 と同じ | 上の行と同じ |
 | :119 | `grep -nE 'run: …|run: …' .github/workflows/ci.yml` | 268 行目と 338 行目の 2 行 |
+
+今の値の補い（base 8c52335）: 上の表の :119 の行の行番号は、今の `ci.yml` では 269 行目と 343 行目（`grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/workflows/ci.yml` の出力）。
 
 - 表の表示の字句（`grep -n 'a|b'`）のまま流すと、:119 のコマンドは 0 行を返した
 - ソースの字句のまま `grep -cE 'a\|b'` を流すと、:87・:88・:97 の dev の行は 0 を返した（`\|` は拡張正規表現では `|` の文字そのものを指す）
