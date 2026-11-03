@@ -147,3 +147,33 @@ make doctest-error-code-check
 cargo test -p fandhe-silicon-core --test texture_view_copy_spec
 cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_destroy
 ```
+
+## 完了の条件の確かめ（5/5）
+
+5/5（#4567）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-372）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型と操作が共通の crate に公開されている | `grep -n 'mod copy_spec\|mod view\|pub use copy_spec\|pub use view' crates/core/src/texture.rs`、`grep -n 'fn destroy_offscreen_target' crates/core/src/graphics.rs`、`cargo check -p fandhe-silicon-core`（feature なし）と `--features graphics` | `texture.rs` の 492・493・495・496 行目、`graphics.rs` の 293 行目。`cargo check` は 2 つとも終了コード 0 |
+| (2) | コピーの指定の型 | `cargo test -p fandhe-silicon-core --test texture_view_copy_spec` の `copy_spec_*` | 4 本とも `ok` |
+| (3) | view の型と元のテクスチャの問い合わせ | 同じ試験の `view_*`・`two_views_*`、`cargo test -p fandhe-silicon-core --doc TextureView`、`make doctest-error-code-check` | 試験 4 本とも `ok`（試験全体は 8 passed）。doctest は通常 2 passed・`compile_fail` 3 passed。`make doctest-error-code-check` は終了コード 0 |
+| (4) | 描画先の破棄の後・作っていない描画先の使用の値 | `cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_destroy`、`cargo test -p fandhe-silicon-core --features graphics --doc destroy_offscreen_target` | 10 本とも `ok`（10 passed）。doctest は 1 passed |
+| (5) | 試験用の device で確かめていること | `grep -n -A2 'render_target_destroy' crates/core/Cargo.toml`、`grep -n 'all-features' scripts/verify.sh` | `[[test]]` の `required-features = ["test-support", "graphics"]`。`verify.sh` の 23・39・62 行目が `cargo test --workspace --all-features`（60 行目は clippy の `--all-features`） |
+| (6) | 依存 0・unsafe 0 | 1/5〜4/5 の 4 コミット（3343dba・a9c082a・c3f387d・e46aa2e）それぞれで `Cargo.lock`・`deps-approved.toml`・`crates/contract`・`crates/core/src/texture/ops.rs`・`crates/core/src/device.rs`・`crates/core/Cargo.toml` の差分を見る、`grep -c unsafe crates/core/src/texture/copy_spec.rs crates/core/src/texture/view.rs`、`grep -n forbid crates/core/src/lib.rs` | 4 コミットとも `Cargo.lock`・`deps-approved.toml`・`crates/contract`・`ops.rs`・`device.rs` の差分は 0。`crates/core/Cargo.toml` は e46aa2e の 4 行の追加（`[[test]]` の 1 項目）だけ。`unsafe` は 2 ファイルとも 0 件。`lib.rs` の 38 行目に `#![forbid(unsafe_code)]` |
+| (7) | CI で流れる場所と件数 | `make verify`、`make wasm-verify`、`make profile-test-count-check`、`grep -n 'run: make' .github/workflows/ci.yml` | 3 つとも終了コード 0。`make verify` の出力で `render_target_destroy` は 10 passed、`texture_view_copy_spec` は 8 passed。`profile-test-count-check` の `record:` は CpuOnly が passed=6 graphics=0、ComputeOnly が passed=6 graphics=0、Graphics が passed=9 graphics=3。`ci.yml` の `make verify` は 177・498 行目、`make wasm-verify` は 275・459 行目、`make profile-test-count-check` は 186・504 行目 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-372）。確かめた base は `e46aa2ee8c6f1e24ac67b064a6bff6b60d640b52`。
+
+確かめ方:
+
+```text
+cargo check -p fandhe-silicon-core
+cargo check -p fandhe-silicon-core --features graphics
+cargo test -p fandhe-silicon-core --test texture_view_copy_spec
+cargo test -p fandhe-silicon-core --features test-support,graphics --test render_target_destroy
+cargo test -p fandhe-silicon-core --doc TextureView
+make doctest-error-code-check
+make verify
+make wasm-verify
+make profile-test-count-check
+```
