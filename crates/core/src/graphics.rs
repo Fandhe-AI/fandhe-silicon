@@ -2,6 +2,7 @@
 //!
 //! feature `graphics` の裏にあり、feature の無い構成では module ごと無い。
 //! `PixelFormat`・`DepthFormat` から `TextureFormat` への変換（TASK-1312）も置く。
+//! 描画パスの状態の値の型と、範囲つきの描画の範囲の型と検査も置く。
 
 use crate::error::ContractError;
 use crate::execution::{
@@ -355,6 +356,14 @@ pub use target_check::{
 
 mod surface;
 pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};
+
+mod pass_state;
+pub use pass_state::{IndexFormat, ScissorRect, Viewport, index_format_bytes};
+
+mod draw_range;
+pub use draw_range::{
+    DrawRange, IndexedDrawRange, validate_draw_range, validate_indexed_draw_range,
+};
 
 /// `PixelFormat`・`DepthFormat` の値の数と、`TextureFormat` への変換で名前が保たれることを core の中で固定する試験。
 /// 番号を返す `match` は `_` の腕を持たないので、値を足すとコンパイルが落ちて番号を足させる。
