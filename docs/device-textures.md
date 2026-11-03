@@ -47,3 +47,24 @@ cargo test -p fandhe-silicon-core --doc texture::ops
 grep -n 'fn textures' crates/core/src/stub_device.rs
 cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 ```
+
+## 到達の試験（3/4）
+
+- 所在は `crates/core/tests/stub_device_textures.rs`（feature `test-support`。`crates/core/Cargo.toml` の `[[test]]` の `required-features`）と `crates/core/tests/device_trait_shape.rs`（feature なしでも流れる）
+- 固定した値: `backend` は `BackendKind::Vulkan`、`Imported` は `NativeDeviceHandle::new(7u32)`。記述子は `D2`・64 × 32 × 1・`Rgba8Unorm`・`TEXTURE_BINDING`、`label` は `Some("reach")`
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `cpu_only_{product_independent,shared,imported}_textures_is_none`（3 本） | `CpuOnly` × 3 所有形態 | `textures()` が `None` |
+| `compute_only_{product_independent,shared,imported}_textures_creates_texture`（3 本） | `ComputeOnly` × 3 所有形態、`label` あり | `Ok`。device の識別子が `generation()` と等しく、9 つの問い合わせが渡した値を返す |
+| `graphics_{product_independent,shared,imported}_textures_creates_texture`（3 本） | `Graphics` × 3 所有形態、`label` あり | 同上 |
+| `descriptor_without_label_also_reaches` | `label` が `None` | `Ok`。問い合わせが渡した値を返す |
+| `two_textures_from_one_device_have_distinct_ids` | 1 つの device から 2 回 | 通し番号が違い、device の識別子はどちらも `generation()` と等しい |
+| `default_textures_is_none_through_dyn_device`（`device_trait_shape.rs`） | 上書きしない device | `textures()` が `None` |
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_textures
+cargo test -p fandhe-silicon-core --test device_trait_shape
+```
