@@ -6,7 +6,9 @@
 mod common;
 
 use common::{Call, Overrides, Recorder};
+use fandhe_silicon_core::capability::BackendKind;
 use fandhe_silicon_core::device::Device;
+use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::feature_key::FEATURE_SHADER_F16;
 use fandhe_silicon_core::memory::BufferUsage;
 use fandhe_silicon_exec::{Exec, F16FmaOperands, OpId, OptIn, Outcome};
@@ -138,7 +140,14 @@ fn exec_failure_does_not_change_upper_submit() {
     assert_eq!(queue.wait_blocking(id, None), Ok(()));
     let _ = queue.gpu_timing(id);
 
-    assert!(!matches!(r, Ok(Outcome::Unavailable { .. })));
+    assert!(matches!(
+        r,
+        Err(ContractError::Unsupported {
+            op: "f16_fma",
+            backend: BackendKind::Metal,
+            ..
+        })
+    ));
     for b in &bufs {
         assert_eq!(b.handle().size(), LEN);
         assert_eq!(b.handle().usage(), BufferUsage::STORAGE);
