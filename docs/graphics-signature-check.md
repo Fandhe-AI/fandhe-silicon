@@ -81,3 +81,12 @@ TASK-908 の 2/2（#5970）として、本リポで観測できる事実だけ�
 | 9 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-908）。
+
+## 今の値の補い
+
+上の「完了の条件の確かめ（2/2）」の表は記録の時点の値で、表そのものは書き換えていない。照らした commit は `d26a883`（#7861）。TASK-908 のポインタ。
+
+| 表の行 | 記録の時点の値 | 今の値 |
+| ------ | -------------- | ------ |
+| 6 | `git diff --stat c866522 HEAD -- crates/core/src crates/contract` の出力は空 | 同じコマンドの出力は `crates/core/src/stub_device.rs \| 4 ++--`（2 行追加・2 行削除）。#7859 の rustdoc の 2 行 |
+| 8 | `b0f00bb` の run 41589424572 は status が queued | `gh run view 41589424572` は status が `completed`・conclusion が `success` |
