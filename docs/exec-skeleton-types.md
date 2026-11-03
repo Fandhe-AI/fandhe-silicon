@@ -327,3 +327,11 @@ feature `fault-injection` の下では、上の「opt-in の印と経路・操�
 grep -n 'fault-injection' crates/exec/src/route.rs crates/exec/src/report.rs
 cargo test -p fandhe-silicon-exec --features fault-injection
 ```
+
+## 今の値の補い（base c956c96）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 2f36d3d）」の `make upper-layer-check` の `record:` | `rs_files=9` → `rs_files=10`（`crates/upper/tests/upper_exec_same_device.rs` が加わった） | `make upper-layer-check \| grep '^record:'` |

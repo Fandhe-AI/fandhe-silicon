@@ -230,3 +230,12 @@ grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/
 | 「他の補い」の 3 つ目（219 行目） | ファイル 9 個は `Cargo.toml` の 1 個と `.rs` の 8 個。`rs_files=8` は `.rs` だけを数える → ファイル 10 個は `Cargo.toml` の 1 個と `.rs` の 9 個（`src/` に 5 個、`tests/` に 4 個〔`tests/common/mod.rs` を含む〕）。`rs_files=9` は `.rs` だけを数える | `git ls-files crates/upper`、`find crates/upper -name '*.rs'` |
 | 「他の補い」の 4 つ目（220 行目） | `record:` は `rs_files=8 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` → `rs_files=9` のほかは同じ値。`make test-upper-layer-check` の最後の行は `passed=746 failed=0` のまま | `make upper-layer-check \| grep '^record:'`、`make test-upper-layer-check \| tail -1` |
 | 「crate ディレクトリの外から読むファイルの指定」の行 | 0 → 0 | `git grep -nE '#\[path\|include!\|include_str!\|include_bytes!' -- crates/upper \| wc -l` |
+
+## 今の値の補い（base c956c96）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 2f36d3d）」の「他の補い」の 3 つ目 | git 管理下のファイルは 10 個、`.rs` は 9 個（`tests/` に 4 個）、`rs_files=9` → git 管理下のファイルは 11 個、`.rs` は 10 個（`src/` に 5 個、`tests/` に 5 個〔`tests/common/mod.rs` を含む〕）、`rs_files=10`。`crates/upper/tests/upper_exec_same_device.rs` が加わった | `git ls-files crates/upper \| wc -l`、`find crates/upper -name '*.rs' \| wc -l` |
+| 同「今の値の補い」の `record:` の行 | `rs_files=9` → `rs_files=10`（`direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` のまま） | `make upper-layer-check \| grep '^record:'` |

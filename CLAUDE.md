@@ -50,11 +50,11 @@ fandhe-silicon/
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方（TASK-7）
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
-├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）
+├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
 ├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表（TASK-2387）
-├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）（TASK-262）
-├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表・今の値の補い（base 2f36d3d）（TASK-260）
-├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表（TASK-261）
+├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-262）
+├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-260）
+├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）（TASK-261）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
@@ -116,7 +116,7 @@ fandhe-silicon/
 ├── docs/gemm-test-inputs.md  # GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-1005）
 ├── docs/parity-case-inputs.md  # 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）（TASK-977）
 ├── docs/parity-fallback-inputs.md  # 代わりの実行の試験の入力と CPU の参照の所在・`f16-fma`・`subgroup-sum`・`atomic-add` の入力と CPU の参照の振る舞い・出力の形の規則の試験・対応するテスト・本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-929）
-├── docs/exec-skeleton-types.md  # 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）・経路の報告と結果の値の型（2/7）・列の渡し方の型（3/7）・下-2 の値と 7 つの入口（4/7）・opt-in の既定と呼び出しごとの上書きの試験（5/7）・理由の値の区別と f32 の非正規化数の項の試験（6/7）・完了の条件の確かめ（7/7）・今の値の補い（base c79863d）・今の値の補い（base 2f36d3d）・今の値の補い（base 48025c6）（TASK-919）
+├── docs/exec-skeleton-types.md  # 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）・経路の報告と結果の値の型（2/7）・列の渡し方の型（3/7）・下-2 の値と 7 つの入口（4/7）・opt-in の既定と呼び出しごとの上書きの試験（5/7）・理由の値の区別と f32 の非正規化数の項の試験（6/7）・完了の条件の確かめ（7/7）・今の値の補い（base c79863d）・今の値の補い（base 2f36d3d）・今の値の補い（base 48025c6）・今の値の補い（base c956c96）（TASK-919）
 ├── docs/exec-route-choice.md  # 下-2 の経路の選び方の所在と、本リポの現状の事実・判定を受ける経路の選び方（1/5）・経路の報告を返す `query_route`（2/5）・能力の値・印・判定の全組み合わせの試験（3/5）・模擬の能力の値での `query_route` と入口の一致の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 48025c6）（TASK-920）
 ├── docs/exec-fault-injection.md  # 下-2 の試験用の口の所在と、本リポの現状の事実・試験用の feature と `Native` を外す口（2/6）・f32 の非正規化数の判定を差し込む口（3/6）・3 つの口を公開のパスから使う試験と使い方（4/6）・build-profiles と wasm-verify の feature の組（5/6）・完了の条件の確かめ（6/6）（TASK-921）
 ├── docs/buffer-range-check.md  # バッファの引数検査の純粋関数の所在・現状の振る舞い・対応するテスト・確かめ方・境界の入力の試験・拒否のときの内容の不変の試験・完了の条件の確かめ（4/4）（TASK-309 の 1/4〜4/4）
