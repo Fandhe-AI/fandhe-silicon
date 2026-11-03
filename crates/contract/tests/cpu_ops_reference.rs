@@ -270,3 +270,32 @@ fn mismatched_lengths_do_not_panic() {
         }
     }
 }
+
+/// `AddScalar(c)` は 0.5 以外の定数でも各要素が `x + c` とビットまで一致する。
+/// `DefaultCpuOps` と `ReferenceCpuOps` の scalar 版・SIMD 版を、4 の倍数と端数のある長さで比べる（CPU-19）。
+#[test]
+fn elementwise_add_scalar_other_constants() {
+    let full = elementwise_input();
+    let lens = [0, 1, 3, 4, 5, 7, 8, 13, 1024, 1027, ELEMENTWISE_LEN];
+    for c in [-2.5_f32, 1.0, 3.75, 0.3, -0.125, 1.0e6] {
+        let op = UnaryElementwiseOp::AddScalar(c);
+        for len in lens {
+            let a = &full[..len];
+            let want: Vec<f32> = a.iter().map(|x| x + c).collect();
+            let want = bits(&want);
+            assert_eq!(
+                bits(&DefaultCpuOps.scalar_elementwise(op, a).unwrap()),
+                want
+            );
+            assert_eq!(bits(&DefaultCpuOps.simd_elementwise(op, a).unwrap()), want);
+            assert_eq!(
+                bits(&ReferenceCpuOps.scalar_elementwise(op, a).unwrap()),
+                want
+            );
+            assert_eq!(
+                bits(&ReferenceCpuOps.simd_elementwise(op, a).unwrap()),
+                want
+            );
+        }
+    }
+}
