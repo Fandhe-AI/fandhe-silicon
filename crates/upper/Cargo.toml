@@ -31,5 +31,10 @@ required-features = ["native-blocking-wait"]
 name = "cross_layer_types"
 required-features = ["native-blocking-wait"]
 
+# 上の層と下-2 を 1 つの device で通す統合テストは feature の下でだけ組む。
+[[test]]
+name = "upper_exec_same_device"
+required-features = ["native-blocking-wait"]
+
 [lints]
 workspace = true
