@@ -92,7 +92,8 @@ fn draw_error_values_are_contract_error() {
 // REND-94
 #[test]
 fn submit_render_takes_encoder_by_value() {
-    let _: fn(&G, RenderEncoder, &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> =
+    // 第 2 引数が `RenderEncoder` の値であることだけを固定する（戻りは上の試験が固定する）。
+    let _: fn(&G, RenderEncoder, &[ImportedSemaphoreHandle]) -> _ =
         <G as GraphicsOps>::submit_render;
 }
 
