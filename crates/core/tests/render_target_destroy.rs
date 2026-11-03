@@ -255,3 +255,39 @@ fn rejection_is_invalid_argument_only() {
         assert!(is_invalid(&g.copy_target_to_buffer(&mut cmd, h, &b, 0)));
     }
 }
+
+// TEX-13
+#[test]
+fn recorded_then_destroyed_target_rejects_draw() {
+    let d = device();
+    let g = d.graphics().expect("graphics");
+    let (p, b) = (pipeline(&*d), buffer(&*d));
+    let t = target(&*d);
+    let forged = forge(&t);
+    let mut enc = g.create_render_encoder(&forged);
+    assert!(enc.__backend_rejected().is_none());
+    g.destroy_offscreen_target(t);
+    assert!(is_invalid(&g.draw(&mut enc, &p, &b, 3)));
+    assert!(is_invalid(&g.draw_ex(&mut enc, &p, &b, 3, &[])));
+}
+
+// TEX-19
+#[test]
+fn other_device_encoder_is_mismatch_for_draw_and_submit() {
+    let (a, b) = (device(), device());
+    let ga = a.graphics().expect("graphics");
+    let gb = b.graphics().expect("graphics");
+    let (pa, buf) = (pipeline(&*a), buffer(&*a));
+    let tb = target(&*b);
+    let mut enc = gb.create_render_encoder(&tb);
+    assert!(enc.__backend_rejected().is_none());
+    assert_eq!(
+        ga.draw(&mut enc, &pa, &buf, 3),
+        Err(ContractError::DeviceMismatch)
+    );
+    assert_eq!(
+        ga.draw_ex(&mut enc, &pa, &buf, 3, &[]),
+        Err(ContractError::DeviceMismatch)
+    );
+    assert_eq!(submit(&*a, enc), Err(ContractError::DeviceMismatch));
+}
