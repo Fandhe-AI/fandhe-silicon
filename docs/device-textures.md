@@ -107,3 +107,5 @@ make wasm-verify
 親 Issue は #419。
 
 上の表の `lib.rs:38` は記録時点の値で、その後 `lib.rs` に行が入り、今は `lib.rs:39` が `#![forbid(unsafe_code)]` である。
+
+今の値の補い: 上の「現状の形（1/4）」の `TextureOps` のメソッドは、今は `create_texture`・`destroy_texture`・`destroy_view` の 3 つ（どれも既定の本体は無い）。破棄の 2 つの所在は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
