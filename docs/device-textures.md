@@ -110,6 +110,8 @@ make wasm-verify
 
 今の値の補い: 上の「現状の形（1/4）」の `TextureOps` のメソッドは、今は `create_texture`・`destroy_texture`・`destroy_view` の 3 つ（どれも既定の本体は無い）。破棄の 2 つの所在は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
 
+今の値の補い（base 1890c9a）: `TextureOps` のメソッドは今は 4 つ（`create_texture`・`destroy_texture`・`destroy_view`・`create_sampler`）。
+
 ## サンプラーを作る操作（TASK-150）
 
 ### 所在

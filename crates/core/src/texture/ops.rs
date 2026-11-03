@@ -1,4 +1,4 @@
-//! テクスチャを作る操作の集まりの trait `TextureOps`。
+//! テクスチャと view の作成・破棄とサンプラーの作成の操作の集まりの trait `TextureOps`。
 //!
 //! `texture` モジュールから再公開される。`Device::textures` が返す口の型で、
 //! 記述子 `TextureDescriptor` を受けて handle `TextureHandle` を返す（TASK-150 のポインタ）。テクスチャと view を破棄する操作も持つ（TASK-372 のポインタ）。サンプラーの記述子を受けてサンプラーの handle を返す操作も持つ（TASK-150 のポインタ）。
@@ -7,7 +7,7 @@ use super::{TextureDescriptor, TextureHandle, TextureView};
 use crate::error::ContractError;
 use crate::sampler::{SamplerDescriptor, SamplerHandle};
 
-/// device から届くテクスチャを作る操作の集まり。
+/// device から届くテクスチャと view の作成・破棄とサンプラーの作成の操作の集まり。
 ///
 /// `create_texture`・`destroy_texture`・`destroy_view`・`create_sampler` に既定の本体は無く、どれかを持たない実装は拒まれる。
 ///
@@ -15,6 +15,92 @@ use crate::sampler::{SamplerDescriptor, SamplerHandle};
 /// use fandhe_silicon_core::texture::TextureOps;
 /// struct T;
 /// impl TextureOps for T {}
+/// ```
+///
+/// `create_texture` だけを持たない実装は拒まれる。
+///
+/// ```compile_fail,E0046
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::sampler::{SamplerDescriptor, SamplerHandle};
+/// use fandhe_silicon_core::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
+/// struct T;
+/// impl TextureOps for T {
+///     fn destroy_texture(&self, _texture: TextureHandle) {}
+///     fn destroy_view(&self, _view: TextureView<'_>) {}
+///     fn create_sampler(
+///         &self,
+///         _desc: &SamplerDescriptor<'_>,
+///     ) -> Result<SamplerHandle, ContractError> {
+///         Ok(SamplerHandle::__backend_new(1, 1, 1))
+///     }
+/// }
+/// ```
+///
+/// `destroy_texture` だけを持たない実装は拒まれる。
+///
+/// ```compile_fail,E0046
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::sampler::{SamplerDescriptor, SamplerHandle};
+/// use fandhe_silicon_core::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
+/// struct T;
+/// impl TextureOps for T {
+///     fn create_texture(
+///         &self,
+///         desc: &TextureDescriptor<'_>,
+///     ) -> Result<TextureHandle, ContractError> {
+///         Ok(TextureHandle::__backend_new(1, 1, 1, desc))
+///     }
+///     fn destroy_view(&self, _view: TextureView<'_>) {}
+///     fn create_sampler(
+///         &self,
+///         _desc: &SamplerDescriptor<'_>,
+///     ) -> Result<SamplerHandle, ContractError> {
+///         Ok(SamplerHandle::__backend_new(1, 1, 1))
+///     }
+/// }
+/// ```
+///
+/// `destroy_view` だけを持たない実装は拒まれる。
+///
+/// ```compile_fail,E0046
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::sampler::{SamplerDescriptor, SamplerHandle};
+/// use fandhe_silicon_core::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
+/// struct T;
+/// impl TextureOps for T {
+///     fn create_texture(
+///         &self,
+///         desc: &TextureDescriptor<'_>,
+///     ) -> Result<TextureHandle, ContractError> {
+///         Ok(TextureHandle::__backend_new(1, 1, 1, desc))
+///     }
+///     fn destroy_texture(&self, _texture: TextureHandle) {}
+///     fn create_sampler(
+///         &self,
+///         _desc: &SamplerDescriptor<'_>,
+///     ) -> Result<SamplerHandle, ContractError> {
+///         Ok(SamplerHandle::__backend_new(1, 1, 1))
+///     }
+/// }
+/// ```
+///
+/// `create_sampler` だけを持たない実装は拒まれる。
+///
+/// ```compile_fail,E0046
+/// use fandhe_silicon_core::error::ContractError;
+/// use fandhe_silicon_core::sampler::{SamplerDescriptor, SamplerHandle};
+/// use fandhe_silicon_core::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
+/// struct T;
+/// impl TextureOps for T {
+///     fn create_texture(
+///         &self,
+///         desc: &TextureDescriptor<'_>,
+///     ) -> Result<TextureHandle, ContractError> {
+///         Ok(TextureHandle::__backend_new(1, 1, 1, desc))
+///     }
+///     fn destroy_texture(&self, _texture: TextureHandle) {}
+///     fn destroy_view(&self, _view: TextureView<'_>) {}
+/// }
 /// ```
 ///
 /// 持てば通る。
