@@ -39,6 +39,9 @@ fn feature_of(op: OpId) -> FeatureId {
 pub struct Exec<'d> {
     device: &'d dyn Device,
     default_opt_in: OptIn,
+    /// 操作ごとの試験用の印。
+    #[cfg(feature = "fault-injection")]
+    ports: crate::hooks::Ports,
 }
 
 impl<'d> Exec<'d> {
@@ -47,12 +50,29 @@ impl<'d> Exec<'d> {
         Self {
             device,
             default_opt_in,
+            #[cfg(feature = "fault-injection")]
+            ports: crate::hooks::Ports::default(),
         }
     }
 
     /// 既定の印を `OptIn::default()`（どちらも許さない）にして作る。
     pub fn deny_by_default(device: &'d dyn Device) -> Self {
         Self::new(device, OptIn::default())
+    }
+
+    /// `op` で `Native` を候補に入れない `Exec` を返す。
+    ///
+    /// 指定した操作では能力の段階を見ず、報告の `native_reason` が
+    /// `UnavailableReason::ForcedUnsupported` になる。`query_ex` は今までどおり 1 回呼び、
+    /// 報告の `observed_level` はその値のまま。`GpuEmulated`・`Cpu` は効く印が許すときだけ候補に入る。
+    /// 指定していない操作・3 つの入口・既定の印は変わらない。何度呼んでも指定は足し合わさる。
+    #[cfg(feature = "fault-injection")]
+    #[must_use]
+    pub fn force_unsupported(self, op: OpId) -> Self {
+        Self {
+            ports: self.ports.with_forced(op),
+            ..self
+        }
     }
 
     /// 作るときに決めた既定の印を返す。
@@ -72,6 +92,11 @@ impl<'d> Exec<'d> {
         let effective = effective_opt_in(self.default_opt_in, opt_in);
         let query = self.device.query_ex(feature_of(op));
         let input = selection_input(op, effective, query);
+        #[cfg(feature = "fault-injection")]
+        let input = crate::select::SelectionInput {
+            forced: self.ports.is_forced(op),
+            ..input
+        };
         let output = select_route(&input, judge)?;
         Ok(build_report(&input, &output))
     }
@@ -479,5 +504,112 @@ mod tests {
             Exec::deny_by_default(&dev).default_opt_in(),
             OptIn::default()
         );
+    }
+}
+
+/// `Exec::force_unsupported` を `Exec` 越しに確かめる試験。feature `fault-injection` の下だけ。
+#[cfg(all(test, feature = "fault-injection"))]
+mod forced_tests {
+    use super::*;
+    use crate::route::UnavailableReason;
+    use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel};
+    use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
+    use fandhe_silicon_core::stub_device::StubDevice;
+
+    fn stub() -> StubDevice {
+        StubDevice::new(DeviceRequest {
+            backend: BackendKind::Metal,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::Shared,
+        })
+    }
+
+    const fn opt(g: bool, c: bool) -> OptIn {
+        OptIn {
+            allow_gpu_emulated: g,
+            allow_cpu: c,
+        }
+    }
+
+    const ALL_OPT: [OptIn; 4] = [
+        opt(false, false),
+        opt(true, false),
+        opt(false, true),
+        opt(true, true),
+    ];
+
+    const OPS: [OpId; 4] = [
+        OpId::F16Fma,
+        OpId::SubgroupSumU32,
+        OpId::SubgroupSumF32,
+        OpId::AtomicAdd,
+    ];
+
+    #[test]
+    fn forced_entry_reports_actual_level() {
+        let dev = stub();
+        let plain = Exec::deny_by_default(&dev);
+        let exec = Exec::deny_by_default(&dev).force_unsupported(OpId::F16Fma);
+        let (mut o16, a) = ([7u16; 2], [1u16; 2]);
+        let r = exec.f16_fma(
+            None,
+            2,
+            F16FmaOperands::Host {
+                a: &a,
+                b: &a,
+                c: &a,
+                out: &mut o16,
+            },
+        );
+        let Ok(Outcome::Unavailable { report }) = r else {
+            panic!("expected Unavailable");
+        };
+        assert_eq!(
+            report.native_reason,
+            Some(UnavailableReason::ForcedUnsupported)
+        );
+        assert_eq!(report.observed_level, Some(CapabilityLevel::Unsupported));
+        assert_eq!(o16, [7; 2]);
+        assert_eq!(exec.query_route(OpId::F16Fma, None).ok(), Some(report));
+        for op in &OPS[1..] {
+            assert_eq!(
+                exec.query_route(*op, None).ok(),
+                plain.query_route(*op, None).ok()
+            );
+        }
+    }
+
+    #[test]
+    fn force_does_not_touch_three_entries() {
+        let dev = stub();
+        for o in ALL_OPT.into_iter().map(Some).chain([None]) {
+            let exec = OPS
+                .into_iter()
+                .fold(Exec::deny_by_default(&dev), |e, op| e.force_unsupported(op));
+            for (r, name) in [
+                (
+                    exec.external_interop_shared_memory(o),
+                    "external_interop_shared_memory",
+                ),
+                (exec.hardware_ray_tracing(o), "hardware_ray_tracing"),
+                (exec.unified_memory_sharing(o), "unified_memory_sharing"),
+            ] {
+                let Err(ContractError::Unsupported { op, .. }) = r else {
+                    panic!("expected Unsupported");
+                };
+                assert_eq!(op, name);
+            }
+        }
+    }
+
+    #[test]
+    fn force_keeps_default_opt_in() {
+        let dev = stub();
+        for o in ALL_OPT {
+            let exec = OPS
+                .into_iter()
+                .fold(Exec::new(&dev, o), |e, op| e.force_unsupported(op));
+            assert_eq!(exec.default_opt_in(), o);
+        }
     }
 }
