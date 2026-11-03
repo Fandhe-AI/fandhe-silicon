@@ -84,3 +84,46 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_types
 cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types
 cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_mesh_stub
 ```
+
+## 完了の条件の確かめ（3/3）
+
+3/3（#5827）の時点で本リポで観測できた事実だけを記録する（ポインタ: `docs/spec/05-tasks.md` の TASK-839）。GPU の実機なしで実行した。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 4 操作が共通の crate の feature `graphics` の `GraphicsOps` にある | `grep -n 'fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/graphics.rs`、`cargo check -p fandhe-silicon-core --features graphics` | 宣言は `graphics.rs` の 834・841・849・858 行目の 4 行（ほかは doc コメントの例の行）。`cargo check` は終了コード 0 |
+| (2) | 4 操作の引数の型・戻り値の型 | `cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types` | `mesh_op_signatures_have_listed_types` が ok（1 passed） |
+| (3) | 4 操作が既定の本体を持たない | `cargo test -p fandhe-silicon-core --features graphics --doc graphics`、`grep -n 'compile_fail,E0046' crates/core/src/graphics.rs`、`make doctest-error-code-check`、`grep -n 'impl GraphicsOps for\|fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs` | doctest は 23 passed と 26 passed の 2 つの実行がいずれも ok。`compile_fail,E0046` は 247・282・317・352・387・422・457・492・527・562・597・632 行目の 12 個で、527・562・597・632 行目の 4 個が 4 操作の分。`make doctest-error-code-check` は終了コード 0。`impl` は `stub_device.rs:782` と `graphics_types.rs:21`。4 操作は前者に 978・989・1001・1014 行目、後者に 170・178・187・197 行目 |
+| (4) | 試験用の device の返し | `cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_mesh_stub`、`cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device::` | `mesh_ops_are_unsupported_on_live_encoder`・`mesh_ops_are_unsupported_on_other_device_encoder`・`mesh_ops_are_unsupported_on_destroyed_target_encoder`・`mesh_ops_ignore_argument_values`・`mesh_ops_are_repeatable`・`mesh_ops_do_not_consume_encoder` が ok（6 passed）。`--lib stub_device::` は 47 passed で、`mesh_ops_on_live_encoder_return_unsupported_with_op_name`・`mesh_ops_ignore_encoder_carrying_a_rejection`・`mesh_ops_ignore_encoder_of_another_device`・`mesh_ops_ignore_encoder_of_destroyed_target` が ok |
+| (5) | 公開 API に wgpu の型が 0 件 | `make public-api-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make public-name-check` | 終了コードはいずれも 0。`record:` の行はいずれも `commit=5bf9d3f293dc31ea42bc72c80a042806971985c2`。`public-api-check` は `documents=10 public_items_total=15207 wgpu_type_refs_total=0 wgpu_other_refs_total=0`、`public-api-webgpu-check` は `documents=2 public_items_total=3814 submit_token_ops_total=11 submit_token_violations_total=0`、`public-api-sdk-check` は `documents=10 public_items_total=13108 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0`、`public-name-check` は `documents=10 public_items_total=13108 name_hits_total=0` |
+| (6) | 依存 0・unsafe 0 | コミットごとの `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/contract`（`232bbbe`・`5bf9d3f`）、`git show 5bf9d3f -- crates/core/Cargo.toml`、`git show 232bbbe -- crates/core/Cargo.toml`、`grep -n forbid crates/core/src/lib.rs` | 2 コミットとも出力 0 行。`Cargo.toml` の差分は `5bf9d3f` の `[[test]]` 2 項目（`graphics_mesh_types`、`graphics_mesh_stub`。+8 行）だけで、`232bbbe` は 0 行。`lib.rs:39` に `#![forbid(unsafe_code)]` |
+| (7) | CI で流れる場所 | `make verify`（`scripts/verify.sh` は `cargo test --workspace --all-features`）、`make wasm-verify`、`make build-profiles` | `cargo test --workspace --all-features` の中で `graphics_mesh_types` が 1 passed、`graphics_mesh_stub` が 6 passed、`graphics_types` が 4 passed。`make verify`・`make wasm-verify`・`make build-profiles` は終了コード 0 |
+
+品質ゲートの終了コード: `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify`・`make doctest-error-code-check` はいずれも 0。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-839）。確かめた base は `5bf9d3f293dc31ea42bc72c80a042806971985c2`。
+
+### 確かめ方（3/3）
+
+```sh
+grep -n 'fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/graphics.rs
+cargo check -p fandhe-silicon-core --features graphics
+cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types
+cargo test -p fandhe-silicon-core --features graphics --doc graphics
+grep -n 'compile_fail,E0046' crates/core/src/graphics.rs
+make doctest-error-code-check
+grep -n 'impl GraphicsOps for\|fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_mesh_stub
+cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device::
+make public-api-check
+make public-api-webgpu-check
+make public-api-sdk-check
+make public-name-check
+git show --stat 232bbbe -- Cargo.lock deps-approved.toml crates/contract
+git show --stat 5bf9d3f -- Cargo.lock deps-approved.toml crates/contract
+git show 5bf9d3f -- crates/core/Cargo.toml
+grep -n forbid crates/core/src/lib.rs
+make verify
+make wasm-verify
+make build-profiles
+```
