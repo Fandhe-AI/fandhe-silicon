@@ -27,6 +27,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 補い: `CpuOps` はいまは 6 メソッドで、部分 Top-k の `topk_partial_scalar`・`topk_partial_simd` が足されている（下の「部分 Top-k の 2 メソッドと番兵」の節）。試験のファイルは `crates/contract/tests/cpu_ops_topk_reference.rs`。
 
+今の値の補い（base 8c52335）: 部分 Top-k の並びの規則を出力に直に当てる試験は [cpu-ops-topk-order.md](cpu-ops-topk-order.md)。
+
 ## wasm32 の simd128 版（2/5）
 
 `DefaultCpuOps` の `gemm_simd`・`elementwise_simd` が呼ぶ版は、関数の項に付けたビルド時の `cfg` で選ぶ。実行時に CPU の機能は調べない。
@@ -315,6 +317,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | (7) | 版の選択がビルド時の `cfg` だけで決まる | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` | 7 本とも `ok` |
 | (8) | 依存 0・unsafe 0・確保 0 | `git diff --stat 3b6fa07..HEAD -- Cargo.lock deps-approved.toml`、`git diff --stat 3b6fa07..HEAD -- crates/contract/Cargo.toml crates/contract/src/cpu_ops/simd128.rs`、`grep -c unsafe crates/contract/src/cpu_ops.rs crates/contract/src/cpu_ops/scalar.rs`、`grep -nE 'Vec\|Box\|collect\|to_vec' crates/contract/src/cpu_ops/scalar.rs` | `Cargo.lock`・`deps-approved.toml` は差分 0。`Cargo.toml` は +4 行（`[[test]] cpu_ops_topk_reference` の 1 項目）、`simd128.rs` は差分 0。`unsafe` の語は 2 ファイルとも 0。確保の語の grep は 0 件 |
 | (9) | CI で流れる場所と件数 | `cargo test -p fandhe-silicon-contract --lib cpu_ops`、`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference`、`make verify`、`main` 上の `ab116f2`・`a60a547` の run（`gh run view <id> --json conclusion`） | `--lib cpu_ops` は 13 本、`cpu_ops_topk_reference` は 5 本が通過。`make verify` は終了コード 0。run 41532826696（`ab116f2`）・run 41535712313（`a60a547`）の結論はどちらも `success` |
+
+今の値の補い（base 8c52335）: 上の (9) の `cpu_ops_topk_reference` の本数は、いまは 10 本（`10 passed; 0 failed; 0 ignored`）。足された試験は部分 Top-k の並びの規則を出力に直に当てるもので、[cpu-ops-topk-order.md](cpu-ops-topk-order.md) に書いてある。
 
 ### 1/3〜2/3 の対応
 
