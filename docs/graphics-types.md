@@ -191,3 +191,56 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 上の節の `crates/core/src/graphics.rs:<行>` と doctest の `line <行>` は、各節の記録時点の行番号で、書き換えない。今の行は `grep -n 'pub enum PixelFormat\|pub enum DepthFormat\|pub enum CompareFunction\|pub struct DepthConfig\|pub struct RenderEncoder\|pub trait GraphicsOps' crates/core/src/graphics.rs` と `cargo test -p fandhe-silicon-core --features graphics --doc graphics` の出力の行番号で確かめる。
 
 - 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
+
+## 今の値の補い
+
+照らした commit は `c866522`。上の節の値は記録の時点のままで、書き換えない。今の値は次のとおり（コードの事実だけ）。`destroy_offscreen_target` の所在は [texture-view-destroy-copy](texture-view-destroy-copy.md)（TASK-372）。
+
+### `crates/core/src/graphics.rs` の所在
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| `:26`〜`:30`（型の表） | `PixelFormat :27`・`DepthFormat :48`・`CompareFunction :67`・`DepthConfig :89`・`RenderEncoder :132` | `:29`・`:50`・`:102`・`:124`・`:167` |
+| `:38` | `pub trait GraphicsOps` は `:202`、操作は 10 個 | `:237`、操作は 11 個 |
+| `:40`（操作の一覧） | 10 個 | 上の 10 個に `destroy_offscreen_target` が加わる（`create_offscreen_target_with_depth` の次。`:293`） |
+| `:161`（4/4 の表の 1） | `GraphicsOps` の 10 操作が `:204`〜`:283` | 11 操作が `:239`〜`:341` |
+
+### doctest の行
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| `:48`〜`:50` | `PixelFormat` line 15・`DepthFormat` line 38・`CompareFunction` line 55 | line 17・line 40・line 90 |
+| `:51` | `DepthConfig` line 78 | line 113 |
+| `:52`〜`:54`・`:162` | `RenderEncoder` line 105・line 119・line 126 | line 140・line 154・line 161 |
+| `:55` | `GraphicsOps` line 196 | line 231 |
+| `:56`・`:163` | `GraphicsOps::submit_render` line 269 | line 327 |
+| 追加 | 頁に無い | `GraphicsOps::destroy_offscreen_target` に通常の doctest（line 275）と `compile_fail`（line 285）が 1 件ずつ |
+
+### 件数
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| `:64`・`:162` | `--doc graphics` は通常 3 件・`compile_fail` 6 件（計 9 件） | 通常 11 件・`compile_fail` 7 件（計 18 件。`graphics/target_check.rs` などの doctest も同じ絞りに入る）。すべて `ok` |
+| `:166` | `stub_device_graphics` 13 件・`device_trait_shape` 7 件・`stub_device` の `--lib` 7 件 | 13 件・8 件・27 件 |
+| `:164` | `public_items_total=10388` | `public_items_total=14693`（`documents=10`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0`） |
+| `:169` | 承認の記録は 4 件 | 6 件 |
+| `:169` | `lib.rs:31` は `#![forbid(unsafe_code)]` | `crates/core/src/lib.rs:39` |
+
+`:162` の `render_target` の `compile_fail` 2 件（line 21・line 28）と、`:165` の `core_features=5 forwarded=5 forward_violations=0` は今も同じ。
+
+### 操作の数
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| `:82` | `StubGraphics` の 10 操作 | 11 操作（`destroy_offscreen_target` は `crates/core/src/stub_device.rs:766`）。表に無い 11 個目の振る舞いは [texture-view-destroy-copy](texture-view-destroy-copy.md) |
+| `:132`・`:136` | `FixedGraphics` が 10 操作を実装 | 11 操作（`crates/core/tests/graphics_types.rs:4` と同じ） |
+
+### スクリプトの行
+
+| 頁の行 | 頁の値 | 今の値 |
+| ------ | ------ | ------ |
+| `:124` | `scripts/build-profiles.sh:93`〜`:94`（core の `graphics` だけの組） | `:96`〜`:97` |
+| `:125` | `scripts/build-profiles.sh:95`〜`:96`（`test-support,graphics` の組） | `:98`〜`:99` |
+| `:126` | `scripts/build-profiles.sh:32`〜`:33`（契約の crate の組） | 組の一覧は `:33`〜`:37`、ビルドの呼び出しは `:81`〜`:85` |
+| `:127` | `scripts/wasm-verify.sh:39` | `:41` |
+| `:128` | `scripts/public-api-check.sh:307` | `:307`（変わらない） |
