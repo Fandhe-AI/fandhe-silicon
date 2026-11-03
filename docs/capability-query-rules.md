@@ -216,3 +216,16 @@ TASK-273 の作業を進めるにあたり、記録の所在と本リポの現�
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
 
 device の取得の口は、今は `crates/core/src/device.rs` の `DeviceProvider::request` がある。列挙の口は `crates/`・`wasm/` に無い（確かめ方は上の「2 段の手順に当たる口」の行の検索と同じ）。
+
+## 今の値の補い（base 48025c6）
+
+上の「本リポの現状」の表の「能力の差し込み」の行は、`CapabilityQueryFails` と `CapabilityInsufficient` の 2 つの筋書きを挙げている。記録時点の文で、書き換えていない。いまの `FaultScript` は 7 種類で、能力の問合せに働く筋書きは 3 つである。増えたのは `CapabilityOverride { feature, query }` で、対象の機能の `query` は `query.level`、`query_ex` は渡した `query` の値を、内側を呼ばずに返す。ほかの機能は内側へ渡す。
+
+| 項目 | 今の値 | 確かめ方 |
+| ---- | ------ | -------- |
+| 所在 | `crates/core/src/fault/decorator.rs:58` の定義、`:251`（`query`）と `:270`（`query_ex`）の分岐。`Capabilities for FaultInjecting<D>` の rustdoc は `:234` から | `git grep -n -e CapabilityOverride -- crates/core/src` |
+| 公開テスト | `crates/core/tests/fault_decorator_capability_override.rs`（`override_returns_the_given_query_for_the_target_key`・`override_passes_other_keys_to_inner`・`override_passes_every_interception_to_inner`。3 passed） | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override` |
+| 全ての差し込みとの組 | `crates/core/tests/fault_parts_matrix.rs`（6 passed） | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_parts_matrix` |
+| `Capabilities` を実装する型 | 数は変わらない（`FaultInjecting<D>` が筋書きで分岐する） | `git grep -n -E 'impl.* Capabilities for' -- crates wasm` |
+
+所在の詳細は [contract-fault-injection](contract-fault-injection.md) の「能力の問合せの値の差し替え」の節にある。

@@ -176,3 +176,28 @@
 補い（base c79863d）: 上の表の 3/5 の題は Issue #5997 の題で、マージした PR #7897 の件名は `test(exec): TASK-920 の 3/5 経路の選び方の全組み合わせの単体試験`。
 
 補い（base c79863d）: `cargo test -p fandhe-silicon-exec --test route_query` は 6 passed; 0 failed; 0 ignored（上の表 (4) の 4 passed から、#7903 が試験を 2 本足して増えた）。`cargo test -p fandhe-silicon-exec` の合計は feature なしが 46 passed（30 + 5 + 4 + 6 + 1 + doctest 0）、`native-blocking-wait` 付きが 48 passed（31 + 1 + 5 + 4 + 6 + 1 + doctest 0）。
+
+## 今の値の補い（base 48025c6）
+
+上の完了の条件の確かめ（5/5）の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) の `forbid` の行 | `14:#![forbid(unsafe_code)]` → `18:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+| (1) の `Cargo.toml` の差分 | 出力なし（空）→ `1 file changed, 7 insertions(+)`（`--numstat` は `7 0`） | `git diff --stat 6b35dd9 -- crates/exec/Cargo.toml` |
+| (2) の選び方の関数と呼び出し元 | 定義 `select.rs:61` → `select.rs:71`。本体側の呼び出し `entry.rs:75` → `entry.rs:132` の `let output = select_route(&input, judge)?;`。取り込みは `entry.rs:17` のまま。試験の中の出現は `222`・`245`・`260`・`276`・`332`・`828` | `grep -rn 'select_route' crates/exec/src` |
+| (3) の `RefCell` の行 | `select.rs:309`・`select.rs:318` → `select.rs:322` の `use std::cell::RefCell;` と `select.rs:331` の `let called = RefCell::new(Vec::new());`。`&'static` の行は `entry.rs:86`・`entry.rs:112` → `entry.rs:146`・`entry.rs:172`（4 行のまま） | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|Cell\|&mut self' crates/exec/src` |
+| (4) の組み合わせの数の行 | `649:` → `662:            assert_eq!(checked, 5720);`。`every_combination_matches_candidate_rule` は feature なしでも `--features fault-injection` でも 1 passed | `grep -n 'assert_eq!(checked, 5720)' crates/exec/src/select.rs` |
+| (6) の all-features | `public-api-check` の `public_items=472` → `511`、`public-name-check` の `public_items=417 named_items=137` → `451`・`149`、`public-api-sdk-check` の `public_items=417` → `451`（production の `458`・`403`・`123` は変わらない） | `make public-api-check`・`make public-name-check`・`make public-api-sdk-check` |
+
+feature `fault-injection` の下では、上の表の「入口の返しとの対応」の `SubgroupSumF32`・`AtomicAdd` の行の動きが変わる。`Exec::query_route` の rustdoc（`crates/exec/src/entry.rs:160` 付近）は、`Err(ContractError::Unsupported { op: "query_route", backend })` を返すのを「差し込みの無い経路に届く呼び出し」に限っている。`Exec::inject_denormal` で差し込んだ (操作, 経路) の組に届く呼び出しは、`route_report`（`entry.rs:108`）が差し込みの値を判定として使うので `Ok` の報告を返す。差し込みの無い組は今までどおり `Err` を返す。feature を付けないビルドの動きは変わらない。
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports
+```
+
+`fault_injection_ports` は 8 passed; 0 failed; 0 ignored。差し込みの無い `F32` 系の操作が `op: "query_route"` の `Err` を返す試験は `force_without_injection_keeps_unsupported_for_f32_ops`、差し込みが報告に届く試験は `injection_reaches_reports`。
+
+`cargo test -p fandhe-silicon-exec --features fault-injection` の合計は 67 passed（43 + 8 + 5 + 4 + 6 + 1 + doctest 0）。feature なしの合計は 46 passed、`native-blocking-wait` 付きは 48 passed のまま。所在は [exec-fault-injection](exec-fault-injection.md)。
