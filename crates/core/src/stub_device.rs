@@ -38,6 +38,7 @@ use crate::memory::{
 };
 #[cfg(feature = "graphics")]
 use crate::render_target::{RenderTargetHandle, check_render_target_device};
+use crate::sampler::{SamplerDescriptor, SamplerHandle};
 use crate::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
 use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
 
@@ -525,10 +526,14 @@ impl ComputeOps for StubCompute {
 /// 通し番号は device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_texture", .. }` を返す（panic しない）。
 /// 作ったテクスチャを表に持ち、`destroy_texture` で表から除く。別 device の handle・作っていない handle の破棄と
 /// `destroy_view` は何もしない。破棄した識別子は再び払い出さない。
+/// `create_sampler` も記述子を検査せず、handle の device の識別子と世代は `generation()` と同じ値で、
+/// 通し番号はテクスチャとは別に device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_sampler", .. }` を返す（panic しない）。
 struct StubTextures {
     backend: BackendKind,
     id: u64,
     next_texture: AtomicU64,
+    /// サンプラーの通し番号の源（テクスチャとは別）。
+    next_sampler: AtomicU64,
     /// 作って破棄していないテクスチャの識別子。
     live: Mutex<HashSet<u64>>,
 }
@@ -539,6 +544,7 @@ impl StubTextures {
             backend,
             id,
             next_texture: AtomicU64::new(1),
+            next_sampler: AtomicU64::new(1),
             live: Mutex::new(HashSet::new()),
         }
     }
@@ -580,6 +586,29 @@ impl TextureOps for StubTextures {
 
     fn destroy_view<'t>(&self, view: TextureView<'t>) {
         let _ = view;
+    }
+
+    fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Result<SamplerHandle, ContractError> {
+        let _ = desc;
+        let mut current = self.next_sampler.load(Ordering::Relaxed);
+        loop {
+            let Some(next) = current.checked_add(1) else {
+                return Err(ContractError::BackendFailure {
+                    op: "create_sampler",
+                    backend: self.backend,
+                    detail: "sampler id space is exhausted".to_string(),
+                });
+            };
+            match self.next_sampler.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(SamplerHandle::__backend_new(self.id, current, self.id)),
+                Err(actual) => current = actual,
+            }
+        }
     }
 }
 
@@ -881,6 +910,7 @@ impl GraphicsOps for StubGraphics {
 /// `textures()` も `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_texture` は記述子を検査せず `Ok(TextureHandle)` を返し、handle の device の識別子は `generation()` と等しい。
 /// `Some` の `destroy_texture` は作ったテクスチャを表から除き、別 device・作っていないテクスチャの破棄と `destroy_view` は何もしない。
+/// `Some` の `create_sampler` は記述子を検査せず `Ok(SamplerHandle)` を返し、handle の device の識別子は `generation()` と等しい。
 ///
 /// feature `graphics` のビルドでは `graphics()` も `profile` で変わり、`CpuOnly`・`ComputeOnly` は `None`、`Graphics` は `Some` を返す。
 /// `Some` の描画パイプライン・描画先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
@@ -1266,6 +1296,49 @@ mod tests {
         textures.destroy_texture(first);
         let second = textures.create_texture(&desc).expect("texture");
         assert_ne!(second.__backend_id(), first_id);
+    }
+
+    // DEV-154: 通し番号は 1 から増え、device の識別子と世代は generation() と同じ値。
+    #[test]
+    fn create_sampler_numbers_from_one_and_uses_generation() {
+        let device = StubDevice::new(request());
+        let textures = device.textures().expect("textures");
+        let desc = SamplerDescriptor::default();
+        let first = textures.create_sampler(&desc).expect("sampler");
+        let second = textures.create_sampler(&desc).expect("sampler");
+        assert_eq!(first.__backend_id(), 1);
+        assert_eq!(second.__backend_id(), 2);
+        assert_eq!(first.__backend_device_id(), device.generation());
+        assert_eq!(first.__backend_generation(), device.generation());
+    }
+
+    // DEV-154: サンプラーの通し番号はテクスチャとは別の源。
+    #[test]
+    fn sampler_numbering_is_separate_from_textures() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        textures.create_texture(&texture_desc()).expect("texture");
+        let sampler = textures
+            .create_sampler(&SamplerDescriptor::default())
+            .expect("sampler");
+        assert_eq!(sampler.__backend_id(), 1);
+    }
+
+    // DEV-154: 通し番号が尽きたら panic せず BackendFailure を返す。
+    #[test]
+    fn create_sampler_reports_exhausted_id_space() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        textures.next_sampler.store(u64::MAX - 1, Ordering::Relaxed);
+        let desc = SamplerDescriptor::default();
+        let handle = textures.create_sampler(&desc).expect("sampler");
+        assert_eq!(handle.__backend_id(), u64::MAX - 1);
+        assert_eq!(handle.__backend_device_id(), 5);
+        assert!(matches!(
+            textures.create_sampler(&desc),
+            Err(ContractError::BackendFailure {
+                op: "create_sampler",
+                ..
+            })
+        ));
     }
 
     #[cfg(feature = "graphics")]

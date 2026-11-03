@@ -355,3 +355,7 @@ required-features = ["graphics"]
 [[test]]
 name = "texture_destroy"
 required-features = ["test-support"]
+
+[[test]]
+name = "stub_device_samplers"
+required-features = ["test-support"]

@@ -33,7 +33,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 
 | パス | crate | 役割 |
 |---|---|---|
-| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型と引数の宣言の検査の純粋関数（C4〜C8 の `validate_dispatch_operands`・C1・C3 の `validate_declared_operands`）（`execution`）とバッファの引数検査の純粋関数（`memory`）とテクスチャを作る操作の trait `TextureOps`・コピーの転送元・転送先の指定の型 `TextureCopySpec`・`TextureOrigin`・view の型 `TextureView`・テクスチャと view の破棄の操作（`texture`）とサンプラーの記述子の値の型・記述子・handle（`sampler`）と device の口 `Device::textures()`（`device`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
+| `crates/core/` | `fandhe-silicon-core` | 共通の型（device・メモリ・実行・同期・能力問合せ・診断）。外部 crate に依存しない。SHA-256 の関数（`hash`）とパイプライン生成の入力の型と引数の宣言の型とキャッシュキーの型と引数の宣言の検査の純粋関数（C4〜C8 の `validate_dispatch_operands`・C1・C3 の `validate_declared_operands`）（`execution`）とバッファの引数検査の純粋関数（`memory`）とテクスチャを作る操作の trait `TextureOps`・コピーの転送元・転送先の指定の型 `TextureCopySpec`・`TextureOrigin`・view の型 `TextureView`・テクスチャと view の破棄の操作・サンプラーを作る操作（`texture`）とサンプラーの記述子の値の型・記述子・handle（`sampler`）と device の口 `Device::textures()`（`device`）を条件なしで公開する。feature `test-support` の裏に検証用の道具（`parity`）と試験の枠（`test_frame`。宣言・実行の可否・結果のラベルの決定・組み合わせごとの集計・試験ごとの記録の部品と書き出し）と流し直しの照合の型と実行の口（`rerun`）がある |
 | `crates/contract/` | `fandhe-silicon-contract` | 下-1: チップごとの薄い呼び出し。Metal・Vulkan・CUDA の背後実装を `backend-*` feature で持つ。`cpu-ops` の裏に CPU の演算（`cpu_ops`。部分 Top-k の 2 メソッドと番兵を含む）を持つ |
 | `crates/exec/` | `fandhe-silicon-exec` | 下-2: 共通の操作と代わりの実行。`core` のみに依存する。公開の型 `OptIn`・`Route`・`OpId`・`UnavailableReason`・`RouteReport`・`Outcome`・`F32DenormalReport`・`F32DenormalBehavior`・`F32DenormalBasis`・`F16FmaOperands`・`SubgroupSumU32Operands`・`SubgroupSumF32Operands`・`AtomicAddOperands`、下-2 の値 `Exec`（`new`・`deny_by_default`・`default_opt_in`）と 7 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing`）を持つ |
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]`。公開の型: device・queue・記録先・投入前の値・投入の印・compute のパス・バッファ |
@@ -99,7 +99,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）（TASK-137） |
 | `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5） |
 | `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3） |
-| `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4） |
+| `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・サンプラーを作る操作 |
 | `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5） |
 | `docs/graphics-types.md` | 描画の公開の型と操作の trait（TASK-837）の所在と、本リポの現状の事実・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験と完了の条件の確かめ（4/4） |
 | `docs/graphics-signature-check.md` | 描画の操作の引数と戻りの型を固定する試験（TASK-908）の所在と、本リポの現状の事実・署名の型の試験（1/2）・完了の条件の確かめ（2/2） |

@@ -109,3 +109,48 @@ make wasm-verify
 上の表の `lib.rs:38` は記録時点の値で、その後 `lib.rs` に行が入り、今は `lib.rs:39` が `#![forbid(unsafe_code)]` である。
 
 今の値の補い: 上の「現状の形（1/4）」の `TextureOps` のメソッドは、今は `create_texture`・`destroy_texture`・`destroy_view` の 3 つ（どれも既定の本体は無い）。破棄の 2 つの所在は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
+
+## サンプラーを作る操作（TASK-150）
+
+### 所在
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/core/src/texture/ops.rs`・`crates/core/src/stub_device.rs` |
+| 試験 | `crates/core/tests/stub_device_samplers.rs`（feature `test-support`） |
+| 公開のパス | `fandhe_silicon_core::texture::TextureOps::create_sampler` |
+
+サンプラーの記述子と handle の型の所在は [sampler-types.md](sampler-types.md)。
+
+### 現状の形
+
+- 署名は `fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Result<SamplerHandle, ContractError>`。既定の本体は無く、持たない実装は `E0046` で拒まれる
+- `TextureOps` の操作は今は 4 つ
+- 試験用の device（`StubDevice`）の `Device::textures` が `Some` のとき、`create_sampler` は記述子を検査せず `Ok(SamplerHandle)` を返す。handle の device の識別子と世代は `generation()` と等しい
+- 通し番号はテクスチャとは別の源から device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_sampler", .. }` を返す（panic しない）
+
+| プロファイル | `Device::textures` | `create_sampler` |
+| ------------ | ------------------ | ---------------- |
+| `CpuOnly` | `None` | 届かない |
+| `ComputeOnly` | `Some` | `Ok` |
+| `Graphics` | `Some` | `Ok` |
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `cpu_only_*_has_no_sampler_path`（3 本） | `CpuOnly` × 3 つの所有形態 | `textures()` が `None` |
+| `compute_only_*_creates_sampler`・`graphics_*_creates_sampler`（6 本） | `label` ありの既定の記述子 | `Ok`、handle の device の識別子と世代が `generation()` |
+| `sampler_descriptor_without_label_also_reaches` | `label` なし | `Ok` |
+| `two_samplers_from_one_device_have_distinct_ids` | 2 回作る | 識別子が違う |
+| `create_sampler_numbers_from_one_and_uses_generation`（core の中） | 2 回作る | 識別子 1・2 |
+| `sampler_numbering_is_separate_from_textures`（core の中） | テクスチャの後に作る | 識別子 1 |
+| `create_sampler_reports_exhausted_id_space`（core の中） | 通し番号を末尾の手前にする | 1 回は `Ok`、次は `BackendFailure` |
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --doc texture::ops
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_samplers
+```
