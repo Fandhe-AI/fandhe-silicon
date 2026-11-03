@@ -113,6 +113,10 @@ name = "cpu_ops_reference"
 required-features = ["cpu-ops", "test-support"]
 
 [[test]]
+name = "cpu_ops_elementwise_written"
+required-features = ["cpu-ops", "test-support"]
+
+[[test]]
 name = "cpu_ops_topk_reference"
 required-features = ["cpu-ops", "test-support"]
 
