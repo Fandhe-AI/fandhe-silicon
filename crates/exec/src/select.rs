@@ -24,6 +24,9 @@ pub(crate) struct SelectionInput {
     pub(crate) op: OpId,
     pub(crate) opt_in: OptIn,
     pub(crate) query: CapabilityQuery,
+    /// `Native` を候補に入れない印。
+    #[cfg(feature = "fault-injection")]
+    pub(crate) forced: bool,
 }
 
 /// 選び方の出力。経路・2 つの理由・f32 の非正規化数の扱い。
@@ -37,7 +40,13 @@ pub(crate) struct SelectionOutput {
 
 /// 入口が選び方に渡す入力を組み立てる。
 pub(crate) fn selection_input(op: OpId, opt_in: OptIn, query: CapabilityQuery) -> SelectionInput {
-    SelectionInput { op, opt_in, query }
+    SelectionInput {
+        op,
+        opt_in,
+        query,
+        #[cfg(feature = "fault-injection")]
+        forced: false,
+    }
 }
 
 /// f32 の非正規化数の扱いの判定の結果。経路ごとに判定の関数が返す。
@@ -63,6 +72,9 @@ pub(crate) fn select_route(
     mut judge: impl FnMut(Route) -> Result<DenormalJudgment, ContractError>,
 ) -> Result<SelectionOutput, ContractError> {
     let (native_reachable, mut native_reason) = match input.query.level {
+        // 指定した操作では段階を見ずに Native を候補に入れない。
+        #[cfg(feature = "fault-injection")]
+        _ if input.forced => (false, Some(UnavailableReason::ForcedUnsupported)),
         CapabilityLevel::S2
         | CapabilityLevel::S3
         | CapabilityLevel::S4
@@ -715,5 +727,166 @@ mod tests {
                 assert_eq!(report.f32_denormal, exp);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+mod forced_tests {
+    use super::*;
+    use fandhe_silicon_core::error::UnsupportedReason;
+
+    const fn opt(g: bool, c: bool) -> OptIn {
+        OptIn {
+            allow_gpu_emulated: g,
+            allow_cpu: c,
+        }
+    }
+
+    const ALL_OPT: [OptIn; 4] = [
+        opt(false, false),
+        opt(true, false),
+        opt(false, true),
+        opt(true, true),
+    ];
+
+    const ALL_OPS: [OpId; 4] = [
+        OpId::F16Fma,
+        OpId::SubgroupSumU32,
+        OpId::SubgroupSumF32,
+        OpId::AtomicAdd,
+    ];
+
+    type Answers = [Result<DenormalJudgment, ContractError>; 3];
+
+    fn queries() -> Vec<CapabilityQuery> {
+        let mut v = Vec::new();
+        for level in [
+            CapabilityLevel::S0,
+            CapabilityLevel::S1,
+            CapabilityLevel::S2,
+            CapabilityLevel::S3,
+            CapabilityLevel::S4,
+            CapabilityLevel::S5,
+            CapabilityLevel::S6,
+        ] {
+            v.push(CapabilityQuery {
+                level,
+                unsupported_reason: None,
+                evidence: None,
+            });
+        }
+        for reason in [
+            None,
+            Some(UnsupportedReason::NoApi),
+            Some(UnsupportedReason::NotSupported),
+            Some(UnsupportedReason::UnknownFeature),
+        ] {
+            v.push(CapabilityQuery {
+                level: CapabilityLevel::Unsupported,
+                unsupported_reason: reason,
+                evidence: None,
+            });
+        }
+        v
+    }
+
+    /// 判定の答えを経路ごとに持つ組（Native, GpuEmulated, Cpu の順）の全 64 通り。
+    fn answers() -> Vec<Answers> {
+        let one = |i: usize| -> Result<DenormalJudgment, ContractError> {
+            match i {
+                0 => Ok(DenormalJudgment::Preserve),
+                1 => Ok(DenormalJudgment::FlushToZero),
+                2 => Ok(DenormalJudgment::Unknown),
+                _ => Err(ContractError::Timeout),
+            }
+        };
+        let mut v = Vec::new();
+        for a in 0..4 {
+            for b in 0..4 {
+                for c in 0..4 {
+                    v.push([one(a), one(b), one(c)]);
+                }
+            }
+        }
+        v
+    }
+
+    fn slot(r: Route) -> usize {
+        match r {
+            Route::Native => 0,
+            Route::GpuEmulated => 1,
+            Route::Cpu => 2,
+        }
+    }
+
+    fn run(
+        input: &SelectionInput,
+        ans: &Answers,
+    ) -> (Result<SelectionOutput, ContractError>, Vec<Route>) {
+        let mut called = Vec::new();
+        let out = select_route(input, |r| {
+            called.push(r);
+            ans[slot(r)].clone()
+        });
+        (out, called)
+    }
+
+    #[test]
+    fn forced_never_chooses_native() {
+        let mut seen = 0;
+        for op in ALL_OPS {
+            let judged = matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd);
+            let answer_sets = if judged {
+                answers()
+            } else {
+                vec![[
+                    Ok(DenormalJudgment::Preserve),
+                    Ok(DenormalJudgment::Preserve),
+                    Ok(DenormalJudgment::Preserve),
+                ]]
+            };
+            for q in queries() {
+                for o in ALL_OPT {
+                    for ans in &answer_sets {
+                        let forced_in = SelectionInput {
+                            forced: true,
+                            ..selection_input(op, o, q)
+                        };
+                        let unsupported = CapabilityQuery {
+                            level: CapabilityLevel::Unsupported,
+                            ..q
+                        };
+                        let base_in = selection_input(op, o, unsupported);
+                        let (got, got_calls) = run(&forced_in, ans);
+                        let (want, want_calls) = run(&base_in, ans);
+                        assert!(!got_calls.contains(&Route::Native));
+                        assert_eq!(got_calls, want_calls);
+                        match (got, want) {
+                            (Ok(g), Ok(w)) => {
+                                assert_ne!(g.route, Some(Route::Native));
+                                assert_eq!(
+                                    g.native_reason,
+                                    Some(UnavailableReason::ForcedUnsupported)
+                                );
+                                let g2 = SelectionOutput {
+                                    native_reason: None,
+                                    ..g
+                                };
+                                let w2 = SelectionOutput {
+                                    native_reason: None,
+                                    ..w
+                                };
+                                assert_eq!(g2, w2);
+                            }
+                            (Err(g), Err(w)) => assert_eq!(g, w),
+                            _ => panic!("forced and base disagree on Ok/Err"),
+                        }
+                        seen += 1;
+                    }
+                }
+            }
+        }
+        // 能力の値 11 通り × 印 4 通り × (判定なし 2 操作 + 判定あり 2 操作 × 答え 64 組)
+        assert_eq!(seen, 11 * 4 * (2 + 2 * 64));
     }
 }

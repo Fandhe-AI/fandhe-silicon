@@ -39,6 +39,9 @@ fn feature_of(op: OpId) -> FeatureId {
 pub struct Exec<'d> {
     device: &'d dyn Device,
     default_opt_in: OptIn,
+    /// 操作ごとの試験用の印。
+    #[cfg(feature = "fault-injection")]
+    ports: crate::hooks::Ports,
 }
 
 impl<'d> Exec<'d> {
@@ -47,12 +50,29 @@ impl<'d> Exec<'d> {
         Self {
             device,
             default_opt_in,
+            #[cfg(feature = "fault-injection")]
+            ports: crate::hooks::Ports::default(),
         }
     }
 
     /// 既定の印を `OptIn::default()`（どちらも許さない）にして作る。
     pub fn deny_by_default(device: &'d dyn Device) -> Self {
         Self::new(device, OptIn::default())
+    }
+
+    /// `op` で `Native` を候補に入れない `Exec` を返す。
+    ///
+    /// 指定した操作では能力の段階を見ず、報告の `native_reason` が
+    /// `UnavailableReason::ForcedUnsupported` になる。`query_ex` は今までどおり 1 回呼び、
+    /// 報告の `observed_level` はその値のまま。`GpuEmulated`・`Cpu` は効く印が許すときだけ候補に入る。
+    /// 指定していない操作・3 つの入口・既定の印は変わらない。何度呼んでも指定は足し合わさる。
+    #[cfg(feature = "fault-injection")]
+    #[must_use]
+    pub fn force_unsupported(self, op: OpId) -> Self {
+        Self {
+            ports: self.ports.with_forced(op),
+            ..self
+        }
     }
 
     /// 作るときに決めた既定の印を返す。
@@ -72,6 +92,11 @@ impl<'d> Exec<'d> {
         let effective = effective_opt_in(self.default_opt_in, opt_in);
         let query = self.device.query_ex(feature_of(op));
         let input = selection_input(op, effective, query);
+        #[cfg(feature = "fault-injection")]
+        let input = crate::select::SelectionInput {
+            forced: self.ports.is_forced(op),
+            ..input
+        };
         let output = select_route(&input, judge)?;
         Ok(build_report(&input, &output))
     }

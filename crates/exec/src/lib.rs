@@ -11,9 +11,13 @@
 //! [`AtomicAddOperands`]、
 //! device を借りて既定の印を持つ下-2 の値 [`Exec`] とその 7 つの入口（`docs/spec/05-tasks.md` の TASK-919）、
 //! 入口を呼ぶ前に経路の報告を返す `Exec::query_route`（同 TASK-920）。
+//! feature `fault-injection` の下では、指定した操作で `Native` を候補に入れない `Exec::force_unsupported` と
+//! 理由の値 `UnavailableReason::ForcedUnsupported` を持つ（同 TASK-921）。
 #![forbid(unsafe_code)]
 
 mod entry;
+#[cfg(feature = "fault-injection")]
+mod hooks;
 mod operands;
 mod opt_in;
 mod report;

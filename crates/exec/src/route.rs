@@ -44,6 +44,9 @@ pub enum UnavailableReason {
     SemanticsNotPreservable,
     /// f32 の非正規化数の扱いが分からない。
     F32DenormalBehaviorUnknown,
+    /// `Exec::force_unsupported` で指定した操作で、`Native` を候補に入れなかった。
+    #[cfg(feature = "fault-injection")]
+    ForcedUnsupported,
 }
 
 #[cfg(test)]
@@ -72,6 +75,29 @@ mod tests {
             for (j, b) in all.iter().enumerate() {
                 assert_eq!(i == j, a == b);
             }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+mod forced_tests {
+    use super::UnavailableReason;
+    use fandhe_silicon_core::error::UnsupportedReason;
+
+    #[test]
+    fn forced_reason_is_distinct() {
+        let others = [
+            UnavailableReason::CapabilityUnsupported(None),
+            UnavailableReason::CapabilityUnsupported(Some(UnsupportedReason::NoApi)),
+            UnavailableReason::CapabilityUnsupported(Some(UnsupportedReason::NotSupported)),
+            UnavailableReason::CapabilityUnsupported(Some(UnsupportedReason::UnknownFeature)),
+            UnavailableReason::CapabilityUnknown,
+            UnavailableReason::OptInNotGiven,
+            UnavailableReason::SemanticsNotPreservable,
+            UnavailableReason::F32DenormalBehaviorUnknown,
+        ];
+        for other in others {
+            assert_ne!(UnavailableReason::ForcedUnsupported, other);
         }
     }
 }
