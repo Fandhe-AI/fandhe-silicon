@@ -349,3 +349,91 @@ record: commit=2467833ffd52-dirty rs_files=15 build_rs=no env_fs=0 items_default
 ok: exec surface check passed
 passed=86 failed=0
 ```
+
+## 完了の条件の確かめ（6/6）
+
+1/6〜5/6 の走査・回帰テスト・CI への組み込みを、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写した。
+
+- 手元: `origin/main` の `5b39cae`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`、`id -u` は `1000`
+- CI: run `41739470984`（headSha `5b39caeefdf7009eb11c4e556a2c0277167077f8`、conclusion `success`）のジョブ `make deny (cargo-deny)`（job `126277060587`）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 既定の feature の公開の面の名前 | `make exec-surface-check` の `record:` | `items_default=458` `port_names_default=0` `items_all=511` `port_names_all=6` `port_names_missing_all=0` |
+| (2) | ソースの字句 | 同じ `record:` | `rs_files=15` `build_rs=no` `env_fs=0` |
+| (3) | 操作を実行する関数の戻り値と一覧に無い公開の関数 | 同じ `record:` | `op_fns=7` `op_fns_with_report=7` `other_fns=5` `unlisted_fns=0` |
+| (4) | 陽性対照 | `make test-exec-surface-check` の最終行と、場面の群ごとの数 | `passed=86 failed=0`。群ごとの数は下の表 |
+| (5) | CI で流れる場所 | `grep -n` の出力と、上の run のジョブのログの行 | 下のブロック |
+| (6) | 5 つの PR の `crates/`・`Cargo.toml`・`Cargo.lock`・`deps-approved.toml`・`deny.toml` の変更 | 各マージコミット `<c>^..<c>` に `git diff --stat <c>^..<c> -- crates Cargo.toml Cargo.lock deps-approved.toml deny.toml`（`c956c96`・`18d8f91`・`b851a7e`・`2467833`・`5b39cae`） | 5 つとも出力なし |
+
+(1)〜(3) の手元の実行（終了コード 0）:
+
+```text
+record: commit=5b39caeefdf7009eb11c4e556a2c0277167077f8 rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+(4) の手元の実行（終了コード 0。所要 12.212 秒）の最終行:
+
+```text
+passed=86 failed=0
+```
+
+(4) の場面の群ごとの数。`scripts/test-exec-surface-check.sh` の節の見出しと場面の名前に、出力の `ok:` の行を照らして数えた。
+
+| 群 | 期待の終了コード | 数 |
+| -- | ---------------- | -- |
+| 実物の合格 | 0 | 1 |
+| ソースの字句の変異体 | 1 | 20 |
+| ソースの走査の陰性の対照 | 0 | 1 |
+| ソースの走査の誤用・前提の不足 | 2 | 11 |
+| リビジョンを読むコマンドが無いときの crate dir の走査 | 0 | 1 |
+| 公開の面の名前の合成の JSON の合格と陰性の対照 | 0 | 2 |
+| 公開の面の名前の合成の JSON の違反 | 1 | 8 |
+| 公開の面の名前の合成の JSON の誤用・前提の不足 | 2 | 11 |
+| 操作の関数の合成の JSON の合格と陰性の対照 | 0 | 6 |
+| 操作の関数の合成の JSON の違反 | 1 | 9 |
+| 操作の関数の合成の JSON の誤用 | 2 | 2 |
+| 一時 workspace の合格 | 0 | 1 |
+| 一時 workspace の変異体 | 1 | 7 |
+| 一時 workspace の誤用 | 2 | 6 |
+| 合計 | | 86 |
+
+(5) の `grep -n`:
+
+```text
+374:        run: make exec-surface-check
+377:        run: make test-exec-surface-check
+```
+
+(5) の CI のジョブのログ:
+
+```text
+make deny (cargo-deny)	make exec-surface-check	2026-11-03T23:34:29.3043787Z record: commit=5b39caeefdf7009eb11c4e556a2c0277167077f8 rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+make deny (cargo-deny)	make exec-surface-check	2026-11-03T23:34:29.3044867Z ok: exec surface check passed
+make deny (cargo-deny)	make test-exec-surface-check	2026-11-03T23:34:46.6054075Z passed=86 failed=0
+```
+
+(6) の 5 つのマージコミットは、`c956c96` が #7945、`18d8f91` が #7947、`b851a7e` が #7948、`2467833` が #7949、`5b39cae` が #7950。
+
+### 確かめ方
+
+```bash
+make exec-surface-check
+make test-exec-surface-check
+grep -n "run: make exec-surface-check\|run: make test-exec-surface-check" .github/workflows/ci.yml
+gh run view 41739470984 --json conclusion,headSha
+```
+
+## 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/6 | #6013（PR #7945） | 下-2 のソースの環境変数・ファイルの読み取りの走査（1/6） |
+| 2/6 | #6014（PR #7947） | 既定の feature の公開の面にある試験用の口の名前の走査（2/6） |
+| 3/6 | #6015（PR #7948） | 操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6） |
+| 4/6 | #6016（PR #7949） | 一時 workspace を走査する口と実物の下-2 を写した変異体（4/6） |
+| 5/6 | #6017（PR #7950） | CI への組み込み（5/6） |
+| 6/6 | #6018 | 完了の条件の確かめ（6/6） |
+
+親 Issue は #867。

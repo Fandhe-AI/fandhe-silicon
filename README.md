@@ -168,7 +168,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方 |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
 | `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）（TASK-259） |
-| `docs/exec-surface-check.md` | 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）・操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）・一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）・CI への組み込み（5/6）（TASK-923） |
+| `docs/exec-surface-check.md` | 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）・操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）・一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）・段の表（TASK-923） |
 | `docs/public-api-sdk-check.md` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧（4/4）・完了の条件の確かめ（4/4）・段の表・本リポでの反映の方針（TASK-253） |
