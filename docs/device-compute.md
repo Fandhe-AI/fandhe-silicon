@@ -118,3 +118,7 @@ TASK-2956 の 3/3（#7589）として、本リポで観測できる事実だけ�
 | 1/3 | 現状の形（実装とテスト） | #7587 |
 | 2/3 | Metal の上書き | #7588 |
 | 3/3 | 完了の条件の確かめ | #7589 |
+
+## 今の値の補い（base 6b35dd9）
+
+上の表の項目 4 の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が `:177`・`:505`、`make build-profiles` が `:181`・`:508` である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。

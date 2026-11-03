@@ -262,6 +262,8 @@ cargo test -p fandhe-silicon-exec --test unsupported_fields
 
 補い: 上の表 (4)(5) の件数は記録した時点の値で、書き換えていない。`unsupported_fields` の 1 本が加わり、いま `cargo test -p fandhe-silicon-exec` は feature なしで合計 27 passed、`native-blocking-wait` 付きで合計 29 passed（いずれも 0 failed; 0 ignored）。
 
+補い: exec の依存の向きは `make exec-deps-check`（[exec-deps-check.md](exec-deps-check.md)）が見る。
+
 確かめた時点は main の `ac32709`、`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-919）。

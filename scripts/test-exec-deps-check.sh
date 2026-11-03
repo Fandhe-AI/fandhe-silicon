@@ -14,7 +14,7 @@
 # 判定は「終了コード + 標準出力 + 標準エラーの部分一致」。違反・誤用のケースでは `ok:` が出ないことも確かめる。
 # 期待値を緩めない。現行の検査と食い違ったらテストでなく検査側の挙動として直す。
 # 前提: python3・cargo・git・rust-toolchain.toml の toolchain（無ければ失敗にし、skip しない）。
-# 呼び出し元: `make test-exec-deps-check`。
+# 呼び出し元: `make test-exec-deps-check`。CI の `deny` ジョブも実行する。
 # 途中で止めず、最後に件数を出す。bash 3.2 互換（mapfile・連想配列・空配列の "${arr[@]}" を使わない）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -204,7 +204,7 @@ for nm in objc2 objc2-foundation objc2-metal objc2-core-foundation ash cudarc fa
     TREE_EXTRA="3${nm} v0.1.0"
     syn "tree_depth3_${nm}" 1 "e:violation: check=tree-forbidden depth=3 name=${nm}" "!ok: "
 done
-# 実物の cargo tree が挟みうる節の見出し行は区切りとして読み飛ばし、見出しの後の行は判定に流す
+# 節の見出し行が出たときは読み飛ばし、見出しの後の行は判定に流す（`--prefix depth` の実物は見出しを出さない）
 TREE_EXTRA='[dev-dependencies]
 1fandhe-silicon-contract v0.1.0 (/x)'
 syn tree_header_dev 1 "e:violation: check=tree-direct name=fandhe-silicon-contract" \
@@ -241,6 +241,35 @@ mkcase src_not_counted
 printf '%s\n' '//! ash' '/// fandhe_silicon_contract' '/* cudarc */' 'const A: &str = "ash";' \
     'const B: &str = r#"ash"#;' >"${work}/src_not_counted/crates/exec/src/y.rs"
 runsyn src_not_counted 0 "o:ok: " "!violation"
+
+# examples/・benches/ の .rs も数える
+mkcase src_examples
+mkdir -p "${work}/src_examples/crates/exec/examples"
+printf '%s\n' '// c' 'fn main() { cudarc::f(); }' >"${work}/src_examples/crates/exec/examples/e.rs"
+runsyn src_examples 1 "e:violation: check=source-name file=examples/e.rs line=2 name=cudarc" "!ok: "
+mkcase src_benches
+mkdir -p "${work}/src_benches/crates/exec/benches"
+printf '%s\n' 'use fandhe_silicon_upper::x;' >"${work}/src_benches/crates/exec/benches/b.rs"
+runsyn src_benches 1 "e:violation: check=source-name file=benches/b.rs line=1 name=fandhe-silicon-upper" "!ok: "
+# ブロックコメントの入れ子: 内側の終端で閉じず、外側の終端までを数えない
+mkcase src_nested_ok
+printf '%s\n' '/* outer /* inner */ ash */' 'const X: u8 = 1;' >"${work}/src_nested_ok/crates/exec/src/n.rs"
+runsyn src_nested_ok 0 "o:ok: " "!violation"
+mkcase src_nested_after
+printf '%s\n' '/* outer /* inner */ ash */' 'fn f() { ash::f(); }' >"${work}/src_nested_after/crates/exec/src/n.rs"
+runsyn src_nested_after 1 "e:violation: check=source-name file=src/n.rs line=2 name=ash" "!line=1" "!ok: "
+# 名前の `_` と `-` の折りたたみ（宣言・tree・許す依存）
+DEPS="${OK_DEP},{\"name\":\"fandhe_silicon_contract\",\"kind\":null,\"path\":null}"
+syn fold_decl_underscore 1 "e:violation: check=dep-allow kind=normal name=fandhe-silicon-contract" "!ok: "
+DEPS="{\"name\":\"fandhe_silicon_core\",\"kind\":null,\"path\":\"@D@/crates/core\"}"
+syn fold_decl_allowed_underscore 0 "o:ok: " "!violation"
+TREE_EXTRA='3fandhe_silicon_contract v0.1.0'
+syn fold_tree_underscore 1 "e:violation: check=tree-forbidden depth=3 name=fandhe-silicon-contract" "!ok: "
+# 未知の依存の種類は通常として読まず、誤用（終了コード 2）にする
+DEPS="${OK_DEP},{\"name\":\"fandhe-silicon-core\",\"kind\":\"unknown\",\"path\":null}"
+syn decl_kind_unknown 2 "e:unknown dependency kind" "!ok: " "!record: "
+DEPS="${OK_DEP},{\"name\":\"fandhe-silicon-core\",\"kind\":1,\"path\":null}"
+syn decl_kind_number 2 "e:unknown dependency kind" "!ok: " "!record: "
 
 # 誤用
 raw args_metadata_only 2 --metadata-json "${work}/ok/md.json"
