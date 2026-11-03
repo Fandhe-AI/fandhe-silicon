@@ -121,3 +121,12 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 `make check` を通した（結果は PR の CI を参照）。`make verify`・`make deny` は、コードと設定を変えないため本 PR では手元で流していない（未実施）。
 
 確かめた base は `e2e1e0c`、`docs/spec` の gitlink は `f603cba`。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 本リポの現状の「組ごとの build / clippy / test」の確かめ方と「CI での走り方」の確かめ方 | `grep -n 'NATIVE_SETS' -A16 scripts/build-profiles.sh` → 配列が 33〜51 行目、閉じ括弧が 52 行目なので、`-A20` が要る（`grep -n 'NATIVE_SETS' -A20 scripts/build-profiles.sh` の先頭の当たりは 32 行目で、52 行目の `)` まで出る） | `grep -n 'NATIVE_SETS' -A20 scripts/build-profiles.sh` |
+| 「CI での走り方」の表の `make build-profiles` | `NATIVE_SETS` は 14 組、`cargo test -p fandhe-silicon-contract` の回数は 16 → `NATIVE_SETS` は 19 組、回数は 21（既定の組 1 回、`NATIVE_SETS` の 19 組、`--all-features` 1 回） | `sed -n 33,51p scripts/build-profiles.sh \| grep -c '^  "'`（19） |

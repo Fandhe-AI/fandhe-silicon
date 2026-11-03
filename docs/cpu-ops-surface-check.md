@@ -131,3 +131,24 @@ make build-profiles                                                             
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/src/cfg_gate_doctest.rs`・`crates/contract/tests/cpu_ops_public_surface.rs`・`crates/contract/tests/feature_gate_enabled.rs`・`scripts/build-profiles.sh` の `NATIVE_SETS` を変えたときは、表を取り直す。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 1/4 の確かめ方（2 本目の `9 passed`） | `9 passed; 0 failed` → 既定の組の `--doc` は 2 つの群で出る。1 つ目は `2 passed; 0 failed; 0 ignored`（`NonBlockingReadbackGate` と `CpuOpsGate (line 121)` が `ok`）、2 つ目は `9 passed; 0 failed; 0 ignored`（`compile fail ... ok` の群。`CpuOpsNonExhaustiveGate (line 131)` を含む）。1 本目（`contract-core` だけ）は `1 passed; 0 failed; 1 ignored`（`CpuOpsNonExhaustiveGate` が `ignored`）と `9 passed; 0 failed; 0 ignored`（`CpuOpsGate (line 121)` は `compile fail ... ok`）。記録の `9 passed` は、`compile fail ... ok` の群の件数と同じ値 | `cargo test -p fandhe-silicon-contract --doc`、`cargo test -p fandhe-silicon-contract --doc --no-default-features --features contract-core` |
+| 1/4 の確かめ方（3 本目の `3 passed`）・完了の条件の確かめ（4/4）の (4) | `cpu_ops_gate_is_visible ... ok`（`3 passed; 0 failed`）→ 今も同じ | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
+| 3/4 の記録時点の値 | 「コミット `bba66a5` の上」の `9 passed` → 3/4 の PR（#7920）の base は `24eaeca`（`80de3af` の親）で、値は同じ。`80de3af` の時点の `cpu_ops_public_surface.rs` の `#[test]` は 9 本、今も 9 本で `9 passed; 0 failed; 0 ignored` | `git log -1 --format=%P 80de3af`、`git show 80de3af:crates/contract/tests/cpu_ops_public_surface.rs \| grep -c '^#\[test\]'`、`cargo test -p fandhe-silicon-contract --test cpu_ops_public_surface` |
+| 完了の条件の確かめ（4/4）の (5) | `crates/contract/Cargo.toml` は `80de3af` で +4 行 → `bba66a5..25d8dc2` でも `Cargo.toml` は +4 行。`cfg_gate_doctest.rs` は +17 行・-2 行（#7926） | `git diff --numstat bba66a5..HEAD -- crates/contract/src crates/contract/Cargo.toml` |
+| 所在の `cfg_gate_doctest.rs` | 目印の型は `CpuOpsGate` → `CpuOpsNonExhaustiveGate` が加わった。`cfg_gate_doctest.rs` の `pub struct` は 11 件で、`CpuOpsGate` は 127 行目、`CpuOpsNonExhaustiveGate` は 142 行目 | `grep -n '^pub struct' crates/contract/src/cfg_gate_doctest.rs` |
+
+今の値の補いとして、次の試験が加わっている（#7926）。
+
+| 試験 | 所在 | 本数 |
+| ---- | ---- | ---- |
+| `CpuOpsNonExhaustiveGate` | `crates/contract/src/cfg_gate_doctest.rs`。`cpu-ops` が有効なときは `compile_fail,E0004`（外の crate からの `UnaryElementwiseOp` の網羅の `match` が `_` の腕なしで落ちる）、無効なときは `ignore`。上の表のとおり、有効な組では `compile fail ... ok`、`contract-core` だけの組では `ignored` | doctest 1 本 |
+| `cpu_ops_feature_sets` | `crates/contract/tests/cpu_ops_feature_sets.rs`（`Cargo.toml` に `[[test]]` の項目は無く、feature の組に依らず流れる）。`real_manifest_contract_core_does_not_imply_cpu_ops`・`manifest_mutations_are_caught`・`real_script_has_the_contract_core_only_row`・`script_mutations_are_caught` | 4 本（`cargo test -p fandhe-silicon-contract --test cpu_ops_feature_sets` が `4 passed; 0 failed; 0 ignored`） |
+
+`AddScalar` を 0.5 以外の定数で確かめる `elementwise_add_scalar_other_constants`（#7917）は `crates/contract/tests/cpu_ops_reference.rs` の 277 行目にあり、`cpu_ops_reference` は 8 本（`8 passed; 0 failed; 0 ignored`）。所在の頁は [cpu-ops-elementwise-check.md](cpu-ops-elementwise-check.md) と [cpu-ops.md](cpu-ops.md)。

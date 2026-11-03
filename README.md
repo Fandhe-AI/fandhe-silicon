@@ -84,8 +84,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-signed-zero-topk.md` | ±0 の扱いと Top-k の規則（TASK-976）の所在と本リポの現状の事実・完了の条件の確かめ（6/6） |
-| `docs/cpu-ops-topk-order.md` | 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2450） |
-| `docs/cpu-ops-topk-simd-bytes.md` | 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2452） |
+| `docs/cpu-ops-topk-order.md` | 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2450） |
+| `docs/cpu-ops-topk-simd-bytes.md` | 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2452） |
 | `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実・完了の条件の確かめ（6/6） |
 | `docs/parity-fallback-compare.md` | 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）（TASK-928） |
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実 |
@@ -98,9 +98,9 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/artifact-input-types.md` | 成果物の受け付けに使う公開の型（TASK-470）の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6） |
 | `docs/spirv-words.md` | SPIR-V のバイト列から語の列を作る操作（TASK-1682）の所在と、本リポの現状の事実・現状の形（2/5・3/5）・試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/contract-error-types.md` | 契約のエラー・完了状態の型（TASK-269）の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8） |
-| `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6） |
+| `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2） |
 | `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）・今の値の補い（base 6b35dd9）（TASK-137） |
-| `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9） |
+| `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9）・今の値の補い（base 25d8dc2） |
 | `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9） |
 | `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）（TASK-150） |
 | `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9） |
@@ -111,7 +111,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/offscreen-target-check.md` | 描画先の大きさとバイト数の純粋関数（TASK-374）の所在・振る舞い・対応するテスト・確かめ方・入力の検査（2/4）・境界の入力の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/copy-target-check.md` | 描画先からバッファへの写しの書き込み先の検査（TASK-591）の所在・振る舞い・対応するテスト・確かめ方・境界の入力の全組の試験（2/2）・完了の条件の確かめ（2/2） |
 | `docs/surface-types.md` | 表示先の設定の大きさの検査と取得の結果の型（TASK-654）の所在・設定の大きさの検査（1/4）・取得の結果の型（2/4）・境界の入力と対応の試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6） |
+| `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2） |
 | `docs/contract-binding-types.md` | 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型（TASK-419）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/compute-encoder-lifetime-check.md` | compute の記録先の借用の寿命と定数の渡し方の試験（TASK-772）の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3） |
@@ -156,9 +156,9 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4） |
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）（TASK-248） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）（TASK-2954） |
-| `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）（TASK-1352） |
-| `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）（TASK-2457） |
-| `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）（TASK-2455） |
+| `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）（TASK-1352） |
+| `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）（TASK-2457） |
+| `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2455） |
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2） |
 | `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実（TASK-23） |
@@ -173,10 +173,10 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/compute-public-api-check.md` | compute の公開の型に当てた公開 API の検査の所在・対象の型と所在・検査ごとの走査の範囲・観測の記録・確かめ方（TASK-770） |
 | `docs/public-api-webgpu-check.md` | 公開 API の検査（TASK-241）の所在と、本リポの現状の事実・現状と前提の確認（1/6）・(1) の検査の実装（2/6）・(1) の検査の試験（3/6）・(2) の検査の実装と試験（4/6）・(3) の検査の実装と試験（5/6）・CI への組み込みと完了の条件の確かめ（6/6）・現状と前提の確認（1/4）・SubmitToken を受ける公開の口の検査の実装（2/4）・SubmitToken を受ける口の検査の試験（3/4）・未投入の印の試験（4/4）・完了の条件の確かめ（4/4）（TASK-313） |
 | `docs/dep-graph-wgpu-check.md` | 依存グラフの wgpu 系 crate の検査の所在・出力の読み方・数え方の定義の所在と変える手順・確かめ方（TASK-11） |
-| `docs/contract-feature-check.md` | `default` feature とテスト・診断専用 feature の検査（TASK-226）の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3） |
-| `docs/profile-switch-check.md` | プロファイルの切替の検査（TASK-227）の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4） |
-| `docs/ext-interop-build-check.md` | `ext-interop` と片方の背後実装の組のビルドの確かめ（TASK-231）の所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4） |
-| `docs/feature-gate-compile-check.md` | feature ゲートのコンパイル失敗の試験（TASK-233）の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7） |
+| `docs/contract-feature-check.md` | `default` feature とテスト・診断専用 feature の検査（TASK-226）の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）・今の値の補い（base 25d8dc2） |
+| `docs/profile-switch-check.md` | プロファイルの切替の検査（TASK-227）の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2） |
+| `docs/ext-interop-build-check.md` | `ext-interop` と片方の背後実装の組のビルドの確かめ（TASK-231）の所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）・今の値の補い（base 25d8dc2） |
+| `docs/feature-gate-compile-check.md` | feature ゲートのコンパイル失敗の試験（TASK-233）の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7）・今の値の補い（base 25d8dc2） |
 | `docs/profile-dep-graph-check.md` | 依存グラフのプロファイルごとの検査の所在・出力の読み方・数え方の定義の所在・陽性対照・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）・完了の条件の確かめと件数・差の記録（6/6）（TASK-229） |
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
 | `docs/upper-compute-path.md` | 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5） |

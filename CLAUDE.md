@@ -60,10 +60,10 @@ fandhe-silicon/
 ├── docs/artifact-input-types.md  # 成果物の受け付けに使う公開の型の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6）（TASK-470）
 ├── docs/spirv-words.md       # SPIR-V のバイト列から語の列を作る操作の所在と、本リポの現状の事実・現状の形（2/5）・現状の形（3/5）・試験（4/5）・完了の条件の確かめ（5/5）（TASK-1682）
 ├── docs/contract-error-types.md  # 契約のエラー・完了状態の型の所在と、本リポの現状の事実・現状の形（2/8〜7/8）・完了の条件の確かめ（8/8）（TASK-269）
-├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）（TASK-136）
+├── docs/contract-device-types.md  # 契約の公開の型の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2）（TASK-136）
 ├── docs/contract-device-stub-check.md  # スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）・今の値の補い（base 6b35dd9）（TASK-137）
-├── docs/stub-device.md       # 試験用の device の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9）（TASK-156）
-├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）・コールバックの `Send` 要求の型検査（TASK-240）
+├── docs/stub-device.md       # 試験用の device の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9）・今の値の補い（base 25d8dc2）（TASK-156）
+├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）・コールバックの `Send` 要求の型検査・今の値の補い（base 25d8dc2）（TASK-240）
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/compute-encoder-lifetime-check.md  # compute の記録先の借用の寿命と定数の渡し方の試験の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）（TASK-772）
@@ -108,8 +108,8 @@ fandhe-silicon/
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）
 ├── docs/parity-signed-zero-topk.md # ±0 の扱いと Top-k の規則の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-976）
-├── docs/cpu-ops-topk-order.md  # 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2450）
-├── docs/cpu-ops-topk-simd-bytes.md  # 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2452）
+├── docs/cpu-ops-topk-order.md  # 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2450）
+├── docs/cpu-ops-topk-simd-bytes.md  # 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2452）
 ├── docs/parity-element-rules.md # T-1 の要素ごとの規則の確かめの所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-975）
 ├── docs/parity-fallback-compare.md # 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）（TASK-928）
 ├── docs/gemm-test-inputs.md  # GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-1005）
@@ -125,10 +125,10 @@ fandhe-silicon/
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-16・TASK-17）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と本リポの現状の事実（TASK-43）
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実（TASK-98）
-├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7）（TASK-233）
-├── docs/contract-feature-check.md  # default feature とテスト・診断専用 feature の検査の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）（TASK-226）
-├── docs/profile-switch-check.md  # プロファイルの切替の検査の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-227）
-├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）（TASK-231）
+├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・有効側の試験（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7）・今の値の補い（base 25d8dc2）（TASK-233）
+├── docs/contract-feature-check.md  # default feature とテスト・診断専用 feature の検査の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）・今の値の補い（base 25d8dc2）（TASK-226）
+├── docs/profile-switch-check.md  # プロファイルの切替の検査の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）（TASK-227）
+├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）・今の値の補い（base 25d8dc2）（TASK-231）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実（TASK-236）
 ├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実（TASK-112）
@@ -137,9 +137,9 @@ fandhe-silicon/
 ├── docs/wasm32-node-foundation.md  # wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-22）・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）
 ├── docs/wasm32-web-load-check.md  # web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）（TASK-248）
 ├── docs/wasm32-build.md      # wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）（TASK-2954）
-├── docs/cpu-ops.md           # 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）（TASK-1352）
-├── docs/cpu-ops-surface-check.md  # 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）（TASK-2457）
-├── docs/cpu-ops-elementwise-check.md  # 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）（TASK-2455）
+├── docs/cpu-ops.md           # 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）（TASK-1352）
+├── docs/cpu-ops-surface-check.md  # 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）（TASK-2457）
+├── docs/cpu-ops-elementwise-check.md  # 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2455）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29）
 ├── docs/public-name-check.md  # 公開 API の名前の検査の決定の記録の所在と、本リポの現状の事実（TASK-14・TASK-113）・決定表の語彙の検査（ソースの語・呼び出しと `DecisionInput` の公開フィールドの集合。TASK-142）
