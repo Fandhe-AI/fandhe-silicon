@@ -51,3 +51,40 @@
 | `judge_is_not_called_without_need` | 判定を求めない場面で判定の関数を呼ばない |
 
 確かめ方は `cargo test -p fandhe-silicon-exec --lib`。
+
+## 経路の報告を返す `query_route`（2/5）
+
+### 所在
+
+`crates/exec/src/entry.rs` の `Exec::query_route`（公開）と、4 つの入口・`query_route` が共通で通す private な `Exec::route_report`。
+`route_report` は効く印を決め、`query_ex` を 1 回呼び、`select_route` で経路を選んで報告を組み立てる。
+
+### 引数・戻り値・動き
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 引数 | `op: OpId`、`opt_in: Option<OptIn>` |
+| 戻り値 | `Result<RouteReport, ContractError>` |
+| 問合せ | `query_ex` を 1 回。`memory()`・`queue()`・下-1 の投入・確保・読み出しは呼ばない |
+| 経路が `None` の報告 | `Ok` |
+| 経路がある報告 | `Ok`（入口と違い `Err` に変えない） |
+| 判定の関数 | 呼ばれると `Err(ContractError::Unsupported { op: "query_route", backend })`。`backend` は `Device::backend()` の値 |
+| 既定の印 | 変えない |
+
+### 入口の返しとの対応
+
+| 入口の返し | `query_route` の返し |
+| ---------- | -------------------- |
+| `Ok(Outcome::Unavailable { report })` | `Ok`・`report` と等しい報告 |
+| 経路が決まって `Err(Unsupported)`（`F16Fma`・`SubgroupSumU32`） | `Ok`・経路あり |
+| `SubgroupSumF32`・`AtomicAdd` で経路が届く | `Err(ContractError::Unsupported { .. })`（`op` は `"query_route"`） |
+
+### 試験
+
+| 試験 | 確かめる点 |
+| ---- | ---------- |
+| `query_route_equals_unavailable_report` | 4 操作で入口の `Unavailable` の報告と等しい |
+| `query_route_reports_fallback_route` | `F16Fma`・`SubgroupSumU32` は `Cpu` の経路つきの `Ok`、`SubgroupSumF32`・`AtomicAdd` は `op` が `"query_route"` の `Err` |
+| `query_route_keeps_default_opt_in` | 呼んだ後も既定の印が変わらない |
+
+確かめ方は `cargo test -p fandhe-silicon-exec --lib`。
