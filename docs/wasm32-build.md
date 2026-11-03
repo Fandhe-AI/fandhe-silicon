@@ -192,6 +192,87 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 
 重なる既存の試験の所在: `crates/contract/tests/cpu_ops_build_selection.rs`（TASK-1351。`make verify` が流す）。
 
+### 完了の条件の確かめ（2/2）
+
+1/2 の入口と回帰テストを、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
+
+- 手元: `origin/main` の `08b18aa` の上の作業ツリー
+- CI: run `41561344417`（headSha `08b18aa2e33f4df718ab495988c4e82e116ca92b`・conclusion `success`）。ジョブ `make deny (cargo-deny)`（job `125672426920`）・`wasm32 build + size + node (macos-latest)`（job `125672426938`）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 実物の `crates/` が通る | `scripts/wasm-build-check.sh --cfg-only` | 下の (1) のブロック |
+| 2 | CI の 2 ジョブで `make wasm-verify` の中で流れる | 各ジョブのログを `cfg: sites=` / `mode=cfg-only` / `ok: all rows` で絞る | 下の (2) のブロック |
+| 3 | 回帰テストと陽性対照 | `make test-wasm-build-check`、`crates/` の写しに実行時検出の呼び出しを足して `--source-root` で渡す | 下の (3) のブロック |
+| 4 | `cfg` の出現の数 | `grep -n` で `crates/contract/src/cpu_ops.rs` の simd128 の `cfg` を引く | 下の (4) のブロック |
+| 5 | `crates/*/src` に実行時検出が無い | `grep -rn '_feature_detected' crates/*/src` | 下の (5) のブロック |
+| 6 | 重なる既存の試験が流れる | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` | `test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| 7 | 引数なしの全行の経路 | `scripts/wasm-build-check.sh` | 下の (7) のブロック |
+| 8 | 対象外のファイルを変えていない | `git diff --stat 08b18aa^ 08b18aa -- crates .github wasm Cargo.toml Cargo.lock deps-approved.toml scripts/build-profiles.sh` | 出力なし |
+
+(1)
+
+```text
+cfg: sites=5 label=match
+record: commit=08b18aa mode=cfg-only cfg_sites=5 not_run=0
+ok: all rows match
+rc=0
+```
+
+(2)
+
+```text
+make deny (cargo-deny)	make wasm-verify	2026-11-03T01:42:30.2372975Z cfg: sites=5 label=match
+make deny (cargo-deny)	make wasm-verify	2026-11-03T01:42:30.2373736Z record: commit=08b18aa mode=cfg-only cfg_sites=5 not_run=0
+make deny (cargo-deny)	make wasm-verify	2026-11-03T01:42:30.2374469Z ok: all rows match
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-03T01:42:44.3781050Z cfg: sites=5 label=match
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-03T01:42:44.3781400Z record: commit=08b18aa mode=cfg-only cfg_sites=5 not_run=0
+wasm32 build + size + node (macos-latest)	make wasm-verify	2026-11-03T01:42:44.3781620Z ok: all rows match
+```
+
+(3)
+
+```text
+手元の make test-wasm-build-check の最終行:
+test-wasm-build-check: 87 passed, 0 failed
+CI の deny ジョブ（make test-wasm-build-check の step）:
+test-wasm-build-check: 87 passed, 0 failed
+crates/ の写しの cpu_ops.rs の末尾に is_x86_feature_detected!("simd128") を呼ぶ関数を足して実行:
+FAILED: at least one row is mismatch or not-run
+cfg: sites=5 label=mismatch reason=runtime-detection
+violation: file=contract/src/cpu_ops.rs line=482 reason=runtime-detection
+record: commit=08b18aa mode=cfg-only cfg_sites=5 not_run=0
+rc=1
+```
+
+(4)
+
+```text
+12:#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+87:#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+100:#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+113:#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+123:#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+```
+
+(5)
+
+```text
+rc=1
+```
+
+(7)
+
+```text
+FAILED: at least one row is mismatch or not-run
+artifact: kind=scalar label=match simd128=absent bytes=300 sha256=207eab239a9a837827ce9fc92a715af8bcdd48aa2c729b2315f85af95b43952a
+artifact: kind=simd128 label=match simd128=present bytes=309 sha256=5c97560c5151429e5b122307b90d64cd49140e5c5304abb95508e4eb5602dad9
+type: label=not-run reason=no-required-types
+cfg: sites=5 label=match
+record: commit=08b18aa artifact=2/2 types=0/0 cfg_sites=5 not_run=1
+rc=1
+```
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
