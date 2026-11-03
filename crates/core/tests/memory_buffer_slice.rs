@@ -73,13 +73,35 @@ fn slice_matches_validate_buffer_range() {
 }
 
 #[test]
-fn slice_accessors_return_inputs() {
-    // MEM-55 / MEM-56 / MEM-57
+fn slice_buffer_returns_origin_handle() {
+    // MEM-55
     let h = handle(16);
     let sl = h.slice(4, 8).expect("accepted");
     assert!(core::ptr::eq(sl.buffer(), &h));
+}
+
+#[test]
+fn slice_offset_returns_input() {
+    // MEM-56
+    let h = handle(16);
+    let sl = h.slice(4, 8).expect("accepted");
     assert_eq!(sl.offset(), 4);
+}
+
+#[test]
+fn slice_size_returns_input() {
+    // MEM-57
+    let h = handle(16);
+    let sl = h.slice(4, 8).expect("accepted");
     assert_eq!(sl.size(), 8);
+}
+
+#[test]
+fn slice_debug_output_is_non_empty() {
+    // 出力の形は固定せず、`Debug` を持ち空でない文字列になることだけを確かめる。
+    let h = handle(16);
+    let sl = h.slice(4, 8).expect("accepted");
+    assert!(!format!("{sl:?}").is_empty());
 }
 
 #[test]
