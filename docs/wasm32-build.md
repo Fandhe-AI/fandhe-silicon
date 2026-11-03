@@ -192,6 +192,14 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 
 重なる既存の試験の所在: `crates/contract/tests/cpu_ops_build_selection.rs`（TASK-1351。`make verify` が流す）。
 
+手元の出力（`bash scripts/wasm-build-check.sh --cfg-only`、終了コード 0。`commit=` の値は流した時点の HEAD で変わる）:
+
+```text
+cfg: sites=5 label=match
+record: commit=1376f6a mode=cfg-only cfg_sites=5 not_run=0
+ok: all rows match
+```
+
 ### 完了の条件の確かめ（2/2）
 
 1/2 の入口と回帰テストを、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
