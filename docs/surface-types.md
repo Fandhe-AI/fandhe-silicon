@@ -68,9 +68,33 @@ cargo test -p fandhe-silicon-core --features graphics --doc CurrentSurfaceTextur
 cargo test -p fandhe-silicon-core --features graphics --doc SurfaceStatus
 ```
 
+## 境界の入力と対応の試験（3/4）
+
+- 所在: `crates/core/tests/graphics_surface_types.rs`（`crates/core/Cargo.toml` の `[[test]]`、`required-features = ["graphics"]`）
+- 外の crate から公開のパスだけで確かめる。上限は 16384 を使う
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `zero_size_is_rejected` | `(0, 720)`・`(1280, 0)`・`(0, 0)` | `InvalidArgument` |
+| `exact_limit_is_accepted` | `(上限, 上限)`・`(上限, 1)`・`(1, 上限)` | `Ok(())` |
+| `limit_plus_one_is_rejected` | 上限 +1 を幅・高さ・両方に置いた 3 組 | `InvalidArgument` |
+| `same_result_as_offscreen_check` | 上の 9 組 | `validate_offscreen_target_size`（TASK-374）と通る・拒否の別が一致 |
+| `rejection_is_repeatable` | 拒否 2 組と通る 1 組 | 同じ引数で 2 回呼んだ結果が等しい |
+| `only_success_and_suboptimal_carry_value` | 7 値 | 値を取り出せるのは `Success`・`Suboptimal` だけ |
+| `status_mapping` | 7 値 | `status()` が `Good`・`Suboptimal`・`Timeout`・`Occluded`・`Outdated`・`Lost`・`Validation` の順 |
+| `outdated_carries_no_value` | `Outdated` | 値なし・`status()` は `Outdated` |
+| `status_all_values` | `SurfaceStatus::ALL` | 長さ 7・重複なし |
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_types
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
 | 1/4 | #5347 | 本頁の関数 |
 | 2/4 | #5348 | 取得の結果の 2 つの型と対応 |
+| 3/4 | #5349 | 外の crate からの境界の入力と対応の試験 |
