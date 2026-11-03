@@ -13,6 +13,14 @@ use crate::error::ContractError;
 /// let r = DrawRange { first_vertex: 0, vertex_count: 3, first_instance: 0, instance_count: 1 };
 /// assert_eq!(r, r);
 /// ```
+///
+/// `Default` は実装されていない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::graphics::DrawRange;
+/// fn needs_default<T: Default>() {}
+/// needs_default::<DrawRange>();
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DrawRange {
     /// 最初の頂点。
@@ -37,6 +45,14 @@ pub struct DrawRange {
 ///     instance_count: 1,
 /// };
 /// assert_eq!(r, r);
+/// ```
+///
+/// `Default` は実装されていない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::graphics::IndexedDrawRange;
+/// fn needs_default<T: Default>() {}
+/// needs_default::<IndexedDrawRange>();
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexedDrawRange {

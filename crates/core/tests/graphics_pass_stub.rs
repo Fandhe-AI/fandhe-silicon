@@ -164,3 +164,28 @@ fn pass_state_ops_do_not_consume_encoder() {
     let _ = call_state_ops(g, &mut enc, &pipeline(d.as_ref()), &buffer(d.as_ref()));
     let _ = g.submit_render(enc, &[]);
 }
+
+/// 別の device で作った記録先を渡すと、8 操作すべてが `DeviceMismatch` を返し、記録先は持ち主の device で使い続けられる。
+#[test]
+fn pass_state_ops_reject_encoder_of_another_device() {
+    let a = device();
+    let b = device();
+    let ga = a.graphics().expect("graphics");
+    let gb = b.graphics().expect("graphics");
+    let tb = target(b.as_ref());
+    let mut enc = gb.create_render_encoder(&tb);
+    assert!(enc.__backend_rejected().is_none());
+    let pa = pipeline(a.as_ref());
+    let ba = buffer(a.as_ref());
+    for (name, r) in call_state_ops(ga, &mut enc, &pa, &ba) {
+        assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{name}");
+    }
+    let pb = pipeline(b.as_ref());
+    let bb = buffer(b.as_ref());
+    for (name, r) in call_state_ops(gb, &mut enc, &pb, &bb) {
+        assert!(
+            matches!(r, Err(ContractError::Unsupported { op, .. }) if op == name),
+            "{name}"
+        );
+    }
+}
