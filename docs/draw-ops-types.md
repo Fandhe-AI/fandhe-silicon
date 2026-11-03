@@ -53,3 +53,34 @@ cargo test -p fandhe-silicon-core --features graphics --doc graphics
 cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device::
 cargo test -p fandhe-silicon-core --features graphics --test graphics_types
 ```
+
+## 外の crate からの試験（2/3）
+
+公開のパスだけを使う統合テスト。
+
+- `crates/core/tests/graphics_mesh_types.rs`（feature `graphics`）
+- `crates/core/tests/graphics_mesh_stub.rs`（feature `test-support` と `graphics`。`backend` は `BackendKind::Vulkan`）
+
+### 操作の型（graphics_mesh_types）
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `mesh_op_signatures_have_listed_types` | 4 操作を `dyn GraphicsOps` 越しに呼ぶクロージャを、型を書いた `fn` ポインタの変数へ入れる | コンパイルが通り、引数と戻り値の型が 1/3 の表のとおりに固定される |
+
+### 試験用の device の返し（graphics_mesh_stub）
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `mesh_ops_are_unsupported_on_live_encoder` | 同じ device の描画先から作った記録先と同じ device のバッファ | 4 操作とも `Unsupported`、`op` は操作名と一致 |
+| `mesh_ops_are_unsupported_on_other_device_encoder` | 別 device の描画先から作った記録先 | 同上 |
+| `mesh_ops_are_unsupported_on_destroyed_target_encoder` | 描画先を破棄した後の記録先 | 同上 |
+| `mesh_ops_ignore_argument_values` | グループ数・offset・個数の極端な値と、別 device のバッファ | 同上 |
+| `mesh_ops_are_repeatable` | 同じ記録先・同じ引数で 4 操作を 2 回ずつ | 戻り値が等しい |
+| `mesh_ops_do_not_consume_encoder` | 4 操作の後に同じ記録先を `submit_render` へ値で渡す | コンパイルが通り、panic しない |
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_mesh_stub
+```
