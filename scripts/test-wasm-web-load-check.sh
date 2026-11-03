@@ -2,7 +2,7 @@
 # wasm-web-load-check.sh の回帰テスト（spec TASK-248 のポインタ）。
 # node は、一時ディレクトリに置く偽のコマンドを PATH の先頭に入れて差し替える。偽の node は合成の結果のファイルを
 # 書き出すので、判定の全経路を機材なし・ネットワークなしで確かめられる。load-web.mjs 自体は本物の node で偽の glue を読ませて確かめる。
-# 呼び出し元: 直接実行（`bash scripts/test-wasm-web-load-check.sh`）。
+# 呼び出し元: `make test-wasm-web-load-check`（直接実行も可。CI の `deny` ジョブが呼ぶ）。
 #
 # 判定は「終了コード + 標準出力・標準エラーの部分一致（先頭が ! の語は含まれないこと）」で行う。
 # 期待値を緩めない。途中で止めず、最後に件数を出す。リポジトリのファイルは変更しない。
@@ -174,6 +174,17 @@ check "2 four ok rows" "$([ "$(grep -c 'label=ok' "${OUT_F}")" = 4 ] && echo 0 |
 setres_isa 1 1
 w --from-dir "${fx}"
 expect "3 isa mismatch" 1 "item: combo=release-scalar item=detect-isa-bits export=detect_isa_bits label=ng value=1" "ok=2 ng=2"
+
+# 3b. simd128 の組が 3・2、scalar の組が 2 を返す（戻りは期待と完全に一致することを求める。bit0 だけの比べでは通ってしまう値）
+setres_isa 0 3
+w --from-dir "${fx}"
+expect "3b simd128 returns 3" 1 "item: combo=release-simd128 item=detect-isa-bits export=detect_isa_bits label=ng value=3" "item: combo=wasm-size-simd128 item=detect-isa-bits export=detect_isa_bits label=ng value=3" "ok=2 ng=2"
+setres_isa 0 2
+w --from-dir "${fx}"
+expect "3b simd128 returns 2" 1 "item: combo=release-simd128 item=detect-isa-bits export=detect_isa_bits label=ng value=2" "ok=2 ng=2"
+setres_isa 2 1
+w --from-dir "${fx}"
+expect "3b scalar returns 2" 1 "item: combo=release-scalar item=detect-isa-bits export=detect_isa_bits label=ng value=2" "item: combo=wasm-size-scalar item=detect-isa-bits export=detect_isa_bits label=ng value=2" "ok=2 ng=2"
 
 # 4. call-failed
 setres_isa '"call-failed"' '"call-failed"'
