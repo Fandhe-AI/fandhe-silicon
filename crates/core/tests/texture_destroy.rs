@@ -77,10 +77,13 @@ fn destroying_other_device_texture_is_noop() {
     let ops_b = b.textures().expect("textures");
     let ha = create(ops_a);
     let hb = create(ops_b);
+    let (ha_id, hb_id) = (ha.__backend_id(), hb.__backend_id());
     ops_b.destroy_texture(ha);
     ops_a.destroy_texture(hb);
-    assert!(ops_a.create_texture(&desc()).is_ok());
-    assert!(ops_b.create_texture(&desc()).is_ok());
+    let next_a = ops_a.create_texture(&desc()).expect("texture");
+    let next_b = ops_b.create_texture(&desc()).expect("texture");
+    assert_eq!(next_a.__backend_id(), ha_id + 1);
+    assert_eq!(next_b.__backend_id(), hb_id + 1);
 }
 
 // TEX-19
@@ -89,7 +92,10 @@ fn destroy_view_then_texture_through_dyn() {
     let d = device(Profile::Graphics);
     let ops: &dyn TextureOps = d.textures().expect("textures");
     let h = create(ops);
+    let h_id = h.__backend_id();
     let v = TextureView::__backend_new(&h, 1, 2, 3);
     ops.destroy_view(v);
+    assert_eq!(create(ops).__backend_id(), h_id + 1);
     ops.destroy_texture(h);
+    assert_eq!(create(ops).__backend_id(), h_id + 2);
 }
