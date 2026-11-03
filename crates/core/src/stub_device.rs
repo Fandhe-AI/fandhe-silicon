@@ -32,7 +32,10 @@ use crate::execution::{
     PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
 };
 #[cfg(feature = "graphics")]
-use crate::graphics::{DepthConfig, DepthFormat, GraphicsOps, PixelFormat, RenderEncoder};
+use crate::graphics::{
+    DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder, ScissorRect,
+    Viewport,
+};
 use crate::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
 };
@@ -620,6 +623,7 @@ impl TextureOps for StubTextures {
 /// `check_render_target_device` などで device の識別子を照らし、違えば `DeviceMismatch` を返す。
 /// `create_render_encoder*` は通し番号を取らず、`DeviceMismatch` を持つ識別子 `0` の記録先を返し、
 /// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
+/// 描画パスの状態を設定する 8 操作（`set_pipeline` ほか）は、記録先の照合（`set_pipeline` はパイプラインの device の識別子も）を通ると何もせず `Unsupported` を返す。引数の値は照らさない。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
 /// 破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡すと `InvalidArgument` を返す。別の device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
@@ -754,6 +758,17 @@ impl StubGraphics {
         Ok(())
     }
 
+    /// 状態を設定する操作の共通の照合。記録先の拒否の値、device の識別子と世代、描画先の生存の順に照らす。
+    fn check_encoder(&self, encoder: &RenderEncoder) -> Result<(), ContractError> {
+        if let Some(err) = encoder.__backend_rejected() {
+            return Err(err.clone());
+        }
+        if encoder.__backend_device_id() != self.id || encoder.__backend_generation() != self.id {
+            return Err(ContractError::DeviceMismatch);
+        }
+        self.check_recorded_live(encoder)
+    }
+
     fn encoder(&self, op: &'static str) -> RenderEncoder {
         match self.next() {
             Some(serial) => RenderEncoder::__backend_new(self.id, serial, self.id),
@@ -856,6 +871,109 @@ impl GraphicsOps for StubGraphics {
         })
     }
 
+    fn set_pipeline(
+        &self,
+        encoder: &mut RenderEncoder,
+        pipeline: &PipelineHandle,
+    ) -> Result<(), ContractError> {
+        self.check_draw(encoder, pipeline)?;
+        Err(ContractError::Unsupported {
+            op: "set_pipeline",
+            backend: self.backend,
+        })
+    }
+
+    fn set_vertex_buffer(
+        &self,
+        encoder: &mut RenderEncoder,
+        _slot: u32,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: Option<u64>,
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_vertex_buffer",
+            backend: self.backend,
+        })
+    }
+
+    fn set_index_buffer(
+        &self,
+        encoder: &mut RenderEncoder,
+        _buffer: &BufferHandle,
+        _format: IndexFormat,
+        _offset: u64,
+        _size: Option<u64>,
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_index_buffer",
+            backend: self.backend,
+        })
+    }
+
+    fn set_immediates(
+        &self,
+        encoder: &mut RenderEncoder,
+        _offset: u32,
+        _data: &[u8],
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_immediates",
+            backend: self.backend,
+        })
+    }
+
+    fn set_viewport(
+        &self,
+        encoder: &mut RenderEncoder,
+        _viewport: Viewport,
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_viewport",
+            backend: self.backend,
+        })
+    }
+
+    fn set_scissor_rect(
+        &self,
+        encoder: &mut RenderEncoder,
+        _rect: ScissorRect,
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_scissor_rect",
+            backend: self.backend,
+        })
+    }
+
+    fn set_blend_constant(
+        &self,
+        encoder: &mut RenderEncoder,
+        _color: [f32; 4],
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_blend_constant",
+            backend: self.backend,
+        })
+    }
+
+    fn set_stencil_reference(
+        &self,
+        encoder: &mut RenderEncoder,
+        _reference: u32,
+    ) -> Result<(), ContractError> {
+        self.check_encoder(encoder)?;
+        Err(ContractError::Unsupported {
+            op: "set_stencil_reference",
+            backend: self.backend,
+        })
+    }
+
     fn submit_render(
         &self,
         encoder: RenderEncoder,
@@ -918,6 +1036,7 @@ impl GraphicsOps for StubGraphics {
 /// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す。破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡しても同じ。別 device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
+/// 描画パスの状態を設定する 8 操作（`set_pipeline` ほか）は、記録先の照合を通ると何もせず `Unsupported` を返し、引数の値は照らさない。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
@@ -1614,6 +1733,123 @@ mod tests {
             .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
             .expect("target");
         assert_ne!(b.__backend_id(), first);
+    }
+
+    /// 8 つの状態の操作を同じ記録先・パイプラインで呼び、（操作名, 結果）を返す。
+    #[cfg(feature = "graphics")]
+    fn call_state_ops(
+        g: &StubGraphics,
+        enc: &mut RenderEncoder,
+        pipeline: &PipelineHandle,
+    ) -> Vec<(&'static str, Result<(), ContractError>)> {
+        let buf = BufferHandle::__backend_new(5, 1, 5, 4, BufferUsage::STORAGE);
+        let viewport = Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        };
+        let rect = ScissorRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        vec![
+            ("set_pipeline", g.set_pipeline(enc, pipeline)),
+            (
+                "set_vertex_buffer",
+                g.set_vertex_buffer(enc, 0, &buf, 0, None),
+            ),
+            (
+                "set_index_buffer",
+                g.set_index_buffer(enc, &buf, IndexFormat::Uint16, 0, None),
+            ),
+            ("set_immediates", g.set_immediates(enc, 0, &[1, 2, 3, 4])),
+            ("set_viewport", g.set_viewport(enc, viewport)),
+            ("set_scissor_rect", g.set_scissor_rect(enc, rect)),
+            ("set_blend_constant", g.set_blend_constant(enc, [0.0; 4])),
+            ("set_stencil_reference", g.set_stencil_reference(enc, 0)),
+        ]
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn state_ops_on_live_encoder_return_unsupported_with_op_name() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = g.create_render_encoder(&target);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        let results = call_state_ops(&g, &mut enc, &pipeline);
+        assert_eq!(results.len(), 8);
+        for (name, r) in results {
+            assert!(
+                matches!(r, Err(ContractError::Unsupported { op, .. }) if op == name),
+                "{name}"
+            );
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn state_ops_reject_encoder_carrying_a_rejection() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let foreign = RenderTargetHandle::__backend_new(9, 1, 9);
+        let mut enc = g.create_render_encoder(&foreign);
+        assert!(enc.__backend_rejected().is_some());
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        for (name, r) in call_state_ops(&g, &mut enc, &pipeline) {
+            assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{name}");
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn state_ops_reject_encoder_of_another_device() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let other = StubGraphics::new(BackendKind::Vulkan, 6, Arc::new(AtomicU64::new(1)));
+        let target = other
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = other.create_render_encoder(&target);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        for (name, r) in call_state_ops(&g, &mut enc, &pipeline) {
+            assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{name}");
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn state_ops_reject_encoder_of_destroyed_target() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = g.create_render_encoder(&target);
+        g.destroy_offscreen_target(target);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        for (name, r) in call_state_ops(&g, &mut enc, &pipeline) {
+            assert!(is_invalid_argument(r), "{name}");
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn set_pipeline_rejects_pipeline_of_another_device() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let mut enc = g.create_render_encoder(&target);
+        let foreign = PipelineHandle::__backend_new(1, 9);
+        assert!(matches!(
+            g.set_pipeline(&mut enc, &foreign),
+            Err(ContractError::DeviceMismatch)
+        ));
     }
 
     #[test]

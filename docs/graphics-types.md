@@ -191,6 +191,7 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 上の節の `crates/core/src/graphics.rs:<行>` と doctest の `line <行>` は、各節の記録時点の行番号で、書き換えない。今の行は `grep -n 'pub enum PixelFormat\|pub enum DepthFormat\|pub enum CompareFunction\|pub struct DepthConfig\|pub struct RenderEncoder\|pub trait GraphicsOps' crates/core/src/graphics.rs` と `cargo test -p fandhe-silicon-core --features graphics --doc graphics` の出力の行番号で確かめる。
 
 - 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。
+- 関連: 描画パスの状態を設定する操作と、試験用の device のその返しは [render-pass-types.md](render-pass-types.md)（TASK-838）。
 
 ## 今の値の補い
 

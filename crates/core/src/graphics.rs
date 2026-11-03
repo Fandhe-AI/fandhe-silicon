@@ -3,6 +3,7 @@
 //! feature `graphics` の裏にあり、feature の無い構成では module ごと無い。
 //! `PixelFormat`・`DepthFormat` から `TextureFormat` への変換（TASK-1312）も置く。
 //! 描画パスの状態の値の型と、範囲つきの描画の範囲の型と検査も置く。
+//! 描画パスの状態を設定する操作も trait にある。
 
 use crate::error::ContractError;
 use crate::execution::{
@@ -321,6 +322,78 @@ pub trait GraphicsOps {
         vertex_buffer: &BufferHandle,
         vertex_count: u32,
         vertex_constants: &[ConstantBinding<'_>],
+    ) -> Result<(), ContractError>;
+
+    /// パイプラインを記録先に設定する（REND-52）。
+    fn set_pipeline(
+        &self,
+        encoder: &mut RenderEncoder,
+        pipeline: &PipelineHandle,
+    ) -> Result<(), ContractError>;
+
+    /// 頂点バッファを番号の位置に設定する（REND-55）。
+    fn set_vertex_buffer(
+        &self,
+        encoder: &mut RenderEncoder,
+        slot: u32,
+        buffer: &BufferHandle,
+        offset: u64,
+        size: Option<u64>,
+    ) -> Result<(), ContractError>;
+
+    /// インデックスバッファを設定する（REND-54）。
+    fn set_index_buffer(
+        &self,
+        encoder: &mut RenderEncoder,
+        buffer: &BufferHandle,
+        format: IndexFormat,
+        offset: u64,
+        size: Option<u64>,
+    ) -> Result<(), ContractError>;
+
+    /// 即値のバイト列を設定する（REND-76）。
+    fn set_immediates(
+        &self,
+        encoder: &mut RenderEncoder,
+        offset: u32,
+        data: &[u8],
+    ) -> Result<(), ContractError>;
+
+    /// ビューポートを設定する（REND-57）。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::graphics::{GraphicsOps, RenderEncoder, Viewport};
+    /// fn f(g: &dyn GraphicsOps, e: &mut RenderEncoder) {
+    ///     let v = Viewport { x: 0.0, y: 0.0, width: 1.0, height: 1.0, min_depth: 0.0, max_depth: 1.0 };
+    ///     let _ = g.set_viewport(e, v);
+    ///     let _ = g.set_stencil_reference(e, 0);
+    /// }
+    /// ```
+    fn set_viewport(
+        &self,
+        encoder: &mut RenderEncoder,
+        viewport: Viewport,
+    ) -> Result<(), ContractError>;
+
+    /// シザー矩形を設定する（REND-56）。
+    fn set_scissor_rect(
+        &self,
+        encoder: &mut RenderEncoder,
+        rect: ScissorRect,
+    ) -> Result<(), ContractError>;
+
+    /// ブレンド定数を設定する（REND-53）。
+    fn set_blend_constant(
+        &self,
+        encoder: &mut RenderEncoder,
+        color: [f32; 4],
+    ) -> Result<(), ContractError>;
+
+    /// ステンシル参照値を設定する（REND-58）。
+    fn set_stencil_reference(
+        &self,
+        encoder: &mut RenderEncoder,
+        reference: u32,
     ) -> Result<(), ContractError>;
 
     /// 記録先を値で受けて投入する。受けた記録先は再び使えない。

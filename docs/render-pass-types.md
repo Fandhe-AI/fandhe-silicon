@@ -40,3 +40,46 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 cargo test -p fandhe-silicon-core --features graphics --lib graphics::
 cargo test -p fandhe-silicon-core --features graphics --doc graphics
 ```
+
+## 描画パスの状態を設定する操作と試験用の device の返し（2/4）
+
+### 所在
+
+- 操作: `crates/core/src/graphics.rs` の `GraphicsOps`（feature `graphics`）。
+- 試験用の device: `crates/core/src/stub_device.rs` の `StubGraphics`。
+- 外の crate の局所の実装例: `crates/core/tests/graphics_types.rs` の `FixedGraphics`（8 操作とも `Ok(())`）。
+
+### 操作
+
+どれも既定の本体を持たず、実装する側が 8 操作とも実装する。
+
+| 操作 | 引数 | 戻り値 |
+| ---- | ---- | ------ |
+| `set_pipeline` | `&mut RenderEncoder`・`&PipelineHandle` | `Result<(), ContractError>` |
+| `set_vertex_buffer` | `&mut RenderEncoder`・`slot: u32`・`&BufferHandle`・`offset: u64`・`size: Option<u64>` | 同上 |
+| `set_index_buffer` | `&mut RenderEncoder`・`&BufferHandle`・`IndexFormat`・`offset: u64`・`size: Option<u64>` | 同上 |
+| `set_immediates` | `&mut RenderEncoder`・`offset: u32`・`data: &[u8]` | 同上 |
+| `set_viewport` | `&mut RenderEncoder`・`Viewport` | 同上 |
+| `set_scissor_rect` | `&mut RenderEncoder`・`ScissorRect` | 同上 |
+| `set_blend_constant` | `&mut RenderEncoder`・`[f32; 4]` | 同上 |
+| `set_stencil_reference` | `&mut RenderEncoder`・`u32` | 同上 |
+
+### 試験用の device の返し
+
+試験用の device の振る舞い。記録先以外の引数は照らさず、状態も持たない。
+
+| 入力 | `set_pipeline` | ほかの 7 操作 |
+| ---- | -------------- | ------------- |
+| 生きた記録先 | `Unsupported`（`op` は操作名） | 同左 |
+| 拒否の値を持つ記録先 | その値（別 device の描画先から作ると `DeviceMismatch`） | 同左 |
+| 別 device の記録先 | `DeviceMismatch` | 同左 |
+| 破棄した描画先の記録先 | `InvalidArgument` | 同左 |
+| 別 device のパイプライン | `DeviceMismatch` | 該当なし |
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device::
+cargo test -p fandhe-silicon-core --features graphics --test graphics_types
+cargo test -p fandhe-silicon-core --features graphics --doc graphics
+```
