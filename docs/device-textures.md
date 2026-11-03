@@ -68,3 +68,40 @@ cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 cargo test -p fandhe-silicon-core --features test-support --test stub_device_textures
 cargo test -p fandhe-silicon-core --test device_trait_shape
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#3697）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-150）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `Device` からテクスチャを作る操作へ届く口が公開されている | `grep -n 'fn textures' crates/core/src/device.rs`、`grep -n 'pub use ops' crates/core/src/texture.rs`、`cargo check -p fandhe-silicon-core` | `device.rs:191` に `fn textures`、`texture.rs:490` に `pub use ops::TextureOps`。`cargo check` は feature なしで終了コード 0 |
+| 2 | 既定の本体が `None` | `cargo test -p fandhe-silicon-core --test device_trait_shape` | `default_textures_is_none_through_dyn_device ... ok`。7 passed、0 failed |
+| 3 | 試験用の device のプロファイル・所有形態ごとの答え | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_textures` | `cpu_only_{product_independent,shared,imported}_textures_is_none` の 3 本が `ok`。11 passed、0 failed |
+| 4 | 記述子（`label` あり・なし）を渡して作る操作へ届き、handle の問い合わせが渡した値を返す | 同上 | `compute_only_{…}_textures_creates_texture` と `graphics_{…}_textures_creates_texture` の 6 本、`descriptor_without_label_also_reaches`、`two_textures_from_one_device_have_distinct_ids` が `ok` |
+| 5 | 背後実装を変えていない | `git show --stat --format= <sha> -- crates/contract`（`23bd9eb`・`6b60de8`・`1376f6a`） | 3 つとも出力なし（差分 0 件） |
+| 6 | 依存 0・unsafe 0 | `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/texture/ops.rs`、`grep -n forbid crates/core/src/lib.rs` | `Cargo.lock`・`deps-approved.toml` の差分は 0 件。`crates/core/Cargo.toml` は `1376f6a` の 4 行の追加（`[[test]]` の 1 項目）だけ。`unsafe` は 0 件。`lib.rs:38` に `#![forbid(unsafe_code)]` |
+| 7 | 試験の件数と CI で流れる場所 | `make verify`、`make wasm-verify`。`grep -n 'run: make' .github/workflows/ci.yml` | `make verify` は終了コード 0 で `device_trait_shape` と `stub_device_textures`（11 tests）を流した。`make wasm-verify` は終了コード 0。ci.yml は `make verify` が 177・498 行目、`make wasm-verify` が 275・459 行目 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-150）。確かめた base は `1376f6a2f5ffd739e95b571614e4b2c9c096c6f`。
+
+確かめ方:
+
+```text
+grep -n 'fn textures' crates/core/src/device.rs
+cargo test -p fandhe-silicon-core --test device_trait_shape
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_textures
+make verify
+make wasm-verify
+```
+
+## 段の表
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/4 | #3694 | 現状の形 |
+| 2/4 | #3695 | 試験用の device の答え |
+| 3/4 | #3696 | 到達の試験 |
+| 4/4 | #3697 | 完了の条件の確かめ |
+
+親 Issue は #419。
