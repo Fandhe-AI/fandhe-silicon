@@ -1,7 +1,7 @@
-//! サンプラーの記述子の欄に入る値の型の置き場（TASK-373）。
+//! サンプラーの記述子の欄に入る値の型と、記述子・handle の置き場（TASK-373）。
 //!
 //! 共通の crate の `texture` と並ぶ module で、feature の条件なしで公開される。
-//! 背後実装の API は呼ばず、値の列挙だけを持つ。
+//! 背後実装の API は呼ばず、値の列挙と、記述子と、サンプラーを指す不透明な handle を持つ。
 
 /// アドレスモード。テクスチャの範囲の外を引いたときの座標の扱いを指す。
 ///
@@ -92,6 +92,139 @@ pub enum SamplerBorderColor {
     Zero,
 }
 
+/// サンプラーを作るときに渡す指定の組（TEX-39 のポインタ）。
+///
+/// 値は検査せず、どの欄もどの値でも保持する。`default()` の後に欄を書き換えて作る。
+///
+/// ```
+/// use fandhe_silicon_core::sampler::{FilterMode, SamplerDescriptor};
+/// let mut d = SamplerDescriptor::default();
+/// d.mag_filter = FilterMode::Linear;
+/// d.anisotropy_clamp = 16;
+/// assert_eq!(d.mag_filter, FilterMode::Linear);
+/// assert_eq!(d.anisotropy_clamp, 16);
+/// assert_eq!(d.min_filter, FilterMode::Nearest);
+/// ```
+///
+/// 外の crate からの構造体式は拒まれる。
+///
+/// ```compile_fail,E0639
+/// use fandhe_silicon_core::sampler::{FilterMode, SamplerDescriptor};
+/// let _ = SamplerDescriptor {
+///     mag_filter: FilterMode::Linear,
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct SamplerDescriptor<'a> {
+    /// 名前。
+    pub label: Option<&'a str>,
+    /// u 軸のアドレスモード。
+    pub address_mode_u: AddressMode,
+    /// v 軸のアドレスモード。
+    pub address_mode_v: AddressMode,
+    /// w 軸のアドレスモード。
+    pub address_mode_w: AddressMode,
+    /// 拡大側のフィルタ（TEX-90）。
+    pub mag_filter: FilterMode,
+    /// 縮小側のフィルタ（TEX-91）。
+    pub min_filter: FilterMode,
+    /// mip の段の間のフィルタ（TEX-92）。
+    pub mipmap_filter: MipmapFilterMode,
+    /// LOD の下限（TEX-93）。
+    pub lod_min_clamp: f32,
+    /// LOD の上限（TEX-94）。
+    pub lod_max_clamp: f32,
+    /// 異方性の上限（TEX-95）。
+    pub anisotropy_clamp: u16,
+    /// `ClampToBorder` の軸の境界色。
+    pub border_color: Option<SamplerBorderColor>,
+}
+
+impl Default for SamplerDescriptor<'_> {
+    /// 名前なし・3 軸 `ClampToEdge`・両フィルタ `Nearest`・mip `Nearest`・LOD 0.0〜32.0・異方性 1・境界色なし。
+    fn default() -> Self {
+        Self {
+            label: None,
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            anisotropy_clamp: 1,
+            border_color: None,
+        }
+    }
+}
+
+/// サンプラーを指す不透明な handle（TEX-39 のポインタ）。
+///
+/// 欄（世代・識別子・device の識別子）は非公開で、`Clone`・`Copy` を実装しない。
+/// `__backend_*` は背後実装だけが使う口。`__backend_new` は safe で、検査しない。
+///
+/// ```
+/// use fandhe_silicon_core::sampler::SamplerHandle;
+/// let h = SamplerHandle::__backend_new(5, 3, 1);
+/// assert_eq!(h.__backend_generation(), 5);
+/// assert_eq!(h.__backend_id(), 3);
+/// assert_eq!(h.__backend_device_id(), 1);
+/// ```
+///
+/// 構造体式は拒まれる。
+///
+/// ```compile_fail,E0451
+/// use fandhe_silicon_core::sampler::SamplerHandle;
+/// let _ = SamplerHandle { generation: 5, id: 3, device_id: 1 };
+/// ```
+///
+/// `clone` は呼べない。
+///
+/// ```compile_fail,E0599
+/// use fandhe_silicon_core::sampler::SamplerHandle;
+/// let h = SamplerHandle::__backend_new(5, 3, 1);
+/// let _ = h.clone();
+/// ```
+#[derive(Debug)]
+pub struct SamplerHandle {
+    generation: u64,
+    id: u64,
+    device_id: u64,
+}
+
+impl SamplerHandle {
+    /// 背後実装向けの組み立ての口。検査はしない。
+    #[doc(hidden)]
+    pub fn __backend_new(generation: u64, id: u64, device_id: u64) -> Self {
+        Self {
+            generation,
+            id,
+            device_id,
+        }
+    }
+
+    /// 背後実装向けの読み出しの口（世代）。
+    #[doc(hidden)]
+    pub fn __backend_generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// 背後実装向けの読み出しの口（識別子）。
+    #[doc(hidden)]
+    pub fn __backend_id(&self) -> u64 {
+        self.id
+    }
+
+    /// 背後実装向けの読み出しの口（所属する device の識別子）。
+    #[doc(hidden)]
+    pub fn __backend_device_id(&self) -> u64 {
+        self.device_id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,6 +295,72 @@ mod tests {
         assert_eq!(AddressMode::default(), AddressMode::ClampToEdge);
         assert_eq!(FilterMode::default(), FilterMode::Nearest);
         assert_eq!(MipmapFilterMode::default(), MipmapFilterMode::Nearest);
+    }
+
+    #[test]
+    fn descriptor_default_values() {
+        let d = SamplerDescriptor::default();
+        assert_eq!(d.label, None);
+        assert_eq!(d.address_mode_u, AddressMode::ClampToEdge);
+        assert_eq!(d.address_mode_v, AddressMode::ClampToEdge);
+        assert_eq!(d.address_mode_w, AddressMode::ClampToEdge);
+        assert_eq!(d.mag_filter, FilterMode::Nearest);
+        assert_eq!(d.min_filter, FilterMode::Nearest);
+        assert_eq!(d.mipmap_filter, MipmapFilterMode::Nearest);
+        assert_eq!(d.lod_min_clamp, 0.0);
+        assert_eq!(d.lod_max_clamp, 32.0);
+        assert_eq!(d.anisotropy_clamp, 1);
+        assert_eq!(d.border_color, None);
+    }
+
+    #[test]
+    fn descriptor_clone_eq_and_modified_ne() {
+        let base = SamplerDescriptor::default();
+        assert_eq!(base.clone(), base);
+        let variants = [
+            SamplerDescriptor {
+                label: Some("s"),
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                address_mode_u: AddressMode::Repeat,
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                mag_filter: FilterMode::Linear,
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                mipmap_filter: MipmapFilterMode::Linear,
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                lod_max_clamp: 1.0,
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                anisotropy_clamp: 16,
+                ..SamplerDescriptor::default()
+            },
+            SamplerDescriptor {
+                border_color: Some(SamplerBorderColor::Zero),
+                ..SamplerDescriptor::default()
+            },
+        ];
+        for v in &variants {
+            assert_ne!(*v, base);
+            assert_eq!(v.clone(), *v);
+        }
+    }
+
+    #[test]
+    fn handle_round_trip() {
+        for (g, i, d) in [(0, 0, 0), (1, 2, 3), (u64::MAX, u64::MAX, u64::MAX)] {
+            let h = SamplerHandle::__backend_new(g, i, d);
+            assert_eq!(h.__backend_generation(), g);
+            assert_eq!(h.__backend_id(), i);
+            assert_eq!(h.__backend_device_id(), d);
+        }
     }
 
     #[test]
