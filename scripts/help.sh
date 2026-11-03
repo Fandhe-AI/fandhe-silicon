@@ -41,6 +41,7 @@ cat <<'EOF'
   doctest-error-code-check scripts/doctest-error-code-check.sh  doctest の compile_fail,E… のエラーコードを RUSTC_BOOTSTRAP=1 の cargo test --doc で照合する（bash + cargo・ネットワーク不要・CI の deny ジョブも実行する）。回帰テストは make test-doctest-error-code-check
   test-doctest-error-code-check scripts/test-doctest-error-code-check.sh  doctest-error-code-check の回帰テスト（依存の無い一時 crate。bash + cargo・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
   core-deps-check scripts/core-deps-check.sh  共通の crate の外部依存の一覧の完全一致と feature の転送の検査（bash + python3 + cargo + git。--metadata-json <path> で差し替え可・ネットワーク不要・CI の deny ジョブも実行する）。回帰テストは make test-core-deps-check
+  exec-deps-check scripts/exec-deps-check.sh  下-2 の crate（crates/exec）の依存の向きの検査（依存の宣言・依存グラフ・ソースの crate 名。bash + python3 + cargo + git。--metadata-json <path> --tree-text <path> で差し替え可・ネットワーク不要・ソースは変更しない）
   test-core-deps-check scripts/test-core-deps-check.sh  共通の crate の依存の検査（make core-deps-check）の回帰テスト（合成 metadata・偽のコマンドと、一時 workspace の実物の cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
   dep-graph-wgpu-check scripts/dep-graph-wgpu-check.sh  製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数える検査。件数を標準出力の record: に出す（bash + python3 + cargo + git・ソースは変更しない・make deny も呼ぶ）
   test-dep-graph-wgpu-check scripts/test-dep-graph-wgpu-check.sh  dep-graph-wgpu-check 自体の回帰テスト（合成 JSON・合成 tree と、一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・製品の依存が取得済みであること以外ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）
