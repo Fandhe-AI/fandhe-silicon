@@ -85,7 +85,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-signed-zero-topk.md` | ±0 の扱いと Top-k の規則（TASK-976）の所在と本リポの現状の事実・完了の条件の確かめ（6/6） |
 | `docs/cpu-ops-topk-order.md` | 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2450） |
-| `docs/cpu-ops-topk-simd-bytes.md` | 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）（TASK-2452） |
+| `docs/cpu-ops-topk-simd-bytes.md` | 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）（TASK-2452） |
 | `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実・完了の条件の確かめ（6/6） |
 | `docs/parity-fallback-compare.md` | 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）（TASK-928） |
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実 |
