@@ -6,7 +6,8 @@ doctest の `compile_fail,E0xxx` が、期待したエラーコードでコン�
 
 - stable の rustdoc は `compile_fail,E…` のエラーコードを照合しない（unstable の扱い）。期待と別のエラーで落ちても、通常の `cargo test` では doctest が合格する
 - `RUSTC_BOOTSTRAP=1` を付けて `cargo test --doc` を流すと照合が効く。誤ったコード（例: E0999）の doctest は、stable では通り、`RUSTC_BOOTSTRAP=1` では落ちる
-- `compile_fail,E…` を持つ doctest は `crates/core`（`binding.rs`・`device.rs`・`device_lost.rs`・`execution/compute.rs`・`execution/submit.rs`・`graphics.rs`・`interop.rs`・`memory/ops.rs`・`memory/slice.rs`・`parity/pixel.rs`・`parity/tolerance.rs`・`render_target.rs`・`spirv.rs`・`texture.rs`）、`crates/contract`（`callback_send_doctest.rs`・`cfg_gate_doctest.rs`・`memory_free_doctest.rs`）、`crates/upper`（`buffer.rs`・`device.rs`・`encoder.rs`・`pass.rs`）にある
+- `compile_fail,E…` を持つ doctest は `crates/core`（`binding.rs`・`device.rs`・`execution/compute.rs`・`execution/submit.rs`・`graphics.rs`・`interop.rs`・`memory/slice.rs`・`render_target.rs`・`spirv.rs`・`texture.rs`）、`crates/contract/src/memory_free_doctest.rs`、`crates/upper`（`buffer.rs`・`device.rs`・`encoder.rs`・`pass.rs`）にある
+- エラーコードを指定しない `compile_fail` の doctest（`crates/core` の `device_lost.rs`・`memory/ops.rs`・`parity/pixel.rs`・`parity/tolerance.rs`、`crates/contract` の `callback_send_doctest.rs`・`cfg_gate_doctest.rs`）は、`RUSTC_BOOTSTRAP=1` でも失敗の理由を照合しない。コンパイルが通らないことだけを確かめる
 
 ## 所在
 
