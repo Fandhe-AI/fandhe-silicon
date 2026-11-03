@@ -126,7 +126,8 @@ impl<T: CpuOps> CpuOpsDyn for T {
         op: UnaryElementwiseOp,
         a: &[f32],
     ) -> Result<Vec<f32>, ContractError> {
-        let mut out = vec![0.0_f32; a.len()];
+        // 出力を番兵で埋めてから呼ぶ。
+        let mut out = vec![f32::from_bits(0x7fc0_dead); a.len()];
         self.elementwise_scalar(op, a, &mut out)?;
         Ok(out)
     }
@@ -135,7 +136,8 @@ impl<T: CpuOps> CpuOpsDyn for T {
         op: UnaryElementwiseOp,
         a: &[f32],
     ) -> Result<Vec<f32>, ContractError> {
-        let mut out = vec![0.0_f32; a.len()];
+        // 出力を番兵で埋めてから呼ぶ。
+        let mut out = vec![f32::from_bits(0x7fc0_dead); a.len()];
         self.elementwise_simd(op, a, &mut out)?;
         Ok(out)
     }

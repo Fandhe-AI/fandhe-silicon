@@ -169,8 +169,9 @@ mod tests {
                 UnaryElementwiseOp::Relu,
                 UnaryElementwiseOp::AddScalar(0.25),
             ] {
-                let mut want = vec![0.0_f32; len];
-                let mut got = vec![0.0_f32; len];
+                // 出力を番兵で埋めてから呼ぶ。
+                let mut want = vec![f32::from_bits(0x7fc0_dead); len];
+                let mut got = vec![f32::from_bits(0x7fc0_dead); len];
                 scalar::elementwise(op, &a, &mut want).unwrap();
                 elementwise(op, &a, &mut got).unwrap();
                 let wb: Vec<u32> = want.iter().map(|x| x.to_bits()).collect();
