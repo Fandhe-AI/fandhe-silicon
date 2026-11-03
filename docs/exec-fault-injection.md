@@ -60,3 +60,50 @@
 ```text
 cargo test -p fandhe-silicon-exec --features fault-injection --lib
 ```
+
+## f32 の非正規化数の判定を差し込む口（3/6）
+
+### 所在
+
+- `DenormalInjection`（`Preserve`・`FlushToZero`・`Unknown`。`crates/exec/src/report.rs`。crate の根で公開）
+- `Exec::inject_denormal`（`crates/exec/src/entry.rs`）
+- `F32DenormalBasis::Injected`（`crates/exec/src/report.rs`）
+- 差し込みを (操作, 経路) ごとに持つ `crates/exec/src/hooks.rs`
+
+どれも feature `fault-injection` の下だけにある。
+
+### `Exec::inject_denormal` の動き
+
+| 場面 | 動き |
+| ---- | ---- |
+| 差し込みのある (操作, 経路) | 経路の選び方が求める判定がその値になる（`Ok`）。その値で経路が決まった報告の `f32_denormal` は `{ behavior, basis: Injected, documented: None }` |
+| 差し込みの無い組 | 呼び手の判定の関数をそのまま呼ぶ（入口は入口の関数名、`query_route` は `"query_route"` の `Err(Unsupported)`） |
+| 同じ組で呼び直す | 後の値が効く |
+| `F16Fma`・`SubgroupSumU32` | 判定を求めないので報告が変わらない |
+| `force_unsupported` と合わせる | 指定した操作の `Native` に差し込んでも `Native` は選ばれず、判定は `GpuEmulated`・`Cpu` にだけ求める |
+| 入口の返し | 経路なしは `Ok(Outcome::Unavailable { report })`、経路が決まれば `Err(Unsupported { op: <入口の関数名>, .. })`。`query_route` は経路が決まれば `Ok(報告)` |
+| 3 つの入口・既定の印・`query_ex` の回数 | 変わらない（`query_ex` は 1 回） |
+
+### 報告の `f32_denormal.basis` の読み方
+
+- `Observed`: 実行して観察した値
+- `Injected`: `Exec::inject_denormal` で差し込んだ値で経路が決まった
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `entry::injected_tests::injected_fallback_route_is_reported` | `SubgroupSumF32`・`GpuEmulated` を許す・`GpuEmulated` に `FlushToZero` | 経路 `GpuEmulated`・`{ FlushToZero, Injected, None }`。入口は `Err(Unsupported { op: "subgroup_sum_f32", .. })` で出力の列は呼ぶ前のまま |
+| `entry::injected_tests::injected_unknown_moves_to_next_route` | `AtomicAdd`・両方許す・`GpuEmulated` に `Unknown`・`Cpu` に `Preserve` | 経路 `Cpu`・`{ Preserve, Injected, None }` |
+| `entry::injected_tests::all_injected_unknown_is_unavailable` | `AtomicAdd`・両方許す・どちらも `Unknown` | 経路 `None`・`F32DenormalBehaviorUnknown`。入口が `Ok(Outcome::Unavailable)` で同じ報告 |
+| `entry::injected_tests::uninjected_route_keeps_unsupported_error` | `GpuEmulated` にだけ `Unknown`・`Cpu` は差し込まない | `query_route` が `Err(Unsupported { op: "query_route", .. })` |
+| `entry::injected_tests::injection_has_no_effect_without_judgment` | `F16Fma`・`SubgroupSumU32` の 3 経路すべてに差し込み・印 5 通り | 差し込まない `Exec` と報告が等しい |
+| `entry::injected_tests::last_injection_wins` | 同じ組へ 2 回（両方の順） | 後の値 |
+| `entry::injected_tests::injection_with_force` | `force_unsupported` と `Native`・`GpuEmulated` への差し込み | `GpuEmulated` が選ばれ `native_reason` は `ForcedUnsupported`。印が無ければ経路 `None`・`OptInNotGiven` |
+| `entry::injected_tests::injection_keeps_default_opt_in` | 印 4 通り | `default_opt_in()` が同じ |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --features fault-injection --lib
+```

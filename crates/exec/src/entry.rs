@@ -75,6 +75,28 @@ impl<'d> Exec<'d> {
         }
     }
 
+    /// (`op`, `route`) の f32 の非正規化数の判定を `judgment` に差し込んだ `Exec` を返す。
+    ///
+    /// 差し込みのある組では、経路の選び方が求める判定がその値になり、その値で経路が決まった報告の
+    /// `f32_denormal` の `basis` が `F32DenormalBasis::Injected` になる。差し込みの無い組は
+    /// 今までどおり入口の判定を使う。同じ組で呼び直すと後の値が効く。
+    /// 判定を求めない操作（`F16Fma`・`SubgroupSumU32`）では報告が変わらない。
+    /// `force_unsupported` で指定した操作では `Native` に差し込んでも `Native` は選ばれない。
+    /// 3 つの入口・既定の印・`query_ex` を呼ぶ回数（1 回）は変わらない。
+    #[cfg(feature = "fault-injection")]
+    #[must_use]
+    pub fn inject_denormal(
+        self,
+        op: OpId,
+        route: Route,
+        judgment: crate::report::DenormalInjection,
+    ) -> Self {
+        Self {
+            ports: self.ports.with_injected(op, route, judgment),
+            ..self
+        }
+    }
+
     /// 作るときに決めた既定の印を返す。
     pub fn default_opt_in(&self) -> OptIn {
         self.default_opt_in
@@ -97,8 +119,21 @@ impl<'d> Exec<'d> {
             forced: self.ports.is_forced(op),
             ..input
         };
+        // 差し込みのある組ではその値を返し、無い組は呼び手の判定の関数へ渡す。
+        #[cfg(feature = "fault-injection")]
+        let judge = {
+            let ports = self.ports;
+            let mut judge = judge;
+            move |route: Route| match ports.injected(op, route) {
+                Some(j) => Ok(crate::hooks::judgment_of(j)),
+                None => judge(route),
+            }
+        };
         let output = select_route(&input, judge)?;
-        Ok(build_report(&input, &output))
+        let report = build_report(&input, &output);
+        #[cfg(feature = "fault-injection")]
+        let report = self.ports.mark_injected_basis(report);
+        Ok(report)
     }
 
     /// 能力を問い合わせて経路を決め、報告か `Unsupported` を返す共通の処理。
@@ -122,7 +157,7 @@ impl<'d> Exec<'d> {
     /// 同じ device の値・同じ操作・同じ `opt_in` で入口を呼んだときと同じ報告を返す
     /// （入口が `Ok(Outcome::Unavailable { report })` を返す呼び出しでは `report` と等しい）。
     /// 経路が `None` の報告も、経路がある報告も `Ok`。
-    /// `OpId::SubgroupSumF32`・`OpId::AtomicAdd` で経路が届く呼び出しは
+    /// `OpId::SubgroupSumF32`・`OpId::AtomicAdd` で、差し込みの無い経路に届く呼び出しは
     /// `Err(ContractError::Unsupported { op: "query_route", backend })` を返す
     /// （`backend` は `Device::backend()` の値）。
     /// `query_ex` を 1 回だけ呼び、下-1 の投入・確保・読み出しを呼ばない。
@@ -609,6 +644,225 @@ mod forced_tests {
             let exec = OPS
                 .into_iter()
                 .fold(Exec::new(&dev, o), |e, op| e.force_unsupported(op));
+            assert_eq!(exec.default_opt_in(), o);
+        }
+    }
+}
+/// `Exec::inject_denormal` を `Exec` 越しに確かめる試験。feature `fault-injection` の下だけ。
+#[cfg(all(test, feature = "fault-injection"))]
+mod injected_tests {
+    use super::*;
+    use crate::report::{
+        DenormalInjection as Inj, F32DenormalBasis, F32DenormalBehavior, F32DenormalReport,
+    };
+    use crate::route::UnavailableReason;
+    use fandhe_silicon_core::capability::BackendKind;
+    use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
+    use fandhe_silicon_core::error::UnsupportedReason;
+    use fandhe_silicon_core::stub_device::StubDevice;
+
+    fn stub() -> StubDevice {
+        StubDevice::new(DeviceRequest {
+            backend: BackendKind::Metal,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::Shared,
+        })
+    }
+
+    const fn opt(g: bool, c: bool) -> OptIn {
+        OptIn {
+            allow_gpu_emulated: g,
+            allow_cpu: c,
+        }
+    }
+
+    const ALL_OPT: [OptIn; 4] = [
+        opt(false, false),
+        opt(true, false),
+        opt(false, true),
+        opt(true, true),
+    ];
+
+    const ROUTES: [Route; 3] = [Route::Native, Route::GpuEmulated, Route::Cpu];
+
+    fn injected(behavior: F32DenormalBehavior) -> Option<F32DenormalReport> {
+        Some(F32DenormalReport {
+            behavior,
+            basis: F32DenormalBasis::Injected,
+            documented: None,
+        })
+    }
+
+    #[test]
+    fn injected_fallback_route_is_reported() {
+        let dev = stub();
+        let exec = Exec::new(&dev, opt(true, false)).inject_denormal(
+            OpId::SubgroupSumF32,
+            Route::GpuEmulated,
+            Inj::FlushToZero,
+        );
+        let report = exec.query_route(OpId::SubgroupSumF32, None).unwrap();
+        assert_eq!(report.route, Some(Route::GpuEmulated));
+        assert_eq!(
+            report.f32_denormal,
+            injected(F32DenormalBehavior::FlushToZero)
+        );
+        assert_eq!(
+            report.native_reason,
+            Some(UnavailableReason::CapabilityUnsupported(Some(
+                UnsupportedReason::UnknownFeature
+            )))
+        );
+        let mut out = [7.0f32; 2];
+        let x = [1.0f32; 2];
+        let r = exec.subgroup_sum_f32(
+            None,
+            2,
+            SubgroupSumF32Operands::Host {
+                x: &x,
+                out: &mut out,
+            },
+        );
+        assert!(matches!(
+            r,
+            Err(ContractError::Unsupported {
+                op: "subgroup_sum_f32",
+                ..
+            })
+        ));
+        assert_eq!(out, [7.0; 2]);
+    }
+
+    #[test]
+    fn injected_unknown_moves_to_next_route() {
+        let dev = stub();
+        let exec = Exec::new(&dev, opt(true, true))
+            .inject_denormal(OpId::AtomicAdd, Route::GpuEmulated, Inj::Unknown)
+            .inject_denormal(OpId::AtomicAdd, Route::Cpu, Inj::Preserve);
+        let report = exec.query_route(OpId::AtomicAdd, None).unwrap();
+        assert_eq!(report.route, Some(Route::Cpu));
+        assert_eq!(report.f32_denormal, injected(F32DenormalBehavior::Preserve));
+    }
+
+    #[test]
+    fn all_injected_unknown_is_unavailable() {
+        let dev = stub();
+        let exec = Exec::new(&dev, opt(true, true))
+            .inject_denormal(OpId::AtomicAdd, Route::GpuEmulated, Inj::Unknown)
+            .inject_denormal(OpId::AtomicAdd, Route::Cpu, Inj::Unknown);
+        let report = exec.query_route(OpId::AtomicAdd, None).unwrap();
+        assert_eq!(report.route, None);
+        assert_eq!(
+            report.fallback_reason,
+            Some(UnavailableReason::F32DenormalBehaviorUnknown)
+        );
+        assert_eq!(report.f32_denormal, None);
+        let mut out = [7.0f32; 2];
+        let x = [1.0f32; 2];
+        let r = exec.atomic_add(
+            None,
+            2,
+            1,
+            AtomicAddOperands::Host {
+                x: &x,
+                out: &mut out,
+            },
+        );
+        assert!(matches!(r, Ok(Outcome::Unavailable { report: got }) if got == report));
+        assert_eq!(out, [7.0; 2]);
+    }
+
+    #[test]
+    fn uninjected_route_keeps_unsupported_error() {
+        let dev = stub();
+        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+            let exec = Exec::new(&dev, opt(true, true)).inject_denormal(
+                op,
+                Route::GpuEmulated,
+                Inj::Unknown,
+            );
+            assert!(matches!(
+                exec.query_route(op, None),
+                Err(ContractError::Unsupported {
+                    op: "query_route",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn injection_has_no_effect_without_judgment() {
+        let dev = stub();
+        for op in [OpId::F16Fma, OpId::SubgroupSumU32] {
+            let with = ROUTES
+                .into_iter()
+                .fold(Exec::deny_by_default(&dev), |e, r| {
+                    e.inject_denormal(op, r, Inj::FlushToZero)
+                });
+            let plain = Exec::deny_by_default(&dev);
+            for o in ALL_OPT.into_iter().map(Some).chain([None]) {
+                assert_eq!(with.query_route(op, o).ok(), plain.query_route(op, o).ok());
+            }
+        }
+    }
+
+    #[test]
+    fn last_injection_wins() {
+        let dev = stub();
+        for (a, b, expected) in [
+            (
+                Inj::Preserve,
+                Inj::FlushToZero,
+                F32DenormalBehavior::FlushToZero,
+            ),
+            (
+                Inj::FlushToZero,
+                Inj::Preserve,
+                F32DenormalBehavior::Preserve,
+            ),
+        ] {
+            let exec = Exec::new(&dev, opt(true, false))
+                .inject_denormal(OpId::AtomicAdd, Route::GpuEmulated, a)
+                .inject_denormal(OpId::AtomicAdd, Route::GpuEmulated, b);
+            let report = exec.query_route(OpId::AtomicAdd, None).unwrap();
+            assert_eq!(report.f32_denormal, injected(expected));
+        }
+    }
+
+    #[test]
+    fn injection_with_force() {
+        let dev = stub();
+        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+            let build = |o| {
+                Exec::new(&dev, o)
+                    .force_unsupported(op)
+                    .inject_denormal(op, Route::Native, Inj::Preserve)
+                    .inject_denormal(op, Route::GpuEmulated, Inj::FlushToZero)
+            };
+            let report = build(opt(true, false)).query_route(op, None).unwrap();
+            assert_eq!(report.route, Some(Route::GpuEmulated));
+            assert_eq!(
+                report.native_reason,
+                Some(UnavailableReason::ForcedUnsupported)
+            );
+            assert_eq!(
+                report.f32_denormal,
+                injected(F32DenormalBehavior::FlushToZero)
+            );
+            let none = build(opt(false, false)).query_route(op, None).unwrap();
+            assert_eq!(none.route, None);
+            assert_eq!(none.fallback_reason, Some(UnavailableReason::OptInNotGiven));
+            assert_eq!(none.f32_denormal, None);
+        }
+    }
+
+    #[test]
+    fn injection_keeps_default_opt_in() {
+        let dev = stub();
+        for o in ALL_OPT {
+            let exec =
+                Exec::new(&dev, o).inject_denormal(OpId::AtomicAdd, Route::Cpu, Inj::Preserve);
             assert_eq!(exec.default_opt_in(), o);
         }
     }
