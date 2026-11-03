@@ -30,7 +30,7 @@
 //!
 //! feature `test-support` を有効にしたときだけ、背後実装の出力を比べるための検証用の道具
 //! （`parity` モジュール）と、契約の試験の共通の枠（`test_frame` モジュール。宣言と実行の可否、結果のラベルの決定、組み合わせごとの集計）と、
-//! 流し直しの照合の型と実行の口（`rerun` モジュール）と、能力の問合せの共通の規則の試験の部品（`capability_rule` モジュール）と、能力の表の鍵と値の検査の道具と差分の台帳の行の型（`capability_table_check` モジュール）と、形式の問合せの鍵を能力の問合せの口へ流して戻り値を検査する関数と、形式ごとの能力の値の形式の単位の一致を確かめる関数（`texture_format_query_check` モジュール）と、GPU も背後実装も使わない試験用の device と provider（`stub_device` モジュール）が公開される。
+//! 流し直しの照合の型と実行の口（`rerun` モジュール）と、能力の問合せの共通の規則の試験の部品（`capability_rule` モジュール）と、能力の表の鍵と値の検査の道具と差分の台帳の行の型（`capability_table_check` モジュール）と、形式の問合せの鍵を能力の問合せの口へ流して戻り値を検査する関数と、形式ごとの能力の値の形式の単位の一致を確かめる関数（`texture_format_query_check` モジュール）と、GPU も背後実装も使わない試験用の device と provider（`stub_device` モジュール）と、dispatch の引数の検査に当てる名前つきの入力の組と入力から契約の型の値を作る関数（`dispatch_inputs` モジュール）が公開される。
 //! これら `test-support` の裏のモジュールは製品の経路からは使わない。
 //!
 //! feature `fault-injection` を有効にしたときだけ、テスト専用の故障の差し込み口（`fault` モジュール）が公開される。
@@ -84,6 +84,9 @@ pub mod rerun;
 
 #[cfg(feature = "test-support")]
 pub mod stub_device;
+
+#[cfg(feature = "test-support")]
+pub mod dispatch_inputs;
 
 #[cfg(feature = "fault-injection")]
 pub mod fault;

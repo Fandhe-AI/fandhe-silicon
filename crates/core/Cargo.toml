@@ -367,3 +367,7 @@ required-features = ["graphics"]
 [[test]]
 name = "graphics_pass_stub"
 required-features = ["test-support", "graphics"]
+
+[[test]]
+name = "dispatch_inputs_stub"
+required-features = ["test-support"]
