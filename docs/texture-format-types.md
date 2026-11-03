@@ -334,3 +334,14 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_format_con
 - 完了の条件の確かめ（8/8）の表の (3) の `graphics.rs:62`・`:80` と doctest の `line 57`・`line 74` は記録時点の値で、書き換えない。今は `crates/core/src/graphics.rs` の `impl From<PixelFormat> for TextureFormat` が `:64`、`impl From<DepthFormat> for TextureFormat` が `:82`、doctest は `TextureFormat (line 59)`・`TextureFormat (line 76)`（base 8deff9f。`grep -n 'impl From<.*for TextureFormat' crates/core/src/graphics.rs` と `cargo test -p fandhe-silicon-core --features graphics --doc graphics`）。
 
 関連: 形式ごとの能力の値の型と、形式を受けてその値を返す `Capabilities::texture_format_features` は [texture-format-features.md](texture-format-features.md)。
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値」の節の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（8/8）の (3) の `impl` の行 | `impl From<PixelFormat> for TextureFormat` が `:64`、`impl From<DepthFormat> for TextureFormat` が `:82` → `:65`・`:83` | `grep -n 'impl From<.*for TextureFormat' crates/core/src/graphics.rs` |
+| 同・doctest の行 | `TextureFormat (line 59)`・`TextureFormat (line 76)` → `TextureFormat (line 60)`・`TextureFormat (line 77)`。どちらも `ok` | `cargo test -p fandhe-silicon-core --features graphics --doc graphics` |

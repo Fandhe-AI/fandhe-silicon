@@ -294,3 +294,11 @@ cargo test -p fandhe-silicon-exec --test unsupported_fields
 | 5/7 | #5991 | test(exec): TASK-919 の 5/7 opt-in の既定と呼び出しごとの上書きの試験 |
 | 6/7 | #5992 | test(exec): TASK-919 の 6/7 理由の値の区別と f32 の非正規化数の項の試験 |
 | 7/7 | #5993 | docs: TASK-919 の 7/7 完了の条件の確かめ |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（7/7）の (1) の `make upper-layer-check` の `record:` | `rs_files=4 direct_deps=2 forbid=yes unsafe_total=0` → `rs_files=9 direct_deps=3 forbid=yes unsafe_total=0`（`chip_deps=0 chip_paths=0 other_deps=0` のまま。上の層の crate の記録の行）。上の層の crate の `.rs` が 5 個増え、直接の依存が 1 つ増えた | `make upper-layer-check \| grep '^record:'` |

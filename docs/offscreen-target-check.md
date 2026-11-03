@@ -108,3 +108,13 @@ make verify
 | 4/4 | #4576 | 完了の条件の確かめ（本頁の 4/4 の節） |
 
 関連: 描画先からバッファへの写しの書き込み先の検査は [copy-target-check.md](copy-target-check.md)。
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、完了の条件の確かめ（4/4）の表の値（過去の補いは無い）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 確かめ（4/4）の (1) | `graphics.rs` の 327 行目と 328 行目 → 1037 行目（`mod target_check;`）と 1038 行目（`pub use target_check::{`） | `grep -n 'mod target_check\|pub use target_check' crates/core/src/graphics.rs` |

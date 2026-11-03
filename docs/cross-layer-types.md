@@ -65,3 +65,15 @@ make profile-test-count-check    profile-test-count-check: all profiles passed
 | -- | ----- | -- |
 | 1/2 | #3994 | test(upper): TASK-260 の 1/2 上の層の buffer と device を下-2 に渡す試験 |
 | 2/2 | #3995 | docs: TASK-260 の 2/2 完了の条件の確かめ |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 所在の「使う公開のパス」 | 表に載る公開のパスは `Exec` ほか 8 つ・`UpperDevice`・`Buffer`・`StubDevice` → 試験の `use` には表に無い公開のパスもある。`fandhe_silicon_exec::UnavailableReason`（試験の 15 行目）、`fandhe_silicon_upper::SubmitId`（17 行目）、`fandhe_silicon_core::memory::BufferHandle`（11 行目。下の handle の照らしが使う） | `sed -n 5,17p crates/upper/tests/cross_layer_types.rs` |
+| 層をまたぐ受け渡しの試験（1/2）の `upper_buffers_pass_to_exec_device_operands` | 期待の欄に handle の番地の比べは無い → 下-2 の入口を呼ぶ前に、`BUFFERS`（10）個の buffer ぶんの `handle()` の番地と `handle_mut()` の番地を集め、順に等しいことを `assert_eq!` で確かめる（108〜113 行目）。確かめるのは `Buffer::handle_mut()` が `handle()` と同じ実体を指すことまで。試験は 4 本のまま | `grep -n 'owned\|lent' crates/upper/tests/cross_layer_types.rs`、`cargo test -p fandhe-silicon-upper --features native-blocking-wait --test cross_layer_types` |
+| 完了の条件の確かめ（2/2）の (2) | 4 本とも `ok`、`4 passed; 0 failed; 0 ignored` → 同じ（4 passed）。この試験が確かめるのは、同じ device を下-2 の値と上の層の device（`UpperDevice::new`）に渡して作れることまで。2 つが同じ device を持つことは比べていない。上の層の device は作るだけである（`upper_buffers_pass_to_exec_device_operands` は `_upper` に束ねるだけで使わない。`upper_submit_and_wait_on_the_same_device` は上の層の queue で投入と待ちをするが、下-2 の値の device との同一は比べない） | `grep -n 'UpperDevice::new\|queue()' crates/upper/tests/cross_layer_types.rs`（104・212・216 行目） |
+| 完了の条件の確かめ（2/2）の (7) | `make verify` の `test result:` は 218 行、2221 passed・0 failed・7 ignored → 221 行、2234 passed・0 failed・7 ignored。`cross_layer_types` は 4 passed; 0 failed; 0 ignored のまま | `make verify > <ログ> 2>&1`、`grep -c '^test result:' <ログ>`、`grep '^test result:' <ログ> \| awk '{p+=$4; f+=$6; i+=$8} END{print p,f,i}'` |
+| 完了の条件の確かめ（2/2）の (1) と (6) | `Cargo.toml` の 31・32 行目、feature なしで `Running tests/cross_layer_types.rs` が出ない、`record:` の `rs_files=9 direct_deps=3` → どれも同じ | `grep -n -A2 'cross_layer_types' crates/upper/Cargo.toml`、`cargo test -p fandhe-silicon-upper`、`make upper-layer-check` |

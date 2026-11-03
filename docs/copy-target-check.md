@@ -91,3 +91,13 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_copy_targe
 | -- | ----- | ---- |
 | 1/2 | #5108 | 本頁の関数 |
 | 2/2 | #5109 | `crates/core/tests/graphics_copy_target_check.rs`（境界の入力の全組の試験）と完了の条件の確かめ（本頁の 2/2 の節） |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値の補い（base 8deff9f）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 表の 1 の再公開の行 | `crates/core/src/graphics.rs:677`（`validate_copy_target_to_buffer` の再公開の行）→ `:1039`。`target_check.rs:141` の `pub fn` は変わらない | `grep -n validate_copy_target_to_buffer crates/core/src/graphics.rs crates/core/src/graphics/target_check.rs` |

@@ -127,3 +127,35 @@ make verify
 make wasm-verify
 make build-profiles
 ```
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 1/3 の所在の表・4 操作の宣言（`graphics.rs`） | `draw_mesh_tasks`（834 行）・`draw_mesh_tasks_indirect`（841 行）・`multi_draw_mesh_tasks_indirect`（849 行）・`multi_draw_mesh_tasks_indirect_count`（858 行）→ 978・985・993・1002 行 | `grep -n 'fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/graphics.rs`（rustdoc の例の行を除く） |
+| 同・試験用の device の実装と `FixedGraphics` | `stub_device.rs` の 978・989・1001・1014 行、`graphics_types.rs` の 170・178・187・197 行 → どちらも同じ | `grep -n 'fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs` |
+| 完了の条件の確かめ（3/3）の (1) | 宣言は `graphics.rs` の 834・841・849・858 行目の 4 行 → 978・985・993・1002 行目の 4 行（ほかは doc コメントの例の行）。`cargo check` は終了コード 0 のまま | 上の `grep -n`、`cargo check -p fandhe-silicon-core --features graphics` |
+| 同・(3) の doctest | 23 passed と 26 passed の 2 つの実行 → 27 passed と 26 passed。足された 4 件は下の通る例 | `cargo test -p fandhe-silicon-core --features graphics --doc graphics` |
+| 同・(3) の `compile_fail,E0046` | 12 個（247・282・317・352・387・422・457・492・527・562・597・632 行目）。4 操作の分は 527・562・597・632 行目 → 12 個（247・282・317・352・387・422・457・492・527・598・669・740 行目）。4 操作の分は 527・598・669・740 行目で、操作の欠けは順に `draw_mesh_tasks`・`draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect_count`。`make doctest-error-code-check` は終了コード 0 | `grep -n 'compile_fail,E0046' crates/core/src/graphics.rs`、`make doctest-error-code-check` |
+| 同・(4) | `mesh` の試験 6 本が ok（6 passed）、`--lib stub_device::` は 47 passed → 同じ（6 passed・47 passed） | `cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_mesh_stub`、`... --lib stub_device::` |
+| 同・(2) と (7) | `graphics_mesh_types` 1 passed、`graphics_types` 4 passed → 同じ | `cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types`、`... --test graphics_types` |
+| 同・(5) の `public-api-check` | `public_items_total=15207` → `public_items_total=15244`（`documents=10`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0` は同じ） | `make public-api-check` |
+| 同・(5) の `public-api-sdk-check` と `public-name-check` | `public_items_total=13108` → `13111`（`sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0`、`name_hits_total=0` は同じ） | `make public-api-sdk-check`、`make public-name-check` |
+| 同・(5) の `public-api-webgpu-check` | `documents=2 public_items_total=3814 submit_token_ops_total=11 submit_token_violations_total=0` → 同じ | `make public-api-webgpu-check` |
+| 同・(6) | `lib.rs:39` の `#![forbid(unsafe_code)]` → 同じ | `grep -n forbid crates/core/src/lib.rs` |
+
+試験の所在（mesh shader の描画の 4 操作の試験の穴を埋めた分）は次のとおり。
+
+| 試験 | 所在 | 本数・確かめること |
+| ---- | ---- | ------------------ |
+| 通る例（doctest） | `crates/core/src/graphics.rs` の `GraphicsOps` の rustdoc（line 562・633・704・775） | 通常の doctest 4 本。直前の `compile_fail,E0046` の例（欠けた操作はそれぞれ `draw_mesh_tasks`・`draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect_count`）に、その 1 操作だけを足した実装がコンパイルに通る |
+| `graphics_ops_doctest_shape` | `crates/core/tests/graphics_ops_doctest_shape.rs`（`crates/core/Cargo.toml` の `[[test]]`、`required-features = ["graphics"]`） | 1 本（`each_e0046_example_lacks_exactly_one_operation`）。`GraphicsOps` の操作が 23 個、局所の実装を持つ `compile_fail,E0046` の例が 12 本で、各例は全操作から異なる 1 操作だけを除いた集合であること、mesh shader の 4 操作それぞれに例があることを、ソースの文字列から確かめる |
+| `FixedGraphics` の呼び出し | `crates/core/tests/graphics_types.rs` の `graphics_ops_is_implementable_and_object_safe`（293〜299 行目） | `draw_mesh_tasks`・`draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect`・`multi_draw_mesh_tasks_indirect_count` の呼び出しが固定で `Ok(())`。`graphics_types` は 4 本のまま |
+
+```text
+cargo test -p fandhe-silicon-core --features graphics --doc graphics
+cargo test -p fandhe-silicon-core --features graphics --test graphics_ops_doctest_shape
+cargo test -p fandhe-silicon-core --features graphics --test graphics_types
+```

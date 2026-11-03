@@ -177,3 +177,17 @@ make verify
 make wasm-verify
 make build-profiles
 ```
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値の補い（base 8deff9f）」の値。
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) | `:684` が `mod pass_state;`、`:685` が `pub use pass_state::{...}`、`:687` が `mod draw_range;`、`:688` が `pub use draw_range::{` → `:1046`・`:1047`・`:1049`・`:1050` | `grep -n 'mod pass_state\|mod draw_range\|pub use pass_state\|pub use draw_range' crates/core/src/graphics.rs` |
+| (1) | `fn set_` は 579・586・596・606・623・630・637・644 行目の 8 行 → 897・904・914・924・941・948・955・962 行目の 8 行（`graphics.rs` の rustdoc の例の中にも `fn set_` の行があるので、`grep -n 'fn set_'` の出力にはこの 8 行のほか 264 行目から 803 行目の例の行が混ざる） | `awk '/pub trait GraphicsOps/{f=1} f && /^    fn set_/{print NR}' crates/core/src/graphics.rs` |
+| (5) | `compile_fail,E0382`（`graphics.rs:652`）が 1 passed。`graphics.rs` の `compile_fail,E0382` は 538・652 行目の 2 つ → `graphics.rs:1014` が 1 passed。2 つは 856・1014 行目 | `grep -n 'compile_fail,E0382' crates/core/src/graphics.rs`、`cargo test -p fandhe-silicon-core --features graphics --doc submit_render` |
+| (6) | `impl` は `stub_device.rs:781`。`stub_device.rs` の `fn set_` は 8 本（874・886・901・916・929・941・953・965 行目）→ `impl` は `:782`。8 本は 875・887・902・917・930・942・954・966 行目。`graphics_types.rs:21` と `graphics_types.rs` の `fn set_` の 8 本（99・107・118・129・138・146・154・162 行目）は変わらない | `grep -n 'impl GraphicsOps for' crates/core/src/stub_device.rs`、`awk '/impl GraphicsOps for StubGraphics/{f=1;next} f && /^}/{exit} f && /^    fn set_/{print NR}' crates/core/src/stub_device.rs`、`grep -n 'fn set_' crates/core/tests/graphics_types.rs` |
+| (7)・(10) | `graphics_pass_stub` は 6 passed → 6 passed。`graphics_pass_types` は 9 passed のまま | `cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_pass_stub`、`... --test graphics_pass_types` |

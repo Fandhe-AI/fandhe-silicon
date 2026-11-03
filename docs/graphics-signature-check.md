@@ -116,3 +116,20 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test stub_d
 cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device
 cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics
 ```
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値の補い（base 8deff9f）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `GraphicsOps` の操作の数 | 19（試験が固定するのは 18）→ 23。`graphics_signatures` が 10 操作、`graphics_pass_types` の `op_signatures_have_listed_types` が状態を設定する 8 操作、`graphics_mesh_types` の `mesh_op_signatures_have_listed_types` が mesh shader の描画の 4 操作を固定する。`destroy_offscreen_target` はどの試験も固定しない | `awk '/pub trait GraphicsOps/{f=1} f && /^    fn /{print NR": "$0}' crates/core/src/graphics.rs` |
+| 確かめ表の 1: `fn` の行 | `:492`〜`:666` に 19 本、`destroy_offscreen_target` は `:546` → `:810`〜`:1028` に 23 本、`destroy_offscreen_target` は `:864` | 上と同じ |
+| 確かめ表の 3: `submit_render` の doctest | `GraphicsOps::submit_render (line 652)` → `GraphicsOps::submit_render (line 1014)` | `cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics` |
+| 確かめ表の 4: `impl GraphicsOps for` | `stub_device.rs:781`・`graphics_types.rs:21` → `crates/core/src/stub_device.rs:782`・`crates/core/tests/graphics_types.rs:21` | `grep -n 'impl GraphicsOps for' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs` |
+| 確かめ表の 4: 件数 | `stub_device_graphics` 13 件・`stub_device` の `--lib` 43 件 → 13 件・47 件 | `cargo test -p fandhe-silicon-core --features test-support,graphics --test stub_device_graphics`、`... --lib stub_device` |
+| `graphics_signatures` の件数 | 7 件 → 7 件 | `cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_signatures` |
+| `graphics_pass_types` の件数 | 9 件 → 9 件 | `... --test graphics_pass_types` |
+| `graphics_mesh_types` の件数 | 記録なし → 1 件（[draw-ops-types.md](draw-ops-types.md)） | `cargo test -p fandhe-silicon-core --features graphics --test graphics_mesh_types` |
