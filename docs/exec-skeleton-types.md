@@ -159,6 +159,8 @@ cargo test -p fandhe-silicon-exec --lib --features native-blocking-wait
 
 3 つの入口は能力を問い合わせず、`opt_in` の値によらず `Err(ContractError::Unsupported { .. })` を返す。
 
+補い: 上の手順 1〜4 は `crates/exec/src/entry.rs` の内部の関数 `route_report` が通す。経路の選び方（手順 3 の段）は `crates/exec/src/select.rs` の `select_route` にある。入口の呼び出しの前に同じ報告を返す `Exec::query_route` と、判定を受ける経路の選び方は [exec-route-choice.md](exec-route-choice.md) にある。
+
 どの入口も `n`・`m`・`operands` を読まず、出力の列・buffer に書かない。`Outcome::Ran` は返さない。
 
 ### 確かめ方
@@ -265,6 +267,19 @@ cargo test -p fandhe-silicon-exec --test unsupported_fields
 補い: exec の依存の向きは `make exec-deps-check`（[exec-deps-check.md](exec-deps-check.md)）が見る。
 
 確かめた時点は main の `ac32709`、`docs/spec` の gitlink は `d15921d873c6ce20039ecc7eb25a799d25e7748a`。
+
+## 今の値の補い（base c79863d）
+
+上の確かめの節の値は記録した時点のもので、書き換えない。同じコマンドを今の値で流した結果は次のとおり。
+
+| # | 項目 | 今の値 |
+| - | ---- | ------ |
+| (1) | `grep -n forbid crates/exec/src/lib.rs` | `14:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけ（ほか 6 ファイルは 0 件） |
+| (2) | `grep -rn 'pub fn\|pub struct\|pub enum' crates/exec/src` | 26 行。`pub fn` が 12 行 |
+| (3) | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|&mut self' crates/exec/src` | 2 行。`entry.rs:86` の `name: &'static str,` と `entry.rs:112` の `fn unsupported(&self, op: &'static str) -> ContractError {` |
+| (4) | `--lib` / `--lib --features native-blocking-wait` | 30 passed / 31 passed（0 failed; 0 ignored）。`opt_in_default` は 5、`reasons_and_denormal` は 4、`unsupported_fields` は 1、`device_operands` は 1、`route_query`（統合テスト）は 6 passed |
+| (5) | `cargo test -p fandhe-silicon-exec`（feature なし / `--features native-blocking-wait`） | 合計 46 passed（30 + 5 + 4 + 6 + 1 + doctest 0）/ 合計 48 passed（31 + 1 + 5 + 4 + 6 + 1 + doctest 0）。いずれも 0 failed |
+| (6) | `scanned: crate=fandhe_silicon_exec` の行 | `public-api-check` は production で `public_items=458`、all-features で `public_items=472`（`wgpu_type_refs=0 wgpu_other_refs=0`）。`public-name-check` は production で `public_items=403 named_items=123`、all-features で `public_items=417 named_items=137`（`name_hits=0`）。`public-api-sdk-check` は production で `public_items=403`、all-features で `public_items=417`（`sdk_type_refs=0 sdk_other_refs=0`） |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-919）。
 

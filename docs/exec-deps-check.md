@@ -182,3 +182,5 @@ TASK-259 の 1/4〜3/4 を入れた後の実物で観測した結果を表にす
 | --- | --- | ---------------------- | ---------- | ------------------------------------- |
 | `41620565383` | `125864898315` | `1e1ab401966c81aaaa12b30a267dbb1c0433ac82` | `ok: 12 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0` | `passed=110 failed=0` |
 | `41623102841` | `125873537161` | `31a50d5c4fbe5913a439ec228779b9ad14b4ff80` | 同じ | `passed=110 failed=0` |
+
+補い（base c79863d）: 今の `make exec-deps-check` は終了コード 0 で、`record: commit=c79863dea276714c8e80030eaf5e3583ffbc849f rs_files=13 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0`、`ok: 13 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0`。`rs_files` は `crates/exec/tests/route_query.rs` が加わって 12 から 13 になった（`crates/exec/src` は 7 ファイル、`crates/exec/tests` は `common/mod.rs` を含め 6 ファイル）。
