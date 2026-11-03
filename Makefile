@@ -15,7 +15,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check exec-deps-check test-exec-deps-check test-upper-layer-check upper-source-check test-upper-source-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check wasm-compile-probe-check test-wasm-compile-probe-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check wasm-web-load-check test-wasm-web-load-check test-hooks
+.PHONY: help doctest-error-code-check test-doctest-error-code-check public-api-webgpu-check test-public-api-webgpu-check doctor setup check verify build-profiles deny baseline-positive-control test-baseline-positive-control upper-layer-check exec-deps-check test-exec-deps-check exec-surface-check test-exec-surface-check test-upper-layer-check upper-source-check test-upper-source-check dep-graph-wgpu-check profile-dep-graph-check test-profile-dep-graph-check profile-dep-graph-positive-control test-profile-dep-graph-positive-control profile-test-count-check test-profile-test-count-check measure-verify wasm-verify wasm-size test-wasm-size wasm-build-check test-wasm-build-check wasm-backend-check test-wasm-backend-check wasm-compile-probe-check test-wasm-compile-probe-check deps-check test-deps-check inventory-trace-check test-inventory-trace-check test-texture-format-key-check feature-key-check test-feature-key-check test-session-record-check test-perf-record-check test-metal-session test-record-summary ci-frame-check test-ci-frame-check public-api-check test-public-api-check public-api-sdk-check test-public-api-sdk-check core-deps-check test-core-deps-check test-dep-graph-wgpu-check public-name-check test-public-name-check test-public-api-diff test-rerun-compare wasm-node-check test-wasm-node-check wasm-web-load-check test-wasm-web-load-check test-hooks
 
 help: ## このヘルプを表示する（Make 非依存の一覧: scripts/help.sh）
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36mmake %-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
@@ -145,6 +145,12 @@ exec-deps-check: ## 下-2 の crate（crates/exec）の依存の向きを、依�
 
 test-exec-deps-check: ## exec-deps-check の回帰テスト（合成の metadata・tree、偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・製品の依存が取得済みであること以外ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-exec-deps-check.sh
 	@scripts/test-exec-deps-check.sh
+
+exec-surface-check: ## 下-2 の crate（crates/exec）のソースの環境変数・ファイルの読み取りの字句を数えて検査する（終了コード 0 合格・1 違反・2 誤用または前提の不足。標準出力に record: の行。bash + python3 + git・ソースは変更しない・ネットワーク不要）。直接: scripts/exec-surface-check.sh [--crate-dir <dir>]
+	@scripts/exec-surface-check.sh
+
+test-exec-surface-check: ## exec-surface-check の回帰テスト（合成の入力と、実物の crates/exec を一時ディレクトリへ写した変異体。bash + python3・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-exec-surface-check.sh
+	@scripts/test-exec-surface-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
 	@scripts/dep-graph-wgpu-check.sh
