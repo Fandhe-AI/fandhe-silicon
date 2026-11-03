@@ -116,3 +116,24 @@
 | `report_f32_item_follows_judged_route` | 報告の f32 の項目が、判定した操作で経路ありのときだけ判定の値を持つ |
 
 確かめ方は `cargo test -p fandhe-silicon-exec --lib`。
+
+## 模擬の能力の値での `query_route` と入口の一致の試験（4/5）
+
+### 所在
+
+`crates/exec/tests/route_query.rs`（統合テスト）と、`crates/exec/tests/common/mod.rs` の `Scripted::answering`。ライブラリのコードは変えない。
+
+### 試験用の device
+
+`Scripted::answering(値)` は、どの機能の鍵の問合せにも同じ能力の値を返す。`query` はその段階を返し、`query_ex` は呼び出しを数えたうえで値をそのまま返す。
+
+### 試験
+
+| 試験 | device | 入力 | 確かめる点 |
+| ---- | ------ | ---- | ---------- |
+| `query_route_matches_entry_report` | 能力の値 9 通り（`S0`〜`S6`、`Unsupported` × 理由 `None`・`NotSupported`） | 操作 4 つ × 呼び方 5 通り（既定のまま・上書きの 4 通り） | 入口が `Ok(Outcome::Unavailable { report })` のとき `query_route` の報告が `report` と等しい。入口が `Err(Unsupported)` のとき、`F16Fma`・`SubgroupSumU32` は経路ありの `Ok`、`SubgroupSumF32`・`AtomicAdd` は `Err(Unsupported)`。出力の列は呼ぶ前のまま |
+| `native_levels_report_native_route` | `S2`〜`S6` | 上と同じ呼び方 | `F16Fma`・`SubgroupSumU32` は `Native`・理由なし・観察した段階を報告する。ほかの 2 操作は `op` が `"query_route"` の `Err(Unsupported)` |
+| `unreachable_native_follows_opt_in_order` | `Unsupported` × 理由 4 通り、`S0`、`S1` | 呼び方 5 通り | 印が `GpuEmulated` だけ・両方なら `GpuEmulated`、`Cpu` だけなら `Cpu`、印なしなら経路なしで `OptInNotGiven`。`native_reason` は `Unsupported` なら問合せの理由、`S0`・`S1` なら `CapabilityUnknown` |
+| `query_route_calls_query_ex_once` | 何も差し込まない device と `S2` を返す device | 操作 4 つ × 上書き 3 通り | `query_ex` が 1 回、`memory`・`queue` が 0 回（`Err` を返す呼び出しも同じ） |
+
+確かめ方は `cargo test -p fandhe-silicon-exec --test route_query`。

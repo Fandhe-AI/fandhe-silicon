@@ -23,6 +23,8 @@ pub struct Scripted {
     query_ex_calls: Cell<u32>,
     memory_calls: Cell<u32>,
     queue_calls: Cell<u32>,
+    /// `Some` のとき、どの鍵の問合せにもこの値を返す。
+    answer: Option<CapabilityQuery>,
 }
 
 impl Scripted {
@@ -37,7 +39,15 @@ impl Scripted {
             query_ex_calls: Cell::new(0),
             memory_calls: Cell::new(0),
             queue_calls: Cell::new(0),
+            answer: None,
         }
+    }
+
+    /// どの鍵にも `query` の値を返す device。
+    pub fn answering(query: CapabilityQuery) -> Self {
+        let mut dev = Self::with(FaultScript::PassThrough);
+        dev.answer = Some(query);
+        dev
     }
 
     /// 何も差し込まない device。
@@ -80,12 +90,18 @@ impl Capabilities for Scripted {
     }
 
     fn query(&self, f: FeatureId) -> CapabilityLevel {
+        if let Some(q) = self.answer {
+            return q.level;
+        }
         self.dev.query(f)
     }
 
     // 既定の実装では理由が落ちるので、数えたうえで内側の値をそのまま返す。
     fn query_ex(&self, f: FeatureId) -> CapabilityQuery {
         self.query_ex_calls.set(self.query_ex_calls.get() + 1);
+        if let Some(q) = self.answer {
+            return q;
+        }
         self.dev.query_ex(f)
     }
 }
