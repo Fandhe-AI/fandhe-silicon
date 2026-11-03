@@ -91,6 +91,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-api-sdk-check` | `scripts/test-public-api-sdk-check.sh` | 上の回帰テスト（合成 JSON・合成 metadata・偽のコマンドと、一時 workspace の実物） |
 | `deny` | `make core-deps-check` | `scripts/core-deps-check.sh` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査（件数が `scanned:` / `record:` の行としてログに残る） |
 | `deny` | `make test-core-deps-check` | `scripts/test-core-deps-check.sh` | 上の回帰テスト（合成 metadata・偽のコマンド・一時 workspace の実物・TASK-13 の検査との突き合わせ） |
+| `deny` | `make exec-deps-check` | `scripts/exec-deps-check.sh` | 下-2 の crate（`crates/exec`）の依存の向きの検査（依存の宣言・依存グラフ・ソースの crate 名。件数が `record:` の行としてログに残る） |
+| `deny` | `make test-exec-deps-check` | `scripts/test-exec-deps-check.sh` | 上の回帰テスト（合成の metadata・tree、偽のコマンドと、一時 workspace の実物の cargo metadata / cargo tree） |
 | `deny` | `make doctest-error-code-check` | `scripts/doctest-error-code-check.sh` | doctest の `compile_fail,E…` のエラーコードを `RUSTC_BOOTSTRAP=1` の `cargo test --doc` で照合する（ソースは変更しない・ネットワーク不要） |
 | `deny` | `make test-doctest-error-code-check` | `scripts/test-doctest-error-code-check.sh` | 上の回帰テスト（依存の無い一時 crate。正しいコードは通り誤ったコードは落ちること、素の stable では誤りが通る対照を確かめる） |
 | `deny` | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | 契約のコアの公開面の WebGPU 系の検査（内容の (1)〜(5)〔TASK-241・TASK-155・TASK-313 のポインタ〕。件数が `scanned:` / `record:` の行としてログに残る） |

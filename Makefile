@@ -140,10 +140,10 @@ core-deps-check: ## 共通の crate（crates/core）が宣言する外部の cra
 test-core-deps-check: ## core-deps-check の回帰テスト（合成 metadata・偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata。bash + python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-core-deps-check.sh
 	@scripts/test-core-deps-check.sh
 
-exec-deps-check: ## 下-2 の crate（crates/exec）の依存の向きを、依存の宣言（cargo metadata）・依存グラフ（cargo tree）・ソースの crate 名の 3 つで検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要）。直接: scripts/exec-deps-check.sh [--metadata-json <path> --tree-text <path>]
+exec-deps-check: ## 下-2 の crate（crates/exec）の依存の向きを、依存の宣言（cargo metadata）・依存グラフ（cargo tree）・ソースの crate 名の 3 つで検査する（bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/exec-deps-check.sh [--metadata-json <path> --tree-text <path>]
 	@scripts/exec-deps-check.sh
 
-test-exec-deps-check: ## exec-deps-check の回帰テスト（合成の metadata・tree、偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・製品の依存が取得済みであること以外ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-exec-deps-check.sh
+test-exec-deps-check: ## exec-deps-check の回帰テスト（合成の metadata・tree、偽のコマンドと、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git・製品の依存が取得済みであること以外ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-exec-deps-check.sh
 	@scripts/test-exec-deps-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
