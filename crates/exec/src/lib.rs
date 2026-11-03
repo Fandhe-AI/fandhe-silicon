@@ -9,7 +9,8 @@
 //! [`F32DenormalBehavior`]・[`F32DenormalBasis`]）、結果の値 [`Outcome`]、
 //! 列の渡し方 [`F16FmaOperands`]・[`SubgroupSumU32Operands`]・[`SubgroupSumF32Operands`]・
 //! [`AtomicAddOperands`]、
-//! device を借りて既定の印を持つ下-2 の値 [`Exec`] とその 7 つの入口（`docs/spec/05-tasks.md` の TASK-919）。
+//! device を借りて既定の印を持つ下-2 の値 [`Exec`] とその 7 つの入口（`docs/spec/05-tasks.md` の TASK-919）、
+//! 入口を呼ぶ前に経路の報告を返す `Exec::query_route`（同 TASK-920）。
 #![forbid(unsafe_code)]
 
 mod entry;

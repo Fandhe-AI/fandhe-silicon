@@ -4,13 +4,14 @@
 //! 能力を問い合わせて経路の届き方を決め（`select` の関数）、経路なしなら報告つきの
 //! `Ok(Outcome::Unavailable { .. })` を、経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
 //! 3 つの入口は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
+//! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
 use crate::operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };
 use crate::opt_in::OptIn;
-use crate::report::Outcome;
+use crate::report::{Outcome, RouteReport};
 use crate::route::{OpId, Route};
 use crate::select::{
     DenormalJudgment, build_report, effective_opt_in, select_route, selection_input,
@@ -59,28 +60,53 @@ impl<'d> Exec<'d> {
         self.default_opt_in
     }
 
+    /// 効く印・`query_ex` の 1 回・選び方・報告の組み立てを通す、`run` と `query_route` の共通の処理。
+    ///
+    /// 判定の関数は経路の選び方が判定を求めたときに呼ばれ、その `Err` はそのまま返る。
+    fn route_report(
+        &self,
+        op: OpId,
+        opt_in: Option<OptIn>,
+        judge: impl FnMut(Route) -> Result<DenormalJudgment, ContractError>,
+    ) -> Result<RouteReport, ContractError> {
+        let effective = effective_opt_in(self.default_opt_in, opt_in);
+        let query = self.device.query_ex(feature_of(op));
+        let input = selection_input(op, effective, query);
+        let output = select_route(&input, judge)?;
+        Ok(build_report(&input, &output))
+    }
+
     /// 能力を問い合わせて経路を決め、報告か `Unsupported` を返す共通の処理。
     ///
-    /// 判定の関数は経路の選び方が判定を求めたときに呼ばれる。ここでは入口の関数名の
-    /// `Unsupported` を返す。
+    /// `route_report` を通し、ここでは入口の関数名の `Unsupported` を判定の関数の `Err` に使う。
     fn run(
         &self,
         op: OpId,
         opt_in: Option<OptIn>,
         name: &'static str,
     ) -> Result<Outcome, ContractError> {
-        let effective = effective_opt_in(self.default_opt_in, opt_in);
-        let query = self.device.query_ex(feature_of(op));
-        let input = selection_input(op, effective, query);
-        let output = select_route(&input, |_: Route| -> Result<DenormalJudgment, _> {
-            Err(self.unsupported(name))
-        })?;
-        if output.route.is_none() {
-            return Ok(Outcome::Unavailable {
-                report: build_report(&input, &output),
-            });
+        let report = self.route_report(op, opt_in, |_: Route| Err(self.unsupported(name)))?;
+        if report.route.is_none() {
+            return Ok(Outcome::Unavailable { report });
         }
         Err(self.unsupported(name))
+    }
+
+    /// 入口を呼ぶ前に、同じ選び方で経路の報告を返す。FB-24。
+    ///
+    /// 同じ device の値・同じ操作・同じ `opt_in` で入口を呼んだときと同じ報告を返す
+    /// （入口が `Ok(Outcome::Unavailable { report })` を返す呼び出しでは `report` と等しい）。
+    /// 経路が `None` の報告も、経路がある報告も `Ok`。
+    /// `OpId::SubgroupSumF32`・`OpId::AtomicAdd` で経路が届く呼び出しは
+    /// `Err(ContractError::Unsupported { op: "query_route", backend })` を返す
+    /// （`backend` は `Device::backend()` の値）。
+    /// `query_ex` を 1 回だけ呼び、下-1 の投入・確保・読み出しを呼ばない。
+    pub fn query_route(
+        &self,
+        op: OpId,
+        opt_in: Option<OptIn>,
+    ) -> Result<RouteReport, ContractError> {
+        self.route_report(op, opt_in, |_: Route| Err(self.unsupported("query_route")))
     }
 
     fn unsupported(&self, op: &'static str) -> ContractError {
@@ -160,7 +186,6 @@ impl<'d> Exec<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::RouteReport;
     use crate::route::UnavailableReason;
     use fandhe_silicon_core::capability::{BackendKind, Capabilities, CapabilityLevel};
     use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
@@ -332,6 +357,112 @@ mod tests {
             assert!(is_unsupported(&exec.external_interop_shared_memory(o)));
             assert!(is_unsupported(&exec.hardware_ray_tracing(o)));
             assert!(is_unsupported(&exec.unified_memory_sharing(o)));
+        }
+    }
+
+    #[test]
+    fn query_route_equals_unavailable_report() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7f32; 2], [7f32; 2]);
+        let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
+        let outs = [
+            (
+                OpId::F16Fma,
+                exec.f16_fma(
+                    None,
+                    2,
+                    F16FmaOperands::Host {
+                        a: &a,
+                        b: &a,
+                        c: &a,
+                        out: &mut o16,
+                    },
+                ),
+            ),
+            (
+                OpId::SubgroupSumU32,
+                exec.subgroup_sum_u32(
+                    None,
+                    2,
+                    SubgroupSumU32Operands::Host {
+                        x: &x,
+                        out: &mut ou,
+                    },
+                ),
+            ),
+            (
+                OpId::SubgroupSumF32,
+                exec.subgroup_sum_f32(
+                    None,
+                    2,
+                    SubgroupSumF32Operands::Host {
+                        x: &y,
+                        out: &mut of,
+                    },
+                ),
+            ),
+            (
+                OpId::AtomicAdd,
+                exec.atomic_add(
+                    None,
+                    2,
+                    1,
+                    AtomicAddOperands::Host {
+                        x: &y,
+                        out: &mut oa,
+                    },
+                ),
+            ),
+        ];
+        for (op, entry) in outs {
+            let Ok(Outcome::Unavailable { report }) = entry else {
+                panic!("expected Unavailable");
+            };
+            let Ok(r) = exec.query_route(op, None) else {
+                panic!("expected Ok");
+            };
+            assert_eq!(r, report);
+        }
+    }
+
+    #[test]
+    fn query_route_reports_fallback_route() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let over = Some(opt(false, true));
+        for op in [OpId::F16Fma, OpId::SubgroupSumU32] {
+            let Ok(r) = exec.query_route(op, over) else {
+                panic!("expected Ok");
+            };
+            assert_eq!(r.route, Some(Route::Cpu));
+        }
+        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+            let Err(ContractError::Unsupported { op: name, .. }) = exec.query_route(op, over)
+            else {
+                panic!("expected Unsupported");
+            };
+            assert_eq!(name, "query_route");
+        }
+    }
+
+    #[test]
+    fn query_route_keeps_default_opt_in() {
+        let dev = stub();
+        let ops = [
+            OpId::F16Fma,
+            OpId::SubgroupSumU32,
+            OpId::SubgroupSumF32,
+            OpId::AtomicAdd,
+        ];
+        for o in ALL_OPT {
+            let exec = Exec::new(&dev, o);
+            for op in ops {
+                for over in ALL_OPT.into_iter().map(Some).chain([None]) {
+                    let _ = exec.query_route(op, over);
+                    assert_eq!(exec.default_opt_in(), o);
+                }
+            }
         }
     }
 
