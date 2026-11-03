@@ -578,6 +578,7 @@ impl TextureOps for StubTextures {
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
 /// 破棄した描画先を使う記録先を `submit_render` に渡すと `InvalidArgument` を返す。
+/// `submit_render` に渡さずに捨てた記録先の分の記録は残る（試験用で、後始末の経路は持たない）。
 /// 別の device の描画先の破棄は何もしない。
 #[cfg(feature = "graphics")]
 struct StubGraphics {
@@ -1235,6 +1236,99 @@ mod tests {
             .expect("target");
         g.destroy_offscreen_target(RenderTargetHandle::__backend_new(9, t.__backend_id(), 9));
         assert!(g.is_live(&t));
+    }
+
+    #[cfg(feature = "graphics")]
+    fn is_invalid_argument(r: Result<(), ContractError>) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(_)))
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn submit_render_rejects_encoder_whose_target_was_destroyed() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let t = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let copy = RenderTargetHandle::__backend_new(5, t.__backend_id(), 5);
+        let encoder = g.create_render_encoder(&copy);
+        assert_eq!(encoder.__backend_rejected(), None);
+        g.destroy_offscreen_target(t);
+        assert!(matches!(
+            g.submit_render(encoder, &[]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn copy_and_draw_reject_destroyed_and_unknown_targets() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let live = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let copy = RenderTargetHandle::__backend_new(5, live.__backend_id(), 5);
+        let unknown = RenderTargetHandle::__backend_new(5, 9999, 5);
+        g.destroy_offscreen_target(live);
+        let buf = BufferHandle::__backend_new(5, 1, 5, 4, BufferUsage::STORAGE);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        let mut cmd = CommandEncoder::__backend_new(0, None);
+        for t in [&copy, &unknown] {
+            assert!(is_invalid_argument(
+                g.copy_target_to_buffer(&mut cmd, t, &buf, 0)
+            ));
+            let mut enc = g.create_render_encoder(t);
+            assert!(is_invalid_argument(g.draw(&mut enc, &pipeline, &buf, 3)));
+            assert!(is_invalid_argument(g.draw_ex(
+                &mut enc,
+                &pipeline,
+                &buf,
+                3,
+                &[]
+            )));
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn unknown_target_gives_rejected_encoder() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let unknown = RenderTargetHandle::__backend_new(5, 9999, 5);
+        assert!(matches!(
+            g.create_render_encoder(&unknown).__backend_rejected(),
+            Some(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn depth_pair_targets_can_each_be_destroyed() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let make = || {
+            g.create_offscreen_target_with_depth(
+                1,
+                1,
+                PixelFormat::Rgba8Unorm,
+                DepthConfig {
+                    format: DepthFormat::Depth32Float,
+                    clear_value: 1.0,
+                    compare: crate::graphics::CompareFunction::Less,
+                    write_enabled: true,
+                },
+            )
+            .expect("pair")
+        };
+        let (color, depth) = make();
+        let color_copy = RenderTargetHandle::__backend_new(5, color.__backend_id(), 5);
+        let depth_copy = RenderTargetHandle::__backend_new(5, depth.__backend_id(), 5);
+        assert!(g.is_live(&color_copy) && g.is_live(&depth_copy));
+        g.destroy_offscreen_target(depth);
+        assert!(g.is_live(&color_copy));
+        assert!(!g.is_live(&depth_copy));
+        g.destroy_offscreen_target(color);
+        assert!(!g.is_live(&color_copy));
+        let (c2, d2) = make();
+        assert!(g.is_live(&c2) && g.is_live(&d2));
     }
 
     #[cfg(feature = "graphics")]
