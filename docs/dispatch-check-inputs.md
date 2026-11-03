@@ -61,6 +61,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `inputs_build_contract_values` | 全 13 入力で束縛・定数・配置が入力の欄と一致する |
 | module 内の単体テスト | 名前の重複なし・全期待値の網羅・接頭辞・`dispatch_dims_over_limit` の値 |
 
+今の値の補い（base dc8b673）: 表の「C1〜C8 の 8 入力」は C2 を持たないので、C1・C3〜C8 の 8 入力である。表の dims の 2 入力は、`zero_dispatch_dims` の dims が `Fixed([0, 1, 1])`、`dispatch_dims_over_limit` の dims が `OverLimit`（上限の軸 0 に 1 を足した値が軸 0、軸 1・2 が 1）である。試験用の device の `max_dispatch_dims` は `[0, 0, 0]` で、`dispatch_dims_over_limit` の戻りは `[1, 1, 1]` になる。
+
 ### 確かめ方
 
 ```text
@@ -84,3 +86,5 @@ make verify
 | 7 | CI で流れる場所 | `make verify`（`cargo test --workspace --all-features`）・`gh run list --workflow ci.yml --branch main` の 1/2 のコミットの run | `make verify` の終了コードは 0。`dispatch_inputs_stub` の 4 件と単体テストの 4 件が ok。CI の run `41652555921` は観測時の status が queued |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2944）。確かめた base は `6cdfdc8`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
+
+今の値の補い（base dc8b673）: 7 行目の run `41652555921`（1/2 のコミット `6cdfdc8`）は完了していて、`gh run view 41652555921 --json conclusion` の結論は `success`。#7912 のマージのコミット `7d163b1` の `ci.yml` の run は `41657793444` で、結論は `success`。`make verify` を base `dc8b673` で流した終了コードは 0 で、`test result` の行の合計は 2183 passed、0 failed、7 ignored（215 行）。
