@@ -105,7 +105,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/graphics-signature-check.md` | 描画の操作の引数と戻りの型を固定する試験（TASK-908）の所在と、本リポの現状の事実・署名の型の試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/offscreen-target-check.md` | 描画先の大きさとバイト数の純粋関数（TASK-374）の所在・振る舞い・対応するテスト・確かめ方・入力の検査（2/4）・境界の入力の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/copy-target-check.md` | 描画先からバッファへの写しの書き込み先の検査（TASK-591）の所在・振る舞い・対応するテスト・確かめ方・境界の入力の全組の試験（2/2）・完了の条件の確かめ（2/2） |
-| `docs/surface-types.md` | 表示先の設定の大きさの検査（TASK-654）の所在・振る舞い・対応するテスト・確かめ方 |
+| `docs/surface-types.md` | 表示先の設定の大きさの検査（TASK-654）の所在・振る舞い・対応するテスト・確かめ方・取得の結果の型（2/4） |
 | `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6） |
 | `docs/contract-binding-types.md` | 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型（TASK-419）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |

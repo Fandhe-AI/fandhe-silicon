@@ -39,8 +39,38 @@ cargo test -p fandhe-silicon-core --features graphics --lib graphics::surface
 cargo test -p fandhe-silicon-core --features graphics --doc validate_surface_size
 ```
 
+## 取得の結果の型（2/4）
+
+- 実装: `crates/core/src/graphics/surface.rs`
+- 公開のパス: `fandhe_silicon_core::graphics::CurrentSurfaceTexture`・`fandhe_silicon_core::graphics::SurfaceStatus`（feature `graphics` の裏）
+- `CurrentSurfaceTexture<T>` から `status()` で `SurfaceStatus` を得る。`SurfaceStatus::ALL` は 7 値を宣言の順に並べる。どちらも `#[non_exhaustive]`
+
+| 結果の値 | 取得した値を持つか | `status()` の値 |
+| -------- | ------------------ | --------------- |
+| `Success(T)` | 持つ | `Good` |
+| `Suboptimal(T)` | 持つ | `Suboptimal` |
+| `Timeout` | 持たない | `Timeout` |
+| `Occluded` | 持たない | `Occluded` |
+| `Outdated` | 持たない | `Outdated` |
+| `Lost` | 持たない | `Lost` |
+| `Validation` | 持たない | `Validation` |
+
+### 対応するテスト
+
+- doctest: `CurrentSurfaceTexture` の `///` に通常 1 本、`compile_fail,E0004` が `CurrentSurfaceTexture` と `SurfaceStatus` に各 1 本
+- `mod tests`: `surface_status_mapping`・`surface_status_all_distinct`・`surface_status_all_matches_results`
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features graphics --lib graphics::surface
+cargo test -p fandhe-silicon-core --features graphics --doc CurrentSurfaceTexture
+cargo test -p fandhe-silicon-core --features graphics --doc SurfaceStatus
+```
+
 ## 段の表
 
 | 段 | Issue | 内容 |
 | -- | ----- | ---- |
 | 1/4 | #5347 | 本頁の関数 |
+| 2/4 | #5348 | 取得の結果の 2 つの型と対応 |
