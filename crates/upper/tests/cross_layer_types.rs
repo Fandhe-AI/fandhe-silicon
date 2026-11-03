@@ -8,7 +8,7 @@ use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::feature_key::{
     FEATURE_SHADER_F16, FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP,
 };
-use fandhe_silicon_core::memory::BufferUsage;
+use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use fandhe_silicon_core::stub_device::StubDevice;
 use fandhe_silicon_exec::{
     AtomicAddOperands, Exec, F16FmaOperands, OpId, OptIn, Outcome, SubgroupSumF32Operands,
@@ -103,6 +103,14 @@ fn upper_buffers_pass_to_exec_device_operands() {
     let exec = Exec::deny_by_default(d);
     let _upper = UpperDevice::new(d);
     let mut bufs = alloc_all(d);
+
+    // 下-2 に渡す `handle_mut()` が、同じ buffer の `handle()` と同じ実体を指すことを番地で照らす。
+    let owned: Vec<*const BufferHandle> = bufs.iter().map(|b| b.handle() as *const _).collect();
+    let lent: Vec<*const BufferHandle> = bufs
+        .iter_mut()
+        .map(|b| &*b.handle_mut() as *const _)
+        .collect();
+    assert_eq!(owned, lent);
 
     let results = call_all(&exec, None, &mut bufs);
     let ops = [
