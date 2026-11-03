@@ -65,7 +65,7 @@ fandhe-silicon/
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/compute-encoder-lifetime-check.md  # compute の記録先の借用の寿命と定数の渡し方の試験の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）（TASK-772）
 ├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）（TASK-2956）
-├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）（TASK-150）
+├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）（TASK-150）
 ├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在と、本リポの現状の事実・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験と完了の条件の確かめ（4/4）（TASK-837）
 ├── docs/offscreen-target-check.md  # 描画先の大きさとバイト数の純粋関数の所在・振る舞い・対応するテスト・確かめ方・入力の検査（2/4）・境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-374）

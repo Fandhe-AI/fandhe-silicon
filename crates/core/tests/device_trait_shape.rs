@@ -3,6 +3,7 @@
 //! 試験用のダミーの device と provider はこのファイルの中だけにあり、公開 API ではない。機材には触れない。
 //! 確かめるもの: `Box<dyn Device>` を作れること（オブジェクト安全）、`request` の戻り値の型、
 //! 診断の値の読み取りと `Clone`・`PartialEq`、`Device` 越しに `Capabilities` の method と `memory()` を呼べること、既定の `compute()` が `None` であること。
+//! 既定の `textures()` が `None` であること（TASK-150 の 3/4。DEV-153 のポインタ）。
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
@@ -326,4 +327,14 @@ fn default_graphics_is_none_through_dyn_device() {
     ))
     .expect("device");
     assert!(device.graphics().is_none());
+}
+
+#[test]
+fn default_textures_is_none_through_dyn_device() {
+    let device = DummyProvider::request(request(
+        Profile::ComputeOnly,
+        DeviceOwnership::ProductIndependent,
+    ))
+    .expect("device");
+    assert!(device.textures().is_none());
 }

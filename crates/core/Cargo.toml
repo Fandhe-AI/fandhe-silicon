@@ -285,6 +285,10 @@ name = "stub_device_compute"
 required-features = ["test-support"]
 
 [[test]]
+name = "stub_device_textures"
+required-features = ["test-support"]
+
+[[test]]
 name = "render_target_device_check"
 required-features = ["test-support"]
 
