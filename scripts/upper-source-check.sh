@@ -85,7 +85,11 @@ def collect_files(crate):
     need(not os.path.islink(src), "symbolic link in source tree")
     need(os.path.isdir(src), "src directory not found")
     rs = []
-    for base, dirs, files in os.walk(src, followlinks=False):
+
+    def walk_error(_exc):
+        raise Misuse("source directory cannot be read")
+
+    for base, dirs, files in os.walk(src, followlinks=False, onerror=walk_error):
         for name in dirs:
             need(not os.path.islink(os.path.join(base, name)), "symbolic link in source tree")
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS)

@@ -188,6 +188,18 @@ run_tool --crate-dir "${COPY}"
 judge "unclosed use brace" 2 "e:error: unclosed use std brace" "o:!ok:" "o:!record:"
 rm -rf "${COPY}"
 
+# 読めないサブディレクトリは列挙できないので合格させない（root は権限で拒否されないので飛ばす）。
+if [ "$(id -u)" -ne 0 ]; then
+    fresh_copy unreadable
+    mkdir "${COPY}/src/locked"
+    printf 'pub fn f() {}\n' >"${COPY}/src/locked/a.rs"
+    chmod 000 "${COPY}/src/locked"
+    run_tool --crate-dir "${COPY}"
+    judge "unreadable subdirectory" 2 "e:error: source directory cannot be read" "o:!ok:" "o:!record:"
+    chmod 755 "${COPY}/src/locked"
+    rm -rf "${COPY}"
+fi
+
 # python3 が PATH に無い（dirname だけを置いた PATH で絶対パスの bash から起動する）。
 mkdir "${work}/nopy"
 ln -s "$(command -v dirname)" "${work}/nopy/dirname"
