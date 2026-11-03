@@ -6,7 +6,7 @@
 #   (3) 契約の呼び出し: 関数の表の各関数の本体での、core の `CommandQueue` の操作の呼び出しの数。
 #   (4) 失敗の構築: 同じ本体での `Err(`・panic 系のマクロ・`.unwrap(`・`.expect(` の出現。
 #   (3)(4) はコメント・文字列・文字のリテラルを空白にした写しの上で数える。
-# 呼び出し元: `make upper-source-check`、回帰テスト `scripts/test-upper-source-check.sh`。
+# 呼び出し元: `make upper-source-check`、CI の `deny` ジョブ、回帰テスト `scripts/test-upper-source-check.sh`。
 #
 # 使い方:
 #   scripts/upper-source-check.sh                      既定の crates/upper を走査する

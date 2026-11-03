@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make upper-source-check` / `make test-upper-source-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
 # macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（TASK-158・TASK-18 の記録のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
@@ -208,6 +208,7 @@ jobs:
   # 製品の依存グラフの wgpu 系 crate の検査は `make deny` の中で流れる（件数は `record:` の行としてジョブのログに残る）。その回帰テスト（`make test-dep-graph-wgpu-check`。一時 workspace の実物の cargo metadata / cargo tree）も同様に追加実行する。
   # 比較基準の別 workspace への陽性対照（`make baseline-positive-control`。検出の件数が `record:` の行としてジョブのログに残る）は `make deny` の後のステップで流し、その回帰テスト（`make test-baseline-positive-control`。偽の検査と一時 workspace の実物の出力）も同様に追加実行する。
   # 上の層の検査（`make upper-layer-check`。数えた件数が `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-upper-layer-check`。合成の入力と一時 workspace の実物の cargo metadata）も同様に追加実行する。
+  # 上の層のソースの走査（`make upper-source-check`。数えた件数が `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-upper-source-check`。実物の `crates/upper` を写した変異体・陰性の対照・誤用の入力）も同様に追加実行する。
   # wasm32 の cdylib の 2 版の検査（`scripts/wasm-build-check.sh`）の回帰テスト（`make test-wasm-build-check`。偽の cargo と一時 workspace のダミーの crate。ネットワーク不要）も同様に追加実行する。本体の `make wasm-build-check` は流さない（理由は docs/wasm32-build.md）。
   # 背後実装の feature を付けた wasm32 の検査（`make wasm-backend-check`。件数が `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-wasm-backend-check`。合成の入力・偽の cargo と一時 workspace の実物の検査）も同様に追加実行する。
   # wasm32 のコンパイル試験の検査（`scripts/wasm-compile-probe-check.sh`。本体は `make wasm-verify` の中で流れる）の回帰テスト（`make test-wasm-compile-probe-check`。合成の `build-profiles.sh` と偽の cargo）も同様に追加実行する。
@@ -266,6 +267,10 @@ jobs:
       - name: make upper-layer-check
         # 上の層（crates/upper）と測定の workspace に 4 つの検査を当てる。ソースは変更せず、ネットワークも使わない
         run: make upper-layer-check
+
+      - name: make upper-source-check
+        # 上の層のソースを字句で走査する。ソースは変更せず、cargo もネットワークも使わない
+        run: make upper-source-check
 
       - name: make measure-verify
         # 測定専用の別 workspace（measure/）の fmt / clippy / test / 依存の検査。ジョブを増やさず deny ジョブで流す
@@ -336,6 +341,9 @@ jobs:
 
       - name: make test-upper-layer-check
         run: make test-upper-layer-check
+
+      - name: make test-upper-source-check
+        run: make test-upper-source-check
 
       - name: make public-name-check
         run: make public-name-check
