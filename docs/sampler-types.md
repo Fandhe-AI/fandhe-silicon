@@ -83,3 +83,37 @@ cargo test -p fandhe-silicon-core --doc sampler
 ```sh
 cargo test -p fandhe-silicon-core --test sampler_types
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#4572）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-373）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 型が共通の crate に条件なしで公開されている | `grep -n 'pub mod sampler' crates/core/src/lib.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | 58 行目に `pub mod sampler;`、終了コード 0 |
+| 2 | 記述子の欄の値の 4 つの列挙と既定の値 | `cargo test -p fandhe-silicon-core --test sampler_types` | `value_defaults`・`value_enums_are_distinct`・`value_enums_match_with_wildcard` が `ok` |
+| 3 | 記述子の既定の値と欄の保持 | 同じ試験 | `descriptor_default_values`・`descriptor_fields_hold_written_values`・`descriptor_holds_values_unchecked`・`descriptor_clone_and_eq` が `ok` |
+| 4 | handle の往復と、外の crate から作れない・複製できない形 | 同じ試験、`cargo test -p fandhe-silicon-core --doc sampler`、`make doctest-error-code-check` | `handle_round_trip` が `ok`、doctest は通常 5 件が `ok`・`compile fail` 4 件が `ok`（`E0004`・`E0639`・`E0451`・`E0599`）、`make doctest-error-code-check` の終了コード 0 |
+| 5 | 背後実装を呼ばない | `grep -c '^use ' crates/core/src/sampler.rs`、1/4〜3/4 の 3 コミット（`8c57a88`・`213308d`・`b8119b4`）それぞれの `git show --stat --format= <sha> -- crates/core/src/stub_device.rs crates/core/src/device.rs crates/core/src/graphics.rs crates/core/src/texture.rs crates/core/src/texture crates/contract` | `use` の行 0 件、3 コミットとも出力 0 行（差分 0） |
+| 6 | 依存 0・unsafe 0 | 3 コミットそれぞれの `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/sampler.rs`、`grep -n forbid crates/core/src/lib.rs` | 3 コミットとも差分 0、`unsafe` 0 件、39 行目に `#![forbid(unsafe_code)]` |
+| 7 | 公開 API の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-name-check`・`make public-api-webgpu-check` | `wgpu_type_refs_total=0`、`sdk_type_refs_total=0`、`name_hits_total=0`、`webgpu_names_total=0`、4 つとも終了コード 0 |
+| 8 | CI で流れる場所と件数 | `make verify`（`.github/workflows/ci.yml` 177 行目・498 行目）、`make wasm-verify`（同 275 行目・459 行目）、`cargo test -p fandhe-silicon-core --lib sampler` | `make verify` の終了コード 0（`tests/sampler_types.rs` は 8 件）、`--lib sampler` は 6 件が `ok`、`make wasm-verify` の終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-373）。確かめた base は `b8119b42b5578b2db21c875ee59f6ecc4aa06d75`。
+
+確かめ方:
+
+```text
+grep -n 'pub mod sampler' crates/core/src/lib.rs
+cargo check -p fandhe-silicon-core
+cargo test -p fandhe-silicon-core --test sampler_types
+cargo test -p fandhe-silicon-core --lib sampler
+cargo test -p fandhe-silicon-core --doc sampler
+make doctest-error-code-check
+make public-api-check
+make public-api-sdk-check
+make public-name-check
+make public-api-webgpu-check
+make verify
+make wasm-verify
+```
