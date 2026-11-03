@@ -6,15 +6,18 @@
 //! 上の層の用途の 12 値と契約の `BufferUsage` の対応表（`BufferUsageKind`）と、用途と操作の対応の検査の純粋関数
 //! （`validate_usage_for_role`）も置く（TASK-1796 のポインタ）。
 //! ハンドルからは確保した大きさと用途を読める（TASK-310 のポインタ）。
+//! バッファの部分範囲の型（`BufferSlice`）と、ハンドルから範囲を作る口も置く（TASK-311 のポインタ）。
 
 mod buffer;
 mod buffer_check;
 mod ops;
+mod slice;
 mod usage_check;
 mod usage_mapping;
 
 pub use buffer::{BufferHandle, BufferUsage};
 pub use buffer_check::{validate_allocation_size, validate_buffer_range};
 pub use ops::MemoryOps;
+pub use slice::BufferSlice;
 pub use usage_check::{UsageRole, validate_usage_for_role};
 pub use usage_mapping::BufferUsageKind;
