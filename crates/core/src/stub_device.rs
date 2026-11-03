@@ -38,7 +38,7 @@ use crate::memory::{
 };
 #[cfg(feature = "graphics")]
 use crate::render_target::{RenderTargetHandle, check_render_target_device};
-use crate::texture::{TextureDescriptor, TextureHandle, TextureOps};
+use crate::texture::{TextureDescriptor, TextureHandle, TextureOps, TextureView};
 use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
 
 /// 試験用の device の上限の表。確保の上限だけ持ち、dispatch・テクスチャは 0。
@@ -523,10 +523,14 @@ impl ComputeOps for StubCompute {
 ///
 /// 記述子は検査せず、handle の device の識別子と世代は device の `generation()` と同じ値で、
 /// 通し番号は device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_texture", .. }` を返す（panic しない）。
+/// 作ったテクスチャを表に持ち、`destroy_texture` で表から除く。別 device の handle・作っていない handle の破棄と
+/// `destroy_view` は何もしない。破棄した識別子は再び払い出さない。
 struct StubTextures {
     backend: BackendKind,
     id: u64,
     next_texture: AtomicU64,
+    /// 作って破棄していないテクスチャの識別子。
+    live: Mutex<HashSet<u64>>,
 }
 
 impl StubTextures {
@@ -535,6 +539,7 @@ impl StubTextures {
             backend,
             id,
             next_texture: AtomicU64::new(1),
+            live: Mutex::new(HashSet::new()),
         }
     }
 }
@@ -557,6 +562,7 @@ impl TextureOps for StubTextures {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
+                    lock(&self.live).insert(current);
                     return Ok(TextureHandle::__backend_new(
                         self.id, current, self.id, desc,
                     ));
@@ -564,6 +570,16 @@ impl TextureOps for StubTextures {
                 Err(actual) => current = actual,
             }
         }
+    }
+
+    fn destroy_texture(&self, texture: TextureHandle) {
+        if texture.__backend_device_id() == self.id && texture.__backend_generation() == self.id {
+            lock(&self.live).remove(&texture.__backend_id());
+        }
+    }
+
+    fn destroy_view<'t>(&self, view: TextureView<'t>) {
+        let _ = view;
     }
 }
 
@@ -864,6 +880,7 @@ impl GraphicsOps for StubGraphics {
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
 /// `textures()` も `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_texture` は記述子を検査せず `Ok(TextureHandle)` を返し、handle の device の識別子は `generation()` と等しい。
+/// `Some` の `destroy_texture` は作ったテクスチャを表から除き、別 device・作っていないテクスチャの破棄と `destroy_view` は何もしない。
 ///
 /// feature `graphics` のビルドでは `graphics()` も `profile` で変わり、`CpuOnly`・`ComputeOnly` は `None`、`Graphics` は `Some` を返す。
 /// `Some` の描画パイプライン・描画先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
@@ -1170,6 +1187,63 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroy_texture_removes_own_entry() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let h = textures.create_texture(&texture_desc()).expect("texture");
+        let id = h.__backend_id();
+        assert!(lock(&textures.live).contains(&id));
+        textures.destroy_texture(h);
+        assert!(!lock(&textures.live).contains(&id));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroy_texture_of_other_device_keeps_own_entry() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let desc = texture_desc();
+        let h = textures.create_texture(&desc).expect("texture");
+        let id = h.__backend_id();
+        textures.destroy_texture(TextureHandle::__backend_new(9, id, 9, &desc));
+        assert!(lock(&textures.live).contains(&id));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroy_unknown_texture_keeps_entries() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let desc = texture_desc();
+        let h = textures.create_texture(&desc).expect("texture");
+        let id = h.__backend_id();
+        textures.destroy_texture(TextureHandle::__backend_new(5, id + 100, 5, &desc));
+        let live = lock(&textures.live);
+        assert_eq!(live.len(), 1);
+        assert!(live.contains(&id));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroy_view_keeps_texture_entry() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let h = textures.create_texture(&texture_desc()).expect("texture");
+        let view = TextureView::__backend_new(&h, 5, 1, 5);
+        textures.destroy_view(view);
+        assert!(lock(&textures.live).contains(&h.__backend_id()));
+    }
+
+    // TEX-19
+    #[test]
+    fn destroyed_texture_id_is_not_reused() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        let desc = texture_desc();
+        let first = textures.create_texture(&desc).expect("texture");
+        let first_id = first.__backend_id();
+        textures.destroy_texture(first);
+        let second = textures.create_texture(&desc).expect("texture");
+        assert_ne!(second.__backend_id(), first_id);
     }
 
     #[cfg(feature = "graphics")]
