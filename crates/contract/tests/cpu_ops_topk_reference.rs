@@ -2,6 +2,7 @@
 //! 比べる外の試験（TASK-1352 のポインタ）。feature `cpu-ops` と `test-support` が有効な組でだけ走る。
 //! 公開のパスだけを使い、入力は固定の seed から決定的に作る。
 //! 期待の出力を CPU 参照から作らず、出力に並びの規則を直に当てる試験も置く。
+//! SIMD 版と scalar 版の出力をバイトの列にして比べ、違うバイトの数を数える試験も置く。
 
 use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, ReferenceCpuOps};
 use fandhe_silicon_core::parity::gemm_inputs::{GEMM_INPUT_SEED, SplitMix64};
@@ -346,5 +347,107 @@ fn topk_first_k_are_input_pairs() {
                 assert_eq!(scores[i].to_bits(), score.to_bits(), "{name} {label}");
             }
         }
+    }
+}
+
+/// scalar 版の呼び出しで `out` を前詰めする値。スコアは NaN。
+const FILL_SCALAR: (u32, f32) = (0xA5A5_A5A5, f32::from_bits(0x7fc0_00a5));
+
+/// SIMD 版の呼び出しで `out` を前詰めする値。スコアは NaN。
+const FILL_SIMD: (u32, f32) = (0x5A5A_5A5A, f32::from_bits(0x7fc0_005a));
+
+/// `fill` で前詰めした長さ k の `out` を作り、`method` のメソッドを呼んで出力を返す。
+fn run_filled(
+    ops: &dyn CpuOps,
+    method: Method,
+    scores: &[f32],
+    k: usize,
+    fill: (u32, f32),
+) -> Vec<(u32, f32)> {
+    let mut out = vec![fill; k];
+    let r = match method {
+        Method::Scalar => ops.topk_partial_scalar(scores, k, &mut out),
+        Method::Simd => ops.topk_partial_simd(scores, k, &mut out),
+    };
+    assert!(r.is_ok());
+    out
+}
+
+/// 出力の各件のスロット番号とスコアのビットを、この順に、この環境のバイト順で並べたバイトの列。
+fn out_bytes(out: &[(u32, f32)]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(out.len() * (size_of::<u32>() + size_of::<f32>()));
+    for (slot, score) in out {
+        v.extend_from_slice(&slot.to_ne_bytes());
+        v.extend_from_slice(&score.to_bits().to_ne_bytes());
+    }
+    v
+}
+
+/// 2 つのバイトの列で同じ位置の値が違うバイトの数。長さが違えば `None`。
+fn differing_bytes(a: &[u8], b: &[u8]) -> Option<usize> {
+    if a.len() != b.len() {
+        return None;
+    }
+    Some(a.iter().zip(b).filter(|(x, y)| x != y).count())
+}
+
+/// 出力のどの件も、前詰めの値のスロット番号・スコアのビットを残していないことを確かめる。
+fn assert_overwritten(name: &str, out: &[(u32, f32)], fill: (u32, f32)) {
+    for (i, (slot, score)) in out.iter().enumerate() {
+        assert_ne!(*slot, fill.0, "{name} slot at {i}");
+        assert_ne!(score.to_bits(), fill.1.to_bits(), "{name} score at {i}");
+    }
+}
+
+#[test]
+fn topk_simd_scalar_byte_sequences_match() {
+    // CPU-16
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    let entry_bytes = size_of::<u32>() + size_of::<f32>();
+    let mut compared = 0usize;
+    for (name, scores, k) in cases() {
+        for (label, ops) in &ops_list {
+            let tag = format!("{name} {label}");
+            let scalar = run_filled(ops.as_ref(), Method::Scalar, &scores, k, FILL_SCALAR);
+            let simd = run_filled(ops.as_ref(), Method::Simd, &scores, k, FILL_SIMD);
+            assert_overwritten(&format!("{tag} scalar"), &scalar, FILL_SCALAR);
+            assert_overwritten(&format!("{tag} simd"), &simd, FILL_SIMD);
+            let a = out_bytes(&scalar);
+            let b = out_bytes(&simd);
+            assert_eq!(a.len(), k * entry_bytes, "{tag} scalar len");
+            assert_eq!(b.len(), k * entry_bytes, "{tag} simd len");
+            assert_eq!(differing_bytes(&a, &b), Some(0), "{tag}");
+            compared += a.len();
+        }
+    }
+    assert_eq!(compared, 2 * (64 + 10 + 10) * entry_bytes);
+}
+
+#[test]
+fn topk_byte_count_detects_divergence() {
+    // CPU-16
+    let entry_bytes = size_of::<u32>() + size_of::<f32>();
+    for (name, scores, k) in cases() {
+        let base_out = run_filled(&DefaultCpuOps, Method::Scalar, &scores, k, FILL_SCALAR);
+        let base = out_bytes(&base_out);
+        assert_eq!(differing_bytes(&base, &base), Some(0), "{name} self");
+
+        let mut flipped_out = base_out.clone();
+        let last = flipped_out.last_mut().unwrap();
+        last.1 = f32::from_bits(last.1.to_bits() ^ 1);
+        let flipped = out_bytes(&flipped_out);
+        assert_eq!(differing_bytes(&base, &flipped), Some(1), "{name} bit");
+
+        let mut swapped_out = base_out.clone();
+        swapped_out.swap(0, 1);
+        let swapped = out_bytes(&swapped_out);
+        let n = differing_bytes(&base, &swapped);
+        assert!(n.is_some_and(|n| n > 0), "{name} swap");
+
+        let dropped = &base[..base.len() - entry_bytes];
+        assert_eq!(differing_bytes(&base, dropped), None, "{name} len");
     }
 }
