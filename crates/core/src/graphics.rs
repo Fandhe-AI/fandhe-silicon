@@ -354,7 +354,7 @@ pub use target_check::{
 };
 
 mod surface;
-pub use surface::validate_surface_size;
+pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};
 
 /// `PixelFormat`・`DepthFormat` の値の数と、`TextureFormat` への変換で名前が保たれることを core の中で固定する試験。
 /// 番号を返す `match` は `_` の腕を持たないので、値を足すとコンパイルが落ちて番号を足させる。
