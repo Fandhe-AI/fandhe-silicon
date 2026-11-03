@@ -309,3 +309,41 @@ cargo test -p fandhe-silicon-core --features graphics,test-support --test graphi
 ```
 
 `graphics_pass_stub` は `6 passed; 0 failed; 0 ignored`。
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値の補い（base 8deff9f）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `graphics.rs` の所在・型の行 | `PixelFormat :31`・`DepthFormat :52`・`CompareFunction :104`・`DepthConfig :126`・`RenderEncoder :169` → `:32`・`:53`・`:105`・`:127`・`:170` | `grep -n 'pub enum PixelFormat\|pub enum DepthFormat\|pub enum CompareFunction\|pub struct DepthConfig\|pub struct RenderEncoder' crates/core/src/graphics.rs` |
+| 同・`pub trait GraphicsOps` | `:490` → `:808` | `grep -n 'pub trait GraphicsOps' crates/core/src/graphics.rs` |
+| 同・操作の数 | 19 個（`fn` の行は `:492`〜`:666`）→ 23 個（`:810`〜`:1028`）。足されたのは mesh shader の描画の 4 操作 `draw_mesh_tasks`（`:978`）・`draw_mesh_tasks_indirect`（`:985`）・`multi_draw_mesh_tasks_indirect`（`:993`）・`multi_draw_mesh_tasks_indirect_count`（`:1002`）で、操作の型は [draw-ops-types.md](draw-ops-types.md)（TASK-839） | `awk '/pub trait GraphicsOps/{f=1} f && /^    fn /{print NR": "$0}' crates/core/src/graphics.rs` |
+| 同・`destroy_offscreen_target` / `submit_render` | `:546` / `:659` → `:864` / `:1021` | 上と同じ |
+| 同・状態を設定する 8 操作 | `set_pipeline :579`・`set_vertex_buffer :586`・`set_index_buffer :596`・`set_immediates :606`・`set_viewport :623`・`set_scissor_rect :630`・`set_blend_constant :637`・`set_stencil_reference :644` → `:897`・`:904`・`:914`・`:924`・`:941`・`:948`・`:955`・`:962` | 上と同じ |
+| doctest の件数 | 通常 22 件・`compile_fail` 22 件（計 44 件）→ 通常 27 件・`compile_fail` 26 件（計 53 件）。通常が 5 件、`compile_fail` が 4 件増えた。すべて `ok` | `cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics` |
+| 型の `compile_fail` の行 | `PixelFormat` line 19・`DepthFormat` line 42・`CompareFunction` line 92・`RenderEncoder` line 156・line 163 → line 20・43・93・157・164 | 上と同じ |
+| 通常の doctest の行 | `DepthConfig` line 115・`RenderEncoder` line 142・`GraphicsOps` line 233・`destroy_offscreen_target` line 528 → line 116・143・234・846。ほかに `GraphicsOps` の mesh shader の描画の通る例 4 本（line 562・633・704・775。各 1 操作だけを足した実装がコンパイルに通る）が加わった | 上と同じ |
+| `GraphicsOps` の `compile_fail,E0046` | 8 本（line 245〜462）→ 12 本（line 247・282・317・352・387・422・457・492・527・598・669・740）。mesh shader の描画の 4 操作の分が 527・598・669・740 | `grep -n 'compile_fail,E0046' crates/core/src/graphics.rs` |
+| 操作の `compile_fail,E0382` | `destroy_offscreen_target` line 538・`submit_render` line 652 → line 856・1014 | `grep -n 'compile_fail,E0382' crates/core/src/graphics.rs` |
+| `StubGraphics` | `impl GraphicsOps for StubGraphics` は `stub_device.rs:781`、操作は 19 個、`destroy_offscreen_target` は `:826`、`submit_render` は `:977` → `:782`、23 個、`:827`、`:1029` | `grep -n 'impl GraphicsOps for' crates/core/src/stub_device.rs`、`awk` で `impl` の本体の `    fn ` の行を数える |
+| `FixedGraphics` | `graphics_types.rs:21`、操作は 19 個 → `:21` のまま、23 個 | `awk '/impl GraphicsOps for FixedGraphics/{f=1;next} f && /^}/{exit} f && /^    fn /{c++} END{print c}' crates/core/tests/graphics_types.rs` |
+| `stub_device` の `--lib` | 43 件 → 47 件 | `cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device` |
+| 描画パスの状態の操作の型の試験の補いの `GraphicsOps` の `compile_fail,E0046` | 8 本（line 245〜462）→ 12 本（line 247〜740）。状態を設定する 8 操作の分は line 247〜492 の 8 本 | `grep -n 'compile_fail,E0046' crates/core/src/graphics.rs` |
+| 変わらない値 | `stub_device_graphics` 13 件・`device_trait_shape` 8 件・`graphics_types` 4 件・`graphics_pass_stub` 6 件・`crates/core/src/lib.rs` の `:39`・`Default` を持たない型の `compile_fail,E0277` 4 本（`pass_state.rs` line 18・51、`draw_range.rs` line 19・52） | `cargo test -p fandhe-silicon-core --features test-support,graphics --test <名前>`、`grep -n 'forbid(unsafe_code)' crates/core/src/lib.rs` |
+
+試験の所在（mesh shader の描画の 4 操作に足した分。TASK-839 のポインタ。詳細は [draw-ops-types.md](draw-ops-types.md)）は次のとおり。
+
+| 試験 | 所在 | 本数・確かめること |
+| ---- | ---- | ------------------ |
+| mesh shader の描画の通る例 | `crates/core/src/graphics.rs` の `GraphicsOps` の rustdoc（line 562・633・704・775） | doctest 4 本（通常）。各 `compile_fail,E0046` の例に、欠けた 1 操作だけを足すとコンパイルが通る |
+| `graphics_ops_doctest_shape` | `crates/core/tests/graphics_ops_doctest_shape.rs`（`Cargo.toml` の `[[test]]`、`required-features = ["graphics"]`） | 1 本（`each_e0046_example_lacks_exactly_one_operation`）。`GraphicsOps` の操作が 23 個で、局所の実装を持つ `compile_fail,E0046` の例が 12 本、各例が trait の全操作から異なる 1 操作だけを除いた集合であること、mesh shader の 4 操作それぞれに例があることを、ソースの文字列から確かめる |
+| `FixedGraphics` の mesh shader の呼び出し | `crates/core/tests/graphics_types.rs` の `graphics_ops_is_implementable_and_object_safe`（293〜299 行目） | 4 操作の呼び出しが固定で `Ok(())`。`graphics_types` は 4 本のまま |
+
+```text
+cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics
+cargo test -p fandhe-silicon-core --features graphics --test graphics_ops_doctest_shape
+cargo test -p fandhe-silicon-core --features graphics --test graphics_types
+```

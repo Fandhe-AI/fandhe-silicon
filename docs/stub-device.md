@@ -395,3 +395,20 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | 同じ表の `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151`（今は `:127`・`:192`）→ 今は `:127`・`:199` | `grep -n 'pub trait Device\b\|pub trait DeviceProvider' crates/core/src/device.rs` |
 | 同じ表の `CommandQueue` | `crates/core/src/execution/submit.rs:216` → 今は `:277` | `grep -n 'pub trait CommandQueue' crates/core/src/execution/submit.rs` |
 | 同じ節の `git grep` の出力 | 12 件 → 17 件。表に無かった当たりは `StubDevice`（`crates/core/src/stub_device.rs:1093`）、`StubDeviceProvider`（同 `:1202`）、`UpperDevice`（`crates/upper/src/device.rs:26`）、`Queue`（同 `:56`）、`DeviceGraphicsGate`（`crates/contract/src/cfg_gate_doctest.rs:118`） | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Queue\|Stub)' -- crates wasm` |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+`stub_device.rs` の変更 #7923（mesh shader の描画の 4 操作の試験用の device の返し。[draw-ops-types.md](draw-ops-types.md)）は、上の「再実行の契機」の最初の項目に当たる。最後の流し直しは `f72b280` だったので、上の表の方法を流し直した。値が変わった所だけを次に書く。ほかの行（公開 API の検査の `wgpu_*`・`*_hits_total`・`sdk_*`・`unexpected`・`missing`・`forward_violations`・`forbidden_features` の 0、`make deps-check`・`make wasm-verify` の終了コード 0）は `f72b280` のときと同じ。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 上の # 2（直前の流し直し `f72b280`） | `--features test-support` の lib は 11 → 26。compute 10・memory 11・queue 9・request 9 は同じ（すべて `ok`、failed 0、ignored 0） | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_compute --test stub_device_memory --test stub_device_queue --test stub_device_request`、`... --lib stub_device` |
+| 上の # 3 | `--all-features` の lib は 14 → 48。compute 10・memory 12・queue 10・request 9 は同じ | 同じ組を `--all-features` で流す |
+| 上の # 4・5 | `device.rs - device (line 13)` の行を含む実行の passed は、feature なしが 39 → 63（`compile fail ... ok`）、`--features test-support` が 51 → 81、`--all-features` が 62 → 109（どちらも `ok`）。`--doc` は 2 つの実行に分かれ、`device.rs - device (line 13)` を含まないもう一方の実行は feature なしが 68、`--features test-support` が 67、`--all-features` が 95 passed | `cargo test -p fandhe-silicon-core --doc`、`... --features test-support --doc`、`... --all-features --doc` |
+| 上の # 6 | `make public-api-check` の `public_items_total` は 11752 → 15244（`documents=10 wgpu_type_refs_total=0 wgpu_other_refs_total=0`） | `make public-api-check` |
+| 上の # 7〜11 | `public-name-check` は `documents=10 public_items_total=13111 name_hits_total=0 source_hits_total=0 field_hits_total=0`、`public-api-webgpu-check` は `documents=2 public_items_total=3814 blocking_wait_names_total=0 webgpu_names_total=0`、`public-api-sdk-check` は `public_items_total=13111 sdk_type_refs_total=0 common_declared_deps=0`、`core-deps-check` は `unexpected=0 missing=0 forward_violations=0`、`upper-layer-check` は `forbidden_features=0`。5 本とも終了コード 0 | `make public-name-check`、`make public-api-webgpu-check`、`make public-api-sdk-check`、`make core-deps-check`、`make upper-layer-check` |
+| 上の # 12 | `stub_device.rs` の `backend-` は 0 件、4 本の試験の `#[ignore` は 0 → 同じ。`crates/core/tests/stub_device_*.rs` は今は 8 ファイル（`textures`・`samplers`・`graphics`・`unsubmitted` が加わった）で、`#[ignore` はどれも 0 | `git grep -n 'backend-' -- crates/core/src/stub_device.rs`、`grep -c '#\[ignore' crates/core/tests/stub_device_*.rs` |
+
+落ちたものは無い。`make wasm-verify`・`make deps-check` は終了コード 0。`make verify` も終了コード 0（`test result:` は 221 行、2234 passed・0 failed・7 ignored）。`make deny`・`make build-profiles` は流していない（CI の `deny`・`verify` ジョブで流れる）。

@@ -146,3 +146,14 @@ crates/core/tests/dispatch_constants_per_call.rs | 202 +++++++++++++++++++++++
 | 1/3 | #7692 | 記録先の型に借用の寿命の引数が無いことの試験 | 本書の「記録先の型と借用の試験（1/3）」 |
 | 2/3 | #7693 | 定数を dispatch ごとに渡す形の試験 | 本書の「定数を dispatch ごとに渡す形の試験（2/3）」 |
 | 3/3 | #7694 | 完了の条件の確かめ | 本書の「完了の条件の確かめ（3/3）」 |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「補い（base 8deff9f）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 出力の `graphics.rs` の行 | `crates/core/src/graphics.rs:575` → `:893`（`draw_ex` の `vertex_constants` の引数。rustdoc の例の中の同じ字句の行は除く） | `grep -n 'ConstantBinding<' crates/core/src/graphics.rs crates/core/src/stub_device.rs` |
+| 出力の `stub_device.rs` の行 | `:466`・`:865` → `:466`・`:866` | 上と同じ |

@@ -197,3 +197,12 @@ make public-api-sdk-check  ok: 10 public API document(s) checked, common crate d
 
 - [upper-layer-crate-check](./upper-layer-crate-check.md)（上の層の crate の実物に当てた検査の記録）
 - [upper-layer-check](./upper-layer-check.md)
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 試験用の device での試験（4/5）の「試験」（131 行目） | 試験のファイルは `upper_compute_path.rs`・`upper_wait_blocking.rs` の 2 つ → `crates/upper/tests/` の試験は 3 つ。ほかに `cross_layer_types.rs`（[cross-layer-types.md](cross-layer-types.md)）がある。本数は `upper_compute_path` 7・`upper_wait_blocking` 1・`cross_layer_types` 4 | `ls crates/upper/tests`、`cargo test -p fandhe-silicon-upper --features native-blocking-wait` |
+| 同じ節の「組む条件」（133 行目） | `upper_compute_path` は feature の条件なし、`upper_wait_blocking` は `native-blocking-wait` の下だけ → `cross_layer_types` も `native-blocking-wait` の下だけ（`Cargo.toml` の `[[test]]` の `required-features`）。feature なしで流れる試験は `upper_compute_path` の 7 本だけ | `grep -n -A2 'cross_layer_types\|upper_wait_blocking' crates/upper/Cargo.toml`、`cargo test -p fandhe-silicon-upper` |

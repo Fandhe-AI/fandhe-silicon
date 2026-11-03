@@ -137,3 +137,13 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_ty
 | 2/4 | #5348 | 取得の結果の 2 つの型と対応 |
 | 3/4 | #5349 | 外の crate からの境界の入力と対応の試験 |
 | 4/4 | #5350 | 完了の条件の確かめ（本頁の 4/4 の節） |
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+記録の値は、直前の「今の値の補い（base 8deff9f）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 表の 1 の再公開の行 | `crates/core/src/graphics.rs` の `:681` が `mod surface;`、`:682` が `pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};` → `:1043`・`:1044` | `grep -n 'mod surface\|pub use surface' crates/core/src/graphics.rs` |

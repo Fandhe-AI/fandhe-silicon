@@ -218,3 +218,15 @@ grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/
 - 「本書の前の言及」の `git grep -n TASK-262 -- . ':!docs/spec'` は、この節を足す前の base で 7 行を返す（`CLAUDE.md` 1 行、`README.md` 1 行、本書 5 行〔1・4・27・109・137 行目〕）
 - 対象の crate のファイル 9 個は `Cargo.toml` の 1 個と `.rs` の 8 個。`record:` の `rs_files=8` は `.rs` だけを数える
 - `make upper-layer-check` の終了コードは 0、`record:` は `rs_files=8 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0`。`make test-upper-layer-check` の最後の行は `passed=746 failed=0`
+
+## 今の値の補い（base 2f36d3d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 所在の「対象の crate」（23 行目） | git 管理下のファイルは 9 個 → 10 個 | `git ls-files crates/upper \| wc -l` |
+| `record:` の欄の表（38 行目）の `rs_files` | 8 → 9。`crates/upper/tests/cross_layer_types.rs` が加わった | `make upper-layer-check \| grep '^record:'`、`find crates/upper -name '*.rs'` |
+| 「他の補い」の 3 つ目（219 行目） | ファイル 9 個は `Cargo.toml` の 1 個と `.rs` の 8 個。`rs_files=8` は `.rs` だけを数える → ファイル 10 個は `Cargo.toml` の 1 個と `.rs` の 9 個（`src/` に 5 個、`tests/` に 4 個〔`tests/common/mod.rs` を含む〕）。`rs_files=9` は `.rs` だけを数える | `git ls-files crates/upper`、`find crates/upper -name '*.rs'` |
+| 「他の補い」の 4 つ目（220 行目） | `record:` は `rs_files=8 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` → `rs_files=9` のほかは同じ値。`make test-upper-layer-check` の最後の行は `passed=746 failed=0` のまま | `make upper-layer-check \| grep '^record:'`、`make test-upper-layer-check \| tail -1` |
+| 「crate ディレクトリの外から読むファイルの指定」の行 | 0 → 0 | `git grep -nE '#\[path\|include!\|include_str!\|include_bytes!' -- crates/upper \| wc -l` |
