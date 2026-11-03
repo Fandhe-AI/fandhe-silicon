@@ -293,8 +293,6 @@ run_case --from-dir "${F}/scalar.wasm" "${F}/badleb.wasm" --source-root "${S}/no
 expect "artifact-bad-leb" 2 "error: malformed LEB128" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/badleb5.wasm" --source-root "${S}/none"
 expect "artifact-leb-fifth-byte-high-bits" 2 "error: malformed LEB128" "!record:"
-run_case --from-dir "${F}/scalar.wasm" "${F}/badleb5.wasm" --source-root "${S}/none"
-expect "artifact-leb-fifth-byte-high-bits" 2 "error: malformed LEB128" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/trunc.wasm" --source-root "${S}/none"
 expect "artifact-truncated-section" 2 "error:" "!record:"
 run_case --from-dir "${F}/scalar.wasm" "${F}/dup.wasm" --source-root "${S}/none"
@@ -328,17 +326,6 @@ expect "type-private-module-path-reexported" 1 "type: name=hidden::Shown label=m
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type Shown
 expect "type-private-module-use" 0 "type: name=Shown label=match build=simd128"
-run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
-  --require-type Hid
-expect "type-nonpublic-use" 1 "type: name=Hid label=mismatch"
-run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
-  --require-type Ext
-expect "type-external-use" 1 "type: name=Ext label=mismatch"
-for n in Renamed Reexp::Deep; do
-  run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
-    --require-type "${n}"
-  expect "type-reexport-${n}" 0 "type: name=${n} label=match build=simd128" "types=1/1"
-done
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/doc.json" \
   --require-type Hid
 expect "type-nonpublic-use" 1 "type: name=Hid label=mismatch"
@@ -402,16 +389,6 @@ cfg_case runtime_spaced
 expect "cfg-runtime-detection-spaced" 1 "label=mismatch reason=runtime-detection" "line=3 reason=runtime-detection"
 cfg_case debug_cfg
 expect "cfg-debug-assertions" 1 "label=mismatch reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
-cfg_case doc_cfg
-expect "cfg-doc" 1 "label=mismatch reason=doc-cfg" "line=3 reason=doc-cfg"
-cfg_case doc_cfg_attr_ok
-expect "cfg-attr-doc-attribute-ok" 0 "cfg: sites=1 label=match" "ok:"
-cfg_case ident_debug
-expect "cfg-ident-debug-assertions-ok" 0 "cfg: sites=1 label=match" "ok:"
-cfg_case cfg_macro_debug
-expect "cfg-macro-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
-cfg_case cfg_attr_debug
-expect "cfg-attr-debug-assertions" 1 "reason=debug-assertions-cfg" "line=3 reason=debug-assertions-cfg"
 cfg_case doc_cfg
 expect "cfg-doc" 1 "label=mismatch reason=doc-cfg" "line=3 reason=doc-cfg"
 cfg_case doc_cfg_attr_ok
