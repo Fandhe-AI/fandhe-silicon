@@ -168,3 +168,14 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 - wasm32 の組は `cargo check` だけで doctest が流れないので、この表に含めない
 - 読み戻しの口の名前の側の機械の検査は `make public-api-webgpu-check` の (1) にある（TASK-241 のポインタ）
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-233）
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「記録の時点の値」（アイテムへの差し替え 5/7）と同（6/7）の `cfg_gate_doctest.rs` の doctest 9 件 | 9 件 → 11 件。9 件の一覧に `CpuOpsGate`（127 行目）と `CpuOpsNonExhaustiveGate`（142 行目）が加わった（[cpu-ops-surface-check](cpu-ops-surface-check.md)） | `grep -c '^pub struct' crates/contract/src/cfg_gate_doctest.rs`（11）、`grep -n '^pub struct' crates/contract/src/cfg_gate_doctest.rs` |
+| 完了の条件の確かめ（4/4）の A5 と完了の条件の確かめ（7/7）の (2c) の有効側の試験 | `feature_gate_enabled` は 2 件 → 3 件（`3 passed; 0 failed; 0 ignored`。`cpu_ops_gate_is_visible` が加わった） | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
+| 同じ行の `--all-features --doc` | doctest はすべて通常の成功 → `cfg_gate_doctest.rs` の doctest 11 件はすべて通り、10 件が `ok`、`CpuOpsNonExhaustiveGate (line 131)` だけが `compile fail ... ok`（`compile_fail,E0004`） | `cargo test -p fandhe-silicon-contract --all-features --doc` |
+| 完了の条件の確かめ（7/7）の (5) | `feature_gate_scope` は絞りなしで 6 件 → 今も 6 件（`6 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-contract --test feature_gate_scope` |

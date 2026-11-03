@@ -341,3 +341,28 @@ make verify
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたとき、`scripts/build-profiles.sh` の wasm32 の lint の行や `scripts/wasm-verify.sh` の simd128 の lint の段を変えたときに、表を取り直す。
+
+## 今の値の補い（base 25d8dc2）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 所在・上の `base 8c52335` の補い | 指している頁は [cpu-ops-topk-order.md](cpu-ops-topk-order.md) だけ → 次の頁が加わった。要素ごとの演算の出力の全要素の試験は [cpu-ops-elementwise-check.md](cpu-ops-elementwise-check.md)、部分 Top-k の SIMD 版と scalar 版のバイトの比べは [cpu-ops-topk-simd-bytes.md](cpu-ops-topk-simd-bytes.md)、公開の型と feature の有無の確かめは [cpu-ops-surface-check.md](cpu-ops-surface-check.md) | `ls docs/cpu-ops*.md` |
+| 完了の条件の確かめ（5/5）の (9) | `--lib cpu_ops` は 6 本 → 13 本（`13 passed; 0 failed; 0 ignored`）。`cpu_ops_reference` は 7 本 → 8 本（`8 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-contract --features test-support --lib cpu_ops`、`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` |
+| 完了の条件の確かめ（9/9）の (8) | `--lib cpu_ops` は 6 本 → 13 本。`cpu_ops_reference` は 7 本 → 8 本 | 上と同じ |
+| 完了の条件の確かめ（5/5）の (8) | `947283a..383b2e4` の `Cargo.toml` は +4 行 → 同じ範囲は今も +4 行（`1 file changed, 4 insertions(+)`） | `git diff --stat 947283a..383b2e4 -- crates/contract/Cargo.toml` |
+| 完了の条件の確かめ（9/9）の (7) | `947283a..HEAD` の `Cargo.toml` は +4 行 → `947283a..25d8dc2` で +16 行（`[[test]]` の 4 項目 `cpu_ops_reference`・`cpu_ops_topk_reference`・`cpu_ops_elementwise_written`・`cpu_ops_public_surface` が各 +4 行）。`Cargo.lock`・`deps-approved.toml` は差分なし | `git diff --stat 947283a..HEAD -- crates/contract/Cargo.toml Cargo.lock deps-approved.toml`、`git log --format='%h %s' 947283a..HEAD -- crates/contract/Cargo.toml` |
+| 部分 Top-k の完了の条件の確かめ（3/3）の (8) | `3b6fa07..HEAD` の `Cargo.toml` は +4 行、`simd128.rs` は差分 0 → `3b6fa07..25d8dc2` で `Cargo.toml` は +12 行、`simd128.rs` は +5 行・-2 行。`simd128.rs` の差分は `f8b7a29`（#7880）の分。`Cargo.lock`・`deps-approved.toml` は差分なし | `git diff --stat 3b6fa07..HEAD -- Cargo.lock deps-approved.toml crates/contract/Cargo.toml crates/contract/src/cpu_ops/simd128.rs`、`git log --format='%h %s' 3b6fa07..HEAD -- crates/contract/Cargo.toml crates/contract/src/cpu_ops/simd128.rs` |
+| 部分 Top-k の完了の条件の確かめ（3/3）の (9) と上の `base 8c52335` の補い | `cpu_ops_topk_reference` は 10 本 → 12 本（`12 passed; 0 failed; 0 ignored`）。足された 2 本の所在は [cpu-ops-topk-simd-bytes.md](cpu-ops-topk-simd-bytes.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` |
+| simd128 の構成の試験の型検査と lint（8/9） | 次の clippy を 1 回流す → 2 段になった。simd128 の段（`scripts/wasm-verify.sh` の 59 行目の `log`）に続けて、simd128 なしの wasm32 の scalar の段（68 行目の `log`。`--target-dir` は `wasm32-scalar`）を同じ feature の組で流す。`make wasm-verify` は終了コード 0 | `grep -n 'cargo clippy (crates/contract tests' scripts/wasm-verify.sh`、`make wasm-verify` |
+
+今の値の補いとして、次の試験が加わっている。
+
+| 試験 | 所在 | 本数 |
+| ---- | ---- | ---- |
+| `AddScalar` を 0.5 以外の定数（`-2.5`・`1.0`・`3.75`・`0.3`・`-0.125`・`1.0e6`）で確かめる `elementwise_add_scalar_other_constants`（#7917） | `crates/contract/tests/cpu_ops_reference.rs` の 277 行目。`DefaultCpuOps`・`ReferenceCpuOps` の scalar 版・SIMD 版の出力を、長さ 11 通りで `x + c` とビットまで比べる | `cpu_ops_reference` の 8 本のうちの 1 本 |
+| `cpu_ops_feature_sets`（#7926） | `crates/contract/tests/cpu_ops_feature_sets.rs`（`Cargo.toml` に `[[test]]` の項目は無い）。`contract-core` から含意を辿った先に `cpu-ops` が無いことと、`scripts/build-profiles.sh` の `NATIVE_SETS` に `contract-core` だけの組の行があることを、文字列から確かめる | 4 本（`cargo test -p fandhe-silicon-contract --test cpu_ops_feature_sets` が `4 passed; 0 failed; 0 ignored`） |
+| `CpuOpsNonExhaustiveGate`（#7926） | `crates/contract/src/cfg_gate_doctest.rs` の 142 行目の目印の型（rustdoc の表示は `line 131`）。`cpu-ops` が有効なときは `compile_fail,E0004`、無効なときは `ignore` | doctest 1 本（詳細は [cpu-ops-surface-check.md](cpu-ops-surface-check.md)） |
+
+`--lib cpu_ops` の本数は `--features test-support` を付けなくても 13 本（`cargo test -p fandhe-silicon-contract --lib cpu_ops`）。`cpu_ops_build_selection` は今も 7 本（`cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection`）。

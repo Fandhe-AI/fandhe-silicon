@@ -197,3 +197,11 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 ## `Device::fault_hooks`
 
 `Device` は feature `fault-injection` のビルドにだけ、既定が `None` のメソッド `fault_hooks()`（`Option<&dyn FaultHooks>`）を持つ。詳細と試験は [contract-fault-injection](contract-fault-injection.md)。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 本リポの現状の「`contract` の公開面」 | 公開モジュールは feature の裏の `backend_*` と `doc(hidden)` の `cfg_gate_doctest` だけ → `crates/contract/src/lib.rs` の `pub mod` は 7 行で、`cfg_gate_doctest`（16 行目）、`memory_free_doctest`（21 行目）、`callback_send_doctest`（26 行目）、`backend_metal`（32 行目）、`backend_vulkan`（37 行目）、`backend_cuda`（41 行目）、`cpu_ops`（45 行目）。`cpu_ops` は `#[cfg(feature = "cpu-ops")]`（44 行目）の裏にあり、`cpu-ops` は `default` に入っている。`cpu_ops` は `CpuOps`・`DefaultCpuOps`・`ReferenceCpuOps`・`UnaryElementwiseOp` を公開する（[cpu-ops](cpu-ops.md)） | `grep -n 'pub mod' crates/contract/src/lib.rs`、`sed -n 44,45p crates/contract/src/lib.rs`、`sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml` |
