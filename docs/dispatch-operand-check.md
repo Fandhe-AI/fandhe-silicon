@@ -378,3 +378,5 @@ ART-90・ART-92 のポインタ。実装（`crates/core/src`）は変えず、�
 - 束縛の側の文言の全体は TASK-473 の範囲で、ここでは照合しない
 - 確かめ方: `cargo test -p fandhe-silicon-core --test execution_dispatch_check`（27 passed）、`cargo test -p fandhe-silicon-core --lib dispatch_check`（20 passed）
 - 確かめた base: `2b742a2`。`git diff origin/main -- crates/core/src` は空
+
+関連: dispatch の検査の入力の組は [dispatch-check-inputs.md](dispatch-check-inputs.md)（TASK-2944）。
