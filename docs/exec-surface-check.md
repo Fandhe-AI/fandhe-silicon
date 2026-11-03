@@ -93,3 +93,86 @@ passed=34 failed=0
 make exec-surface-check
 make test-exec-surface-check
 ```
+
+## 既定の feature の公開の面にある試験用の口の名前の走査（2/6）
+
+`crates/exec` の rustdoc の JSON を feature の組ごとに作り、試験用の口と値の名前を数える。既定の feature の JSON は 0 件、`--all-features` の JSON は各名前が 1 件以上であることを期待する。同じスクリプト（`scripts/exec-surface-check.sh`）の走査で、make ターゲットと回帰テストは 1/6 と同じ。
+
+### 使い方の追加
+
+| 呼び方 | 動き |
+| ------ | ---- |
+| 引数なし、または `--crate-dir <dir>` | ソースの走査の後に、cargo で JSON を 2 組作って名前を数える |
+| `--json-default <path> --json-all <path>` | 渡した 2 つの JSON だけで名前を数え、cargo を呼ばない（2 つ揃えて 1 回ずつ。`--crate-dir` と併用できる） |
+
+コミットは 1/6 と同じ規則で、ソースの走査先が既定の `crates/exec` のときだけ HEAD、`--crate-dir` のときは `-`。
+
+終了コード 2 の項目の追加: `--json-default` と `--json-all` の片方だけ・重複、cargo・rustdoc が使えない、JSON を作れない、JSON が読めない・形が崩れている（トップが object でない、`index`・`paths`・`external_crates` が object でない、`root` が無い、`includes_private` が false でない、`format_version` が整数でない、`crate_id` が整数でないアイテム、`index[root]` の名前が `fandhe_silicon_exec` でない）。
+
+### JSON を作る組
+
+| 組 | cargo の feature の引数 | 期待 |
+| -- | ----------------------- | ---- |
+| `default` | なし | 名前の合計 0 件 |
+| `all-features` | `--all-features` | 名前の一覧の各名前が 1 件以上 |
+
+- コマンドの形: `cargo rustdoc --locked --offline --target-dir <target_directory>/exec-surface-check -p fandhe-silicon-exec [--all-features] --lib -- -Z unstable-options --output-format json --document-hidden-items`
+- `RUSTC_BOOTSTRAP=1` は `rustdoc -Z unstable-options --version` の確認と `cargo rustdoc` の子プロセスにだけ渡す。子プロセスの出力は出さない。
+- 組ごとに古い JSON を消してから流し、出力の存在を確かめて `doc/fandhe_silicon_exec.<組>.json` へ移す。
+
+### 名前の一覧
+
+`crate_id` が 0 のすべてのアイテム（種類と visibility を問わない）の `name` を、一覧の名前と完全一致で数える。`use` のアイテムは `inner.use.name` も見る。1 つのアイテムは 1 回だけ数える。
+
+| 名前 | `--all-features` の JSON での所在 |
+| ---- | ------------------------------ |
+| `force_unsupported` | `Exec::force_unsupported` |
+| `inject_denormal` | `Exec::inject_denormal` |
+| `ForcedUnsupported` | `UnavailableReason::ForcedUnsupported` |
+| `DenormalInjection` | enum |
+| `Injected` | `F32DenormalBasis::Injected` |
+
+### 出力の追加
+
+| 出力 | 内容 |
+| ---- | ---- |
+| `scanned: features=<default\|all-features> items=<n>` | 組ごとの `crate_id` 0 のアイテムの数 |
+| `record:` の追加の欄 | `items_default`・`items_all`・`port_names_default`・`port_names_all`・`port_names_missing_all`（all-features で 0 件の名前の数） |
+| `violation: check=port-name features=default name=<名前> count=<n>` | 標準エラー。default で 1 件以上の名前ごと |
+| `violation: check=port-name-positive features=all-features name=<名前>` | 標準エラー。all-features で 0 件の名前ごと |
+
+### 回帰テストの場面の追加
+
+1/6 の `--crate-dir` の場面は、合格する合成の JSON を添えて流す（期待は同じ）。
+
+| 場面 | 期待の終了コード | 見る出力 |
+| ---- | ---------------- | -------- |
+| 実物の引数なしの流し | 0 | `port_names_default=0`・`port_names_missing_all=0`・組ごとの `scanned: features=` |
+| 合成の合格（default に名前なし、all-features に 5 つ） | 0 | `ok:`・`port_names_default=0` |
+| default に名前を 1 つ足す（関数・variant・enum・欄・`use`） | 1 | `check=port-name features=default name=<名前> count=1` |
+| all-features から 1 つの名前を消す | 1 | `check=port-name-positive`・`port_names_missing_all=1` |
+| `crate_id` が 1 または 2 の同名、`force_unsupported_count`・`MyInjected` | 0 | `port_names_default=0` |
+| `--json-default` だけ・`--json-all` だけ・重複 | 2 | `error:`（`record:`・`ok:` が無い） |
+| 無いファイル、JSON でない、トップが配列、`includes_private` が true、`format_version` が文字列、`crate_id` の無いアイテム、root が別の crate の名前 | 2 | `error:`（`record:`・`ok:` が無い） |
+| cargo の無い PATH で `--crate-dir` だけ | 2 | `error: cannot run cargo` |
+
+### 手元の実行
+
+base `c956c96` の上で、作業ツリーの変更ありのときの実行。
+
+```text
+record: commit=c956c962f0ae50300b4c7b8fe32ca95de2001d3b-dirty rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0
+```
+
+回帰テストの最終行。
+
+```text
+passed=55 failed=0
+```
+
+### 確かめ方
+
+```bash
+make exec-surface-check
+make test-exec-surface-check
+```
