@@ -1,7 +1,7 @@
 //! feature `graphics` の描画の公開の型と `GraphicsOps` の形を、外の crate から公開のパスだけで確かめる統合テスト
 //! （TASK-837 の 4/4 のポインタ）。
 //!
-//! 局所の型に 11 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
+//! 局所の型に 19 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
@@ -9,7 +9,8 @@ use fandhe_silicon_core::execution::{
     PipelineInput, SubmitToken,
 };
 use fandhe_silicon_core::graphics::{
-    CompareFunction, DepthConfig, DepthFormat, GraphicsOps, PixelFormat, RenderEncoder,
+    CompareFunction, DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat,
+    RenderEncoder, ScissorRect, Viewport,
 };
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use fandhe_silicon_core::render_target::RenderTargetHandle;
@@ -93,6 +94,77 @@ impl GraphicsOps for FixedGraphics {
         _vertex_constants: &[ConstantBinding<'_>],
     ) -> Result<(), ContractError> {
         Err(ContractError::DeviceMismatch)
+    }
+
+    fn set_pipeline(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _pipeline: &PipelineHandle,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_vertex_buffer(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _slot: u32,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: Option<u64>,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_index_buffer(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _buffer: &BufferHandle,
+        _format: IndexFormat,
+        _offset: u64,
+        _size: Option<u64>,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_immediates(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _offset: u32,
+        _data: &[u8],
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_viewport(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _viewport: Viewport,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_scissor_rect(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _rect: ScissorRect,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_blend_constant(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _color: [f32; 4],
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn set_stencil_reference(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _reference: u32,
+    ) -> Result<(), ContractError> {
+        Ok(())
     }
 
     fn submit_render(
