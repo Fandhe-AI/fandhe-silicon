@@ -102,6 +102,48 @@ origin/main のコミット `567e7cd`、`docs/spec` の gitlink は `c7887a1` �
 
 - dev の辺を含めた木で当たる 1 行は、`measure-perf` の `[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`
 
+## 完了の条件の確かめ（3/3）
+
+1/3・2/3 の節を入れた後の作業ツリーで観測した結果。
+origin/main のコミット `31a50d5`、`docs/spec` の gitlink は `c7887a1` の時点。コマンドはリポジトリの根で流した。
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-262。ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `unsafe` の件数と forbid の宣言 | `make upper-layer-check \| grep '^record:'` と `grep -n 'forbid(unsafe_code)' crates/upper/src/lib.rs` | 終了コード 0、`ok:` の行あり、`forbid=yes`・`unsafe_total=0`。`crates/upper/src/lib.rs` の 9 行目に `#![forbid(unsafe_code)]` |
+| 2 | チップの crate への依存とソース中の名前 | `make upper-layer-check \| grep '^record:'` | `chip_deps=0`・`chip_paths=0` |
+| 3 | 直接依存 | `make upper-layer-check \| grep '^record:'` と `cargo tree --locked --offline --target all -p fandhe-silicon-upper --depth 1 -e normal,build,dev` | `direct_deps=3`・`other_deps=0`。通常の依存に `fandhe-silicon-core`・`fandhe-silicon-exec`、`[dev-dependencies]` に `fandhe-silicon-core` |
+| 4 | 上の層へ向く依存 | `cargo tree --locked --offline --target all --workspace -i fandhe-silicon-upper -e normal,build,dev \| wc -l` と `grep -c 'name = "fandhe-silicon-upper"' measure/Cargo.lock wasm/Cargo.lock baseline-wgpu/Cargo.lock` | 前者は 1。後者は 3 つとも 0 |
+| 5 | 単独のビルド | `cargo build --locked --offline -p fandhe-silicon-upper` と `cargo build --locked --offline -p fandhe-silicon-upper --features native-blocking-wait`。`cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e normal,build,dev --prefix none \| grep -c fandhe-silicon-contract`。`git grep -nE '#\[path\|include!\|include_str!\|include_bytes!' -- crates/upper \| wc -l` | ビルドはどちらも終了コード 0。契約の crate の行は 0。ファイルの指定の行は 0 |
+| 6 | feature の木の `test-support`・`fault-injection` | `cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build \| grep -cE 'test-support\|fault-injection'`（`--all-features` 付きも）、同じコマンドの `-e features,normal,build,dev` 版（`--all-features` 付きも）、`measure/` は `--manifest-path measure/Cargo.toml --workspace --all-features` を付けた同形の 2 つ、`grep -c 'name = "fandhe-silicon-contract"' measure/Cargo.lock` | 通常・build の辺は指定なし・`--all-features` とも 0。dev の辺を含めると 1（`[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`）。`measure/` は通常・build の辺が 0、dev の辺を含めると 1（`measure-perf` の `[dev-dependencies]` の下の `fandhe-silicon-core feature "test-support"`）。`measure/Cargo.lock` の契約の crate は 0。`record:` は `measure_pkgs=2`・`measure_contract_pkgs=0`・`measure_forbidden=0` |
+| 7 | 検査が CI で流れる場所 | `grep -n 'run: make upper-layer-check\|run: make test-upper-layer-check' .github/workflows/ci.yml` と `make test-upper-layer-check` | `.github/workflows/ci.yml` の 268 行目が `run: make upper-layer-check`、338 行目が `run: make test-upper-layer-check`。`make test-upper-layer-check` の最後の行は `passed=746 failed=0` |
+
+### 成果物と節の対応
+
+| 成果物 | 節 |
+| ------ | -- |
+| 件数の記録 | 「unsafe と直接依存の記録（1/3）」・「単独のビルドと feature の木の記録（2/3）」 |
+| 確かめ | 「完了の条件の確かめ（3/3）」 |
+
+### 再実行の契機
+
+次の出来事のとき、上の表のコマンドを流し直し、記録時点の表は書き換えずに表の後に補いを置く。
+
+- `crates/upper` の `Cargo.toml`・`src/`・`tests/` が変わったとき
+- `measure/` に member か依存が足されたとき
+- `scripts/upper-layer-check.sh` の数え方の定義が変わったとき
+
+確かめた base のコミットは `31a50d5c4fbe5913a439ec228779b9ad14b4ff80`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-262）。
+
+## 段の表
+
+| 段 | イシュー・PR | 節 |
+| -- | ------------ | -- |
+| 1/3 | #4006（PR #7885） | unsafe と直接依存の記録（1/3） |
+| 2/3 | #4007（PR #7887） | 単独のビルドと feature の木の記録（2/3） |
+| 3/3 | #7877 | 完了の条件の確かめ（3/3） |
+
 ## 本リポでの反映の方針
 
 本書には、同じ PR の作業ツリーで流したコマンドとその出力だけを置く。節を足すときは前の節を書き換えず、新しい節を足す。
