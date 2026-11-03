@@ -32,9 +32,9 @@ pub enum ExpectedCheck {
     C7,
     /// C8 に当たる。
     C8,
-    /// dispatch_dims に 0 を含む入力。C1・C3〜C8 の検査には当たらない。
+    /// dims が `Fixed([0, 1, 1])` の入力。C1・C3〜C8 の検査には当たらない。
     ZeroDispatchDims,
-    /// dispatch_dims が上限を超える入力。C1・C3〜C8 の検査には当たらない。
+    /// dims が `OverLimit`（軸 0 が上限の軸 0 に 1 を足した値、軸 1・2 が 1）の入力。C1・C3〜C8 の検査には当たらない。
     DispatchDimsOverLimit,
 }
 
