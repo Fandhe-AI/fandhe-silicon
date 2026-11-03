@@ -107,3 +107,39 @@ cargo test -p fandhe-silicon-exec --features fault-injection --lib
 ```text
 cargo test -p fandhe-silicon-exec --features fault-injection --lib
 ```
+
+## 3 つの口を公開のパスから使う試験と使い方（4/6）
+
+### 所在
+
+- `crates/exec/tests/fault_injection_ports.rs`（`crates/exec/Cargo.toml` の `[[test]]` で `required-features = ["fault-injection"]`）
+- 試験用の device の構築の関数 `Scripted::overriding(feature, query)`（`crates/exec/tests/common/mod.rs`。`FaultScript::CapabilityOverride` で包む）
+
+3 つの口は、能力の問合せの値の差し替え（`FaultScript::CapabilityOverride`）、`Exec::force_unsupported`、`Exec::inject_denormal`。
+試験は crate の外の統合テストなので、公開のパスだけを使う。
+
+### 使い方
+
+1. dev-dependency で `fandhe-silicon-exec` に feature `fault-injection` を付ける（core の同名 feature へ転送される。`StubDevice` を使うなら core の `test-support` も付ける）。
+2. 試験の device を `FaultInjecting` と `FaultScript::CapabilityOverride { feature, query }` で包み、試験の型が `Capabilities` と `Device` を実装する（`Scripted` が例）。差し替えるのは指定した鍵だけで、ほかの鍵は内側の値のまま。
+3. `Exec::new`・`Exec::deny_by_default` の後に `force_unsupported`・`inject_denormal` をつなぐ。
+4. 報告を読む。`native_reason` は `ForcedUnsupported`（指定）、`CapabilityUnsupported`・`CapabilityUnknown`（能力の値）。`observed_level` は device が返した段階。`f32_denormal.basis` は差し込みで経路が決まったとき `Injected`。
+
+### 試験
+
+| 試験 | device | 入力 | 期待 |
+| ---- | ------ | ---- | ---- |
+| `force_applies_to_the_target_op_only` | `answering(S2)` | 4 操作それぞれを対象に指定・上書き 5 通り。判定を求める操作には `Native`・`GpuEmulated` に `Preserve` | 対象は GpuEmulated だけを許す上書きで `GpuEmulated`・`ForcedUnsupported`・`observed_level == Some(S2)`。ほかの 3 操作は `Native`・`native_reason == None` |
+| `force_without_injection_keeps_unsupported_for_f32_ops` | `answering(S2)` | `F16Fma` だけ指定・差し込み無し | `SubgroupSumF32`・`AtomicAdd` の `query_route` が `Err(Unsupported { op: "query_route", .. })` |
+| `forced_op_follows_opt_in` | `answering` で `S0`〜`S6`・`Unsupported`（理由 `None`・`NotSupported`） | 4 操作を指定・上書き 4 通り | GpuEmulated を許す印は `GpuEmulated`（Cpu も許す印を含む）、Cpu だけを許す印は `Cpu`、どちらも許さない印は経路 `None`・`OptInNotGiven`。`native_reason` はいつも `ForcedUnsupported`、`observed_level` は渡した段階。入口は経路なしで `Ok(Unavailable)`（`query_route` と等しい）、経路ありで `Err(Unsupported { op: <入口の関数名>, .. })` |
+| `override_reaches_route_choice` | `overriding(FEATURE_SUBGROUP, 値)` | 値は `S0`〜`S6`・`Unsupported`（理由 4 通り）・根拠付き | `SubgroupSumU32` は `S2`〜`S6` で `Native`、`S0`・`S1` で `CapabilityUnknown`、`Unsupported` で `CapabilityUnsupported(渡した理由)`。`F16Fma` は内側の値（`Unsupported`・`UnknownFeature`）。`query_ex` は呼び出しごとに 1 回 |
+| `injection_reaches_reports` | `answering(S2)` | `SubgroupSumF32`・`AtomicAdd`。`Native` が `Unknown` で `GpuEmulated` が `FlushToZero`／`Native` が `Preserve`／全経路が `Unknown` | `GpuEmulated`・`F32DenormalBehaviorUnknown`・`{ FlushToZero, Injected, None }`／`Native`・`{ Preserve, Injected, None }`／経路 `None`・`F32DenormalBehaviorUnknown`（入口は `Ok(Unavailable)` で同じ報告） |
+| `ports_combine` | `overriding(FEATURE_SUBGROUP, S4)` | `Exec::new(.., 両方を許す印)` に 3 つの口を別々の操作へ | `SubgroupSumU32` は `S4` と `ForcedUnsupported` が同時に出る。`SubgroupSumF32` は `Native`・`Injected`。`AtomicAdd`（差し替えの外）は内側の値で `Cpu`・`Injected`。`F16Fma` は内側の値。`query_ex` は 4 回 |
+| `ports_do_not_touch_three_entries` | `answering(S2)` | 4 操作を指定し 4 x 3 の全組へ差し込み・上書き 5 通り | 3 入口が `Err(Unsupported { op: <関数名>, .. })`・`query_ex`／`memory`／`queue` が 0 回 |
+| `ports_keep_query_ex_once` | 呼び出しごとに作る `overriding(FEATURE_SUBGROUP, S2)` | 指定のみ・差し込みのみ・両方 × 4 操作 × 上書き 5 通り × `query_route`・入口 | `query_ex` 1 回・`memory`／`queue` 0 回 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports
+```
