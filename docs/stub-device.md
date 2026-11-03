@@ -49,6 +49,8 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 
 上の表の `Capabilities`・`BackendKind`・`LimitsTable` の行番号と method の一覧は記録時点の値で、書き換えない。今は `capability.rs` の `:118`・`:36`・`:106` で、`Capabilities` は既定の本体を持つ `texture_format_features` も持つ。試験用の device も全形式で値を返す（`stub_device_returns_value_for_every_key`）。`Device`・`DeviceProvider`・`DeviceDiagnostics` は今は `device.rs` の `:127`・`:192`・`:114`。
 
+補い（TASK-150 の後）: 上の段落の `DeviceProvider` の `:192` は、今は `device.rs` の `:199` である。`Device` の既定の本体を持つ method には `textures()` も加わり（既定の本体は `None`。`device.rs:191`）、`external_interop`・`physical_gpu_id`・`fault_hooks`・`compute`・`graphics` と並ぶ。
+
 ### 試験用の device に当たる型の有無
 
 `git grep -nE 'pub (trait|struct) [A-Za-z]*(Device|Queue|Stub)' -- crates wasm` の出力は 12 件である。
@@ -87,6 +89,8 @@ device の trait を実装する、公開の試験用の device の型は、こ�
 | `capability_rule::CapabilityTable` | `crates/core/src/capability_rule.rs:75`。feature `test-support` の裏 | `grep -n "pub struct CapabilityTable" crates/core/src/capability_rule.rs` |
 | `fault::stub::FaultStub` | `crates/core/src/fault/stub.rs:27`。feature `fault-injection` の裏 | `grep -n "pub struct FaultStub" crates/core/src/fault/stub.rs` |
 | 試験の中のダミー | `crates/core/tests/device_trait_shape.rs` の `DummyDevice`（`:139`）・`DummyProvider`（`:185`）。`MemoryOps`・`CommandQueue` の実装は cfg の 2 版（`:38`・`:48`・`:59` など）で書かれている | `grep -nE 'Dummy\|cfg' crates/core/tests/device_trait_shape.rs` |
+
+補い（TASK-150 の後）: 上の表の `device_trait_shape.rs` の行番号は、先頭の `//!` が 1 行増えて 1 ずつずれた。今は `DummyDevice` が `:140`、`DummyProvider` が `:186`、cfg が `:39`・`:49`・`:60` である。
 
 ### feature の有無の両側が流れる場所
 

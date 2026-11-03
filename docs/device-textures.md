@@ -83,7 +83,7 @@ cargo test -p fandhe-silicon-core --test device_trait_shape
 | 6 | 依存 0・unsafe 0 | `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/texture/ops.rs`、`grep -n forbid crates/core/src/lib.rs` | `Cargo.lock`・`deps-approved.toml` の差分は 0 件。`crates/core/Cargo.toml` は `1376f6a` の 4 行の追加（`[[test]]` の 1 項目）だけ。`unsafe` は 0 件。`lib.rs:38` に `#![forbid(unsafe_code)]` |
 | 7 | 試験の件数と CI で流れる場所 | `make verify`、`make wasm-verify`。`grep -n 'run: make' .github/workflows/ci.yml` | `make verify` は終了コード 0 で `device_trait_shape` と `stub_device_textures`（11 tests）を流した。`make wasm-verify` は終了コード 0。ci.yml は `make verify` が 177・498 行目、`make wasm-verify` が 275・459 行目 |
 
-完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-150）。確かめた base は `1376f6a2f5ffd739e95b571614e4b2c9c096c6f`。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-150）。確かめた base は `1376f6a2f5ffd739e95b571614e4b2c9c096c6fa`。
 
 確かめ方:
 
