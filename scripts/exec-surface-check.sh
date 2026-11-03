@@ -6,12 +6,15 @@
 # 使い方:
 #   scripts/exec-surface-check.sh                      既定の crates/exec を走査し、cargo で rustdoc の JSON を 2 組（default / all-features）作って名前を数える
 #   scripts/exec-surface-check.sh --crate-dir <dir>    <dir> の crate のソースを走査する（JSON は同様に cargo で作る）
+#   scripts/exec-surface-check.sh --workspace-dir <dir>
+#                                                      <dir> を cargo の作業ディレクトリにして JSON を作り、<dir>/crates/exec のソースを走査する
 #   scripts/exec-surface-check.sh [--crate-dir <dir>] --json-default <path> --json-all <path>
 #                                                      渡した 2 つの rustdoc の JSON だけで名前を数える（cargo を呼ばない。2 つ揃えて 1 回ずつ）
 # 終了コード: 0 期待どおり（違反 0 件）/ 1 違反あり /
 #   2 誤用・前提の不足・読み切れない入力（python3 が無い、未知の引数、--json-default と --json-all の片方だけ・重複、
 #     crate ディレクトリが無い、.rs が 0 件、UTF-8 でない、シンボリックリンク、ディレクトリやファイルが読めない、
-#     `use std::{` の対応する `}` が無い、既定の走査でリビジョンを読めない、cargo・rustdoc が使えない、
+#     `--workspace-dir` の重複・併用（--crate-dir、--json-default/--json-all）・ディレクトリが無い、
+#     その workspace に `fandhe-silicon-exec` が無い、`use std::{` の対応する `}` が無い、既定の走査でリビジョンを読めない、cargo・rustdoc が使えない、
 #     rustdoc の JSON を作れない、JSON が読めない・形が崩れている・root が fandhe_silicon_exec でない、
 #     `Exec` が JSON に無い、戻り値の型の path を解決できない、impl の対象を解決できない、関数の sig の形が崩れている、想定外の例外）
 # 標準出力: 読んだファイルごとに `scanned: file=<crate からの相対パス>`、JSON の組ごとに
@@ -20,7 +23,7 @@
 #   port_names_default=<n> port_names_all=<n> port_names_missing_all=<n> op_fns=<n> op_fns_with_report=<n>
 #   other_fns=<n> unlisted_fns=<n>`、合格時の `ok:` の 1 行。
 #   rs_files は build.rs を含む見つけた .rs の数。commit は既定の crate を走査したときだけ HEAD
-#   （変更が在れば末尾に `-dirty`）、--crate-dir のときは `-`。
+#   （変更が在れば末尾に `-dirty`）、--crate-dir と --workspace-dir のときは `-`。
 # 標準エラー: 違反ごとに `violation: check=env-fs file=<相対パス> line=<n> word=<字句>`、
 #   `violation: check=port-name features=default name=<名前> count=<n>`、
 #   `violation: check=port-name-positive features=all-features name=<名前>`、
@@ -198,23 +201,23 @@ def tool_env():
     return env
 
 
-def run_quiet(args, env=None, timeout=CARGO_TIMEOUT):
+def run_quiet(args, env=None, timeout=CARGO_TIMEOUT, cwd=None):
     """出力を捨てて終了コードを返す。起動できなければ None。"""
     try:
-        res = subprocess.run(args, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+        res = subprocess.run(args, cwd=cwd or ROOT, env=env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     return res.returncode
 
 
-def build_json_sets():
+def build_json_sets(cwd):
     """cargo rustdoc で JSON を組ごとに作り、ラベル -> パスの辞書を返す。"""
-    need(run_quiet(["cargo", "--version"], timeout=REV_TIMEOUT) == 0, "cannot run cargo")
+    need(run_quiet(["cargo", "--version"], timeout=REV_TIMEOUT, cwd=cwd) == 0, "cannot run cargo")
     try:
         meta = subprocess.run(
             ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1"],
-            cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=CARGO_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         raise Misuse("cargo metadata failed")
@@ -227,7 +230,7 @@ def build_json_sets():
     except (ValueError, KeyError, TypeError, AttributeError):
         raise Misuse("cargo metadata output is not usable")
     need(isinstance(target_dir, str) and has_lib, "exec package not found in workspace")
-    need(run_quiet(["rustdoc", "-Z", "unstable-options", "--version"], env=tool_env(), timeout=REV_TIMEOUT) == 0,
+    need(run_quiet(["rustdoc", "-Z", "unstable-options", "--version"], env=tool_env(), timeout=REV_TIMEOUT, cwd=cwd) == 0,
           "rustdoc cannot emit JSON output")
     out_dir = os.path.join(target_dir, TARGET_SUBDIR)
     produced = os.path.join(out_dir, "doc", EXEC_LIB + ".json")
@@ -241,7 +244,7 @@ def build_json_sets():
         cmd = (["cargo", "rustdoc", "--locked", "--offline", "--target-dir", out_dir, "-p", EXEC_PACKAGE]
                 + list(feat)
                 + ["--lib", "--", "-Z", "unstable-options", "--output-format", "json", "--document-hidden-items"])
-        rc = run_quiet(cmd, env=tool_env())
+        rc = run_quiet(cmd, env=tool_env(), cwd=cwd)
         need(rc == 0 and os.path.isfile(produced), "cargo rustdoc failed (%s)" % label)
         dest = os.path.join(out_dir, "doc", "%s.%s.json" % (EXEC_LIB, label))
         try:
@@ -458,14 +461,24 @@ def commit_label():
 def run(argv):
     parser = argparse.ArgumentParser(prog="exec-surface-check.sh", allow_abbrev=False)
     parser.add_argument("--crate-dir", default=None)
+    parser.add_argument("--workspace-dir", action="append", default=[])
     parser.add_argument("--json-default", action="append", default=[])
     parser.add_argument("--json-all", action="append", default=[])
     args = parser.parse_args(argv)
     need(len(args.json_default) <= 1, "duplicate --json-default")
     need(len(args.json_all) <= 1, "duplicate --json-all")
     need(bool(args.json_default) == bool(args.json_all), "--json-default and --json-all must be given together")
-    default_run = args.crate_dir is None
-    crate = os.path.join(ROOT, DEFAULT_CRATE_REL) if default_run else args.crate_dir
+    need(len(args.workspace_dir) <= 1, "duplicate --workspace-dir")
+    ws = args.workspace_dir[0] if args.workspace_dir else None
+    if ws is not None:
+        need(args.crate_dir is None and not args.json_default and not args.json_all,
+              "--workspace-dir cannot be combined with --crate-dir or --json-default/--json-all")
+        need(os.path.isdir(ws) and not os.path.islink(ws), "workspace directory not found")
+    default_run = args.crate_dir is None and ws is None
+    if ws is not None:
+        crate = os.path.join(ws, DEFAULT_CRATE_REL)
+    else:
+        crate = os.path.join(ROOT, DEFAULT_CRATE_REL) if default_run else args.crate_dir
 
     rs, has_build = collect_files(crate)
     violations = []
@@ -481,7 +494,7 @@ def run(argv):
     if args.json_default:
         paths = {"default": args.json_default[0], "all-features": args.json_all[0]}
     else:
-        paths = build_json_sets()
+        paths = build_json_sets(ws if ws is not None else ROOT)
     docs = {}
     raw = {}
     for label, _feat in JSON_SETS:

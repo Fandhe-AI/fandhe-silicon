@@ -251,3 +251,71 @@ passed=72 failed=0
 make exec-surface-check
 make test-exec-surface-check
 ```
+
+## 一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）
+
+TASK-923 のポインタ。本体に `--workspace-dir <dir>` を足し、回帰テストに実物の `crates/core`・`crates/exec` を写した一時 workspace の変異体を足す。
+
+### 使い方の追加
+
+```text
+scripts/exec-surface-check.sh --workspace-dir <dir>
+```
+
+- `<dir>` を cargo の作業ディレクトリにして rustdoc の JSON を 2 組作り、ソースの走査は `<dir>/crates/exec` に当てる。`record:` の `commit` は `-`
+- `--crate-dir`・`--json-default`・`--json-all` との併用、`--workspace-dir` の重複、`<dir>` が無い、`<dir>` の workspace に `fandhe-silicon-exec` が無い、は終了コード 2
+
+### 一時 workspace の作り方
+
+| 写すもの | 内容 |
+| -------- | ---- |
+| `crates/core`・`crates/exec` | `target` と `.` 始まりを除いて丸ごと写す |
+| ルートの `Cargo.toml` | `members` を 2 crate にし、`exclude` の行を消す |
+| `rust-toolchain.toml` | 作業ディレクトリが変わっても同じ toolchain で JSON を作る |
+| `Cargo.lock` | 写さず `cargo metadata --offline` で作る |
+
+target は一時ディレクトリの下に分ける。変異は 1 本ずつ入れ、流した後に元のファイルへ戻す。
+
+### 変異体
+
+| 変える場所 | 変え方 | 期待の終了コード | 見る `check=` |
+| ---------- | ------ | ---------------- | -------------- |
+| `Cargo.toml` | `default = ["fault-injection"]` を足す | 1 | `port-name`・`unlisted-fn` |
+| `src/route.rs` | 試験用の variant の cfg を外す | 1 | `port-name` |
+| `src/lib.rs` | `doc(hidden)` の `Injected` 型を足す | 1 | `port-name` |
+| `src/entry.rs` | `doc(hidden)` の公開の関数を足す | 1 | `unlisted-fn` |
+| `src/entry.rs` | 操作の関数の戻り値を `Result<(), _>` にする | 1 | `op-fn-report` |
+| `src/report.rs` | `Outcome` に欄の無い variant を足す | 1 | `op-fn-report` |
+| `src/select.rs` | `std::env::var` を呼ぶ関数を足す | 1 | `env-fs` |
+
+変異のない写しは終了コード 0 で、`record:` の `commit` 以外の欄が実物の流しと一致する。
+
+### 誤用
+
+| 場面 | 期待の終了コード |
+| ---- | ---------------- |
+| 写しの `lib.rs` に構文の誤りを足す（`cargo rustdoc failed (default)`） | 2 |
+| `members` に exec が無い workspace | 2 |
+| `--json-default`/`--json-all`、`--crate-dir` との併用、重複、無いディレクトリ | 2 |
+
+### 手元の実行
+
+base `b851a7e` の上で、変異のない写しの `record:` の行。
+
+```text
+record: commit=- rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+```
+
+回帰テストの最終行と所要時間（target が空の状態から）。
+
+```text
+passed=86 failed=0
+real 20s
+```
+
+### 確かめ方
+
+```bash
+make exec-surface-check
+make test-exec-surface-check
+```

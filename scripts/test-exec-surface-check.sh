@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # exec-surface-check.sh の回帰テスト（spec TASK-923 のポインタ。親 Issue #867）。
 # 実物の crates/exec の src/・tests/・Cargo.toml を一時ディレクトリへ写し、1 か所だけ字句を足した変異体を
-# --crate-dir で走査させて検出を確かめる。陰性の対照・誤用の入力・実物の合格も確かめる。
+# --crate-dir で走査させて検出を確かめる。実物の core・exec を写した一時 workspace の変異体は --workspace-dir で本物の rustdoc の JSON を通す。陰性の対照・誤用の入力・実物の合格も確かめる。
 # リポジトリのファイルは変更しない（実物は読むだけ）・ネットワーク不要。
 # 呼び出し元: `make test-exec-surface-check`（直接実行も可）。
 #
@@ -537,6 +537,157 @@ for row in "${fn_rows[@]}"; do
   esac
   judge "fn scan: ${fname}" "${fwant}" "${args[@]}"
 done
+
+# ---- 一時 workspace を走査する口（--workspace-dir）: 実物の core・exec を写した workspace の変異体 ----
+# 一時 workspace へ実物の crates/core・crates/exec を写し、本物の cargo rustdoc の JSON を通す。
+# 変異は 1 本ずつ入れて、流した後に必ず元のファイルへ戻す（普通の cp で戻すので mtime が進み、cargo が前の JSON を使い回さない）。
+
+# copy_tree <元> <先>: target と `.` 始まりを除いてディレクトリを写す。
+copy_tree() {
+  python3 -I -c '
+import shutil, sys
+shutil.copytree(sys.argv[1], sys.argv[2], symlinks=True,
+                ignore=lambda d, names: [n for n in names if n == "target" or n.startswith(".")])
+' "$1" "$2"
+}
+
+# apply_edits <ファイル> <old> <new> [<old> <new>...]: 引数中の \n を改行に読み替え、old がちょうど 1 回現れるときだけ置き換える。
+apply_edits() {
+  python3 -I -c '
+import sys
+path = sys.argv[1]
+pairs = [a.replace("\\n", "\n") for a in sys.argv[2:]]
+if len(pairs) % 2:
+    sys.exit(1)
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+for i in range(0, len(pairs), 2):
+    if text.count(pairs[i]) != 1:
+        sys.exit(1)
+    text = text.replace(pairs[i], pairs[i + 1])
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+' "$@"
+}
+
+# make_ws <先> <exec を含めるか yes|no>: 一時 workspace を作る。失敗したら 1 を返す。
+make_ws() {
+  local dst="$1" with_exec="$2"
+  mkdir -p "${dst}/crates" || return 1
+  copy_tree "${ROOT_DIR}/crates/core" "${dst}/crates/core" || return 1
+  copy_tree "${ROOT_DIR}/crates/exec" "${dst}/crates/exec" || return 1
+  cp "${ROOT_DIR}/rust-toolchain.toml" "${dst}/rust-toolchain.toml" || return 1
+  cp "${ROOT_DIR}/Cargo.toml" "${dst}/Cargo.toml" || return 1
+  local members='["crates/core", "crates/exec"]'
+  if [ "${with_exec}" = "no" ]; then
+    members='["crates/core"]'
+  fi
+  python3 -I -c '
+import re, sys
+path, members = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+text, n1 = re.subn(r"(?m)^members = \[.*\]$", "members = " + members, text)
+text, n2 = re.subn(r"(?m)^exclude = \[.*\]\n", "", text)
+if n1 != 1 or n2 != 1:
+    sys.exit(1)
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+' "${dst}/Cargo.toml" "${members}" || return 1
+  (cd "${dst}" && cargo metadata --offline --format-version 1 >/dev/null 2>&1) || return 1
+}
+
+# run_ws <引数>...: --workspace-dir の流し。target は一時ディレクトリに分ける。
+run_ws() {
+  rc=0
+  CARGO_TARGET_DIR="${work}/ws-target" "${TOOL}" "$@" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+}
+
+WS="${work}/ws"
+WS_OK=1
+make_ws "${WS}" yes || WS_OK=0
+if [ "${WS_OK}" -ne 1 ]; then
+  failed=$((failed + 1))
+  echo "NG: temporary workspace could not be prepared"
+else
+  # 実物の流し（引数なし）の record の commit 以外の欄を取る。
+  run_tool
+  real_rec="$(sed -n 's/^record: commit=[^ ]* //p' "${OUT_F}")"
+  if [ -z "${real_rec}" ]; then
+    failed=$((failed + 1))
+    echo "NG: real record line not found"
+    real_rec="?"
+  fi
+  run_ws --workspace-dir "${WS}"
+  judge "workspace: unmodified copy passes" 0 "o:ok:" "o:record: commit=- ${real_rec}" "!${work}" "!${ROOT_DIR}"
+
+  mkdir "${work}/bak"
+  # 行: 名前^exec からの相対ファイル^見る語(スペース区切り。語の中の ~ は空白)^old^new[^old^new]
+  ws_rows=()
+  while IFS= read -r line; do
+    if [ -n "${line}" ]; then
+      ws_rows+=("${line}")
+    fi
+  done <<'ROWS'
+default feature on injection^Cargo.toml^e:check=port-name~features=default~name=force_unsupported e:check=unlisted-fn~owner=Exec~fn=force_unsupported e:check=unlisted-fn~owner=Exec~fn=inject_denormal^[features]^[features]\ndefault = ["fault-injection"]
+variant ungated^src/route.rs^e:check=port-name~features=default~name=ForcedUnsupported~count=1 e:!name=force_unsupported^    #[cfg(feature = "fault-injection")]\n    ForcedUnsupported,^    ForcedUnsupported,
+hidden injected type^src/lib.rs^e:check=port-name~features=default~name=Injected~count=1^#![forbid(unsafe_code)]^#![forbid(unsafe_code)]\n\n/// x\n#[doc(hidden)]\npub struct Injected;
+hidden extra fn^src/entry.rs^e:check=unlisted-fn~owner=Exec~fn=hidden_extra o:unlisted_fns=1^impl<'d> Exec<'d> {^impl<'d> Exec<'d> {\n    /// x\n    #[doc(hidden)]\n    pub fn hidden_extra(&self) -> Result<(), ContractError> {\n        Ok(())\n    }
+unit return^src/entry.rs^e:check=op-fn-report~fn=hardware_ray_tracing o:op_fns_with_report=6^pub fn hardware_ray_tracing(&self, opt_in: Option<OptIn>) -> Result<Outcome, ContractError> {^pub fn hardware_ray_tracing(&self, opt_in: Option<OptIn>) -> Result<(), ContractError> {
+outcome without report^src/report.rs^e:check=op-fn-report~fn=f16_fma e:check=op-fn-report~fn=unified_memory_sharing o:op_fns_with_report=0^pub enum Outcome {^pub enum Outcome {\n    /// x\n    Other,^        match self {^        match self {\n            Outcome::Other => unreachable!(),
+env read in source^src/select.rs^e:check=env-fs~file=src/select.rs~line= e:word=std::env e:word=env::var^use crate::opt_in::OptIn;^use crate::opt_in::OptIn;\n\n#[allow(dead_code)]\nfn read_env() -> bool {\n    std::env::var("X").is_ok()\n}
+ROWS
+  for row in "${ws_rows[@]}"; do
+    wold2=""
+    wnew2=""
+    IFS='^' read -r wname wfile wterms wold1 wnew1 wold2 wnew2 <<<"${row}"
+    wtarget="${WS}/crates/exec/${wfile}"
+    cp "${wtarget}" "${work}/bak/orig"
+    wargs=()
+    for t in ${wterms}; do wargs+=("${t//\~/ }"); done
+    edit_ok=0
+    if [ -n "${wold2}" ]; then
+      if apply_edits "${wtarget}" "${wold1}" "${wnew1}" "${wold2}" "${wnew2}"; then edit_ok=1; fi
+    else
+      if apply_edits "${wtarget}" "${wold1}" "${wnew1}"; then edit_ok=1; fi
+    fi
+    if [ "${edit_ok}" -eq 1 ]; then
+      run_ws --workspace-dir "${WS}"
+      judge "workspace mutant: ${wname}" 1 "${wargs[@]}" "e:FAILED:" "o:record: commit=-" "o:!ok:" "!${work}" "!${ROOT_DIR}"
+    else
+      failed=$((failed + 1))
+      echo "NG: workspace mutant: ${wname} (edit anchor not found exactly once)"
+    fi
+    cp "${work}/bak/orig" "${wtarget}"
+  done
+
+  # 誤用: cargo rustdoc が失敗する workspace。
+  cp "${WS}/crates/exec/src/lib.rs" "${work}/bak/orig"
+  printf '\nfn broken( {\n' >>"${WS}/crates/exec/src/lib.rs"
+  run_ws --workspace-dir "${WS}"
+  judge "workspace misuse: rustdoc fails" 2 "e:error: cargo rustdoc failed (default)" "o:!record:" "o:!ok:" "!${work}"
+  cp "${work}/bak/orig" "${WS}/crates/exec/src/lib.rs"
+
+  # 誤用: 併用・重複・無いディレクトリ。
+  run_ws --workspace-dir "${WS}" --json-default "${J_DEF}" --json-all "${J_ALL}"
+  judge "workspace misuse: with --json-*" 2 "e:error: --workspace-dir cannot be combined" "o:!record:" "o:!ok:" "!${work}"
+  run_ws --workspace-dir "${WS}" --crate-dir "${REAL_CRATE}"
+  judge "workspace misuse: with --crate-dir" 2 "e:error: --workspace-dir cannot be combined" "o:!record:" "o:!ok:" "!${work}"
+  run_ws --workspace-dir "${WS}" --workspace-dir "${WS}"
+  judge "workspace misuse: duplicate" 2 "e:error: duplicate --workspace-dir" "o:!record:" "o:!ok:" "!${work}"
+  run_ws --workspace-dir "${work}/no-such-dir"
+  judge "workspace misuse: missing directory" 2 "e:error: workspace directory not found" "o:!record:" "o:!ok:" "!${work}"
+fi
+
+# 誤用: exec が workspace の member に無い。
+WS2="${work}/ws2"
+if make_ws "${WS2}" no; then
+  run_ws --workspace-dir "${WS2}"
+  judge "workspace misuse: no exec package" 2 "e:error: exec package not found in workspace" "o:!record:" "o:!ok:" "!${work}"
+else
+  failed=$((failed + 1))
+  echo "NG: temporary workspace without exec could not be prepared"
+fi
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]
