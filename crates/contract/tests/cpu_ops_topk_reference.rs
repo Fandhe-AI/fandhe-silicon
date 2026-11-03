@@ -1,6 +1,7 @@
 //! `cpu_ops` の部分 Top-k を、共通の crate の CPU 参照（`fandhe_silicon_core::parity::topk`）と
 //! 比べる外の試験（TASK-1352 のポインタ）。feature `cpu-ops` と `test-support` が有効な組でだけ走る。
 //! 公開のパスだけを使い、入力は固定の seed から決定的に作る。
+//! 期待の出力を CPU 参照から作らず、出力に並びの規則を直に当てる試験も置く。
 
 use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, ReferenceCpuOps};
 use fandhe_silicon_core::parity::gemm_inputs::{GEMM_INPUT_SEED, SplitMix64};
@@ -216,6 +217,133 @@ fn topk_longer_out_keeps_sentinel_tail() {
             for (s, v) in tail {
                 assert_eq!(*s, sentinel.0, "{name} {label}");
                 assert_eq!(v.to_bits(), sentinel.1.to_bits(), "{name} {label}");
+            }
+        }
+    }
+}
+
+/// 出力の各件が入力の（添字, スコア）の組で、並びの規則と上位の集合の規則を満たすことを、
+/// CPU 参照を呼ばずに入力から直に確かめる。
+fn assert_order_rule(name: &str, scores: &[f32], k: usize, out: &[(u32, f32)]) {
+    assert!(k > 0, "{name}");
+    assert_eq!(out.len(), k, "{name}");
+    let mut seen = vec![false; scores.len()];
+    for (slot, score) in out {
+        let i = usize::try_from(*slot).unwrap();
+        assert!(i < scores.len(), "{name} slot {slot}");
+        assert_eq!(scores[i].to_bits(), score.to_bits(), "{name} slot {slot}");
+        assert!(score.is_finite(), "{name} slot {slot}");
+        assert!(!seen[i], "{name} duplicate slot {slot}");
+        seen[i] = true;
+    }
+    for pair in out.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        match a.1.total_cmp(&b.1) {
+            std::cmp::Ordering::Greater => {}
+            std::cmp::Ordering::Equal => assert!(a.0 < b.0, "{name} {a:?} {b:?}"),
+            std::cmp::Ordering::Less => panic!("{name} {a:?} {b:?}"),
+        }
+    }
+    let last = out[k - 1];
+    let last_slot = usize::try_from(last.0).unwrap();
+    for (j, score) in scores.iter().enumerate() {
+        if seen[j] || !score.is_finite() {
+            continue;
+        }
+        match last.1.total_cmp(score) {
+            std::cmp::Ordering::Greater => {}
+            std::cmp::Ordering::Equal => assert!(last_slot < j, "{name} slot {j}"),
+            std::cmp::Ordering::Less => panic!("{name} slot {j} outranks last"),
+        }
+    }
+}
+
+#[test]
+fn topk_order_rule_holds_directly() {
+    // CPU-10
+    let mut all: Vec<(String, Vec<f32>, usize)> = vec![
+        ("batch".to_string(), batch_input(), 64),
+        ("ties".to_string(), ties_input(), 10),
+    ];
+    for input in SIGNED_ZERO_INPUTS {
+        all.push((input.name().to_string(), input.scores().to_vec(), input.k()));
+    }
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    for (name, scores, k) in &all {
+        for (label, ops) in &ops_list {
+            let out = run(ops.as_ref(), Method::Scalar, scores, *k);
+            assert_order_rule(&format!("{name} {label}"), scores, *k, &out);
+        }
+    }
+}
+
+#[test]
+fn topk_ties_cross_k_boundary_in_slot_order() {
+    // CPU-10
+    let scores = ties_input();
+    let k = 10;
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    for (label, ops) in &ops_list {
+        let out = run(ops.as_ref(), Method::Scalar, &scores, k);
+        let boundary = out[k - 1].1.to_bits();
+        let inside: Vec<usize> = out
+            .iter()
+            .filter(|(_, v)| v.to_bits() == boundary)
+            .map(|(s, _)| usize::try_from(*s).unwrap())
+            .collect();
+        let outside: Vec<usize> = scores
+            .iter()
+            .enumerate()
+            .filter(|(i, v)| v.to_bits() == boundary && !inside.contains(i))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(inside.len() >= 2, "{label}");
+        assert!(!outside.is_empty(), "{label}");
+        assert!(inside.windows(2).all(|w| w[0] < w[1]), "{label}");
+        assert!(inside.iter().max() < outside.iter().min(), "{label}");
+    }
+}
+
+#[test]
+fn topk_non_finite_slots_absent_directly() {
+    // CPU-11
+    let scores = non_finite_input();
+    let k = 10;
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    for (label, ops) in &ops_list {
+        let out = run(ops.as_ref(), Method::Scalar, &scores, k);
+        assert_order_rule(label, &scores, k, &out);
+        for (slot, _) in &out {
+            let i = usize::try_from(*slot).unwrap();
+            assert!(scores[i].is_finite(), "{label} slot {slot}");
+        }
+    }
+}
+
+#[test]
+fn topk_first_k_are_input_pairs() {
+    // CPU-14
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    for (name, scores, k) in cases() {
+        for (label, ops) in &ops_list {
+            let out = run(ops.as_ref(), Method::Scalar, &scores, k);
+            assert_eq!(out.len(), k, "{name} {label}");
+            for (slot, score) in &out {
+                assert_ne!(*slot, ReferenceCpuOps::SENTINEL.0, "{name} {label}");
+                let i = usize::try_from(*slot).unwrap();
+                assert_eq!(scores[i].to_bits(), score.to_bits(), "{name} {label}");
             }
         }
     }
