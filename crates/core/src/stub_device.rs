@@ -692,6 +692,9 @@ impl StubGraphics {
         if pipeline.__backend_device_id() != self.id {
             return Err(ContractError::DeviceMismatch);
         }
+        if encoder.__backend_device_id() != self.id || encoder.__backend_generation() != self.id {
+            return Err(ContractError::DeviceMismatch);
+        }
         self.check_recorded_live(encoder)
     }
 
@@ -1271,6 +1274,32 @@ mod tests {
         assert!(matches!(
             g.submit_render(encoder, &[]),
             Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn draw_rejects_foreign_encoder_before_looking_up_table() {
+        let a = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let b = StubGraphics::new(BackendKind::Vulkan, 6, Arc::new(AtomicU64::new(1)));
+        let ta = a
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target a");
+        let tb = b
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target b");
+        let _ea = a.create_render_encoder(&ta);
+        let mut eb = b.create_render_encoder(&tb);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        let buf = BufferHandle::__backend_new(5, 1, 1, 16, BufferUsage::VERTEX);
+        a.destroy_offscreen_target(ta);
+        assert!(matches!(
+            a.draw(&mut eb, &pipeline, &buf, 3),
+            Err(ContractError::DeviceMismatch)
+        ));
+        assert!(matches!(
+            a.draw_ex(&mut eb, &pipeline, &buf, 3, &[]),
+            Err(ContractError::DeviceMismatch)
         ));
     }
 
