@@ -121,6 +121,10 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_ty
 | `public-api-sdk-check` | `documents=10 public_items_total=12763 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0` |
 | `public-name-check` | `documents=10 public_items_total=12763 name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0` |
 
+### 今の値の補い（base 8deff9f）
+
+表の 1 の `graphics.rs:356`・`:357` は記録時点の行で、今は `crates/core/src/graphics.rs` の `:681` が `mod surface;`、`:682` が `pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};`。数えたコマンドは `grep -n 'mod surface\|pub use surface' crates/core/src/graphics.rs`。
+
 ### 再実行の契機
 
 `crates/core/src/graphics/surface.rs`・`crates/core/tests/graphics_surface_types.rs` を変えたとき、`scripts/public-api-check.sh` などの公開 API の検査のスクリプトを変えたとき。

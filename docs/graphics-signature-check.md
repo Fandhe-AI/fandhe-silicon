@@ -90,3 +90,29 @@ TASK-908 の 2/2（#5970）として、本リポで観測できる事実だけ�
 | ------ | -------------- | ------ |
 | 6 | `git diff --stat c866522 HEAD -- crates/core/src crates/contract` の出力は空 | 同じコマンドの出力は `crates/core/src/stub_device.rs \| 4 ++--`（2 行追加・2 行削除）。#7859 の rustdoc の 2 行 |
 | 8 | `b0f00bb` の run 41589424572 は status が queued | `gh run view 41589424572` は status が `completed`・conclusion が `success` |
+
+### 今の値の補い（base 8deff9f）
+
+上の「署名の型の試験（1/2）」と「完了の条件の確かめ（2/2）」の値は記録の時点のままで、書き換えない。今の値は次のとおり。
+
+| 項目 | 記録の時点の値 | 今の値 |
+| ---- | -------------- | ------ |
+| `GraphicsOps` の操作の数 | 11（試験が固定するのは 10） | 19。`graphics_signatures` が 10 操作、`graphics_pass_types` の `op_signatures_have_listed_types` が状態を設定する 8 操作（`set_pipeline`・`set_vertex_buffer`・`set_index_buffer`・`set_immediates`・`set_viewport`・`set_scissor_rect`・`set_blend_constant`・`set_stencil_reference`）を固定する。`destroy_offscreen_target` はどちらの試験も固定しない |
+| 確かめ表の 1: `fn` の行 | `:239`〜`:341` に 11 本、`destroy_offscreen_target` は `:293` | `:492`〜`:666` に 19 本、`destroy_offscreen_target` は `:546` |
+| 確かめ表の 3: `submit_render` の doctest | `GraphicsOps::submit_render (line 327)` | `GraphicsOps::submit_render (line 652)` |
+| 確かめ表の 4: `impl GraphicsOps for` | `stub_device.rs:721`・`graphics_types.rs:20` | `crates/core/src/stub_device.rs:781`・`crates/core/tests/graphics_types.rs:21` |
+| 確かめ表の 4: 件数 | `stub_device_graphics` 13 件・`stub_device` の `--lib` 27 件 | 13 件・43 件 |
+| `graphics_signatures` の件数 | 7 件 | 7 件 |
+| `graphics_pass_types` の件数 | 無し | 9 件 |
+
+数えたコマンドは次のとおり。
+
+```text
+grep -n '^    fn ' crates/core/src/graphics.rs
+grep -n 'impl GraphicsOps for' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_signatures
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_pass_types
+cargo test -p fandhe-silicon-core --features test-support,graphics --test stub_device_graphics
+cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device
+cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphics
+```

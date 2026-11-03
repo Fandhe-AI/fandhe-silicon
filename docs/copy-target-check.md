@@ -81,6 +81,10 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_copy_targe
 
 再実行の契機: `target_check.rs` または試験ファイルを変えたとき、`PixelFormat` に値が増えたとき。
 
+### 今の値の補い（base 8deff9f）
+
+表の 1 の `graphics.rs:329` は記録時点の行で、今は `crates/core/src/graphics.rs:677` が `validate_copy_target_to_buffer` の再公開の行である。`target_check.rs:141` の `pub fn` は変わらない。数えたコマンドは `grep -n validate_copy_target_to_buffer crates/core/src/graphics.rs crates/core/src/graphics/target_check.rs`。
+
 ## 段の表
 
 | 段 | Issue | 内容 |
