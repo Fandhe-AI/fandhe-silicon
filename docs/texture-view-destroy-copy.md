@@ -66,3 +66,40 @@ cargo test -p fandhe-silicon-core --lib texture::view
 cargo test -p fandhe-silicon-core --doc TextureView
 make doctest-error-code-check
 ```
+
+## 描画先の破棄の操作と試験用の device の描画先の表（3/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/core/src/graphics.rs`（trait の操作）・`crates/core/src/stub_device.rs`（試験用の device の表） |
+| 公開のパス | `fandhe_silicon_core::graphics::GraphicsOps::destroy_offscreen_target` |
+| feature の条件 | `graphics`（試験用の device は `test-support` と `graphics`） |
+
+`GraphicsOps` の所在は [graphics-types.md](graphics-types.md)（TASK-837）、試験用の device は [stub-device.md](stub-device.md)（TASK-156）、
+`RenderTargetHandle` は [render-target-handle.md](render-target-handle.md)（TASK-375）を参照する。
+
+```rust
+fn destroy_offscreen_target(&self, target: RenderTargetHandle);
+```
+
+handle を値で受けて消費し、`Result` は返さない。破棄の後に同じ handle を使う書き方はコンパイルで拒まれる（doctest の `compile_fail,E0382`）。
+
+試験用の device は作った描画先の識別子の表と、記録先から使う描画先への対応を持つ。入力ごとの返しは次のとおり。
+
+| 渡す描画先 | `create_render_encoder*` の記録先 | `draw`・`draw_ex` | `submit_render` | `copy_target_to_buffer` | `destroy_offscreen_target` |
+| ---------- | --------------------------------- | ----------------- | --------------- | ----------------------- | -------------------------- |
+| 作った描画先 | 拒否なし | `Unsupported` | 印を返す | `Unsupported` | 表から消す |
+| 破棄した描画先・作っていない描画先 | `InvalidArgument` を持つ | `InvalidArgument` | `InvalidArgument` | `InvalidArgument` | 何もしない |
+| 別 device の描画先 | `DeviceMismatch` を持つ | `DeviceMismatch` | `DeviceMismatch` | `DeviceMismatch` | 何もしない |
+
+記録先を作った後に、その描画先を破棄してから `submit_render` に渡すと `InvalidArgument` を返す。
+破棄した描画先の識別子は再利用しない。
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-core --features test-support,graphics --lib stub_device
+cargo test -p fandhe-silicon-core --features graphics --doc destroy_offscreen_target
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_types
+make doctest-error-code-check
+```
