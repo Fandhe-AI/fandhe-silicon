@@ -26,3 +26,24 @@ grep -n 'fn textures' crates/core/src/device.rs
 grep -n 'pub use ops' crates/core/src/texture.rs
 cargo test -p fandhe-silicon-core --doc texture::ops
 ```
+
+## 試験用の device の答え（2/4）
+
+- 所在は `crates/core/src/stub_device.rs`（feature `test-support` の裏）。非公開の `StubTextures` が `TextureOps` を満たし、`impl Device for StubDevice` の `textures()` が返す
+- `textures()` は要求のプロファイルで変わり、所有形態によらない
+
+| プロファイル | `textures()` |
+| ------------ | ------------ |
+| `CpuOnly` | `None` |
+| `ComputeOnly` | `Some` |
+| `Graphics` | `Some` |
+
+- `Some` の `create_texture` は `Ok(TextureHandle)` を返す。handle の device の識別子と世代は `generation()` と等しく、通し番号は device ごとに 1 から増える。通し番号が尽きたら `BackendFailure { op: "create_texture", .. }` を返す
+- 試験用の device は記述子を検査しない（この device の振る舞い）
+
+確かめ方:
+
+```sh
+grep -n 'fn textures' crates/core/src/stub_device.rs
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+```
