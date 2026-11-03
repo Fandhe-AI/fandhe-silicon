@@ -48,6 +48,10 @@ main() {
     cargo check -p "${pkg}" --tests --features native-blocking-wait --locked --target wasm32-unknown-unknown
   done
 
+  # exec の試験の wasm32 での型検査（fault-injection 付き。TASK-921 のポインタ）。
+  log "cargo check (fandhe-silicon-exec tests, wasm32-unknown-unknown, fault-injection)"
+  cargo check -p fandhe-silicon-exec --tests --features fault-injection --locked --target wasm32-unknown-unknown
+
   # 契約の crate の試験が wasm32 で型検査を通ること（コールバックに Send を要求しない側。TASK-240 のポインタ）。
   # --all-features は背後実装の feature を含み wasm32 では意味が違うので足さない。
   log "cargo check (crates/contract tests, wasm32-unknown-unknown, default features)"

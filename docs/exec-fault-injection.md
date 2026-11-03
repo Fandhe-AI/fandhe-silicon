@@ -143,3 +143,33 @@ cargo test -p fandhe-silicon-exec --features fault-injection --lib
 ```text
 cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports
 ```
+
+## build-profiles と wasm-verify の feature の組（5/6）
+
+### 所在
+
+- `scripts/build-profiles.sh`: exec だけのブロック（native の clippy・test）と、wasm32 の check の行
+- `scripts/wasm-verify.sh`: exec の試験の wasm32 の型検査の行
+
+### 足した組
+
+| スクリプト | target | コマンド |
+| ---------- | ------ | -------- |
+| `build-profiles.sh` | native | `cargo clippy -p fandhe-silicon-exec --all-targets --features fault-injection -- -D warnings` |
+| `build-profiles.sh` | native | `cargo test -p fandhe-silicon-exec --features fault-injection` |
+| `build-profiles.sh` | wasm32-unknown-unknown | `cargo check -p fandhe-silicon-exec --target wasm32-unknown-unknown --features fault-injection` |
+| `wasm-verify.sh` | wasm32-unknown-unknown | `cargo check -p fandhe-silicon-exec --tests --features fault-injection --locked --target wasm32-unknown-unknown` |
+
+- upper の組には足していない。`crates/upper/Cargo.toml` の `[features]` は `native-blocking-wait` だけで、exec の `fault-injection` を転送しない
+- 既存の exec と upper の組（feature なし・`native-blocking-wait`）は変えていない
+
+### 確かめ方
+
+```text
+make build-profiles
+make wasm-verify
+cargo clippy -p fandhe-silicon-exec --all-targets --features fault-injection -- -D warnings
+cargo test -p fandhe-silicon-exec --features fault-injection
+cargo check -p fandhe-silicon-exec --target wasm32-unknown-unknown --features fault-injection
+cargo check -p fandhe-silicon-exec --tests --features fault-injection --locked --target wasm32-unknown-unknown
+```

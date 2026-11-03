@@ -10,6 +10,7 @@
 # 試験の枠の記録の書き出し先（FANDHE_SILICON_TEST_RECORD_DIR）は、呼び出し側の環境に在っても外す。ここは同じ試験を
 # feature の組ごとに何度も流すので、同じディレクトリへ同じ部品を 2 回書くと失敗する。
 # 記録と集計は verify.sh の `cargo test` の 1 回だけが扱う。
+# exec は fault-injection 付きの clippy・test と wasm32 の check も回す（TASK-921 のポインタ）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
@@ -108,6 +109,10 @@ for pkg in "${EXEC_PKG}" "${UPPER_PKG}"; do
   run cargo test -p "${pkg}" --features native-blocking-wait
 done
 
+# exec を fault-injection 付きで（TASK-921 のポインタ。upper は exec の fault-injection を転送しない）
+run cargo clippy -p "${EXEC_PKG}" --all-targets --features fault-injection -- -D warnings
+run cargo test -p "${EXEC_PKG}" --features fault-injection
+
 # 全 feature（spec BUILD-6。後から増える feature も自動で含む）
 run cargo build -p "${PKG}" --all-features
 run cargo clippy -p "${PKG}" --all-targets --all-features -- -D warnings
@@ -135,6 +140,9 @@ for pkg in "${EXEC_PKG}" "${UPPER_PKG}"; do
   run cargo check -p "${pkg}" --target "${WASM_TARGET}"
   run cargo check -p "${pkg}" --target "${WASM_TARGET}" --features native-blocking-wait
 done
+
+# exec の wasm32 の check（fault-injection 付き。TASK-921 のポインタ）
+run cargo check -p "${EXEC_PKG}" --target "${WASM_TARGET}" --features fault-injection
 
 # wasm-abi の cdylib の 2 版の release ビルド（spec BUILD-19・BUILD-20 のポインタ。TASK-237 の 4/4）。
 # 利用者の環境の rustflags 系を外し、simd128 版だけ CARGO_ENCODED_RUSTFLAGS で命令を足す（値は wasm-build-check.sh の SIMD_FLAGS と同じ）。
