@@ -175,6 +175,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
 | `docs/upper-compute-path.md` | 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/upper-layer-crate-check.md` | 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状の事実・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）（TASK-262） |
+| `docs/upper-source-check.md` | 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）（TASK-2387） |
 | `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実（TASK-28） |
@@ -273,6 +274,8 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-profile-test-count-check` | `scripts/test-profile-test-count-check.sh` | `make profile-test-count-check` の回帰テスト（合成の `build-profiles.sh` と偽の cargo。bash・ネットワーク不要） |
 | `make upper-layer-check` | `scripts/upper-layer-check.sh` | 上の層（`crates/upper`）と測定の workspace に、unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定のビルドで検証用の feature が有効でないことの 4 つの検査を当てる（件数は `record:` の行。bash + python3 + cargo + git・ネットワーク不要。`make deny` には含めず、CI の `deny` ジョブが呼ぶ） |
 | `make test-upper-layer-check` | `scripts/test-upper-layer-check.sh` | `make upper-layer-check` の回帰テスト（合成の入力・偽のコマンド・一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要。CI の `deny` ジョブも実行する） |
+| `make upper-source-check` | `scripts/upper-source-check.sh` | 上の層（`crates/upper`）のソースに、グローバルな状態と環境変数・ファイルの読み取りの字句の走査を当てる（件数は `record:` の行。bash + python3・cargo 不要・ソースは変更しない・ネットワーク不要） |
+| `make test-upper-source-check` | `scripts/test-upper-source-check.sh` | `make upper-source-check` の回帰テスト（実物の `crates/upper` を写した変異体・陰性の対照・誤用・実物のリポジトリの合格。python3・ネットワーク不要） |
 | `make test-dep-graph-wgpu-check` | `scripts/test-dep-graph-wgpu-check.sh` | `scripts/dep-graph-wgpu-check.sh` の回帰テスト（合成 JSON・合成 tree と、実行時に作る一時 workspace の実物の cargo metadata / cargo tree。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make test-public-api-webgpu-check` | `scripts/test-public-api-webgpu-check.sh` | `make public-api-webgpu-check` の回帰テスト（ダミーの語の合成 JSON と、一時 workspace の実物の rustdoc の JSON。内容の (1)〜(5) を通す〔TASK-241・TASK-155・TASK-313〕。リポジトリを変更しない・ネットワーク不要。bash + python3 + cargo + git。CI の deny ジョブも実行する） |
 | `make test-public-name-check` | `scripts/test-public-name-check.sh` | `make public-name-check` の回帰テスト（ダミーの語の合成 JSON・合成ソースと、実行時に作る一時 workspace の実物の rustdoc の JSON。bash + python3 + cargo + git。リポジトリのファイルは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
