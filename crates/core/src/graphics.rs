@@ -353,6 +353,9 @@ pub use target_check::{
     validate_offscreen_target_size,
 };
 
+mod surface;
+pub use surface::validate_surface_size;
+
 /// `PixelFormat`・`DepthFormat` の値の数と、`TextureFormat` への変換で名前が保たれることを core の中で固定する試験。
 /// 番号を返す `match` は `_` の腕を持たないので、値を足すとコンパイルが落ちて番号を足させる。
 /// 一覧への足し忘れは、各番号がちょうど 1 回ずつ現れるかを数える試験が落とす。
