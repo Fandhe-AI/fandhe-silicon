@@ -107,6 +107,12 @@ test-wasm-web-load-check: 67 passed, 0 failed
 
 記録時点のコミットは `d4ed11c`。偽の node による判定の全経路と、本物の node で `load-web.mjs` を偽の glue に直接当てる試験を含む。
 
+補い: マージ時の `c01f972` では 73 passed。`detect_isa_bits` の戻りが 3・2 の場面（下の「戻りの値の場面」）を足した後は 125 passed。
+
+#### 戻りの値の場面
+
+`detect-isa-bits` の判定は、戻りが期待（scalar の組は 0、simd128 の組は 1）と完全に一致することを求める。回帰テストの場面 `3b` は、simd128 の組が 3 または 2 を返す入力と scalar の組が 2 を返す入力で、その行が `label=ng` と `value=<戻り>` になることを確かめる。比べを最下位ビットだけにすると 3 を返す場面が落ちる。
+
 ### ビルドの経路（2/4）
 
 `--from-dir` を省くと、`wasm/` の glue を 4 組でビルドし、wasm-bindgen の CLI で `--target web` の出力を一時ディレクトリの

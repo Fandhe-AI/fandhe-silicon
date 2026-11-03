@@ -93,6 +93,8 @@ TASK-22 の 3/6。測り方・閾値の根拠は private spec 側（ポインタ
 | glue の export の現状 | `wasm/crates/glue/src/lib.rs` の export は `roundtrip_f32` だけ。`--require-exports` を付けると 8 組とも `not-run`（`missing-export`）になる。期待の export の実装は別タスク（TASK-1350・1351・1352・237 のポインタ） | `grep -n wasm_bindgen wasm/crates/glue/src/lib.rs`・テストのケース `exports-only-roundtrip` |
 | CI | `deny` ジョブは `make test-wasm-size`（偽のコマンド）を呼ぶ。実物の `make wasm-size` は CLI を入れた `wasm-macos` ジョブが呼ぶ | `grep -n wasm-size .github/workflows/ci.yml` |
 
+補い: web の出力を Node で読み込んで export の有無を行ごとに出す検査は [wasm32-web-load-check.md](wasm32-web-load-check.md)。
+
 流し方:
 
 - `make wasm-verify` で依存を取得したあと `make wasm-size`。CLI が無ければ終了コード 2 と `error:` が出る
