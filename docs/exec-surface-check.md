@@ -176,3 +176,78 @@ passed=55 failed=0
 make exec-surface-check
 make test-exec-surface-check
 ```
+
+## 操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）
+
+default の組の rustdoc の JSON だけに当てる。同じスクリプト・同じ make ターゲットで流れる（all-features の組には当てない）。
+
+### 一覧
+
+| 一覧 | 内容 |
+| ---- | ---- |
+| 操作の関数（持ち主 `Exec`） | `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` |
+| 報告の型の名前 | `RouteReport` |
+| 操作でない関数（持ち主, 名前） | `Exec::new`・`Exec::deny_by_default`・`Exec::default_opt_in`・`Exec::query_route`・`Outcome::report` |
+
+### 公開の関数の集め方
+
+`crate_id` 0 の `function` で `visibility` が `public` のアイテム。持ち主は inherent の impl（`trait` が無いもの）の対象の型の名前で、impl に属さなければ `-`。trait の impl の関数は集めない。`#[doc(hidden)]` の関数も含む（JSON は `--document-hidden-items` つき）。
+
+### 報告を持つ型の判定
+
+戻り値が `Result<T, _>`（`core::result::Result` または `std::result::Result`）で、`T` が次のどれかを満たす。`Err` の側は見ない。
+
+| 型 | 条件 |
+| -- | ---- |
+| 報告の型そのもの | `crate_id` 0 で名前が `RouteReport` |
+| enum | variant が 1 つ以上あり、すべての variant が報告の型の欄を 1 つ以上持つ |
+| struct | 報告の型の欄を 1 つ以上持つ（`plain` または `tuple`） |
+
+持たない形: `unit` の struct、欄の無い variant、`Option<RouteReport>` など包んだ形の欄、外部の crate の型。
+
+### 判定と出力
+
+| 判定 | 標準エラーの形 |
+| ---- | -------------- |
+| 操作の関数が `Exec` にちょうど 1 件ではない | `violation: check=op-fn-count fn=<名前> found=<n>` |
+| 操作の関数の戻り値が報告を持たない | `violation: check=op-fn-report fn=<名前>` |
+| 上の 2 つの一覧のどちらにも無い公開の関数 | `violation: check=unlisted-fn owner=<型 または -> fn=<名前>` |
+
+`record:` に `op_fns`・`op_fns_with_report`・`other_fns`・`unlisted_fns` の 4 つの欄を足す。操作でない一覧の関数の戻り値は見ない。
+
+終了コード 2 に加わるもの: `Exec` が JSON に無い、戻り値の型の path を解決できない、impl の対象を解決できない、関数の sig の形が崩れている。
+
+### 回帰テストの場面の追加
+
+1/6・2/6 の合成の default の JSON は、この節の合格の形の面（`Exec` と操作の関数 7 つ・`Outcome`・`RouteReport`）を持つ。
+
+| 場面 | 期待の終了コード | 見る出力 |
+| ---- | ---------------- | -------- |
+| 合成の合格 | 0 | `op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0` |
+| 戻り値が `Result<(), _>`、または `Outcome` そのまま | 1 | `check=op-fn-report` |
+| `Outcome` に欄の無い variant、`u32` だけの tuple の variant | 1 | 7 つすべてに `check=op-fn-report` |
+| `Exec` に一覧に無い公開の関数（`doc(hidden)` つきを含む）、自由な公開の関数 | 1 | `check=unlisted-fn` |
+| 操作の関数を 1 つ消す、同じ名前を 2 つにする | 1 | `check=op-fn-count` の `found=0`・`found=2` |
+| trait の impl の関数、tuple の形の variant で報告を持つ enum、`Result<RouteReport, _>`、報告の欄を持つ struct、`std::result::Result` | 0 | `ok:` |
+| `Exec` が無い、`Result` の id を解決できない | 2 | `error:`（`record:`・`ok:` が無い） |
+
+### 手元の実行
+
+base `18d8f91` の上で、作業ツリーの変更ありのときの実行。
+
+```text
+record: commit=18d8f9122de3f77967a6e5021b58d091a23fb761-dirty rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+```
+
+回帰テストの最終行。
+
+```text
+passed=72 failed=0
+```
+
+### 確かめ方
+
+```bash
+make exec-surface-check
+make test-exec-surface-check
+```

@@ -92,19 +92,89 @@ sys.exit(1)
 }
 
 
-# gen_json <出力> <指定>...: 実物の形を真似た最小の rustdoc の JSON を書く。
-# 指定: item:<名前>:<種類>[:<crate_id>] / use:<名前> / root:<名前> / private / fv:str / top:array / badcid
+# gen_json <出力> <指定>...: 実物の形を真似た最小の rustdoc の JSON を書く。既定で合格する土台の面（Exec・操作の関数 7 つ・
+# Outcome・RouteReport）を持つ。
+# 指定: item:<名前>:<種類>[:<crate_id>] / use:<名前> / root:<名前> / private / fv:str / top:array / badcid /
+#   noexec / opret:<fn>:<unit|outcome|report|struct_report|badid|stdresult> / variant:<plain|u32> / outcome:tuple /
+#   execfn:<名前> / execfn_hidden:<名前> / freefn:<名前> / dropop:<名前> / dupop:<名前> / traitimpl
 GEN="${work}/gen_json.py"
 cat >"${GEN}" <<'PYEOF'
 import json
 import sys
 
+OPS = ["f16_fma", "subgroup_sum_u32", "subgroup_sum_f32", "atomic_add",
+      "external_interop_shared_memory", "hardware_ray_tracing", "unified_memory_sharing"]
+EXEC_OTHER = ["new", "deny_by_default", "default_opt_in", "query_route"]
 out = sys.argv[1]
 specs = sys.argv[2:]
 root_name = "fandhe_silicon_exec"
 index = {}
-nid = 10
+nid = 100
 doc = {"format_version": 61, "includes_private": False, "paths": {}, "external_crates": {}}
+EXEC, OUTCOME, REPORT, RESULT, CERR, STDRES = 20, 21, 22, 23, 24, 25
+noexec = "noexec" in specs
+retmode = {}
+extra_variants = []
+outcome_tuple = False
+exec_extra = []
+dup = []
+free = []
+dropped = set()
+traitimpl = False
+for sp in specs:
+    parts = sp.split(":")
+    k = parts[0]
+    if k == "opret":
+        retmode[parts[1]] = parts[2]
+    elif k == "variant":
+        extra_variants.append(parts[1])
+    elif k == "outcome":
+        outcome_tuple = True
+    elif k in ("execfn", "execfn_hidden"):
+        exec_extra.append((parts[1], k == "execfn_hidden"))
+    elif k == "freefn":
+        free.append(parts[1])
+    elif k == "dropop":
+        dropped.add(parts[1])
+    elif k == "dupop":
+        dup.append(parts[1])
+    elif k == "traitimpl":
+        traitimpl = True
+
+
+def ty_rp(i, args=None):
+    rp = {"path": "x", "id": i}
+    if args is not None:
+        rp["args"] = {"angle_bracketed": {"args": args, "constraints": []}}
+    return {"resolved_path": rp}
+
+
+def fn_item(i, name, output, vis="public", attrs=None):
+    return {"id": i, "crate_id": 0, "name": name, "visibility": vis, "attrs": attrs or [],
+            "inner": {"function": {"sig": {"inputs": [], "output": output, "is_c_variadic": False}, "generics": {}, "header": {}, "has_body": True}}}
+
+
+def result_of(t, rid=RESULT):
+    return ty_rp(rid, [{"type": t}, {"type": ty_rp(CERR)}])
+
+
+def op_output(name):
+    m = retmode.get(name, "ok")
+    if m == "unit":
+        return result_of(None)
+    if m == "outcome":
+        return ty_rp(OUTCOME)
+    if m == "report":
+        return result_of(ty_rp(REPORT))
+    if m == "struct_report":
+        return result_of(ty_rp(30))
+    if m == "badid":
+        return result_of(ty_rp(OUTCOME), 999)
+    if m == "stdresult":
+        return result_of(ty_rp(OUTCOME), STDRES)
+    return result_of(ty_rp(OUTCOME))
+
+
 for sp in specs:
     parts = sp.split(":")
     kind = parts[0]
@@ -131,6 +201,84 @@ if isinstance(doc, dict):
     index["0"] = {"id": 0, "crate_id": 0, "name": root_name, "visibility": "public", "inner": {"module": {"items": []}}}
     index["1"] = {"id": 1, "crate_id": 1, "name": "external_thing", "visibility": "public", "inner": {"function": {}}}
     doc["root"] = 0
+    # 土台の面。
+    index[str(REPORT)] = {"id": REPORT, "crate_id": 0, "name": "RouteReport", "visibility": "public",
+                          "inner": {"struct": {"kind": {"plain": {"fields": [], "has_stripped_fields": False}}}}}
+    index["30"] = {"id": 30, "crate_id": 0, "name": "Wrapped", "visibility": "public",
+                    "inner": {"struct": {"kind": {"plain": {"fields": [31], "has_stripped_fields": False}}}}}
+    index["31"] = {"id": 31, "crate_id": 0, "name": "report", "visibility": "public",
+                    "inner": {"struct_field": ty_rp(REPORT)}}
+    vids = []
+    for n, vname in enumerate(["Ran", "Unavailable"]):
+        fid = 40 + n
+        vid = 42 + n
+        index[str(fid)] = {"id": fid, "crate_id": 0, "name": "report", "visibility": "public",
+                            "inner": {"struct_field": ty_rp(REPORT)}}
+        kind = {"tuple": [fid]} if outcome_tuple else {"struct": {"fields": [fid], "has_stripped_fields": False}}
+        index[str(vid)] = {"id": vid, "crate_id": 0, "name": vname, "visibility": "default",
+                            "inner": {"variant": {"kind": kind}}}
+        vids.append(vid)
+    for n, vk in enumerate(extra_variants):
+        vid = 50 + n
+        if vk == "plain":
+            kind = "plain"
+        else:
+            index[str(60 + n)] = {"id": 60 + n, "crate_id": 0, "name": "0", "visibility": "default",
+                                  "inner": {"struct_field": ty_rp(70)}}
+            kind = {"tuple": [60 + n]}
+        index[str(vid)] = {"id": vid, "crate_id": 0, "name": "Extra%d" % n, "visibility": "default",
+                            "inner": {"variant": {"kind": kind}}}
+        vids.append(vid)
+    index["70"] = {"id": 70, "crate_id": 0, "name": "Other", "visibility": "public", "inner": {"struct": {"kind": "unit"}}}
+    index[str(OUTCOME)] = {"id": OUTCOME, "crate_id": 0, "name": "Outcome", "visibility": "public",
+                            "inner": {"enum": {"variants": vids}}}
+    doc["paths"][str(RESULT)] = {"crate_id": 2, "path": ["core", "result", "Result"], "kind": "enum"}
+    doc["paths"][str(STDRES)] = {"crate_id": 2, "path": ["std", "result", "Result"], "kind": "enum"}
+    doc["paths"][str(CERR)] = {"crate_id": 3, "path": ["fandhe_silicon_contract", "ContractError"], "kind": "enum"}
+    items = []
+    fid = 200
+    if not noexec:
+        index[str(EXEC)] = {"id": EXEC, "crate_id": 0, "name": "Exec", "visibility": "public",
+                            "inner": {"struct": {"kind": "unit"}}}
+        for n in OPS:
+            if n in dropped:
+                continue
+            index[str(fid)] = fn_item(fid, n, op_output(n))
+            items.append(fid)
+            fid += 1
+        for n in EXEC_OTHER:
+            index[str(fid)] = fn_item(fid, n, None)
+            items.append(fid)
+            fid += 1
+        for n, hidden in exec_extra:
+            index[str(fid)] = fn_item(fid, n, result_of(None), attrs=(["#[doc(hidden)]"] if hidden else []))
+            items.append(fid)
+            fid += 1
+        dup_items = []
+        for n in dup:
+            index[str(fid)] = fn_item(fid, n, op_output(n))
+            dup_items.append(fid)
+            fid += 1
+        index["80"] = {"id": 80, "crate_id": 0, "name": None, "visibility": "default",
+                        "inner": {"impl": {"trait": None, "for": ty_rp(EXEC), "items": items}}}
+        if dup_items:
+            index["81"] = {"id": 81, "crate_id": 0, "name": None, "visibility": "default",
+                            "inner": {"impl": {"trait": None, "for": ty_rp(EXEC), "items": dup_items}}}
+        if traitimpl:
+            tis = []
+            for n in ("fmt", "clone"):
+                index[str(fid)] = fn_item(fid, n, None, vis="default")
+                tis.append(fid)
+                fid += 1
+            index["82"] = {"id": 82, "crate_id": 0, "name": None, "visibility": "default",
+                            "inner": {"impl": {"trait": {"id": 9, "path": "Clone"}, "for": ty_rp(EXEC), "items": tis}}}
+    index[str(fid)] = fn_item(fid, "report", None)
+    index["83"] = {"id": 83, "crate_id": 0, "name": None, "visibility": "default",
+                    "inner": {"impl": {"trait": None, "for": ty_rp(OUTCOME), "items": [fid]}}}
+    fid += 1
+    for n in free:
+        index[str(fid)] = fn_item(fid, n, None)
+        fid += 1
     doc["index"] = index
 with open(out, "w", encoding="utf-8") as fh:
     json.dump(doc, fh)
@@ -142,14 +290,14 @@ gen_json() {
 }
 J_DEF="${work}/j_default.json"
 J_ALL="${work}/j_all.json"
-gen_json "${J_DEF}" item:other_fn:function
-gen_json "${J_ALL}" item:other_fn:function item:force_unsupported:function item:inject_denormal:function \
+gen_json "${J_DEF}" item:other_item:struct
+gen_json "${J_ALL}" item:other_item:struct item:force_unsupported:function item:inject_denormal:function \
   item:ForcedUnsupported:variant item:DenormalInjection:enum item:Injected:variant
 SYN=(--json-default "${J_DEF}" --json-all "${J_ALL}")
 
 # ---- 実物の合格 ----
 run_tool
-judge "real crate passes" 0 "o:ok: exec surface check passed" "o:record: commit=" "o:env_fs=0" "o:scanned: features=default" "o:scanned: features=all-features" "o:port_names_default=0" "o:port_names_missing_all=0" "o:scanned: file=src/lib.rs" "o:scanned: file=tests/common/mod.rs" "e:!violation" "!error:" "!${ROOT_DIR}"
+judge "real crate passes" 0 "o:ok: exec surface check passed" "o:record: commit=" "o:env_fs=0" "o:scanned: features=default" "o:scanned: features=all-features" "o:port_names_default=0" "o:port_names_missing_all=0" "o:unlisted_fns=0" "o:scanned: file=src/lib.rs" "o:scanned: file=tests/common/mod.rs" "e:!violation" "!error:" "!${ROOT_DIR}"
 
 # ---- 変異体（終了コード 1）----
 # 行: 名前|語|対象ファイル|アンカー|足す行。対象ファイルが実物に無ければ新しいファイル（アンカーは -）。
@@ -296,7 +444,7 @@ n=0
 for row in "${pn_rows[@]}"; do
   IFS='|' read -r pname pspec <<<"${row}"
   n=$((n + 1))
-  gen_json "${work}/pn_def.json" item:other_fn:function "${pspec}"
+  gen_json "${work}/pn_def.json" item:other_item:struct "${pspec}"
   run_tool --json-default "${work}/pn_def.json" --json-all "${J_ALL}"
   judge "default has ${pspec}" 1 "e:violation: check=port-name features=default name=${pname} count=1" "e:FAILED:" "o:port_names_default=1" "o:!ok:"
 done
@@ -307,7 +455,7 @@ run_tool --json-default "${J_DEF}" --json-all "${work}/pos_all.json"
 judge "all-features lacks a name" 1 "e:violation: check=port-name-positive features=all-features name=Injected" "e:FAILED:" "o:port_names_missing_all=1" "o:!ok:"
 
 # 陰性: crate_id 1 の同名、部分的に含む別の名前。
-gen_json "${work}/neg_def.json" item:force_unsupported:function:1 item:ForcedUnsupported:variant:2 item:force_unsupported_count:function item:MyInjected:variant
+gen_json "${work}/neg_def.json" item:force_unsupported:function:1 item:ForcedUnsupported:variant:2 item:force_unsupported_count:constant item:MyInjected:variant
 run_tool --json-default "${work}/neg_def.json" --json-all "${J_ALL}"
 judge "other crate and partial names pass" 0 "o:ok:" "o:port_names_default=0" "e:!violation"
 
@@ -351,6 +499,44 @@ rc=0
 PATH="${work}/nocargo-bin" "$(command -v bash)" "${TOOL}" --crate-dir "${COPY}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 judge "cargo missing" 2 "e:error: cannot run cargo" "o:!record:" "o:!ok:"
 rm -rf "${COPY}"
+
+# ---- 操作を実行する関数の戻り値の型と一覧に無い公開の関数（FB-22）: 合成の JSON ----
+run_tool "${SYN[@]}"
+judge "fn scan: baseline" 0 "o:ok:" "o:op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0" "e:!violation"
+
+# 行: 名前|期待の終了コード|指定(スペース区切り)|見る語(スペース区切り。語の中の ~ は空白)
+fn_rows=(
+  'unit return|1|opret:hardware_ray_tracing:unit|e:check=op-fn-report~fn=hardware_ray_tracing o:op_fns_with_report=6'
+  'bare outcome|1|opret:atomic_add:outcome|e:check=op-fn-report~fn=atomic_add o:op_fns_with_report=6'
+  'outcome plain variant|1|variant:plain|e:check=op-fn-report~fn=f16_fma e:check=op-fn-report~fn=unified_memory_sharing o:op_fns_with_report=0'
+  'outcome u32 tuple variant|1|variant:u32|e:check=op-fn-report~fn=f16_fma o:op_fns_with_report=0'
+  'unlisted Exec fn|1|execfn:extra_op|e:check=unlisted-fn~owner=Exec~fn=extra_op o:unlisted_fns=1'
+  'unlisted hidden Exec fn|1|execfn_hidden:hidden_op|e:check=unlisted-fn~owner=Exec~fn=hidden_op o:unlisted_fns=1'
+  'unlisted free fn|1|freefn:free_op|e:check=unlisted-fn~owner=-~fn=free_op o:unlisted_fns=1'
+  'op fn missing|1|dropop:atomic_add|e:check=op-fn-count~fn=atomic_add~found=0 o:op_fns=6'
+  'op fn duplicated|1|dupop:atomic_add|e:check=op-fn-count~fn=atomic_add~found=2 o:op_fns=8'
+  'neg trait impl fns|0|traitimpl|o:unlisted_fns=0 o:op_fns_with_report=7'
+  'neg Result of report|0|opret:atomic_add:report|o:op_fns_with_report=7'
+  'neg Result of struct with report|0|opret:atomic_add:struct_report|o:op_fns_with_report=7'
+  'neg std Result|0|opret:atomic_add:stdresult|o:op_fns_with_report=7'
+  'neg tuple variant report|0|outcome:tuple|o:op_fns_with_report=7'
+  'misuse no Exec|2|noexec|e:error:'
+  'misuse unresolved Result id|2|opret:atomic_add:badid|e:error:~return~type~path~cannot~be~resolved'
+)
+for row in "${fn_rows[@]}"; do
+  IFS='|' read -r fname fwant fspecs fterms <<<"${row}"
+  # shellcheck disable=SC2086
+  gen_json "${work}/fn_def.json" item:other_item:struct ${fspecs}
+  run_tool --json-default "${work}/fn_def.json" --json-all "${J_ALL}"
+  args=()
+  for t in ${fterms}; do args+=("${t//\~/ }"); done
+  case "${fwant}" in
+    1) args+=("e:FAILED:" "o:!ok:") ;;
+    0) args+=("o:ok:" "e:!violation") ;;
+    2) args+=("o:!record:" "o:!ok:") ;;
+  esac
+  judge "fn scan: ${fname}" "${fwant}" "${args[@]}"
+done
 
 echo "passed=${passed} failed=${failed}"
 [ "${failed}" -eq 0 ]
