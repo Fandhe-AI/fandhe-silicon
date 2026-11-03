@@ -121,3 +121,45 @@ cargo test -p fandhe-silicon-core --features graphics --doc graphics
 cargo test -p fandhe-silicon-core --features graphics --test graphics_pass_types
 cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_pass_stub
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#5824）の時点で本リポで観測できた事実だけを記録する（ポインタ: `docs/spec/05-tasks.md` の TASK-838）。GPU の実機なしで実行した。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型と操作が共通の crate の `graphics` に公開されている | `grep -n 'mod pass_state\|mod draw_range\|pub use pass_state\|pub use draw_range' crates/core/src/graphics.rs`、`grep -n 'fn set_' crates/core/src/graphics.rs`、`cargo check -p fandhe-silicon-core --features graphics` | `graphics.rs:433` の `mod pass_state;`、`:434` の `pub use pass_state::{IndexFormat, ScissorRect, Viewport, index_format_bytes};`、`:436` の `mod draw_range;`、`:437` の `pub use draw_range::{`。`fn set_` は 328・335・345・355・372・379・386・393 行目の 8 行。`cargo check` は終了コード 0 |
+| (2) | 8 操作の引数の型・戻り値の型 | `cargo test -p fandhe-silicon-core --features graphics --test graphics_pass_types` | `op_signatures_have_listed_types` が ok |
+| (3) | 値の型の欄と外の crate からの構造体式、`IndexFormat` の `#[non_exhaustive]` と既定値 | 同じ試験、`cargo test -p fandhe-silicon-core --features graphics --doc pass_state`、`make doctest-error-code-check` | `viewport_is_built_from_outside`・`scissor_rect_is_built_from_outside`・`index_format_has_default_and_bytes`・`draw_ranges_are_built_from_outside` が ok。doctest は通常が 4 passed、`compile_fail,E0004`（`pass_state.rs:60`）が 1 passed。`make doctest-error-code-check` は終了コード 0 |
+| (4) | 範囲の検査の純粋関数の境の入力 | 同じ試験 | `draw_range_sum_overflow_is_rejected`・`indexed_draw_range_bounds`・`rejection_is_repeatable`・`rejection_is_invalid_argument_only` が ok。`graphics_pass_types` 全体は 9 passed |
+| (5) | 記録先が寿命の型引数を持たず、値で投入する | `cargo test -p fandhe-silicon-core --features graphics --test graphics_types render_encoder_is_static`、`cargo test -p fandhe-silicon-core --features graphics --doc submit_render` | `render_encoder_is_static` が ok（1 passed）。`--doc submit_render` は通常が 0 passed、`compile_fail,E0382`（`graphics.rs:401`）が 1 passed。`graphics.rs` の `compile_fail,E0382` は 287・401 行目の 2 つ |
+| (6) | 足した操作が既定の本体を持たない | `sed -n '328,400p' crates/core/src/graphics.rs`、`grep -n 'impl GraphicsOps for' crates/core/src/stub_device.rs crates/core/tests/graphics_types.rs` | 8 宣言はいずれも `;` で終わり、本体の `{` を持たない（範囲内の `{` で終わる行は doc コメントの例の 1 行だけ）。`impl` は `stub_device.rs:781` と `graphics_types.rs:21`。`fn set_` は前者の `impl` に 8 本（874・886・901・916・929・941・953・965 行目）、後者に 8 本 |
+| (7) | 試験用の device の返し | `cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_pass_stub` | `pass_state_ops_are_unsupported_on_live_encoder`・`pass_state_ops_return_encoder_rejection`・`pass_state_ops_reject_destroyed_target`・`set_pipeline_rejects_other_device_pipeline`・`pass_state_ops_do_not_consume_encoder` が ok（5 passed） |
+| (8) | 公開 API に wgpu の型が 0 件 | `make public-api-check`・`make public-api-webgpu-check`・`make public-api-sdk-check`・`make public-name-check` | 終了コードはいずれも 0。`record:` の行はいずれも `commit=f7578eb2e072123ffe3eace8defb308a6cd6fdbf`。`public-api-check` は `documents=10 public_items_total=14977 wgpu_type_refs_total=0 wgpu_other_refs_total=0`、`public-api-webgpu-check` は `documents=2 public_items_total=3814 webgpu_names_total=0 submit_token_ops_total=11 submit_token_violations_total=0`、`public-api-sdk-check` は `documents=10 public_items_total=12936 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0`、`public-name-check` は `documents=10 public_items_total=12936 name_hits_total=0` |
+| (9) | 依存 0・unsafe 0 | コミットごとの `git show --stat <sha> -- Cargo.lock deps-approved.toml crates/contract`（`28f41f7`・`a050b8b`・`f7578eb`）、`git show f7578eb -- crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/graphics/pass_state.rs crates/core/src/graphics/draw_range.rs`、`grep -n forbid crates/core/src/lib.rs` | 3 コミットとも出力 0 行。`Cargo.toml` の差分は `f7578eb` の `[[test]]` 2 項目（`graphics_pass_types`、`graphics_pass_stub`。+8 行）だけ。`unsafe` は 2 ファイルとも 0 件。`lib.rs:39` に `#![forbid(unsafe_code)]` |
+| (10) | CI で流れる場所 | `make verify`（`scripts/verify.sh` は `cargo test --workspace --all-features`）、`make wasm-verify`、`make build-profiles` | `make verify` の `cargo test` の中で `graphics_pass_types` が 9 passed、`graphics_pass_stub` が 5 passed、`graphics_types` が 4 passed。`make verify`・`make wasm-verify`・`make build-profiles` は終了コード 0 |
+
+品質ゲートの終了コード: `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` はいずれも 0。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-838）。確かめた base は `f7578eb2e072123ffe3eace8defb308a6cd6fdbf`。
+
+### 確かめ方（4/4）
+
+```sh
+grep -n 'mod pass_state\|mod draw_range\|pub use pass_state\|pub use draw_range' crates/core/src/graphics.rs
+grep -n 'fn set_' crates/core/src/graphics.rs
+cargo check -p fandhe-silicon-core --features graphics
+cargo test -p fandhe-silicon-core --features graphics --test graphics_pass_types
+cargo test -p fandhe-silicon-core --features graphics --doc pass_state
+cargo test -p fandhe-silicon-core --features graphics --test graphics_types render_encoder_is_static
+cargo test -p fandhe-silicon-core --features graphics --doc submit_render
+cargo test -p fandhe-silicon-core --features test-support,graphics --test graphics_pass_stub
+make doctest-error-code-check
+make public-api-check
+make public-api-webgpu-check
+make public-api-sdk-check
+make public-name-check
+make verify
+make wasm-verify
+make build-profiles
+```
