@@ -506,3 +506,110 @@ mod tests {
         );
     }
 }
+
+/// `Exec::force_unsupported` を `Exec` 越しに確かめる試験。feature `fault-injection` の下だけ。
+#[cfg(all(test, feature = "fault-injection"))]
+mod forced_tests {
+    use super::*;
+    use crate::route::UnavailableReason;
+    use fandhe_silicon_core::capability::{BackendKind, CapabilityLevel};
+    use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
+    use fandhe_silicon_core::stub_device::StubDevice;
+
+    fn stub() -> StubDevice {
+        StubDevice::new(DeviceRequest {
+            backend: BackendKind::Metal,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::Shared,
+        })
+    }
+
+    const fn opt(g: bool, c: bool) -> OptIn {
+        OptIn {
+            allow_gpu_emulated: g,
+            allow_cpu: c,
+        }
+    }
+
+    const ALL_OPT: [OptIn; 4] = [
+        opt(false, false),
+        opt(true, false),
+        opt(false, true),
+        opt(true, true),
+    ];
+
+    const OPS: [OpId; 4] = [
+        OpId::F16Fma,
+        OpId::SubgroupSumU32,
+        OpId::SubgroupSumF32,
+        OpId::AtomicAdd,
+    ];
+
+    #[test]
+    fn forced_entry_reports_actual_level() {
+        let dev = stub();
+        let plain = Exec::deny_by_default(&dev);
+        let exec = Exec::deny_by_default(&dev).force_unsupported(OpId::F16Fma);
+        let (mut o16, a) = ([7u16; 2], [1u16; 2]);
+        let r = exec.f16_fma(
+            None,
+            2,
+            F16FmaOperands::Host {
+                a: &a,
+                b: &a,
+                c: &a,
+                out: &mut o16,
+            },
+        );
+        let Ok(Outcome::Unavailable { report }) = r else {
+            panic!("expected Unavailable");
+        };
+        assert_eq!(
+            report.native_reason,
+            Some(UnavailableReason::ForcedUnsupported)
+        );
+        assert_eq!(report.observed_level, Some(CapabilityLevel::Unsupported));
+        assert_eq!(o16, [7; 2]);
+        assert_eq!(exec.query_route(OpId::F16Fma, None).ok(), Some(report));
+        for op in &OPS[1..] {
+            assert_eq!(
+                exec.query_route(*op, None).ok(),
+                plain.query_route(*op, None).ok()
+            );
+        }
+    }
+
+    #[test]
+    fn force_does_not_touch_three_entries() {
+        let dev = stub();
+        for o in ALL_OPT.into_iter().map(Some).chain([None]) {
+            let exec = OPS
+                .into_iter()
+                .fold(Exec::deny_by_default(&dev), |e, op| e.force_unsupported(op));
+            for (r, name) in [
+                (
+                    exec.external_interop_shared_memory(o),
+                    "external_interop_shared_memory",
+                ),
+                (exec.hardware_ray_tracing(o), "hardware_ray_tracing"),
+                (exec.unified_memory_sharing(o), "unified_memory_sharing"),
+            ] {
+                let Err(ContractError::Unsupported { op, .. }) = r else {
+                    panic!("expected Unsupported");
+                };
+                assert_eq!(op, name);
+            }
+        }
+    }
+
+    #[test]
+    fn force_keeps_default_opt_in() {
+        let dev = stub();
+        for o in ALL_OPT {
+            let exec = OPS
+                .into_iter()
+                .fold(Exec::new(&dev, o), |e, op| e.force_unsupported(op));
+            assert_eq!(exec.default_opt_in(), o);
+        }
+    }
+}
