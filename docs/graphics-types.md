@@ -223,7 +223,6 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 | `:64`・`:162` | `--doc graphics` は通常 3 件・`compile_fail` 6 件（計 9 件） | 通常 11 件・`compile_fail` 7 件（計 18 件。`graphics/target_check.rs` などの doctest も同じ絞りに入る）。すべて `ok` |
 | `:166` | `stub_device_graphics` 13 件・`device_trait_shape` 7 件・`stub_device` の `--lib` 7 件 | 13 件・8 件・27 件 |
 | `:164` | `public_items_total=10388` | `public_items_total=14693`（`documents=10`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0`） |
-| `:169` | 承認の記録は 4 件 | 6 件 |
 | `:169` | `lib.rs:31` は `#![forbid(unsafe_code)]` | `crates/core/src/lib.rs:39` |
 
 `:162` の `render_target` の `compile_fail` 2 件（line 21・line 28）と、`:165` の `core_features=5 forwarded=5 forward_violations=0` は今も同じ。
