@@ -151,3 +151,22 @@ TASK-259 の 3/4 で、`ci.yml` の `deny` ジョブ（check 名 `make deny (car
 grep -n "run: make exec-deps-check\|run: make test-exec-deps-check" .github/workflows/ci.yml
 make ci-frame-check
 ```
+
+## 完了の条件の確かめ（4/4）
+
+TASK-259 の 1/4〜3/4 を入れた後の実物で観測した結果を表にする。記録の正は private spec 側の TASK-259（ポインタのみ）。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 実物の `crates/exec` に検査が通る | `make exec-deps-check` | 終了コード 0。`record: commit=567e7cda2b7b56c04b2add0995d2cbed74aeab1e rs_files=12 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0`、`ok: 12 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0` |
+| 2 | 宣言された依存の名前と種類 | `cargo metadata --locked --offline --no-deps --format-version 1 --all-features` の `fandhe-silicon-exec` の `dependencies` | `fandhe-silicon-core` が通常（kind は null）と dev の 2 件だけ |
+| 3 | 依存グラフ（`cargo tree --locked --offline -p fandhe-silicon-exec --all-features -e normal,build,dev --target all --prefix depth`）の package | 深さと名前 | 深さ 0 が `fandhe-silicon-exec`、深さ 1 が `fandhe-silicon-core`。ほかは 0 件 |
+| 4 | ソースの走査 | 行 1 の `record:` の値 | `rs_files=12`、`source_hits=0` |
+| 5 | 回帰テスト | `make test-exec-deps-check` | 終了コード 0、最後の行 `passed=110 failed=0`。向きの違う依存の陽性対照は `real_contract_normal`・`real_contract_dev`・`real_chip_build`・`real_upper_normal`・`real_chip_target_macos`・`real_other_dev`・`real_chip_in_core`・`real_source_only` で、クリーンな状態と未コミットの状態は `real_clean`・`real_dirty` |
+| 6 | 実物の exec の写しに向きの違う依存を足す | `git archive` の写しを一時ディレクトリで `git init` しコミットしたうえで、`crates/exec/Cargo.toml` に 1 件足して `scripts/exec-deps-check.sh` | `fandhe-silicon-contract` を通常の依存に足した状態は終了コード 1、`violation:` は `check=dep-allow kind=normal`・`check=tree-direct`・`check=tree-forbidden depth=1`。`fandhe-silicon-upper` を dev の依存に足した状態も終了コード 1、`check=dep-allow kind=dev`・`check=tree-direct`・`check=tree-forbidden depth=1` |
+| 7 | CI で流れる場所 | `.github/workflows/ci.yml` の行と、`gh run list` | `run: make exec-deps-check` が 359 行目、`run: make test-exec-deps-check` が 362 行目。3/4 を含む `1e1ab40` の run `41620565383` は観測時に in_progress で、ログの `ok:` の行は観測していない |
+| 8 | 1/4〜3/4 が変えたファイル | `git show --stat` | #7879（`9edc30f`）は 7 ファイル、#7882（`422787d`）は 8 ファイル、#7884（`1e1ab40`）は 9 ファイル。いずれも `scripts/`・`Makefile`・`.github/workflows/ci.yml`・`.claude/rules/`・文書だけで、`Cargo.toml`・`Cargo.lock`・`deny.toml`・`deps-approved.toml`・`crates/` 配下は 0 件 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-259）。
+
+確かめた base は `567e7cda2b7b56c04b2add0995d2cbed74aeab1e`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`。
