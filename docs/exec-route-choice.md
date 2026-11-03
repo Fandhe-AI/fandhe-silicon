@@ -14,6 +14,10 @@
 | 通常の依存 | `fandhe-silicon-core` だけ | `cargo tree -p fandhe-silicon-exec -e normal --depth 1` |
 | unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
 
+補い（base c79863d）: 選び方の通り道は `crates/exec/src/entry.rs` の内部の関数 `route_report` で、効く印の決定（`effective_opt_in`）・`query_ex` の 1 回・`select_route`・`build_report` の順に通す。4 つの入口の `run` と `Exec::query_route` はどちらもこの関数を呼び、違いは判定の関数の `Err` に使う `Unsupported` の `op` の名前（入口の関数名か `query_route`）だけ。
+
+補い: 記録時点の commit は、この節の `fa67b42` と、完了の条件の確かめ（5/5）の方法の `6b35dd9` で異なる。`git diff --stat 6b35dd9 fa67b42 -- crates/exec` の出力は空で、この 2 つの commit の間で `crates/exec` の差分は 0 件。
+
 ## 判定を受ける経路の選び方（1/5）
 
 ### 所在
@@ -168,3 +172,7 @@
 | 3/5 | #5997 | test(exec): TASK-920 の 3/5 能力の値・印・判定の全組み合わせの単体試験 |
 | 4/5 | #5998 | test(exec): TASK-920 の 4/5 模擬の能力の値での query_route と入口の一致の試験 |
 | 5/5 | #5999 | docs: TASK-920 の 5/5 完了の条件の確かめ |
+
+補い（base c79863d）: 上の表の 3/5 の題は Issue #5997 の題で、マージした PR #7897 の件名は `test(exec): TASK-920 の 3/5 経路の選び方の全組み合わせの単体試験`。
+
+補い（base c79863d）: `cargo test -p fandhe-silicon-exec --test route_query` は 6 passed; 0 failed; 0 ignored（上の表 (4) の 4 passed から、#7903 が試験を 2 本足して増えた）。`cargo test -p fandhe-silicon-exec` の合計は feature なしが 46 passed（30 + 5 + 4 + 6 + 1 + doctest 0）、`native-blocking-wait` 付きが 48 passed（31 + 1 + 5 + 4 + 6 + 1 + doctest 0）。
