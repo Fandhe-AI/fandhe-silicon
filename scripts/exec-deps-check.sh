@@ -323,6 +323,8 @@ def ident_tokens(text):
 
 
 TREE_LINE_RE = re.compile(r"^(\d+)([A-Za-z_][A-Za-z0-9_-]*) v\S+( \(.*\))?$")
+# cargo tree が種別ごとに挟む節の見出し行（[dev-dependencies]・[build-dependencies] など）。節の区切りとして読み飛ばす。
+TREE_HEADER_RE = re.compile(r"^\d*\[[A-Za-z][A-Za-z0-9 _-]*\]$")
 
 
 def find_target(md):
@@ -383,6 +385,8 @@ def parse_tree(text, target_name):
     nlines = 0
     for line in text.splitlines():
         if not line.strip():
+            continue
+        if TREE_HEADER_RE.match(line.strip()):
             continue
         m = TREE_LINE_RE.match(line.rstrip())
         need(m is not None, "cannot parse a dependency tree line")
