@@ -384,3 +384,14 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | `make public-api-sdk-check` | `deny` | `:347` |
 | `make core-deps-check` | `deny` | `:353` |
 | `make public-api-webgpu-check` | `deny` | `:371` |
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 試験用の device に当たる型の有無の表の `DeviceFaultHooksGate` | `crates/contract/src/cfg_gate_doctest.rs:70`（今は `:95`）→ 今は `:96` | `grep -n 'pub struct DeviceFaultHooksGate' crates/contract/src/cfg_gate_doctest.rs` |
+| 同じ表の `Device`・`DeviceProvider` | `crates/core/src/device.rs:101`・`:151`（今は `:127`・`:192`）→ 今は `:127`・`:199` | `grep -n 'pub trait Device\b\|pub trait DeviceProvider' crates/core/src/device.rs` |
+| 同じ表の `CommandQueue` | `crates/core/src/execution/submit.rs:216` → 今は `:277` | `grep -n 'pub trait CommandQueue' crates/core/src/execution/submit.rs` |
+| 同じ節の `git grep` の出力 | 12 件 → 17 件。表に無かった当たりは `StubDevice`（`crates/core/src/stub_device.rs:1093`）、`StubDeviceProvider`（同 `:1202`）、`UpperDevice`（`crates/upper/src/device.rs:26`）、`Queue`（同 `:56`）、`DeviceGraphicsGate`（`crates/contract/src/cfg_gate_doctest.rs:118`） | `git grep -nE 'pub (trait\|struct) [A-Za-z]*(Device\|Queue\|Stub)' -- crates wasm` |

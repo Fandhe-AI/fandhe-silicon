@@ -69,3 +69,12 @@ make wasm-verify                                                                
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたときに、この表を取り直す。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（2/2）の (6) | `bba66a5..HEAD` の差分は出力なし → `bba66a5..24eaeca` は今も出力なし。`bba66a5..25d8dc2` は `crates/contract/Cargo.toml` が +4 行（#7920 の `cpu_ops_public_surface` の `[[test]]`）、`crates/contract/src/cfg_gate_doctest.rs` が +17 行・-2 行（#7926 の `CpuOpsNonExhaustiveGate`）。`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/` の差分は 0。`Cargo.lock`・`deps-approved.toml` は差分なし | `git diff --stat bba66a5..24eaeca -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml`、`git diff --stat bba66a5..HEAD -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml`、`git log --format='%h %s' bba66a5..HEAD -- crates/contract/src crates/contract/Cargo.toml` |
+| 完了の条件の確かめ（2/2）の (4) | `cpu_ops_topk_reference` は 12 本 → 今も 12 本（`12 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` |

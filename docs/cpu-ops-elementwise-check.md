@@ -64,3 +64,19 @@ make wasm-verify                                                                
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_elementwise_written.rs` を変えたときに、この表を取り直す。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（2/2）の (5) | wasm32 の clippy の段は simd128 の構成の段 → `scripts/wasm-verify.sh` に simd128 なしの wasm32 の scalar の構成の段も加わった（#7909。`log` は 59 行目が simd128、68 行目が scalar。どちらも `--features contract-core,cpu-isa,cpu-ops,test-support` の `--tests`）。この試験は `required-features = ["cpu-ops", "test-support"]` なので、2 つの段のどちらでも lint される。`make wasm-verify` は終了コード 0。CI の `ci.yml` の run 41659827154（`headSha` は `dc8b673`）は結論 `success` で、ジョブ `make deny (cargo-deny)` と `wasm32 build + size + node (macos-latest)` のログに simd128 の段と scalar の段の `log` の行が 1 行ずつある | `grep -n 'cargo clippy (crates/contract tests' scripts/wasm-verify.sh`、`make wasm-verify`、`gh run view 41659827154 --json conclusion,headSha`、`gh run view 41659827154 --log` から `cargo clippy (crates/contract tests` の行を抜く |
+| 再実行の契機 | `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_elementwise_written.rs` → 契機に `scripts/wasm-verify.sh` の wasm32 の clippy の段（simd128 の段・scalar の段）を変えたときも含まれる | 上の `grep` |
+| 確かめ方・完了の条件の確かめ（2/2）の (1)〜(4) | `cpu_ops_elementwise_written` は 4 本 → 今も 4 本（`4 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_elementwise_written` |
+
+今の値の補いとして、次の試験が加わっている。
+
+| 試験 | 所在 | 本数 |
+| ---- | ---- | ---- |
+| `elementwise_add_scalar_other_constants`（#7917） | `crates/contract/tests/cpu_ops_reference.rs` の 277 行目。`AddScalar(c)` を 0.5 以外の定数（`-2.5`・`1.0`・`3.75`・`0.3`・`-0.125`・`1.0e6`）で、長さ `0`・`1`・`3`・`4`・`5`・`7`・`8`・`13`・`1024`・`1027`・`ELEMENTWISE_LEN` について、`DefaultCpuOps` と `ReferenceCpuOps` の scalar 版・SIMD 版が `x + c` とビットまで一致することを確かめる | `cpu_ops_reference` は 8 本（`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` が `8 passed; 0 failed; 0 ignored`）のうちの 1 本 |

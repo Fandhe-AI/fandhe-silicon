@@ -69,3 +69,12 @@ make verify                                                                     
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたときに、この表を取り直す。
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（2/2）の (5)・追加で流したコマンドの `# 10 passed` | `cpu_ops_topk_reference` は `10 passed` → `12 passed; 0 failed; 0 ignored`。足された 2 本は `topk_simd_scalar_byte_sequences_match` と `topk_byte_count_detects_divergence` で、所在は [cpu-ops-topk-simd-bytes.md](cpu-ops-topk-simd-bytes.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` |
+| 完了の条件の確かめ（2/2）の (7) | `git diff --stat 650d7f3..HEAD -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml` は出力なし → `650d7f3..25d8dc2` で `crates/contract/Cargo.toml` が +8 行、`crates/contract/src/cfg_gate_doctest.rs` が +28 行・-3 行（`2 files changed, 36 insertions(+), 3 deletions(-)`）。`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/` の差分は 0。`Cargo.lock`・`deps-approved.toml` は差分なし | 同じ `git diff --stat`、`git diff --stat 650d7f3..HEAD -- crates/contract/src/cpu_ops.rs crates/contract/src/cpu_ops`、`git log --format='%h %s' 650d7f3..HEAD -- crates/contract/src crates/contract/Cargo.toml` |

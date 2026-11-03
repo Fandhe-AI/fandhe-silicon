@@ -172,3 +172,15 @@ record: profile=ComputeOnly features=contract-core,cpu-isa,cpu-ops,backend-metal
 record: profile=Graphics features=contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics,test-support passed=9 graphics=3
 profile-test-count-check: all profiles passed
 ```
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（4/4）の (4) の出力（`GraphicsGate (line 99)`・`DeviceGraphicsGate (line 109)`） | `(line 99)`・`(line 109)` → `(line 100)`・`(line 110)`。`contract-core,cpu-isa,cpu-ops` と `contract-core,cpu-isa,cpu-ops,backend-metal` の組は `compile fail ... ok`、`contract-core,cpu-isa,cpu-ops,backend-vulkan,graphics` の組は `ok` で、組ごとの `ok` / `compile fail ... ok` は記録と同じ | `cargo test -p fandhe-silicon-contract --no-default-features --features "<組>,test-support" --doc` を 3 組それぞれで流して `GraphicsGate` の行を見る |
+| 同じ表の (6) | `git diff --stat 2ea8f74..HEAD -- crates/contract/tests/stub_device_profiles.rs scripts/build-profiles.sh crates/contract/Cargo.toml` は（出力なし）→ `2ea8f74..25d8dc2` で `crates/contract/Cargo.toml` が +16 行、`scripts/build-profiles.sh` が +37 行・-3 行（`2 files changed, 50 insertions(+), 3 deletions(-)`）。`crates/contract/tests/stub_device_profiles.rs` は差分なし | 同じ `git diff --stat` |
+| 同じ表の (7) | `git diff --stat 2ea8f74..HEAD -- Cargo.lock deps-approved.toml` は（出力なし）→ 今も出力なし | 同じ `git diff --stat` |
+| 同じ表の (1)・(2) | `profile_feature_sets` は 10 件、`feature_default_scope` は 15 件 → 今も同じ（`10 passed`・`15 passed`） | `cargo test -p fandhe-silicon-contract --test profile_feature_sets`、`cargo test -p fandhe-silicon-contract --test feature_default_scope` |
+| 同じ表の (3) の出力 | `record:` の 3 行（`passed=6 graphics=0`・`passed=6 graphics=0`・`passed=9 graphics=3`）→ 今も同じ。最終行は `profile-test-count-check: all profiles passed` | `make profile-test-count-check` |

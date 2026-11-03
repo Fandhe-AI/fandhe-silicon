@@ -134,3 +134,11 @@
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base 25d8dc2）
+
+上の表と文は記録時点の値で、書き換えていない。今の値は次のとおり。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめと 3 構成の結果の記録（4/4）の B1 | `NATIVE_SETS` の `backend-vulkan,backend-cuda,graphics,ext-interop` を含む行は 33 行目、単独の行は 43 行目、Vulkan のみは 44 行目、CUDA のみは 45 行目（4 行）→ その行は 36 行目、単独の行は 47 行目、Vulkan のみは 48 行目、CUDA のみは 49 行目、Metal のみ（`backend-metal,ext-interop`）が 50 行目で、5 行が出る。`WASM_SETS` には出ない | `grep -n 'ext-interop' scripts/build-profiles.sh` |
