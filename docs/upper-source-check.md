@@ -194,3 +194,84 @@ make test-upper-source-check
 grep -n "run: make upper-source-check\|run: make test-upper-source-check" .github/workflows/ci.yml
 make ci-frame-check
 ```
+
+## 完了の条件の確かめ（4/4）
+
+1/4〜3/4 の走査・回帰テスト・CI への組み込みを、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写した。
+
+- 手元: `origin/main` の `c79863d`、`docs/spec` の gitlink は `c7887a1a7f75903d4016ba42e0595ae6cbb2cd0b`
+- CI: run `41642253222`（headSha `3d8bd763d743ac145de582f7e447e0eb97091717`、conclusion `success`）のジョブ `make deny (cargo-deny)`（job `125938449350`）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 関数ごとの契約の呼び出しの数 | `make upper-source-check` の `record:` | `table_fns=4` `contract_calls=2` `contract_call_mismatch=0` `dispatch_ex=0` |
+| (2) | 関数の本体の失敗の構築・panic | 同じ `record:` | `failure_constructs=0` |
+| (3) | グローバルな状態 | 同じ `record:` | `global_state=0` |
+| (4) | 環境変数・ファイルの読み取り | 同じ `record:` | `env_fs=0` `rs_files=5` `build_rs=no` |
+| (5) | 陽性対照 | `make test-upper-source-check` の最終行と、場面の群ごとの数 | `passed=71 failed=0`。群ごとの数は下の表 |
+| (6) | CI で流れる場所 | `grep -n` の出力と、上の run のジョブのログの行 | 下のブロック |
+| (7) | 3 つの PR の `crates/`・`Cargo.toml`・`Cargo.lock`・`deps-approved.toml` の変更 | 各マージコミット `<c>^..<c>` に `git diff --stat <c>^..<c> -- crates Cargo.toml Cargo.lock deps-approved.toml`（`0fd2759`・`650d7f3`・`3d8bd76`） | 3 つとも出力なし |
+
+(1)〜(4) の手元の実行（終了コード 0）:
+
+```text
+record: commit=c79863dea276 rs_files=5 build_rs=no global_state=0 env_fs=0 table_fns=4 contract_ops=12 contract_calls=2 contract_call_mismatch=0 dispatch_ex=0 failure_constructs=0
+ok: upper source scan passed
+```
+
+(5) の手元の実行（終了コード 0）の最終行:
+
+```text
+passed=71 failed=0
+```
+
+(5) の場面の群ごとの数。`scripts/test-upper-source-check.sh` の節の見出しと配列（`mutants`・`CALL_MUTANTS`・`FAIL_MUTANTS`）に、出力の `ok:` の行を照らして数えた。
+
+| 群 | 期待の終了コード | 数 |
+| -- | ---------------- | -- |
+| 実物の合格 | 0 | 1 |
+| グローバルな状態の変異体（`mutants` の `global-state`） | 1 | 6 |
+| 環境変数・ファイルの変異体（`mutants` の `env-fs`） | 1 | 15 |
+| 契約の呼び出しの変異体（`CALL_MUTANTS` 5、`submit` の呼び出しの名前の差し替え 1、trait の写しに足した操作の呼び出し 1） | 1 | 7 |
+| 失敗の構築の変異体（`FAIL_MUTANTS`） | 1 | 10 |
+| 陰性の対照（`tests/` 等・関数の表の外・コメントと文字列・括弧のリテラル・trait の写し 2 件・識別子の一部） | 0 | 7 |
+| 誤用・前提の不足 | 2 | 24 |
+| リビジョンを読むコマンドが無いとき | 0 | 1 |
+| 合計 | | 71 |
+
+(6) の `grep -n`:
+
+```text
+273:        run: make upper-source-check
+346:        run: make test-upper-source-check
+```
+
+(6) の CI のジョブのログ:
+
+```text
+make deny (cargo-deny)	make upper-source-check	2026-11-03T13:13:06.9573988Z record: commit=3d8bd763d743 rs_files=5 build_rs=no global_state=0 env_fs=0 table_fns=4 contract_ops=12 contract_calls=2 contract_call_mismatch=0 dispatch_ex=0 failure_constructs=0
+make deny (cargo-deny)	make upper-source-check	2026-11-03T13:13:06.9575001Z ok: upper source scan passed
+make deny (cargo-deny)	make test-upper-source-check	2026-11-03T13:17:27.8878926Z passed=71 failed=0
+```
+
+(7) の 3 つのマージコミットは、`0fd2759` が #7895、`650d7f3` が #7900、`3d8bd76` が #7902。
+
+### 確かめ方
+
+```bash
+make upper-source-check
+make test-upper-source-check
+grep -n "run: make upper-source-check\|run: make test-upper-source-check" .github/workflows/ci.yml
+gh run view 41642253222 --json conclusion,headSha
+```
+
+## 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/4 | #6904（PR #7895） | 環境変数・ファイルの読み取りとグローバルな状態の走査（1/4） |
+| 2/4 | #6905（PR #7900） | 関数ごとの契約の呼び出しと失敗の構築の走査（2/4） |
+| 3/4 | #6906（PR #7902） | CI への組み込み（3/4） |
+| 4/4 | #6907 | 完了の条件の確かめ（4/4） |
+
+親 Issue は #1059。
