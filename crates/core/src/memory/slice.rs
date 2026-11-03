@@ -9,7 +9,43 @@ use crate::error::ContractError;
 /// 元の [`BufferHandle`] を共有で借りるバッファの部分範囲（MEM-41 のポインタ）。
 ///
 /// 開始位置は元のバッファの先頭からのバイト数。欄は非公開で、
-/// 範囲は [`BufferHandle::slice`]・[`BufferHandle::as_entire_slice`] からだけ作れる。
+/// 範囲は [`BufferHandle::slice`]・[`BufferHandle::as_entire_slice`]・[`BufferSlice::slice`]
+/// からだけ作れる。
+///
+/// 範囲が生きている間は、元のハンドルを `MemoryOps::free` に渡すコードはコンパイルが通らない。
+///
+/// ```compile_fail,E0505
+/// use fandhe_silicon_core::memory::{BufferHandle, MemoryOps};
+///
+/// fn f(ops: &dyn MemoryOps, buffer: BufferHandle) {
+///     let s = buffer.as_entire_slice();
+///     ops.free(buffer);
+///     let _ = s.size();
+/// }
+/// ```
+///
+/// `free` に渡した後のハンドルからは範囲を作れない。
+///
+/// ```compile_fail,E0382
+/// use fandhe_silicon_core::memory::{BufferHandle, MemoryOps};
+///
+/// fn f(ops: &dyn MemoryOps, buffer: BufferHandle) {
+///     ops.free(buffer);
+///     let _ = buffer.slice(0, 4);
+/// }
+/// ```
+///
+/// 範囲を使い終えた後は `free` に渡せる。
+///
+/// ```
+/// use fandhe_silicon_core::memory::{BufferHandle, MemoryOps};
+///
+/// fn f(ops: &dyn MemoryOps, buffer: BufferHandle) {
+///     let size = buffer.as_entire_slice().size();
+///     ops.free(buffer);
+///     let _ = size;
+/// }
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct BufferSlice<'a> {
     buffer: &'a BufferHandle,
@@ -64,6 +100,29 @@ impl BufferHandle {
 }
 
 impl<'a> BufferSlice<'a> {
+    /// この範囲の先頭からの相対で、さらに絞った範囲を作る（MEM-54 のポインタ）。
+    ///
+    /// 検査は親の大きさに対して行い、返す範囲の開始位置は元のバッファの先頭からになる。
+    ///
+    /// # Errors
+    ///
+    /// 終端 `offset + size` が `u64` であふれるか親の大きさを超えるとき、または
+    /// 元のバッファからの開始位置が `u64` であふれるとき、[`ContractError::InvalidArgument`] を返す。
+    pub fn slice(&self, offset: u64, size: u64) -> Result<BufferSlice<'a>, ContractError> {
+        validate_buffer_range(offset, size, self.size)?;
+        let start = self.offset.checked_add(offset).ok_or_else(|| {
+            ContractError::InvalidArgument(format!(
+                "buffer slice start overflows u64 (parent offset {}, offset {offset})",
+                self.offset
+            ))
+        })?;
+        Ok(BufferSlice {
+            buffer: self.buffer,
+            offset: start,
+            size,
+        })
+    }
+
     /// 範囲を作った元のハンドルを返す（MEM-55 のポインタ）。
     pub fn buffer(&self) -> &'a BufferHandle {
         self.buffer
@@ -141,5 +200,36 @@ mod tests {
             assert_eq!((s.offset(), s.size()), (0, h.size()));
             assert!(core::ptr::eq(s.buffer(), &h));
         }
+    }
+
+    #[test]
+    fn nested_slice_is_relative_to_parent() {
+        let h = handle(16);
+        let p = h.slice(4, 8).expect("ok");
+        let n = p.slice(2, 2).expect("ok");
+        assert_eq!((n.offset(), n.size()), (6, 2));
+        let e = p.slice(8, 0).expect("ok");
+        assert_eq!((e.offset(), e.size()), (12, 0));
+        assert!(core::ptr::eq(n.buffer(), &h));
+    }
+
+    #[test]
+    fn nested_slice_is_checked_against_parent_size() {
+        let h = handle(16);
+        let p = h.slice(4, 8).expect("ok");
+        assert!(is_invalid(&p.slice(2, 7)));
+        assert!(is_invalid(&p.slice(9, 0)));
+    }
+
+    #[test]
+    fn nested_offsets_accumulate() {
+        let h = handle(16);
+        let a = h.slice(1, 14).expect("ok");
+        let b = a.slice(2, 10).expect("ok");
+        let c = b.slice(3, 4).expect("ok");
+        assert_eq!((a.offset(), a.size()), (1, 14));
+        assert_eq!((b.offset(), b.size()), (3, 10));
+        assert_eq!((c.offset(), c.size()), (6, 4));
+        assert!(core::ptr::eq(c.buffer(), &h));
     }
 }
