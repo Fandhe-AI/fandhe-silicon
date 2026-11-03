@@ -25,6 +25,8 @@ TASK-311 の 1/5〜5/5。private spec の本文は写さない（[spec-confident
 
 読む口はどれも `Result` を返さない。
 
+補い: いまは 3 つの口から作れる。`BufferHandle::slice`・`BufferHandle::as_entire_slice`・入れ子の絞り `BufferSlice::slice`（2/5）で、上の「下の 2 つの口」は 1/5 の記録時点の数え方である。
+
 ## 確かめ方
 
 ```sh
@@ -117,6 +119,12 @@ cargo test -p fandhe-silicon-core --test memory_buffer_slice
 | (8) | 背後実装を呼ばず、既存の口を変えていない | `grep -n '^use ' crates/core/src/memory/slice.rs`。`612e039`・`7172644`・`7514304`・`eaced49` のそれぞれで `git show --stat --format= <sha> -- crates/core/src/memory/buffer.rs crates/core/src/memory/ops.rs crates/core/src/memory/buffer_check.rs crates/core/src/binding.rs crates/contract` | `use` は 2 行（`super::`・`crate::`）。4 コミットとも差分 0 行 |
 | (9) | 依存 0・unsafe 0 | 同じ 4 コミットで `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/memory/slice.rs`、`grep -n forbid crates/core/src/lib.rs` | 4 コミットとも差分 0 行、`unsafe` は 0 件、38 行目に `#![forbid(unsafe_code)]` |
 | (10) | CI で流れる場所と件数 | `make verify`、`make wasm-verify`、`make doctest-error-code-check`、`cargo test -p fandhe-silicon-core --lib memory::slice` | `make verify` は `memory_buffer_slice` の試験を流し終了コード 0。`--lib memory::slice` は 9 passed。`make wasm-verify`・`make doctest-error-code-check` は終了コード 0 |
+
+補い（記録の後の事実）:
+
+- (7) の doc の 2 passed は、通る対照（`BufferSlice` の型の例）と `BufferHandle::slice` の例の 2 本。compile fail の 2 本は別に 2 passed
+- (5) で挙げた `slice_accessors_return_inputs` は、`slice_buffer_returns_origin_handle`・`slice_offset_returns_input`・`slice_size_returns_input` の 3 本に分けた。`BufferSlice` の `Debug` が整形できて空でない文字列になることを確かめる `slice_debug_output_is_non_empty` を足した。`--test memory_buffer_slice` は 17 passed
+- (10) の `make verify` は終了コード 0。流した全 `test result` 行の合計は 1942 passed・0 failed。`--lib memory::slice` は 9 passed
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-311）。確かめた base は `eaced49ff2ed89de107b453247c771e4d79624c5`。
 
