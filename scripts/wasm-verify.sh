@@ -5,7 +5,8 @@
 # ソースは変更しない。外部依存（wasm-bindgen）があるので、初回は取得にネットワークが要る
 # （--locked で Cargo.lock の不一致を失敗させる）。wasm32 の target が無いときは skip せず失敗させる。
 # 製品の `crates/core` と `crates/contract` の試験の wasm32 の型検査（cargo check）、契約の crate の試験の wasm32 の simd128 の構成の clippy と、wasm32 のコンパイル試験の検査
-# （`wasm-compile-probe-check.sh`。一時の crate を wasm32 の組で cargo check して行ごとの期待と照らす）も流す。
+# （`wasm-compile-probe-check.sh`。一時の crate を wasm32 の組で cargo check して行ごとの期待と照らす）と、
+# `crates/` の simd128 の cfg の検査（`wasm-build-check.sh --cfg-only`）も流す。
 # 回帰テストは持たない（検査本体を持たず既存の道具を順に呼ぶ入口のため。measure-verify.sh と同じ）。
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,6 +66,10 @@ main() {
   # wasm32 の組で一時の crate を cargo check し、行ごとの期待と照らす（本体の失敗はそのまま伝わる）。
   log "wasm-compile-probe-check (wasm32 compile probes)"
   "${DIR}/wasm-compile-probe-check.sh"
+
+  # crates/ の simd128 の cfg の出現が全部ビルド時の cfg の中にあり実行時の検出が無いことを見る（TASK-2954 のポインタ。ビルドはしない）。
+  log "wasm-build-check --cfg-only (simd128 cfg sites in crates/)"
+  "${DIR}/wasm-build-check.sh" --cfg-only
 
   log "cargo test (wasm/, host)"
   cargo test --manifest-path wasm/Cargo.toml --workspace --locked

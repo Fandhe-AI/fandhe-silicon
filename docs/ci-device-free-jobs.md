@@ -123,6 +123,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 | `feature-key-check` | 入力が private 側にあり、本リポの CI には組み込まない（`scripts/feature-key-check.sh` の先頭コメント）。回帰テストの `test-feature-key-check` は `deny` ジョブが呼ぶ |
 
+`make wasm-verify`（上の表の `deny`・`wasm-macos` の行）は `scripts/wasm-build-check.sh --cfg-only` を呼び、`cfg:` の行だけを出す（TASK-2954 のポインタ。[wasm32-build](./wasm32-build.md) を参照）。`make wasm-build-check`（全行）は CI から呼ばない。
+
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
 ## `ci-frame-check`（`scripts/ci-frame-check.sh`）
