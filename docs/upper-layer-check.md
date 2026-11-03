@@ -77,6 +77,7 @@
 ## 関連
 
 - [ci-device-free-jobs](./ci-device-free-jobs.md)（`deny` ジョブの検査と make ターゲットの対応）
+- [upper-layer-crate-check](./upper-layer-crate-check.md)（上の層の crate の実物に当てた記録）
 - [unsafe-policy](./unsafe-policy.md)
 - [workspace-boundary](./workspace-boundary.md)
 - [makefile](../.claude/rules/makefile.md)

@@ -192,3 +192,8 @@ make public-api-sdk-check  ok: 10 public API document(s) checked, common crate d
 | 3/5 | #7808 | feat(upper): TASK-2386 の 3/5 バッファの包み |
 | 4/5 | #7811 | test(upper): TASK-2386 の 4/5 試験用の device での投入・待ち・時刻の写しと状態を持たないことの試験 |
 | 5/5 | #7814 | docs: TASK-2386 の 5/5 完了の条件の確かめ |
+
+## 関連
+
+- [upper-layer-crate-check](./upper-layer-crate-check.md)（上の層の crate の実物に当てた検査の記録）
+- [upper-layer-check](./upper-layer-check.md)
