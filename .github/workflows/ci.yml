@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
 # macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（TASK-158・TASK-18 の記録のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
@@ -202,6 +202,7 @@ jobs:
   # 公開 API の名前の検査（`make public-name-check`。決定表のソース 1 本の `--source` と `DecisionInput` の `--exact-fields` を渡す。走査の件数が `scanned:` / `scanned-source:` / `scanned-fields:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-name-check`。一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 公開 API と共通の crate の依存へのチップの SDK の crate の検査（`make public-api-sdk-check`。走査の件数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-sdk-check`。合成 JSON・合成 metadata・偽のコマンドと一時 workspace の実物）も同様に追加実行する。
   # 共通の crate の依存の検査（`make core-deps-check`。`scanned:` / `record:` の行がジョブのログに残る）とその回帰テスト（`make test-core-deps-check`。合成 metadata・偽のコマンド・一時 workspace の実物・TASK-13 の検査との突き合わせ）も同様に追加実行する。
+  # 下-2 の依存の向きの検査（`make exec-deps-check`。件数が `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-exec-deps-check`）も同様に追加実行する。
   # doctest の `compile_fail,E…` のエラーコードの照合（`make doctest-error-code-check`。stable の rustdoc は照合しないので `RUSTC_BOOTSTRAP=1` を doctest の cargo にだけ付ける）とその回帰テスト（`make test-doctest-error-code-check`。依存の無い一時 crate）も同様に追加実行する。
   # 公開 API の WebGPU 系の名前の検査（`make public-api-webgpu-check`。内容の (1)〜(5)〔TASK-241・TASK-155・TASK-313 のポインタ〕。走査の件数が `scanned:` / `record:` の行としてジョブのログに残る）とその回帰テスト（`make test-public-api-webgpu-check`。合成 JSON と一時 workspace の実物の rustdoc の JSON）も同様に追加実行する。
   # 製品の依存グラフの wgpu 系 crate の検査は `make deny` の中で流れる（件数は `record:` の行としてジョブのログに残る）。その回帰テスト（`make test-dep-graph-wgpu-check`。一時 workspace の実物の cargo metadata / cargo tree）も同様に追加実行する。
@@ -353,6 +354,12 @@ jobs:
 
       - name: make test-core-deps-check
         run: make test-core-deps-check
+
+      - name: make exec-deps-check
+        run: make exec-deps-check
+
+      - name: make test-exec-deps-check
+        run: make test-exec-deps-check
 
       - name: make doctest-error-code-check
         run: make doctest-error-code-check

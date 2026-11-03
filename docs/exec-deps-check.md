@@ -130,3 +130,24 @@ make test-exec-deps-check
 ```
 
 最後の行が `passed=<n> failed=0` で、終了コードが 0 になる。
+
+## CI への組み込み（3/4）
+
+TASK-259 の 3/4 で、`ci.yml` の `deny` ジョブ（check 名 `make deny (cargo-deny)`）に次の 2 つのステップを足した。
+
+| ステップ | 実行するもの |
+| -------- | ------------ |
+| `make exec-deps-check` | `scripts/exec-deps-check.sh` |
+| `make test-exec-deps-check` | `scripts/test-exec-deps-check.sh` |
+
+- 位置は `make test-core-deps-check` のステップの直後で、`make deny` のステップより後
+- `continue-on-error`・`|| true`・ステップの `if:` は付けていない。検査が落ちればジョブも落ちる
+- 新しいジョブは足していない
+- ジョブのログには、`make exec-deps-check` の `scanned:`・`record:`・`ok:` の行と、回帰テストの最後の `passed=<n> failed=0` の行が出る
+
+### 確かめ方
+
+```bash
+grep -n "run: make exec-deps-check\|run: make test-exec-deps-check" .github/workflows/ci.yml
+make ci-frame-check
+```
