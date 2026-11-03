@@ -30,3 +30,40 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 ```sh
 cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference
 ```
+
+## 完了の条件の確かめ（2/2）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2450。親 Issue は #1069、この節（2/2）は #6945。
+
+実行環境は GPU なしの Linux。確かめた base のコミットは `3d8bd76`。コード・試験・スクリプトは変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 出力が `total_cmp` の降順で、同点はスロット番号の昇順に並び、出力に入らなかった有限のスコアが最後の件より前に来ない（20,000 件・k=64、同点ありの 200 件・k=10、`SIGNED_ZERO_INPUTS`） | `cpu_ops_topk_reference` の `topk_order_rule_holds_directly` | `ok` |
+| (2) | 同点が k 件目の前後にまたがる入力で、出力に入る側と入らない側がスロット番号で分かれる | `topk_ties_cross_k_boundary_in_slot_order` | `ok` |
+| (3) | 非有限のスロットが出力に 0 件 | `topk_non_finite_slots_absent_directly` と既存の `topk_excludes_non_finite` | 2 本とも `ok` |
+| (4) | 先頭 k 件が入力の（スロット番号、スコア）の組で埋まる | `topk_first_k_are_input_pairs` と既存の `topk_fills_first_k` | 2 本とも `ok` |
+| (5) | 既存の CPU 参照との比べの試験も合わせて通る | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` | `10 passed; 0 failed; 0 ignored` |
+| (6) | wasm32 の構成で試験が lint を通る | `make wasm-verify`（契約の crate の試験の simd128 の構成の clippy の段を含む） | 終了コード 0 |
+| (7) | 製品のコード・依存に差分が無い | `git diff --stat 650d7f3..HEAD -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml` | 出力なし（差分 0） |
+| (8) | CI で流れる場所 | `make verify` と、`main` 上の 1/2 のコミット `6776e6e` の CI の run（`gh run view <id> --json conclusion`） | `make verify` は終了コード 0。run の結論は `success` |
+
+### 1/2 の対応
+
+| 段 | PR | コミット |
+| -- | -- | -------- |
+| 1/2 | #7901 | `6776e6e` |
+
+### 追加で流したコマンド
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference   # 10 passed
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection                          # 7 passed
+make build-profiles                                                                           # 終了コード 0
+make wasm-verify                                                                              # 終了コード 0
+make verify                                                                                   # 終了コード 0
+```
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_topk_reference.rs` を変えたときに、この表を取り直す。
