@@ -362,3 +362,5 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | #7564 | テスト |
 | #7565 | 公開 API の検査 |
 | #7566 | 確かめ |
+
+- 関連: 描画先の破棄の操作と試験用の device の描画先の表は [texture-view-destroy-copy.md](texture-view-destroy-copy.md)（TASK-372）。

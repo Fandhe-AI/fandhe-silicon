@@ -269,6 +269,29 @@ pub trait GraphicsOps {
         depth: DepthConfig,
     ) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError>;
 
+    /// 描画先を破棄する（TEX-13 のポインタ）。handle を値で受けて消費し、`Result` は返さない。
+    /// `create_offscreen_target_with_depth` が返す色と深度の handle は、それぞれをこの操作で破棄する。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::graphics::GraphicsOps;
+    /// use fandhe_silicon_core::render_target::RenderTargetHandle;
+    /// fn f(g: &dyn GraphicsOps, t: RenderTargetHandle) {
+    ///     g.destroy_offscreen_target(t);
+    /// }
+    /// ```
+    ///
+    /// 破棄の後に同じ handle を使う呼び出しはコンパイルで拒まれる。
+    ///
+    /// ```compile_fail,E0382
+    /// use fandhe_silicon_core::graphics::GraphicsOps;
+    /// use fandhe_silicon_core::render_target::RenderTargetHandle;
+    /// fn f(g: &dyn GraphicsOps, t: RenderTargetHandle) {
+    ///     g.destroy_offscreen_target(t);
+    ///     let _ = g.create_render_encoder(&t);
+    /// }
+    /// ```
+    fn destroy_offscreen_target(&self, target: RenderTargetHandle);
+
     /// 描画先に描く記録先を作る。
     fn create_render_encoder(&self, target: &RenderTargetHandle) -> RenderEncoder;
 

@@ -576,12 +576,19 @@ impl TextureOps for StubTextures {
 /// `create_render_encoder*` は通し番号を取らず、`DeviceMismatch` を持つ識別子 `0` の記録先を返し、
 /// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
+/// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
+/// 破棄した描画先を使う記録先を `submit_render` に渡すと `InvalidArgument` を返す。
+/// 別の device の描画先の破棄は何もしない。
 #[cfg(feature = "graphics")]
 struct StubGraphics {
     backend: BackendKind,
     id: u64,
     next_serial: AtomicU64,
     sequence: Arc<AtomicU64>,
+    /// 生きている描画先の識別子。
+    targets: Mutex<HashSet<u64>>,
+    /// 記録先の識別子から、その記録先が使う描画先の識別子の列。
+    recorded: Mutex<HashMap<u64, Vec<u64>>>,
 }
 
 #[cfg(feature = "graphics")]
@@ -592,6 +599,26 @@ impl StubGraphics {
             id,
             next_serial: AtomicU64::new(1),
             sequence,
+            targets: Mutex::new(HashSet::new()),
+            recorded: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn is_live(&self, target: &RenderTargetHandle) -> bool {
+        lock(&self.targets).contains(&target.__backend_id())
+    }
+
+    fn not_live() -> ContractError {
+        ContractError::InvalidArgument("render target is not live".to_string())
+    }
+
+    /// device の識別子の照合の後に、描画先が生きていることを照らす。
+    fn check_target(&self, target: &RenderTargetHandle) -> Result<(), ContractError> {
+        check_render_target_device(target, self.id, self.id, false)?;
+        if self.is_live(target) {
+            Ok(())
+        } else {
+            Err(Self::not_live())
         }
     }
 
@@ -630,14 +657,26 @@ impl StubGraphics {
         Ok(RenderTargetHandle::__backend_new(self.id, serial, self.id))
     }
 
+    /// 描画先を 1 つ作って表に入れる。
+    fn live_target(&self, op: &'static str) -> Result<RenderTargetHandle, ContractError> {
+        let handle = self.target(op)?;
+        lock(&self.targets).insert(handle.__backend_id());
+        Ok(handle)
+    }
+
     /// `targets` を順に照らし、最初の不一致の値を持つ識別子 `0` の記録先を返す。通れば `encoder(op)`。
     fn checked_encoder(&self, targets: &[&RenderTargetHandle], op: &'static str) -> RenderEncoder {
         for target in targets {
-            if let Err(e) = check_render_target_device(target, self.id, self.id, false) {
+            if let Err(e) = self.check_target(target) {
                 return RenderEncoder::__backend_new_rejected(self.id, 0, self.id, e);
             }
         }
-        self.encoder(op)
+        let encoder = self.encoder(op);
+        if encoder.__backend_rejected().is_none() {
+            let ids = targets.iter().map(|t| t.__backend_id()).collect();
+            lock(&self.recorded).insert(encoder.__backend_id(), ids);
+        }
+        encoder
     }
 
     /// 記録先が持つ拒否の値、無ければパイプラインの device の識別子の不一致を返す。
@@ -690,7 +729,7 @@ impl GraphicsOps for StubGraphics {
         _height: u32,
         _format: PixelFormat,
     ) -> Result<RenderTargetHandle, ContractError> {
-        self.target("create_offscreen_target")
+        self.live_target("create_offscreen_target")
     }
 
     fn create_offscreen_target_with_depth(
@@ -701,7 +740,18 @@ impl GraphicsOps for StubGraphics {
         _depth: DepthConfig,
     ) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> {
         let op = "create_offscreen_target_with_depth";
-        Ok((self.target(op)?, self.target(op)?))
+        let color = self.target(op)?;
+        let depth_target = self.target(op)?;
+        let mut targets = lock(&self.targets);
+        targets.insert(color.__backend_id());
+        targets.insert(depth_target.__backend_id());
+        Ok((color, depth_target))
+    }
+
+    fn destroy_offscreen_target(&self, target: RenderTargetHandle) {
+        if check_render_target_device(&target, self.id, self.id, false).is_ok() {
+            lock(&self.targets).remove(&target.__backend_id());
+        }
     }
 
     fn create_render_encoder(&self, target: &RenderTargetHandle) -> RenderEncoder {
@@ -751,8 +801,15 @@ impl GraphicsOps for StubGraphics {
         encoder: RenderEncoder,
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
+        let recorded = lock(&self.recorded).remove(&encoder.__backend_id());
         if let Some(err) = encoder.__backend_rejected() {
             return Err(err.clone());
+        }
+        if let Some(ids) = recorded {
+            let targets = lock(&self.targets);
+            if ids.iter().any(|id| !targets.contains(id)) {
+                return Err(Self::not_live());
+            }
         }
         if !wait.is_empty() {
             return Err(ContractError::Unsupported {
@@ -770,7 +827,7 @@ impl GraphicsOps for StubGraphics {
         _dst: &BufferHandle,
         _dst_offset: u64,
     ) -> Result<(), ContractError> {
-        check_render_target_device(target, self.id, self.id, false)?;
+        self.check_target(target)?;
         Err(ContractError::Unsupported {
             op: "copy_target_to_buffer",
             backend: self.backend,
@@ -795,6 +852,7 @@ impl GraphicsOps for StubGraphics {
 /// 別 device の描画先やパイプラインを渡すと `DeviceMismatch` を返す（記録先の生成では、その値を持つ記録先を返す）。
 /// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
+/// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す。破棄した描画先を使う記録先を `submit_render` に渡しても同じ。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
@@ -1128,8 +1186,10 @@ mod tests {
     #[test]
     fn render_encoder_carries_backend_failure_when_ids_are_exhausted() {
         let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let target = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
         g.next_serial.store(u64::MAX - 1, Ordering::Relaxed);
-        let target = RenderTargetHandle::__backend_new(5, 1, 5);
         let first = g.create_render_encoder(&target);
         assert_eq!(first.__backend_rejected(), None);
         let second = g.create_render_encoder(&target);
@@ -1147,6 +1207,49 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn destroyed_target_is_removed_from_table() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let t = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        assert!(g.is_live(&t));
+        let copy = RenderTargetHandle::__backend_new(5, t.__backend_id(), 5);
+        g.destroy_offscreen_target(t);
+        assert!(!g.is_live(&copy));
+        assert!(matches!(
+            g.create_render_encoder(&copy).__backend_rejected(),
+            Some(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn destroying_other_device_handle_keeps_own_target() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let t = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        g.destroy_offscreen_target(RenderTargetHandle::__backend_new(9, t.__backend_id(), 9));
+        assert!(g.is_live(&t));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn destroyed_ids_are_not_reused() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let a = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let first = a.__backend_id();
+        g.destroy_offscreen_target(a);
+        let b = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        assert_ne!(b.__backend_id(), first);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! feature `graphics` の描画の公開の型と `GraphicsOps` の形を、外の crate から公開のパスだけで確かめる統合テスト
 //! （TASK-837 の 4/4 のポインタ）。
 //!
-//! 局所の型に 10 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
+//! 局所の型に 11 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
@@ -58,6 +58,8 @@ impl GraphicsOps for FixedGraphics {
             RenderTargetHandle::__backend_new(1, 5, 9),
         ))
     }
+
+    fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
 
     fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
         RenderEncoder::__backend_new(1, 6, 9)
@@ -157,6 +159,7 @@ fn graphics_ops_is_implementable_and_object_safe() {
 
     let ed = g.create_render_encoder_with_depth(&color, &depth, [0.0, 0.0, 0.0, 1.0]);
     assert_eq!(ed.__backend_id(), 7);
+    g.destroy_offscreen_target(depth);
 
     let buf = BufferHandle::__backend_new(1, 8, 9, 64, BufferUsage::VERTEX);
     let mut e = g.create_render_encoder(&target);
