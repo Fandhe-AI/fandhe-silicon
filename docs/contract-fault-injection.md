@@ -259,3 +259,25 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 能力の問合せの値の差し替え（TASK-921 の 1/6）
+
+所在は `crates/core/src/fault/decorator.rs` の `FaultScript::CapabilityOverride { feature, query }`（feature `fault-injection` の下）。指定した機能の `query`・`query_ex` を、内側を呼ばずに渡した値で返す。コードと公開テストが示す動きだけを置く。
+
+| 入口 | 働き |
+| ---- | ---- |
+| 対象の機能の `query_ex` | 内側を呼ばず、渡した `query` の値をそのまま返す |
+| 対象の機能の `query` | 内側を呼ばず、渡した値の `level` を返す |
+| ほかの機能の `query`・`query_ex` | 内側へ渡す |
+| `submit_with`・`allocate_with`・`wait_blocking_with`・`poll_ex_with`・`poll_with`・`create_pipeline_with` | 内側へ渡す。`level` が `Unsupported` の差し替えでも `create_pipeline_with` は内側の値を返す |
+| `limits()`・`limits_with`・`with_limits_override` | 働きは変わらない |
+| `FaultHooks` の口 | 内側へ渡す |
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `crates/core/tests/fault_decorator_capability_override.rs` の `override_returns_the_given_query_for_the_target_key` | 11 通りの値で、対象の機能の `query_ex`・`query` が渡した値になり、内側の呼び出しが 0 回 |
+| 同 `override_passes_other_keys_to_inner` | ほかの機能は内側の値で、内側を 1 回ずつ呼ぶ |
+| 同 `override_passes_every_interception_to_inner` | 6 つの `*_with` が内側を 1 回ずつ呼び、上限の働きが変わらない |
+| `crates/core/tests/fault_parts_matrix.rs` の `CapabilityOverride` の行 | 全ての差し込みとの組の期待 |
+
+- 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override`（と `--test fault_parts_matrix`）

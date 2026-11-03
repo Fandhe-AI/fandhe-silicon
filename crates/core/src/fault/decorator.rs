@@ -10,6 +10,8 @@
 //! `wait_blocking` の戻りは TASK-264 (3) に従い `BackendFailure`）。
 //! (8) 上限の差し替えは、型を消した値で内側の上限を置き換える口。`LimitsTable`（TASK-157）の置き換えは
 //! `Capabilities::limits()` にも効く。別の型の置き換えは `limits()` に効かず、内側の表を返す。
+//! (9) 能力の問合せの値の差し替え（TASK-921）は、指定した機能の `query`・`query_ex` を、内側を呼ばずに
+//! 筋書きが持つ値で返す。ほかの機能と `*_with` の差し込みは内側へ渡す。
 //!
 //! このデコレータは `Device` のトレイトを実装せず、包む型を型引数にし、内側の呼び出しはクロージャで受ける。
 //! `Device` を包む実装は、そのメソッドからここの `*_with` を呼ぶ形にする。差し込むのは模擬であって、
@@ -51,6 +53,13 @@ pub enum FaultScript {
         backend: BackendKind,
         /// `BackendFailure` に載せる説明。
         detail: String,
+    },
+    /// 指定した機能の `query`・`query_ex` を、内側を呼ばずに `query` の値で返す（`query` は `query.level`）。
+    CapabilityOverride {
+        /// 値を差し替える機能。
+        feature: FeatureId,
+        /// その機能の問合せに返す値。
+        query: CapabilityQuery,
     },
 }
 
@@ -158,6 +167,7 @@ impl<D> FaultInjecting<D> {
             FaultScript::PassThrough
             | FaultScript::CapabilityInsufficient { .. }
             | FaultScript::CapabilityQueryFails
+            | FaultScript::CapabilityOverride { .. }
             | FaultScript::AllocationFails => call_inner(&self.inner),
         }
     }
@@ -175,6 +185,7 @@ impl<D> FaultInjecting<D> {
             FaultScript::PassThrough
             | FaultScript::CapabilityInsufficient { .. }
             | FaultScript::CapabilityQueryFails
+            | FaultScript::CapabilityOverride { .. }
             | FaultScript::AllocationFails => call_inner(&self.inner),
         }
     }
@@ -191,6 +202,7 @@ impl<D> FaultInjecting<D> {
             | FaultScript::CompletionUnknown
             | FaultScript::CapabilityInsufficient { .. }
             | FaultScript::CapabilityQueryFails
+            | FaultScript::CapabilityOverride { .. }
             | FaultScript::AllocationFails => call_inner(&self.inner),
         }
     }
@@ -212,6 +224,7 @@ impl<D> FaultInjecting<D> {
             FaultScript::PassThrough
             | FaultScript::CompletionUnknown
             | FaultScript::CapabilityQueryFails
+            | FaultScript::CapabilityOverride { .. }
             | FaultScript::AllocationFails
             | FaultScript::RuntimeError { .. } => call_inner(&self.inner),
         }
@@ -234,6 +247,7 @@ impl<D: Capabilities> Capabilities for FaultInjecting<D> {
             FaultScript::CapabilityInsufficient { feature: f, .. } if *f == feature => {
                 CapabilityLevel::Unsupported
             }
+            FaultScript::CapabilityOverride { feature: f, query } if *f == feature => query.level,
             _ => self.inner.query(feature),
         }
     }
@@ -252,6 +266,7 @@ impl<D: Capabilities> Capabilities for FaultInjecting<D> {
                     evidence: None,
                 }
             }
+            FaultScript::CapabilityOverride { feature: f, query } if *f == feature => *query,
             _ => self.inner.query_ex(feature),
         }
     }

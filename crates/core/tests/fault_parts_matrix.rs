@@ -112,6 +112,17 @@ fn scripts() -> Vec<(&'static str, FaultScript)> {
         ("CapabilityQueryFails", FaultScript::CapabilityQueryFails),
         ("AllocationFails", FaultScript::AllocationFails),
         (
+            "CapabilityOverride",
+            FaultScript::CapabilityOverride {
+                feature: A,
+                query: CapabilityQuery {
+                    level: CapabilityLevel::S1,
+                    unsupported_reason: None,
+                    evidence: None,
+                },
+            },
+        ),
+        (
             "RuntimeError",
             FaultScript::RuntimeError {
                 backend: BackendKind::Vulkan,
@@ -246,6 +257,13 @@ fn expected(script: &FaultScript) -> Observed {
             o.query_ex_b = q;
             o.calls.query = 0;
             o.calls.query_ex = 0;
+        }
+        FaultScript::CapabilityOverride { feature, query } => {
+            assert_eq!(*feature, A);
+            o.query_a = query.level;
+            o.query_ex_a = *query;
+            o.calls.query = 1;
+            o.calls.query_ex = 1;
         }
         FaultScript::AllocationFails => {
             o.allocate = Err(ContractError::AllocationFailed {

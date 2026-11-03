@@ -62,6 +62,10 @@ name = "fault_decorator_runtime_error"
 required-features = ["fault-injection"]
 
 [[test]]
+name = "fault_decorator_capability_override"
+required-features = ["fault-injection"]
+
+[[test]]
 name = "fault_decorator_limits"
 required-features = ["fault-injection"]
 
