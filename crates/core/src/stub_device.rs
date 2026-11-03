@@ -577,7 +577,7 @@ impl TextureOps for StubTextures {
 /// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
-/// 破棄した描画先を使う記録先を `submit_render` に渡すと `InvalidArgument` を返す。
+/// 破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡すと `InvalidArgument` を返す。別の device の記録先を `submit_render` に渡すと `DeviceMismatch` を返す。
 /// `submit_render` に渡さずに捨てた記録先の分の記録は残る（試験用で、後始末の経路は持たない）。
 /// 別の device の描画先の破棄は何もしない。
 #[cfg(feature = "graphics")]
@@ -692,6 +692,17 @@ impl StubGraphics {
         if pipeline.__backend_device_id() != self.id {
             return Err(ContractError::DeviceMismatch);
         }
+        self.check_recorded_live(encoder)
+    }
+
+    /// 記録先が使う描画先がすべて生きていることを照らす（破棄済みは `InvalidArgument`）。
+    fn check_recorded_live(&self, encoder: &RenderEncoder) -> Result<(), ContractError> {
+        if let Some(ids) = lock(&self.recorded).get(&encoder.__backend_id()) {
+            let targets = lock(&self.targets);
+            if ids.iter().any(|id| !targets.contains(id)) {
+                return Err(Self::not_live());
+            }
+        }
         Ok(())
     }
 
@@ -802,10 +813,13 @@ impl GraphicsOps for StubGraphics {
         encoder: RenderEncoder,
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
-        let recorded = lock(&self.recorded).remove(&encoder.__backend_id());
         if let Some(err) = encoder.__backend_rejected() {
             return Err(err.clone());
         }
+        if encoder.__backend_device_id() != self.id || encoder.__backend_generation() != self.id {
+            return Err(ContractError::DeviceMismatch);
+        }
+        let recorded = lock(&self.recorded).remove(&encoder.__backend_id());
         if let Some(ids) = recorded {
             let targets = lock(&self.targets);
             if ids.iter().any(|id| !targets.contains(id)) {
@@ -1258,6 +1272,53 @@ mod tests {
             g.submit_render(encoder, &[]),
             Err(ContractError::InvalidArgument(_))
         ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn submit_render_rejects_foreign_encoder_without_touching_table() {
+        let a = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let b = StubGraphics::new(BackendKind::Vulkan, 6, Arc::new(AtomicU64::new(1)));
+        let ta = a
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target a");
+        let tb = b
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target b");
+        let ea = a.create_render_encoder(&ta);
+        let eb = b.create_render_encoder(&tb);
+        assert_eq!(ea.__backend_id(), eb.__backend_id());
+        assert!(matches!(
+            a.submit_render(eb, &[]),
+            Err(ContractError::DeviceMismatch)
+        ));
+        a.destroy_offscreen_target(ta);
+        assert!(matches!(
+            a.submit_render(ea, &[]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[cfg(feature = "graphics")]
+    #[test]
+    fn draw_rejects_encoder_whose_target_was_destroyed() {
+        let g = StubGraphics::new(BackendKind::Vulkan, 5, Arc::new(AtomicU64::new(1)));
+        let t = g
+            .create_offscreen_target(1, 1, PixelFormat::Rgba8Unorm)
+            .expect("target");
+        let copy = RenderTargetHandle::__backend_new(5, t.__backend_id(), 5);
+        let mut enc = g.create_render_encoder(&copy);
+        g.destroy_offscreen_target(t);
+        let buf = BufferHandle::__backend_new(5, 1, 5, 4, BufferUsage::STORAGE);
+        let pipeline = PipelineHandle::__backend_new(1, 5);
+        assert!(is_invalid_argument(g.draw(&mut enc, &pipeline, &buf, 3)));
+        assert!(is_invalid_argument(g.draw_ex(
+            &mut enc,
+            &pipeline,
+            &buf,
+            3,
+            &[]
+        )));
     }
 
     #[cfg(feature = "graphics")]
