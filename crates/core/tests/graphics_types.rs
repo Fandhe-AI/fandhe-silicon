@@ -1,7 +1,7 @@
 //! feature `graphics` の描画の公開の型と `GraphicsOps` の形を、外の crate から公開のパスだけで確かめる統合テスト
 //! （TASK-837 の 4/4 のポインタ）。
 //!
-//! 局所の型に 19 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
+//! 局所の型に 23 操作を実装し、`dyn GraphicsOps` 越しに呼ぶ。本体は固定の値を返すだけ。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
@@ -163,6 +163,45 @@ impl GraphicsOps for FixedGraphics {
         &self,
         _encoder: &mut RenderEncoder,
         _reference: u32,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn draw_mesh_tasks(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _group_count: [u32; 3],
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn draw_mesh_tasks_indirect(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn multi_draw_mesh_tasks_indirect(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+        _count: u32,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn multi_draw_mesh_tasks_indirect_count(
+        &self,
+        _encoder: &mut RenderEncoder,
+        _indirect: &BufferHandle,
+        _indirect_offset: u64,
+        _count_buffer: &BufferHandle,
+        _count_offset: u64,
+        _max_count: u32,
     ) -> Result<(), ContractError> {
         Ok(())
     }
