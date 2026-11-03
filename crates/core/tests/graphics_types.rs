@@ -290,6 +290,15 @@ fn graphics_ops_is_implementable_and_object_safe() {
     let mut cmd = CommandEncoder::__backend_new(1, None);
     assert_eq!(g.copy_target_to_buffer(&mut cmd, &target, &buf, 0), Ok(()));
 
+    // mesh shader の描画の 4 操作は固定で `Ok(())` を返す。
+    assert_eq!(g.draw_mesh_tasks(&mut e, [1, 2, 3]), Ok(()));
+    assert_eq!(g.draw_mesh_tasks_indirect(&mut e, &buf, 0), Ok(()));
+    assert_eq!(g.multi_draw_mesh_tasks_indirect(&mut e, &buf, 0, 2), Ok(()));
+    assert_eq!(
+        g.multi_draw_mesh_tasks_indirect_count(&mut e, &buf, 0, &buf, 0, 4),
+        Ok(())
+    );
+
     let token = g.submit_render(e, &[]).unwrap();
     assert_eq!(token.generation, 1);
     assert_eq!(token.sequence, 6);

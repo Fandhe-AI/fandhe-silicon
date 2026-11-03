@@ -557,6 +557,42 @@ impl RenderEncoder {
 /// }
 /// ```
 ///
+/// 同じ実装に `draw_mesh_tasks` を足すと通る（上の例との差は、この 1 操作だけ）。
+///
+/// ```
+/// # use fandhe_silicon_core::error::ContractError;
+/// # use fandhe_silicon_core::execution::{BindingLayout, CommandEncoder, ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken};
+/// # use fandhe_silicon_core::graphics::{DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder, ScissorRect, Viewport};
+/// # use fandhe_silicon_core::memory::BufferHandle;
+/// # use fandhe_silicon_core::render_target::RenderTargetHandle;
+/// struct G;
+/// impl GraphicsOps for G {
+///     fn create_render_pipeline(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_render_pipeline_with_depth(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout, _depth_format: DepthFormat) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target(&self, _width: u32, _height: u32, _format: PixelFormat) -> Result<RenderTargetHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target_with_depth(&self, _width: u32, _height: u32, _color_format: PixelFormat, _depth: DepthConfig) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
+///     fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder { loop {} }
+///     fn create_render_encoder_with_depth(&self, _target: &RenderTargetHandle, _depth_target: &RenderTargetHandle, _clear_color: [f32; 4]) -> RenderEncoder { loop {} }
+///     fn draw(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_ex(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32, _vertex_constants: &[ConstantBinding<'_>]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_pipeline(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle) -> Result<(), ContractError> { Ok(()) }
+///     fn set_vertex_buffer(&self, _encoder: &mut RenderEncoder, _slot: u32, _buffer: &BufferHandle, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_index_buffer(&self, _encoder: &mut RenderEncoder, _buffer: &BufferHandle, _format: IndexFormat, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_immediates(&self, _encoder: &mut RenderEncoder, _offset: u32, _data: &[u8]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_viewport(&self, _encoder: &mut RenderEncoder, _viewport: Viewport) -> Result<(), ContractError> { Ok(()) }
+///     fn set_scissor_rect(&self, _encoder: &mut RenderEncoder, _rect: ScissorRect) -> Result<(), ContractError> { Ok(()) }
+///     fn set_blend_constant(&self, _encoder: &mut RenderEncoder, _color: [f32; 4]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect_count(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count_buffer: &BufferHandle, _count_offset: u64, _max_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn submit_render(&self, _encoder: RenderEncoder, _wait: &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn copy_target_to_buffer(&self, _encoder: &mut CommandEncoder, _target: &RenderTargetHandle, _dst: &BufferHandle, _dst_offset: u64) -> Result<(), ContractError> { Ok(()) }
+/// }
+/// ```
+///
 /// `draw_mesh_tasks_indirect` だけを持たない実装は拒まれる。
 ///
 /// ```compile_fail,E0046
@@ -584,6 +620,42 @@ impl RenderEncoder {
 ///     fn set_scissor_rect(&self, _encoder: &mut RenderEncoder, _rect: ScissorRect) -> Result<(), ContractError> { Ok(()) }
 ///     fn set_blend_constant(&self, _encoder: &mut RenderEncoder, _color: [f32; 4]) -> Result<(), ContractError> { Ok(()) }
 ///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect_count(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count_buffer: &BufferHandle, _count_offset: u64, _max_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn submit_render(&self, _encoder: RenderEncoder, _wait: &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn copy_target_to_buffer(&self, _encoder: &mut CommandEncoder, _target: &RenderTargetHandle, _dst: &BufferHandle, _dst_offset: u64) -> Result<(), ContractError> { Ok(()) }
+/// }
+/// ```
+///
+/// 同じ実装に `draw_mesh_tasks_indirect` を足すと通る（上の例との差は、この 1 操作だけ）。
+///
+/// ```
+/// # use fandhe_silicon_core::error::ContractError;
+/// # use fandhe_silicon_core::execution::{BindingLayout, CommandEncoder, ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken};
+/// # use fandhe_silicon_core::graphics::{DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder, ScissorRect, Viewport};
+/// # use fandhe_silicon_core::memory::BufferHandle;
+/// # use fandhe_silicon_core::render_target::RenderTargetHandle;
+/// struct G;
+/// impl GraphicsOps for G {
+///     fn create_render_pipeline(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_render_pipeline_with_depth(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout, _depth_format: DepthFormat) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target(&self, _width: u32, _height: u32, _format: PixelFormat) -> Result<RenderTargetHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target_with_depth(&self, _width: u32, _height: u32, _color_format: PixelFormat, _depth: DepthConfig) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
+///     fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder { loop {} }
+///     fn create_render_encoder_with_depth(&self, _target: &RenderTargetHandle, _depth_target: &RenderTargetHandle, _clear_color: [f32; 4]) -> RenderEncoder { loop {} }
+///     fn draw(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_ex(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32, _vertex_constants: &[ConstantBinding<'_>]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_pipeline(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle) -> Result<(), ContractError> { Ok(()) }
+///     fn set_vertex_buffer(&self, _encoder: &mut RenderEncoder, _slot: u32, _buffer: &BufferHandle, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_index_buffer(&self, _encoder: &mut RenderEncoder, _buffer: &BufferHandle, _format: IndexFormat, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_immediates(&self, _encoder: &mut RenderEncoder, _offset: u32, _data: &[u8]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_viewport(&self, _encoder: &mut RenderEncoder, _viewport: Viewport) -> Result<(), ContractError> { Ok(()) }
+///     fn set_scissor_rect(&self, _encoder: &mut RenderEncoder, _rect: ScissorRect) -> Result<(), ContractError> { Ok(()) }
+///     fn set_blend_constant(&self, _encoder: &mut RenderEncoder, _color: [f32; 4]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64) -> Result<(), ContractError> { Ok(()) }
 ///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
 ///     fn multi_draw_mesh_tasks_indirect_count(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count_buffer: &BufferHandle, _count_offset: u64, _max_count: u32) -> Result<(), ContractError> { Ok(()) }
 ///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
@@ -627,6 +699,42 @@ impl RenderEncoder {
 /// }
 /// ```
 ///
+/// 同じ実装に `multi_draw_mesh_tasks_indirect` を足すと通る（上の例との差は、この 1 操作だけ）。
+///
+/// ```
+/// # use fandhe_silicon_core::error::ContractError;
+/// # use fandhe_silicon_core::execution::{BindingLayout, CommandEncoder, ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken};
+/// # use fandhe_silicon_core::graphics::{DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder, ScissorRect, Viewport};
+/// # use fandhe_silicon_core::memory::BufferHandle;
+/// # use fandhe_silicon_core::render_target::RenderTargetHandle;
+/// struct G;
+/// impl GraphicsOps for G {
+///     fn create_render_pipeline(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_render_pipeline_with_depth(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout, _depth_format: DepthFormat) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target(&self, _width: u32, _height: u32, _format: PixelFormat) -> Result<RenderTargetHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target_with_depth(&self, _width: u32, _height: u32, _color_format: PixelFormat, _depth: DepthConfig) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
+///     fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder { loop {} }
+///     fn create_render_encoder_with_depth(&self, _target: &RenderTargetHandle, _depth_target: &RenderTargetHandle, _clear_color: [f32; 4]) -> RenderEncoder { loop {} }
+///     fn draw(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_ex(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32, _vertex_constants: &[ConstantBinding<'_>]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_pipeline(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle) -> Result<(), ContractError> { Ok(()) }
+///     fn set_vertex_buffer(&self, _encoder: &mut RenderEncoder, _slot: u32, _buffer: &BufferHandle, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_index_buffer(&self, _encoder: &mut RenderEncoder, _buffer: &BufferHandle, _format: IndexFormat, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_immediates(&self, _encoder: &mut RenderEncoder, _offset: u32, _data: &[u8]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_viewport(&self, _encoder: &mut RenderEncoder, _viewport: Viewport) -> Result<(), ContractError> { Ok(()) }
+///     fn set_scissor_rect(&self, _encoder: &mut RenderEncoder, _rect: ScissorRect) -> Result<(), ContractError> { Ok(()) }
+///     fn set_blend_constant(&self, _encoder: &mut RenderEncoder, _color: [f32; 4]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect_count(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count_buffer: &BufferHandle, _count_offset: u64, _max_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn submit_render(&self, _encoder: RenderEncoder, _wait: &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn copy_target_to_buffer(&self, _encoder: &mut CommandEncoder, _target: &RenderTargetHandle, _dst: &BufferHandle, _dst_offset: u64) -> Result<(), ContractError> { Ok(()) }
+/// }
+/// ```
+///
 /// `multi_draw_mesh_tasks_indirect_count` だけを持たない実装は拒まれる。
 ///
 /// ```compile_fail,E0046
@@ -656,6 +764,42 @@ impl RenderEncoder {
 ///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
 ///     fn draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64) -> Result<(), ContractError> { Ok(()) }
 ///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn submit_render(&self, _encoder: RenderEncoder, _wait: &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn copy_target_to_buffer(&self, _encoder: &mut CommandEncoder, _target: &RenderTargetHandle, _dst: &BufferHandle, _dst_offset: u64) -> Result<(), ContractError> { Ok(()) }
+/// }
+/// ```
+///
+/// 同じ実装に `multi_draw_mesh_tasks_indirect_count` を足すと通る（上の例との差は、この 1 操作だけ）。
+///
+/// ```
+/// # use fandhe_silicon_core::error::ContractError;
+/// # use fandhe_silicon_core::execution::{BindingLayout, CommandEncoder, ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken};
+/// # use fandhe_silicon_core::graphics::{DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder, ScissorRect, Viewport};
+/// # use fandhe_silicon_core::memory::BufferHandle;
+/// # use fandhe_silicon_core::render_target::RenderTargetHandle;
+/// struct G;
+/// impl GraphicsOps for G {
+///     fn create_render_pipeline(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_render_pipeline_with_depth(&self, _vs: PipelineInput<'_>, _fs: PipelineInput<'_>, _layout: &BindingLayout, _depth_format: DepthFormat) -> Result<PipelineHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target(&self, _width: u32, _height: u32, _format: PixelFormat) -> Result<RenderTargetHandle, ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn create_offscreen_target_with_depth(&self, _width: u32, _height: u32, _color_format: PixelFormat, _depth: DepthConfig) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> { Err(ContractError::DeviceMismatch) }
+///     fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
+///     fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder { loop {} }
+///     fn create_render_encoder_with_depth(&self, _target: &RenderTargetHandle, _depth_target: &RenderTargetHandle, _clear_color: [f32; 4]) -> RenderEncoder { loop {} }
+///     fn draw(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_ex(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle, _vertex_buffer: &BufferHandle, _vertex_count: u32, _vertex_constants: &[ConstantBinding<'_>]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_pipeline(&self, _encoder: &mut RenderEncoder, _pipeline: &PipelineHandle) -> Result<(), ContractError> { Ok(()) }
+///     fn set_vertex_buffer(&self, _encoder: &mut RenderEncoder, _slot: u32, _buffer: &BufferHandle, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_index_buffer(&self, _encoder: &mut RenderEncoder, _buffer: &BufferHandle, _format: IndexFormat, _offset: u64, _size: Option<u64>) -> Result<(), ContractError> { Ok(()) }
+///     fn set_immediates(&self, _encoder: &mut RenderEncoder, _offset: u32, _data: &[u8]) -> Result<(), ContractError> { Ok(()) }
+///     fn set_viewport(&self, _encoder: &mut RenderEncoder, _viewport: Viewport) -> Result<(), ContractError> { Ok(()) }
+///     fn set_scissor_rect(&self, _encoder: &mut RenderEncoder, _rect: ScissorRect) -> Result<(), ContractError> { Ok(()) }
+///     fn set_blend_constant(&self, _encoder: &mut RenderEncoder, _color: [f32; 4]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks(&self, _encoder: &mut RenderEncoder, _group_count: [u32; 3]) -> Result<(), ContractError> { Ok(()) }
+///     fn draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count: u32) -> Result<(), ContractError> { Ok(()) }
+///     fn multi_draw_mesh_tasks_indirect_count(&self, _encoder: &mut RenderEncoder, _indirect: &BufferHandle, _indirect_offset: u64, _count_buffer: &BufferHandle, _count_offset: u64, _max_count: u32) -> Result<(), ContractError> { Ok(()) }
 ///     fn set_stencil_reference(&self, _encoder: &mut RenderEncoder, _reference: u32) -> Result<(), ContractError> { Ok(()) }
 ///     fn submit_render(&self, _encoder: RenderEncoder, _wait: &[ImportedSemaphoreHandle]) -> Result<SubmitToken, ContractError> { Err(ContractError::DeviceMismatch) }
 ///     fn copy_target_to_buffer(&self, _encoder: &mut CommandEncoder, _target: &RenderTargetHandle, _dst: &BufferHandle, _dst_offset: u64) -> Result<(), ContractError> { Ok(()) }
