@@ -182,10 +182,10 @@ upper-layer-check: ## 上の層（crates/upper）と測定の workspace（measur
 test-upper-layer-check: ## upper-layer-check の回帰テスト（合成の入力・ツールが無いとき・偽のコマンドと、一時 workspace の実物の cargo metadata・実物のリポジトリの合格。python3 + cargo + git・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-upper-layer-check.sh
 	@scripts/test-upper-layer-check.sh
 
-upper-source-check: ## 上の層（crates/upper）のソースに、グローバルな状態と環境変数・ファイルの読み取りの字句の走査と、関数ごとの契約の呼び出しと失敗の構築の走査を当てる。合格は終了コード 0 と ok: の行・違反は 1・誤用や前提の不足は 2。件数は record: の行に残る（bash + python3。cargo を呼ばない・ソースは変更しない・ネットワーク不要）。直接: scripts/upper-source-check.sh [--crate-dir <dir>] [--queue-trait-file <path>]
+upper-source-check: ## 上の層（crates/upper）のソースに、グローバルな状態と環境変数・ファイルの読み取りの字句の走査と、関数ごとの契約の呼び出しと失敗の構築の走査を当てる。合格は終了コード 0 と ok: の行・違反は 1・誤用や前提の不足は 2。件数は record: の行に残る（bash + python3。cargo を呼ばない・ソースは変更しない・ネットワーク不要。make deny には含めない・CI の deny ジョブが呼ぶ）。直接: scripts/upper-source-check.sh [--crate-dir <dir>] [--queue-trait-file <path>]
 	@scripts/upper-source-check.sh
 
-test-upper-source-check: ## upper-source-check の回帰テスト（実物の crates/upper を写した変異体・陰性の対照・誤用（契約の呼び出しと失敗の構築を含む）と、実物のリポジトリの合格。python3・ネットワーク不要・リポジトリのファイルは変更しない）。直接: scripts/test-upper-source-check.sh
+test-upper-source-check: ## upper-source-check の回帰テスト（実物の crates/upper を写した変異体・陰性の対照・誤用（契約の呼び出しと失敗の構築を含む）と、実物のリポジトリの合格。python3・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-upper-source-check.sh
 	@scripts/test-upper-source-check.sh
 
 wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...

@@ -174,3 +174,23 @@ passed=71 failed=0
 make upper-source-check
 make test-upper-source-check
 ```
+
+## CI への組み込み（3/4）
+
+`ci.yml` の `deny` ジョブ（check 名 `make deny (cargo-deny)`）に、本体と回帰テストの 2 ステップを足した。新しいジョブは足していない。
+
+| ステップ | 流すもの | 位置 |
+| -------- | -------- | ---- |
+| `make upper-source-check` | `scripts/upper-source-check.sh` | `make upper-layer-check` のステップの直後（`make deny` のステップより後） |
+| `make test-upper-source-check` | `scripts/test-upper-source-check.sh` | `make test-upper-layer-check` のステップの直後 |
+
+- 2 ステップとも `continue-on-error`・`|| true`・ステップの `if:` を付けていない。検査の失敗はジョブの失敗になる
+- `ci-complete` の `needs` と ruleset の check 名は変えていない。`wasm-macos`・`verify-macos` には足していない
+- ジョブのログには本体の `scanned:`・`record:`・`ok:` の行と、回帰テストの最後の `passed=<n> failed=0` の行が出る
+
+### 確かめ方
+
+```bash
+grep -n "run: make upper-source-check\|run: make test-upper-source-check" .github/workflows/ci.yml
+make ci-frame-check
+```
