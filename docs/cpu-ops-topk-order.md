@@ -48,6 +48,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | (7) | 製品のコード・依存に差分が無い | `git diff --stat 650d7f3..HEAD -- crates/contract/src crates/contract/Cargo.toml Cargo.lock deps-approved.toml` | 出力なし（差分 0） |
 | (8) | CI で流れる場所 | `make verify` と、`main` 上の 1/2 のコミット `6776e6e` の CI の run（`gh run view <id> --json conclusion`） | `make verify` は終了コード 0。run の結論は `success` |
 
+今の値の補い（base 8c52335）: 上の (8) の run は、2/2 のマージ（#7905）の `main` 上のコミット `ad056b0` の `ci.yml` の run 41647730709（`gh run view 41647730709 --json conclusion`）で、結論は `success`。
+
 ### 1/2 の対応
 
 | 段 | PR | コミット |
