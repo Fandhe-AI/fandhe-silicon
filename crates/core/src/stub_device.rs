@@ -6,6 +6,9 @@
 //! `Device::compute()` は要求のプロファイルで答えが変わる。`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す
 //! （所有形態によらない。TASK-2956 のポインタ）。
 //!
+//! `Device::textures()` も要求のプロファイルで答えが変わる。`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す
+//! （所有形態によらない。TASK-150 のポインタ）。
+//!
 //! feature `graphics` のビルドでは `Device::graphics()` も要求のプロファイルで答えが変わる。`CpuOnly`・`ComputeOnly` は `None`、
 //! `Graphics` は `Some` を返す（所有形態によらない。TASK-837 のポインタ）。描画の口は描画先の handle とパイプラインの
 //! device の識別子を `render_target::check_render_target_device` などで照らす（TASK-375・TEX-12 のポインタ）。
@@ -35,6 +38,7 @@ use crate::memory::{
 };
 #[cfg(feature = "graphics")]
 use crate::render_target::{RenderTargetHandle, check_render_target_device};
+use crate::texture::{TextureDescriptor, TextureHandle, TextureOps};
 use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
 
 /// 試験用の device の上限の表。確保の上限だけ持ち、dispatch・テクスチャは 0。
@@ -515,6 +519,54 @@ impl ComputeOps for StubCompute {
     }
 }
 
+/// テクスチャの handle を払い出す `TextureOps`。`StubDevice` が持つ。
+///
+/// 記述子は検査せず、handle の device の識別子と世代は device の `generation()` と同じ値で、
+/// 通し番号は device ごとに 1 から増える。尽きたら `BackendFailure { op: "create_texture", .. }` を返す（panic しない）。
+struct StubTextures {
+    backend: BackendKind,
+    id: u64,
+    next_texture: AtomicU64,
+}
+
+impl StubTextures {
+    fn new(backend: BackendKind, id: u64) -> Self {
+        Self {
+            backend,
+            id,
+            next_texture: AtomicU64::new(1),
+        }
+    }
+}
+
+impl TextureOps for StubTextures {
+    fn create_texture(&self, desc: &TextureDescriptor<'_>) -> Result<TextureHandle, ContractError> {
+        let mut current = self.next_texture.load(Ordering::Relaxed);
+        loop {
+            let Some(next) = current.checked_add(1) else {
+                return Err(ContractError::BackendFailure {
+                    op: "create_texture",
+                    backend: self.backend,
+                    detail: "texture id space is exhausted".to_string(),
+                });
+            };
+            match self.next_texture.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    return Ok(TextureHandle::__backend_new(
+                        self.id, current, self.id, desc,
+                    ));
+                }
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+
 /// 描画の操作を満たす `GraphicsOps`。`StubDevice` が feature `graphics` のビルドで持つ。
 ///
 /// 入力・配置・形式・大きさは検査も解釈もせず、印の device の識別子は device の `generation()` と同じ値にする。
@@ -735,6 +787,8 @@ impl GraphicsOps for StubGraphics {
 /// メモリはホストの `Vec<u8>`、投入は即時に完了済みとして扱う。
 /// `compute()` は要求の `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
+/// `textures()` も `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
+/// `Some` の `create_texture` は記述子を検査せず `Ok(TextureHandle)` を返し、handle の device の識別子は `generation()` と等しい。
 ///
 /// feature `graphics` のビルドでは `graphics()` も `profile` で変わり、`CpuOnly`・`ComputeOnly` は `None`、`Graphics` は `Some` を返す。
 /// `Some` の描画パイプライン・描画先の生成は入力を検査せず `Ok` を返し、印の device の識別子は `generation()` と等しい。
@@ -749,6 +803,7 @@ pub struct StubDevice {
     memory: StubMemory,
     queue: StubQueue,
     compute: StubCompute,
+    textures: StubTextures,
     #[cfg(feature = "graphics")]
     graphics: StubGraphics,
 }
@@ -768,6 +823,7 @@ impl StubDevice {
             memory: StubMemory::new(id),
             queue,
             compute: StubCompute::new(req.backend, id),
+            textures: StubTextures::new(req.backend, id),
             #[cfg(feature = "graphics")]
             graphics,
         }
@@ -822,6 +878,13 @@ impl Device for StubDevice {
         }
     }
 
+    fn textures(&self) -> Option<&dyn TextureOps> {
+        match self.profile {
+            Profile::CpuOnly => None,
+            Profile::ComputeOnly | Profile::Graphics => Some(&self.textures),
+        }
+    }
+
     #[cfg(feature = "graphics")]
     fn graphics(&self) -> Option<&dyn GraphicsOps> {
         match self.profile {
@@ -852,6 +915,8 @@ impl DeviceProvider for StubDeviceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::texture::{TextureDimension, TextureExtent, TextureUsage};
+    use crate::texture_format::TextureFormat;
 
     fn request() -> DeviceRequest {
         DeviceRequest {
@@ -959,6 +1024,73 @@ mod tests {
             compute.create_pipeline(input(), &layout),
             Err(ContractError::BackendFailure {
                 op: "create_pipeline",
+                ..
+            })
+        ));
+    }
+
+    fn texture_desc() -> TextureDescriptor<'static> {
+        TextureDescriptor::new(
+            TextureDimension::D2,
+            TextureExtent {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            TextureFormat::Rgba8Unorm,
+            TextureUsage::TEXTURE_BINDING,
+        )
+    }
+
+    fn request_with(profile: Profile) -> DeviceRequest {
+        DeviceRequest {
+            profile,
+            ..request()
+        }
+    }
+
+    #[test]
+    fn textures_is_none_for_cpu_only() {
+        let device = StubDevice::new(request_with(Profile::CpuOnly));
+        assert!(device.textures().is_none());
+    }
+
+    #[test]
+    fn textures_is_some_for_compute_only_and_graphics() {
+        for profile in [Profile::ComputeOnly, Profile::Graphics] {
+            let device = StubDevice::new(request_with(profile));
+            assert!(device.textures().is_some());
+        }
+    }
+
+    // DEV-153: 通し番号は 1 から増え、device の識別子と世代は generation() と等しい。
+    #[test]
+    fn create_texture_numbers_from_one_and_uses_generation() {
+        let device = StubDevice::new(request());
+        let textures = device.textures().expect("textures");
+        let desc = texture_desc();
+        let a = textures.create_texture(&desc).expect("a");
+        let b = textures.create_texture(&desc).expect("b");
+        assert_eq!(a.__backend_id(), 1);
+        assert_eq!(b.__backend_id(), 2);
+        for h in [&a, &b] {
+            assert_eq!(h.__backend_device_id(), device.generation());
+            assert_eq!(h.__backend_generation(), device.generation());
+        }
+    }
+
+    #[test]
+    fn create_texture_reports_exhausted_id_space() {
+        let textures = StubTextures::new(BackendKind::Vulkan, 5);
+        textures.next_texture.store(u64::MAX - 1, Ordering::Relaxed);
+        let desc = texture_desc();
+        let handle = textures.create_texture(&desc).expect("texture");
+        assert_eq!(handle.__backend_id(), u64::MAX - 1);
+        assert_eq!(handle.__backend_device_id(), 5);
+        assert!(matches!(
+            textures.create_texture(&desc),
+            Err(ContractError::BackendFailure {
+                op: "create_texture",
                 ..
             })
         ));
