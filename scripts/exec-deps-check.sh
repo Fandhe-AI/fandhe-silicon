@@ -12,7 +12,7 @@
 #       禁じる名前（`-` は `_`）と一致するものを位置に関係なくすべて数える（ローカルの同名も数える過検出の側）。
 # 禁じる名前は、製品の workspace の member のうち対象 crate と共通の crate 以外のすべて（metadata から実行時に作る）と、
 # チップの crate の名前（定義ブロック）。
-# 呼び出し元: `make exec-deps-check`（`make deny` には含めない）。
+# 呼び出し元: `make exec-deps-check`（`make deny` には含めない）。CI の `deny` ジョブも実行する。
 #
 # 使い方:
 #   scripts/exec-deps-check.sh                       cargo と git を流して検査する
@@ -56,7 +56,7 @@ if sys.version_info < (3, 8):
     sys.exit(2)
 
 # ==== 数え方の定義（数え方を変えるときはここだけを変える） ====
-# 何を数えるかの決定は private spec 側の記録に従う（TASK-259・BUILD-55 のポインタのみ）。
+# 何を数えるかの決定は private spec 側の記録に従う（TASK-259 のポインタのみ）。
 # コマンドの組み立て・走査・判定はこのブロックの値から作るので、値はこのブロックの外に書かない。
 
 # 対象の crate の manifest（workspace_root からの相対）。位置で特定する。
@@ -283,7 +283,7 @@ def ident_tokens(text):
     """コメント・文字列を除いたソースから、Rust の識別子トークンを (位置, 名前, raw か) で返す。
 
     識別子は XID_Start か `_` で始まり XID_Continue が続く並び。`r#name` は `name` として返し、raw は True にする
-    （チップの名前の一致は raw でも数え、unsafe の一致は raw を数えない。呼び出し側が使い分ける）。
+    （禁じる名前の一致は raw でも数える）。
     数値リテラル（`1u8`・`0x1f`）は継続文字ごと 1 つの塊として読み飛ばし、接尾辞を識別子に数えない。
     `::`・`.`・`use` などの周りの文字は見ない（位置による判定をしない）。
     """
@@ -323,7 +323,7 @@ def ident_tokens(text):
 
 
 TREE_LINE_RE = re.compile(r"^(\d+)([A-Za-z_][A-Za-z0-9_-]*) v\S+( \(.*\))?$")
-# cargo tree が種別ごとに挟む節の見出し行（[dev-dependencies]・[build-dependencies] など）。節の区切りとして読み飛ばす。
+# `--prefix depth` の cargo tree は見出し行を出さないが、`[dev-dependencies]` のような節の見出し行が出たときは読み飛ばす。
 TREE_HEADER_RE = re.compile(r"^\d*\[[A-Za-z][A-Za-z0-9 _-]*\]$")
 
 
