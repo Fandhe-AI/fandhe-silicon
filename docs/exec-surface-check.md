@@ -319,3 +319,33 @@ real 20s
 make exec-surface-check
 make test-exec-surface-check
 ```
+
+## CI への組み込み（5/6）
+
+`ci.yml` の `deny` ジョブ（check 名 `make deny (cargo-deny)`）に、本体と回帰テストの 2 ステップを足した。新しいジョブは足していない（TASK-923）。
+
+| ステップ | 流すもの | 位置 |
+| -------- | -------- | ---- |
+| `make exec-surface-check` | `scripts/exec-surface-check.sh` | `make exec-deps-check` のステップの直後 |
+| `make test-exec-surface-check` | `scripts/test-exec-surface-check.sh` | `make test-exec-deps-check` のステップの直後 |
+
+- 2 ステップとも `continue-on-error`・`|| true`・ステップの `if:` を付けていない。検査の失敗はジョブの失敗になる
+- `ci-complete` の `needs` と ruleset の check 名は変えていない。`wasm-macos`・`verify-macos` には足していない
+- ジョブのログには本体の `scanned:`・`record:`・`ok:` の行と、回帰テストの最後の `passed=<n> failed=0` の行が出る
+
+### 確かめ方
+
+```bash
+grep -n "run: make exec-surface-check\|run: make test-exec-surface-check" .github/workflows/ci.yml
+make ci-frame-check
+```
+
+### 手元の実行
+
+base 2467833 で流した。本体の `record:`・`ok:` の行と、回帰テストの最後の行。
+
+```text
+record: commit=2467833ffd52-dirty rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+passed=86 failed=0
+```

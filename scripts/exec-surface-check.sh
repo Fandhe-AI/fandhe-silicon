@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 下-2 の crate（crates/exec）のソースの環境変数とファイルの読み取りの字句、および既定の feature の公開の面にある
 # 試験用の口の名前、操作を実行する関数の戻り値の型と一覧に無い公開の関数を数える検査（spec TASK-923 のポインタ。親 Issue #867）。
-# 呼び出し元: `make exec-surface-check`、回帰テスト `scripts/test-exec-surface-check.sh`。
+# 呼び出し元: `make exec-surface-check`、CI の `deny` ジョブ、回帰テスト `scripts/test-exec-surface-check.sh`。
 #
 # 使い方:
 #   scripts/exec-surface-check.sh                      既定の crates/exec を走査し、cargo で rustdoc の JSON を 2 組（default / all-features）作って名前を数える
