@@ -8,7 +8,7 @@ use crate::error::ContractError;
 
 /// device から届くテクスチャを作る操作の集まり。
 ///
-/// `create_texture` に既定の本体は無く、持たない実装は拒まれる。
+/// `create_texture`・`destroy_texture`・`destroy_view` に既定の本体は無く、どれかを持たない実装は拒まれる。
 ///
 /// ```compile_fail,E0046
 /// use fandhe_silicon_core::texture::TextureOps;
