@@ -7,7 +7,7 @@ use super::validate_offscreen_target_size;
 use crate::error::ContractError;
 
 /// 表示先の設定の幅・高さが 0 のとき、または `max_texture_size` を超えるときに拒む。上限ちょうどは通す（項目 `SURF-7`）。
-/// 比べ方は描画先と同じ規則で、拒否の文言の先頭だけ `surface configuration: ` に付け替える。
+/// 比べ方は描画先と同じ規則で、拒否の文言の先頭に `surface configuration: ` を足す（元の文言は後ろに残る）。
 ///
 /// ```
 /// use fandhe_silicon_core::error::ContractError;

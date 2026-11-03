@@ -1,4 +1,4 @@
-# 表示先の設定の大きさの検査（TASK-654）
+# 表示先の設定の大きさの検査と取得の結果の型（TASK-654）
 
 ## 記録の所在
 
@@ -16,7 +16,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 ## 設定の大きさの検査（1/4）
 
-描画先と同じ規則で幅・高さを `max_texture_size` と比べる。比較は部品に任せ、拒否の文言の先頭だけを付け替える。状態を持たず、背後実装の API は呼ばない。
+描画先と同じ規則で幅・高さを `max_texture_size` と比べる。比較は部品に任せ、拒否の文言の先頭に `surface configuration: ` を足す（元の文言は後ろに残る）。状態を持たず、背後実装の API は呼ばない。
 
 | 入力 | 返し |
 | ---- | ---- |
@@ -109,6 +109,17 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_ty
 品質ゲートの終了コード: `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` はいずれも 0。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-654）。確かめた base は `e04133f758d39cfc9407573e976e54462dc9b63e`。
+
+### 今の値の補い（base 1890c9a）
+
+表の 4 の `--lib graphics::surface` は 8 passed、`--doc surface` は 2 passed と 2 passed で変わらない。表の 3 の `graphics_surface_types` は、拒否の文言が描画先の検査の文言の先頭に `surface configuration: ` を足したものと一致することを確かめる `rejection_message_keeps_offscreen_message` を足して 10 passed。表の 5 の 4 検査は今の base でいずれも終了コード 0 で、`record:` の値は次のとおり。
+
+| 検査 | `record:` の値 |
+| ---- | -------------- |
+| `public-api-check` | `documents=10 public_items_total=14780 wgpu_type_refs_total=0 wgpu_other_refs_total=0` |
+| `public-api-webgpu-check` | `documents=2 public_items_total=3814 public_functions_total=522 blocking_wait_names_total=0 pipeline_create_functions_total=1 pipeline_input_checked=1 pipeline_input_violations_total=0 interop_documents=2 ext_interop_checked=1 external_interop_items_total=0 semaphore_handle_defined=1 submit_wait_params_total=3 interop_violations_total=0 webgpu_names_total=0 submit_token_checked=1 submit_token_ops_total=11 submit_token_violations_total=0` |
+| `public-api-sdk-check` | `documents=10 public_items_total=12763 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0` |
+| `public-name-check` | `documents=10 public_items_total=12763 name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0` |
 
 ### 再実行の契機
 

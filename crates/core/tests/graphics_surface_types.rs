@@ -84,6 +84,21 @@ fn same_result_as_offscreen_check() {
     }
 }
 
+// SURF-7: 拒否の文言は描画先の検査の文言の先頭に `surface configuration: ` を足したもの。
+#[test]
+fn rejection_message_keeps_offscreen_message() {
+    for (w, h) in [(0, 720), (1280, 0), (LIMIT + 1, 1), (1, LIMIT + 1)] {
+        let Err(ContractError::InvalidArgument(s)) = validate_surface_size(w, h, LIMIT) else {
+            panic!("surface check accepted {w}x{h}");
+        };
+        let Err(ContractError::InvalidArgument(o)) = validate_offscreen_target_size(w, h, LIMIT)
+        else {
+            panic!("offscreen check accepted {w}x{h}");
+        };
+        assert_eq!(s, format!("surface configuration: {o}"));
+    }
+}
+
 // SURF-7: 同じ引数なら何度呼んでも同じ結果になる。
 #[test]
 fn rejection_is_repeatable() {
