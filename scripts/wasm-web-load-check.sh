@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # wasm-bindgen の `--target web` の出力を Node の ESM で読み込み、7 名の export の有無と detect_isa_bits の戻り値を
 # 4 組 × 11 項目の行で出す検査の本体（spec TASK-248 のポインタ。項目 BUILD-43）。
-# 呼び出し元: 今は直接実行（回帰テストは scripts/test-wasm-web-load-check.sh）。
+# 呼び出し元: `make wasm-web-load-check`（手元の実行。直接実行も可。CI からは呼ばない）。回帰テストは
+# `make test-wasm-web-load-check`＝scripts/test-wasm-web-load-check.sh（CI の `deny` ジョブが呼ぶ）。
 #
 # 使い方:
 #   scripts/wasm-web-load-check.sh                  wasm/ の glue を 4 組でビルドし、wasm-bindgen の CLI で web の出力を作って判定する
