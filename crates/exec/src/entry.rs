@@ -11,14 +11,25 @@ use crate::operands::{
 };
 use crate::opt_in::OptIn;
 use crate::report::Outcome;
-use crate::route::OpId;
-use crate::select::{build_report, choose, effective_opt_in, selection_input};
+use crate::route::{OpId, Route};
+use crate::select::{
+    DenormalJudgment, build_report, effective_opt_in, select_route, selection_input,
+};
 use fandhe_silicon_core::capability::FeatureId;
 use fandhe_silicon_core::device::Device;
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::feature_key::{
     FEATURE_SHADER_F16, FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP,
 };
+
+/// 操作に対応する機能の問合せの鍵。
+fn feature_of(op: OpId) -> FeatureId {
+    match op {
+        OpId::F16Fma => FEATURE_SHADER_F16,
+        OpId::SubgroupSumU32 | OpId::SubgroupSumF32 => FEATURE_SUBGROUP,
+        OpId::AtomicAdd => FEATURE_SHADER_FLOAT32_ATOMIC,
+    }
+}
 
 /// device を借りて既定の opt-in の印を持つ下-2 の値。FB-14。
 ///
@@ -49,17 +60,21 @@ impl<'d> Exec<'d> {
     }
 
     /// 能力を問い合わせて経路を決め、報告か `Unsupported` を返す共通の処理。
+    ///
+    /// 判定の関数は経路の選び方が判定を求めたときに呼ばれる。ここでは入口の関数名の
+    /// `Unsupported` を返す。
     fn run(
         &self,
         op: OpId,
-        feature: FeatureId,
         opt_in: Option<OptIn>,
         name: &'static str,
     ) -> Result<Outcome, ContractError> {
         let effective = effective_opt_in(self.default_opt_in, opt_in);
-        let query = self.device.query_ex(feature);
+        let query = self.device.query_ex(feature_of(op));
         let input = selection_input(op, effective, query);
-        let output = choose(&input);
+        let output = select_route(&input, |_: Route| -> Result<DenormalJudgment, _> {
+            Err(self.unsupported(name))
+        })?;
         if output.route.is_none() {
             return Ok(Outcome::Unavailable {
                 report: build_report(&input, &output),
@@ -83,7 +98,7 @@ impl<'d> Exec<'d> {
         operands: F16FmaOperands<'_>,
     ) -> Result<Outcome, ContractError> {
         let _ = (n, operands);
-        self.run(OpId::F16Fma, FEATURE_SHADER_F16, opt_in, "f16_fma")
+        self.run(OpId::F16Fma, opt_in, "f16_fma")
     }
 
     /// u32 の subgroup 総和。`n` と `operands` は読まず、出力に書かない。
@@ -94,12 +109,7 @@ impl<'d> Exec<'d> {
         operands: SubgroupSumU32Operands<'_>,
     ) -> Result<Outcome, ContractError> {
         let _ = (n, operands);
-        self.run(
-            OpId::SubgroupSumU32,
-            FEATURE_SUBGROUP,
-            opt_in,
-            "subgroup_sum_u32",
-        )
+        self.run(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")
     }
 
     /// f32 の subgroup 総和。`n` と `operands` は読まず、出力に書かない。
@@ -110,12 +120,7 @@ impl<'d> Exec<'d> {
         operands: SubgroupSumF32Operands<'_>,
     ) -> Result<Outcome, ContractError> {
         let _ = (n, operands);
-        self.run(
-            OpId::SubgroupSumF32,
-            FEATURE_SUBGROUP,
-            opt_in,
-            "subgroup_sum_f32",
-        )
+        self.run(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")
     }
 
     /// atomic の f32 の加算。`n`・`m` と `operands` は読まず、出力に書かない。
@@ -127,12 +132,7 @@ impl<'d> Exec<'d> {
         operands: AtomicAddOperands<'_>,
     ) -> Result<Outcome, ContractError> {
         let _ = (n, m, operands);
-        self.run(
-            OpId::AtomicAdd,
-            FEATURE_SHADER_FLOAT32_ATOMIC,
-            opt_in,
-            "atomic_add",
-        )
+        self.run(OpId::AtomicAdd, opt_in, "atomic_add")
     }
 
     /// 外部との共有メモリ。能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
