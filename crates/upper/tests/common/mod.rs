@@ -47,6 +47,8 @@ pub enum Call {
     DispatchEx,
     /// `gpu_timing`。受けた印。
     GpuTiming { token: SubmitToken },
+    /// `query_ex`。受けた鍵。
+    QueryEx { feature: FeatureId },
 }
 
 /// 戻り値の差し替え。何も入れなければ `StubDevice` の値がそのまま返る。
@@ -102,6 +104,7 @@ impl Capabilities for Recorder {
     }
 
     fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
+        self.record(Call::QueryEx { feature });
         self.inner.query_ex(feature)
     }
 }
