@@ -4,7 +4,7 @@
 //! 型の持ち主は TASK-136（ポインタ）。
 //!
 //! 加えて、背後実装が実装する device の口 `Device` と、それを得る入口 `DeviceProvider`、診断の値 `DeviceDiagnostics` を置く
-//! （TASK-158 のポインタ）。`Device` は投入の窓口 `queue` と compute の口 `compute`（既定は `None`）を持ち、feature `graphics` のビルドでは描画の口 `graphics`（既定は `None`）も持つ。ロストの通知の method は持たない（TASK-588・TASK-592・TASK-769・TASK-2956 のポインタ）。
+//! （TASK-158 のポインタ）。`Device` は投入の窓口 `queue` と compute の口 `compute`（既定は `None`）を持ち、feature `graphics` のビルドでは描画の口 `graphics`（既定は `None`）も持つ。ロストの通知の method は持たない（TASK-588・TASK-592・TASK-769・TASK-2956 のポインタ）。テクスチャを作る操作の口 `textures`（既定は `None`）も持つ（TASK-150 のポインタ）。
 //!
 //! 試験用の device（`stub_device` module）は feature `test-support` の裏にある。
 //! feature を有効にしない構成では `stub_device` が解決できず、下の例はコンパイルに失敗する。有効にした構成では通る
@@ -182,6 +182,13 @@ pub trait Device: Capabilities {
     /// feature `fault-injection` のビルドにだけある。対応する項目のポインタ: DEV-80、TASK-271。
     #[cfg(feature = "fault-injection")]
     fn fault_hooks(&self) -> Option<&dyn crate::fault::FaultHooks> {
+        None
+    }
+
+    /// テクスチャを作る操作の口。既定は `None`（持たない）。
+    ///
+    /// 持つ実装だけが上書きする。対応する項目のポインタ: DEV-153、TASK-150。
+    fn textures(&self) -> Option<&dyn crate::texture::TextureOps> {
         None
     }
 }
