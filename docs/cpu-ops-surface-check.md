@@ -96,3 +96,38 @@ cargo check -p fandhe-silicon-contract --tests --target wasm32-unknown-unknown
 wasm32 の型検査は `make wasm-verify` の contract の試験の段で流れる。
 
 記録時点の値（コミット `bba66a5` の上）の観測は `9 passed; 0 failed`。
+
+## 完了の条件の確かめ（4/4）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2457。親 Issue は #1074、この節（4/4）は #6965。
+
+実行環境は GPU なしの Linux。確かめた base のコミットは `961ff6f`。コード・試験・スクリプトは変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | `cpu-ops` を有効にした組で `cpu_ops` の 4 つの名前が外の crate から使え、`CpuOps` の 6 メソッドの署名と数が固定されている | `cargo test -p fandhe-silicon-contract --test cpu_ops_public_surface`、`grep -n -B1 'pub mod cpu_ops' crates/contract/src/lib.rs` | `9 passed; 0 failed`（`trait_signatures_are_implementable`・`trait_has_six_methods`・`method_count_check_fails_when_a_method_is_added`・`method_count_check_fails_when_a_method_is_removed`・`method_count_check_fails_when_open_line_is_missing`・`implementors_are_object_safe`・`product_and_reference_types_are_in_cpu_ops`・`reference_sentinel`・`elementwise_op_values` がすべて `ok`）。grep は `44-#[cfg(feature = "cpu-ops")]` と `45:pub mod cpu_ops;` |
+| (2) | wasm32 の型検査でも同じ試験が通る | `cargo check -p fandhe-silicon-contract --test cpu_ops_public_surface --locked --target wasm32-unknown-unknown`、`make wasm-verify` | 終了コード 0、終了コード 0 |
+| (3) | 版の選択がビルド時の `cfg` だけで決まる（既存の検査） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection`、`scripts/wasm-build-check.sh --cfg-only`、1/4〜3/4 のコミットで `scripts/wasm-build-check.sh` と `crates/contract/tests/cpu_ops_build_selection.rs` を対象にした `git show --stat` | `7 passed; 0 failed`。`cfg: sites=5 label=match`・`record: commit=961ff6f mode=cfg-only cfg_sites=5 not_run=0`・`ok: all rows match`、終了コード 0。`git show --stat` の出力は空 |
+| (4) | `cpu-ops` を外した構成で `cpu_ops` を参照するとコンパイルに失敗し、有効にした構成で通る | `cargo test -p fandhe-silicon-contract --doc --no-default-features --features contract-core`、`cargo test -p fandhe-silicon-contract --doc`、`cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled`、`make build-profiles` のログの `CpuOpsGate` の行を数える | 前者は `CpuOpsGate (line 121) - compile fail ... ok`、既定の組は `CpuOpsGate (line 121) ... ok`、`cpu_ops_gate_is_visible ... ok`。`make build-profiles` は終了コード 0 で、`compile fail ... ok` の行が 15、`compile fail` を含まない `... ok` の行が 6 |
+| (5) | 依存 0・unsafe 0 | 1/4〜3/4 のコミットで `Cargo.lock`・`deps-approved.toml`・`crates/contract/Cargo.toml`・`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops`・`crates/contract/src/lib.rs`・`crates/wasm-abi` を対象にした `git show --stat`、`grep -c unsafe crates/contract/tests/cpu_ops_public_surface.rs crates/contract/src/cfg_gate_doctest.rs`、`grep -n 'deny(unsafe_code)' crates/contract/src/lib.rs` | `80de3af` の `crates/contract/Cargo.toml` の `4 insertions(+)`（`[[test]]` の 1 項目）のみで、ほかの対象の差分は 0。`unsafe` は 2 ファイルとも 0 件。`11:#![deny(unsafe_code)]` |
+| (6) | CI で流れる場所のコマンド | `make verify`、`make build-profiles`、`make wasm-verify` | 終了コードはそれぞれ 0、0、0。`make verify` の `test result: ok` の passed の合計は 2201 |
+
+### 1/4〜3/4 の対応
+
+| 段 | PR | コミット |
+| -- | -- | -------- |
+| 1/4 | #7914 | `795341f` |
+| 2/4 | #7919 | `bba66a5` |
+| 3/4 | #7920 | `80de3af` |
+
+### 追加で流したコマンド
+
+```text
+cargo check -p fandhe-silicon-contract --test cpu_ops_public_surface --locked --target wasm32-unknown-unknown   # 終了コード 0
+scripts/wasm-build-check.sh --cfg-only                                                                         # ok: all rows match
+make build-profiles                                                                                            # 終了コード 0
+```
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/src/cfg_gate_doctest.rs`・`crates/contract/tests/cpu_ops_public_surface.rs`・`crates/contract/tests/feature_gate_enabled.rs`・`scripts/build-profiles.sh` の `NATIVE_SETS` を変えたときは、表を取り直す。
