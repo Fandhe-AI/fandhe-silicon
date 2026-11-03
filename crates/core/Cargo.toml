@@ -371,3 +371,11 @@ required-features = ["test-support", "graphics"]
 [[test]]
 name = "dispatch_inputs_stub"
 required-features = ["test-support"]
+
+[[test]]
+name = "graphics_mesh_types"
+required-features = ["graphics"]
+
+[[test]]
+name = "graphics_mesh_stub"
+required-features = ["test-support", "graphics"]
