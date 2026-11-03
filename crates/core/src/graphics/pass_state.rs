@@ -12,6 +12,14 @@
 /// let b = v;
 /// assert_eq!(a, b);
 /// ```
+///
+/// `Default` は実装されていない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::graphics::Viewport;
+/// fn needs_default<T: Default>() {}
+/// needs_default::<Viewport>();
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
     /// 左端の位置。
@@ -36,6 +44,14 @@ pub struct Viewport {
 /// let a = r;
 /// let b = r;
 /// assert_eq!(a, b);
+/// ```
+///
+/// `Default` は実装されていない。
+///
+/// ```compile_fail,E0277
+/// use fandhe_silicon_core::graphics::ScissorRect;
+/// fn needs_default<T: Default>() {}
+/// needs_default::<ScissorRect>();
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScissorRect {
