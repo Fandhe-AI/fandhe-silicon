@@ -88,3 +88,31 @@
 | `query_route_keeps_default_opt_in` | 呼んだ後も既定の印が変わらない |
 
 確かめ方は `cargo test -p fandhe-silicon-exec --lib`。
+
+## 能力の値・印・判定の全組み合わせの試験（3/5）
+
+### 所在
+
+`crates/exec/src/select.rs` の `#[cfg(test)]` の中の `combination_tests`。ライブラリのコードは変えない。
+
+### 組み合わせの軸と件数
+
+| 軸 | 通り |
+| -- | ---- |
+| 能力の値 | 11（`S0`〜`S6` の 7、`Unsupported` × 理由 `None`・`NoApi`・`NotSupported`・`UnknownFeature` の 4） |
+| 印 | 4（なし・`GpuEmulated` だけ・`Cpu` だけ・両方） |
+| 操作 | `F16Fma`・`SubgroupSumU32` は判定の関数 1 通り。`SubgroupSumF32`・`AtomicAdd` は `Native`・`GpuEmulated`・`Cpu` ごとの答え 4 通り（`Preserve`・`FlushToZero`・`Unknown`・`Err`）の 64 通り |
+| 全件 | 11 × 4 × (2 + 2 × 64) = 5720 |
+
+期待の値は、試験の中の関数が候補を並べて先頭から判定の答えを当てて作る。
+
+### 試験
+
+| 試験 | 確かめる点 |
+| ---- | ---------- |
+| `every_combination_matches_candidate_rule` | 5720 件すべてで、返しと呼ばれた経路の並びが期待と等しい |
+| `unsupported_rows_keep_query_reason` | `Unsupported` の行で `Native` に判定を求めず、`native_reason` が問合せの理由のまま |
+| `unknown_levels_never_choose_native` | `S0`・`S1` の行で `Native` を選ばず、`native_reason` が `CapabilityUnknown` |
+| `report_f32_item_follows_judged_route` | 報告の f32 の項目が、判定した操作で経路ありのときだけ判定の値を持つ |
+
+確かめ方は `cargo test -p fandhe-silicon-exec --lib`。
