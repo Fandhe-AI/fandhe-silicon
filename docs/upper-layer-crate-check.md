@@ -154,3 +154,63 @@ origin/main のコミット `31a50d5`、`docs/spec` の gitlink は `c7887a1` �
 - [upper-compute-path](upper-compute-path.md)
 - [unsafe-policy](unsafe-policy.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 今の値の補い（base 6a62700）
+
+上の記録の節は記録時点の値で、書き換えない。今の値は次のとおり。
+GitHub の表の表示では、セルの中の `\|` が `|` に変わる。ソースの字句のまま流すと `grep -E` の選択が効かず、表示の字句のまま流すと `grep` の基本形の選択が効かない。そこで、表の行のコマンドを表の外に、貼って流せる形で置き直す。
+
+### 表の行のコマンドの置き直し
+
+結果は base `6a627007b3e46763f9a7711b44404251ab76dad9` の作業ツリーで流した値。上の表の値と同じ。
+
+```text
+# 23 行目: git 管理下のファイル数
+git ls-files crates/upper | wc -l
+# 62 行目: 上の層へ向く依存（行数）
+cargo tree --locked --offline --target all --workspace -i fandhe-silicon-upper -e normal,build,dev | wc -l
+# 78 行目・117 行目: 契約の crate の行
+cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e normal,build,dev --prefix none | grep -c fandhe-silicon-contract
+# 79 行目・117 行目: ファイルの指定
+git grep -nE '#\[path|include!|include_str!|include_bytes!' -- crates/upper | wc -l
+# 85 行目・118 行目（通常・build、指定なし）
+cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build | grep -cE 'test-support|fault-injection'
+# 86 行目（通常・build、--all-features）
+cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e features,normal,build | grep -cE 'test-support|fault-injection'
+# 87 行目（通常・build・dev、指定なし）
+cargo tree --locked --offline --target all -p fandhe-silicon-upper -e features,normal,build,dev | grep -cE 'test-support|fault-injection'
+# 88 行目（通常・build・dev、--all-features）
+cargo tree --locked --offline --target all -p fandhe-silicon-upper --all-features -e features,normal,build,dev | grep -cE 'test-support|fault-injection'
+# 96 行目（measure、通常・build）
+cargo tree --locked --offline --target all --manifest-path measure/Cargo.toml --workspace --all-features -e features,normal,build | grep -cE 'test-support|fault-injection'
+# 97 行目（measure、通常・build・dev）
+cargo tree --locked --offline --target all --manifest-path measure/Cargo.toml --workspace --all-features -e features,normal,build,dev | grep -cE 'test-support|fault-injection'
+# 119 行目: CI が呼ぶ場所
+grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/workflows/ci.yml
+```
+
+| 上の表の行 | 置き直したコマンド | 結果 |
+| ---------- | ------------------ | ---- |
+| :23 | `git ls-files crates/upper \| wc -l` の形 | 9 |
+| :62 | 同上の形 | 1 |
+| :78・:117 | `grep -c fandhe-silicon-contract` | 0 |
+| :79・:117 | `git grep -nE '#\[path|include!|…'` | 0 |
+| :85 | 通常・build、指定なし | 0 |
+| :86 | 通常・build、`--all-features` | 0 |
+| :87 | 通常・build・dev、指定なし | 1 |
+| :88 | 通常・build・dev、`--all-features` | 1 |
+| :96 | measure、通常・build | 0 |
+| :97 | measure、通常・build・dev | 1 |
+| :118 | :85〜:88・:96・:97 と同じ | 上の行と同じ |
+| :119 | `grep -nE 'run: …|run: …' .github/workflows/ci.yml` | 268 行目と 338 行目の 2 行 |
+
+- 表の表示の字句（`grep -n 'a|b'`）のまま流すと、:119 のコマンドは 0 行を返した
+- ソースの字句のまま `grep -cE 'a\|b'` を流すと、:87・:88・:97 の dev の行は 0 を返した（`\|` は拡張正規表現では `|` の文字そのものを指す）
+- 上の表の `grep -n 'a\|b'`（基本形）をソースの字句のまま流すと 2 行を返す
+
+### 他の補い
+
+- 段の表の 3/3 は #7877（PR #7890）
+- 「本書の前の言及」の `git grep -n TASK-262 -- . ':!docs/spec'` は、この節を足す前の base で 7 行を返す（`CLAUDE.md` 1 行、`README.md` 1 行、本書 5 行〔1・4・27・109・137 行目〕）
+- 対象の crate のファイル 9 個は `Cargo.toml` の 1 個と `.rs` の 8 個。`record:` の `rs_files=8` は `.rs` だけを数える
+- `make upper-layer-check` の終了コードは 0、`record:` は `rs_files=8 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0`。`make test-upper-layer-check` の最後の行は `passed=746 failed=0`
