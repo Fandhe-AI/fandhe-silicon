@@ -100,3 +100,34 @@ cargo test -p fandhe-silicon-core --test memory_buffer_slice
 ```sh
 cargo test -p fandhe-silicon-core --test memory_buffer_slice
 ```
+
+## 完了の条件の確かめ（5/5）
+
+5/5（#4303）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-311）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 型と口が共通の crate に公開されている | `grep -n 'mod slice\|pub use slice' crates/core/src/memory.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | 14 行目に `mod slice;`、21 行目に `pub use slice::BufferSlice;`。終了コード 0 |
+| (2) | 部分範囲を作る口と境界の入力（確保長ちょうど・超過・`u64` のあふれ・長さ 0） | `cargo test -p fandhe-silicon-core --test memory_buffer_slice` の `slice_end_at_allocation_length_is_accepted`・`slice_past_allocation_length_is_rejected`・`slice_end_overflow_is_rejected`・`zero_length_slices`・`slice_rejection_is_invalid_argument_only` | 5 本とも `ok` |
+| (3) | 範囲の検査が `validate_buffer_range`（TASK-309）と同じ結果になる | 同じ試験の `slice_matches_validate_buffer_range`・`nested_slice_matches_validate_buffer_range` | 2 本とも `ok` |
+| (4) | 入れ子（親に相対・親の大きさで検査・多段） | 同じ試験の `nested_slice_is_relative_to_parent`・`nested_slice_is_checked_against_parent_size`・`multi_level_nesting_offsets_accumulate` | 3 本とも `ok` |
+| (5) | 元のハンドル・開始位置・大きさの読み出し | 同じ試験の `slice_accessors_return_inputs`・`multi_level_nesting_offsets_accumulate`・`slices_are_copy_and_coexist`・`slice_is_repeatable` | 4 本とも `ok`。`--test memory_buffer_slice` 全体は 14 passed |
+| (6) | 全体を指す範囲 | 同じ試験の `entire_slice_covers_whole_buffer` | `ok` |
+| (7) | 解放の後の扱い（`compile_fail,E0505`・`compile_fail,E0382`・通る対照） | `cargo test -p fandhe-silicon-core --doc memory::slice`、`make doctest-error-code-check` | doc は 2 passed（通る対照）と 2 passed（compile fail の 2 本）。`make doctest-error-code-check` は終了コード 0 |
+| (8) | 背後実装を呼ばず、既存の口を変えていない | `grep -n '^use ' crates/core/src/memory/slice.rs`。`612e039`・`7172644`・`7514304`・`eaced49` のそれぞれで `git show --stat --format= <sha> -- crates/core/src/memory/buffer.rs crates/core/src/memory/ops.rs crates/core/src/memory/buffer_check.rs crates/core/src/binding.rs crates/contract` | `use` は 2 行（`super::`・`crate::`）。4 コミットとも差分 0 行 |
+| (9) | 依存 0・unsafe 0 | 同じ 4 コミットで `git show --stat --format= <sha> -- Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/memory/slice.rs`、`grep -n forbid crates/core/src/lib.rs` | 4 コミットとも差分 0 行、`unsafe` は 0 件、38 行目に `#![forbid(unsafe_code)]` |
+| (10) | CI で流れる場所と件数 | `make verify`、`make wasm-verify`、`make doctest-error-code-check`、`cargo test -p fandhe-silicon-core --lib memory::slice` | `make verify` は `memory_buffer_slice` の試験を流し終了コード 0。`--lib memory::slice` は 9 passed。`make wasm-verify`・`make doctest-error-code-check` は終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-311）。確かめた base は `eaced49ff2ed89de107b453247c771e4d79624c5`。
+
+## 段の表
+
+| 段 | Issue | 内容 |
+| -- | ----- | ---- |
+| 1/5 | #4299 | 部分範囲の型と作る口 |
+| 2/5 | #4300 | 入れ子の絞りと解放の後の型検査 |
+| 3/5 | #4301 | 境界の入力の試験 |
+| 4/5 | #4302 | 入れ子と全体の範囲の試験 |
+| 5/5 | #4303 | 完了の条件の確かめ |
+
+親 Issue は #536。
