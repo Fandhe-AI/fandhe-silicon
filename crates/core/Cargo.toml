@@ -339,3 +339,7 @@ required-features = ["test-support", "fault-injection"]
 [[test]]
 name = "limit_downlevel_key_table"
 required-features = ["test-support"]
+
+[[test]]
+name = "render_target_destroy"
+required-features = ["test-support", "graphics"]
