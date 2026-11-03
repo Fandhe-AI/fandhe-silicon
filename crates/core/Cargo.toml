@@ -359,3 +359,11 @@ required-features = ["test-support"]
 [[test]]
 name = "stub_device_samplers"
 required-features = ["test-support"]
+
+[[test]]
+name = "graphics_pass_types"
+required-features = ["graphics"]
+
+[[test]]
+name = "graphics_pass_stub"
+required-features = ["test-support", "graphics"]
