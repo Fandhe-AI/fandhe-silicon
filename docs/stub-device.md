@@ -34,6 +34,7 @@ TASK-156 の作業を進めるにあたり、記録の所在と本リポの現�
 | unsafe | `#![forbid(unsafe_code)]`（`crates/core/src/lib.rs:28`） | `grep -n unsafe_code crates/core/src/lib.rs` |
 
 上の表の `lib.rs:28` は記録時点の値で、今は `lib.rs:38` が `#![forbid(unsafe_code)]` である。
+その後 `lib.rs` に行が入り、今は `lib.rs:39` が `#![forbid(unsafe_code)]` である。
 
 ### device の口と部品
 

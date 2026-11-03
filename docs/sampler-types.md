@@ -12,6 +12,9 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 公開のパス | `fandhe_silicon_core::sampler::{AddressMode, FilterMode, MipmapFilterMode, SamplerBorderColor}` |
 | feature の条件 | なし |
 
+今の補い: `SamplerDescriptor` と `SamplerHandle` の公開のパスは `fandhe_silicon_core::sampler::{SamplerDescriptor, SamplerHandle}`（実装は同じ `sampler.rs`）。
+`crates/core/tests/sampler_types.rs` は #7858 で 10 本になった（`cargo test -p fandhe-silicon-core --test sampler_types`）。
+
 ## 値の型（1/4）
 
 4 つの列挙はどれも `#[non_exhaustive]` で、外の crate の `match` には `_` の腕が要る（`AddressMode` の doctest で確かめている）。

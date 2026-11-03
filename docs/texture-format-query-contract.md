@@ -133,6 +133,7 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 | (12) | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
 
 上の表の `lib.rs:65` は記録時点の値で、今は `lib.rs:72` が `pub mod texture_format_query_check;` である。
+その後 `lib.rs` に行が入り、今は `lib.rs:74` が `pub mod texture_format_query_check;` である。
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1314）。確かめた base は `dc1228d54be1b56045e9ac93848f13cb5a31b8ee`。
 

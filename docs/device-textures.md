@@ -105,3 +105,5 @@ make wasm-verify
 | 4/4 | #3697 | 完了の条件の確かめ |
 
 親 Issue は #419。
+
+上の表の `lib.rs:38` は記録時点の値で、その後 `lib.rs` に行が入り、今は `lib.rs:39` が `#![forbid(unsafe_code)]` である。

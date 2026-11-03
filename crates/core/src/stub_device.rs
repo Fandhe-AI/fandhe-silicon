@@ -577,7 +577,7 @@ impl TextureOps for StubTextures {
 /// `draw`・`draw_ex`・`submit_render` がその値を返す。照合を通ったときの `draw`・`draw_ex`・`copy_target_to_buffer` は何もせず `Unsupported` を返す。
 /// `submit_render` の印は `CommandQueue::poll` で `Complete` になる。
 /// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す（記録先の生成ではその値を持つ記録先を返す）。
-/// 破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡すと `InvalidArgument` を返す。別の device の記録先を `submit_render` に渡すと `DeviceMismatch` を返す。
+/// 破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡すと `InvalidArgument` を返す。別の device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
 /// `submit_render` に渡さずに捨てた記録先の分の記録は残る（試験用で、後始末の経路は持たない）。
 /// 別の device の描画先の破棄は何もしない。
 #[cfg(feature = "graphics")]
@@ -870,7 +870,7 @@ impl GraphicsOps for StubGraphics {
 /// 別 device の描画先やパイプラインを渡すと `DeviceMismatch` を返す（記録先の生成では、その値を持つ記録先を返す）。
 /// `submit_render` の印は `queue()` の `poll` で `Complete` になる。照合を通った `draw`・`draw_ex`・`copy_target_to_buffer` と、
 /// 待ちつきの `submit_render` は `Unsupported` を返す。通し番号が尽きたら `BackendFailure` を返す（記録先は拒否の値を持つ）。
-/// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す。破棄した描画先を使う記録先を `submit_render` に渡しても同じ。
+/// 作っていない描画先・破棄した描画先を渡すと `InvalidArgument` を返す。破棄した描画先を使う記録先を `draw`・`draw_ex`・`submit_render` に渡しても同じ。別 device で作った記録先を `draw`・`draw_ex`・`submit_render` に渡すと `DeviceMismatch` を返す。
 pub struct StubDevice {
     backend: BackendKind,
     ownership: DeviceOwnership,
