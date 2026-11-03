@@ -169,6 +169,8 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 | 9 | 依存 0・unsafe の追加 0 | `git diff --stat b3e7d28 HEAD -- Cargo.lock deps-approved.toml`、`git diff --stat b3e7d28 HEAD -- crates/core/Cargo.toml crates/contract/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/graphics.rs` | `Cargo.lock`・`deps-approved.toml` の差分は空。2 つの `Cargo.toml` の差分は 8 行追加・1 行削除（core の `graphics` と `[[test]]` の項目、契約の crate の転送の行）。承認の記録は 4 件。`lib.rs:31` は `#![forbid(unsafe_code)]`。`graphics.rs` の `unsafe` は 0 |
 | 10 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | 終了コードはすべて 0 |
 
+補い（TASK-150 の後）: 上の表の 6 の `--features graphics --test device_trait_shape` の 7 件は、試験が増えて今は 8 件（`8 passed; 0 failed`）である。
+
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-837）。確かめた base は `2caa325`。
 
 ## 段の表

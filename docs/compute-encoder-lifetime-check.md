@@ -116,6 +116,8 @@ crates/core/src/stub_device.rs:458:        _consts: &[ConstantBinding<'_>],
 crates/core/src/stub_device.rs:688:        _vertex_constants: &[ConstantBinding<'_>],
 ```
 
+補い（TASK-150 の後）: 上の出力の `stub_device.rs:458`・`:688` は、今は `crates/core/src/stub_device.rs` の `:462`・`:740` である。
+
 出力 (6)
 
 ```text

@@ -108,6 +108,7 @@ TASK-2956 の 3/3（#7589）として、本リポで観測できる事実だけ�
 | 7 | 依存 0・unsafe の追加 0 | `git diff --stat 7b787e3 HEAD -- Cargo.lock deps-approved.toml`、`git diff 7b787e3 HEAD -- crates/core/Cargo.toml crates/contract/Cargo.toml`、`grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -n unsafe_code crates/core/src/lib.rs`、`backend_metal.rs` の `unsafe {` の行の数 | `Cargo.lock`・`deps-approved.toml` の差分は空。`Cargo.toml` の差分は core の `[[test]]`（`stub_device_compute`・`required-features = ["test-support"]`）だけで、contract は差分なし。`[[approval]]` は 4。`28:#![forbid(unsafe_code)]`。`backend_metal.rs` の `unsafe {` は `7b787e3` で 3、base で 3 |
 | 8 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0（Linux・GPU なし） |
 
+- 補い（TASK-150 の後）: 上の表の 1 の `device_trait_shape` は、試験が増えて今は `7 passed; 0 failed` である。
 - 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2956）。確かめた base は `85a1ceea1422c0bee77a641d7b785300d021c91b`。
 
 ## 段の表
