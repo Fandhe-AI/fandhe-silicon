@@ -76,7 +76,6 @@ put("f/nosection.wasm", HEADER + TYPE_SEC)
 put("f/badmagic.wasm", b"\x00asn\x01\x00\x00\x00" + TYPE_SEC)
 put("f/badleb.wasm", HEADER + b"\x00\x80\x80\x80\x80\x80\x00")
 put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
-put("f/badleb5.wasm", HEADER + b"\x00\xff\xff\xff\xff\x1f")
 put("f/trunc.wasm", HEADER + b"\x00\x7f\x00")
 put("f/dup.wasm", HEADER + features(BASE) + features(BASE))
 put("f/garbage.wasm", HEADER + custom(b"target_features", leb(0) + b"\x01\x02"))
@@ -133,11 +132,6 @@ srcs = {
     "any_form": '#[cfg(any(target_arch = "wasm32", target_feature = "simd128"))]\npub fn a() {}\n',
     "runtime_spaced": '#[%s]\npub fn a() {}\npub fn b() { if is_x86_feature_detected\n  ! (\n"simd128") {} }\n' % GOOD,
     "debug_cfg": '#[%s]\npub fn a() {}\n#[cfg(debug_assertions)]\npub struct Alpha;\n' % GOOD,
-    "doc_cfg": '#[%s]\npub fn a() {}\n#[cfg(doc)]\npub struct Alpha;\n' % GOOD,
-    "doc_cfg_attr_ok": '#[%s]\npub fn a() {}\n#[cfg_attr(feature = "x", doc = "doc debug_assertions")]\npub fn b() {}\n' % GOOD,
-    "ident_debug": '#[%s]\npub fn a() {}\npub fn debug_assertions() {}\npub fn doc() {}\n' % GOOD,
-    "cfg_macro_debug": '#[%s]\npub fn a() {}\npub fn b() -> bool { cfg!(any(unix, debug_assertions)) }\n' % GOOD,
-    "cfg_attr_debug": '#[%s]\npub fn a() {}\n#[cfg_attr(debug_assertions, inline)]\npub fn b() {}\n' % GOOD,
     "doc_cfg": '#[%s]\npub fn a() {}\n#[cfg(doc)]\npub struct Alpha;\n' % GOOD,
     "doc_cfg_attr_ok": '#[%s]\npub fn a() {}\n#[cfg_attr(feature = "x", doc = "doc debug_assertions")]\npub fn b() {}\n' % GOOD,
     "ident_debug": '#[%s]\npub fn a() {}\npub fn debug_assertions() {}\npub fn doc() {}\n' % GOOD,
