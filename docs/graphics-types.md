@@ -227,6 +227,8 @@ TASK-837 の 4/4（#5820）として、本リポで観測できる事実だけ�
 
 `:162` の `render_target` の `compile_fail` 2 件（line 21・line 28）と、`:165` の `core_features=5 forwarded=5 forward_violations=0` は今も同じ。
 
+その後 `crates/core/src/graphics/surface.rs`（TASK-654）の doctest が 4 本（通常 2・`compile_fail` 2）加わり、`52f4438` では `--doc graphics` は通常 13 件・`compile_fail` 9 件（計 22 件）。すべて `ok`。
+
 ### 操作の数
 
 | 頁の行 | 頁の値 | 今の値 |
