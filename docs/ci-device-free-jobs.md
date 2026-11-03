@@ -131,6 +131,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 
 現状の `crates/` では `scripts/wasm-build-check.sh --cfg-only` の `cfg:` の行が `sites=5 label=match`（`record:` は `mode=cfg-only cfg_sites=5 not_run=0`、終了コード 0）になる。型の名前を渡す全行の経路で not-run になるのは `type:` の行だけで、上の表の `wasm-build-check` の行はこの点で記録時点の書き方のままになっている。上の表の `deny`・`wasm-macos` の `make wasm-verify` の行が挙げる段のほかに、`make wasm-verify` は `crates/contract` の試験の wasm32 の simd128 の構成の clippy（`-D warnings`）と、`scripts/wasm-build-check.sh --cfg-only` の段（`crates/` の simd128 の cfg の検査）も流す（`scripts/wasm-verify.sh`。TASK-2954 のポインタ）。
 
+今の値の補い（base 8c52335）: `make wasm-verify` は上の simd128 の構成の clippy の隣で、同じ feature の組（`--no-default-features --features contract-core,cpu-isa,cpu-ops,test-support`）の契約の crate の試験を simd128 なしの wasm32 でも clippy（`-D warnings`）にかける（`scripts/wasm-verify.sh`。`--target-dir` は `<target_directory>/wasm32-scalar`）。
+
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
 ## `ci-frame-check`（`scripts/ci-frame-check.sh`）
