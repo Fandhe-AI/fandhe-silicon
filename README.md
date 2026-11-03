@@ -91,8 +91,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実 |
 | `docs/parity-case-inputs.md` | 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）（TASK-977） |
 | `docs/parity-fallback-inputs.md` | 代わりの実行の試験の入力と CPU の参照の所在・`f16-fma`・`subgroup-sum`・`atomic-add` の入力と CPU の参照の振る舞い・出力の形の規則の試験・対応するテスト・本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-929） |
-| `docs/exec-skeleton-types.md` | 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）・経路の報告と結果の値の型（2/7）・列の渡し方の型（3/7）・下-2 の値と 7 つの入口（4/7）・opt-in の既定と呼び出しごとの上書きの試験（5/7）・理由の値の区別と f32 の非正規化数の項の試験（6/7）・完了の条件の確かめ（7/7）・今の値の補い（base c79863d）・今の値の補い（base 2f36d3d）（TASK-919） |
-| `docs/exec-route-choice.md` | 下-2 の経路の選び方の所在と、本リポの現状の事実・判定を受ける経路の選び方（1/5）・経路の報告を返す `query_route`（2/5）・能力の値・印・判定の全組み合わせの試験（3/5）・模擬の能力の値での `query_route` と入口の一致の試験（4/5）・完了の条件の確かめ（5/5）（TASK-920） |
+| `docs/exec-skeleton-types.md` | 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）・経路の報告と結果の値の型（2/7）・列の渡し方の型（3/7）・下-2 の値と 7 つの入口（4/7）・opt-in の既定と呼び出しごとの上書きの試験（5/7）・理由の値の区別と f32 の非正規化数の項の試験（6/7）・完了の条件の確かめ（7/7）・今の値の補い（base c79863d）・今の値の補い（base 2f36d3d）・今の値の補い（base 48025c6）（TASK-919） |
+| `docs/exec-route-choice.md` | 下-2 の経路の選び方の所在と、本リポの現状の事実・判定を受ける経路の選び方（1/5）・経路の報告を返す `query_route`（2/5）・能力の値・印・判定の全組み合わせの試験（3/5）・模擬の能力の値での `query_route` と入口の一致の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 48025c6）（TASK-920） |
 | `docs/exec-fault-injection.md` | 下-2 の試験用の口の所在と、本リポの現状の事実・試験用の feature と `Native` を外す口（2/6）・f32 の非正規化数の判定を差し込む口（3/6）・3 つの口を公開のパスから使う試験と使い方（4/6）・build-profiles と wasm-verify の feature の組（5/6）・完了の条件の確かめ（6/6）（TASK-921） |
 | `docs/sha256-hash.md` | SHA-256 の関数（TASK-471）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/decision-table.md` | 決定表の純関数と型（TASK-141・TASK-143）の所在・公開名・対応するテスト・確かめ方 |
@@ -119,12 +119,12 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-submit-types.md` | 投入まわりの公開の型と `CommandQueue`（TASK-588）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-interop-types.md` | 相互運用の公開の型と `ExternalInterop`（TASK-717）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-buffer-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6） |
-| `docs/contract-fault-injection.md` | 故障の差し込みの部品（TASK-271）の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）・能力の問合せの値の差し替え（TASK-921 の 1/6） |
+| `docs/contract-fault-injection.md` | 故障の差し込みの部品（TASK-271）の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）・能力の問合せの値の差し替え（TASK-921 の 1/6）・今の値の補い（base 48025c6） |
 | `docs/failure-class-contract-test.md` | 失敗の種類を戻り値だけで区別する共通の契約テスト（TASK-272）の所在と、本リポの現状の事実・対応する試験・完了の条件の確かめ |
 | `docs/validation-intake.md` | 検証レイヤーの不正の受け口と失敗の種類の入口（TASK-554）の所在と、本リポの現状の事実・現状の形・段の表・確かめ方 |
 | `docs/device-lost-notify.md` | ロストの通知先の関数の型を native と wasm32 で確かめる試験（TASK-138）の所在と、本リポの現状の事実・確かめ方 |
-| `docs/contract-limits-table.md` | 能力の問合せの上限の表（TASK-157）の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ |
-| `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6） |
+| `docs/contract-limits-table.md` | 能力の問合せの上限の表（TASK-157）の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ・今の値の補い（base 48025c6） |
+| `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 48025c6） |
 | `docs/capability-webgpu-ports.md` | WebGPU の口に当たる能力の問合せの行（TASK-155）の所在と現状の事実 |
 | `docs/texture-format-types.md` | テクスチャの形式の型（TASK-1312）の所在と、本リポの現状の事実・現状の形（2/6）・CI への組み込み（3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6）・既存の 2 型からの変換（7/8）・完了の条件の確かめ（8/8）・今の値の補い（base 2f36d3d） |
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
@@ -167,7 +167,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実・決定表の語彙の検査（TASK-142）・本リポでの反映の方針（TASK-14・TASK-113） |
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方 |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
-| `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）（TASK-259） |
+| `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）（TASK-259） |
 | `docs/public-api-sdk-check.md` | 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13） |
 | `docs/public-api-wgpu-check.md` | 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10） |
 | `docs/public-api-contract-check.md` | 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧（4/4）・完了の条件の確かめ（4/4）・段の表・本リポでの反映の方針（TASK-253） |
@@ -250,7 +250,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make setup` | `scripts/setup.sh` | Git hooks 有効化と `.env` 雛形の配置 |
 | `make check` | `scripts/check.sh` | editorconfig-checker + shellcheck（ソースは変更しない） |
 | `make verify` | `scripts/verify.sh` | `cargo fmt --check` + `cargo clippy`（`-D warnings`）+ `cargo test`（ソースは変更しない）。`cargo test` の 1 回だけ試験の枠の記録を新しい一時ディレクトリへ書かせ、試験の後に集計の表（機材の組み合わせ × ラベルの件数）を標準出力に出して一時ディレクトリを消す。呼び出し側の環境に `FANDHE_SILICON_TEST_RECORD_DIR` が既にあるときは上書きせず、集計も片づけもしない |
-| `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、wasm32 は check と `crates/wasm-abi` の 2 版の release ビルド、core crate は feature なしで clippy / test（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
+| `make build-profiles` | `scripts/build-profiles.sh` | contract crate の feature の組ごとに build / clippy / test、exec・upper の feature なしと `native-blocking-wait` 付きの clippy / test（exec は `fault-injection` 付きも）、wasm32 は check（contract・exec・upper。exec は `fault-injection` 付きも）と `crates/wasm-abi` の 2 版の release ビルド、core crate は feature なしで clippy / test（target は `rust-toolchain.toml` で導入。未導入なら失敗） |
 | `make deny` | `scripts/deny.sh` | `cargo deny check`（advisories / bans / licenses / sources）+ workspace の path 依存が `crates/` の外を指さないことの検査 + `measure/`・`baseline-wgpu/`・`wasm/` の cargo-deny と `baseline-wgpu/`・`wasm/` の依存の承認の記録の検査 + 製品の依存グラフの wgpu 系 crate の検査 + 契約の crate のプロファイルごとの依存グラフの検査と陽性対照（jq・python3・git が要る） |
 | `make deps-check` | `scripts/deps-check.sh` | 依存の版指定が `=x.y.z` の完全固定で、承認の記録（`deps-approved.toml`）と一致するかを検査（`cargo metadata` + `jq`。ソースは変更しない） |
 | `make test-deps-check` | `scripts/test-deps-check.sh` | `deps-check` 自体の回帰テスト（一時 workspace の fixture で版指定・取得元・`[patch]`・承認の記録の各検査を検証。cargo + jq + python3。ネットワーク不要） |
@@ -263,7 +263,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（rustdoc の JSON を数え、走査した公開アイテムの数を標準出力に出す。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
-| `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / `crates/contract` の試験の wasm32 の simd128 の構成の clippy（-D warnings）/ wasm32 のコンパイル試験の検査（`scripts/wasm-compile-probe-check.sh` を呼ぶ）/ `crates/` の simd128 の cfg の検査（`scripts/wasm-build-check.sh --cfg-only` を呼ぶ）/ 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る。CI の deny・wasm-macos ジョブも実行する） |
+| `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core`・`crates/exec`・`crates/upper`・`crates/contract` の試験の wasm32 型検査（exec は `fault-injection` 付きも）/ `crates/contract` の試験の wasm32 の simd128 の構成の clippy（-D warnings）/ wasm32 のコンパイル試験の検査（`scripts/wasm-compile-probe-check.sh` を呼ぶ）/ `crates/` の simd128 の cfg の検査（`scripts/wasm-build-check.sh --cfg-only` を呼ぶ）/ 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る。CI の deny・wasm-macos ジョブも実行する） |
 | `make wasm-size` | `scripts/wasm-size.sh` | wasm-bindgen の glue を含めた成果物の量（gzip 後）を、ビルド設定 4 つ × 出力先 2 つの 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。ネットワーク不要。CI は `wasm-macos` ジョブが呼び、`deny` ジョブは呼ばない）。`scripts/wasm-size.sh --from-dir <dir>` なら生成済みの出力だけを測る |
 | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | feature `native-blocking-wait` を外した構成で、契約のコア（`crates/core`・`crates/contract`）の公開面にブロッキング待ちの名前の公開アイテムが 0 件であること（内容の (1)）と、パイプライン生成の入力の形（`PipelineInput` の定義・`Wgsl` の variant・生成の関数の入力。内容の (2)）と、拡張 trait の feature `ext-interop` への閉じ込めと submit 系の `wait` 引数の形（内容の (3)）と、WebGPU の語を名前に含む公開の操作・型が無いこと（内容の (4)）の検査（TASK-241 のポインタ。(4) は TASK-155。あわせて `SubmitToken` を受ける公開の口を許可の一覧と照らす検査〔内容の (5)。TASK-313〕。語・名前は `public-api-webgpu-check.conf`。rustdoc の JSON は `public-api-check.sh --emit-json` で 3 回作る〔`--without-feature` で外す feature ごとに 2 回と、(5) 用に `--without-feature` なしの all-features で 1 回〕。bash + python3 + cargo + git。CI の deny ジョブも実行する） |
 | `make public-name-check` | `scripts/public-name-check.sh` | 製品の crate の公開アイテムの名前に語の一覧（`public-name-check.conf`）の語が出ていないことの検査（rustdoc の JSON を数え、`--source` でソースの単語・呼び出しの形も数える。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |

@@ -302,3 +302,28 @@ cargo test -p fandhe-silicon-exec --test unsupported_fields
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 完了の条件の確かめ（7/7）の (1) の `make upper-layer-check` の `record:` | `rs_files=4 direct_deps=2 forbid=yes unsafe_total=0` → `rs_files=9 direct_deps=3 forbid=yes unsafe_total=0`（`chip_deps=0 chip_paths=0 other_deps=0` のまま。上の層の crate の記録の行）。上の層の crate の `.rs` が 5 個増え、直接の依存が 1 つ増えた | `make upper-layer-check \| grep '^record:'` |
+
+## 今の値の補い（base 48025c6）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（7/7）の (1) の `forbid` の行 | `14:#![forbid(unsafe_code)]` → `18:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけで、ほか 7 ファイルは 0 件（`crates/exec/src` は 8 ファイル） | `grep -n forbid crates/exec/src/lib.rs` |
+| 同 (2) の公開の型と入口 | 26 行 → 29 行（`pub fn` は 12 行 → 14 行） | `grep -rn 'pub fn\|pub struct\|pub enum' crates/exec/src` |
+| 同 (3) の `&'static` の行 | `entry.rs:86`・`entry.rs:112` → `entry.rs:146` の `name: &'static str,` と `entry.rs:172` の `fn unsupported(&self, op: &'static str) -> ContractError {`（2 行のまま） | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|&mut self' crates/exec/src` |
+| 同 (6) の `public-api-check` の all-features | `public_items=472` → `public_items=511`（production は `458` のまま。`wgpu_type_refs=0 wgpu_other_refs=0`） | `make public-api-check` |
+| 同 (6) の `public-name-check` の all-features | `public_items=417 named_items=137` → `public_items=451 named_items=149`（production は `403`・`123` のまま。`name_hits=0`） | `make public-name-check` |
+| 同 (6) の `public-api-sdk-check` の all-features | `public_items=417` → `public_items=451`（production は `403` のまま。`sdk_type_refs=0 sdk_other_refs=0`） | `make public-api-sdk-check` |
+| `crates/exec/Cargo.toml` の行数 | 29 行 → 36 行（`[features]` に `fault-injection = ["fandhe-silicon-core/fault-injection"]` が加わり、`fault_injection_ports` の `[[test]]` が `required-features = ["fault-injection"]` で加わった） | `wc -l crates/exec/Cargo.toml` |
+
+feature なしの値は変わらない。`cargo test -p fandhe-silicon-exec` は合計 46 passed、`--features native-blocking-wait` 付きは合計 48 passed（0 failed; 0 ignored）。
+
+feature `fault-injection` の下では、上の「opt-in の印と経路・操作・理由の型（1/7）」の表の `UnavailableReason` の値に `ForcedUnsupported` が加わる（`crates/exec/src/route.rs` の `#[cfg(feature = "fault-injection")]` つきの値）。「経路の報告と結果の値の型（2/7）」の表の `F32DenormalBasis` の値は `Observed` だけだったところに `Injected` が加わる（`crates/exec/src/report.rs`。同じ `#[cfg(feature = "fault-injection")]`）。feature を付けないビルドの値は `Observed` だけ、`UnavailableReason` は 5 値のままである。`cargo test -p fandhe-silicon-exec --features fault-injection` は合計 67 passed（43 + 8 + 5 + 4 + 6 + 1 + doctest 0。0 failed; 0 ignored）。所在は [exec-fault-injection](exec-fault-injection.md)。
+
+確かめ方:
+
+```text
+grep -n 'fault-injection' crates/exec/src/route.rs crates/exec/src/report.rs
+cargo test -p fandhe-silicon-exec --features fault-injection
+```

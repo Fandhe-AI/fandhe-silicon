@@ -232,7 +232,8 @@ impl<D> FaultInjecting<D> {
 }
 
 /// 能力問合せの差し込み。`CapabilityQueryFails` は `S0`、対象の機能の `CapabilityInsufficient` は
-/// `Unsupported` を内側を呼ばずに返す。それ以外は内側へそのまま渡す。
+/// `Unsupported`、対象の機能の `CapabilityOverride` は渡された値を、内側を呼ばずに返す。
+/// それ以外は内側へそのまま渡す。
 impl<D: Capabilities> Capabilities for FaultInjecting<D> {
     fn limits(&self) -> &LimitsTable {
         self.limits_override

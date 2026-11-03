@@ -184,3 +184,12 @@ TASK-259 の 1/4〜3/4 を入れた後の実物で観測した結果を表にす
 | `41623102841` | `125873537161` | `31a50d5c4fbe5913a439ec228779b9ad14b4ff80` | 同じ | `passed=110 failed=0` |
 
 補い（base c79863d）: 今の `make exec-deps-check` は終了コード 0 で、`record: commit=c79863dea276714c8e80030eaf5e3583ffbc849f rs_files=13 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0`、`ok: 13 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0`。`rs_files` は `crates/exec/tests/route_query.rs` が加わって 12 から 13 になった（`crates/exec/src` は 7 ファイル、`crates/exec/tests` は `common/mod.rs` を含め 6 ファイル）。
+
+## 今の値の補い（base 48025c6）
+
+上の補い（base c79863d）の `rs_files=13` は、いまは `rs_files=15` である。`make exec-deps-check` は終了コード 0 で、`record: commit=48025c6a580dc41e0d04dee4148622fa2b13385e rs_files=15 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0`、`ok: 15 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0`。`crates/exec/src` は 8 ファイル（`hooks.rs` が加わった）、`crates/exec/tests` は `common/mod.rs` を含め 7 ファイル（`fault_injection_ports.rs` が加わった）。`declared_deps=2` のまま。
+
+```text
+make exec-deps-check
+find crates/exec/src crates/exec/tests -name '*.rs'
+```

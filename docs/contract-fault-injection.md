@@ -281,3 +281,17 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | `crates/core/tests/fault_parts_matrix.rs` の `CapabilityOverride` の行 | 全ての差し込みとの組の期待 |
 
 - 確かめ方: `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override`（と `--test fault_parts_matrix`）
+
+## 今の値の補い（base 48025c6）
+
+上の「試験（7/8）」の「デコレータの 6 つの筋書き」と「使い分けの手順（8/8）」の筋書きの表（5 行）は記録時点の数と一覧で、書き換えていない。いまの `FaultScript` は 7 種類（`PassThrough`・`CompletionUnknown`・`CapabilityInsufficient`・`CapabilityQueryFails`・`AllocationFails`・`RuntimeError`・`CapabilityOverride`）で、増えたのは `CapabilityOverride { feature, query }` の 1 つである。
+
+| 項目 | 今の値 | 確かめ方 |
+| ---- | ------ | -------- |
+| 定義 | `crates/core/src/fault/decorator.rs:58`（enum `FaultScript` は `:34`） | `grep -n 'CapabilityOverride' crates/core/src/fault/decorator.rs` |
+| `query` の働き | 対象の機能なら内側を呼ばず `query.level` を返す（`:251`） | 同上 |
+| `query_ex` の働き | 対象の機能なら内側を呼ばず `query` の値をそのまま返す（`:270`） | 同上 |
+| 筋書きの表の行 | `CapabilityOverride` は「対象の機能の `query`・`query_ex` が渡した値」。ほかの差し込みは内側へ渡す（上の「能力の問合せの値の差し替え」の節の表） | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override` |
+| 全ての差し込みとの組 | `crates/core/tests/fault_parts_matrix.rs` の `scripts()`（`:101`）に `CapabilityOverride` の行がある（`:115`）。期待は `:261` | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_parts_matrix` |
+
+`fault_decorator_capability_override` は 3 passed、`fault_parts_matrix` は 6 passed（0 failed; 0 ignored）。

@@ -54,3 +54,17 @@ cargo test -p fandhe-silicon-core --features test-support --test capability_rule
 ## 完了の条件の確かめ
 
 完了の条件の中身は private spec 側の記録に従う（ポインタのみ）。
+
+## 今の値の補い（base 48025c6）
+
+上の「本リポの現状の事実」の「故障の差し込み」の行と「対応するテスト」の表の「`FaultScript` の 6 種類」は記録時点の数で、書き換えていない。いまの `FaultScript` は 7 種類で、増えた 1 つは `CapabilityOverride { feature, query }`（`crates/core/src/fault/decorator.rs:58`。enum の定義は `:34`）。
+
+- `limits()`・`limits_with`・`with_limits_override` の働きは `CapabilityOverride` でも変わらない。`crates/core/tests/fault_decorator_capability_override.rs` の `override_passes_every_interception_to_inner` が、6 つの `*_with` が内側を 1 回ずつ呼び、上限の働きが変わらないことを確かめる（3 passed）
+- `crates/core/tests/fault_parts_matrix.rs` の `limits_override_is_independent_of_script` が、筋書きの一覧（`:101` の `scripts()`。`CapabilityOverride` の行は `:115`）の全てで上限の置き換えが筋書きに依らないことを確かめる（6 passed）
+
+確かめ方:
+
+```text
+grep -n 'CapabilityOverride' crates/core/src/fault/decorator.rs
+cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override --test fault_parts_matrix
+```
