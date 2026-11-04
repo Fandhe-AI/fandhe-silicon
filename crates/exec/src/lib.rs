@@ -18,6 +18,9 @@
 //! 報告の根拠の値 `F32DenormalBasis::Injected` も持つ（同 TASK-921）。
 #![forbid(unsafe_code)]
 
+mod denormal;
+#[cfg(test)]
+mod denormal_tests;
 mod entry;
 #[cfg(feature = "fault-injection")]
 mod hooks;

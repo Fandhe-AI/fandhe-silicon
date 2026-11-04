@@ -95,6 +95,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/exec-route-choice.md` | 下-2 の経路の選び方の所在と、本リポの現状の事実・判定を受ける経路の選び方（1/5）・経路の報告を返す `query_route`（2/5）・能力の値・印・判定の全組み合わせの試験（3/5）・模擬の能力の値での `query_route` と入口の一致の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 48025c6）・今の値の補い（base 2373576）・今の値の補い（base 904126a）（TASK-920） |
 | `docs/exec-fault-injection.md` | 下-2 の試験用の口の所在と、本リポの現状の事実・試験用の feature と `Native` を外す口（2/6）・f32 の非正規化数の判定を差し込む口（3/6）・3 つの口を公開のパスから使う試験と使い方（4/6）・build-profiles と wasm-verify の feature の組（5/6）・完了の条件の確かめ（6/6）（TASK-921） |
 | `docs/exec-length-check.md` | 下-2 の入口の長さの検査の所在と、本リポの現状の事実・入口の最初の長さの検査（1/4）・長さ 0 と出力の数 0 の入口経由の試験（2/4）・上限を差し替えた device とバイト数のあふれの入口経由の試験（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 904126a）（TASK-924） |
+| `docs/exec-denormal-judgment.md` | 下-2 の f32 の非正規化数の判定の所在と、本リポの現状の事実・判定と操作・経路ごとの保持（1/6）（TASK-925） |
 | `docs/sha256-hash.md` | SHA-256 の関数（TASK-471）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/decision-table.md` | 決定表の純関数と型（TASK-141・TASK-143）の所在・公開名・対応するテスト・確かめ方 |
 | `docs/artifact-input-types.md` | 成果物の受け付けに使う公開の型（TASK-470）の所在・現状の型・対応するテスト・確かめ方・完了の条件の確かめ（6/6） |
