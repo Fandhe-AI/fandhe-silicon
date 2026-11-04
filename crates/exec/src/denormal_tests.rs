@@ -316,3 +316,109 @@ mod ports {
         assert_eq!(log.borrow().len(), 1);
     }
 }
+
+mod documented {
+    use super::*;
+
+    fn report_of(
+        backend: BackendKind,
+        query: CapabilityQuery,
+        op: OpId,
+        over: Option<OptIn>,
+        zero: bool,
+    ) -> crate::report::RouteReport {
+        let dev = QueryDevice::new(backend, query);
+        let log = CallLog::default();
+        let runner = preserving_runner(&log);
+        let zeros = zero_runner(&log);
+        let exec = if zero {
+            Exec::deny_by_default(&dev).with_probe(&zeros)
+        } else {
+            Exec::deny_by_default(&dev).with_probe(&runner)
+        };
+        exec.query_route(op, over).expect("report")
+    }
+
+    #[test]
+    fn documented_is_set_for_one_combination() {
+        let op = OpId::AtomicAdd;
+        let r = report_of(BackendKind::Cuda, S2, op, None, false);
+        assert_eq!(r.route, Some(Route::Native));
+        assert_eq!(
+            r.f32_denormal,
+            Some(F32DenormalReport {
+                behavior: F32DenormalBehavior::Preserve,
+                basis: F32DenormalBasis::Observed,
+                documented: Some(F32DenormalBehavior::FlushToZero),
+            })
+        );
+        let r = report_of(BackendKind::Cuda, S2, op, None, true);
+        assert_eq!(
+            r.f32_denormal,
+            Some(F32DenormalReport {
+                behavior: F32DenormalBehavior::FlushToZero,
+                basis: F32DenormalBasis::Observed,
+                documented: Some(F32DenormalBehavior::FlushToZero),
+            })
+        );
+        // 判定できない値で経路が決まらない報告は `f32_denormal` を持たない。
+        let dev = QueryDevice::new(BackendKind::Cuda, S2);
+        let log = CallLog::default();
+        let runner = unknown_runner(&log);
+        let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+        let r = exec.query_route(op, None).expect("report");
+        assert_eq!(r.route, None);
+        assert_eq!(r.f32_denormal, None);
+    }
+
+    #[test]
+    fn documented_is_none_elsewhere() {
+        let docs = |r: crate::report::RouteReport| r.f32_denormal.map(|d| d.documented);
+        let r = report_of(BackendKind::Cuda, S2, OpId::SubgroupSumF32, None, false);
+        assert_eq!(r.route, Some(Route::Native));
+        assert_eq!(docs(r), Some(None));
+        for (over, route) in [(G_ONLY, Route::GpuEmulated), (C_ONLY, Route::Cpu)] {
+            let r = report_of(
+                BackendKind::Cuda,
+                UNKNOWN_FEATURE,
+                OpId::AtomicAdd,
+                Some(over),
+                false,
+            );
+            assert_eq!(r.route, Some(route));
+            assert_eq!(docs(r), Some(None));
+        }
+        for backend in [
+            BackendKind::Metal,
+            BackendKind::Vulkan,
+            BackendKind::Dx12Compute,
+        ] {
+            let r = report_of(backend, S2, OpId::AtomicAdd, None, false);
+            assert_eq!(r.route, Some(Route::Native));
+            assert_eq!(docs(r), Some(None));
+        }
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn documented_with_injection() {
+        use crate::report::DenormalInjection;
+        let dev = QueryDevice::new(BackendKind::Cuda, S2);
+        let log = CallLog::default();
+        let runner = preserving_runner(&log);
+        let exec = Exec::deny_by_default(&dev)
+            .with_probe(&runner)
+            .inject_denormal(OpId::AtomicAdd, Route::Native, DenormalInjection::Preserve);
+        let r = exec.query_route(OpId::AtomicAdd, None).expect("report");
+        assert_eq!(r.route, Some(Route::Native));
+        assert_eq!(
+            r.f32_denormal,
+            Some(F32DenormalReport {
+                behavior: F32DenormalBehavior::Preserve,
+                basis: F32DenormalBasis::Injected,
+                documented: Some(F32DenormalBehavior::FlushToZero),
+            })
+        );
+        assert_eq!(log.borrow().len(), 0);
+    }
+}

@@ -15,12 +15,12 @@ use crate::operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };
 use crate::opt_in::OptIn;
-use crate::report::{Outcome, RouteReport};
+use crate::report::{F32DenormalBehavior, Outcome, RouteReport};
 use crate::route::{OpId, Route};
 use crate::select::{
     DenormalJudgment, build_report, effective_opt_in, select_route, selection_input,
 };
-use fandhe_silicon_core::capability::FeatureId;
+use fandhe_silicon_core::capability::{BackendKind, FeatureId};
 use fandhe_silicon_core::device::Device;
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::feature_key::{
@@ -34,6 +34,22 @@ fn feature_of(op: OpId) -> FeatureId {
         OpId::SubgroupSumU32 | OpId::SubgroupSumF32 => FEATURE_SUBGROUP,
         OpId::AtomicAdd => FEATURE_SHADER_FLOAT32_ATOMIC,
     }
+}
+
+/// 報告の `f32_denormal` がある場合に限り、`Cuda`・`AtomicAdd`・`Native` の組へ `documented` を入れる。
+///
+/// 判定・経路の選び方・`behavior` には使わず、組み立てた報告の最後に当てる。
+fn with_documented(mut report: RouteReport, backend: BackendKind) -> RouteReport {
+    let documented = match (backend, report.op, report.route) {
+        (BackendKind::Cuda, OpId::AtomicAdd, Some(Route::Native)) => {
+            Some(F32DenormalBehavior::FlushToZero)
+        }
+        _ => None,
+    };
+    if let Some(d) = report.f32_denormal.as_mut() {
+        d.documented = documented;
+    }
+    report
 }
 
 /// device を借りて既定の opt-in の印を持つ下-2 の値。FB-14。
@@ -160,7 +176,7 @@ impl<'d> Exec<'d> {
         let report = build_report(&input, &output);
         #[cfg(feature = "fault-injection")]
         let report = self.ports.mark_injected_basis(report);
-        Ok(report)
+        Ok(with_documented(report, self.device.backend()))
     }
 
     /// 能力を問い合わせて経路を決め、報告か `Unsupported` を返す共通の処理。

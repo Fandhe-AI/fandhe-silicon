@@ -80,3 +80,38 @@ cargo test -p fandhe-silicon-exec --locked --lib denormal
 cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal
 make exec-surface-check
 ```
+
+## 報告の資料の記述の項（2/6）
+
+### 所在
+
+- `crates/exec/src/entry.rs` の `route_report` の最後の段と、その段が呼ぶ private な関数 `with_documented`
+- `crates/exec/src/report.rs` の `F32DenormalReport::documented`
+- 試験は `crates/exec/src/denormal_tests.rs` の `mod documented`
+
+### 組
+
+`route_report` が組み立てた報告の `f32_denormal` が `Some` のときだけ、`documented` を次の表で決める。
+判定・経路の選び方・`behavior`・`basis` には使わない（`basis` が `Observed` でも `Injected` でも同じ）。
+
+| device の `backend()` | 操作 | 経路 | `documented` |
+| --------------------- | ---- | ---- | ------------ |
+| `BackendKind::Cuda` | `OpId::AtomicAdd` | `Route::Native` | `Some(F32DenormalBehavior::FlushToZero)` |
+| ほか | ほか | ほか | `None` |
+
+経路が `None` の報告は `f32_denormal` も `None` のままで、`documented` から作らない。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `denormal_tests::documented::documented_is_set_for_one_combination` | `Cuda`・`AtomicAdd`、保つ値・0・判定できない値の runner | 保つ値と 0 では `behavior` は観察のまま `documented` が `Some(FlushToZero)`、判定できない値では `f32_denormal` が `None` |
+| `denormal_tests::documented::documented_is_none_elsewhere` | `Cuda` の `SubgroupSumF32`、`Cuda` の `AtomicAdd` の 2 つの上書き、ほかの 3 つの `backend()` | どれも `documented` は `None` |
+| `denormal_tests::documented::documented_with_injection`（feature `fault-injection`） | `Cuda`・`AtomicAdd`・`Native` に `inject_denormal` | `basis` は `Injected`、`documented` は `Some(FlushToZero)`、試しの実行は流れない |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::documented
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented
+```
