@@ -312,3 +312,45 @@ gh run view 41781760002 --json conclusion,headSha
 | 6/6 | #6032 | 完了の条件の確かめ（6/6） |
 
 親 Issue は #869。
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### 記録時点の commit
+
+「本リポの現状の事実」の記録時点の commit `904126a` と、完了の条件の確かめ（6/6）の確かめた時点 `e69d8ee` の関係は、`git log --format='%h %p %s' 904126a..dbbb5c0` の出力で次のとおり。
+
+| commit | 親 | 件名 |
+| ------ | -- | ---- |
+| `904126a` | `411c789` | test(exec): 長さの検査の出力のバイト数を操作ごとに確かめる (#7964) |
+| `dc1ae4a` | `904126a` | docs: 入口の長さの検査の後の今の値を補う (#7965) |
+| `e9d9a67` | `dc1ae4a` | 1/6 の PR #7966 |
+| `e69d8ee` | `dace194` | 5/6 の PR #7970 |
+| `c368abb` | `e69d8ee` | 6/6 の PR #7971 |
+
+`904126a` は `dc1ae4a`（#7965）を挟んで 1/6 のマージコミット `e9d9a67` の 2 つ前にあたる。`904126a` と `e69d8ee` は、どちらも `dbbb5c0` の祖先（`git merge-base --is-ancestor <sha> dbbb5c0` が終了コード 0）。
+
+### 完了の条件の確かめ（6/6）の「今は」の値
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) | 5 passed（79 件中、74 filtered out）→ 6 passed（86 件中、80 filtered out）。`denormal::tests::unjudged_ops_reject_without_running_or_touching_held` が加わった（`F16Fma`・`SubgroupSumU32` と `Native`・`GpuEmulated`・`Cpu` の 6 組で `HeldJudgments::judge` が `InvalidArgument` を返し、`run` を呼ばないこと、その後に `SubgroupSumF32`・`AtomicAdd` の `judge` が `run` を 1 回ずつ呼ぶことを照らす） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal::` |
+| (2) | 4 passed（75 filtered out）→ 4 passed（82 filtered out） | (2) の `--lib -- denormal_tests::…` の 4 つの絞り込み |
+| (3) | 3 passed（76 filtered out）→ 3 passed（83 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented` |
+| (4) | 5 passed（74 filtered out）→ 5 passed（81 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected` |
+| (5) | 4 passed（75 filtered out）→ 4 passed（82 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure` |
+| (6) | `matrix` 2 passed（76 filtered out）→ 2 passed（83 filtered out）、`injected_unknown` 4 passed（74 filtered out）→ 4 passed（81 filtered out）、`judged_unknown` 2 passed（54 filtered out）→ 2 passed（61 filtered out） | (6) の 3 つのコマンド |
+| (7) の既存の試験の絞り込み | 35 passed（44 filtered out）→ 36 passed（50 filtered out） | (7) の `--lib -- entry::tests:: entry::forced_tests:: entry::injected_tests:: select::tests:: select::combination_tests::` |
+| (7) の `--tests` の lib | 79 passed → 86 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --tests` |
+| (7) の `tests/*.rs` | 10 本 → 12 本。`cpu_f16_fma` 4・`device_operands` 2・`fault_injection_ports` 8・`length_device` 2・`length_host` 2・`length_limit` 4・`length_zero` 5・`opt_in_default` 6・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 2（`cpu_f16_fma`・`length_host` が加わり、`device_operands`・`length_device`・`opt_in_default`・`unsupported_fields` の本数が増えた） | 同上 |
+| (7) の `entry.rs` の `cfg(test)` | 65・79・87・224・333 行 → 67・81・89・226・356 行 | `grep -n 'cfg(test)' crates/exec/src/entry.rs` |
+| (8) の `record:` | `rs_files=22` → `rs_files=26`（ほかの欄は変わらない）。`public_items=458`（production）・`511`（all-features）のまま。`crates/exec/src/lib.rs` の `forbid` の行は 19 行 → 20 行 | `make exec-surface-check`、`grep -n forbid crates/exec/src/lib.rs` |
+
+「保持の動き」の表の下の、試しの実行の手段を持たない `Exec` の文と、「試験の口」の節の文は、今のコードと合う。`Exec::probe` は、runner を差していないとき（製品のビルドは常にこちら）`self.unsupported(name)` を返す（`crates/exec/src/entry.rs` の `fn probe`。`name` は入口の関数名か `"query_route"`）。`make exec-surface-check` の `record:` は `port_names_all=6`・`other_fns=5`・`unlisted_fns=0` のまま。`f16_fma` が経路 `Route::Cpu` で host の形なら host で計算する分岐（`crates/exec/src/entry.rs`）は、`F16Fma` が判定を求めない操作なので、保持の動きの表の `F16Fma` の行を変えない。
+
+### 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 6/6 | #6032（PR #7971） | 完了の条件の確かめ（6/6） |

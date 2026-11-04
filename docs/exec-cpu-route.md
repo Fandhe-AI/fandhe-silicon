@@ -1,6 +1,6 @@
 # 下-2 の CPU の経路の所在（TASK-930）
 
-下-2（`crates/exec`）の `f16_fma` の host の形の列の長さの照合の所在と、本リポの現状の事実をまとめる。
+下-2（`crates/exec`）の `f16_fma` の host の形の列の長さの検査、経路 `Route::Cpu` の f16 の積和、その試験の所在と、本リポの現状の事実をまとめる。
 決定の記録は private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-930（親の Issue は #872）。
 
 ## 本リポの現状の事実
@@ -88,9 +88,9 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --t
 | `cpu.rs` | `hand_computed_cases` | 手計算の 6 組 |
 | `cpu.rs` | `single_rounding_after_f32_fma` | 本体 `0x9EB8`、core の参照 `0x9EB9`、順序の差 1 |
 | `entry.rs` | `f16_fma_with_cpu_override_runs_on_host` | `Ran`、`Route::Cpu`、`query_route` と同じ報告、`out` が `0x4000` |
-| `entry.rs` | `four_entries_with_cpu_override_are_unsupported_err` | 残りの 3 つの入口が `Unsupported` で出力が変わらない |
-| `fault_injection_ports.rs` | `forced_op_follows_opt_in` | `f16_fma` と `Route::Cpu` の組は `Ran`・出力が書き換わる。ほかの組は従来どおり |
-| `opt_in_default.rs` | `chosen_route_does_not_write_output` | `f16_fma` 以外の 3 つの入口が `Unsupported` で出力が変わらない |
+| `entry.rs` | `four_entries_with_cpu_override_are_unsupported_err` | `allow_cpu` だけの上書きで、`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` が `Unsupported` で出力が変わらない |
+| `fault_injection_ports.rs` | `forced_op_follows_opt_in` | `f16_fma` と `Route::Cpu` の組は `Ran`・報告が `query_route` と同じ・出力が書き換わる。`f16_fma` のほかの経路の組は、経路が決まれば `Unsupported`、経路なしなら `Unavailable` で出力が変わらない。`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` も同じ |
+| `opt_in_default.rs` | `chosen_route_does_not_write_output` | `subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` が `Unsupported` で出力が変わらない。`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` が上書き 5 通りで `Unsupported` |
 | `opt_in_default.rs` | `cpu_route_writes_f16_output` | `Ran`、`Route::Cpu`、出力が書き換わる、`memory`・`queue` の数えが 0 |
 | `route_query.rs` | `query_route_matches_entry_report` | `Ran` の腕で `query_route` と同じ報告、`Route::Cpu`、出力が書き換わる |
 | `unsupported_fields.rs` | `unsupported_carries_entry_name_and_device_backend` | `f16_fma` は `allow_gpu_emulated` だけの印で `Unsupported` の欄を照らす |
@@ -109,13 +109,13 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection
 
 `crates/exec/tests/cpu_f16_fma.rs`（公開のパスから `Exec::f16_fma` を host の形で呼ぶ外の crate の統合テスト）。
 
-### C の経路を選ばせる組
+### 経路 `Route::Cpu` を選ばせる組
 
 | 組 | device の答え | `Exec` の作り方 | 上書き |
 | -- | ------------- | --------------- | ------ |
-| (a) | `Unsupported` | `Exec::new(&dev, C の印)` | `None` |
-| (b) | `Unsupported` | `Exec::deny_by_default(&dev)` | `Some(C の印)` |
-| 故障の差し込み（feature `fault-injection` のビルドでだけ流れる） | `S2` | `Exec::deny_by_default(&dev).force_unsupported(OpId::F16Fma)` | `Some(C の印)` |
+| (a) | `Unsupported` | `Exec::new(&dev, CPU_ONLY)`（`allow_cpu: true`・`allow_gpu_emulated: false` の印） | `None` |
+| (b) | `Unsupported` | `Exec::deny_by_default(&dev)` | `Some(CPU_ONLY)` |
+| 故障の差し込み（feature `fault-injection` のビルドでだけ流れる） | `S2` | `Exec::deny_by_default(&dev).force_unsupported(OpId::F16Fma)` | `Some(CPU_ONLY)` |
 
 呼び出しごとに新しい試験用の device を作る。
 
@@ -256,3 +256,52 @@ grep -n forbid crates/exec/src/lib.rs
 | 4/4 | #6050 | 完了の条件の確かめ（4/4） |
 
 親 Issue は #872。
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### `src/` のファイル
+
+「本リポの現状の事実」の `src/` の一覧（11 ファイル）は、今は 13 ファイル。`binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs`・`entry.rs`・`hooks.rs`・`length.rs`・`lib.rs`・`operands.rs`・`opt_in.rs`・`report.rs`・`route.rs`・`select.rs`（`ls crates/exec/src`）。`binary16.rs` と `cpu.rs` が 2/4 で加わった。
+
+### device の形で経路が `Route::Cpu` に決まる `f16_fma`
+
+`crates/exec/tests/device_operands.rs` の `cpu_route_with_device_operands_is_unsupported_and_leaves_buffers`（feature `native-blocking-wait` のビルドでだけ流れる）が、device の形の列を渡した `Exec::f16_fma` を次の 2 つの組で呼ぶ。`CPU_ONLY` は `allow_cpu: true`・`allow_gpu_emulated: false` の印。
+
+| 組 | `Exec` の作り方 | 上書き |
+| -- | --------------- | ------ |
+| 0 | `Exec::new(&dev, CPU_ONLY)` | `None` |
+| 1 | `Exec::deny_by_default(&dev)` | `Some(CPU_ONLY)` |
+
+device は `Scripted::bare()`、`n` は 8、4 つの buffer（16 バイト）の中身は buffer ごとに別の値で埋める。
+
+| 照らす点 | 期待 |
+| -------- | ---- |
+| 戻り値 | `Err(ContractError::Unsupported { op: "f16_fma", .. })`。`Ran` にならない |
+| `query_ex` の数え | 1 回 |
+| `memory()`・`queue()` の数え | 呼び出しの前後で変わらない |
+| buffer の中身 | 呼ぶ前のまま |
+
+`cargo test -p fandhe-silicon-exec --all-features --locked --test device_operands` は 2 passed; 0 failed; 0 ignored（`unavailable_leaves_device_buffers_unchanged` と上の試験）。
+
+同じ変更で、`cpu_f16_fma.rs` の定数 `C_ONLY` は `CPU_ONLY` になり、経路を略号で書いたコメントは `Route::Cpu`・`Route::Native`・`allow_cpu` の名前になっている。`opt_in_default.rs` の先頭の `//!` は、出力が変わらない呼び出し（`Ok(Outcome::Unavailable { .. })` を返した呼び出しと、`f16_fma` 以外の入口が `Err(ContractError::Unsupported { .. })` を返した呼び出し）と、出力が変わる呼び出し（`f16_fma` が経路 `Route::Cpu` で host の形）に分けて書いている。
+
+### 完了の条件の確かめ（4/4）の値
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) | 255 行 `check_lengths`・259 行 `check_host_len`・265 行 `route_report`・269 行 `crate::cpu::f16_fma` のまま | `grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::f16_fma' crates/exec/src/entry.rs` |
+| (2) | 86 passed のまま | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` |
+| (3) | `length_device` 2・`length_host` 2・`length_limit` 4 のまま | (3) のコマンド |
+| (4) | `--all-features` 4 passed、既定の feature 3 passed のまま | (4) のコマンド |
+| (6) | `fault_injection_ports` 8・`opt_in_default` 6・`route_query` 6・`unsupported_fields` 2 のまま | (6) のコマンド |
+| (7) の `tests/device_operands.rs` | 1 passed → 2 passed | `make verify` |
+| (8) の `record:` | `rs_files=26` のまま（`commit=` の値だけ変わる） | `make exec-surface-check` |
+| (9) の `forbid` の行 | `crates/exec/src/lib.rs` の 20 行のまま | `grep -n forbid crates/exec/src/lib.rs` |
+
+### 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 4/4 | #6050（PR #7976） | 完了の条件の確かめ（4/4） |

@@ -478,3 +478,16 @@ record: commit=237357677e4f69913c2ecf50adf2e9448f42d32b rs_files=16 build_rs=no 
 record: commit=904126a006b240f372926d49e3077747ecce4b3d rs_files=20 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
 ok: exec surface check passed
 ```
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値。
+
+- 「今の値の補い（base 904126a）」の `rs_files=20` は、いまは `rs_files=26`。`crates/exec/src` は 13 ファイル（`binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs` が加わった）、`crates/exec/tests` は `common/mod.rs` を含め 13 ファイル（`cpu_f16_fma.rs`・`length_host.rs` が加わった）。`make exec-surface-check` は終了コード 0 で、`record:` の行は次のとおり。ほかの欄は変わらない。
+
+```text
+record: commit=dbbb5c01ceb260fa806fb87abdd02d129fdb4690 rs_files=26 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+- `op_fns=7 op_fns_with_report=7` の 7 つの関数のうち `f16_fma` は、経路が `Route::Cpu` で host の形なら `Ok(Outcome::Ran { report })` を返す（`crates/exec/src/entry.rs`）。戻り値の型は `Result<Outcome, ContractError>` のまま。

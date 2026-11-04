@@ -388,3 +388,58 @@ cargo test -p fandhe-silicon-exec --features fault-injection
 | `cargo test -p fandhe-silicon-exec --all-features` | 合計 73 passed → 合計 89 passed | 50 + 1 + 8 + 1 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
 
 `--lib` は feature なしで 30 passed → 36 passed、`native-blocking-wait` 付きで 31 passed → 37 passed、`fault-injection` 付きで 43 passed → 49 passed、`--all-features` で 44 passed → 50 passed。
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。`f16_fma` は、経路が `Route::Cpu` で host の形なら出力の列に書くようになった（`crates/exec/src/cpu.rs`。所在は [exec-cpu-route.md](exec-cpu-route.md)）。f32 の非正規化数の判定と (操作, 経路) ごとの保持は `crates/exec/src/denormal.rs` にある（所在は [exec-denormal-judgment.md](exec-denormal-judgment.md)）。
+
+### `f16_fma` の入口の動き
+
+「下-2 の値と 7 つの入口（4/7）」の手順 6 の文と、その後の「どの入口も `n`・`m`・`operands` を読まず、出力の列・buffer に書かない。`Outcome::Ran` は返さない。」の文は、`f16_fma` については次のとおり。
+
+| 呼び出し | 返り値 |
+| -------- | ------ |
+| 経路が `Route::Cpu` で host の形 | `self.run` を呼ばず `crate::cpu::f16_fma` で `out` に書き、`Ok(Outcome::Ran { report })` を返す |
+| 経路なし | `Ok(Outcome::Unavailable { report })`。列の中身は読まず、出力に書かない |
+| device の形、または `Route::Cpu` 以外の経路が決まった呼び出し | `Err(ContractError::Unsupported { op: "f16_fma", .. })` |
+| `n` の検査（`check_lengths`）、host の形の 4 つの列の長さが `n` と同じかの検査（`check_host_len`）のどちらかに外れた呼び出し | `Err(ContractError::InvalidArgument(..))`。能力を問い合わせない |
+
+`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` は、これまでどおり `n`・`m`・`operands` を読まず、出力に書かず、`Outcome::Ran` を返さない。`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` も `Outcome::Ran` を返さない。
+
+「今の値の補い（base 904126a）」の入口ごとの行の表は、今は次のとおり。
+
+| 入口 | 検査の呼び出し（`crates/exec/src/entry.rs`） | `self.run` の呼び出し |
+| ---- | -------------------------------------------- | --------------------- |
+| `f16_fma` | 255 行の `check_lengths`、259 行の `check_host_len` | なし（265 行の `self.route_report` と、269 行の `crate::cpu::f16_fma`、270 行の `Ok(Outcome::Ran { report })`、272 行の `Err(self.unsupported("f16_fma"))`） |
+| `subgroup_sum_u32` | 285 行 | 292 行 |
+| `subgroup_sum_f32` | 304 行 | 311 行 |
+| `atomic_add` | 324 行（`n` と `Some(m)`） | 331 行 |
+
+測ったコマンドは `grep -n 'check_lengths\|check_host_len\|self.run(OpId\|Outcome::Ran\|crate::cpu' crates/exec/src/entry.rs`。取り込みは `entry.rs:15` の `use crate::length::{check_host_len, check_lengths};`。
+
+### 完了の条件の確かめ（7/7）の値
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| (1) の `forbid` の行 | `19:#![forbid(unsafe_code)]` → `20:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけで、ほか 12 ファイルは 0 件 | `grep -n forbid crates/exec/src/lib.rs`、`grep -rc unsafe crates/exec/src` |
+| `crates/exec/src` のファイルの数 | 9 ファイル → 13 ファイル（`binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs` が加わった） | `ls crates/exec/src \| wc -l` |
+| `crates/exec` の `.rs` の数 | `make exec-deps-check` の `rs_files=20` → `rs_files=26` | `make exec-deps-check` |
+| `crates/exec/Cargo.toml` の行数 | 41 行のまま | `wc -l crates/exec/Cargo.toml` |
+
+### 試験の件数
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 64 passed → 合計 98 passed | 63 + 3 + 2 + 4 + 5 + 6 + 4 + 3 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 67 passed → 合計 103 passed | 64 + 3 + 2 + 2 + 2 + 4 + 5 + 6 + 4 + 3 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 86 passed → 合計 130 passed | 85 + 4 + 8 + 2 + 4 + 5 + 6 + 4 + 4 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 89 passed → 合計 135 passed | 86 + 4 + 2 + 8 + 2 + 2 + 4 + 5 + 6 + 4 + 4 + 6 + 2 + doctest 0 |
+
+`--lib` は feature なしで 36 passed → 63 passed、`native-blocking-wait` 付きで 37 passed → 64 passed、`fault-injection` 付きで 49 passed → 85 passed、`--all-features` で 50 passed → 86 passed。統合テストは `crates/exec/tests/` の `cpu_f16_fma.rs`（feature なしで 3 passed、`fault-injection` 付きで 4 passed）が加わり、`device_operands.rs` は 2 passed、`opt_in_default.rs` は 6 passed、`unsupported_fields.rs` は 2 passed、`route_evidence_calls.rs` は feature なしで 3 passed、`fault-injection` 付きで 4 passed、`length_host.rs` は 2 passed になっている。
+
+```text
+cargo test -p fandhe-silicon-exec
+cargo test -p fandhe-silicon-exec --features native-blocking-wait
+cargo test -p fandhe-silicon-exec --features fault-injection
+cargo test -p fandhe-silicon-exec --all-features
+```

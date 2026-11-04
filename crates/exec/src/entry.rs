@@ -4,8 +4,8 @@
 //! 能力を問い合わせて経路の届き方を決め（`select` の関数）、経路なしなら報告つきの
 //! `Ok(Outcome::Unavailable { .. })` を返す。`f16_fma` は経路が `Route::Cpu` で host の形なら出力の列に書いて
 //! `Ok(Outcome::Ran { .. })` を返し、それ以外で経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
-//! 残りの 3 つの入口は経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
-//! 3 つの入口は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
+//! `subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` は経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
+//! `external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
 //! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
 //! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
@@ -200,7 +200,7 @@ impl<'d> Exec<'d> {
     /// 入口を呼ぶ前に、同じ選び方で経路の報告を返す。FB-24。
     ///
     /// 同じ device の値・同じ操作・同じ `opt_in` で入口を呼んだときと同じ報告を返す
-    /// （入口が `Ok(Outcome::Unavailable { report })` を返す呼び出しでは `report` と等しい）。
+    /// （入口が `Ok(Outcome::Unavailable { report })` か `Ok(Outcome::Ran { report })` を返す呼び出しでは `report` と等しい）。
     /// 経路が `None` の報告も、経路がある報告も `Ok`。
     /// `OpId::SubgroupSumF32`・`OpId::AtomicAdd` で、差し込みの無い経路に届く呼び出しは
     /// `Err(ContractError::Unsupported { op: "query_route", backend })` を返す

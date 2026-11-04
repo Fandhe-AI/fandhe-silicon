@@ -237,3 +237,43 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test fault_inject
 | `cargo test -p fandhe-silicon-exec --all-features` | 合計 73 passed → 合計 89 passed | 50 + 1 + 8 + 1 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
 
 `route_query` は 6 passed のまま、`fault_injection_ports` は 8 passed のまま、`every_combination_matches_candidate_rule` は `--lib` の中で 1 passed のまま。
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。`f16_fma` は経路が `Route::Cpu` で host の形なら出力の列に書き、`Ok(Outcome::Ran { report })` を返す（所在は [exec-cpu-route.md](exec-cpu-route.md)）。
+
+### 入口の返し
+
+「本リポの現状の事実」の「4 つの入口の返し方」の行、「入口の返し方」の節、「入口の返しとの対応」の表は、`f16_fma` については次のとおり。
+
+| 呼び出し | 入口の返し | `query_route` の返し |
+| -------- | ---------- | -------------------- |
+| `f16_fma`・経路が `Route::Cpu`・host の形 | `Ok(Outcome::Ran { report })`。出力の列に書く | `Ok`・`report` と等しい報告 |
+| `f16_fma`・経路なし | `Ok(Outcome::Unavailable { report })` | `Ok`・`report` と等しい報告 |
+| `f16_fma`・device の形、または `Route::Cpu` 以外の経路 | `Err(ContractError::Unsupported { op: "f16_fma", .. })` | `Ok`・経路あり |
+| `subgroup_sum_u32` で経路が決まる | `Err(ContractError::Unsupported { op: "subgroup_sum_u32", .. })` | `Ok`・経路あり |
+| `subgroup_sum_f32`・`atomic_add` で経路が届く | `Err(ContractError::Unsupported { .. })`（`op` は入口の関数名） | `Err(ContractError::Unsupported { .. })`（`op` は `"query_route"`） |
+
+`Exec::query_route` の rustdoc は、入口が `Ok(Outcome::Unavailable { report })` か `Ok(Outcome::Ran { report })` を返す呼び出しでは `report` と等しいと書く（`crates/exec/src/entry.rs` の 203 行）。`Ran` の報告との一致を照らす試験は、`entry::tests::f16_fma_with_cpu_override_runs_on_host`（`entry.rs`）、`cpu_f16_fma.rs` の `r_is_within_order_distance_over_lengths` を含む組、`route_query.rs` の `query_route_matches_entry_report` の `Ran` の腕。
+
+### 完了の条件の確かめ（5/5）の値
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) の `forbid` の行 | `14:#![forbid(unsafe_code)]` → `20:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけで、ほか 12 ファイルは 0 件 | `grep -n forbid crates/exec/src/lib.rs`、`grep -rc unsafe crates/exec/src` |
+| (2) の選び方の関数と呼び出し元 | 定義 `select.rs:71` → `select.rs:69`。本体側の呼び出し `entry.rs:133` → `entry.rs:177` の `let output = select_route(&input, judge)?;`。取り込みは `entry.rs:23`。`select.rs` の試験の中の出現は `220`・`243`・`258`・`274`・`330`・`826` | `grep -rn 'select_route' crates/exec/src` |
+| (3) の `RefCell` と `&'static` の行 | 4 行 → 14 行。`select.rs:320` の `use std::cell::RefCell;`、`select.rs:329` の `RefCell::new`、`denormal_tests.rs:24` の `use std::cell::RefCell;`、`denormal_tests.rs:122` の `type CallLog = RefCell<..>`、`denormal.rs:10` の `use std::cell::Cell;`、`denormal.rs:107` の `cells: [[Cell<..>; 3]; 2],`（保持。`HeldJudgments` の欄）、`denormal.rs` の `Cell::new`（193・243・245・291 行。試験の中）、`entry.rs:154`・`191`・`224`・`234` の `&'static str`。`std::env`・`env!`・`option_env!`・`std::fs`・`&mut self` の行は無い | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|Cell\|&mut self' crates/exec/src` |
+| (4) の組み合わせの数の行 | `662:` → `660:            assert_eq!(checked, 5720);`。`every_combination_matches_candidate_rule` は feature なしでも `--features fault-injection` でも 1 passed | `grep -n 'assert_eq!(checked, 5720)' crates/exec/src/select.rs` |
+
+`Exec` の保持は `crates/exec/src/denormal.rs` の `HeldJudgments`（`Cell` の欄）にあり、`route_report` が判定の関数の中で使う（所在は [exec-denormal-judgment.md](exec-denormal-judgment.md)）。
+
+### 試験の件数
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 64 passed → 合計 98 passed | 63 + 3 + 2 + 4 + 5 + 6 + 4 + 3 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 67 passed → 合計 103 passed | 64 + 3 + 2 + 2 + 2 + 4 + 5 + 6 + 4 + 3 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 86 passed → 合計 130 passed | 85 + 4 + 8 + 2 + 4 + 5 + 6 + 4 + 4 + 6 + 2 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 89 passed → 合計 135 passed | 86 + 4 + 2 + 8 + 2 + 2 + 4 + 5 + 6 + 4 + 4 + 6 + 2 + doctest 0 |
+
+`--lib` は feature なしで 36 passed → 63 passed、`native-blocking-wait` 付きで 37 passed → 64 passed、`fault-injection` 付きで 49 passed → 85 passed、`--all-features` で 50 passed → 86 passed。`route_query` は 6 passed のまま。

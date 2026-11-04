@@ -214,3 +214,28 @@ grep -n forbid crates/exec/src/lib.rs
 | 段 | Issue・PR | 節 |
 | -- | --------- | -- |
 | 4/4 | #6022（PR #7963） | 完了の条件の確かめ（4/4） |
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### host の列の長さの検査
+
+`f16_fma` は、`check_lengths` の後で、host の形のときに `a`・`b`・`c`・`out` の列の長さがそれぞれ `n` と同じかを調べる。違えば `Err(ContractError::InvalidArgument(..))` を返し、能力を問い合わせない（`crates/exec/src/length.rs` の `check_host_len`。`pub(crate)`。長さの値と要素数だけを受ける）。device の形は列の長さを照らさない。呼び出しは `crates/exec/src/entry.rs` の 255 行が `check_lengths`、259 行が `check_host_len`、265 行が `route_report`（`grep -n 'check_lengths\|check_host_len\|route_report' crates/exec/src/entry.rs`）。所在は [exec-cpu-route.md](exec-cpu-route.md)。
+
+「組」の節の「入力の列は長さ 1 で、長さ n の列は作らない」の文は、host の形では次のとおり。`length_limit.rs` の `f16_fma` の列は長さ `n.min(64)`（最小 1）で、ほかの入口の列は長さ 1（`crates/exec/tests/length_limit.rs` の 56 行のコメントと 67 行の `let k = usize::try_from(n.min(64)).unwrap().max(1);`）。`n` が `u64::MAX / 2` の `f16_fma` は、列の長さが `n` と違うので `InvalidArgument` を返す。device の形の `length_device.rs` は buffer を 16 バイトで作り、`device_form_passes_one_before_byte_overflow` が device の形で `n` が `u64::MAX / 2` の呼び出しを `InvalidArgument` でなく、`query_ex` の数えが 1 回で返ることを照らす。
+
+### 完了の条件の確かめ（4/4）の値
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) の `f16_fma` の行 | 189 行の検査・191 行の `self.run` → 255 行の `check_lengths`・259 行の `check_host_len`・265 行の `route_report`（`self.run` は呼ばない）。`subgroup_sum_u32` は 285 行の検査・292 行の `self.run`、`subgroup_sum_f32` は 304 行・311 行、`atomic_add` は 324 行・331 行。取り込みは `entry.rs:15` の `use crate::length::{check_host_len, check_lengths};` | `grep -n 'check_lengths\|check_host_len\|self.run(OpId' crates/exec/src/entry.rs` |
+| (2) の `--lib length` | 7 passed; 0 failed; 0 ignored（86 件中、79 filtered out）。走った試験は `length::tests::` の 6 本（`host_len_matches_only_the_element_count` が加わり、`output_bytes_follow_each_op` を含む）と `entry::tests::entries_reject_lengths` | `cargo test -p fandhe-silicon-exec --all-features --locked --lib length` |
+| (2) の `--lib length::tests` | 6 passed; 0 failed; 0 ignored（80 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib length::tests` |
+| (2) の `--lib` の合計 | `--all-features` で 86 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` |
+| (4) の `length_device` | 1 passed → 2 passed（`device_form_passes_one_before_byte_overflow` が加わった） | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device` |
+| (4) の `length_limit` | 4 passed のまま | 同上 |
+| (3) の `length_zero` | 5 passed のまま | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero` |
+| (5) の `make verify` の exec | lib が 86 passed、`tests/length_device.rs` が 2 passed、`tests/length_host.rs` が 2 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed（`length_host.rs` が加わった） | `make verify` |
+| (6) の `make exec-surface-check` の `record:` | `rs_files=20` → `rs_files=26`（`items_default=458 items_all=511 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0` のまま） | `make exec-surface-check` |
+| (7) の `forbid` の行 | `19` 行 → `20:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
