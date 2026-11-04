@@ -102,3 +102,55 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --t
 cargo test -p fandhe-silicon-exec --all-features --locked --lib
 cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields
 ```
+
+## 入力の組と CPU の参照との比べの試験（3/4）
+
+### 所在
+
+`crates/exec/tests/cpu_f16_fma.rs`（公開のパスから `Exec::f16_fma` を host の形で呼ぶ外の crate の統合テスト）。
+
+### C の経路を選ばせる組
+
+| 組 | device の答え | `Exec` の作り方 | 上書き |
+| -- | ------------- | --------------- | ------ |
+| (a) | `Unsupported` | `Exec::new(&dev, C の印)` | `None` |
+| (b) | `Unsupported` | `Exec::deny_by_default(&dev)` | `Some(C の印)` |
+| 故障の差し込み（feature `fault-injection` のビルドでだけ流れる） | `S2` | `Exec::deny_by_default(&dev).force_unsupported(OpId::F16Fma)` | `Some(C の印)` |
+
+呼び出しごとに新しい試験用の device を作る。
+
+### 入力と比べ方
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 入力 | core の `generate_f16_fma_e1`・`generate_f16_fma_e2`・`generate_f16_fma_s`・`generate_f16_fma_r` と `FALLBACK_LENGTHS` の 13 通り（[parity-fallback-inputs.md](parity-fallback-inputs.md)） |
+| 参照 | `reference_f16_fma_slice` |
+| 比べ方 | `compare_order_distance_binary16` の `is_match()`。`count_bit_identical_binary16` は件数を出すだけ（[parity-fallback-compare.md](parity-fallback-compare.md)） |
+
+### 試験
+
+| 試験 | 入力 | 組 | 期待 |
+| ---- | ---- | -- | ---- |
+| `e2_and_s_are_within_order_distance` | `generate_f16_fma_e2`・`generate_f16_fma_s` | (a)・(b) | `Ran`、`Route::Cpu`、`query_route` と同じ報告、参照と順序の差の範囲 |
+| `r_is_within_order_distance_over_lengths` | `generate_f16_fma_r` を 13 通りの n で | (a) | 同上 |
+| `e1_is_judged_by_order_distance_and_counts_bit_identical` | `generate_f16_fma_e1` を 13 通りの n で | (a) | 判定は順序の差だけ。ビット同一の件数が n 以下 |
+| `forced_native_off_runs_cpu` | `generate_f16_fma_s` | 故障の差し込みの組 | 上と同じ照らしに加えて `native_reason` が `ForcedUnsupported` |
+
+### 数えるもの
+
+試験用の device の `query_ex_calls()` が 1、`memory_calls()`・`queue_calls()` が 0（`memory()`・`queue()` を呼ばない）。
+
+### E1 の件数の出し方
+
+```text
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma -- --nocapture
+```
+
+`e1 n=… bit_identical=…` の行が 13 行出る。照らすのは件数が `n` 以下であることだけ。`make verify` のログには出ない。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma
+cargo test -p fandhe-silicon-exec --locked --test cpu_f16_fma
+```
