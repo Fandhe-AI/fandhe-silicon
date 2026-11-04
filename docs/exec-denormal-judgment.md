@@ -225,7 +225,7 @@ device は能力が `S2` の device。4 操作それぞれに次の 9 行を、�
 | 差し込み・runner の答え | 上書き | 経路 | `native_reason` | `fallback_reason` | `basis` |
 | ----------------------- | ------ | ---- | --------------- | ----------------- | ------- |
 | `Route::Native` に `DenormalInjection::Unknown` | `G_ONLY`・`BOTH` | `Route::GpuEmulated` | `F32DenormalBehaviorUnknown` | なし | `Observed` |
-| `Route::Native`・`Route::GpuEmulated` に `Unknown` | `BOTH` | `Route::Cpu` | なし | なし | `Observed` |
+| `Route::Native`・`Route::GpuEmulated` に `Unknown` | `BOTH` | `Route::Cpu` | `F32DenormalBehaviorUnknown` | なし | `Observed` |
 | 3 経路に `Unknown` | `BOTH` | なし | `F32DenormalBehaviorUnknown` | `F32DenormalBehaviorUnknown` | なし |
 | 3 経路に `Unknown` | 全拒否 | なし | `F32DenormalBehaviorUnknown` | `OptInNotGiven` | なし |
 | `Route::GpuEmulated` にだけ `FlushToZero` | なし・`BOTH` | `Route::Native` | なし | なし | `Observed` |
@@ -242,7 +242,7 @@ device は能力が `S2` の device。4 操作それぞれに次の 9 行を、�
 | `table_calls_count_judgment_runs`（feature `fault-injection`） | 上の 36 呼び出しを入口で | 行ごとに表の回数、合計は `Route::Native` 10・`Route::GpuEmulated` 4・`Route::Cpu` 2 |
 | `table_query_routes_count_judgment_runs`（同） | 同じ 36 行を `query_route` で | 同じ |
 | `injected_unknown_native_moves_to_observed_route`（同） | `SubgroupSumF32`・`AtomicAdd` × 上書き `G_ONLY`・`BOTH`、`Route::Native` に `Unknown` | 経路 `Route::GpuEmulated`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`、runner は `Route::GpuEmulated` に 1 回・`Route::Native` に 0 回 |
-| `injected_unknown_two_routes_moves_to_cpu`（同） | `Route::Native`・`Route::GpuEmulated` に `Unknown`、上書き `BOTH` | 経路 `Route::Cpu`、`basis` は `Observed`、runner は `Route::Cpu` に 1 回 |
+| `injected_unknown_two_routes_moves_to_cpu`（同） | `Route::Native`・`Route::GpuEmulated` に `Unknown`、上書き `BOTH` | 経路 `Route::Cpu`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`、runner は `Route::Cpu` に 1 回 |
 | `all_injected_unknown_is_unavailable`（同） | 3 経路に `Unknown`、上書き `BOTH` と全拒否で入口を呼ぶ | `Ok(Outcome::Unavailable { .. })`、経路なし、`fallback_reason` は表のとおり、runner は 0 回 |
 | `injection_on_unchosen_route_keeps_observed_basis`（同） | `Route::GpuEmulated` にだけ `FlushToZero` | 経路 `Route::Native`、`behavior` は `Preserve`、`basis` は `Observed` |
 | `unknown_output_moves_to_next_route` | `Route::Native` だけ判定できない値を返す runner、上書き `G_ONLY` | 経路 `Route::GpuEmulated`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`。2 回目は runner の回数が増えず同じ報告 |

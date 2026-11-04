@@ -1046,6 +1046,10 @@ mod injected_unknown {
                 .inject_denormal(op, Route::GpuEmulated, DenormalInjection::Unknown);
             let r = exec.query_route(op, Some(BOTH)).expect("report");
             assert_eq!(r.route, Some(Route::Cpu));
+            assert_eq!(
+                r.native_reason,
+                Some(UnavailableReason::F32DenormalBehaviorUnknown)
+            );
             assert!(observed_preserve(&r));
             assert_eq!(calls_of(&log, op, Route::Cpu), 1);
             assert_eq!(calls_of(&log, op, Route::Native), 0);
