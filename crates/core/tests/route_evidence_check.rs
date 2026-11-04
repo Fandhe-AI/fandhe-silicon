@@ -23,7 +23,7 @@ const ROUTES: [Option<ReportedRoute>; 4] = [
 ];
 
 /// 食い違わせる値の種類。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Field {
     Marker,
     Counts,
@@ -130,7 +130,7 @@ fn one_injected_mismatch_is_detected() {
     let d = digests();
     for route in ROUTES {
         for field in FIELDS {
-            // 経路が Native / GpuEmulated 以外では成果物を比べても期待は None なので、食い違わせられる。
+            // Cpu と None の経路は期待する成果物が None なので、Some を渡すと成果物を食い違わせられる。
             let mut t = EvidenceTally::new();
             for good in ROUTES {
                 let out = output_for(good);
@@ -146,13 +146,7 @@ fn one_injected_mismatch_is_detected() {
             assert_eq!(t.mismatched(), 1, "{route:?} {field:?}");
             assert_eq!(t.matched(), 4, "{route:?} {field:?}");
             for f in FIELDS {
-                let want = u64::from(matches!(
-                    (f, field),
-                    (Field::Marker, Field::Marker)
-                        | (Field::Counts, Field::Counts)
-                        | (Field::Output, Field::Output)
-                        | (Field::Artifact, Field::Artifact)
-                ));
+                let want = u64::from(f == field);
                 assert_eq!(mismatch_of(&t, f), want, "{route:?} {field:?} {f:?}");
             }
             assert_eq!(
