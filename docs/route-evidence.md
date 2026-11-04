@@ -162,3 +162,31 @@ exec の統合テスト `crates/exec/tests/route_evidence_calls.rs` が、下-2 
 cargo test -p fandhe-silicon-exec --test route_evidence_calls
 cargo test -p fandhe-silicon-exec --features fault-injection --test route_evidence_calls
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#6010）で、経路の突き合わせの道具について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-922（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 1 回の呼び出しの照合 | `cargo test -p fandhe-silicon-core --features test-support --lib route_evidence` | 15 passed; 0 failed; 0 ignored（220 filtered out） |
+| (2) | 数え上げと 1 件の不一致の検出 | `cargo test -p fandhe-silicon-core --features test-support --test route_evidence_check` | 8 passed; 0 failed; 0 ignored。`test one_injected_mismatch_is_detected ... ok`、`test labels_through_the_frame ... ok` |
+| (3) | 下-2 の報告との突き合わせ（模擬の呼び出し） | `cargo test -p fandhe-silicon-exec --test route_evidence_calls`、`cargo test -p fandhe-silicon-exec --features fault-injection --test route_evidence_calls` | 順に 3 passed、4 passed。どちらも 0 failed; 0 ignored。後者で増えるのは `test injected::injected_routes_match_simulated_runs ... ok` の 1 本 |
+| (4) | 置き場と有効になる条件・依存・unsafe・差分 | `grep -n 'route_evidence' crates/core/src/lib.rs`、`cargo metadata --no-deps --format-version 1` の `fandhe-silicon-core` の依存、`grep -rc unsafe crates/core/src/route_evidence*`、`git diff --stat f4b9d8f -- Cargo.lock deps-approved.toml crates/exec/Cargo.toml` | 1 つ目は 33 行（`//!`）と 92 行（`pub mod route_evidence;`。直前の 91 行は `#[cfg(feature = "test-support")]`）。依存は 0 件（出力 `[]`）。`unsafe` の数は `crates/core/src/route_evidence.rs` が 0。`f4b9d8f` は `3799efb` の親で、`git diff --stat` の出力は空 |
+| (5) | 公開名・公開 API の検査 | `make public-api-check`、`make public-name-check` の `scanned: crate=fandhe_silicon_core` の行 | 2 つとも終了コード 0。`public-api-check`: production の `public_items=4174`・all-features の `public_items=9121`、2 行とも `wgpu_type_refs=0 wgpu_other_refs=0`。`public-name-check`: production の `public_items=3714 named_items=1530`・all-features の `public_items=8121 named_items=3093`、2 行とも `name_hits=0` |
+| (6) | wasm32 | `cargo check -p fandhe-silicon-core --tests --all-features --target wasm32-unknown-unknown`、`cargo check -p fandhe-silicon-exec --tests --features fault-injection --target wasm32-unknown-unknown` | 2 つとも終了コード 0 |
+
+補い: 上の表 (5) の core の production の値は、`docs/exec-fault-injection.md` の「完了の条件の確かめ（6/6）」の (6) に載る core の production の値（`public_items=4174`、`public_items=3714 named_items=1530`）と同じ数。(3) の `injected` の試験は feature `fault-injection` のときだけ流れる。
+
+確かめた時点は、main のコミット `7ee1c36` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-922）。
+
+## 段の表
+
+| 段 | Issue | 題 |
+| -- | ----- | -- |
+| 1/4 | #6007 | feat(core): TASK-922 の 1/4 経路の突き合わせの値と 1 回の呼び出しの照合 |
+| 2/4 | #6008 | feat(core): TASK-922 の 2/4 呼び出しの数え上げと試験の枠への受け渡し |
+| 3/4 | #6009 | test(exec): TASK-922 の 3/4 下-2 の経路の報告と模擬の呼び出しの突き合わせ |
+| 4/4 | #6010 | docs: TASK-922 の 4/4 完了の条件の確かめ |
