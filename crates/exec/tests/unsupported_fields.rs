@@ -43,7 +43,7 @@ fn unsupported_carries_entry_name_and_device_backend() {
     assert_eq!(backend, BackendKind::Metal);
     let exec = Exec::deny_by_default(&dev);
     let (h16, hu, hf) = ([1u16; 2], [1u32; 2], [1.0f32; 2]);
-    let (mut o16, mut ou, mut of, mut oa) = ([0u16; 2], [0u32; 1], [0.0f32; 1], [0.0f32; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([0u16; 2], [0u32; 1], [0.0f32; 1], [0.0f32; 1]);
     expect_fields(
         exec.f16_fma(
             GPU_OK,
