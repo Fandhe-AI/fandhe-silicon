@@ -186,6 +186,30 @@ mod tests {
         assert!(input_of(OpId::SubgroupSumU32).is_none());
     }
 
+    /// 判定を求めない操作は、どの経路でも `run` を呼ばず `InvalidArgument` を返し、保持を汚さない。
+    #[test]
+    fn unjudged_ops_reject_without_running_or_touching_held() {
+        let held = HeldJudgments::default();
+        let calls = Cell::new(0usize);
+        let run = |_: &ProbeInput| {
+            calls.set(calls.get() + 1);
+            Ok(PRESERVED_BITS.map(f32::from_bits))
+        };
+        for op in [OpId::F16Fma, OpId::SubgroupSumU32] {
+            for route in [Route::Native, Route::GpuEmulated, Route::Cpu] {
+                let r = held.judge(op, route, run);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))));
+                assert_eq!(calls.get(), 0);
+            }
+        }
+        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+            let before = calls.get();
+            let r = held.judge(op, Route::Native, run);
+            assert_eq!(r.expect("judged"), DenormalJudgment::Preserve);
+            assert_eq!(calls.get(), before + 1);
+        }
+    }
+
     #[test]
     fn classify_maps_outputs() {
         let keep = PRESERVED_BITS.map(f32::from_bits);
