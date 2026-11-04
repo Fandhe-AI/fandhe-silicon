@@ -223,3 +223,21 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値。
+
+完了の条件の確かめ（8/8）の C1 の「`grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src`」の 0 件は、`crates/exec` については次のとおり。
+
+| 場所 | 件数 | 行 |
+| ---- | ---- | -- |
+| `crates/contract/src`・`crates/upper/src` | 0 件 | なし |
+| `crates/exec/src` | 1 件 | `cpu.rs:18` の `use fandhe_silicon_core::parity::fallback_compare::binary16_order_distance;`（`cpu.rs:15` の `#[cfg(test)]` の `mod tests` の中） |
+| `crates/exec/tests` | 1 件 | `cpu_f16_fma.rs:9` の `use fandhe_silicon_core::parity::fallback_compare::{`（`compare_order_distance_binary16` などを取り込む） |
+
+`crates/exec` が `fallback_compare` を使うのは試験の中だけ。
+
+```text
+grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```

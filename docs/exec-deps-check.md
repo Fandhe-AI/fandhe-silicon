@@ -219,3 +219,14 @@ ok: 16 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, oth
 record: commit=904126a006b240f372926d49e3077747ecce4b3d rs_files=20 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
 ok: 20 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
 ```
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値。
+
+- 「今の値の補い（base 904126a）」の `rs_files=20` は、いまは `rs_files=26`。`crates/exec/src` は 13 ファイル（`binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs` が加わった）、`crates/exec/tests` は `common/mod.rs` を含め 13 ファイル（`cpu_f16_fma.rs`・`length_host.rs` が加わった）。`make exec-deps-check` は終了コード 0 で、`declared_deps=2` のまま。
+
+```text
+record: commit=dbbb5c01ceb260fa806fb87abdd02d129fdb4690 rs_files=26 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
+ok: 26 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
+```

@@ -193,3 +193,21 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base dbbb5c0）
+
+記録時点の表と既存の節は書き換えない。以下は base `dbbb5c0` で観測した今の値。
+
+完了の条件の確かめ（6/6）の C1 の「`crates/contract`・`crates/exec`・`crates/upper` の `src` を `fallback_inputs`・`fallback_reference` で grep」の 0 件は、`crates/exec` については次のとおり。
+
+| 語 | `crates/contract/src`・`crates/upper/src` | `crates/exec/src` | `crates/exec/tests` |
+| -- | ----------------------------------------- | ----------------- | ------------------- |
+| `fallback_inputs` | 0 件 | 0 件 | `cpu_f16_fma.rs:12` の 1 件 |
+| `fallback_reference` | 0 件 | `cpu.rs:19` の `use fandhe_silicon_core::parity::fallback_reference::reference_f16_fma;` の 1 件（`cpu.rs:15` の `#[cfg(test)]` の `mod tests` の中） | `cpu_f16_fma.rs:16` の 1 件 |
+
+`fallback_inputs`・`fallback_reference` の `pub` の項目を `crates/exec` が使うのは試験の中だけ。`crates/exec` の通常の依存は `fandhe-silicon-core` だけのまま（試験が使う `fandhe_silicon_core::parity` は `test-support` の裏にあり、`crates/exec/Cargo.toml` の dev-dependencies が `test-support` を付ける）。
+
+```text
+grep -rn fallback_inputs crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```
