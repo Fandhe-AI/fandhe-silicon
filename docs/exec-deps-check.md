@@ -193,3 +193,7 @@ TASK-259 の 1/4〜3/4 を入れた後の実物で観測した結果を表にす
 make exec-deps-check
 find crates/exec/src crates/exec/tests -name '*.rs'
 ```
+
+## 今の値の補い（base f4b9d8f）
+
+4/4 の表の 7 の `ci.yml` の行番号は、今の `.github/workflows/ci.yml` では `run: make exec-deps-check` が 368 行目、`run: make test-exec-deps-check` が 371 行目（`grep -n 'run: make exec-deps-check\|run: make test-exec-deps-check' .github/workflows/ci.yml` の出力）。

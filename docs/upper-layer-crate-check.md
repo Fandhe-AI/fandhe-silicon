@@ -239,3 +239,7 @@ grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/
 | -- | ----------------- | -------------- |
 | 「今の値の補い（base 2f36d3d）」の「他の補い」の 3 つ目 | git 管理下のファイルは 10 個、`.rs` は 9 個（`tests/` に 4 個）、`rs_files=9` → git 管理下のファイルは 11 個、`.rs` は 10 個（`src/` に 5 個、`tests/` に 5 個〔`tests/common/mod.rs` を含む〕）、`rs_files=10`。`crates/upper/tests/upper_exec_same_device.rs` が加わった | `git ls-files crates/upper \| wc -l`、`find crates/upper -name '*.rs' \| wc -l` |
 | 同「今の値の補い」の `record:` の行 | `rs_files=9` → `rs_files=10`（`direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_pkgs=2 measure_contract_pkgs=0 measure_forbidden=0` のまま） | `make upper-layer-check \| grep '^record:'` |
+
+## 今の値の補い（base f4b9d8f）
+
+上の表の 7 と :119・:209 付近の `ci.yml` の行番号は、今の `.github/workflows/ci.yml` では `run: make upper-layer-check` が 270 行目、`run: make test-upper-layer-check` が 344 行目（`grep -n 'run: make upper-layer-check\|run: make test-upper-layer-check' .github/workflows/ci.yml` の出力）。

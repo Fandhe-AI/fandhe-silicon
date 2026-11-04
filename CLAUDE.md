@@ -51,10 +51,10 @@ fandhe-silicon/
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方（TASK-7）
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
-├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表（TASK-2387）
-├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-262）
+├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base f4b9d8f）（TASK-2387）
+├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）（TASK-262）
 ├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-260）
-├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）（TASK-261）
+├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）（TASK-261）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
@@ -148,8 +148,8 @@ fandhe-silicon/
 ├── docs/public-api-sdk-check.md  # 公開 API と共通の crate の依存にチップの SDK の crate が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-13）
 ├── docs/doctest-error-code-check.md  # doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方
 ├── docs/core-deps-check.md   # 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・確かめ方・TASK-13 の検査との突き合わせ・完了の条件の確かめ（2/2）（TASK-258）
-├── docs/exec-deps-check.md   # 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）（TASK-259）
-├── docs/exec-surface-check.md  # 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）・操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）・一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）・段の表（TASK-923）
+├── docs/exec-deps-check.md   # 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）・今の値の補い（base f4b9d8f）（TASK-259）
+├── docs/exec-surface-check.md  # 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）・操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）・一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）・段の表・今の値の補い（base f4b9d8f）（TASK-923）
 ├── docs/public-api-wgpu-check.md  # 公開 API に wgpu の型が無いことの検査の所在・振る舞い・対応するテスト・確かめ方（TASK-10）
 ├── docs/public-api-contract-check.md  # 契約の crate の実物に当てた公開 API の検査の確かめの所在と、本リポの現状の事実・本番の feature の組と --all-features での wgpu 系の参照（1/4）・外部 crate の一覧とチップの SDK の型（2/4）・公開 API の検査の実行の記録（3/4）・外部 crate の一覧（4/4）・完了の条件の確かめ（4/4）・段の表・本リポでの反映の方針（TASK-253）
 ├── docs/compute-public-api-check.md  # compute の公開の型に当てた公開 API の検査の所在・対象の型と所在・検査ごとの走査の範囲・観測の記録・確かめ方（TASK-770）

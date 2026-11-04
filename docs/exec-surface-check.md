@@ -437,3 +437,23 @@ gh run view 41739470984 --json conclusion,headSha
 | 6/6 | #6018 | 完了の条件の確かめ（6/6） |
 
 親 Issue は #867。
+
+## 今の値の補い（base f4b9d8f）
+
+記録時点の表と既存の節は書き換えない。以下は base `f4b9d8f` で観測した今の値。
+
+- 冒頭の文と 1/6 の所在の表: 今の `scripts/exec-surface-check.sh` は、ソースの字句の走査に加えて、既定の feature と all-features の rustdoc の JSON の走査（試験用の口の名前）と、操作を実行する関数の戻り値の走査（`op_fns`・`op_fns_with_report`・`other_fns`・`unlisted_fns`）も行う。`record:` の行は 1 行にこれらの欄を持つ（`make exec-surface-check` の出力）。
+- 1/6 の所在の表の「`make deny` には含めない」: 今は `ci.yml` の `deny` ジョブが `make exec-surface-check`（373 行目の `- name:`・374 行目の `run:`）と `make test-exec-surface-check`（376 行目の `- name:`・377 行目の `run:`）を呼ぶ（`grep -n 'exec-surface-check' .github/workflows/ci.yml`）。`make deny` の中身には含まれないまま、ジョブの別のステップとして流れる。
+- 2/6 の `port_names_all=6`: 名前は `PORT_NAMES` の 5 つ（`scripts/exec-surface-check.sh` の 82 行目）。数える関数 `count_port_names`（285〜296 行目）は、アイテムの `name` と、`use` アイテムの `inner.use.name` のどちらかが一致すれば 1 件に数える。`DenormalInjection` は `crates/exec/src/report.rs:32` の enum の定義と `crates/exec/src/lib.rs:35` の根の `pub use` の 2 アイテムが一致するので 2 件になり、5 つの名前で合計 6 になる。`make exec-surface-check` の出力は `port_names_default=0 port_names_all=6 port_names_missing_all=0`。
+- 5/6 の「手元の実行」の `commit=2467833ffd52-dirty`: これは 12 桁の写し。スクリプトの出力は 40 桁で、今の作業ツリーでは次の行（変更なしのため `-dirty` なし）。
+
+```text
+record: commit=f4b9d8f287ad42ef32c20f0fca43294f8f47b6aa rs_files=15 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+```
+
+- 5/6 の CI の出力: main の push の CI の最新の success の run は `41742334323`（headSha `5e75fcca376f10065f5ed219aee607975c3959cc`、conclusion `success`）。確かめのコマンドは次。回帰テストの最終行は `passed=86 failed=0`（`scripts/test-exec-surface-check.sh`）。
+
+```bash
+gh run list -R Fandhe-AI/fandhe-silicon --branch main --workflow ci.yml --limit 5
+gh run view 41742334323 -R Fandhe-AI/fandhe-silicon --json conclusion,headSha
+```

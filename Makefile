@@ -149,7 +149,7 @@ test-exec-deps-check: ## exec-deps-check の回帰テスト（合成の metadata
 exec-surface-check: ## 下-2 の crate（crates/exec）のソースの環境変数・ファイルの読み取りの字句と、既定の feature と all-features の rustdoc の JSON の試験用の口の名前と、既定の feature の操作を実行する関数の戻り値の型・一覧に無い公開の関数を数えて検査する（cargo を呼ぶ。終了コード 0 合格・1 違反・2 誤用または前提の不足。標準出力に record: の行。bash + python3 + cargo + git・ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/exec-surface-check.sh [--crate-dir <dir>] [--workspace-dir <dir>] [--json-default <path> --json-all <path>]
 	@scripts/exec-surface-check.sh
 
-test-exec-surface-check: ## exec-surface-check の回帰テスト（合成の入力と、実物の crates/exec を一時ディレクトリへ写した変異体と、実物の下-2 を写した一時 workspace の変異体。bash + python3 + cargo・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-exec-surface-check.sh
+test-exec-surface-check: ## exec-surface-check の回帰テスト（合成の入力と合成の rustdoc の JSON の場面（公開の面の名前の足し引き・戻り値の型・一覧に無い公開の関数・不正な JSON）と、実物の crates/exec を一時ディレクトリへ写した変異体と、実物の下-2 を写した一時 workspace の変異体。bash + python3 + cargo・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-exec-surface-check.sh
 	@scripts/test-exec-surface-check.sh
 
 dep-graph-wgpu-check: ## 製品の workspace の依存グラフの wgpu 系 crate を狭い定義と広い定義で数えて検査し、件数を record: の行に出す（bash + python3 + cargo + git。ソースは変更しない・ネットワーク不要。make deny も呼ぶ）。直接: scripts/dep-graph-wgpu-check.sh
