@@ -508,7 +508,7 @@ mod rejected {
                     let exec = Exec::new(&dev, default).with_probe(&runner);
                     for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
                         for (n, m, len) in cases {
-                            // `m` は `atomic_add` だけの引数なので、m だけが不正な組は総和には当てない。
+                            // m だけが不正な組は総和には当てない（`m` は `atomic_add` だけの引数）。
                             if op == OpId::SubgroupSumF32 && m != 1 {
                                 continue;
                             }
@@ -815,10 +815,11 @@ mod failure {
         }
     }
 }
+
 /// 4 操作 × 9 行の組み合わせで、試しの実行（模擬の runner）が流れる回数を数える試験。
 ///
 /// 回数は (操作, 経路) ごとの、各呼び出しの前後の差。入口の戻り値の種類と文言は照らさない。
-/// 強制した操作の扱いは FB-28 のポインタ。
+/// 回数は FB-28 のポインタ。
 #[cfg(feature = "fault-injection")]
 mod matrix {
     use super::*;
