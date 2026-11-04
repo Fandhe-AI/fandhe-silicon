@@ -10,7 +10,7 @@
 //! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
 use crate::denormal::HeldJudgments;
-use crate::length::check_lengths;
+use crate::length::{check_host_len, check_lengths};
 use crate::operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };
@@ -238,7 +238,8 @@ impl<'d> Exec<'d> {
 
     /// f16 の融合積和。最初に `n` を検査し、`n` が 0、`n` × 2 が `u64` であふれる、
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
-    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
+    /// 能力を問い合わせない。host の形で `a`・`b`・`c`・`out` の長さのどれかが `n` と違うときも同じ。
+    /// device の形は長さを照らさない。列の中身は読まず、出力に書かない。
     pub fn f16_fma(
         &self,
         opt_in: Option<OptIn>,
@@ -246,7 +247,15 @@ impl<'d> Exec<'d> {
         operands: F16FmaOperands<'_>,
     ) -> Result<Outcome, ContractError> {
         check_lengths(OpId::F16Fma, n, None, self.device.limits().max_buffer_bytes)?;
-        let _ = operands;
+        match &operands {
+            F16FmaOperands::Host { a, b, c, out } => {
+                for len in [a.len(), b.len(), c.len(), out.len()] {
+                    check_host_len(len, n)?;
+                }
+            }
+            #[cfg(feature = "native-blocking-wait")]
+            F16FmaOperands::Device { .. } => {}
+        }
         self.run(OpId::F16Fma, opt_in, "f16_fma")
     }
 

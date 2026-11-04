@@ -113,3 +113,27 @@ fn device_form_rejects_lengths_without_touching_buffers() {
         }
     }
 }
+
+#[test]
+fn device_form_passes_one_before_byte_overflow() {
+    let dev = Scripted::bare().with_max_buffer_bytes(u64::MAX);
+    let exec = Exec::deny_by_default(&dev);
+    let mut bufs: Vec<BufferHandle> = (1..=4).map(|i| alloc(&dev, i)).collect();
+
+    let before = dev.memory_calls();
+    let r = call(&exec, OpId::F16Fma, u64::MAX / 2, 0, &mut bufs);
+    let after = dev.memory_calls();
+
+    assert!(
+        !matches!(r, Err(ContractError::InvalidArgument(_))),
+        "{r:?}"
+    );
+    assert_eq!(dev.query_ex_calls(), 1);
+    assert_eq!(before, after);
+    for (i, h) in bufs.iter().enumerate() {
+        assert_eq!(read(&dev, h), vec![i as u8 + 1; LEN as usize], "buffer {i}");
+    }
+    for h in bufs {
+        dev.memory().free(h);
+    }
+}
