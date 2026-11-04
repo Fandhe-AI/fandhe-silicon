@@ -18,6 +18,11 @@ const CPU_OK: Option<OptIn> = Some(OptIn {
     allow_cpu: true,
 });
 
+const GPU_OK: Option<OptIn> = Some(OptIn {
+    allow_gpu_emulated: true,
+    allow_cpu: false,
+});
+
 fn expect_fields(r: Result<Outcome, ContractError>, op: &str, backend: BackendKind) {
     match r {
         Err(ContractError::Unsupported {
@@ -41,7 +46,7 @@ fn unsupported_carries_entry_name_and_device_backend() {
     let (mut o16, mut ou, mut of, mut oa) = ([0u16; 2], [0u32; 2], [0.0f32; 2], [0.0f32; 2]);
     expect_fields(
         exec.f16_fma(
-            CPU_OK,
+            GPU_OK,
             2,
             F16FmaOperands::Host {
                 a: &h16,
@@ -105,4 +110,23 @@ fn unsupported_carries_entry_name_and_device_backend() {
         "unified_memory_sharing",
         backend,
     );
+}
+
+#[test]
+fn f16_fma_cpu_route_runs() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let h16 = [1u16; 2];
+    let mut o16 = [0u16; 2];
+    let r = exec.f16_fma(
+        CPU_OK,
+        2,
+        F16FmaOperands::Host {
+            a: &h16,
+            b: &h16,
+            c: &h16,
+            out: &mut o16,
+        },
+    );
+    assert!(matches!(r, Ok(Outcome::Ran { .. })));
 }
