@@ -107,7 +107,7 @@ pub fn elementwise_simd(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32
 /// 部分 Top-k の結果を `out` に並べる共通の補助。`topk_scalar`・`topk_simd` が演算だけを替えて呼ぶ。
 ///
 /// `out` の長さが `k`×8 バイトでなければ（`k`×8 が `usize` に収まらないときも）何も触れずに拒否する。
-/// 作業の列は長さの照合の後にだけ確保するので、確保の大きさは呼び手が渡した `out` と同じに抑えられる。
+/// 作業の列は長さの照合の後に確保し、その長さは `k` 件。
 fn topk_into_bytes(k: usize, out: &mut [u8], run: impl FnOnce(&mut [(u32, f32)]) -> bool) -> u32 {
     let Some(len) = k.checked_mul(8) else {
         return REJECTED;
@@ -415,6 +415,10 @@ mod tests {
             let mut out = [0xAA_u8; 16];
             assert_eq!(f(&[1.0], usize::MAX / 8 + 1, &mut out), 1);
             assert_eq!(out, [0xAA_u8; 16]);
+            // 空の `out` は、あふれた積が 0 に回っても長さが合ってしまう入力。
+            let mut empty: [u8; 0] = [];
+            assert_eq!(f(&[1.0], usize::MAX / 8 + 1, &mut empty), 1);
+            assert_eq!(f(&[], 1 << (usize::BITS - 3), &mut empty), 1);
         }
     }
 
