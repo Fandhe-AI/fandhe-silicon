@@ -1,6 +1,6 @@
 # 書き込み用のビューの型
 
-TASK-312 の 1/4〜4/4。private spec の本文は写さない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+TASK-312 の 1/4。private spec の本文は写さない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
 
