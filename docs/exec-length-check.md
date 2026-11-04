@@ -199,3 +199,18 @@ grep -n forbid crates/exec/src/lib.rs
 | 4/4 | #6022 | 完了の条件の確かめ（4/4） |
 
 親 Issue は #868。
+
+## 今の値の補い（base 904126a）
+
+記録時点の表と既存の節は書き換えない。以下は base `904126a` で観測した今の値。
+
+- 完了の条件の確かめ（4/4）の「GPU の実機の無い Linux」は、`.github/workflows/ci.yml` の `verify` ジョブの `runs-on: ubuntu-latest` に当たる、GPU の無い Linux の runner と、同じく GPU の無い Linux の作業ツリーでの実行をいう。
+- (7) の `crates/exec/Cargo.toml` の差分は、#7962 のマージコミット `bdbcf05` で `git show bdbcf05 --numstat -- crates/exec/Cargo.toml` が `5 0`。追加の 5 行は、コメント 1 行・`[[test]]`・`name = "length_device"`・`required-features = ["native-blocking-wait"]` と空行 1 行。
+- `crates/exec/src/length.rs` の単体試験は 5 本になった（`length::tests::output_bytes_follow_each_op` が加わり、PR #7964）。`cargo test -p fandhe-silicon-exec --all-features --locked --lib length` は 6 passed; 0 failed; 0 ignored（50 件中、44 filtered out）で、`length::tests::*` の 5 本と `entry::tests::entries_reject_lengths` の 1 本。`--lib length::tests` は 5 passed。`--lib` の合計は `--all-features` で 50 passed（4/4 の記録は 49 passed）。
+- `make exec-surface-check` の `record:` は `rs_files=20`（記録の値と同じ）、`make exec-deps-check` の `record:` も `rs_files=20`。
+
+段の表の 4/4 の行は次のとおり。
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 4/4 | #6022（PR #7963） | 完了の条件の確かめ（4/4） |

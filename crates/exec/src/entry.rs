@@ -4,6 +4,8 @@
 //! 能力を問い合わせて経路の届き方を決め（`select` の関数）、経路なしなら報告つきの
 //! `Ok(Outcome::Unavailable { .. })` を、経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
 //! 3 つの入口は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
+//! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
+//! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
