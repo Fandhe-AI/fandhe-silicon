@@ -115,3 +115,36 @@ make exec-surface-check
 cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::documented
 cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented
 ```
+
+## 拒否した呼び出しと経路の無い呼び出しで試しの実行を流さない試験（3/6）
+
+### 所在
+
+試験は `crates/exec/src/denormal_tests.rs` の `mod rejected`。ライブラリのコードは変えない。
+
+### 組
+
+| 軸 | 値 |
+| -- | -- |
+| 上書きの `opt_in` | `None`・全拒否・`G_ONLY`・`C_ONLY`・`BOTH` の 5 通り |
+| `Exec::new` の既定の印 | 全拒否・`G_ONLY`・`C_ONLY`・`BOTH` の 4 通り |
+| device | 能力が `S2` の device、能力が `Unsupported`（`UnknownFeature`）の device の 2 通り |
+
+数えるのは、模擬の runner が呼ばれた回数を各呼び出しの前後で読んだ差。戻り値の文言は照らさない。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `rejected_calls_do_not_run_judgment` | 上の 40 組で、`n` が 0、`atomic_add` の `m` が 0、`n` が `u64::MAX`、`n` または `m` が上限を 1 超える長さ | どれも `InvalidArgument`、runner の回数の差は 0 |
+| `rejection_does_not_consume_judgment` | 40 組で、拒否の呼び出しの後に長さの合う入口または `query_route` | `InvalidArgument` ではなく、経路が届く組は回数が 1、届かない組は 0 |
+| `calls_without_route_do_not_run_judgment` | 能力が `S0`・`S1` の device、全拒否の効く印 | 入口は `Ok(Outcome::Unavailable { .. })`、`query_route` の経路は `None`、回数は 0 |
+| `forced_calls_without_opt_in_do_not_run_judgment`（feature `fault-injection`） | `S2` の device で `force_unsupported` した操作 | 全拒否では回数 0、`G_ONLY` では `GpuEmulated` で 1 回、`Native` は 0 回 |
+| `f16_and_u32_never_run_judgment` | 40 組で `f16_fma`・`subgroup_sum_u32` の入口と `query_route` | 回数は 0 のまま |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::rejected
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected
+```
