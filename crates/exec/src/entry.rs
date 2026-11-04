@@ -8,7 +8,7 @@
 //! `external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
 //! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
 //! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
-//! `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32` は host の形の列の長さも照らす。
+//! 4 つの入口は host の形の列の長さも照らす。
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
@@ -366,7 +366,9 @@ impl<'d> Exec<'d> {
 
     /// atomic の f32 の加算。最初に `n`・`m` を検査し、`n` または `m` が 0、`n` × 4 または `m` × 4 が
     /// `u64` であふれる、device の `max_buffer_bytes` を超える、のどれかなら
-    /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。`operands` は読まず、出力に書かない。
+    /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。
+    /// host の形で `x` の長さが `n` と、`out` の長さが `m` と違う場合も `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。
+    /// device の形は長さを照らさない。列の中身は読まず、出力に書かない。
     pub fn atomic_add(
         &self,
         opt_in: Option<OptIn>,
@@ -380,6 +382,14 @@ impl<'d> Exec<'d> {
             Some(m),
             self.device.limits().max_buffer_bytes,
         )?;
+        match &operands {
+            AtomicAddOperands::Host { x, out } => {
+                check_host_len(x.len(), n)?;
+                check_host_len(out.len(), m)?;
+            }
+            #[cfg(feature = "native-blocking-wait")]
+            AtomicAddOperands::Device { .. } => {}
+        }
         let _ = operands;
         self.run(OpId::AtomicAdd, opt_in, "atomic_add")
     }
@@ -476,7 +486,7 @@ mod tests {
     fn four_entries_without_override_are_unavailable() {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
-        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 2]);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 1]);
         let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
         expect_unavailable(
             exec.f16_fma(
@@ -525,7 +535,7 @@ mod tests {
             ),
             OpId::AtomicAdd,
         );
-        assert_eq!((o16, ou, of, oa), ([7; 2], [7; 1], [7.0; 1], [7.0; 2]));
+        assert_eq!((o16, ou, of, oa), ([7; 2], [7; 1], [7.0; 1], [7.0; 1]));
     }
 
     #[test]
@@ -533,7 +543,7 @@ mod tests {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
         let over = Some(opt(false, true));
-        let mut oa = [7f32; 2];
+        let mut oa = [7f32; 1];
         let y = [1f32; 2];
         assert!(is_unsupported(&exec.atomic_add(
             over,
@@ -544,7 +554,7 @@ mod tests {
                 out: &mut oa
             },
         )));
-        assert_eq!(oa, [7.0; 2]);
+        assert_eq!(oa, [7.0; 1]);
     }
 
     #[test]
@@ -663,7 +673,7 @@ mod tests {
     fn query_route_equals_unavailable_report() {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
-        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 2]);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 1]);
         let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
         let outs = [
             (
@@ -1110,7 +1120,7 @@ mod injected_tests {
             Some(UnavailableReason::F32DenormalBehaviorUnknown)
         );
         assert_eq!(report.f32_denormal, None);
-        let mut out = [7.0f32; 2];
+        let mut out = [7.0f32; 1];
         let x = [1.0f32; 2];
         let r = exec.atomic_add(
             None,
@@ -1122,7 +1132,7 @@ mod injected_tests {
             },
         );
         assert!(matches!(r, Ok(Outcome::Unavailable { report: got }) if got == report));
-        assert_eq!(out, [7.0; 2]);
+        assert_eq!(out, [7.0; 1]);
     }
 
     #[test]

@@ -50,7 +50,7 @@ fn call_one(exec: &Exec<'_>, over: Option<OptIn>, entry: usize) {
     let in16 = [1u16; 2];
     let in_u = [1u32; 2];
     let in_f = [1.0f32; 2];
-    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 1]);
     match entry {
         0 => {
             let _ = exec.f16_fma(
@@ -103,7 +103,7 @@ fn call_four(exec: &Exec<'_>, over: Option<OptIn>) -> [Call; 4] {
     let in16 = [1u16; 2];
     let in_u = [1u32; 2];
     let in_f = [1.0f32; 2];
-    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 1]);
     let r16 = exec.f16_fma(
         over,
         2,
@@ -158,7 +158,7 @@ fn call_four(exec: &Exec<'_>, over: Option<OptIn>) -> [Call; 4] {
         Call {
             op: OpId::AtomicAdd,
             result: ra,
-            untouched: oa == [7.0; 2],
+            untouched: oa == [7.0; 1],
         },
     ]
 }

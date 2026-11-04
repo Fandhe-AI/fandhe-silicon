@@ -19,7 +19,7 @@ fn call_four(exec: &Exec<'_>, over: Option<OptIn>) -> [(OpId, Result<Outcome, Co
     let in16 = [1u16; 2];
     let in_u = [1u32; 2];
     let in_f = [1.0f32; 2];
-    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 1]);
     let r16 = exec.f16_fma(
         over,
         2,

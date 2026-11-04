@@ -761,3 +761,62 @@ device は `Scripted::bare()`、`n` は 257（出力は 256 要素ごとに 1 �
 | 段 | Issue・PR | 節 |
 | -- | --------- | -- |
 | 6/6 | #6058（PR #7984） | 完了の条件の確かめ（6/6） |
+
+## atomic の加算の host の列の長さと出力の数の照合（1/4）（TASK-932）
+
+下-2（`crates/exec`）の `atomic_add` の host の形の列の長さの検査と、その試験の所在をまとめる。
+決定の記録は private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-932（親の Issue は #874）。
+
+### 本リポの現状の事実
+
+記録時点の commit は `2bc1090`（`origin/main`）。
+
+| 項目 | 事実 | コマンド |
+| ---- | ---- | -------- |
+| exec の `src/` のファイル | `binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs`・`entry.rs`・`hooks.rs`・`length.rs`・`lib.rs`・`operands.rs`・`opt_in.rs`・`report.rs`・`route.rs`・`select.rs` | `ls crates/exec/src` |
+| 通常の依存 | `fandhe-silicon-core` だけ | `cargo tree -p fandhe-silicon-exec -e normal --depth 1` |
+| unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+
+### 所在
+
+- `atomic_add` からの照合の呼び出し: `grep -n 'check_host_len' crates/exec/src/entry.rs`（`crates/exec/src/length.rs` の `check_host_len` を `x` と `out` に呼ぶ）
+
+### 判定の順
+
+`atomic_add` は host の形のとき、次の順で判定する。
+
+| 段 | 内容 | 違うときの返り値 |
+| -- | ---- | ---------------- |
+| 1 | `check_lengths`（要素数・出力の数 0・バイト数のあふれ・上限超過） | `Err(ContractError::InvalidArgument(..))` |
+| 2 | `x` の列の長さが `n` と同じ | `Err(ContractError::InvalidArgument(..))` |
+| 3 | `out` の列の長さが `m` と同じ | `Err(ContractError::InvalidArgument(..))` |
+| 4 | 能力の問合せと経路の選び方 | 経路の選び方の結果 |
+
+段 1〜3 の拒否では `query_ex`・`memory`・`queue` を呼ばず、出力の列に書かない。
+device の形（`native-blocking-wait`）は列の長さを照らさない。列の中身は読まず、出力に書かない。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `length_host.rs` の `mismatched_atomic_columns_are_rejected` | `n` = 8・`m` = 3 で (`x` の長さ, `out` の長さ) が (7, 3)・(9, 3)・(8, 2)・(8, 4) の呼び出し（上書き × 既定の印 × device の答え） | `InvalidArgument`、`query_ex`・`memory`・`queue` の数えが 0、出力が番兵のまま |
+| `length_host.rs` の `matching_atomic_columns_reach_route_choice` | (`n`, `m`) が (8, 3)・(2, 5) で `x` の長さ `n`・`out` の長さ `m` の呼び出し | `InvalidArgument` でなく、`query_ex` の数えが 1 |
+| `length_device.rs` の `device_form_atomic_passes_one_before_byte_overflow` | device の形で (`n`, `m`) が (`u64::MAX / 4`, 1)・(1, `u64::MAX / 4`) | `InvalidArgument` でなく、`query_ex` の数えが 1、確保・読み出しの数えが増えず、buffer の中身が変わらない |
+
+### 出力の列の長さを直した既存の試験
+
+| ファイル | 直し |
+| -------- | ---- |
+| `crates/exec/src/entry.rs` | `atomic_add` の `out` を出力の数の長さ（`m` = 1 で 1）で渡す |
+| `fault_injection_ports.rs`・`reasons_and_denormal.rs`・`unsupported_fields.rs`・`route_evidence_calls.rs`・`opt_in_default.rs`・`route_query.rs` | 同上。番兵のままかの比べも同じ長さで行う |
+| `length_zero.rs` | `valid_length_reaches_route_choice` が `f16_fma` の出力を長さ 2、ほかの入口の出力を長さ 1 で渡す |
+| `length_limit.rs` | `atomic_add` の `out` を長さ `m.min(64)`（最小 1）で作る。一つ手前の `n`・`m` は全部の入口が `InvalidArgument` |
+
+`f16_fma` の列と subgroup の列は変えていない。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
+cargo test -p fandhe-silicon-exec --locked --test length_host
+```

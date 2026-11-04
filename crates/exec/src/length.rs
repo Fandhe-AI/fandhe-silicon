@@ -5,6 +5,7 @@
 //! `Exec` の 4 つの入口（`entry.rs`）が、能力の問合せより前に呼ぶ。
 //! host の形の列の長さと要素数の照合の関数も持つ（TASK-930）。
 //! subgroup の総和の出力の数の関数も持つ（TASK-931）。
+//! `atomic_add` の列の長さの照合にも使う（TASK-932）。
 
 use crate::route::OpId;
 use fandhe_silicon_core::error::ContractError;
@@ -30,6 +31,7 @@ fn mul(a: u64, b: u64) -> Result<u64, ContractError> {
 ///
 /// 長さの値だけを受け、列には触れない。`f16_fma` の host の形が 4 つの列それぞれに呼ぶ。
 /// `subgroup_sum_u32`・`subgroup_sum_f32` の host の形は `x` に要素数、`out` に出力の数（`subgroup_output_len`）で呼ぶ。
+/// `atomic_add` の host の形は `x` に要素数、`out` に出力の数 `m` で呼ぶ。
 pub(crate) fn check_host_len(len: usize, expected: u64) -> Result<(), ContractError> {
     if u64::try_from(len) == Ok(expected) {
         Ok(())

@@ -1,6 +1,7 @@
 //! 下-2 の公開のパスから `f16_fma` を host の形で呼び、列の長さが `n` と違えば `InvalidArgument` を返し、
 //! 能力の問合せ・確保・投入の数えが 0 で出力が番兵のままのこと、長さが揃えば能力の問合せに届くことを確かめる（TASK-930）。
 //! `subgroup_sum_u32`・`subgroup_sum_f32` の `x`・`out` も同じ形で確かめる（TASK-931）。
+//! `atomic_add` の `x`・`out` も同じ形で確かめる（TASK-932）。
 //! 置き場の説明は docs/exec-cpu-route.md。
 
 mod common;
@@ -10,7 +11,8 @@ use fandhe_silicon_core::capability::{CapabilityLevel, CapabilityQuery};
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::route_evidence::{SENTINEL_BYTE, is_untouched};
 use fandhe_silicon_exec::{
-    Exec, F16FmaOperands, OptIn, Outcome, SubgroupSumF32Operands, SubgroupSumU32Operands,
+    AtomicAddOperands, Exec, F16FmaOperands, OptIn, Outcome, SubgroupSumF32Operands,
+    SubgroupSumU32Operands,
 };
 
 const fn opt(g: bool, c: bool) -> OptIn {
@@ -196,6 +198,71 @@ fn matching_subgroup_columns_reach_route_choice() {
             let exec = Exec::new(&dev, d);
             let (r, _) = call_subgroup(&exec, over, f32_entry, 257, 257, 2);
             let tag = format!("{f32_entry} {over:?} {d:?} {dev_i}");
+            assert!(
+                !matches!(r, Err(ContractError::InvalidArgument(_))),
+                "{tag}: {r:?}"
+            );
+            assert_eq!(dev.query_ex_calls(), 1, "{tag}");
+        });
+    }
+}
+
+/// `atomic_add` を host の形で 1 回呼ぶ。`x` の長さ `x_len`、`out` の長さ `out_len`（番兵で埋める）。
+/// 戻り値は結果と、`out` が番兵のままかどうか。
+fn call_atomic(
+    exec: &Exec<'_>,
+    over: Option<OptIn>,
+    n: u64,
+    m: u64,
+    x_len: usize,
+    out_len: usize,
+) -> (Result<Outcome, ContractError>, bool) {
+    let s32 = u32::from_ne_bytes([SENTINEL_BYTE; 4]);
+    let x = vec![1.0f32; x_len];
+    let mut out = vec![f32::from_bits(s32); out_len];
+    let r = exec.atomic_add(
+        over,
+        n,
+        m,
+        AtomicAddOperands::Host {
+            x: &x,
+            out: &mut out,
+        },
+    );
+    let bytes: Vec<u8> = out.iter().flat_map(|v| v.to_bits().to_ne_bytes()).collect();
+    (r, is_untouched(&bytes))
+}
+
+#[test]
+fn mismatched_atomic_columns_are_rejected() {
+    for (x_len, out_len) in [(7usize, 3usize), (9, 3), (8, 2), (8, 4)] {
+        for_each_combo(|over, d, dev_i| {
+            let dev = make_device(dev_i);
+            let exec = Exec::new(&dev, d);
+            let (r, untouched) = call_atomic(&exec, over, 8, 3, x_len, out_len);
+            let tag = format!("{x_len} {out_len} {over:?} {d:?} {dev_i}");
+            assert!(
+                matches!(r, Err(ContractError::InvalidArgument(_))),
+                "{tag}: {r:?}"
+            );
+            assert_eq!(dev.query_ex_calls(), 0, "{tag}");
+            assert_eq!(dev.memory_calls(), 0, "{tag}");
+            assert_eq!(dev.queue_calls(), 0, "{tag}");
+            assert!(untouched, "{tag}");
+        });
+    }
+}
+
+#[test]
+fn matching_atomic_columns_reach_route_choice() {
+    for (n, m) in [(8u64, 3u64), (2, 5)] {
+        for_each_combo(|over, d, dev_i| {
+            let dev = make_device(dev_i);
+            let exec = Exec::new(&dev, d);
+            let x_len = usize::try_from(n).unwrap();
+            let out_len = usize::try_from(m).unwrap();
+            let (r, _) = call_atomic(&exec, over, n, m, x_len, out_len);
+            let tag = format!("{n} {m} {over:?} {d:?} {dev_i}");
             assert!(
                 !matches!(r, Err(ContractError::InvalidArgument(_))),
                 "{tag}: {r:?}"
