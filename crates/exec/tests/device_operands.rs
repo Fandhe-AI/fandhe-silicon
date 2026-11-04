@@ -175,3 +175,56 @@ fn cpu_route_subgroup_sums_with_device_operands_are_unsupported_and_leave_buffer
         }
     }
 }
+
+#[test]
+fn cpu_route_atomic_add_with_device_operands_is_unsupported_and_leaves_buffers() {
+    let (n, m): (u64, u64) = (257, 64);
+    // 組 0: `Exec::new` に印を渡す。組 1: `Exec::deny_by_default` に呼び出しごとの上書きで渡す。
+    for mode in 0..2 {
+        let dev = Scripted::bare();
+        let (exec, over) = if mode == 0 {
+            (Exec::new(&dev, CPU_ONLY), None)
+        } else {
+            (Exec::deny_by_default(&dev), Some(CPU_ONLY))
+        };
+        let (x_bytes, out_bytes) = (n * 4, m * 4);
+        let mut x = alloc_sized(&dev, x_bytes, 1);
+        let mut out = alloc_sized(&dev, out_bytes, 2);
+        let (memory_before, queue_before) = (dev.memory_calls(), dev.queue_calls());
+        let r = exec.atomic_add(
+            over,
+            n,
+            m,
+            AtomicAddOperands::Device {
+                x: &mut x,
+                out: &mut out,
+            },
+        );
+        assert!(
+            matches!(
+                r,
+                Err(ContractError::Unsupported {
+                    op: "atomic_add",
+                    ..
+                })
+            ),
+            "mode {mode}: {r:?}"
+        );
+        assert_eq!(dev.query_ex_calls(), 1, "mode {mode}");
+        assert_eq!(dev.memory_calls(), memory_before, "mode {mode}");
+        assert_eq!(dev.queue_calls(), queue_before, "mode {mode}");
+        let mem = dev.memory();
+        assert_eq!(
+            mem.download_blocking(&x, 0, x_bytes).unwrap(),
+            vec![1u8; x_bytes as usize],
+            "mode {mode}: x"
+        );
+        assert_eq!(
+            mem.download_blocking(&out, 0, out_bytes).unwrap(),
+            vec![2u8; out_bytes as usize],
+            "mode {mode}: out"
+        );
+        mem.free(x);
+        mem.free(out);
+    }
+}
