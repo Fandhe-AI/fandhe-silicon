@@ -367,3 +367,58 @@ cargo test -p fandhe-silicon-exec --all-features --locked --lib length
 cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
 cargo test -p fandhe-silicon-exec --locked --test length_host
 ```
+
+## CPU の経路の subgroup の総和（2/6）（TASK-931）
+
+### 所在
+
+- 計算の本体: `crates/exec/src/cpu.rs` の `subgroup_sum_u32`・`subgroup_sum_f32`（`pub(crate)`）
+- 入口の本体: `grep -n 'crate::cpu::subgroup_sum\|Outcome::Ran' crates/exec/src/entry.rs`
+
+### 返り値
+
+| 経路と列の形 | 返り値 | 出力 |
+| ------------ | ------ | ---- |
+| 経路なし | `Ok(Outcome::Unavailable { report })` | 書かない |
+| `Route::Cpu` で host の形 | `Ok(Outcome::Ran { report })` | `out` に書く |
+| `Route::Cpu` で device の形 | `Err(ContractError::Unsupported { op: <入口名>, .. })` | buffer に書かない |
+| `Route::Native`・`Route::GpuEmulated` | `Err(ContractError::Unsupported { .. })` | 書かない |
+
+`report` は `Exec::query_route` と同じ値。`memory()`・`queue()` を呼ばない。
+`subgroup_sum_f32` は、経路の選び方が f32 の非正規化数の判定を求め、差し込みの無い経路に届く呼び出しが
+`Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })` を返す。`fault-injection` の `inject_denormal` で
+`Route::Cpu` に差し込んだ組では本体に届く。
+
+### 計算
+
+| 入口 | ブロック | 初期値 | 足し方 |
+| ---- | -------- | ------ | ------ |
+| `subgroup_sum_u32` | 256 要素ずつ。添字の順。端数のブロックは短いまま | `0u32` | `wrapping_add` |
+| `subgroup_sum_f32` | 同上 | `+0.0` | f32 の `+` |
+
+### 試験
+
+| ファイル | 試験 | 照らし |
+| -------- | ---- | ------ |
+| `cpu.rs` | `subgroup_sum_u32_blocks_and_wraps` | あふれの巻き戻りと 257 要素のブロック分け |
+| `cpu.rs` | `subgroup_sum_f32_blocks_in_index_order` | 300 要素のブロック分け、足す順で結果が変わる入力、`-0.0` の列の和が `+0.0` |
+| `entry.rs` | `subgroup_sums_with_cpu_override_run_on_host` | u32 は `Ran`・`out` が 2・報告が `query_route` と等しい。f32 は `Unsupported` で `out` が変わらない |
+| `opt_in_default.rs` | `cpu_route_writes_subgroup_u32_output` | `Ran`・`out` が 2・`memory()`・`queue()` の呼びが 0 |
+| `unsupported_fields.rs` | `subgroup_sum_u32_cpu_route_runs` | `Ran` |
+
+### 直した既存の試験
+
+| ファイル | 直し |
+| -------- | ---- |
+| `entry.rs` | `four_entries_with_cpu_override_are_unsupported_err` が `atomic_add` だけを照らす |
+| `fault_injection_ports.rs` | `forced_op_follows_opt_in` が `Route::Cpu` に差し込んだ subgroup の 2 つの入口を `Ran` として照らす |
+| `opt_in_default.rs` | `chosen_route_does_not_write_output` が `subgroup_sum_u32` を書かない側から外す |
+| `route_query.rs` | `query_route_matches_entry_report` の `Ran` の腕が `subgroup_sum_u32` を含む |
+| `unsupported_fields.rs` | `unsupported_carries_entry_name_and_device_backend` の `subgroup_sum_u32` が `Route::GpuEmulated` に決まる印で呼ぶ |
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --lib
+cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields
+```

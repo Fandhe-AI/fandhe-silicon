@@ -286,7 +286,11 @@ fn forced_op_follows_opt_in() {
                 }
                 // 入口。
                 let (entry, untouched) = call_entry(&exec, over, op);
-                if op == OpId::F16Fma && want == Some(Route::Cpu) {
+                if matches!(
+                    op,
+                    OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
+                ) && want == Some(Route::Cpu)
+                {
                     match entry {
                         Ok(Outcome::Ran { report }) => assert_eq!(report, r, "{ctx}"),
                         other => panic!("expected Ran: {other:?}: {ctx}"),
