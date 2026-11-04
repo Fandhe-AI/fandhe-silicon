@@ -1,4 +1,4 @@
-//! 経路が `Route::Cpu` に決まった入口（`f16_fma` と、u32・f32 の subgroup 総和）が、host の列で計算する本体の置き場（`docs/spec/05-tasks.md` の TASK-930・TASK-931）。
+//! 経路が `Route::Cpu` に決まった入口（`f16_fma`・u32 と f32 の subgroup 総和・atomic の加算）が、host の列で計算する本体の置き場（`docs/spec/05-tasks.md` の TASK-930〜TASK-932）。
 //!
 //! `Exec` の入口（`entry`）から呼ばれる。下-1 の `memory()`・`queue()` を呼ばない。
 
