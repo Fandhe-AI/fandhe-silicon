@@ -4,6 +4,7 @@
 //! `Err(ContractError::InvalidArgument(..))` を返す純粋関数を持つ。device・buffer・列には触れない。
 //! `Exec` の 4 つの入口（`entry.rs`）が、能力の問合せより前に呼ぶ。
 //! host の形の列の長さと要素数の照合の関数も持つ（TASK-930）。
+//! subgroup の総和の出力の数の関数も持つ（TASK-931）。
 
 use crate::route::OpId;
 use fandhe_silicon_core::error::ContractError;
@@ -28,6 +29,7 @@ fn mul(a: u64, b: u64) -> Result<u64, ContractError> {
 /// 列の長さ `len` が要素数 `expected` と同じかを調べる。違えば `Err(ContractError::InvalidArgument(..))`。
 ///
 /// 長さの値だけを受け、列には触れない。`f16_fma` の host の形が 4 つの列それぞれに呼ぶ。
+/// `subgroup_sum_u32`・`subgroup_sum_f32` の host の形は `x` に要素数、`out` に出力の数（`subgroup_output_len`）で呼ぶ。
 pub(crate) fn check_host_len(len: usize, expected: u64) -> Result<(), ContractError> {
     if u64::try_from(len) == Ok(expected) {
         Ok(())
@@ -66,6 +68,12 @@ pub(crate) fn check_lengths(
     validate_allocation_size(output, max_buffer_bytes)
 }
 
+/// subgroup の総和の出力の数（`n` を 256 で割って切り上げた数）を返す。
+/// `required_bytes` と、subgroup の 2 つの入口の host の形の `out` の長さの照合が使う。
+pub(crate) fn subgroup_output_len(n: u64) -> u64 {
+    n.div_ceil(SUM_BLOCK_ELEMS)
+}
+
 /// `op` の入力・出力の buffer の必要バイト数を `(入力, 出力)` の順で求める。
 /// `check_lengths` が長さの拒否の判定に使い、`u64` であふれるときは `Err` を返す。
 fn required_bytes(op: OpId, n: u64, m: Option<u64>) -> Result<(u64, u64), ContractError> {
@@ -73,7 +81,7 @@ fn required_bytes(op: OpId, n: u64, m: Option<u64>) -> Result<(u64, u64), Contra
         OpId::F16Fma => (mul(n, F16_BYTES)?, mul(n, F16_BYTES)?),
         OpId::SubgroupSumU32 | OpId::SubgroupSumF32 => (
             mul(n, WORD_BYTES)?,
-            mul(n.div_ceil(SUM_BLOCK_ELEMS), WORD_BYTES)?,
+            mul(subgroup_output_len(n), WORD_BYTES)?,
         ),
         OpId::AtomicAdd => (mul(n, WORD_BYTES)?, mul(m.unwrap_or(0), WORD_BYTES)?),
     })
@@ -82,6 +90,16 @@ fn required_bytes(op: OpId, n: u64, m: Option<u64>) -> Result<(u64, u64), Contra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subgroup_output_len_counts_blocks() {
+        assert_eq!(subgroup_output_len(1), 1);
+        assert_eq!(subgroup_output_len(256), 1);
+        assert_eq!(subgroup_output_len(257), 2);
+        assert_eq!(subgroup_output_len(1000), 4);
+        assert_eq!(subgroup_output_len(65_539), 257);
+        assert_eq!(subgroup_output_len(u64::MAX), u64::MAX / 256 + 1);
+    }
 
     #[test]
     fn host_len_matches_only_the_element_count() {

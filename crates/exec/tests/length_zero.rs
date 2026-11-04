@@ -216,7 +216,12 @@ fn valid_length_reaches_route_choice() {
         let dev = make_device(dev_i);
         let exec = Exec::new(&dev, d);
         let m = if op == OpId::AtomicAdd { 1 } else { 0 };
-        let (r, _) = call(&exec, op, over, 2, m, 2, 2);
+        let out_len = if matches!(op, OpId::SubgroupSumU32 | OpId::SubgroupSumF32) {
+            1
+        } else {
+            2
+        };
+        let (r, _) = call(&exec, op, over, 2, m, 2, out_len);
         let tag = format!("{op:?} {over:?} {d:?} {dev_i}");
         assert!(!is_rejected(&r), "{tag}: {r:?}");
         assert_eq!(dev.query_ex_calls(), 1, "{tag}");
