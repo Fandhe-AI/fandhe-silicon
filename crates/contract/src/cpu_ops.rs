@@ -66,7 +66,7 @@ pub trait CpuOps {
     /// 小さい）、同点は `scores` の添字（スロット番号）の昇順で並べ、上位を `(スロット番号, スコア)` で
     /// `out` の先頭に書く。書く件数は `k`・有限のスコアの件数・`out` の長さの最小で、残りの位置には
     /// [`ReferenceCpuOps::SENTINEL`] を書く。`k` と `out` の長さの組では `Err` を返さない
-    /// （spec CPU-10 のポインタ）。
+    /// （spec CPU-10・CPU-15 のポインタ）。
     fn topk_partial_scalar(
         &self,
         scores: &[f32],
