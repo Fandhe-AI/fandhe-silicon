@@ -531,3 +531,48 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_su
 cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum
 cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum
 ```
+
+## 出力の sha256 の行（5/6）（TASK-931）
+
+### 所在
+
+`crates/exec/tests/cpu_subgroup_sum.rs` の `outputs_print_sha256_per_case`。
+
+### 行の形
+
+`sha256 <入力の名前> n=<n> <16 進>`。入力の名前は `FallbackInputKind::….name()` の値（`subgroup-sum-u32-u`・`subgroup-sum-f32-fx`・`subgroup-sum-f32-fg`・`subgroup-sum-f32-fs`）、16 進は小文字の 64 文字。長さは `FALLBACK_LENGTHS` の 13 通りで、1 回の流しで 52 行出る。
+
+### バイト列の作り方
+
+| 入口 | 入力 | バイト列 |
+| ---- | ---- | -------- |
+| `subgroup_sum_u32` | `generate_subgroup_sum_u32_u` | 出力の各要素の `to_le_bytes()` を添字の順に並べる |
+| `subgroup_sum_f32` | `generate_subgroup_sum_f32_fx`・`generate_subgroup_sum_f32_fg`・`generate_subgroup_sum_f32_fs` | `0.0` に等しい要素は `0u32`、それ以外は `to_bits()` とし、その `to_le_bytes()` を添字の順に並べる（`-0.0` は `+0.0` のビット列になる） |
+
+sha256 は core の `hash::sha256_bytes`。
+
+### 照らすもの
+
+呼ぶたびに新しい試験用の device と `Exec` を作り、同じ入力を 2 回呼ぶ。照らすのは 2 つの sha256 が等しいことと、4/6 と同じ報告・数えの照らし。組は (a)（`Exec::new(&dev, CPU_ONLY)`・device の答えは `Unsupported`）。
+
+### 3 回の流し方
+
+```bash
+d=$(mktemp -d)
+for i in 1 2 3; do
+  cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum outputs_print_sha256_per_case -- --nocapture | grep '^sha256 ' > "$d/run-$i.txt"
+done
+wc -l "$d"/run-*.txt
+sha256sum "$d"/run-*.txt
+cat "$d"/run-1.txt "$d"/run-2.txt "$d"/run-3.txt | sort | uniq -c | awk '{print $1}' | sort | uniq -c
+rm -r "$d"
+```
+
+各回の行を比べる。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum
+cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum
+```
