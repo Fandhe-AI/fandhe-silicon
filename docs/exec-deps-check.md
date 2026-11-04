@@ -230,3 +230,14 @@ ok: 20 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, oth
 record: commit=dbbb5c01ceb260fa806fb87abdd02d129fdb4690 rs_files=26 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
 ok: 26 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
 ```
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値。
+
+- 「今の値の補い（base dbbb5c0）」の `rs_files=26` は、いまは `rs_files=27`。`crates/exec/src` は 13 ファイルのまま、`crates/exec/tests` は `common/mod.rs` を含め 13 ファイル → 14 ファイル（`cpu_subgroup_sum.rs` が加わった）。`make exec-deps-check` は終了コード 0 で、`declared_deps=2` のまま。
+
+```text
+record: commit=515bb196d9ee162f877a437fc1ffba9223cd84fe rs_files=27 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
+ok: 27 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
+```

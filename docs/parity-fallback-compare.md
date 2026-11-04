@@ -241,3 +241,21 @@ TASK-928 の作業を進めるにあたり、記録の所在と本リポの現�
 ```text
 grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 ```
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値。
+
+「今の値の補い（base dbbb5c0）」の `crates/exec` の表は、`grep -rn fallback_compare` で数えると、今は次のとおり。
+
+| 場所 | 件数 | 行 |
+| ---- | ---- | -- |
+| `crates/contract/src`・`crates/upper/src` | 0 件 | なし |
+| `crates/exec/src` | 1 件 | `cpu.rs:37` の `use fandhe_silicon_core::parity::fallback_compare::binary16_order_distance;`（`cpu.rs:34` の `#[cfg(test)]` の `mod tests` の中） |
+| `crates/exec/tests` | 2 件 | `cpu_f16_fma.rs:9` の `use fandhe_silicon_core::parity::fallback_compare::{`（`compare_order_distance_binary16` などを取り込む）、`cpu_subgroup_sum.rs:11` の `use fandhe_silicon_core::parity::fallback_compare::{`（`F32SubnormalHandling`・`compare_bits_f32`・`compare_bits_u32`・`compare_relative_sum_f32` を取り込む） |
+
+`crates/exec` が `fallback_compare` を使うのは試験の中だけ。
+
+```text
+grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```

@@ -243,3 +243,12 @@ origin/main のコミット `7dcbd25`、`docs/spec` の gitlink は `c7887a1` �
 | 同 `make verify` | `test result:` の行は 228、passed の合計 2302 → 行は 230、passed の合計 2348（failed の合計 0、ignored の合計 7 のまま。終了コード 0） | `make verify` の出力の `test result:` の行を数え、passed・failed・ignored を足す |
 | (4) の `make upper-layer-check` の `record:` | `rs_files=10 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0` のまま | `make upper-layer-check \| grep '^record:'` |
 | 同 `make upper-source-check` の `record:` | `rs_files=5` のまま | `make upper-source-check \| grep '^record:'` |
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| そのほかの make ターゲットの `make exec-deps-check` の `record:` | `rs_files=26` → `rs_files=27`（`declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0` のまま。終了コード 0） | `make exec-deps-check` |
+| 同 `make verify` | `test result:` の行は 230、passed の合計 2348 → 行は 231、passed の合計 2368（failed の合計 0、ignored の合計 7 のまま。終了コード 0） | `make verify` の出力の `test result:` の行を数え、passed・failed・ignored を足す |
