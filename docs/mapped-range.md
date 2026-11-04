@@ -1,6 +1,6 @@
 # 書き込み用のビューの型
 
-TASK-312 の 1/4〜2/4。private spec の本文は写さない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+TASK-312 の 1/4〜3/4。private spec の本文は写さない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 所在
 
@@ -49,4 +49,26 @@ cargo test -p fandhe-silicon-core --doc mapped_range
 cargo test -p fandhe-silicon-core --lib memory::mapped_range
 RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc memory::mapped_range
 make doctest-error-code-check
+```
+
+## 境界の入力と絞りの試験（3/4）
+
+`crates/core/tests/memory_mapped_range.rs`（feature の条件なし）が、公開のパスだけで境界の入力を確かめる。
+拒否の文言は比べず、`InvalidArgument` と `validate_buffer_range`（TASK-309）との `==` で比べる。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `empty_view_len_and_is_empty` | 長さ 0 の配列と空の `Vec` | `len() == 0`・`is_empty()`。`slice(0, 0)` は `Ok`、`slice(0, 1)`・`slice(1, 0)` は `InvalidArgument` |
+| `len_and_is_empty_follow_backing_length` | 長さ 1・3・4・8・255・4096 | `len()` が長さ、`is_empty()` が偽 |
+| `slice_up_to_exact_length_is_accepted` | 長さ n で `slice(0, n)`・`slice(k, n - k)`・`slice(n, 0)` | 長さが n・n−k・0 |
+| `slice_beyond_length_is_rejected` | `slice(0, n + 1)`・`slice(n, 1)`・`slice(n + 1, 0)`・`slice(1, n)` | `InvalidArgument` |
+| `slice_overflow_is_rejected` | `u64::MAX` を含む offset・len | `InvalidArgument` |
+| `slice_matches_validate_buffer_range` | 長さ 0・1・7・16 と offset・len の格子 | `validate_buffer_range` と同じ結果 |
+| `nested_slice_is_checked_against_parent` | 絞ったビューの絞り、4 段の入れ子 | 各段が直前の段の長さに照らされる |
+| `parent_len_is_unchanged_after_slice` | 絞った後・拒否された後 | 親の `len()`・`is_empty()` が変わらない |
+| `rejection_is_repeatable` | 同じ引数を 2 回 | 拒否は同じ `Err`、受理は同じ長さ |
+| `rejection_is_invalid_argument_only` | 拒否の入力の全部 | `InvalidArgument` だけ |
+
+```sh
+cargo test -p fandhe-silicon-core --test memory_mapped_range
 ```
