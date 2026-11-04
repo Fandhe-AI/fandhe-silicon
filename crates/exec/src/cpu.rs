@@ -31,6 +31,20 @@ pub(crate) fn subgroup_sum_f32(x: &[f32], out: &mut [f32]) {
     }
 }
 
+/// atomic の f32 の加算。`out` を +0.0 で埋め、`x` を `out` の長さずつに区切り、添字の昇順に
+/// `out` の要素へ f32 で足す。`out` が空なら何もしない。列の長さは呼び手（入口の照合）が揃える。
+pub(crate) fn atomic_add(x: &[f32], out: &mut [f32]) {
+    if out.is_empty() {
+        return;
+    }
+    out.fill(0.0);
+    for chunk in x.chunks(out.len()) {
+        for (o, &v) in out.iter_mut().zip(chunk) {
+            *o += v;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +97,21 @@ mod tests {
         assert_eq!(out, [1.0]);
         subgroup_sum_f32(&[-0.0f32; 3], &mut out);
         assert_eq!(out[0].to_bits(), 0);
+    }
+
+    #[test]
+    fn atomic_add_starts_from_positive_zero_in_index_order() {
+        let mut out = [7.0f32; 2];
+        atomic_add(&[1.0, 2.0, 3.0, 4.0, 5.0], &mut out);
+        assert_eq!(out, [9.0, 6.0]);
+        let mut out = [7.0f32; 2];
+        atomic_add(&[-0.0], &mut out);
+        assert_eq!(out.map(f32::to_bits), [0, 0]);
+        let mut out = [7.0f32; 1];
+        atomic_add(&[1.0e8, 1.0, -1.0e8], &mut out);
+        assert_eq!(out, [0.0]);
+        atomic_add(&[1.0e8, -1.0e8, 1.0], &mut out);
+        assert_eq!(out, [1.0]);
+        atomic_add(&[1.0], &mut []);
     }
 }

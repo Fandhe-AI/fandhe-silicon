@@ -2,8 +2,8 @@
 //!
 //! 公開のパスだけを使い、`Exec` の 7 つの入口を試験用の device（`common::Scripted`）に
 //! 向けて呼ぶ。出力の列に定数を入れて呼び、`Ok(Outcome::Unavailable { .. })` を返した呼び出しと、
-//! `f16_fma`・`subgroup_sum_u32` 以外の入口が `Err(ContractError::Unsupported { .. })` を返した呼び出しでは、呼んだ後も同じ値であることを照らす。
-//! `f16_fma`・`subgroup_sum_u32` が経路 `Route::Cpu` で host の形なら出力に書くので、その呼び出しは値が変わることを照らす。
+//! 4 つの入口が `Err(ContractError::Unsupported { .. })` を返した呼び出しでは、呼んだ後も同じ値であることを照らす。
+//! 4 つの入口が経路 `Route::Cpu` で host の形なら出力に書くので、その呼び出しは値が変わることを照らす。
 
 mod common;
 
@@ -282,12 +282,7 @@ fn each_flag_reaches_route_choice() {
 fn chosen_route_does_not_write_output() {
     let dev = Scripted::bare();
     let exec = Exec::deny_by_default(&dev);
-    for call in call_four(&exec, Some(C_ONLY)).into_iter().filter(|call| {
-        !matches!(
-            call.op,
-            OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
-        )
-    }) {
+    for call in call_four(&exec, Some(G_ONLY)) {
         assert!(is_unsupported(&call.result), "{:?}", call.op);
         assert!(call.untouched, "{:?}", call.op);
     }
@@ -356,6 +351,30 @@ fn cpu_route_writes_subgroup_f32_output() {
         Some(C_ONLY),
         2,
         SubgroupSumF32Operands::Host {
+            x: &x,
+            out: &mut out,
+        },
+    );
+    match r {
+        Ok(Outcome::Ran { report }) => assert_eq!(report.route, Some(Route::Cpu)),
+        other => panic!("expected Ran: {other:?}"),
+    }
+    assert_eq!(out, [2.0]);
+    assert_eq!(dev.memory_calls(), 0);
+    assert_eq!(dev.queue_calls(), 0);
+}
+
+#[test]
+fn cpu_route_writes_atomic_output() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let x = [1.0f32; 2];
+    let mut out = [7.0f32; 1];
+    let r = exec.atomic_add(
+        Some(C_ONLY),
+        2,
+        1,
+        AtomicAddOperands::Host {
             x: &x,
             out: &mut out,
         },
