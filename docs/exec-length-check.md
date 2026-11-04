@@ -137,3 +137,65 @@ device の形の buffer（16 バイト）を渡し、上限 `1 << 28` で n = 0 
 ```text
 cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#6022）で、下-2 の入口の長さの検査について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-924（ポインタのみ）。GPU の実機の無い Linux で実行した。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 4 つの入口の最初に検査がある | `grep -n 'check_lengths\|self.run(OpId' crates/exec/src/entry.rs` | 10 行に `use crate::length::check_lengths;`。`f16_fma` は 189 行に `check_lengths(OpId::F16Fma, …)`、191 行に `self.run(OpId::F16Fma, …)`。`subgroup_sum_u32` は 203 行に検査、210 行に `self.run`。`subgroup_sum_f32` は 222 行に検査、229 行に `self.run`。`atomic_add` は 242 行に検査、249 行に `self.run`。4 つとも検査の行が `self.run` の行より前 |
+| (2) | 純粋関数の直接の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib length`、`cargo test -p fandhe-silicon-exec --all-features --locked --lib length::tests` | 前者は 5 passed; 0 failed; 0 ignored（49 件中、44 filtered out）。`length::tests::*` の 4 本（`smallest_overflowing_length_is_rejected`・`smallest_length_over_limit_is_rejected`・`zero_length_and_zero_outputs_are_rejected`・`u64_max_length_is_rejected`）と `entry::tests::entries_reject_lengths`。後者は 4 passed; 0 failed; 0 ignored（45 filtered out） |
+| (3) | 長さ 0 と出力の数 0 の入口経由の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero` | `Running tests/length_zero.rs` の `test result: ok. 5 passed; 0 failed; 0 ignored` |
+| (4) | 上限超過とあふれの入口経由の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device` | `Running tests/length_device.rs` の `test result: ok. 1 passed; 0 failed; 0 ignored`、`Running tests/length_limit.rs` の `test result: ok. 4 passed; 0 failed; 0 ignored` |
+| (5) | 既存の試験とビルドの組 | `make verify`、`make build-profiles`、`make wasm-verify` | 3 つとも終了コード 0。`make verify` の exec は lib が 49 passed、`tests/length_device.rs` が 1 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed で、すべて 0 failed。`make build-profiles` の exec は feature なし・`native-blocking-wait`・`fault-injection` の 3 組で `clippy`・`test`・wasm32 の `cargo check` が通る。`make wasm-verify` は `cargo check (fandhe-silicon-exec tests, wasm32-unknown-unknown, …)` を default features・`native-blocking-wait`・`fault-injection` の 3 通りで通る |
+| (6) | 公開の面が変わらない | `make exec-surface-check` | 終了コード 0。下の `record:` と `ok:` の行 |
+| (7) | 依存と unsafe を足していない | 1/4〜3/4 のマージコミット（#7960 は `152d7e8`、#7961 は `f81f20c`、#7962 は `bdbcf05`）それぞれで `git diff --stat <sha>^..<sha> -- Cargo.lock deps-approved.toml deny.toml crates/core crates/upper` と `git diff <sha>^..<sha> -- crates/exec/Cargo.toml`、`grep -n forbid crates/exec/src/lib.rs` | 3 つとも 1 つ目の出力は空。`crates/exec/Cargo.toml` の差分は #7960・#7961 が空、#7962 が `[[test]] name = "length_device"`（`required-features = ["native-blocking-wait"]`）の 4 行の追加だけ。`crates/exec/src/lib.rs` の 19 行に `#![forbid(unsafe_code)]` |
+| (8) | CI で流れる場所 | main の push の CI の run 41763850546（`conclusion=success`、`headSha=bdbcf0579ef4d2c1af7aafe135945f47c2e067fd`）の job `make verify (fmt + clippy + test)`（job id 126357499200）の `make verify` のステップのログ | 下のログの行。`length_zero`・`length_limit`・`length_device` の 3 つが出る |
+
+(6) の出力。
+
+```text
+record: commit=bdbcf0579ef4d2c1af7aafe135945f47c2e067fd rs_files=20 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+(8) のログ（ジョブ名・ステップ名・時刻を除いて `Running` の行と `test result:` の行を組にした）。
+
+```text
+Running tests/length_device.rs (target/debug/deps/length_device-716b5f7cf8ef7941)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/length_limit.rs (target/debug/deps/length_limit-238bd28b73303b8b)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/length_zero.rs (target/debug/deps/length_zero-d547c2c9f17e8b09)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+確かめた時点は、main のコミット `bdbcf05` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-924）。
+
+### 確かめ方
+
+```text
+grep -n 'check_lengths\|self.run(OpId' crates/exec/src/entry.rs
+cargo test -p fandhe-silicon-exec --all-features --locked --lib length
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device
+make verify
+make build-profiles
+make wasm-verify
+make exec-surface-check
+grep -n forbid crates/exec/src/lib.rs
+```
+
+## 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/4 | #6019（PR #7960） | 入口の最初の長さの検査（1/4） |
+| 2/4 | #6020（PR #7961） | 長さ 0 と出力の数 0 の入口経由の試験（2/4） |
+| 3/4 | #6021（PR #7962） | 上限を差し替えた device とバイト数のあふれの入口経由の試験（3/4） |
+| 4/4 | #6022 | 完了の条件の確かめ（4/4） |
+
+親 Issue は #868。
