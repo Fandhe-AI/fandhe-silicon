@@ -18,7 +18,7 @@ use fandhe_silicon_core::parity::fallback_reference::reference_f16_fma_slice;
 use fandhe_silicon_exec::UnavailableReason;
 use fandhe_silicon_exec::{Exec, F16FmaOperands, OpId, OptIn, Outcome, Route};
 
-const C_ONLY: OptIn = OptIn {
+const CPU_ONLY: OptIn = OptIn {
     allow_gpu_emulated: false,
     allow_cpu: true,
 };
@@ -31,14 +31,14 @@ fn q(level: CapabilityLevel) -> CapabilityQuery {
     }
 }
 
-/// C の経路を選ばせる組。
+/// 経路を `Route::Cpu` に選ばせる組。
 #[derive(Clone, Copy)]
 enum Mode {
-    /// `Exec::new` に C の印を渡す。上書きは `None`。
+    /// `Exec::new` に `allow_cpu` を立てた印を渡す。上書きは `None`。
     New,
-    /// `Exec::deny_by_default` に、呼び出しごとの上書きで C の印を渡す。
+    /// `Exec::deny_by_default` に、呼び出しごとの上書きで `allow_cpu` を立てた印を渡す。
     Override,
-    /// Native を外す指定を付け、呼び出しごとの上書きで C の印を渡す。
+    /// `Route::Native` を外す指定を付け、呼び出しごとの上書きで `allow_cpu` を立てた印を渡す。
     #[cfg(feature = "fault-injection")]
     Forced,
 }
@@ -46,12 +46,12 @@ enum Mode {
 /// 組に応じた `Exec` と呼び出しごとの上書きを作る。
 fn make_exec(dev: &Scripted, mode: Mode) -> (Exec<'_>, Option<OptIn>) {
     match mode {
-        Mode::New => (Exec::new(dev, C_ONLY), None),
-        Mode::Override => (Exec::deny_by_default(dev), Some(C_ONLY)),
+        Mode::New => (Exec::new(dev, CPU_ONLY), None),
+        Mode::Override => (Exec::deny_by_default(dev), Some(CPU_ONLY)),
         #[cfg(feature = "fault-injection")]
         Mode::Forced => (
             Exec::deny_by_default(dev).force_unsupported(OpId::F16Fma),
-            Some(C_ONLY),
+            Some(CPU_ONLY),
         ),
     }
 }
