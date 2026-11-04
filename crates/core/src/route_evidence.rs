@@ -8,6 +8,7 @@
 //! ポインタ: `docs/spec/05-tasks.md` の TASK-922。
 
 use crate::hash::sha256_bytes;
+use crate::test_frame::{IndeterminateReason, RunResult, Verdict};
 
 /// 経路 `Native` の呼び出しの後に期待する印の値。
 pub const MARKER_NATIVE: u32 = 0x4E;
@@ -55,6 +56,8 @@ pub enum EvidenceError {
     CountsDecreased,
     /// [`ArtifactDigests`] の 2 つの SHA-256 が等しい。
     SameArtifactDigest,
+    /// 数え上げの欄があふれる。
+    TallyOverflow,
 }
 
 impl EvidenceError {
@@ -64,6 +67,7 @@ impl EvidenceError {
             Self::EmptyOutput => "output is empty",
             Self::CountsDecreased => "run counts decreased",
             Self::SameArtifactDigest => "artifact digests are equal",
+            Self::TallyOverflow => "evidence tally overflowed",
         }
     }
 }
@@ -226,6 +230,129 @@ pub fn check_call(
         artifact: expected_artifact.map(|expected| evidence.artifact == expected),
         probe_runs,
     })
+}
+
+/// 1 回ごとの照合の結果 [`CallCheck`] を呼び出しの列として数える。
+///
+/// 試験の本体が [`EvidenceTally::run_result`] を試験の枠の `judge` の戻り値にして使う。
+/// 欄はすべて `u64` で、あふれる足し算は [`EvidenceError::TallyOverflow`] で拒否し、そのとき数え上げは変わらない。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EvidenceTally {
+    calls: u64,
+    matched: u64,
+    mismatched: u64,
+    marker_mismatches: u64,
+    count_mismatches: u64,
+    output_mismatches: u64,
+    artifact_mismatches: u64,
+    artifact_not_compared: u64,
+    probe_runs: u64,
+}
+
+impl EvidenceTally {
+    /// 0 件の数え上げを返す。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 照合の結果を 1 件数える。
+    ///
+    /// 呼び出しの数は常に 1 増え、`is_match()` が真なら一致、偽なら不一致に数える。
+    /// 印・回数・出力の `false` はそれぞれの不一致の欄に、成果物は `Some(false)` を不一致の欄に、`None` を比べなかった欄に数える。
+    /// 試しの実行の回数は合計に足す。あふれたら `Err` で、数え上げは変わらない。
+    pub fn record(&mut self, check: &CallCheck) -> Result<(), EvidenceError> {
+        let add = |field: u64, by: u64| field.checked_add(by).ok_or(EvidenceError::TallyOverflow);
+        let flag = |b: bool| u64::from(b);
+        let matched = check.is_match();
+        let mut next = self.clone();
+        next.calls = add(next.calls, 1)?;
+        next.matched = add(next.matched, flag(matched))?;
+        next.mismatched = add(next.mismatched, flag(!matched))?;
+        next.marker_mismatches = add(next.marker_mismatches, flag(!check.marker()))?;
+        next.count_mismatches = add(next.count_mismatches, flag(!check.counts()))?;
+        next.output_mismatches = add(next.output_mismatches, flag(!check.output()))?;
+        next.artifact_mismatches = add(
+            next.artifact_mismatches,
+            flag(check.artifact() == Some(false)),
+        )?;
+        next.artifact_not_compared =
+            add(next.artifact_not_compared, flag(check.artifact().is_none()))?;
+        next.probe_runs = add(next.probe_runs, check.probe_runs())?;
+        *self = next;
+        Ok(())
+    }
+
+    /// [`check_call`] を呼び、成功した結果を数えて返す。
+    ///
+    /// `check_call` の `Err` はそのまま返し、数えない。数え上げのあふれは `Err(TallyOverflow)` で、数え上げは変わらない。
+    pub fn record_call(
+        &mut self,
+        route: Option<ReportedRoute>,
+        evidence: &CallEvidence<'_>,
+        artifacts: Option<&ArtifactDigests>,
+    ) -> Result<CallCheck, EvidenceError> {
+        let check = check_call(route, evidence, artifacts)?;
+        self.record(&check)?;
+        Ok(check)
+    }
+
+    /// 数えた呼び出しの数。
+    pub fn calls(&self) -> u64 {
+        self.calls
+    }
+
+    /// 一致に数えた呼び出しの数。
+    pub fn matched(&self) -> u64 {
+        self.matched
+    }
+
+    /// 不一致に数えた呼び出しの数。
+    pub fn mismatched(&self) -> u64 {
+        self.mismatched
+    }
+
+    /// 印の値が期待と違った呼び出しの数。
+    pub fn marker_mismatches(&self) -> u64 {
+        self.marker_mismatches
+    }
+
+    /// 回数の差が期待と違った呼び出しの数。
+    pub fn count_mismatches(&self) -> u64 {
+        self.count_mismatches
+    }
+
+    /// 出力の列が期待と違った呼び出しの数。
+    pub fn output_mismatches(&self) -> u64 {
+        self.output_mismatches
+    }
+
+    /// 成果物の SHA-256 が期待と違った呼び出しの数。
+    pub fn artifact_mismatches(&self) -> u64 {
+        self.artifact_mismatches
+    }
+
+    /// 成果物を比べなかった呼び出しの数。
+    pub fn artifact_not_compared(&self) -> u64 {
+        self.artifact_not_compared
+    }
+
+    /// 試しの実行の回数の合計。一致・不一致の判定には入らない。
+    pub fn probe_runs(&self) -> u64 {
+        self.probe_runs
+    }
+
+    /// 試験の枠の `judge` の本体が返す結果にする。
+    ///
+    /// 0 件なら `Indeterminate(EvidenceMissing)`、不一致が 1 件以上なら `Verdict(Mismatch)`、それ以外は `Verdict(Match)`。
+    pub fn run_result(&self) -> RunResult {
+        if self.calls == 0 {
+            RunResult::Indeterminate(IndeterminateReason::EvidenceMissing)
+        } else if self.mismatched > 0 {
+            RunResult::Verdict(Verdict::Mismatch)
+        } else {
+            RunResult::Verdict(Verdict::Match)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -434,9 +561,68 @@ mod tests {
             EvidenceError::EmptyOutput,
             EvidenceError::CountsDecreased,
             EvidenceError::SameArtifactDigest,
+            EvidenceError::TallyOverflow,
         ] {
             assert!(!e.to_string().is_empty());
             assert_eq!(e.to_string(), e.as_str());
+        }
+    }
+
+    #[test]
+    fn tally_counts_each_value() {
+        let mut t = EvidenceTally::new();
+        for route in ROUTES {
+            let (ev, d) = good(route);
+            t.record_call(route, &ev, Some(&d)).unwrap();
+        }
+        assert_eq!((t.calls(), t.matched(), t.mismatched()), (4, 4, 0));
+        assert_eq!(t.run_result(), RunResult::Verdict(Verdict::Match));
+
+        let (mut ev, d) = good(Some(ReportedRoute::Native));
+        ev.marker = MARKER_CLEAR;
+        t.record_call(Some(ReportedRoute::Native), &ev, Some(&d))
+            .unwrap();
+        assert_eq!((t.calls(), t.matched(), t.mismatched()), (5, 4, 1));
+        assert_eq!(t.marker_mismatches(), 1);
+        assert_eq!(t.count_mismatches(), 0);
+        assert_eq!(t.output_mismatches(), 0);
+        assert_eq!(t.artifact_mismatches(), 0);
+        assert_eq!(t.run_result(), RunResult::Verdict(Verdict::Mismatch));
+    }
+
+    #[test]
+    fn tally_counts_artifact_not_compared() {
+        let mut t = EvidenceTally::new();
+        let (ev, _) = good(Some(ReportedRoute::Cpu));
+        t.record_call(Some(ReportedRoute::Cpu), &ev, None).unwrap();
+        assert_eq!(t.artifact_not_compared(), 1);
+        assert_eq!(t.matched(), 1);
+    }
+
+    #[test]
+    fn empty_tally_is_indeterminate() {
+        assert_eq!(
+            EvidenceTally::new().run_result(),
+            RunResult::Indeterminate(IndeterminateReason::EvidenceMissing)
+        );
+    }
+
+    #[test]
+    fn tally_overflow_keeps_value() {
+        let (ev, d) = good(Some(ReportedRoute::Native));
+        for field in 0..3 {
+            let mut t = EvidenceTally::new();
+            match field {
+                0 => t.calls = u64::MAX,
+                1 => t.matched = u64::MAX,
+                _ => t.probe_runs = u64::MAX,
+            }
+            let mut ev2 = ev;
+            ev2.after.probe = 1;
+            let c2 = check_call(Some(ReportedRoute::Native), &ev2, Some(&d)).unwrap();
+            let before = t.clone();
+            assert_eq!(t.record(&c2), Err(EvidenceError::TallyOverflow));
+            assert_eq!(t, before);
         }
     }
 }
