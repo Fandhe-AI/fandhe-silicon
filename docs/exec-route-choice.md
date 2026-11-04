@@ -290,10 +290,12 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test fault_inject
 | -------- | ---------- | -------------------- |
 | `subgroup_sum_u32`・`subgroup_sum_f32`・経路が `Route::Cpu`・host の形 | `Ok(Outcome::Ran { report })`。出力の列に書く | `Ok`・`report` と等しい報告 |
 | `subgroup_sum_u32`・`subgroup_sum_f32`・経路なし | `Ok(Outcome::Unavailable { report })` | `Ok`・`report` と等しい報告 |
-| `subgroup_sum_u32`・`subgroup_sum_f32`・device の形、または `Route::Cpu` 以外の経路 | `Err(ContractError::Unsupported { op: <入口の関数名>, .. })` | `Ok`・経路あり |
+| `subgroup_sum_u32`・device の形、または `Route::Cpu` 以外の経路 | `Err(ContractError::Unsupported { op: "subgroup_sum_u32", .. })` | `Ok`・経路あり |
+| `subgroup_sum_f32`・経路が `Route::Cpu`・device の形 | `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })` | `Ok`・経路あり |
+| `subgroup_sum_f32`・経路が `Route::Native` か `Route::GpuEmulated`（判定の差し込みなし） | `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })`（判定の試しの実行が拒否する） | `Err(ContractError::Unsupported { .. })`（`op` は `"query_route"`） |
 | `atomic_add` で経路が届く | `Err(ContractError::Unsupported { op: "atomic_add", .. })` | `Err(ContractError::Unsupported { .. })`（`op` は `"query_route"`） |
 
-`Exec::query_route` の rustdoc は、入口が `Ok(Outcome::Unavailable { report })` か `Ok(Outcome::Ran { report })` を返す呼び出しでは `report` と等しいと書く（`crates/exec/src/entry.rs` の 204 行）。subgroup の 2 入口で `Ran` の報告との一致を照らす試験は、`entry::tests::subgroup_sums_with_cpu_override_run_on_host`（`entry.rs`）、`route_query.rs` の `query_route_matches_entry_report` の `Ran` の腕。
+`Exec::query_route` の rustdoc は、入口が `Ok(Outcome::Unavailable { report })` か `Ok(Outcome::Ran { report })` を返す呼び出しでは `report` と等しいと書く（`crates/exec/src/entry.rs` の 204 行）。subgroup の 2 入口で `Ran` の報告との一致を照らす試験は、`entry::tests::subgroup_sums_with_cpu_override_run_on_host`（`entry.rs`）、`route_query.rs` の `query_route_matches_entry_report` の `Ran` の腕。 `subgroup_sum_f32` で `query_route` が `Unsupported` になることは `route_query.rs` の `native_levels_report_native_route`（`Route::Native`。`op` が `"query_route"`）と `unreachable_native_follows_opt_in_order`（`Route::GpuEmulated`）、入口が入口の関数名の `Unsupported` を返すことは `unsupported_fields.rs` の `unsupported_carries_entry_name_and_device_backend` が照らす。
 
 ### 完了の条件の確かめ（5/5）の値
 
