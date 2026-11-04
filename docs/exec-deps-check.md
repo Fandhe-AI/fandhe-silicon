@@ -208,3 +208,14 @@ find crates/exec/src crates/exec/tests -name '*.rs'
 record: commit=237357677e4f69913c2ecf50adf2e9448f42d32b rs_files=16 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
 ok: 16 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
 ```
+
+## 今の値の補い（base 904126a）
+
+記録時点の表と既存の節は書き換えない。以下は base `904126a` で観測した今の値。
+
+- 「今の値の補い（base 2373576）」の `rs_files=16` は、いまは `rs_files=20`。`crates/exec/src` は 9 ファイル（`length.rs` が加わった）、`crates/exec/tests` は `common/mod.rs` を含め 11 ファイル（`length_zero.rs`・`length_limit.rs`・`length_device.rs` が加わった）。`make exec-deps-check` は終了コード 0 で、`declared_deps=2` のまま。
+
+```text
+record: commit=904126a006b240f372926d49e3077747ecce4b3d rs_files=20 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
+ok: 20 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
+```
