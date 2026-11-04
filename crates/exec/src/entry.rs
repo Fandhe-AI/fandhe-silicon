@@ -7,6 +7,7 @@
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
+use crate::length::check_lengths;
 use crate::operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
 };
@@ -176,40 +177,61 @@ impl<'d> Exec<'d> {
         }
     }
 
-    /// f16 の融合積和。`n` と `operands` は読まず、出力に書かない。
+    /// f16 の融合積和。最初に `n` を検査し、`n` が 0、`n` × 2 が `u64` であふれる、
+    /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
+    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
     pub fn f16_fma(
         &self,
         opt_in: Option<OptIn>,
         n: u64,
         operands: F16FmaOperands<'_>,
     ) -> Result<Outcome, ContractError> {
-        let _ = (n, operands);
+        check_lengths(OpId::F16Fma, n, None, self.device.limits().max_buffer_bytes)?;
+        let _ = operands;
         self.run(OpId::F16Fma, opt_in, "f16_fma")
     }
 
-    /// u32 の subgroup 総和。`n` と `operands` は読まず、出力に書かない。
+    /// u32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
+    /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
+    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
     pub fn subgroup_sum_u32(
         &self,
         opt_in: Option<OptIn>,
         n: u64,
         operands: SubgroupSumU32Operands<'_>,
     ) -> Result<Outcome, ContractError> {
-        let _ = (n, operands);
+        check_lengths(
+            OpId::SubgroupSumU32,
+            n,
+            None,
+            self.device.limits().max_buffer_bytes,
+        )?;
+        let _ = operands;
         self.run(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")
     }
 
-    /// f32 の subgroup 総和。`n` と `operands` は読まず、出力に書かない。
+    /// f32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
+    /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
+    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
     pub fn subgroup_sum_f32(
         &self,
         opt_in: Option<OptIn>,
         n: u64,
         operands: SubgroupSumF32Operands<'_>,
     ) -> Result<Outcome, ContractError> {
-        let _ = (n, operands);
+        check_lengths(
+            OpId::SubgroupSumF32,
+            n,
+            None,
+            self.device.limits().max_buffer_bytes,
+        )?;
+        let _ = operands;
         self.run(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")
     }
 
-    /// atomic の f32 の加算。`n`・`m` と `operands` は読まず、出力に書かない。
+    /// atomic の f32 の加算。最初に `n`・`m` を検査し、`n` または `m` が 0、`n` × 4 または `m` × 4 が
+    /// `u64` であふれる、device の `max_buffer_bytes` を超える、のどれかなら
+    /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。`operands` は読まず、出力に書かない。
     pub fn atomic_add(
         &self,
         opt_in: Option<OptIn>,
@@ -217,7 +239,13 @@ impl<'d> Exec<'d> {
         m: u64,
         operands: AtomicAddOperands<'_>,
     ) -> Result<Outcome, ContractError> {
-        let _ = (n, m, operands);
+        check_lengths(
+            OpId::AtomicAdd,
+            n,
+            Some(m),
+            self.device.limits().max_buffer_bytes,
+        )?;
+        let _ = operands;
         self.run(OpId::AtomicAdd, opt_in, "atomic_add")
     }
 
@@ -539,6 +567,113 @@ mod tests {
             Exec::deny_by_default(&dev).default_opt_in(),
             OptIn::default()
         );
+    }
+
+    #[test]
+    fn entries_reject_lengths() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 1], [7u32; 1], [7f32; 1], [7f32; 1]);
+        let (a, x, y) = ([1u16; 1], [1u32; 1], [1f32; 1]);
+        let (mut e16, mut eu, mut ef, mut ea) = ([0u16; 0], [0u32; 0], [0f32; 0], [0f32; 0]);
+        let bad =
+            |r: Result<Outcome, ContractError>| matches!(r, Err(ContractError::InvalidArgument(_)));
+        let h16 = (1u64 << 27) + 1;
+        let hw = (1u64 << 26) + 1;
+        // n = 0
+        assert!(bad(exec.f16_fma(
+            None,
+            0,
+            F16FmaOperands::Host {
+                a: &[],
+                b: &[],
+                c: &[],
+                out: &mut e16
+            }
+        )));
+        assert!(bad(exec.subgroup_sum_u32(
+            None,
+            0,
+            SubgroupSumU32Operands::Host {
+                x: &[],
+                out: &mut eu
+            }
+        )));
+        assert!(bad(exec.subgroup_sum_f32(
+            None,
+            0,
+            SubgroupSumF32Operands::Host {
+                x: &[],
+                out: &mut ef
+            }
+        )));
+        assert!(bad(exec.atomic_add(
+            None,
+            0,
+            1,
+            AtomicAddOperands::Host {
+                x: &[],
+                out: &mut ea
+            }
+        )));
+        // m = 0
+        let (x8, mut o8) = ([1f32; 8], [7f32; 8]);
+        assert!(bad(exec.atomic_add(
+            None,
+            8,
+            0,
+            AtomicAddOperands::Host {
+                x: &x8,
+                out: &mut o8
+            }
+        )));
+        // n = u64::MAX、上限超え
+        for (n16, nw) in [(u64::MAX, u64::MAX), (h16, hw)] {
+            assert!(bad(exec.f16_fma(
+                None,
+                n16,
+                F16FmaOperands::Host {
+                    a: &a,
+                    b: &a,
+                    c: &a,
+                    out: &mut o16
+                }
+            )));
+            assert!(bad(exec.subgroup_sum_u32(
+                None,
+                nw,
+                SubgroupSumU32Operands::Host {
+                    x: &x,
+                    out: &mut ou
+                }
+            )));
+            assert!(bad(exec.subgroup_sum_f32(
+                None,
+                nw,
+                SubgroupSumF32Operands::Host {
+                    x: &y,
+                    out: &mut of
+                }
+            )));
+            assert!(bad(exec.atomic_add(
+                None,
+                nw,
+                1,
+                AtomicAddOperands::Host {
+                    x: &y,
+                    out: &mut oa
+                }
+            )));
+        }
+        assert!(bad(exec.atomic_add(
+            None,
+            1,
+            hw,
+            AtomicAddOperands::Host {
+                x: &y,
+                out: &mut oa
+            }
+        )));
     }
 }
 
