@@ -154,3 +154,105 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma -- 
 cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma
 cargo test -p fandhe-silicon-exec --locked --test cpu_f16_fma
 ```
+
+## 完了の条件の確かめ（4/4）
+
+4/4（#6050）で、下-2 の CPU の経路の `f16_fma` について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-930（ポインタのみ）。`uname -sm` は `Linux x86_64`。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | `f16_fma` の照合の順 | `grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::f16_fma' crates/exec/src/entry.rs` | `f16_fma` の中は 255 行 `check_lengths`、259 行 `check_host_len`、265 行 `route_report`、269 行 `crate::cpu::f16_fma`。全部の行は下の (1) の出力 |
+| (2) | 照合と変換と本体の単体試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` | `test result: ok. 86 passed; 0 failed; 0 ignored` |
+| (3) | 列の長さの照合の入口経由の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_device` | `tests/length_device.rs` が 2 passed、`tests/length_host.rs` が 2 passed、`tests/length_limit.rs` が 4 passed。3 本とも 0 failed; 0 ignored |
+| (4) | 入力の組と参照との比べ | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma`、`cargo test -p fandhe-silicon-exec --locked --test cpu_f16_fma` | `--all-features` は 4 passed; 0 failed; 0 ignored、既定の feature は 3 passed; 0 failed; 0 ignored |
+| (5) | `generate_f16_fma_e1` のビット同一の件数 | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma -- --nocapture` の出力の `^e1 n=` の行 | 13 行。下の (5) の出力 |
+| (6) | 直した既存の試験 | `gh pr diff 7972 --name-only` と `gh pr diff 7974 --name-only` の `crates/exec/tests/` の行、`cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields` | #7972 は `length_device.rs`・`length_host.rs`・`length_limit.rs`。#7974 は `fault_injection_ports.rs`・`opt_in_default.rs`・`route_query.rs`・`unsupported_fields.rs`。件数は `fault_injection_ports` が 8 passed、`opt_in_default` が 6 passed、`route_query` が 6 passed、`unsupported_fields` が 2 passed で、すべて 0 failed; 0 ignored |
+| (7) | 既存の試験とビルドの組 | `make verify`、`make build-profiles`、`make wasm-verify` | 3 つとも終了コード 0。`make verify` の exec は lib が 86 passed、`tests/cpu_f16_fma.rs` が 4 passed、`tests/device_operands.rs` が 1 passed、`tests/fault_injection_ports.rs` が 8 passed、`tests/length_device.rs` が 2 passed、`tests/length_host.rs` が 2 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed、`tests/opt_in_default.rs` が 6 passed、`tests/reasons_and_denormal.rs` が 4 passed、`tests/route_evidence_calls.rs` が 4 passed、`tests/route_query.rs` が 6 passed、`tests/unsupported_fields.rs` が 2 passed で、すべて 0 failed。`make build-profiles` の exec は feature なし・`native-blocking-wait`・`fault-injection` の 3 組で `clippy`・`test`・wasm32 の `cargo check` が通る。`make wasm-verify` は `cargo check (fandhe-silicon-exec tests, wasm32-unknown-unknown, …)` を default features・`native-blocking-wait`・`fault-injection` の 3 通りで通る |
+| (8) | 公開の面が変わらない | `make exec-surface-check` | 終了コード 0。下の (8) の出力 |
+| (9) | 依存と unsafe を足していない | `gh pr diff <n> --name-only`（n は 7972・7974・7975）を `grep -E '^(Cargo\.toml\|Cargo\.lock\|deps-approved\.toml\|deny\.toml\|crates/core/\|crates/upper/\|crates/exec/Cargo\.toml)'` で絞る、`grep -n forbid crates/exec/src/lib.rs` | 3 つとも grep の出力は空。`crates/exec/src/lib.rs` の 20 行に `#![forbid(unsafe_code)]` |
+| (10) | CI で流れる場所 | main の push の CI の run 41793124830（`conclusion=success`、`headSha=15e86ae529cf11b9d041cbb1a036822bd56026dd`）の job `make verify (fmt + clippy + test)`（job id 126450871726）の `make verify` のステップのログ | 下の (10) のログの行。`cpu_f16_fma` と `length_host` が出る |
+
+(1) の出力。
+
+```text
+15:use crate::length::{check_host_len, check_lengths};
+150:    fn route_report(
+186:    /// `route_report` に入口の関数名を渡し、試しの実行の手段が無いときの `Unsupported` に使わせる。
+193:        let report = self.route_report(op, opt_in, name)?;
+214:        self.route_report(op, opt_in, "query_route")
+255:        check_lengths(OpId::F16Fma, n, None, self.device.limits().max_buffer_bytes)?;
+259:                    check_host_len(len, n)?;
+265:        let report = self.route_report(OpId::F16Fma, opt_in, "f16_fma")?;
+269:                crate::cpu::f16_fma(a, b, c, out);
+285:        check_lengths(
+304:        check_lengths(
+324:        check_lengths(
+616:    fn query_route_reports_fallback_route() {
+```
+
+(5) の出力。
+
+```text
+e1 n=1 bit_identical=1
+e1 n=31 bit_identical=31
+e1 n=32 bit_identical=32
+e1 n=33 bit_identical=33
+e1 n=255 bit_identical=255
+e1 n=256 bit_identical=256
+e1 n=257 bit_identical=257
+e1 n=1000 bit_identical=1000
+e1 n=65539 bit_identical=65539
+e1 n=4096 bit_identical=4096
+e1 n=65536 bit_identical=65536
+e1 n=262144 bit_identical=262144
+e1 n=4194304 bit_identical=4194304
+```
+
+(8) の出力。
+
+```text
+record: commit=15e86ae529cf11b9d041cbb1a036822bd56026dd rs_files=26 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+(10) のログ（ジョブ名・ステップ名・時刻を除いて `Running` の行と `test result:` の行をログの出た順に並べた。`cpu_f16_fma` の直後の 1 行目 86 passed は lib の結果の行で、2 行目の 4 passed が `cpu_f16_fma` の結果）。
+
+```text
+Running tests/cpu_f16_fma.rs (target/debug/deps/cpu_f16_fma-94c5986b155befb1)
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+Running tests/length_host.rs (target/debug/deps/length_host-d17c7b4c6c32ccc1)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+確かめた時点は、main のコミット `15e86ae` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-930）。
+
+### 確かめ方
+
+```text
+grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::f16_fma' crates/exec/src/entry.rs
+cargo test -p fandhe-silicon-exec --all-features --locked --lib
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_device
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma
+cargo test -p fandhe-silicon-exec --locked --test cpu_f16_fma
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_f16_fma -- --nocapture
+cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields
+make verify
+make build-profiles
+make wasm-verify
+make exec-surface-check
+grep -n forbid crates/exec/src/lib.rs
+```
+
+## 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/4 | #6047（PR #7972） | host の列の長さと要素数の照合（1/4） |
+| 2/4 | #6048（PR #7974） | CPU の経路の f16 の積和（2/4） |
+| 3/4 | #6049（PR #7975） | 入力の組と CPU の参照との比べの試験（3/4） |
+| 4/4 | #6050 | 完了の条件の確かめ（4/4） |
+
+親 Issue は #872。
