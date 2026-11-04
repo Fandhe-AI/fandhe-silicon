@@ -186,3 +186,71 @@ cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::
 cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::failure
 cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure
 ```
+
+## 組み合わせの表の呼び出しの回数と判定できない経路を外す試験（5/6）
+
+### 所在
+
+試験は `crates/exec/src/denormal_tests.rs` の `mod matrix`・`mod injected_unknown`（どちらも feature `fault-injection`）と `mod judged_unknown`。ライブラリのコードは変えない。
+
+### 組み合わせの表
+
+device は能力が `S2` の device。4 操作それぞれに次の 9 行を、行ごとに新しい `Exec` で、入口を代表の長さ n = 1000（`atomic_add` は m = 64）で 1 回呼ぶ。host の列は長さを合わせる。
+
+| 強制 | 上書き | 経路 | 回数（`SubgroupSumF32`・`AtomicAdd`） |
+| ---- | ------ | ---- | ------------------------------------- |
+| なし | 全拒否 | `Route::Native` | 1 |
+| なし | `G_ONLY` | `Route::Native` | 1 |
+| なし | `C_ONLY` | `Route::Native` | 1 |
+| なし | `BOTH` | `Route::Native` | 1 |
+| その操作 | 全拒否 | なし | 0 |
+| その操作 | `G_ONLY` | `Route::GpuEmulated` | 1 |
+| その操作 | `C_ONLY` | `Route::Cpu` | 1 |
+| その操作 | `BOTH` | `Route::GpuEmulated` | 1 |
+| 別の操作 | 全拒否 | `Route::Native` | 1 |
+
+`F16Fma`・`SubgroupSumU32` の 18 行は、どれも回数 0。別の操作の対応は次のとおり。
+
+| 操作 | 別の操作 |
+| ---- | -------- |
+| `F16Fma` | `AtomicAdd` |
+| `SubgroupSumU32` | `SubgroupSumF32` |
+| `SubgroupSumF32` | `SubgroupSumU32` |
+| `AtomicAdd` | `F16Fma` |
+
+36 呼び出しの後の合計は `Route::Native` 10・`Route::GpuEmulated` 4・`Route::Cpu` 2（計 16）。同じ 36 行を入口の代わりに `query_route` で流しても同じ。数えるのは、模擬の runner が呼ばれた (操作, 経路) ごとの回数の、各呼び出しの前後の差。入口の戻り値の種類と文言は照らさない。
+
+### 判定できない経路
+
+| 差し込み・runner の答え | 上書き | 経路 | `native_reason` | `fallback_reason` | `basis` |
+| ----------------------- | ------ | ---- | --------------- | ----------------- | ------- |
+| `Route::Native` に `DenormalInjection::Unknown` | `G_ONLY`・`BOTH` | `Route::GpuEmulated` | `F32DenormalBehaviorUnknown` | なし | `Observed` |
+| `Route::Native`・`Route::GpuEmulated` に `Unknown` | `BOTH` | `Route::Cpu` | `F32DenormalBehaviorUnknown` | なし | `Observed` |
+| 3 経路に `Unknown` | `BOTH` | なし | `F32DenormalBehaviorUnknown` | `F32DenormalBehaviorUnknown` | なし |
+| 3 経路に `Unknown` | 全拒否 | なし | `F32DenormalBehaviorUnknown` | `OptInNotGiven` | なし |
+| `Route::GpuEmulated` にだけ `FlushToZero` | なし・`BOTH` | `Route::Native` | なし | なし | `Observed` |
+| `Route::Native` の出力が判定できない値 | `G_ONLY` | `Route::GpuEmulated` | `F32DenormalBehaviorUnknown` | なし | `Observed` |
+| `Route::Native` の出力が判定できない値 | 全拒否 | なし | `F32DenormalBehaviorUnknown` | `OptInNotGiven` | なし |
+| 3 経路の出力が判定できない値 | `BOTH` | なし | `F32DenormalBehaviorUnknown` | `F32DenormalBehaviorUnknown` | なし |
+
+差し込みは feature `fault-injection` の `inject_denormal`。出力が判定できない値の場面は feature なしで流れる。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `table_calls_count_judgment_runs`（feature `fault-injection`） | 上の 36 呼び出しを入口で | 行ごとに表の回数、合計は `Route::Native` 10・`Route::GpuEmulated` 4・`Route::Cpu` 2 |
+| `table_query_routes_count_judgment_runs`（同） | 同じ 36 行を `query_route` で | 同じ |
+| `injected_unknown_native_moves_to_observed_route`（同） | `SubgroupSumF32`・`AtomicAdd` × 上書き `G_ONLY`・`BOTH`、`Route::Native` に `Unknown` | 経路 `Route::GpuEmulated`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`、runner は `Route::GpuEmulated` に 1 回・`Route::Native` に 0 回 |
+| `injected_unknown_two_routes_moves_to_cpu`（同） | `Route::Native`・`Route::GpuEmulated` に `Unknown`、上書き `BOTH` | 経路 `Route::Cpu`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`、runner は `Route::Cpu` に 1 回 |
+| `all_injected_unknown_is_unavailable`（同） | 3 経路に `Unknown`、上書き `BOTH` と全拒否で入口を呼ぶ | `Ok(Outcome::Unavailable { .. })`、経路なし、`fallback_reason` は表のとおり、runner は 0 回 |
+| `injection_on_unchosen_route_keeps_observed_basis`（同） | `Route::GpuEmulated` にだけ `FlushToZero` | 経路 `Route::Native`、`behavior` は `Preserve`、`basis` は `Observed` |
+| `unknown_output_moves_to_next_route` | `Route::Native` だけ判定できない値を返す runner、上書き `G_ONLY` | 経路 `Route::GpuEmulated`、`native_reason` は `F32DenormalBehaviorUnknown`、`basis` は `Observed`。2 回目は runner の回数が増えず同じ報告 |
+| `unknown_without_opt_in_is_unavailable` | 判定できない値を返す runner、上書き全拒否と `BOTH` | 経路なし、理由は表のとおり。`BOTH` では runner は 3 経路に 1 回ずつ |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --locked --features fault-injection --lib denormal_tests
+cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::judged_unknown
+```
