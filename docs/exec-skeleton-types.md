@@ -335,3 +335,16 @@ cargo test -p fandhe-silicon-exec --features fault-injection
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 「今の値の補い（base 2f36d3d）」の `make upper-layer-check` の `record:` | `rs_files=9` → `rs_files=10`（`crates/upper/tests/upper_exec_same_device.rs` が加わった） | `make upper-layer-check \| grep '^record:'` |
+
+## 今の値の補い（base 2373576）
+
+記録時点の表と既存の節は書き換えない。以下は base `2373576` で観測した今の値（0 failed; 0 ignored）。`crates/exec/tests/route_evidence_calls.rs` が加わった。
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 46 passed → 合計 49 passed | 30 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 48 passed → 合計 51 passed | 31 + 1 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 67 passed → 合計 71 passed | 43 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | -- → 合計 73 passed | 44 + 1 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+
+`--lib` は feature なしで 30 passed、`native-blocking-wait` 付きで 31 passed のまま。

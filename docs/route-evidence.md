@@ -190,3 +190,19 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test route_eviden
 | 2/4 | #6008 | feat(core): TASK-922 の 2/4 呼び出しの数え上げと試験の枠への受け渡し |
 | 3/4 | #6009 | test(exec): TASK-922 の 3/4 下-2 の経路の報告と模擬の呼び出しの突き合わせ |
 | 4/4 | #6010 | docs: TASK-922 の 4/4 完了の条件の確かめ |
+
+## 今の値の補い（base 2373576）
+
+記録時点の表と既存の節は書き換えない。以下は base `2373576` で観測した今の値。
+
+- 「本リポの現状の事実」の記録時点の commit `5e75fcc`: 1/4（PR #7953）のマージのコミットは `3799efb` で、その親は `f4b9d8f`（`git log --format='%h %p %s' --grep=7953 -3` の出力は `3799efb f4b9d8f feat(core): TASK-922 の 1/4 ...`）。
+- 同じ表の「依存」の行: 今の module の `use` は 2 行で、`use crate::hash::sha256_bytes;` と `use crate::test_frame::{IndeterminateReason, RunResult, Verdict};`。core の中の `hash` に加えて `test_frame` も使う（2/4 の節の記述のとおり）。exec・device・buffer の型は受けないまま。
+
+```text
+grep -n '^use' crates/core/src/route_evidence.rs
+```
+
+- 1/4 の公開の項目の表に無い `EvidenceError::as_str`: `pub fn as_str(&self) -> &'static str`（`crates/core/src/route_evidence.rs` の 65 行目）。固定の英語の文言を返し、入力の値は含まない。`Display` はこの文字列を書き出す。`EvidenceError` の値は `EmptyOutput`・`CountsDecreased`・`SameArtifactDigest`・`TallyOverflow` の 4 つ（表の 3 つに `TallyOverflow` が 2/4 で加わった）。
+- 3/4 の「模擬の実行が作る値」の表の「番兵」: 番兵のバイト `0xA5`（`SENTINEL_BYTE`）と読む。
+- 4/4 の冒頭の実行環境の記述: GPU の無い Linux と読む。
+- 頁の末尾の「段の表」は `## 段の表` の節として本頁にある（`grep -n '^## 段の表' docs/route-evidence.md`）。`CLAUDE.md` と `README.md` の頁の行に「段の表」を加えた。

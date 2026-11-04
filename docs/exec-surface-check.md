@@ -457,3 +457,13 @@ record: commit=f4b9d8f287ad42ef32c20f0fca43294f8f47b6aa rs_files=15 build_rs=no 
 gh run list -R Fandhe-AI/fandhe-silicon --branch main --workflow ci.yml --limit 5
 gh run view 41742334323 -R Fandhe-AI/fandhe-silicon --json conclusion,headSha
 ```
+
+## 今の値の補い（base 2373576）
+
+記録時点の表と既存の節は書き換えない。以下は base `2373576` で観測した今の値。
+
+- 上の記録の `rs_files=15` は、いまは `rs_files=16`。`crates/exec/src` は 8 ファイル、`crates/exec/tests` は `common/mod.rs` を含め 8 ファイル（`route_evidence_calls.rs` が加わった）。`make exec-surface-check` の `record:` の行は次のとおりで、ほかの欄は変わらない。
+
+```text
+record: commit=237357677e4f69913c2ecf50adf2e9448f42d32b rs_files=16 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+```

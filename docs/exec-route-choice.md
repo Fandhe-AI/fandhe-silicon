@@ -201,3 +201,16 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test fault_inject
 `fault_injection_ports` は 8 passed; 0 failed; 0 ignored。差し込みの無い `F32` 系の操作が `op: "query_route"` の `Err` を返す試験は `force_without_injection_keeps_unsupported_for_f32_ops`、差し込みが報告に届く試験は `injection_reaches_reports`。
 
 `cargo test -p fandhe-silicon-exec --features fault-injection` の合計は 67 passed（43 + 8 + 5 + 4 + 6 + 1 + doctest 0）。feature なしの合計は 46 passed、`native-blocking-wait` 付きは 48 passed のまま。所在は [exec-fault-injection](exec-fault-injection.md)。
+
+## 今の値の補い（base 2373576）
+
+記録時点の表と既存の節は書き換えない。以下は base `2373576` で観測した今の値（0 failed; 0 ignored）。`crates/exec/tests/route_evidence_calls.rs` が加わった。
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 46 passed → 合計 49 passed | 30 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 48 passed → 合計 51 passed | 31 + 1 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 67 passed → 合計 71 passed | 43 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | -- → 合計 73 passed | 44 + 1 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+
+`--lib` は feature なしで 30 passed、`native-blocking-wait` 付きで 31 passed のまま。
