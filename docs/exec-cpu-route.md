@@ -1,6 +1,6 @@
 # 下-2 の CPU の経路の所在（TASK-930）
 
-下-2（`crates/exec`）の `f16_fma` の host の形の列の長さの検査、経路 `Route::Cpu` の f16 の積和、その試験の所在と、本リポの現状の事実をまとめる。
+下-2（`crates/exec`）の host の形の列の長さの検査と、経路 `Route::Cpu` の `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`、その試験の所在と、本リポの現状の事実をまとめる。
 決定の記録は private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-930（親の Issue は #872）。
 
 ## 本リポの現状の事実
@@ -443,19 +443,19 @@ cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection
 
 | 上書きの印 | 返り値 |
 | ---------- | ------ |
-| C だけ許す | `Ok`（入口は `Ok(Outcome::Ran { .. })`） |
-| G だけ許す・両方許す | `Err(ContractError::Unsupported { .. })` |
+| `allow_cpu: true`・`allow_gpu_emulated: false` の印 | `Ok`（入口は `Ok(Outcome::Ran { .. })`） |
+| `allow_gpu_emulated: true`・`allow_cpu: false` の印、`allow_gpu_emulated: true`・`allow_cpu: true` の印 | `Err(ContractError::Unsupported { .. })` |
 
-C だけ許す呼び出しの報告は、`route` が `Some(Route::Cpu)`、`f32_denormal` が `behavior: Preserve`・`basis: Observed`・`documented: None`。判定は `Exec` の値ごとに保持する。
+`allow_cpu: true`・`allow_gpu_emulated: false` の印で呼んだ呼び出しの報告は、`route` が `Some(Route::Cpu)`、`f32_denormal` が `behavior: Preserve`・`basis: Observed`・`documented: None`。判定は `Exec` の値ごとに保持する。
 
 ### 試験
 
 | ファイル | 試験 | 照らし |
 | -------- | ---- | ------ |
-| `entry.rs` | `query_route_reports_fallback_route` | `SubgroupSumF32` の C だけの印で `Preserve`・`Observed`・`documented` が `None` |
+| `entry.rs` | `query_route_reports_fallback_route` | `SubgroupSumF32` の `allow_cpu: true`・`allow_gpu_emulated: false` の印で `Preserve`・`Observed`・`documented` が `None` |
 | `entry.rs` | `subgroup_sums_with_cpu_override_run_on_host` | f32 は `Ran`・`out` が 2・報告が `query_route` と等しい |
 | `entry.rs` | `cpu_judgment_is_kept_per_exec` | 2 回の `query_route` と入口の報告が等しい |
-| `entry.rs` | `uninjected_cpu_route_is_judged_on_host` | 差し込みの無い C の経路が `Preserve`・`Observed` |
+| `entry.rs` | `uninjected_cpu_route_is_judged_on_host` | 差し込みの無い `Route::Cpu` の経路が `Preserve`・`Observed` |
 | `opt_in_default.rs` | `cpu_route_writes_subgroup_f32_output` | `Ran`・`out` が 2・`memory()`・`queue()` の呼びが 0 |
 | `unsupported_fields.rs` | `subgroup_sum_f32_cpu_route_runs` | `Ran` |
 
@@ -464,7 +464,7 @@ C だけ許す呼び出しの報告は、`route` が `Some(Route::Cpu)`、`f32_d
 | ファイル | 直し |
 | -------- | ---- |
 | `entry.rs` | `uninjected_route_keeps_unsupported_error` が `atomic_add` だけを照らす |
-| `route_query.rs` | `unreachable_native_follows_opt_in_order` が `SubgroupSumF32` の C を `Ok` として照らす。`query_route_matches_entry_report` の `Ran` の腕が `SubgroupSumF32` を含む |
+| `route_query.rs` | `unreachable_native_follows_opt_in_order` が `SubgroupSumF32` の `Route::Cpu` を `Ok` として照らす。`query_route_matches_entry_report` の `Ran` の腕が `SubgroupSumF32` を含む |
 | `opt_in_default.rs` | `chosen_route_does_not_write_output` が `subgroup_sum_f32` を書かない側から外す |
 | `unsupported_fields.rs` | `unsupported_carries_entry_name_and_device_backend` の `subgroup_sum_f32` が `Route::GpuEmulated` に決まる印で呼ぶ |
 
@@ -693,3 +693,71 @@ grep -n forbid crates/exec/src/lib.rs
 | 6/6 | #6058 | 完了の条件の確かめ（6/6） |
 
 親 Issue は #873。
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### `subgroup_sum_f32` の判定と返り値
+
+「CPU の経路の subgroup の総和（2/6）」の節の「返り値」の節の、`subgroup_sum_f32` が差し込みの無い経路に届く呼び出しで `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })` を返すと書いた文（`fault-injection` の `inject_denormal` で `Route::Cpu` に差し込んだ組では本体に届くという文を含む）と、同じ節の「試験」の表の `subgroup_sums_with_cpu_override_run_on_host` の行の「f32 は `Unsupported` で `out` が変わらない」は、今は次のとおり。
+
+| 呼び出し | 返り値 |
+| -------- | ------ |
+| `subgroup_sum_f32`・経路が `Route::Cpu`・host の形（差し込みの無い呼び出し） | 判定を `crate::cpu::subgroup_sum_f32` で計算して本体に届き、`Ok(Outcome::Ran { report })`。`out` に書く |
+| `subgroup_sum_f32`・`Route::Native` または `Route::GpuEmulated` に決まり、差し込みの無い呼び出し | `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })`。`out` に書かない（`unsupported_fields.rs` の `unsupported_carries_entry_name_and_device_backend`） |
+
+`entry::tests::subgroup_sums_with_cpu_override_run_on_host` は、`subgroup_sum_u32` に続けて `subgroup_sum_f32` を `Ran` として照らす。`out` は `[2.0]`、`report.route` は `Some(Route::Cpu)`、報告は `exec.query_route(OpId::SubgroupSumF32, over)` と等しく、`f32_denormal` は `behavior` が `Preserve`・`basis` が `Observed`。
+
+`crates/exec/src/entry.rs` の `fn probe`（223 行）は、runner を差していないとき、(`OpId::SubgroupSumF32`, `Route::Cpu`) を 237 行の `crate::cpu::subgroup_sum_f32` で計算した 3 つの出力で返し、ほかの組は `Err(ContractError::Unsupported { .. })` を返す。入口の本体は、`subgroup_sum_u32` が 318 行、`subgroup_sum_f32` が 360 行、`f16_fma` が 279 行の `crate::cpu::` の呼び出し。検査と報告は `subgroup_sum_u32` が 300 行の `check_lengths`・308 行と 309 行の `check_host_len`・314 行の `route_report`、`subgroup_sum_f32` が 342 行・350 行と 351 行・356 行（`grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::' crates/exec/src/entry.rs`）。
+
+### device の形で経路が `Route::Cpu` に決まる subgroup の 2 入口
+
+`crates/exec/tests/device_operands.rs` の `cpu_route_subgroup_sums_with_device_operands_are_unsupported_and_leave_buffers`（108 行。feature `native-blocking-wait` のビルドでだけ流れる）が、device の形の列を渡した `Exec::subgroup_sum_u32`・`Exec::subgroup_sum_f32` を、入口ごとに次の 2 つの組で呼ぶ。`CPU_ONLY` は `allow_cpu: true`・`allow_gpu_emulated: false` の印。
+
+| 組 | `Exec` の作り方 | 上書き |
+| -- | --------------- | ------ |
+| 0 | `Exec::new(&dev, CPU_ONLY)` | `None` |
+| 1 | `Exec::deny_by_default(&dev)` | `Some(CPU_ONLY)` |
+
+device は `Scripted::bare()`、`n` は 257（出力は 256 要素ごとに 1 つで 2 つ）。`x` の buffer は `n` × 4 バイトを値 1 で、`out` の buffer は 2 × 4 バイトを値 2 で埋める。
+
+| 照らす点 | 期待 |
+| -------- | ---- |
+| 戻り値 | `Err(ContractError::Unsupported { op: <入口の関数名>, .. })`（`"subgroup_sum_u32"`・`"subgroup_sum_f32"`）。`Ran` にならない |
+| `query_ex` の数え | 1 回 |
+| `memory()`・`queue()` の数え | 呼び出しの前後で変わらない |
+| `x`・`out` の buffer の中身 | 呼ぶ前のまま |
+
+`cargo test -p fandhe-silicon-exec --all-features --locked --test device_operands` は 3 passed; 0 failed; 0 ignored（`unavailable_leaves_device_buffers_unchanged`、`cpu_route_with_device_operands_is_unsupported_and_leaves_buffers` と上の試験）。この試験は PR #7985 で加わった。
+
+### 書き方の対応
+
+3 行の冒頭の文は、頁の全体（host の形の列の長さの検査、経路 `Route::Cpu` の `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`、その試験）の所在の文にした。`CLAUDE.md` の構成ツリーと `README.md` の文書の表の、この頁の行と同じ範囲を指す。
+
+「CPU の経路の f32 の総和の非正規化数の判定（3/6）」の節で、経路を 1 文字で指していた書き方は、次の名前に直した。
+
+| 場所 | 直し後の書き方 |
+| ---- | -------------- |
+| 「入口の返り値」の表の 1 行目と、表の下の文 | `allow_cpu: true`・`allow_gpu_emulated: false` の印 |
+| 同表の 2 行目 | `allow_gpu_emulated: true`・`allow_cpu: false` の印と、`allow_gpu_emulated: true`・`allow_cpu: true` の印 |
+| 「試験」の表の `query_route_reports_fallback_route` の行 | `allow_cpu: true`・`allow_gpu_emulated: false` の印 |
+| 「試験」の表の `uninjected_cpu_route_is_judged_on_host` の行 | `Route::Cpu` の経路 |
+| 「直した既存の試験」の表の `unreachable_native_follows_opt_in_order` の行 | `Route::Cpu` |
+
+### 完了の条件の確かめ（6/6）の値
+
+| 項目 | 記録の値 → 今の値 | 測ったコマンド |
+| ---- | ----------------- | -------------- |
+| `crates/exec/src` のファイル | 13 ファイルのまま | `ls crates/exec/src` |
+| `.rs` の数 | `make exec-surface-check` と `make exec-deps-check` の `rs_files=26` → `rs_files=27`。`crates/exec/tests` は `common/mod.rs` を含め 13 ファイル → 14 ファイル（`cpu_subgroup_sum.rs` が加わった） | `make exec-surface-check`、`make exec-deps-check` |
+| `forbid` の行 | `20:#![forbid(unsafe_code)]` → `21:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+| `cpu_subgroup_sum` | feature なしで 5 passed、`--all-features` で 6 passed（`forced_native_off_runs_cpu` が `fault-injection` の裏） | `cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum`、`cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum` |
+| exec の試験の合計 | feature なし 114、`fault-injection` 付き 148、`native-blocking-wait` 付き 121、`--all-features` 155（`--lib` は順に 68・91・69・92） | `cargo test -p fandhe-silicon-exec <組>` |
+| `make verify` | `test result:` の行 231、passed の合計 2368、failed の合計 0、ignored の合計 7。終了コード 0 | `make verify` |
+
+### 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 6/6 | #6058（PR #7984） | 完了の条件の確かめ（6/6） |

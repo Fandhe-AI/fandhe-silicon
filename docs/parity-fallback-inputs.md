@@ -211,3 +211,21 @@ TASK-929 の作業を進めるにあたり、記録の所在と本リポの現�
 grep -rn fallback_inputs crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 ```
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値。
+
+「今の値の補い（base dbbb5c0）」の `crates/exec` の表は、`git grep` と同じ範囲の `grep -rn` で数えると、今は次のとおり。
+
+| 語 | `crates/contract/src`・`crates/upper/src` | `crates/exec/src` | `crates/exec/tests` |
+| -- | ----------------------------------------- | ----------------- | ------------------- |
+| `fallback_inputs` | 0 件 | 0 件 | `cpu_f16_fma.rs:12` と `cpu_subgroup_sum.rs:14` の 2 件 |
+| `fallback_reference` | 0 件 | `cpu.rs:38` の `use fandhe_silicon_core::parity::fallback_reference::reference_f16_fma;` の 1 件（`cpu.rs:34` の `#[cfg(test)]` の `mod tests` の中） | `cpu_f16_fma.rs:16` と `cpu_subgroup_sum.rs:18` の 2 件 |
+
+`cpu_subgroup_sum.rs:14` は `fallback_inputs::{FALLBACK_LENGTHS, FallbackInputKind, generate_subgroup_sum_f32_fg, …}` を、`cpu_subgroup_sum.rs:18` は `fallback_reference::{reference_subgroup_sum_f32, reference_subgroup_sum_u32, subgroup_sum_output_len}` を取り込む。`crates/exec/src/cpu.rs` の `subgroup_sum_u32`・`subgroup_sum_f32`（20 行・28 行）の本体は、`fallback_inputs`・`fallback_reference` を使わない。`fallback_inputs`・`fallback_reference` の `pub` の項目を `crates/exec` が使うのは試験の中だけ。
+
+```text
+grep -rn fallback_inputs crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```

@@ -354,3 +354,34 @@ gh run view 41781760002 --json conclusion,headSha
 | 段 | Issue・PR | 節 |
 | -- | --------- | -- |
 | 6/6 | #6032（PR #7971） | 完了の条件の確かめ（6/6） |
+
+## 今の値の補い（base 515bb19）
+
+記録時点の表と既存の節は書き換えない。以下は base `515bb19` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### 試しの実行の手段を持たない `Exec`
+
+「保持の動き」の表の下の、試しの実行の手段を持たない `Exec`（`new`・`deny_by_default` で作った値）の文は、(`OpId::SubgroupSumF32`, `Route::Cpu`) の組については次のとおり。
+
+| 組 | 試しの実行 | 保持 |
+| -- | ---------- | ---- |
+| (`OpId::SubgroupSumF32`, `Route::Cpu`) | 入力を CPU の経路の f32 の総和の関数（`crate::cpu::subgroup_sum_f32`）で計算した 3 つの出力で判定する | 保持する（`entry::tests::cpu_judgment_is_kept_per_exec`。同じ `Exec` の 2 回の `query_route` と入口の報告が等しい） |
+| ほかの組 | `Err(ContractError::Unsupported { op: <入口の関数名 または "query_route">, .. })` | 保持しない |
+
+`crates/exec/src/entry.rs` の `fn probe`（223 行）が `match (op, route)` で分ける。差し込みの無い `Route::Cpu` の経路は、`entry::tests::uninjected_cpu_route_is_judged_on_host` が `behavior` を `Preserve`、`basis` を `Observed`、`documented` を `None` と照らす。「試験の口」の節の文（試しの実行を差す口は `#[cfg(test)]` だけにあり、公開の面には無い）は、今のコードと合う。`make exec-surface-check` の `record:` は `port_names_all=6`・`other_fns=5`・`unlisted_fns=0` のまま。`F16Fma`・`SubgroupSumU32` の `HeldJudgments::judge` は、保持の動きの表の最後の行のとおり `InvalidArgument` を返す。
+
+### 完了の条件の確かめ（6/6）の「今は」の値
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| (1) | 6 passed（86 件中、80 filtered out）→ 6 passed（92 件中、86 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal::` |
+| (2) | 4 passed（82 filtered out）→ 4 passed（88 filtered out） | (2) の `--lib -- denormal_tests::…` の 4 つの絞り込み |
+| (3) | 3 passed（83 filtered out）→ 3 passed（89 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented` |
+| (4) | 5 passed（81 filtered out）→ 5 passed（87 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected` |
+| (5) | 4 passed（82 filtered out）→ 4 passed（88 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure` |
+| (6) | `matrix` 2 passed（83 filtered out）→ 2 passed（89 filtered out）、`injected_unknown` 4 passed（81 filtered out）→ 4 passed（87 filtered out）、`judged_unknown` 2 passed（61 filtered out）→ 2 passed（66 filtered out） | (6) の 3 つのコマンド |
+| (7) の既存の試験の絞り込み | 36 passed（50 filtered out）→ 39 passed（53 filtered out） | (7) の `--lib -- entry::tests:: entry::forced_tests:: entry::injected_tests:: select::tests:: select::combination_tests::` |
+| (7) の `--tests` の lib | 86 passed → 92 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --tests` |
+| (7) の `tests/*.rs` | 12 本 → 13 本。`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`device_operands` 3・`fault_injection_ports` 8・`length_device` 3・`length_host` 4・`length_limit` 4・`length_zero` 5・`opt_in_default` 8・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 4（`cpu_subgroup_sum` が加わり、`device_operands`・`length_device`・`length_host`・`opt_in_default`・`unsupported_fields` の本数が増えた） | 同上 |
+| (7) の `entry.rs` の `cfg(test)` | 67・81・89・226・356 行 → 68・82・90・230・409 行 | `grep -n 'cfg(test)' crates/exec/src/entry.rs` |
+| (8) の `record:` | `rs_files=26` → `rs_files=27`（ほかの欄は変わらない）。`public_items=458`（production）・`511`（all-features）のまま。`crates/exec/src/lib.rs` の `forbid` の行は 20 行 → 21 行。`crates/exec/src` は 13 ファイルのまま | `make exec-surface-check`、`grep -n forbid crates/exec/src/lib.rs` |
