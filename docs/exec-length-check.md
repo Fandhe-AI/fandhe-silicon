@@ -100,3 +100,40 @@ make exec-surface-check
 ```text
 cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero
 ```
+
+## 上限を差し替えた device とバイト数のあふれの入口経由の試験（3/4）
+
+### 所在
+
+- `crates/exec/tests/length_limit.rs`（host の形）
+- `crates/exec/tests/length_device.rs`（device の形。feature `native-blocking-wait` のビルドだけ。`Cargo.toml` の `[[test]]`）
+- 上限を差し替える口: `crates/exec/tests/common/mod.rs` の `Scripted::with_max_buffer_bytes`。core の `FaultInjecting::with_limits_override` で上限の表の `max_buffer_bytes` だけを置き換え、`limits()` に効く。ほかの口・数えは変えない
+
+### 組
+
+| 軸 | 値 |
+| -- | -- |
+| opt-in の上書き | `None`・`NONE`・`G_ONLY`・`C_ONLY`・`BOTH` |
+| 既定の印（`Exec::new` に渡す） | `NONE`・`G_ONLY`・`C_ONLY`・`BOTH` |
+| device の答え | `Scripted::answering` の `S2`・`Unsupported` |
+
+呼び出しごとに新しい `Scripted` を作る。入力の列は長さ 1 で、長さ n の列は作らない。
+
+### 試験（`length_limit.rs`）
+
+| 試験 | 上限 | n・m | 期待 |
+| ---- | ---- | ---- | ---- |
+| `smallest_length_over_limit_is_rejected_through_entry` | 64 | `f16_fma` は n = 33、`subgroup_sum_u32`・`subgroup_sum_f32` は n = 17、`atomic_add` は n = 17（m = 1）と m = 17（n = 1） | `Err(InvalidArgument)`、3 つの数えが 0、出力が番兵のまま |
+| `largest_length_within_limit_reaches_route_choice` | 64 | `f16_fma` は n = 32、ほかは n = 16、`atomic_add` は m = 16（n = 1） | `InvalidArgument` でない、`query_ex` が 1 回 |
+| `byte_count_overflow_is_rejected_through_entry` | `u64::MAX` | `f16_fma` は n = `u64::MAX` と `u64::MAX / 2 + 1`、ほかは n = `u64::MAX / 4 + 1`、`atomic_add` は m = `u64::MAX / 4 + 1`（n = 1）。一つ手前（`u64::MAX / 2`・`u64::MAX / 4`）は拒否でない | 拒否の側は `Err(InvalidArgument)`、3 つの数えが 0、番兵のまま |
+| `rejected_call_does_not_block_next_call` | 64 | 同じ `Exec` で拒否の長さの後に通る長さ | 1 回目は拒否、2 回目は拒否でなく、`query_ex` が 1 回 |
+
+### 試験（`length_device.rs`）
+
+device の形の buffer（16 バイト）を渡し、上限 `1 << 28` で n = 0 と `atomic_add` の m = 0、上限 64 で `f16_fma` は n = 33・ほかは n = 17、上限 `u64::MAX` で n = `u64::MAX` を呼ぶ。期待は `Err(InvalidArgument)`、能力の問合せが 0 回、buffer の中身が埋めた値のまま。`memory_calls()` は確保・読み出しでも増えるので、入口の呼び出しの前後で比べる。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device
+```
