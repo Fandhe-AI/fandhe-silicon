@@ -46,7 +46,8 @@ pub struct F32DenormalReport {
     pub behavior: F32DenormalBehavior,
     /// 扱いの根拠。
     pub basis: F32DenormalBasis,
-    /// 文書で示された扱い。無ければ `None`。
+    /// `Exec` の device が `BackendKind::Cuda`、`op` が `OpId::AtomicAdd`、`route` が `Route::Native` の報告で
+    /// `Some(F32DenormalBehavior::FlushToZero)`、ほかは `None`。`behavior`・`basis` はこの値によらない。
     pub documented: Option<F32DenormalBehavior>,
 }
 
