@@ -467,3 +467,14 @@ gh run view 41742334323 -R Fandhe-AI/fandhe-silicon --json conclusion,headSha
 ```text
 record: commit=237357677e4f69913c2ecf50adf2e9448f42d32b rs_files=16 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
 ```
+
+## 今の値の補い（base 904126a）
+
+記録時点の表と既存の節は書き換えない。以下は base `904126a` で観測した今の値。
+
+- 上の記録の `rs_files=16` は、いまは `rs_files=20`。`crates/exec/src` は 9 ファイル（`length.rs` が加わった）、`crates/exec/tests` は `common/mod.rs` を含め 11 ファイル（`length_zero.rs`・`length_limit.rs`・`length_device.rs` が加わった）。`make exec-surface-check` は終了コード 0 で、`record:` の行は次のとおり。ほかの欄は変わらない。
+
+```text
+record: commit=904126a006b240f372926d49e3077747ecce4b3d rs_files=20 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```

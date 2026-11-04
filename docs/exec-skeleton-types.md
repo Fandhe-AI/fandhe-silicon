@@ -348,3 +348,43 @@ cargo test -p fandhe-silicon-exec --features fault-injection
 | `cargo test -p fandhe-silicon-exec --all-features` | -- → 合計 73 passed | 44 + 1 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
 
 `--lib` は feature なしで 30 passed、`native-blocking-wait` 付きで 31 passed のまま。
+
+## 今の値の補い（base 904126a）
+
+記録時点の表と既存の節は書き換えない。以下は base `904126a` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。4 つの入口に長さの検査（`crates/exec/src/length.rs` の `check_lengths`。所在は [exec-length-check.md](exec-length-check.md)）が加わった（TASK-924）。
+
+### 4 つの入口の動きへの補い
+
+4 つの入口は、上の「4 つの入口の動き」の手順 1 より前に `check_lengths` を呼ぶ。`n` が 0、`atomic_add` の `m` が 0、必要バイト数が `u64` であふれる、入力・出力のどちらかの buffer のバイト数が device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し、能力の問合せに進まない。通れば手順 1〜6 のとおり。上の「どの入口も `n`・`m`・`operands` を読まず」は、4 つの入口については `n`（と `atomic_add` の `m`）を読んで検査する形になった。`operands` は読まず、出力の列・buffer に書かない点は変わらない。3 つの入口（`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing`）は長さを持たず、動きは変わらない。
+
+| 入口 | 検査の呼び出し（`crates/exec/src/entry.rs`） | `self.run` の呼び出し |
+| ---- | -------------------------------------------- | --------------------- |
+| `f16_fma` | 189 行 | 191 行 |
+| `subgroup_sum_u32` | 203 行 | 210 行 |
+| `subgroup_sum_f32` | 222 行 | 229 行 |
+| `atomic_add` | 242 行（`n` と `Some(m)`） | 249 行 |
+
+取り込みは `entry.rs:10` の `use crate::length::check_lengths;`。測ったコマンドは `grep -n 'check_lengths\|self.run(OpId' crates/exec/src/entry.rs`。
+
+### 完了の条件の確かめ（7/7）の値
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| (1) の `forbid` の行 | `18:#![forbid(unsafe_code)]` → `19:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+| `crates/exec/src` のファイルの数 | 8 ファイル → 9 ファイル（`length.rs` が加わった） | `ls crates/exec/src \| wc -l` |
+| (3) の `&'static` の行 | `entry.rs:146`・`entry.rs:172` → `entry.rs:147` の `name: &'static str,` と `entry.rs:173` の `fn unsupported(&self, op: &'static str) -> ContractError {`（2 行のまま） | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|&mut self' crates/exec/src` |
+| `crates/exec/Cargo.toml` の行数 | 36 行 → 41 行（`length_device` の `[[test]]` が `required-features = ["native-blocking-wait"]` で加わった） | `wc -l crates/exec/Cargo.toml` |
+| `public-name-check` の exec の all-features | `public_items=451 named_items=149` のまま（production は `403`・`123`。`name_hits=0`） | `make public-name-check` |
+
+### 試験の件数
+
+`crates/exec/tests/` に `length_zero.rs`・`length_limit.rs`・`length_device.rs` が加わり、`--lib` の件数が増えた。
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 49 passed → 合計 64 passed | 36 + 4 + 5 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 51 passed → 合計 67 passed | 37 + 1 + 1 + 4 + 5 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 71 passed → 合計 86 passed | 49 + 8 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 73 passed → 合計 89 passed | 50 + 1 + 8 + 1 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+
+`--lib` は feature なしで 30 passed → 36 passed、`native-blocking-wait` 付きで 31 passed → 37 passed、`fault-injection` 付きで 43 passed → 49 passed、`--all-features` で 44 passed → 50 passed。

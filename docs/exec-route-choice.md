@@ -214,3 +214,26 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test fault_inject
 | `cargo test -p fandhe-silicon-exec --all-features` | -- → 合計 73 passed | 44 + 1 + 8 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
 
 `--lib` は feature なしで 30 passed、`native-blocking-wait` 付きで 31 passed のまま。
+
+## 今の値の補い（base 904126a）
+
+記録時点の表と既存の節は書き換えない。以下は base `904126a` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。4 つの入口に長さの検査（[exec-length-check.md](exec-length-check.md)）が加わった（TASK-924）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| (1) の `forbid` の行 | `18:#![forbid(unsafe_code)]` → `19:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+| (1) の `Cargo.toml` の差分 | `1 file changed, 7 insertions(+)` → `1 file changed, 12 insertions(+)`（`--numstat` は `12 0`） | `git diff --stat 6b35dd9 -- crates/exec/Cargo.toml` |
+| (2) の選び方の関数と呼び出し元 | 本体側の呼び出し `entry.rs:132` → `entry.rs:133` の `let output = select_route(&input, judge)?;`。取り込みは `entry.rs:18`。定義は `select.rs:71` のまま。試験の中の出現は `222`・`245`・`260`・`276`・`332`・`828` のまま | `grep -rn 'select_route' crates/exec/src` |
+| (3) の `RefCell` の行 | `select.rs:322`・`select.rs:331` のまま。`&'static` の行は `entry.rs:146`・`entry.rs:172` → `entry.rs:147`・`entry.rs:173` | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|Cell\|&mut self' crates/exec/src` |
+| (4) の組み合わせの数の行 | `662:            assert_eq!(checked, 5720);` のまま | `grep -n 'assert_eq!(checked, 5720)' crates/exec/src/select.rs` |
+
+試験の件数は次のとおり。
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 49 passed → 合計 64 passed | 36 + 4 + 5 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 51 passed → 合計 67 passed | 37 + 1 + 1 + 4 + 5 + 5 + 4 + 3 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 71 passed → 合計 86 passed | 49 + 8 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 73 passed → 合計 89 passed | 50 + 1 + 8 + 1 + 4 + 5 + 5 + 4 + 4 + 6 + 1 + doctest 0 |
+
+`route_query` は 6 passed のまま、`fault_injection_ports` は 8 passed のまま、`every_combination_matches_candidate_rule` は `--lib` の中で 1 passed のまま。
