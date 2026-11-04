@@ -46,7 +46,7 @@ fn counts(native: u64, gpu_emulated: u64, cpu: u64) -> RunCounts {
     }
 }
 
-/// 経路ごとに一致する値。出力は呼び出しの前に番兵で埋めた列を、書き換わった形で渡す。
+/// 経路ごとに一致する値。出力は呼び出しの前に番兵のバイトで埋めた列を、書き換わった形で渡す。
 fn matching(route: Option<ReportedRoute>, output: &[u8]) -> CallEvidence<'_> {
     let d = digests();
     let (marker, after, artifact) = match route {
@@ -214,6 +214,33 @@ fn input_errors_are_not_counted() {
     assert_eq!(
         ArtifactDigests::from_artifacts(b"same", b"same"),
         Err(EvidenceError::SameArtifactDigest)
+    );
+    assert_eq!(t, before);
+}
+
+#[test]
+fn gpu_emulated_or_cpu_count_decrease_is_rejected() {
+    let d = digests();
+    let out = output_for(Some(ReportedRoute::Native));
+    let ev = matching(Some(ReportedRoute::Native), &out);
+    let mut t = EvidenceTally::new();
+    t.record_call(Some(ReportedRoute::Native), &ev, Some(&d))
+        .unwrap();
+    let before = t.clone();
+
+    let mut gpu = ev;
+    gpu.before.gpu_emulated = 1;
+    assert_eq!(
+        t.record_call(Some(ReportedRoute::Native), &gpu, Some(&d)),
+        Err(EvidenceError::CountsDecreased)
+    );
+    assert_eq!(t, before);
+
+    let mut cpu = ev;
+    cpu.before.cpu = 1;
+    assert_eq!(
+        t.record_call(Some(ReportedRoute::Native), &cpu, Some(&d)),
+        Err(EvidenceError::CountsDecreased)
     );
     assert_eq!(t, before);
 }
