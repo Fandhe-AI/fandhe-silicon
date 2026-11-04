@@ -474,3 +474,60 @@ C だけ許す呼び出しの報告は、`route` が `Some(Route::Cpu)`、`f32_d
 cargo test -p fandhe-silicon-exec --all-features --locked --lib entry
 cargo test -p fandhe-silicon-exec --all-features --locked --test route_query --test opt_in_default --test unsupported_fields --test fault_injection_ports
 ```
+
+## 入力の組と CPU の参照との比べの試験（4/6）（TASK-931）
+
+### 所在
+
+`crates/exec/tests/cpu_subgroup_sum.rs`（公開のパスから `Exec::subgroup_sum_u32`・`Exec::subgroup_sum_f32` を host の形で呼ぶ外の crate の統合テスト）。
+
+### 経路 `Route::Cpu` を選ばせる組
+
+| 組 | device の答え | `Exec` の作り方 | 上書き |
+| -- | ------------- | --------------- | ------ |
+| (a) | `Unsupported` | `Exec::new(&dev, CPU_ONLY)` | `None` |
+| (b) | `Unsupported` | `Exec::deny_by_default(&dev)` | `Some(CPU_ONLY)` |
+| 故障の差し込み（feature `fault-injection` のビルドでだけ） | `S2` | `Exec::deny_by_default(&dev).force_unsupported(op)` | `Some(CPU_ONLY)` |
+
+呼び出しごとに新しい試験用の device を作る。
+
+### 入力と比べ方
+
+| 入口 | 入力 | 参照 | 比べ方 |
+| ---- | ---- | ---- | ------ |
+| `subgroup_sum_u32` | `generate_subgroup_sum_u32_u` | `reference_subgroup_sum_u32` | `compare_bits_u32` |
+| `subgroup_sum_f32` | `generate_subgroup_sum_f32_fx` | `reference_subgroup_sum_f32`（`F32SubnormalHandling::Preserve`） | `compare_bits_f32` |
+| `subgroup_sum_f32` | `generate_subgroup_sum_f32_fg`・`generate_subgroup_sum_f32_fs` | 同上 | `compare_relative_sum_f32` |
+
+長さは `FALLBACK_LENGTHS` の 13 通り（[parity-fallback-inputs.md](parity-fallback-inputs.md)）。比べの関数は [parity-fallback-compare.md](parity-fallback-compare.md)。
+
+### 試験
+
+| 試験 | 入力 | 組 | 期待 |
+| ---- | ---- | -- | ---- |
+| `u32_outputs_match_bits_over_lengths` | `generate_subgroup_sum_u32_u` の 13 通り | (a)・(b) | ビット同一 |
+| `integer_f32_outputs_match_bits_over_lengths` | `generate_subgroup_sum_f32_fx` の 13 通り | (a)・(b) | ビット同一 |
+| `fg_is_within_relative_bound_over_lengths` | `generate_subgroup_sum_f32_fg` の 13 通り | (a) | 相対の条件に合い、余裕の最大が有限 |
+| `fs_is_compared_with_preserving_reference_over_lengths` | `generate_subgroup_sum_f32_fs` の 13 通り | (a) | 相対の条件に合う |
+| `forced_native_off_runs_cpu`（feature `fault-injection`） | 長さ 1000 の u32 と f32 | 故障の差し込み | 上の照らしに加え `native_reason` が `Some(UnavailableReason::ForcedUnsupported)` |
+
+### 報告と数えるもの
+
+- `route` が `Some(Route::Cpu)`。`query_route` と同じ報告になる。
+- u32 は `f32_denormal` が `None`。f32 は `behavior: Preserve`・`basis: Observed`・`documented: None`。
+- `query_ex_calls()` が 1、`memory_calls()`・`queue_calls()` が 0。
+
+### 余裕の行の出し方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum -- --nocapture
+```
+
+`margin subgroup-sum-f32-fg n=… blocks=… max=…` の行が 13 行出る。照らすのは `is_match()` と最大が有限であることだけ。`make verify` のログには出ない。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum
+cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum
+```
