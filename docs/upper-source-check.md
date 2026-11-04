@@ -293,3 +293,7 @@ gh run view 41642253222 --json conclusion,headSha
 今の値の補い（base 8c52335）: 上の表の 4/4 は PR #7906（コミット 8c52335）。
 
 親 Issue は #1059。
+
+## 今の値の補い（base f4b9d8f）
+
+上の 3/4 と 4/4 の `ci.yml` の行番号は、今の `.github/workflows/ci.yml` では `run: make upper-source-check` が 274 行目、`run: make test-upper-source-check` が 347 行目（`grep -n 'run: make upper-source-check\|run: make test-upper-source-check' .github/workflows/ci.yml` の出力）。

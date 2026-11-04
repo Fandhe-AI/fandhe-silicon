@@ -217,3 +217,7 @@ origin/main のコミット `7dcbd25`、`docs/spec` の gitlink は `c7887a1` �
 | -- | ----------------- | -------------- |
 | 所在の「使う公開のパス」 | 表に載る公開のパスに `ContractError` と `BackendKind` は無い → 試験の `use` に `fandhe_silicon_core::error::ContractError`（11 行目）と `fandhe_silicon_core::capability::BackendKind`（9 行目）が加わっている。`BackendKind` は `Recorder` の `backend()` の値（`Metal`）を照らすのに使う | `sed -n 8,15p crates/upper/tests/upper_exec_same_device.rs` |
 | 上の層と下-2 を 1 つの device で通す試験（1/3）の `exec_failure_does_not_change_upper_submit` の期待 | `f16_fma` の戻りが `Ok(Outcome::Unavailable { .. })` ではない → `f16_fma` の戻りが `Err(ContractError::Unsupported { op: "f16_fma", backend: BackendKind::Metal, .. })` に当たる（145〜149 行目）。`backend` の `Metal` は `Recorder` の `backend()` が返す値。`submit`・`wait_blocking`・buffer の大きさ・用途・読み出しの長さの期待は同じ | `grep -n -A5 'Err(ContractError' crates/upper/tests/upper_exec_same_device.rs`、`cargo test -p fandhe-silicon-upper --features native-blocking-wait --test upper_exec_same_device`（2 passed; 0 failed; 0 ignored） |
+
+## 今の値の補い（base f4b9d8f）
+
+上の表の (7) の `.github/workflows/ci.yml` の行番号は、今は `run: make upper-layer-check` が 270 行目（`grep -n 'run: make upper-layer-check' .github/workflows/ci.yml` の出力）。
