@@ -282,10 +282,12 @@ fn each_flag_reaches_route_choice() {
 fn chosen_route_does_not_write_output() {
     let dev = Scripted::bare();
     let exec = Exec::deny_by_default(&dev);
-    for call in call_four(&exec, Some(C_ONLY))
-        .into_iter()
-        .filter(|call| !matches!(call.op, OpId::F16Fma | OpId::SubgroupSumU32))
-    {
+    for call in call_four(&exec, Some(C_ONLY)).into_iter().filter(|call| {
+        !matches!(
+            call.op,
+            OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
+        )
+    }) {
         assert!(is_unsupported(&call.result), "{:?}", call.op);
         assert!(call.untouched, "{:?}", call.op);
     }
@@ -340,6 +342,29 @@ fn cpu_route_writes_subgroup_u32_output() {
         other => panic!("expected Ran: {other:?}"),
     }
     assert_eq!(out, [2]);
+    assert_eq!(dev.memory_calls(), 0);
+    assert_eq!(dev.queue_calls(), 0);
+}
+
+#[test]
+fn cpu_route_writes_subgroup_f32_output() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let x = [1.0f32; 2];
+    let mut out = [7.0f32; 1];
+    let r = exec.subgroup_sum_f32(
+        Some(C_ONLY),
+        2,
+        SubgroupSumF32Operands::Host {
+            x: &x,
+            out: &mut out,
+        },
+    );
+    match r {
+        Ok(Outcome::Ran { report }) => assert_eq!(report.route, Some(Route::Cpu)),
+        other => panic!("expected Ran: {other:?}"),
+    }
+    assert_eq!(out, [2.0]);
     assert_eq!(dev.memory_calls(), 0);
     assert_eq!(dev.queue_calls(), 0);
 }

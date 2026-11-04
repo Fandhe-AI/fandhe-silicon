@@ -146,7 +146,7 @@ impl<'d> Exec<'d> {
     /// 効く印・`query_ex` の 1 回・選び方・報告の組み立てを通す、`run` と `query_route` の共通の処理。
     ///
     /// 経路の選び方が判定を求めたとき、(操作, 経路) の保持があればそれを使い、無ければ試しの実行を
-    /// 1 回流して判定を保持する。試しの実行の手段が無い `Exec` では `name` の `Unsupported` を返し、
+    /// 1 回流して判定を保持する。(`OpId::SubgroupSumF32`, `Route::Cpu`) 以外の組で試しの実行が `Err` を返すときは `name` の `Unsupported` を返し、
     /// 保持しない。その `Err` は選び方を中断してそのまま返る。
     fn route_report(
         &self,
@@ -203,9 +203,11 @@ impl<'d> Exec<'d> {
     /// 同じ device の値・同じ操作・同じ `opt_in` で入口を呼んだときと同じ報告を返す
     /// （入口が `Ok(Outcome::Unavailable { report })` か `Ok(Outcome::Ran { report })` を返す呼び出しでは `report` と等しい）。
     /// 経路が `None` の報告も、経路がある報告も `Ok`。
-    /// `OpId::SubgroupSumF32`・`OpId::AtomicAdd` で、差し込みの無い経路に届く呼び出しは
+    /// `OpId::SubgroupSumF32` の `Route::Native`・`Route::GpuEmulated` と `OpId::AtomicAdd` で、差し込みの無い経路に届く呼び出しは
     /// `Err(ContractError::Unsupported { op: "query_route", backend })` を返す
     /// （`backend` は `Device::backend()` の値）。
+    /// `OpId::SubgroupSumF32` の `Route::Cpu` は判定を CPU で計算し、`f32_denormal` が
+    /// `behavior: Preserve`・`basis: Observed` の報告を返す。
     /// `query_ex` を 1 回だけ呼び、下-1 の投入・確保・読み出しを呼ばない。
     pub fn query_route(
         &self,
@@ -215,8 +217,9 @@ impl<'d> Exec<'d> {
         self.route_report(op, opt_in, "query_route")
     }
 
-    /// 試しの実行を 1 回流して 3 つの出力を返す。runner を差した試験のビルドではそれを呼び、
-    /// 差していなければ（製品のビルドは常にこちら）`name` の `Unsupported` を返す。
+    /// 試しの実行を 1 回流して 3 つの出力を返す。runner を差した試験のビルドではそれを呼ぶ。
+    /// runner が無ければ、(`OpId::SubgroupSumF32`, `Route::Cpu`) は入力を CPU の経路の f32 の総和の関数で
+    /// 計算した 3 つの出力を返し、ほかの組は `name` の `Unsupported` を返す。
     fn probe(
         &self,
         op: OpId,
@@ -228,8 +231,14 @@ impl<'d> Exec<'d> {
         if let Some(runner) = self.runner {
             return runner(op, route, input);
         }
-        let _ = (op, route, input);
-        Err(self.unsupported(name))
+        match (op, route) {
+            (OpId::SubgroupSumF32, Route::Cpu) => {
+                let mut out = [0.0f32; 3];
+                crate::cpu::subgroup_sum_f32(input, &mut out);
+                Ok(out)
+            }
+            _ => Err(self.unsupported(name)),
+        }
     }
 
     fn unsupported(&self, op: &'static str) -> ContractError {
@@ -321,8 +330,9 @@ impl<'d> Exec<'d> {
     /// f32 で足した値を `out` に書き、`Ok(Outcome::Ran { report })` を返す（`memory()`・`queue()` を呼ばない）。
     /// 経路が無ければ `Ok(Outcome::Unavailable { report })` を返し、列の中身は読まず出力に書かない。
     /// device の形と、ほかの経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
-    /// 経路の選び方が f32 の非正規化数の判定を求め、差し込みの無い経路に届く呼び出しは
+    /// 経路の選び方が f32 の非正規化数の判定を求め、`Route::Native`・`Route::GpuEmulated` で差し込みの無い経路に届く呼び出しは
     /// `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })` を返し、出力に書かない。
+    /// `Route::Cpu` は判定を CPU で計算して本体に届く。
     pub fn subgroup_sum_f32(
         &self,
         opt_in: Option<OptIn>,
@@ -399,6 +409,7 @@ impl<'d> Exec<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::report::F32DenormalBasis;
     use crate::route::UnavailableReason;
     use fandhe_silicon_core::capability::{BackendKind, Capabilities, CapabilityLevel};
     use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
@@ -570,14 +581,45 @@ mod tests {
                 out: &mut of,
             },
         );
-        assert!(matches!(
-            r,
-            Err(ContractError::Unsupported {
-                op: "subgroup_sum_f32",
-                ..
-            })
-        ));
-        assert_eq!(of, [7.0; 1]);
+        let Ok(Outcome::Ran { report }) = r else {
+            panic!("expected Ran");
+        };
+        assert_eq!(report.route, Some(Route::Cpu));
+        assert_eq!(
+            report,
+            exec.query_route(OpId::SubgroupSumF32, over).unwrap()
+        );
+        assert_eq!(of, [2.0]);
+        let j = report.f32_denormal.expect("judgment");
+        assert_eq!(j.behavior, F32DenormalBehavior::Preserve);
+        assert_eq!(j.basis, F32DenormalBasis::Observed);
+    }
+
+    #[test]
+    fn cpu_judgment_is_kept_per_exec() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let over = Some(opt(false, true));
+        let a = exec.query_route(OpId::SubgroupSumF32, over).unwrap();
+        let b = exec.query_route(OpId::SubgroupSumF32, over).unwrap();
+        let (x, mut out) = ([1.0f32; 2], [7.0f32; 1]);
+        let r = exec.subgroup_sum_f32(
+            over,
+            2,
+            SubgroupSumF32Operands::Host {
+                x: &x,
+                out: &mut out,
+            },
+        );
+        let Ok(Outcome::Ran { report: c }) = r else {
+            panic!("expected Ran");
+        };
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        assert_eq!(
+            c.f32_denormal.expect("judgment").basis,
+            F32DenormalBasis::Observed
+        );
     }
 
     #[test]
@@ -688,19 +730,26 @@ mod tests {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
         let over = Some(opt(false, true));
-        for op in [OpId::F16Fma, OpId::SubgroupSumU32] {
+        for op in [OpId::F16Fma, OpId::SubgroupSumU32, OpId::SubgroupSumF32] {
             let Ok(r) = exec.query_route(op, over) else {
                 panic!("expected Ok");
             };
             assert_eq!(r.route, Some(Route::Cpu));
+            if op == OpId::SubgroupSumF32 {
+                let j = r.f32_denormal.expect("judgment");
+                assert_eq!(j.behavior, F32DenormalBehavior::Preserve);
+                assert_eq!(j.basis, F32DenormalBasis::Observed);
+                assert_eq!(j.documented, None);
+            } else {
+                assert_eq!(r.f32_denormal, None);
+            }
         }
-        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
-            let Err(ContractError::Unsupported { op: name, .. }) = exec.query_route(op, over)
-            else {
-                panic!("expected Unsupported");
-            };
-            assert_eq!(name, "query_route");
-        }
+        let Err(ContractError::Unsupported { op: name, .. }) =
+            exec.query_route(OpId::AtomicAdd, over)
+        else {
+            panic!("expected Unsupported");
+        };
+        assert_eq!(name, "query_route");
     }
 
     #[test]
@@ -1079,20 +1128,32 @@ mod injected_tests {
     #[test]
     fn uninjected_route_keeps_unsupported_error() {
         let dev = stub();
-        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
-            let exec = Exec::new(&dev, opt(true, true)).inject_denormal(
-                op,
-                Route::GpuEmulated,
-                Inj::Unknown,
-            );
-            assert!(matches!(
-                exec.query_route(op, None),
-                Err(ContractError::Unsupported {
-                    op: "query_route",
-                    ..
-                })
-            ));
-        }
+        let op = OpId::AtomicAdd;
+        let exec =
+            Exec::new(&dev, opt(true, true)).inject_denormal(op, Route::GpuEmulated, Inj::Unknown);
+        assert!(matches!(
+            exec.query_route(OpId::AtomicAdd, None),
+            Err(ContractError::Unsupported {
+                op: "query_route",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn uninjected_cpu_route_is_judged_on_host() {
+        let dev = stub();
+        let exec = Exec::new(&dev, opt(true, true)).inject_denormal(
+            OpId::SubgroupSumF32,
+            Route::GpuEmulated,
+            Inj::Unknown,
+        );
+        let r = exec.query_route(OpId::SubgroupSumF32, None).unwrap();
+        assert_eq!(r.route, Some(Route::Cpu));
+        let j = r.f32_denormal.expect("judgment");
+        assert_eq!(j.behavior, F32DenormalBehavior::Preserve);
+        assert_eq!(j.basis, F32DenormalBasis::Observed);
+        assert_eq!(j.documented, None);
     }
 
     #[test]
