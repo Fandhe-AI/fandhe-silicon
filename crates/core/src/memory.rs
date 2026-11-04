@@ -7,9 +7,11 @@
 //! （`validate_usage_for_role`）も置く（TASK-1796 のポインタ）。
 //! ハンドルからは確保した大きさと用途を読める（TASK-310 のポインタ）。
 //! バッファの部分範囲の型（`BufferSlice`）と、ハンドルから範囲を作る口も置く（TASK-311 のポインタ）。
+//! 書き込み用のビューの型（`MappedRangeMut`）も置く（TASK-312 のポインタ）。
 
 mod buffer;
 mod buffer_check;
+mod mapped_range;
 mod ops;
 mod slice;
 mod usage_check;
@@ -17,6 +19,7 @@ mod usage_mapping;
 
 pub use buffer::{BufferHandle, BufferUsage};
 pub use buffer_check::{validate_allocation_size, validate_buffer_range};
+pub use mapped_range::MappedRangeMut;
 pub use ops::MemoryOps;
 pub use slice::BufferSlice;
 pub use usage_check::{UsageRole, validate_usage_for_role};
