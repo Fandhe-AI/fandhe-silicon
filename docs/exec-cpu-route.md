@@ -305,3 +305,65 @@ device は `Scripted::bare()`、`n` は 8、4 つの buffer（16 バイト）の
 | 段 | Issue・PR | 節 |
 | -- | --------- | -- |
 | 4/4 | #6050（PR #7976） | 完了の条件の確かめ（4/4） |
+
+## subgroup の総和の host の列の長さと出力の数の照合（1/6）（TASK-931）
+
+下-2（`crates/exec`）の `subgroup_sum_u32`・`subgroup_sum_f32` の host の形の列の長さの検査と、その試験の所在をまとめる。
+決定の記録は private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-931（親の Issue は #873）。
+
+### 本リポの現状の事実
+
+記録時点の commit は `761cdc9`（`origin/main`）。
+
+| 項目 | 事実 | コマンド |
+| ---- | ---- | -------- |
+| exec の `src/` のファイル | `binary16.rs`・`cpu.rs`・`denormal.rs`・`denormal_tests.rs`・`entry.rs`・`hooks.rs`・`length.rs`・`lib.rs`・`operands.rs`・`opt_in.rs`・`report.rs`・`route.rs`・`select.rs` | `ls crates/exec/src` |
+| 通常の依存 | `fandhe-silicon-core` だけ | `cargo tree -p fandhe-silicon-exec -e normal --depth 1` |
+| unsafe | `#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+
+### 所在
+
+- 出力の数の関数: `crates/exec/src/length.rs` の `subgroup_output_len`（`pub(crate)`。`n` を 256 で割って切り上げた数）
+- 2 つの入口からの呼び出し: `grep -n 'check_host_len\|subgroup_output_len' crates/exec/src/entry.rs crates/exec/src/length.rs`
+
+### 判定の順
+
+`subgroup_sum_u32`・`subgroup_sum_f32` は host の形のとき、次の順で判定する。
+
+| 段 | 内容 | 違うときの返り値 |
+| -- | ---- | ---------------- |
+| 1 | `check_lengths`（要素数 0・バイト数のあふれ・上限超過） | `Err(ContractError::InvalidArgument(..))` |
+| 2 | `x` の列の長さが `n` と同じ | `Err(ContractError::InvalidArgument(..))` |
+| 3 | `out` の列の長さが `subgroup_output_len(n)` と同じ | `Err(ContractError::InvalidArgument(..))` |
+| 4 | 能力の問合せと経路の選び方 | 経路の選び方の結果 |
+
+段 1〜3 の拒否では `query_ex`・`memory`・`queue` を呼ばず、出力の列に書かない。
+device の形（`native-blocking-wait`）は列の長さを照らさない。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `length.rs` の `subgroup_output_len_counts_blocks` | `n` が 1・256・257・1000・65_539・`u64::MAX` | 1・1・2・4・257・`u64::MAX / 256 + 1` |
+| `length_host.rs` の `mismatched_subgroup_columns_are_rejected` | `n` = 257 で (`x` の長さ, `out` の長さ) が (256, 2)・(258, 2)・(257, 1)・(257, 3) の呼び出し（2 つの入口 × 上書き × 既定の印 × device の答え） | `InvalidArgument`、`query_ex`・`memory`・`queue` の数えが 0、出力が番兵のまま |
+| `length_host.rs` の `matching_subgroup_columns_reach_route_choice` | `n` = 257・`x` の長さ 257・`out` の長さ 2 の呼び出し | `InvalidArgument` でなく、`query_ex` の数えが 1 |
+| `length_device.rs` の `device_form_subgroup_passes_one_before_byte_overflow` | device の形で `n` が `u64::MAX / 4` | `InvalidArgument` でなく、`query_ex` の数えが 1、確保・読み出しの数えが増えず、buffer の中身が変わらない |
+
+### 出力の列の長さを直した既存の試験
+
+| ファイル | 直し |
+| -------- | ---- |
+| `crates/exec/src/entry.rs`・`crates/exec/src/denormal_tests.rs` | subgroup の `out` を出力の数の長さ（`n` = 2 で 1）で渡す |
+| `fault_injection_ports.rs`・`reasons_and_denormal.rs`・`unsupported_fields.rs`・`route_evidence_calls.rs`・`opt_in_default.rs`・`route_query.rs` | 同上。番兵のままかの比べも同じ長さで行う |
+| `length_zero.rs` | `valid_length_reaches_route_choice` が subgroup の 2 つの入口の出力を長さ 1 で渡す |
+| `length_limit.rs` | subgroup の `x` を長さ `n.min(64)`（最小 1）、`out` を `k` を 256 で割って切り上げた長さで作る。一つ手前の `n` は `atomic_add` のほかが `InvalidArgument` |
+
+`atomic_add` の列と `f16_fma` の列は変えていない。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --lib length
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
+cargo test -p fandhe-silicon-exec --locked --test length_host
+```

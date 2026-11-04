@@ -107,7 +107,7 @@ fn call_entry(
     let in16 = [1u16; 2];
     let in_u = [1u32; 2];
     let in_f = [1.0f32; 2];
-    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7.0f32; 2], [7.0f32; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7.0f32; 1], [7.0f32; 2]);
     let r = match op {
         OpId::F16Fma => exec.f16_fma(
             over,
@@ -146,7 +146,7 @@ fn call_entry(
         ),
         _ => unreachable!(),
     };
-    let untouched = o16 == [7; 2] && ou == [7; 2] && of == [7.0; 2] && oa == [7.0; 2];
+    let untouched = o16 == [7; 2] && ou == [7; 1] && of == [7.0; 1] && oa == [7.0; 2];
     (r, untouched)
 }
 

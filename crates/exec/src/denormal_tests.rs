@@ -163,7 +163,7 @@ fn call_entry(exec: &Exec<'_>, op: OpId, over: Option<OptIn>) -> Result<Outcome,
             2,
             SubgroupSumF32Operands::Host {
                 x: &x,
-                out: &mut out,
+                out: &mut out[..1],
             },
         ),
         _ => exec.atomic_add(
@@ -471,7 +471,7 @@ mod rejected {
                 n,
                 SubgroupSumF32Operands::Host {
                     x: &x,
-                    out: &mut out,
+                    out: &mut out[..1],
                 },
             ),
             _ => exec.atomic_add(

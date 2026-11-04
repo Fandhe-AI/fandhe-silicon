@@ -53,7 +53,8 @@ fn make_device(i: usize, limit: u64) -> Scripted {
 }
 
 /// 入口を 1 回呼び、結果と、出力の列（番兵）が番兵のままかを返す。
-/// `f16_fma` の列は長さ `n.min(64)`（最小 1）、ほかの入口の列は長さ 1。`m` は `atomic_add` だけが使う。
+/// `f16_fma` の列と subgroup の 2 つの入口の `x` は長さ `n.min(64)`（最小 1）、subgroup の `out` は `k` を 256 で割って切り上げた長さ、
+/// `atomic_add` の `out` は長さ 1。`m` は `atomic_add` だけが使う。
 fn call(
     exec: &Exec<'_>,
     op: OpId,
@@ -66,9 +67,14 @@ fn call(
     let sf = f32::from_bits(s32);
     let k = usize::try_from(n.min(64)).unwrap().max(1);
     let in16 = vec![1u16; k];
-    let in_u = [1u32];
-    let in_f = [1.0f32];
-    let (mut o16, mut ou, mut of, mut oa) = (vec![s16; k], [s32], [sf], [sf]);
+    let in_u = vec![1u32; k];
+    let in_f = vec![1.0f32; k];
+    let (mut o16, mut ou, mut of, mut oa) = (
+        vec![s16; k],
+        vec![s32; k.div_ceil(256)],
+        vec![sf; k.div_ceil(256)],
+        [sf],
+    );
     let (result, bytes): (_, Vec<u8>) = match op {
         OpId::F16Fma => {
             let r = exec.f16_fma(
@@ -207,14 +213,14 @@ fn byte_count_overflow_is_rejected_through_entry() {
             assert!(untouched, "{tag}");
         });
     }
-    // 一つ手前は、`f16_fma` は host の列の長さが `n` と違うので `InvalidArgument`、ほかは拒否にならない。
+    // 一つ手前は、`atomic_add` のほかは host の列の長さが `n` と違うので `InvalidArgument`、`atomic_add` は拒否にならない。
     for (op, n, m) in cases(u64::MAX / 2, u64::MAX / 4, u64::MAX / 4) {
         for_each_combo(|over, d, dev_i| {
             let dev = make_device(dev_i, u64::MAX);
             let exec = Exec::new(&dev, d);
             let (r, untouched) = call(&exec, op, over, n, m);
             let tag = format!("{op:?} {n} {m} {over:?} {d:?} {dev_i}");
-            if op == OpId::F16Fma {
+            if op != OpId::AtomicAdd {
                 assert!(is_rejected(&r), "{tag}: {r:?}");
                 assert_eq!(dev.query_ex_calls(), 0, "{tag}");
                 assert_eq!(dev.memory_calls(), 0, "{tag}");

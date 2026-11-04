@@ -73,7 +73,7 @@ fn call_unavailable(exec: &Exec<'_>, op: OpId) -> (RouteReport, Vec<u8>) {
     let in16 = [1u16; 2];
     let in_u = [1u32; 2];
     let in_f = [1.0f32; 2];
-    let (mut o16, mut ou, mut of, mut oa) = ([s16; 2], [s32; 2], [sf; 2], [sf; 2]);
+    let (mut o16, mut ou, mut of, mut oa) = ([s16; 2], [s32; 1], [sf; 1], [sf; 2]);
     let (result, bytes): (_, Vec<u8>) = match op {
         OpId::F16Fma => {
             let r = exec.f16_fma(

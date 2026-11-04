@@ -8,6 +8,7 @@
 //! `external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
 //! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
 //! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
+//! `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32` は host の形の列の長さも照らす。
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
@@ -275,7 +276,9 @@ impl<'d> Exec<'d> {
 
     /// u32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
-    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
+    /// 能力を問い合わせない。host の形で `x` の長さが `n` と、`out` の長さが `n` を 256 で割って切り上げた数と違えば
+    /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。device の形は長さを照らさない。
+    /// 列の中身は読まず、出力に書かない。
     pub fn subgroup_sum_u32(
         &self,
         opt_in: Option<OptIn>,
@@ -288,13 +291,23 @@ impl<'d> Exec<'d> {
             None,
             self.device.limits().max_buffer_bytes,
         )?;
+        match &operands {
+            SubgroupSumU32Operands::Host { x, out } => {
+                check_host_len(x.len(), n)?;
+                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+            }
+            #[cfg(feature = "native-blocking-wait")]
+            SubgroupSumU32Operands::Device { .. } => {}
+        }
         let _ = operands;
         self.run(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")
     }
 
     /// f32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
-    /// 能力を問い合わせない。`operands` は読まず、出力に書かない。
+    /// 能力を問い合わせない。host の形で `x` の長さが `n` と、`out` の長さが `n` を 256 で割って切り上げた数と違えば
+    /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。device の形は長さを照らさない。
+    /// 列の中身は読まず、出力に書かない。
     pub fn subgroup_sum_f32(
         &self,
         opt_in: Option<OptIn>,
@@ -307,6 +320,14 @@ impl<'d> Exec<'d> {
             None,
             self.device.limits().max_buffer_bytes,
         )?;
+        match &operands {
+            SubgroupSumF32Operands::Host { x, out } => {
+                check_host_len(x.len(), n)?;
+                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+            }
+            #[cfg(feature = "native-blocking-wait")]
+            SubgroupSumF32Operands::Device { .. } => {}
+        }
         let _ = operands;
         self.run(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")
     }
@@ -422,7 +443,7 @@ mod tests {
     fn four_entries_without_override_are_unavailable() {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
-        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7f32; 2], [7f32; 2]);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 2]);
         let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
         expect_unavailable(
             exec.f16_fma(
@@ -471,7 +492,7 @@ mod tests {
             ),
             OpId::AtomicAdd,
         );
-        assert_eq!((o16, ou, of, oa), ([7; 2], [7; 2], [7.0; 2], [7.0; 2]));
+        assert_eq!((o16, ou, of, oa), ([7; 2], [7; 1], [7.0; 1], [7.0; 2]));
     }
 
     #[test]
@@ -479,7 +500,7 @@ mod tests {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
         let over = Some(opt(false, true));
-        let (mut ou, mut of, mut oa) = ([7u32; 2], [7f32; 2], [7f32; 2]);
+        let (mut ou, mut of, mut oa) = ([7u32; 1], [7f32; 1], [7f32; 2]);
         let (x, y) = ([1u32; 2], [1f32; 2]);
         assert!(is_unsupported(&exec.subgroup_sum_u32(
             over,
@@ -506,7 +527,7 @@ mod tests {
                 out: &mut oa
             },
         )));
-        assert_eq!((ou, of, oa), ([7; 2], [7.0; 2], [7.0; 2]));
+        assert_eq!((ou, of, oa), ([7; 1], [7.0; 1], [7.0; 2]));
     }
 
     #[test]
@@ -550,7 +571,7 @@ mod tests {
     fn query_route_equals_unavailable_report() {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
-        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7f32; 2], [7f32; 2]);
+        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 1], [7f32; 1], [7f32; 2]);
         let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
         let outs = [
             (
@@ -946,7 +967,7 @@ mod injected_tests {
                 UnsupportedReason::UnknownFeature
             )))
         );
-        let mut out = [7.0f32; 2];
+        let mut out = [7.0f32; 1];
         let x = [1.0f32; 2];
         let r = exec.subgroup_sum_f32(
             None,
@@ -963,7 +984,7 @@ mod injected_tests {
                 ..
             })
         ));
-        assert_eq!(out, [7.0; 2]);
+        assert_eq!(out, [7.0; 1]);
     }
 
     #[test]
