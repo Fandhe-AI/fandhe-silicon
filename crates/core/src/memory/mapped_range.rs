@@ -1,13 +1,39 @@
-//! 書き込み用のビューの型と、その長さ・空の判定の置き場。
+//! 書き込み用のビューの型と、その長さ・空の判定・範囲の絞りの置き場。
 //!
 //! `memory` から再公開される（TASK-312 のポインタ）。背後実装の API は呼ばない。
+//! 範囲の検査は `validate_buffer_range`（TASK-309）に委ねる。
 
 use core::fmt;
 use core::mem::MaybeUninit;
 
-/// 書き込み用のビューの型。バイト列を排他で借り、長さと空の判定の口を持つ。
+use super::validate_buffer_range;
+use crate::error::ContractError;
+
+/// 書き込み用のビューの型。バイト列を排他で借り、長さと空の判定・範囲の絞りの口を持つ。
 ///
-/// 欄は非公開。長さは [`MappedRangeMut::len`]、空かどうかは [`MappedRangeMut::is_empty`] で読む。
+/// 欄は非公開。長さは [`MappedRangeMut::len`]、空かどうかは [`MappedRangeMut::is_empty`] で読み、
+/// 範囲は [`MappedRangeMut::slice`] で絞る。絞ったビューが生きている間は、同じビューから
+/// 次のビューを絞れない。
+///
+/// ```compile_fail,E0499
+/// use fandhe_silicon_core::memory::MappedRangeMut;
+/// fn f(view: &mut MappedRangeMut<'_>) {
+///     let a = view.slice(0, 4).unwrap();
+///     let b = view.slice(4, 4).unwrap();
+///     let _ = (a.len(), b.len());
+/// }
+/// ```
+///
+/// 使い切ってから次を絞る形は通る。
+///
+/// ```
+/// use fandhe_silicon_core::memory::MappedRangeMut;
+/// fn f(view: &mut MappedRangeMut<'_>) {
+///     let a = view.slice(0, 4).unwrap().len();
+///     let b = view.slice(4, 4).unwrap().len();
+///     let _ = (a, b);
+/// }
+/// ```
 ///
 /// ```
 /// # use core::mem::MaybeUninit;
@@ -45,6 +71,39 @@ impl<'a> MappedRangeMut<'a> {
     /// ```
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
+    }
+
+    /// このビューの先頭からの相対で `offset` から `len` バイトを絞ったビューを返す。
+    /// 元のビューを排他で借りる（MEM-61 のポインタ）。長さちょうど・長さ 0 も受理する。
+    ///
+    /// ```
+    /// # use core::mem::MaybeUninit;
+    /// # use fandhe_silicon_core::error::ContractError;
+    /// # use fandhe_silicon_core::memory::MappedRangeMut;
+    /// # let mut bytes = [MaybeUninit::<u8>::uninit(); 16];
+    /// # let mut view = MappedRangeMut::__backend_new(&mut bytes);
+    /// assert_eq!(view.slice(4, 8).unwrap().len(), 8);
+    /// assert!(view.slice(16, 0).unwrap().is_empty());
+    /// assert!(matches!(view.slice(8, 9), Err(ContractError::InvalidArgument(_))));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// 終端 `offset + len` が `u64` であふれるか、このビューの長さを超えるとき
+    /// `ContractError::InvalidArgument`（`validate_buffer_range` の値のまま）。
+    pub fn slice(&mut self, offset: u64, len: u64) -> Result<MappedRangeMut<'_>, ContractError> {
+        validate_buffer_range(offset, len, self.len())?;
+        let narrowed = usize::try_from(offset).ok().and_then(|start| {
+            let n = usize::try_from(len).ok()?;
+            let end = start.checked_add(n)?;
+            self.bytes.get_mut(start..end)
+        });
+        match narrowed {
+            Some(bytes) => Ok(MappedRangeMut { bytes }),
+            None => Err(ContractError::InvalidArgument(format!(
+                "mapped range (offset {offset}, len {len}) does not fit in usize"
+            ))),
+        }
     }
 }
 
@@ -89,5 +148,57 @@ mod tests {
                 format!("MappedRangeMut {{ len: {n} }}")
             );
         }
+    }
+
+    fn addrs(v: &MappedRangeMut<'_>) -> (usize, usize) {
+        let r = v.bytes.as_ptr_range();
+        (r.start.addr(), r.end.addr())
+    }
+
+    #[test]
+    fn slice_boundaries() {
+        let n = 16u64;
+        let mut bytes = vec![MaybeUninit::<u8>::uninit(); n as usize];
+        let mut view = MappedRangeMut::__backend_new(&mut bytes);
+        assert_eq!(view.slice(0, n).unwrap().len(), n);
+        assert!(view.slice(n, 0).unwrap().is_empty());
+        for (o, l) in [(0, n + 1), (n, 1), (n + 1, 0), (u64::MAX, 1), (1, u64::MAX)] {
+            let got = view.slice(o, l).map(|v| v.len());
+            assert!(matches!(got, Err(ContractError::InvalidArgument(_))));
+            assert_eq!(got.map(|_| ()), validate_buffer_range(o, l, n));
+        }
+        assert_eq!(view.len(), n);
+        assert!(!view.is_empty());
+    }
+
+    #[test]
+    fn slice_of_empty_view() {
+        let mut bytes: [MaybeUninit<u8>; 0] = [];
+        let mut view = MappedRangeMut::__backend_new(&mut bytes);
+        assert!(view.slice(0, 0).unwrap().is_empty());
+        assert!(matches!(
+            view.slice(0, 1).map(|v| v.len()),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn slice_stays_inside_parent() {
+        let mut bytes = vec![MaybeUninit::<u8>::uninit(); 32];
+        let mut view = MappedRangeMut::__backend_new(&mut bytes);
+        let (ps, pe) = addrs(&view);
+        let (cs, ce) = {
+            let mut child = view.slice(4, 20).unwrap();
+            let (cs, ce) = addrs(&child);
+            let (gs, ge) = {
+                let grand = child.slice(3, 10).unwrap();
+                addrs(&grand)
+            };
+            assert_eq!((gs, ge), (cs + 3, cs + 13));
+            (cs, ce)
+        };
+        assert_eq!((cs, ce), (ps + 4, ps + 24));
+        assert!(ce <= pe);
+        assert_eq!(view.len(), 32);
     }
 }
