@@ -148,3 +148,41 @@ cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::
 cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::rejected
 cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected
 ```
+
+## 試しの実行の失敗をそのまま返す試験（4/6）
+
+### 所在
+
+試験は `crates/exec/src/denormal_tests.rs` の `mod failure`。ライブラリのコードは変えない。
+失敗を作る部品は core の `FaultInjecting`・`FaultScript`・`StubDevice`（[docs/contract-fault-injection.md](contract-fault-injection.md)）。`Exec` に渡す device は別の試験用の device で、`FaultInjecting` は筋書きを運ぶ値としてだけ使う。
+
+### 模擬の投入
+
+模擬の runner は、呼ばれた (操作, 経路) を記録してから `FaultInjecting<StubDevice>` の `allocate_with`・`submit_with`・`wait_blocking_with` を順に呼ぶ。最初の `Err` をそのまま返し、全部 `Ok` なら保つときの出力を返す。下-1 は呼ばない。
+
+### 筋書き
+
+| 筋書き | 返る `ContractError` | `submit_call_count()` の 1 回の呼び出しあたりの増え |
+| ------ | -------------------- | -------------------------------------------------- |
+| `AllocationFails` | `AllocationFailed { .. }` | 0 |
+| `RuntimeError` | `BackendFailure { .. }` | 1 |
+| `CompletionUnknown` | `Timeout` | 1 |
+| `PassThrough` | エラーなし（経路 `Route::Native`） | 1 |
+
+数えるのは、runner が呼ばれた (操作, 経路) の回数と `submit_call_count()` の、呼び出しの前後の差。期待のエラーは同じ筋書きで別に作った `FaultInjecting` に同じ口を 1 回呼んだ値で、`==` で比べる。文言は照らさない。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `injected_failures_are_returned` | 失敗の 3 筋書き × `SubgroupSumF32`・`AtomicAdd` × 上書き `None`・`BOTH`。同じ `Exec` で `query_route` と入口を 1 回ずつ | どちらも期待のエラーを `Err` で返す。runner は呼び出しごとに `Route::Native` で 1 回、`Route::GpuEmulated`・`Route::Cpu` は 0 回 |
+| `failure_is_not_kept` | いつも失敗する runner を 2 回。1 回目だけ失敗する runner を 3 回 | 前者は 2 回とも同じ `Err` で runner は 2 回。後者は 2 回目で `Route::Native`・保つ扱いの報告、3 回目は runner を呼ばない |
+| `failure_after_unknown_route_is_returned` | `Route::Native` は判定できない値、`Route::GpuEmulated` は失敗、`Route::Cpu` は保つ runner。上書き `BOTH` で 2 回 | 2 回とも期待のエラー。`Route::Native` は 1 回のまま、`Route::GpuEmulated` は 1 回目 1・2 回目 2、`Route::Cpu` は 0 |
+| `pass_through_reaches_route` | `PassThrough` の runner で `query_route` | 経路 `Route::Native`、保つ扱いの報告 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::failure
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure
+```

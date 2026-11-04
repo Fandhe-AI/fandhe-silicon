@@ -633,3 +633,184 @@ mod rejected {
         }
     }
 }
+/// 試しの実行が契約のエラーで失敗したとき、`query_route` と入口がそのまま `Err` で返し、
+/// 保持せず、後の経路にも進まないことの試験。
+///
+/// 失敗は core の `FaultInjecting<StubDevice>` を模擬の投入に通して作る（下-1 は呼ばない）。
+/// 回数は模擬の runner と `submit_call_count()` の、各呼び出しの前後の差で見る。文言は照らさない。
+mod failure {
+    use super::*;
+    use fandhe_silicon_core::fault::decorator::{FaultInjecting, FaultScript};
+
+    const OPS: [OpId; 2] = [OpId::SubgroupSumF32, OpId::AtomicAdd];
+    const OVERRIDES: [Option<OptIn>; 2] = [None, Some(BOTH)];
+
+    fn fault(script: FaultScript) -> FaultInjecting<StubDevice> {
+        FaultInjecting::new(
+            StubDevice::new(DeviceRequest {
+                backend: BackendKind::Metal,
+                profile: Profile::ComputeOnly,
+                ownership: DeviceOwnership::Shared,
+            }),
+            script,
+        )
+    }
+
+    /// 確保・投入・完了待ちを順に呼び、最初の `Err` をそのまま返す。
+    fn simulate(f: &FaultInjecting<StubDevice>) -> Result<(), ContractError> {
+        f.allocate_with(crate::denormal::INPUT_LEN as u64 * 4, |_, _| Ok(()))?;
+        f.submit_with(|_| Ok(()))?;
+        f.wait_blocking_with(|_| Ok(()))
+    }
+
+    fn expected(script: &FaultScript) -> ContractError {
+        simulate(&fault(script.clone())).unwrap_err()
+    }
+
+    fn scripts() -> [FaultScript; 3] {
+        [
+            FaultScript::AllocationFails,
+            FaultScript::RuntimeError {
+                backend: BackendKind::Metal,
+                detail: "injected".into(),
+            },
+            FaultScript::CompletionUnknown,
+        ]
+    }
+
+    fn preserved() -> Option<F32DenormalReport> {
+        Some(F32DenormalReport {
+            behavior: F32DenormalBehavior::Preserve,
+            basis: F32DenormalBasis::Observed,
+            documented: None,
+        })
+    }
+
+    /// 呼ばれた (操作, 経路) を記録し、模擬の投入が通れば保つときの出力を返す。
+    fn faulting_runner<'a>(
+        f: &'a FaultInjecting<StubDevice>,
+        log: &'a CallLog,
+    ) -> impl Fn(OpId, Route, &ProbeInput) -> Result<[f32; 3], ContractError> + 'a {
+        move |op, route, input| {
+            log.borrow_mut().push((op, route));
+            simulate(f)?;
+            Ok(preserving(op, input))
+        }
+    }
+
+    #[test]
+    fn injected_failures_are_returned() {
+        // FB-60: 試しの実行の失敗は戻り値の `Err` で返る。
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for script in scripts() {
+            let submits = u64::from(!matches!(script, FaultScript::AllocationFails));
+            for op in OPS {
+                for over in OVERRIDES {
+                    let f = fault(script.clone());
+                    let log = CallLog::default();
+                    let runner = faulting_runner(&f, &log);
+                    let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+
+                    let (n0, s0) = (log.borrow().len(), f.submit_call_count());
+                    let r = exec.query_route(op, over);
+                    assert_eq!(r, Err(expected(&script)));
+                    assert_eq!(log.borrow().len(), n0 + 1);
+                    assert_eq!(f.submit_call_count(), s0 + submits);
+
+                    let (n1, s1) = (log.borrow().len(), f.submit_call_count());
+                    let r = call_entry(&exec, op, over);
+                    assert!(matches!(r, Err(ref e) if *e == expected(&script)), "{r:?}");
+                    assert_eq!(log.borrow().len(), n1 + 1);
+                    assert_eq!(f.submit_call_count(), s1 + submits);
+
+                    assert_eq!(calls_of(&log, op, Route::Native), 2);
+                    assert_eq!(calls_of(&log, op, Route::GpuEmulated), 0);
+                    assert_eq!(calls_of(&log, op, Route::Cpu), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn failure_is_not_kept() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        // (a) いつも失敗する runner は、呼ぶたびに同じ `Err` を返して毎回流れる。
+        for script in scripts() {
+            let f = fault(script.clone());
+            let log = CallLog::default();
+            let runner = faulting_runner(&f, &log);
+            let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+            for _ in 0..2 {
+                assert_eq!(
+                    exec.query_route(OpId::SubgroupSumF32, None),
+                    Err(expected(&script))
+                );
+            }
+            assert_eq!(calls_of(&log, OpId::SubgroupSumF32, Route::Native), 2);
+        }
+        // (b) 1 回目だけ失敗する runner は、2 回目で保つ扱いが報告され、3 回目は流れない。
+        for script in scripts() {
+            for op in OPS {
+                let f = fault(script.clone());
+                let log = CallLog::default();
+                let runner = |op: OpId, route: Route, input: &ProbeInput| {
+                    log.borrow_mut().push((op, route));
+                    if log.borrow().len() == 1 {
+                        simulate(&f)?;
+                    }
+                    Ok(preserving(op, input))
+                };
+                let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+                assert_eq!(exec.query_route(op, None), Err(expected(&script)));
+                for _ in 0..2 {
+                    let report = exec.query_route(op, None).expect("report");
+                    assert_eq!(report.route, Some(Route::Native));
+                    assert_eq!(report.f32_denormal, preserved());
+                }
+                assert_eq!(log.borrow().len(), 2);
+            }
+        }
+    }
+
+    #[test]
+    fn failure_after_unknown_route_is_returned() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for script in scripts() {
+            for op in OPS {
+                let f = fault(script.clone());
+                let log = CallLog::default();
+                // Native は判定できない値、GpuEmulated は失敗、Cpu は保つ。
+                let runner = |op: OpId, route: Route, input: &ProbeInput| {
+                    log.borrow_mut().push((op, route));
+                    let keep = preserving(op, input);
+                    match route {
+                        Route::Native => Ok([0.0, 0.0, keep[2]]),
+                        Route::GpuEmulated => simulate(&f).map(|()| keep),
+                        _ => Ok(keep),
+                    }
+                };
+                let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+                for round in 1..=2 {
+                    assert_eq!(exec.query_route(op, Some(BOTH)), Err(expected(&script)));
+                    assert_eq!(calls_of(&log, op, Route::Native), 1);
+                    assert_eq!(calls_of(&log, op, Route::GpuEmulated), round);
+                    assert_eq!(calls_of(&log, op, Route::Cpu), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pass_through_reaches_route() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            let f = fault(FaultScript::PassThrough);
+            let log = CallLog::default();
+            let runner = faulting_runner(&f, &log);
+            let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+            let report = exec.query_route(op, None).expect("report");
+            assert_eq!(report.route, Some(Route::Native));
+            assert_eq!(report.f32_denormal, preserved());
+        }
+    }
+}
