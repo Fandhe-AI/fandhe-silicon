@@ -117,6 +117,64 @@ $ grep -n wasm_bindgen wasm/crates/glue/src/lib.rs
 95:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 ```
 
+### 部分 Top-k（3/4）
+
+#### 所在
+
+実装と試験は `wasm/crates/glue/src/lib.rs`。wasm32 のときだけ wasm-bindgen の export になり、host では通常の関数。
+
+| 関数 | Rust の署名 |
+| ---- | ----------- |
+| `topk_scalar` | `pub fn topk_scalar(scores: &[f32], k: usize, out: &mut [u8]) -> u32` |
+| `topk_simd` | `pub fn topk_simd(scores: &[f32], k: usize, out: &mut [u8]) -> u32` |
+
+#### 出力のバイトの並び
+
+glue は `DefaultCpuOps` の `topk_partial_scalar`・`topk_partial_simd` の結果（`k` 件の `(スロット番号, スコア)`）をバイトに並べる。
+
+| オフセット | 中身 |
+| ---------- | ---- |
+| `8*i` 〜 `8*i+3` | i 番目のスロット番号（u32、リトルエンディアン） |
+| `8*i+4` 〜 `8*i+7` | i 番目のスコア（f32、リトルエンディアン） |
+
+`DefaultCpuOps` が埋めない位置は、その番兵（`u32::MAX`・`f32::NEG_INFINITY`）のバイト `FF FF FF FF 00 00 80 FF` になる。
+
+#### 返し
+
+| 入力 | 戻り | `out` |
+| ---- | ---- | ----- |
+| `out.len()` が `k`×8 | 0 | `DefaultCpuOps` の結果のバイト |
+| `k` が 0 で `out` が空 | 0 | 空のまま |
+| `out.len()` が `k`×8 でない | 1 | 呼ぶ前のまま |
+| `k`×8 が `usize` に収まらない | 1 | 呼ぶ前のまま |
+
+#### 試験
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `topk_matches_default_cpu_ops` | 同点・`±0.0`・NaN・無限大を含む入力と、`k` が 0・件数以下・件数より大きい組で、戻りが 0 で `out` が同じ入力の `DefaultCpuOps` の結果のバイトと一致（scalar・simd） |
+| `topk_bytes_layout` | 手で書いたバイト列と一致。`k` が有限の件数を超える組で末尾が番兵のバイト（scalar・simd） |
+| `topk_rejects_output_length_mismatch` | `out.len()` が `k`×8 と違うと 1 で、`out` が呼ぶ前のまま。ちょうどなら 0（scalar・simd） |
+| `topk_rejects_overflowing_count` | `k`×8 があふれる `k` で 1 で、`out` が呼ぶ前のまま（scalar・simd） |
+
+#### 確かめ方
+
+時点のコミット: `377a723`（この変更の土台）。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ grep -n wasm_bindgen wasm/crates/glue/src/lib.rs
+25:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+34:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+47:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+58:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+79:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+95:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+137:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+147:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+```
+
 ## 段
 
 | 段 | 内容 | Issue |

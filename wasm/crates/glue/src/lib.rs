@@ -104,11 +104,58 @@ pub fn elementwise_simd(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32
     }
 }
 
+/// 部分 Top-k の結果を `out` に並べる共通の補助。`topk_scalar`・`topk_simd` が演算だけを替えて呼ぶ。
+///
+/// `out` の長さが `k`×8 バイトでなければ（`k`×8 が `usize` に収まらないときも）何も触れずに拒否する。
+/// 作業の列は長さの照合の後にだけ確保するので、確保の大きさは呼び手が渡した `out` と同じに抑えられる。
+fn topk_into_bytes(k: usize, out: &mut [u8], run: impl FnOnce(&mut [(u32, f32)]) -> bool) -> u32 {
+    let Some(len) = k.checked_mul(8) else {
+        return REJECTED;
+    };
+    if out.len() != len {
+        return REJECTED;
+    }
+    let mut work = vec![(0_u32, 0.0_f32); k];
+    if !run(&mut work) {
+        return REJECTED;
+    }
+    let (chunks, _) = out.as_chunks_mut::<8>();
+    for (chunk, (slot, score)) in chunks.iter_mut().zip(&work) {
+        let [a0, a1, a2, a3] = slot.to_le_bytes();
+        let [b0, b1, b2, b3] = score.to_le_bytes();
+        *chunk = [a0, a1, a2, a3, b0, b1, b2, b3];
+    }
+    OK
+}
+
+/// 有限のスコアの上位 `k` 件を `out`（`k`×8 バイト）に書き、0 を返す。
+///
+/// 1 件を、u32 のスロット番号と f32 のスコアをリトルエンディアンで並べた 8 バイトにする。
+/// 件数・並び・埋まらない位置に書く値は `DefaultCpuOps::topk_partial_scalar` と同じ。
+/// `k`×8 が `usize` に収まらない、または `out` の長さが `k`×8 バイトでないときは
+/// `out` を変えずに 1 を返す。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn topk_scalar(scores: &[f32], k: usize, out: &mut [u8]) -> u32 {
+    topk_into_bytes(k, out, |work| {
+        DefaultCpuOps.topk_partial_scalar(scores, k, work).is_ok()
+    })
+}
+
+/// `topk_scalar` と同じ入力・戻り値の部分 Top-k。
+///
+/// 契約の crate の `topk_partial_simd` を呼ぶ。どのビルドでも `topk_scalar` と同じ計算になる。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn topk_simd(scores: &[f32], k: usize, out: &mut [u8]) -> u32 {
+    topk_into_bytes(k, out, |work| {
+        DefaultCpuOps.topk_partial_simd(scores, k, work).is_ok()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CpuOps, DefaultCpuOps, UnaryElementwiseOp, elementwise_scalar, elementwise_simd,
-        gemm_scalar, gemm_simd, roundtrip_f32,
+        gemm_scalar, gemm_simd, roundtrip_f32, topk_scalar, topk_simd,
     };
 
     fn bits(v: &[f32]) -> Vec<u32> {
@@ -278,6 +325,96 @@ mod tests {
                     assert_eq!(bits(&out), bits(&vec![7.0_f32; lo]));
                 }
             }
+        }
+    }
+
+    type TopkFn = fn(&[f32], usize, &mut [u8]) -> u32;
+
+    const TOPKS: [TopkFn; 2] = [topk_scalar, topk_simd];
+
+    /// 試験専用。`(スロット番号, スコア)` の列をリトルエンディアンの 8 バイトずつに並べる。
+    fn pairs_to_bytes(pairs: &[(u32, f32)]) -> Vec<u8> {
+        pairs
+            .iter()
+            .flat_map(|(slot, score)| slot.to_le_bytes().into_iter().chain(score.to_le_bytes()))
+            .collect()
+    }
+
+    #[test]
+    fn topk_matches_default_cpu_ops() {
+        let inputs: [Vec<f32>; 3] = [
+            vec![
+                1.0,
+                3.0,
+                3.0,
+                -0.0,
+                0.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                2.0,
+            ],
+            vec![5.0, 4.0],
+            vec![],
+        ];
+        for scores in &inputs {
+            for k in [0_usize, 1, 3, scores.len(), scores.len() + 3] {
+                let mut want_scalar = vec![(0_u32, 0.0_f32); k];
+                let mut want_simd = vec![(0_u32, 0.0_f32); k];
+                DefaultCpuOps
+                    .topk_partial_scalar(scores, k, &mut want_scalar)
+                    .unwrap();
+                DefaultCpuOps
+                    .topk_partial_simd(scores, k, &mut want_simd)
+                    .unwrap();
+                let mut got = vec![0xAA_u8; k * 8];
+                assert_eq!(topk_scalar(scores, k, &mut got), 0);
+                assert_eq!(got, pairs_to_bytes(&want_scalar));
+                let mut got = vec![0xAA_u8; k * 8];
+                assert_eq!(topk_simd(scores, k, &mut got), 0);
+                assert_eq!(got, pairs_to_bytes(&want_simd));
+            }
+        }
+    }
+
+    #[test]
+    fn topk_bytes_layout() {
+        for f in TOPKS {
+            let mut out = [0xAA_u8; 16];
+            assert_eq!(f(&[1.0, 3.0, 2.0], 2, &mut out), 0);
+            assert_eq!(
+                out,
+                [
+                    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x40, //
+                    0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
+                ]
+            );
+            let mut out = [0xAA_u8; 32];
+            assert_eq!(f(&[1.0, 3.0, 2.0], 4, &mut out), 0);
+            assert_eq!(out[24..], [0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x80, 0xFF]);
+        }
+    }
+
+    #[test]
+    fn topk_rejects_output_length_mismatch() {
+        let scores = [1.0_f32, 3.0, 2.0];
+        for f in TOPKS {
+            for lo in [8_usize, 24, 15, 17, 0] {
+                let mut out = vec![0xAA_u8; lo];
+                assert_eq!(f(&scores, 2, &mut out), 1);
+                assert_eq!(out, vec![0xAA_u8; lo]);
+            }
+            let mut out = [0xAA_u8; 16];
+            assert_eq!(f(&scores, 2, &mut out), 0);
+        }
+    }
+
+    #[test]
+    fn topk_rejects_overflowing_count() {
+        for f in TOPKS {
+            let mut out = [0xAA_u8; 16];
+            assert_eq!(f(&[1.0], usize::MAX / 8 + 1, &mut out), 1);
+            assert_eq!(out, [0xAA_u8; 16]);
         }
     }
 
