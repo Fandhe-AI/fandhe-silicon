@@ -75,6 +75,19 @@ impl Scripted {
         Self::with(FaultScript::CapabilityQueryFails)
     }
 
+    /// 上限の表の `max_buffer_bytes` だけを差し替えた device にする
+    /// （core の `FaultInjecting::with_limits_override`）。
+    ///
+    /// ほかの上限は内側の `StubDevice` の値のまま。`answering`・`bare` などの後に続けて使う。
+    pub fn with_max_buffer_bytes(mut self, max_buffer_bytes: u64) -> Self {
+        let base = *self.dev.limits();
+        self.dev = self.dev.with_limits_override(LimitsTable {
+            max_buffer_bytes,
+            ..base
+        });
+        self
+    }
+
     /// `query_ex` が呼ばれた回数。
     pub fn query_ex_calls(&self) -> u32 {
         self.query_ex_calls.get()
