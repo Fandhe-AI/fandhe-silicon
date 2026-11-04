@@ -13,8 +13,8 @@ use fandhe_silicon_core::feature_key::{
     FEATURE_SHADER_F16, FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP,
 };
 use fandhe_silicon_exec::{
-    AtomicAddOperands, Exec, F16FmaOperands, OpId, OptIn, Outcome, Route, SubgroupSumF32Operands,
-    SubgroupSumU32Operands, UnavailableReason,
+    AtomicAddOperands, Exec, F16FmaOperands, F32DenormalBasis, F32DenormalBehavior, OpId, OptIn,
+    Outcome, Route, SubgroupSumF32Operands, SubgroupSumU32Operands, UnavailableReason,
 };
 
 const fn opt(g: bool, c: bool) -> OptIn {
@@ -131,7 +131,13 @@ fn query_route_matches_entry_report() {
                 }
                 match entry {
                     Ok(Outcome::Ran { report }) => {
-                        assert!(matches!(op, OpId::F16Fma | OpId::SubgroupSumU32), "{ctx}");
+                        assert!(
+                            matches!(
+                                op,
+                                OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
+                            ),
+                            "{ctx}"
+                        );
                         let Ok(r) = route else {
                             panic!("expected Ok: {ctx}");
                         };
@@ -223,9 +229,10 @@ fn unreachable_native_follows_opt_in_order() {
                 let r = match exec.query_route(op, over) {
                     Ok(r) => r,
                     Err(e) => {
-                        // 経路が届く SubgroupSumF32・AtomicAdd は Unsupported。
+                        // 経路が届く AtomicAdd と、GpuEmulated の SubgroupSumF32 は Unsupported。
                         assert!(
-                            want.is_some() && matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd),
+                            (op == OpId::AtomicAdd && want.is_some())
+                                || (op == OpId::SubgroupSumF32 && want == Some(Route::GpuEmulated)),
                             "unexpected {e:?}: {ctx}"
                         );
                         assert!(matches!(e, ContractError::Unsupported { .. }), "{ctx}");
@@ -236,7 +243,14 @@ fn unreachable_native_follows_opt_in_order() {
                 assert_eq!(r.route, want, "{ctx}");
                 assert_eq!(r.native_reason, Some(native), "{ctx}");
                 assert_eq!(r.observed_level, Some(answer.level), "{ctx}");
-                assert_eq!(r.f32_denormal, None, "{ctx}");
+                if op == OpId::SubgroupSumF32 && want == Some(Route::Cpu) {
+                    let j = r.f32_denormal.expect("judgment");
+                    assert_eq!(j.behavior, F32DenormalBehavior::Preserve, "{ctx}");
+                    assert_eq!(j.basis, F32DenormalBasis::Observed, "{ctx}");
+                    assert_eq!(j.documented, None, "{ctx}");
+                } else {
+                    assert_eq!(r.f32_denormal, None, "{ctx}");
+                }
                 let fallback = want.is_none().then_some(UnavailableReason::OptInNotGiven);
                 assert_eq!(r.fallback_reason, fallback, "{ctx}");
             }
