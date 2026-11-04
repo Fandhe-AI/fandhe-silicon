@@ -316,3 +316,40 @@ cargo test -p fandhe-silicon-exec --features fault-injection --test fault_inject
 | `cargo test -p fandhe-silicon-exec --all-features` | 合計 135 passed → 合計 155 passed | 92 + 4 + 6 + 3 + 8 + 3 + 4 + 4 + 5 + 8 + 4 + 4 + 6 + 4 + doctest 0 |
 
 内訳の並びは [exec-skeleton-types.md](exec-skeleton-types.md) の「今の値の補い（base 515bb19）」の試験の件数の表と同じ。`--lib` は feature なしで 63 passed → 68 passed、`native-blocking-wait` 付きで 64 passed → 69 passed、`fault-injection` 付きで 85 passed → 91 passed、`--all-features` で 86 passed → 92 passed。`route_query` は 6 passed のまま。
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。`atomic_add` は経路が `Route::Cpu` で host の形なら出力の列に書き、`Ok(Outcome::Ran { report })` を返す（所在は [exec-cpu-route.md](exec-cpu-route.md)）。
+
+### 入口の返し
+
+「今の値の補い（base 515bb19）」の「入口の返し」の表の `atomic_add` の行は、次のとおり。
+
+| 呼び出し | 入口の返し | `query_route` の返し |
+| -------- | ---------- | -------------------- |
+| `atomic_add`・経路が `Route::Cpu`・host の形（`allow_cpu: true` だけの印を含む） | `Ok(Outcome::Ran { report })`。出力の列に書く | `Ok`・`report` と等しい報告 |
+| `atomic_add`・経路なし | `Ok(Outcome::Unavailable { report })` | `Ok`・`report` と等しい報告 |
+| `atomic_add`・経路が `Route::Cpu`・device の形 | `Err(ContractError::Unsupported { op: "atomic_add", .. })` | `Ok`・経路あり |
+| `atomic_add`・経路が `Route::Native` か `Route::GpuEmulated`（判定の差し込みなし） | `Err(ContractError::Unsupported { op: "atomic_add", .. })` | `Err(ContractError::Unsupported { .. })`（`op` は `"query_route"`） |
+
+「今の値の補い（base 515bb19）」の `subgroup_sum_f32` の行の `Route::Native`・`Route::GpuEmulated` の返しは、今も `subgroup_sum_f32` に当たる。`Exec::query_route` の rustdoc が `report` と等しいと書く行は `crates/exec/src/entry.rs` の 204 行 → 187 行。`atomic_add` で `Ran` の報告との一致を照らす試験は、`entry::tests::atomic_add_with_cpu_override_runs_on_host`（`entry.rs`）、`route_query.rs` の `query_route_matches_entry_report` の `Ran` の腕（`AtomicAdd` を含む）。`query_route` が `Route::GpuEmulated` の `SubgroupSumF32`・`AtomicAdd` で `Unsupported` になることは `route_query.rs` の `unreachable_native_follows_opt_in_order` が照らす。
+
+### 完了の条件の確かめ（5/5）の値
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| (1) の `forbid` の行 | `21:#![forbid(unsafe_code)]` → `22:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけで、ほか 12 ファイルは 0 件 | `grep -n forbid crates/exec/src/lib.rs`、`grep -rc unsafe crates/exec/src` |
+| (2) の選び方の関数と呼び出し元 | 定義 `select.rs:69` のまま。本体側の呼び出し `entry.rs:178` → `entry.rs:177` の `let output = select_route(&input, judge)?;`。取り込みは `entry.rs:24` → `entry.rs:23`。`select.rs` の試験の中の出現は `220`・`243`・`258`・`274`・`330`・`826` のまま | `grep -rn 'select_route' crates/exec/src` |
+| (3) の `RefCell` と `&'static` の行 | 14 行 → 13 行（`entry.rs` の `&'static str` が 1 行減った）。`entry.rs` の `&'static str` は `155`・`192`・`228`・`244` 行 → `154`・`212`・`233` 行。ほかの行（`select.rs:320`・`329`、`denormal_tests.rs:24`・`122`、`denormal.rs:10`・`107`・`193`・`243`・`245`・`291`）は変わらない。`std::env`・`env!`・`option_env!`・`std::fs`・`&mut self` の行は無い | `grep -rn 'std::env\|env!\|option_env!\|std::fs\|static \|Cell\|&mut self' crates/exec/src` |
+| (4) の組み合わせの数の行 | `660:            assert_eq!(checked, 5720);` のまま。`every_combination_matches_candidate_rule` は feature なしでも `--features fault-injection` でも 1 passed | `grep -n 'assert_eq!(checked, 5720)' crates/exec/src/select.rs`、`cargo test -p fandhe-silicon-exec --locked every_combination`（feature なしと `--features fault-injection`） |
+
+### 試験の件数
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 114 passed → 合計 123 passed | 69 + 4 + 3 + 5 + 6 + 4 + 5 + 9 + 4 + 3 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 121 passed → 合計 132 passed | 70 + 4 + 3 + 5 + 4 + 4 + 6 + 4 + 5 + 9 + 4 + 3 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 148 passed → 合計 158 passed | 92 + 5 + 4 + 6 + 8 + 6 + 4 + 5 + 9 + 4 + 4 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 155 passed → 合計 167 passed | 93 + 5 + 4 + 6 + 4 + 8 + 4 + 6 + 4 + 5 + 9 + 4 + 4 + 6 + 5 + doctest 0 |
+
+内訳の並びは [exec-skeleton-types.md](exec-skeleton-types.md) の「今の値の補い（base 8e4b99b）」の試験の件数の表と同じ。`--lib` は feature なしで 68 passed → 69 passed、`native-blocking-wait` 付きで 69 passed → 70 passed、`fault-injection` 付きで 91 passed → 92 passed、`--all-features` で 92 passed → 93 passed。`route_query` は 6 passed のまま。

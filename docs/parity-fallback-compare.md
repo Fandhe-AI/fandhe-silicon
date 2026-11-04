@@ -259,3 +259,21 @@ grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src c
 ```text
 grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 ```
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値。
+
+「今の値の補い（base 515bb19）」の `crates/exec` の表は、`grep -rn fallback_compare` で数えると、今は次のとおり。
+
+| 場所 | 件数 | 行 |
+| ---- | ---- | -- |
+| `crates/contract/src`・`crates/upper/src` | 0 件 | なし |
+| `crates/exec/src` | 1 件 | `cpu.rs:51` の `use fandhe_silicon_core::parity::fallback_compare::binary16_order_distance;`（`cpu.rs:48` の `#[cfg(test)]` の `mod tests` の中） |
+| `crates/exec/tests` | 3 件 | `cpu_atomic_add.rs:10` の `use fandhe_silicon_core::parity::fallback_compare::{`（`F32SubnormalHandling`・`compare_bits_f32`・`compare_relative_sum_f32` を取り込む）、`cpu_f16_fma.rs:9`、`cpu_subgroup_sum.rs:11` |
+
+`crates/exec` が `fallback_compare` を使うのは試験の中だけ。`crates/exec/src/cpu.rs` の `atomic_add` は 36 行。
+
+```text
+grep -rn fallback_compare crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```

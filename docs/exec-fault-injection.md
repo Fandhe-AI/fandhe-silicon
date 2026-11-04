@@ -269,3 +269,35 @@ cargo check -p fandhe-silicon-exec --tests --features fault-injection --locked -
 | `--features fault-injection` | lib 91・`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`fault_injection_ports` 8・`length_host` 4・`length_limit` 4・`length_zero` 5・`opt_in_default` 8・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 4 |
 | `--features native-blocking-wait` | lib 69・`cpu_f16_fma` 3・`cpu_subgroup_sum` 5・`device_operands` 3・`length_device` 3・`length_host` 4・`length_limit` 4・`length_zero` 5・`opt_in_default` 8・`reasons_and_denormal` 4・`route_evidence_calls` 3・`route_query` 6・`unsupported_fields` 4 |
 | `--all-features` | lib 92・`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`device_operands` 3・`fault_injection_ports` 8・`length_device` 3・`length_host` 4・`length_limit` 4・`length_zero` 5・`opt_in_default` 8・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 4 |
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### 入口の返し
+
+「今の値の補い（base 515bb19）」の「入口の返し」の表は、`atomic_add` については次のとおり。
+
+| 場面 | 動き |
+| ---- | ---- |
+| `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`・経路が `Route::Cpu`・host の形 | `Ok(Outcome::Ran { report })`。`report` は `query_route` の報告と等しく、出力の列が書き換わる（`fault_injection_ports.rs` の `forced_op_follows_opt_in`。4 つの `OpId` を `Route::Cpu` が決まる上書きで呼ぶ） |
+| `Route::Native`・`Route::GpuEmulated` が決まったそのほかの呼び出し | `Err(Unsupported { op: <入口の関数名>, .. })`。`query_route` は経路が決まれば `Ok(報告)` |
+
+### 完了の条件の確かめ（6/6）の値
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| (1) | 順に 3 passed、8 passed、91 passed → 順に 3 passed、8 passed、92 passed（`--lib` は `fault-injection` 付き）。3 本とも 0 failed; 0 ignored | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_decorator_capability_override`、`cargo test -p fandhe-silicon-exec --features fault-injection --test fault_injection_ports`、`cargo test -p fandhe-silicon-exec --features fault-injection --lib` |
+| (2) の 1 つ目 | 24 行のまま。`select.rs`（28・47・75・732 行）・`route.rs`（48・82 行）・`report.rs`（25・30 行）・`denormal_tests.rs`（299・404・579・823・996 行）は変わらず、`lib.rs` は 29・43 行 → 30・44 行、`entry.rs` は 71・84・110・127・164・170・180・899・1005 行 → 70・83・109・126・163・169・179・921・1027 行。`Cargo.toml` の行は無い | `grep -rn 'feature = "fault-injection"' crates/exec/src crates/exec/Cargo.toml` |
+| (2) の 2 つ目・3 つ目 | `Cargo.toml` の 19・23・30・33 行のまま。`^default` の出力は空（終了コード 1）のまま | `grep -n 'fault-injection' crates/exec/Cargo.toml`、`grep -n '^default' crates/exec/Cargo.toml` |
+| (4) | `unsafe` の数は `lib.rs` が 1、ほかの 12 ファイルが 0。`lib.rs:21` → `lib.rs:22` の `#![forbid(unsafe_code)]`。`make exec-deps-check` は終了コード 0 で `ok: 28 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0` | `grep -rc unsafe crates/exec/src`、`grep -n forbid crates/exec/src/lib.rs`、`make exec-deps-check` |
+| (5) の test の合計 | feature なし 114 → 123、`--features fault-injection` 148 → 158、`--features native-blocking-wait` 121 → 132、`--all-features` 155 → 167。doctest は 4 組とも 0 passed | `cargo test -p fandhe-silicon-exec <組>` |
+
+(5) の内訳。
+
+| 組 | 内訳 |
+| -- | ---- |
+| feature なし | lib 69・`cpu_atomic_add` 4・`cpu_f16_fma` 3・`cpu_subgroup_sum` 5・`length_host` 6・`length_limit` 4・`length_zero` 5・`opt_in_default` 9・`reasons_and_denormal` 4・`route_evidence_calls` 3・`route_query` 6・`unsupported_fields` 5 |
+| `--features fault-injection` | lib 92・`cpu_atomic_add` 5・`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`fault_injection_ports` 8・`length_host` 6・`length_limit` 4・`length_zero` 5・`opt_in_default` 9・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 5 |
+| `--features native-blocking-wait` | lib 70・`cpu_atomic_add` 4・`cpu_f16_fma` 3・`cpu_subgroup_sum` 5・`device_operands` 4・`length_device` 4・`length_host` 6・`length_limit` 4・`length_zero` 5・`opt_in_default` 9・`reasons_and_denormal` 4・`route_evidence_calls` 3・`route_query` 6・`unsupported_fields` 5 |
+| `--all-features` | lib 93・`cpu_atomic_add` 5・`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`device_operands` 4・`fault_injection_ports` 8・`length_device` 4・`length_host` 6・`length_limit` 4・`length_zero` 5・`opt_in_default` 9・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 5 |

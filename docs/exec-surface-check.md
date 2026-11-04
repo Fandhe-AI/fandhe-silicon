@@ -504,3 +504,16 @@ ok: exec surface check passed
 ```
 
 - `op_fns=7 op_fns_with_report=7` の 7 つの関数のうち `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32` は、経路が `Route::Cpu` で host の形なら `Ok(Outcome::Ran { report })` を返す（`crates/exec/src/entry.rs`）。戻り値の型は `Result<Outcome, ContractError>` のまま。
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値。
+
+- 「今の値の補い（base 515bb19）」の `rs_files=27` は、いまは `rs_files=28`。`crates/exec/src` は 13 ファイルのまま、`crates/exec/tests` は `common/mod.rs` を含め 14 ファイル → 15 ファイル（`cpu_atomic_add.rs` が加わった）。`make exec-surface-check` は終了コード 0 で、`record:` の行は次のとおり。ほかの欄は変わらない。
+
+```text
+record: commit=8e4b99b9c26f5a4eba683321b8ce41ec0fe4ceaa rs_files=28 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+- `op_fns=7 op_fns_with_report=7` の 7 つの関数のうち `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` の 4 つは、経路が `Route::Cpu` で host の形なら `Ok(Outcome::Ran { report })` を返す（`crates/exec/src/entry.rs`）。戻り値の型は `Result<Outcome, ContractError>` のまま。

@@ -229,3 +229,21 @@ grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src
 grep -rn fallback_inputs crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
 ```
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値。
+
+「今の値の補い（base 515bb19）」の `crates/exec` の表は、`git grep` と同じ範囲の `grep -rn` で数えると、今は次のとおり。
+
+| 語 | `crates/contract/src`・`crates/upper/src` | `crates/exec/src` | `crates/exec/tests` |
+| -- | ----------------------------------------- | ----------------- | ------------------- |
+| `fallback_inputs` | 0 件 | 0 件 | `cpu_atomic_add.rs:13`・`cpu_f16_fma.rs:12`・`cpu_subgroup_sum.rs:14` の 3 件 |
+| `fallback_reference` | 0 件 | `cpu.rs:52` の `use fandhe_silicon_core::parity::fallback_reference::reference_f16_fma;` の 1 件（`cpu.rs:48` の `#[cfg(test)]` の `mod tests` の中） | `cpu_atomic_add.rs:17`・`cpu_f16_fma.rs:16`・`cpu_subgroup_sum.rs:18` の 3 件 |
+
+`cpu_atomic_add.rs:13` は `fallback_inputs::{ATOMIC_ADD_OUTPUT_COUNTS, FALLBACK_LENGTHS, FallbackInputKind, ax_pair_allowed, generate_atomic_add_ag, generate_atomic_add_as, generate_atomic_add_ax}` を、`cpu_atomic_add.rs:17` は `fallback_reference::reference_atomic_add_f32` を取り込む。`crates/exec/src/cpu.rs` の `atomic_add`（36 行）の本体は、`fallback_inputs`・`fallback_reference` を使わない。`fallback_inputs`・`fallback_reference` の `pub` の項目を `crates/exec` が使うのは試験の中だけ。
+
+```text
+grep -rn fallback_inputs crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+grep -rn fallback_reference crates/contract/src crates/exec/src crates/upper/src crates/exec/tests
+```

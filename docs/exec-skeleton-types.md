@@ -500,3 +500,60 @@ cargo test -p fandhe-silicon-exec --features native-blocking-wait
 cargo test -p fandhe-silicon-exec --features fault-injection
 cargo test -p fandhe-silicon-exec --all-features
 ```
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。`atomic_add` も、経路が `Route::Cpu` で host の形なら出力の列に書くようになった（`crates/exec/src/cpu.rs` の `atomic_add`。所在は [exec-cpu-route.md](exec-cpu-route.md)）。private の `Exec::run` は無くなり、4 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`）はどれも `self.run` を呼ばない。
+
+### `atomic_add` の動き
+
+「今の値の補い（base 515bb19）」の「subgroup の 2 入口の動き」の冒頭で `atomic_add` について書いた「`n`・`m`・`operands` を読まず、出力に書かず、`Outcome::Ran` を返さない」は、今は当たらない。`atomic_add` は次のとおり。
+
+| 呼び出し | 返り値 |
+| -------- | ------ |
+| 経路が `Route::Cpu` で host の形 | `crate::cpu::atomic_add` で `out` に書き、`Ok(Outcome::Ran { report })` を返す |
+| 経路なし | `Ok(Outcome::Unavailable { report })`。列の中身は読まず、出力に書かない |
+| device の形、または `Route::Cpu` 以外の経路が決まった呼び出し | `Err(ContractError::Unsupported { op: "atomic_add", .. })` |
+| `n` と `m` の検査（`check_lengths`）、host の形の `x` と `n`・`out` と `m` の列の長さの検査（`check_host_len`）のどちらかに外れた呼び出し | `Err(ContractError::InvalidArgument(..))`。能力を問い合わせない |
+
+### 入口ごとの行
+
+「今の値の補い（base 515bb19）」の入口ごとの行の表は、今は次のとおり。
+
+| 入口 | 検査の呼び出し（`crates/exec/src/entry.rs`） | 経路の報告・本体・返し |
+| ---- | -------------------------------------------- | ---------------------- |
+| `f16_fma` | 254 行の `check_lengths`、258 行の `check_host_len` | 264 行の `self.route_report`、268 行の `crate::cpu::f16_fma`、269 行の `Ok(Outcome::Ran { report })`、271 行の `Err(self.unsupported("f16_fma"))` |
+| `subgroup_sum_u32` | 289 行の `check_lengths`、297・298 行の `check_host_len` | 303 行の `self.route_report`、307 行の `crate::cpu::subgroup_sum_u32`、308 行の `Ok(Outcome::Ran { report })`、310 行の `Err(self.unsupported("subgroup_sum_u32"))` |
+| `subgroup_sum_f32` | 331 行の `check_lengths`、339・340 行の `check_host_len` | 345 行の `self.route_report`、349 行の `crate::cpu::subgroup_sum_f32`、350 行の `Ok(Outcome::Ran { report })`、352 行の `Err(self.unsupported("subgroup_sum_f32"))` |
+| `atomic_add` | 375 行の `check_lengths`（`n` と `Some(m)`）、383・384 行の `check_host_len`（`x` と `n`、`out` と `m`） | 389 行の `self.route_report`、393 行の `crate::cpu::atomic_add`、394 行の `Ok(Outcome::Ran { report })`、396 行の `Err(self.unsupported("atomic_add"))` |
+
+測ったコマンドは `grep -n 'check_lengths\|check_host_len\|self.run(\|self.route_report(OpId\|Outcome::Ran\|crate::cpu\|self.unsupported("' crates/exec/src/entry.rs`（`self.run(` の出現は無い）。取り込みは `entry.rs:15` の `use crate::length::{check_host_len, check_lengths};`。
+
+### 完了の条件の確かめ（7/7）の値
+
+| 節 | 「今の値の補い（base 515bb19）」の値 → 今の値 | 測ったコマンド |
+| -- | --------------------------------------------- | -------------- |
+| (1) の `forbid` の行 | `21:#![forbid(unsafe_code)]` → `22:#![forbid(unsafe_code)]`。`unsafe` の出現は `lib.rs` の 1 件だけで、ほか 12 ファイルは 0 件 | `grep -n forbid crates/exec/src/lib.rs`、`grep -rc unsafe crates/exec/src` |
+| `crates/exec/src` のファイルの数 | 13 ファイルのまま | `ls crates/exec/src \| wc -l` |
+| `crates/exec` の `.rs` の数 | `make exec-deps-check` の `rs_files=27` → `rs_files=28`。`crates/exec/tests` は `common/mod.rs` を含め 14 ファイル → 15 ファイル（`cpu_atomic_add.rs` が加わった） | `make exec-deps-check`、`find crates/exec/tests -name '*.rs' \| wc -l` |
+| `crates/exec/Cargo.toml` の行数 | 41 行のまま | `wc -l crates/exec/Cargo.toml` |
+
+### 試験の件数
+
+| 流し方 | 前の値 → 今の値 | 内訳 |
+| ------ | --------------- | ---- |
+| `cargo test -p fandhe-silicon-exec` | 合計 114 passed → 合計 123 passed | 69 + 4 + 3 + 5 + 6 + 4 + 5 + 9 + 4 + 3 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 121 passed → 合計 132 passed | 70 + 4 + 3 + 5 + 4 + 4 + 6 + 4 + 5 + 9 + 4 + 3 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 148 passed → 合計 158 passed | 92 + 5 + 4 + 6 + 8 + 6 + 4 + 5 + 9 + 4 + 4 + 6 + 5 + doctest 0 |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 155 passed → 合計 167 passed | 93 + 5 + 4 + 6 + 4 + 8 + 4 + 6 + 4 + 5 + 9 + 4 + 4 + 6 + 5 + doctest 0 |
+
+内訳の並びは、`--lib`、`cpu_atomic_add`（feature なしと `native-blocking-wait` では 4、`fault-injection` 付きでは 5）、`cpu_f16_fma`、`cpu_subgroup_sum`、`device_operands`、`fault_injection_ports`、`length_device`、`length_host`、`length_limit`、`length_zero`、`opt_in_default`、`reasons_and_denormal`、`route_evidence_calls`、`route_query`、`unsupported_fields`、doctest の順で、その流し方に無い試験の本は並べていない。
+
+`--lib` は feature なしで 68 passed → 69 passed、`native-blocking-wait` 付きで 69 passed → 70 passed、`fault-injection` 付きで 91 passed → 92 passed、`--all-features` で 92 passed → 93 passed。統合テストは `crates/exec/tests/` の `cpu_atomic_add.rs` が加わり、`device_operands.rs` は 3 passed → 4 passed（`cpu_route_atomic_add_with_device_operands_is_unsupported_and_leaves_buffers`）、`length_device.rs` は 3 passed → 4 passed、`length_host.rs` は 4 passed → 6 passed、`opt_in_default.rs` は 8 passed → 9 passed、`unsupported_fields.rs` は 4 passed → 5 passed になっている。`tests/*.rs` の本は 13 本 → 14 本。
+
+```text
+cargo test -p fandhe-silicon-exec
+cargo test -p fandhe-silicon-exec --features native-blocking-wait
+cargo test -p fandhe-silicon-exec --features fault-injection
+cargo test -p fandhe-silicon-exec --all-features
+```

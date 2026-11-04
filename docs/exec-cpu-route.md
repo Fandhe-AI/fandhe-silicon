@@ -1,6 +1,6 @@
 # 下-2 の CPU の経路の所在（TASK-930）
 
-下-2（`crates/exec`）の host の形の列の長さの検査と、経路 `Route::Cpu` の `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`、その試験の所在と、本リポの現状の事実をまとめる。
+下-2（`crates/exec`）の CPU の経路の所在と、本リポの現状の事実をまとめる。host の形の列の長さの検査と、経路 `Route::Cpu` の `f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`、その試験を含む。
 決定の記録は private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-930（親の Issue は #872）。
 
 ## 本リポの現状の事実
@@ -1130,3 +1130,49 @@ grep -n forbid crates/exec/src/lib.rs
 | 4/4 | #6062 | 完了の条件の確かめ（4/4） |
 
 親 Issue は #874。
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。`atomic_add` は経路が `Route::Cpu` で host の形なら `crate::cpu::atomic_add`（`crates/exec/src/cpu.rs` の 36 行）で `out` に書き、`Ok(Outcome::Ran { report })` を返す。4 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`）が `Route::Cpu` で host の形なら `Ran` を返す。`Exec::run` は無く、`Route::Native`・`Route::GpuEmulated` が決まった呼び出しは入口の関数名の `Err(ContractError::Unsupported { .. })` を返す。
+
+### 既存の節の試験の名前と期待
+
+| 既存の節の記述 | 今の試験・期待 |
+| -------------- | -------------- |
+| 「CPU の経路の f16 の積和（2/4）」の試験の表の `entry.rs` の `four_entries_with_cpu_override_are_unsupported_err`（`allow_cpu` だけの上書きで `subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` が `Unsupported`） | この名前の試験は無い。`entry::tests::atomic_add_with_cpu_override_runs_on_host` が `allow_cpu` だけの上書きで `atomic_add` を呼び、`Ran`・`Route::Cpu`・`query_route` と等しい報告・`out` が `[2.0]`・`Preserve`・`Observed` を照らす |
+| 同じ表の `opt_in_default.rs` の `chosen_route_does_not_write_output`（`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` が `Unsupported` で出力が変わらない） | `allow_gpu_emulated` だけの印（`Route::GpuEmulated` に決まる）で 4 つの入口を呼び、どれも `Unsupported` で出力が変わらないことを照らす。`external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` が上書き 5 通りで `Unsupported` を返す照らしは変わらない |
+| 同じ表の `fault_injection_ports.rs` の `forced_op_follows_opt_in`（`atomic_add` も `f16_fma` と同じ） | `Route::Cpu` に決まる上書きで、`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` の 4 つを `Ran`・報告が `query_route` と同じ・出力が書き換わるとして照らす |
+| TASK-931 の 1/6 の節の `length_limit.rs` の行（一つ手前の `n` は `atomic_add` のほかが `InvalidArgument`）と、その下の「`atomic_add` の列と `f16_fma` の列は変えていない」 | 一つ手前の `n` は `atomic_add` を含む 4 つの入口がどれも `InvalidArgument`（`query_ex`・`memory`・`queue` の数えは 0、出力は番兵のまま）。`atomic_add` の `out` は長さ `m.min(64)`（最小 1）。`length_zero.rs` の `valid_length_reaches_route_choice` の出力の列は `f16_fma` が長さ 2、ほかの 3 つが長さ 1 |
+| 「CPU の経路の subgroup の総和（2/6）」の「直した既存の試験」の `entry.rs` の `four_entries_with_cpu_override_are_unsupported_err` が `atomic_add` だけを照らす | 上の 1 行目のとおり、この名前の試験は無く `atomic_add_with_cpu_override_runs_on_host` に置き換わっている |
+| 「CPU の経路の f32 の総和の非正規化数の判定（3/6）」の「直した既存の試験」の `entry.rs` の `uninjected_route_keeps_unsupported_error`（`atomic_add` だけを照らす） | `SubgroupSumF32` と `AtomicAdd` の両方を回し、`Exec::new` に `allow_gpu_emulated`・`allow_cpu` の両方の印を渡して `Route::Cpu` にだけ判定を差した `query_route` が、`Err(ContractError::Unsupported { op: "query_route", .. })` を返すことを照らす |
+| 同じ節の `route_query.rs` の `unreachable_native_follows_opt_in_order`・`query_route_follows_per_key_answer` | `SubgroupSumF32`・`AtomicAdd` の `Route::GpuEmulated` が `Unsupported`、`Route::Cpu` が `Ok`。`query_route_follows_per_key_answer` は、`allow_cpu` だけの印の `query_route` が 4 つの `OpId` のどれでも `Ok` でなければ `panic!("expected Ok: ..")` で失敗する |
+| 同じ節の `opt_in_default.rs` の `chosen_route_does_not_write_output`・`unsupported_fields.rs` の `unsupported_carries_entry_name_and_device_backend` | 4 つの入口とも `Route::GpuEmulated` に決まる印（`GPU_OK`）で呼び、入口の関数名の `Unsupported` の欄を照らす |
+
+### `atomic_add` の host の形の動き
+
+TASK-932 の 1/4 の節の「判定の順」の下の「列の中身は読まず、出力に書かない」は、device の形については今も当たる。host の形で段 1〜3 を通り、経路が `Route::Cpu` に決まった呼び出しは `out` に書き、`Ok(Outcome::Ran { report })` を返す。device の形で経路が `Route::Cpu` に決まった呼び出しは `Err(ContractError::Unsupported { op: "atomic_add", .. })` を返し、出力に書かない。
+
+### device の形の `atomic_add`
+
+`device_operands.rs`（feature `native-blocking-wait`）に `cpu_route_atomic_add_with_device_operands_is_unsupported_and_leaves_buffers` が加わった。`n` が 257、`m` が 64 の `AtomicAddOperands::Device` を、`Exec::new` に `allow_cpu` だけの印を渡した組と、`Exec::deny_by_default` に呼び出しごとの上書きで同じ印を渡した組の 2 通りで呼ぶ。期待は次のとおり。
+
+| 照らすもの | 期待 |
+| ---------- | ---- |
+| 返り値 | `Err(ContractError::Unsupported { op: "atomic_add", .. })` |
+| 数え | `query_ex` が 1 回。`memory`・`queue` の数えは呼ぶ前と同じ |
+| buffer の中身 | `x`（`n * 4` バイト）と `out`（`m * 4` バイト）を `download_blocking` で読み戻すと、確保時に入れた値のまま |
+
+### 確かめた値
+
+| 流し方 | 今の値 |
+| ------ | ------ |
+| `cargo test -p fandhe-silicon-exec` | 合計 123 passed |
+| `cargo test -p fandhe-silicon-exec --features native-blocking-wait` | 合計 132 passed |
+| `cargo test -p fandhe-silicon-exec --features fault-injection` | 合計 158 passed |
+| `cargo test -p fandhe-silicon-exec --all-features` | 合計 167 passed（`cpu_atomic_add` 5、`device_operands` 4） |
+| `make verify` | `test result:` の行は 232、passed の合計 2380（failed の合計 0、ignored の合計 7。終了コード 0） |
+| `make exec-surface-check` | 終了コード 0。`rs_files=28` |
+
+### 段の表（TASK-932）の 4/4 の行
+
+「段の表（TASK-932）」の 4/4 の行は、Issue が #6062、PR が #7990。

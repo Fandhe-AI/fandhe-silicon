@@ -265,3 +265,30 @@ grep -n forbid crates/exec/src/lib.rs
 | (7) の `forbid` の行 | `20:#![forbid(unsafe_code)]` → `21:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
 
 `crates/exec` の `.rs` は 27 ファイル（`crates/exec/src` が 13 ファイル、`crates/exec/tests` が `common/mod.rs` を含め 14 ファイル）。`make exec-deps-check` の `record:` も `rs_files=27`。
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### `atomic_add` の host の列の長さの検査
+
+`atomic_add` は、`check_lengths` の後で、host の形のときに `x` の列の長さが `n` と、`out` の列の長さが `m` と同じかを調べる。違えば `Err(ContractError::InvalidArgument(..))` を返し、能力を問い合わせない（`crates/exec/src/length.rs` の `check_host_len`〔35 行〕。`subgroup_output_len` は 75 行）。device の形は列の長さを調べない。呼び出しは `crates/exec/src/entry.rs` の 375 行の `check_lengths`、383 行と 384 行の `check_host_len`、389 行の `route_report`（`grep -n 'check_lengths\|check_host_len\|route_report' crates/exec/src/entry.rs`）。所在は [exec-cpu-route.md](exec-cpu-route.md)。
+
+「今の値の補い（base 515bb19）」の host の形の説明のうち `atomic_add` の `out` の長さは、次のとおり。`length_limit.rs` の `atomic_add` の `out` は長さ `m.min(64)`（最小 1）で、`m` は `atomic_add` だけが使う（`crates/exec/tests/length_limit.rs` の 57 行のコメントと 76 行の `vec![sf; usize::try_from(m.min(64)).unwrap().max(1)]`）。`f16_fma` の列と subgroup の 2 入口の `x` は 68 行の `let k = usize::try_from(n.min(64)).unwrap().max(1);` の長さ、subgroup の `out` は 74・75 行の `k.div_ceil(256)` の長さで、変わらない。一つ手前の `n` の呼び出しは、`atomic_add` を含むどの入口も `InvalidArgument`（216 行のコメント）。device の形の `length_device.rs` は `device_form_atomic_passes_one_before_byte_overflow` が加わり、`atomic_add` の `n` が `u64::MAX / 4` で `m` が 1 の呼び出しと、`n` が 1 で `m` が `u64::MAX / 4` の呼び出しが `InvalidArgument` でなく、`query_ex` の数えが 1 回、`memory` の数えが増えず、buffer の中身が変わらないことを照らす。
+
+### 完了の条件の確かめ（4/4）の値
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| (1) の入口ごとの行 | `f16_fma` は 265 行の `check_lengths`・269 行の `check_host_len`・275 行の `route_report` → 254 行・258 行・264 行、`subgroup_sum_u32` は 300 行・308 行と 309 行・314 行 → 289 行・297 行と 298 行・303 行、`subgroup_sum_f32` は 342 行・350 行と 351 行・356 行 → 331 行・339 行と 340 行・345 行、`atomic_add` は 377 行の検査・384 行の `self.run` → 375 行の `check_lengths`・383 行と 384 行の `check_host_len`・389 行の `route_report`（`self.run` は呼ばない）。取り込みは `entry.rs:16` → `entry.rs:15` | `grep -n 'check_lengths\|check_host_len\|self.run(OpId\|self.route_report(OpId' crates/exec/src/entry.rs` |
+| (2) の `--lib length` | 8 passed（92 件中、84 filtered out）→ 8 passed（93 件中、85 filtered out）。走った試験は `length::tests::` の 7 本と `entry::tests::entries_reject_lengths` | `cargo test -p fandhe-silicon-exec --all-features --locked --lib length` |
+| (2) の `--lib length::tests` | 7 passed（85 filtered out）→ 7 passed（86 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib length::tests` |
+| (2) の `--lib` の合計 | `--all-features` で 92 passed → 93 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` |
+| (4) の `length_device` | 3 passed → 4 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_limit --test length_device` |
+| (4) の `length_limit` | 4 passed のまま | 同上 |
+| (3) の `length_zero` | 5 passed のまま | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero` |
+| (5) の `make verify` の exec | lib が 93 passed、`tests/length_device.rs` が 4 passed、`tests/length_host.rs` が 6 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed | `make verify` |
+| (6) の `make exec-surface-check` の `record:` | `rs_files=27` → `rs_files=28`（`items_default=458 items_all=511 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0` のまま） | `make exec-surface-check` |
+| (7) の `forbid` の行 | `21:#![forbid(unsafe_code)]` → `22:#![forbid(unsafe_code)]` | `grep -n forbid crates/exec/src/lib.rs` |
+
+`crates/exec` の `.rs` は 28 ファイル（`crates/exec/src` が 13 ファイル、`crates/exec/tests` が `common/mod.rs` を含め 15 ファイル）。`make exec-deps-check` の `record:` も `rs_files=28`。
