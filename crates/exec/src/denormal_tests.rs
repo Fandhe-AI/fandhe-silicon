@@ -5,7 +5,9 @@
 
 use crate::denormal::ProbeInput;
 use crate::entry::Exec;
-use crate::operands::{AtomicAddOperands, SubgroupSumF32Operands};
+use crate::operands::{
+    AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
+};
 use crate::opt_in::OptIn;
 use crate::report::{F32DenormalBasis, F32DenormalBehavior, F32DenormalReport, Outcome};
 use crate::route::{OpId, Route, UnavailableReason};
@@ -420,5 +422,214 @@ mod documented {
             })
         );
         assert_eq!(log.borrow().len(), 0);
+    }
+}
+
+/// 拒否した呼び出し・経路の無い呼び出し・判定を求めない操作で、試しの実行が流れないことの試験。
+///
+/// 回数は模擬の runner が呼ばれた数の、各呼び出しの前後の差で見る。戻り値の文言は照らさない。
+mod rejected {
+    use super::*;
+
+    const NONE: OptIn = opt(false, false);
+    const OVERRIDES: [Option<OptIn>; 5] =
+        [None, Some(NONE), Some(G_ONLY), Some(C_ONLY), Some(BOTH)];
+    const DEFAULTS: [OptIn; 4] = [NONE, G_ONLY, C_ONLY, BOTH];
+    /// `StubDevice` の `max_buffer_bytes`（1 << 28）を f32 の 4 バイトで超える最小の要素数。
+    const OVER_LIMIT: u64 = (1 << 26) + 1;
+    const S0: CapabilityQuery = CapabilityQuery {
+        level: CapabilityLevel::S0,
+        unsupported_reason: None,
+        evidence: None,
+    };
+    const S1: CapabilityQuery = CapabilityQuery {
+        level: CapabilityLevel::S1,
+        unsupported_reason: None,
+        evidence: None,
+    };
+
+    fn devices() -> [QueryDevice; 2] {
+        [
+            QueryDevice::new(BackendKind::Metal, S2),
+            QueryDevice::new(BackendKind::Metal, UNKNOWN_FEATURE),
+        ]
+    }
+
+    /// 長さを指定して f32 の 2 つの入口を呼ぶ。`x_len` は渡す列の長さで、`n` とは独立。
+    fn call_with(
+        exec: &Exec<'_>,
+        op: OpId,
+        over: Option<OptIn>,
+        n: u64,
+        m: u64,
+        x_len: usize,
+    ) -> Result<Outcome, ContractError> {
+        let (x, mut out) = (vec![1.0f32; x_len], [0.0f32; 2]);
+        match op {
+            OpId::SubgroupSumF32 => exec.subgroup_sum_f32(
+                over,
+                n,
+                SubgroupSumF32Operands::Host {
+                    x: &x,
+                    out: &mut out,
+                },
+            ),
+            _ => exec.atomic_add(
+                over,
+                n,
+                m,
+                AtomicAddOperands::Host {
+                    x: &x,
+                    out: &mut out[..1],
+                },
+            ),
+        }
+    }
+
+    fn is_invalid(r: &Result<Outcome, ContractError>) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(_)))
+    }
+
+    #[test]
+    fn rejected_calls_do_not_run_judgment() {
+        // (n, m, 列の長さ)。FB-60 の拒否の入力。
+        let cases: [(u64, u64, usize); 5] = [
+            (0, 1, 0),
+            (8, 0, 8),
+            (u64::MAX, 1, 1),
+            (OVER_LIMIT, 1, 1),
+            (1, OVER_LIMIT, 1),
+        ];
+        for dev in devices() {
+            for default in DEFAULTS {
+                for over in OVERRIDES {
+                    let log = CallLog::default();
+                    let runner = preserving_runner(&log);
+                    let exec = Exec::new(&dev, default).with_probe(&runner);
+                    for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+                        for (n, m, len) in cases {
+                            // `m` は `atomic_add` だけの引数なので、m だけが不正な組は総和には当てない。
+                            if op == OpId::SubgroupSumF32 && m != 1 {
+                                continue;
+                            }
+                            let before = log.borrow().len();
+                            let r = call_with(&exec, op, over, n, m, len);
+                            assert!(is_invalid(&r), "{op:?} n={n} m={m}: {r:?}");
+                            assert_eq!(log.borrow().len(), before);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rejection_does_not_consume_judgment() {
+        for dev in devices() {
+            for default in DEFAULTS {
+                for over in OVERRIDES {
+                    for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+                        for query_first in [false, true] {
+                            let log = CallLog::default();
+                            let runner = preserving_runner(&log);
+                            let exec = Exec::new(&dev, default).with_probe(&runner);
+                            let r = call_with(&exec, op, over, 0, 0, 0);
+                            assert!(is_invalid(&r));
+                            assert_eq!(log.borrow().len(), 0);
+                            // 効く印と device から、経路が届くかを試験の側で求める。
+                            let eff = over.unwrap_or(default);
+                            let reachable = dev.query.level == CapabilityLevel::S2
+                                || eff.allow_gpu_emulated
+                                || eff.allow_cpu;
+                            if query_first {
+                                let r = exec.query_route(op, over);
+                                assert!(!matches!(r, Err(ContractError::InvalidArgument(_))));
+                            } else {
+                                assert!(!is_invalid(&call_entry(&exec, op, over)));
+                            }
+                            assert_eq!(log.borrow().len(), usize::from(reachable));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn calls_without_route_do_not_run_judgment() {
+        for query in [S0, S1] {
+            let dev = QueryDevice::new(BackendKind::Metal, query);
+            // 上書きで両方拒否する場合と、上書き無しで既定の印が全拒否の場合。
+            for over in [Some(NONE), None] {
+                for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+                    let log = CallLog::default();
+                    let runner = preserving_runner(&log);
+                    let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+                    let r = call_entry(&exec, op, over);
+                    assert!(matches!(r, Ok(Outcome::Unavailable { .. })), "{r:?}");
+                    assert_eq!(log.borrow().len(), 0);
+                    let report = exec.query_route(op, over).expect("report");
+                    assert_eq!(report.route, None);
+                    assert_eq!(log.borrow().len(), 0);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn forced_calls_without_opt_in_do_not_run_judgment() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in [OpId::SubgroupSumF32, OpId::AtomicAdd] {
+            let log = CallLog::default();
+            let runner = preserving_runner(&log);
+            let exec = Exec::deny_by_default(&dev)
+                .with_probe(&runner)
+                .force_unsupported(op);
+            let r = call_entry(&exec, op, Some(NONE));
+            assert!(matches!(r, Ok(Outcome::Unavailable { .. })), "{r:?}");
+            assert_eq!(log.borrow().len(), 0);
+            // 同じ Exec で opt-in を許すと、外した Native の代わりの経路で 1 回だけ流れる。
+            let report = exec.query_route(op, Some(G_ONLY)).expect("report");
+            assert_eq!(report.route, Some(Route::GpuEmulated));
+            assert_eq!(calls_of(&log, op, Route::GpuEmulated), 1);
+            assert_eq!(calls_of(&log, op, Route::Native), 0);
+        }
+    }
+
+    #[test]
+    fn f16_and_u32_never_run_judgment() {
+        let (a, mut o16) = ([1u16; 2], [0u16; 2]);
+        let (xu, mut ou) = ([1u32; 2], [0u32; 1]);
+        for dev in devices() {
+            for default in DEFAULTS {
+                for over in OVERRIDES {
+                    let log = CallLog::default();
+                    let runner = preserving_runner(&log);
+                    let exec = Exec::new(&dev, default).with_probe(&runner);
+                    let _ = exec.f16_fma(
+                        over,
+                        2,
+                        F16FmaOperands::Host {
+                            a: &a,
+                            b: &a,
+                            c: &a,
+                            out: &mut o16,
+                        },
+                    );
+                    let _ = exec.subgroup_sum_u32(
+                        over,
+                        2,
+                        SubgroupSumU32Operands::Host {
+                            x: &xu,
+                            out: &mut ou,
+                        },
+                    );
+                    let _ = exec.query_route(OpId::F16Fma, over);
+                    let _ = exec.query_route(OpId::SubgroupSumU32, over);
+                    assert_eq!(log.borrow().len(), 0);
+                }
+            }
+        }
     }
 }
