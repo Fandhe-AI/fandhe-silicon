@@ -63,3 +63,40 @@ cargo test -p fandhe-silicon-exec --all-features --locked --lib length
 cargo test -p fandhe-silicon-exec --all-features --locked --lib entry::tests::entries_reject_lengths
 make exec-surface-check
 ```
+
+## 長さ 0 と出力の数 0 の入口経由の試験（2/4）
+
+### 所在
+
+`crates/exec/tests/length_zero.rs`。公開のパスと `crates/exec/tests/common/mod.rs` の `Scripted` だけを使う。
+
+### 組
+
+| 軸 | 値 |
+| -- | -- |
+| opt-in の上書き | `None`・`NONE`・`G_ONLY`・`C_ONLY`・`BOTH` |
+| 既定の印（`Exec::new` に渡す） | `NONE`・`G_ONLY`・`C_ONLY`・`BOTH` |
+| device の答え | `Scripted::answering` の `S2`・`Unsupported`、`Scripted::query_fails()` |
+
+呼び出しごとに新しい `Scripted` を作る。4 つの入口すべてに全組を流す。
+
+### 数えるもの
+
+- `Scripted` の `query_ex_calls()`・`memory_calls()`・`queue_calls()`
+- `route_evidence::SENTINEL_BYTE` で埋めた出力の列（`is_untouched`）
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `zero_length_is_rejected_on_every_entry` | 4 入口に `n = 0`（`atomic_add` は `m = 1`）、入力・出力とも空 | `Err(InvalidArgument)`、3 つの数えがすべて 0 |
+| `zero_length_with_sentinel_outputs_is_untouched` | `n = 0`、出力は長さ 2 の番兵 | 同じ `Err`、出力が番兵のまま |
+| `zero_outputs_is_rejected_for_atomic_add` | `atomic_add` に `n = 8`・`m = 0`、出力は空と長さ 2 の番兵 | `Err(InvalidArgument)`、3 つの数えがすべて 0、番兵のまま |
+| `valid_length_reaches_route_choice` | `n = 2`（`atomic_add` は `m = 1`）、長さ 2 の入力と出力 | `InvalidArgument` でない、`query_ex` が 1 回 |
+| `query_route_is_unaffected` | 拒否の呼び出しをした `Exec` と、していない新しい `Exec` | `query_route(op, over).ok()` が等しい |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_zero
+```
