@@ -175,6 +175,56 @@ $ grep -n wasm_bindgen wasm/crates/glue/src/lib.rs
 147:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 ```
 
+### 完了の条件の確かめ（4/4）
+
+glue の 7 つの export について、本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-2957）。
+
+時点のコミット: `25a2535`（この変更の土台）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 7 つの関数の export の宣言 | `grep -n -A1 wasm_bindgen wasm/crates/glue/src/lib.rs` | 8 組（`roundtrip_f32` と 7 つの関数）。出力は下のコードブロック |
+| (2) | 同じ入力の `DefaultCpuOps` と同じ出力・戻り 0 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` | `--list` に `tests::gemm_matches_default_cpu_ops: test`・`tests::elementwise_matches_default_cpu_ops: test`・`tests::topk_matches_default_cpu_ops: test`。3 つとも `... ok`。最終行は `test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| (3) | 拒否の 3 場面で出力が変わらず戻り 1 | 同じ `cargo test` | `elementwise_rejects_unassigned_op_code`・`gemm_rejects_mismatched_lengths`・`elementwise_rejects_mismatched_lengths`・`topk_rejects_output_length_mismatch`・`gemm_rejects_overflowing_dimensions`・`topk_rejects_overflowing_count` がいずれも `... ok` |
+| (4) | Top-k のバイトの並び | 同じ `cargo test` | `topk_bytes_layout ... ok` |
+| (5) | `detect_isa_bits` が host で 0 | 同じ `cargo test` | `detect_isa_bits_is_zero_on_host ... ok` |
+| (6) | CI で流れる場所 | `gh run view 41925431798 --json status,conclusion,headSha,jobs` と、`deny` ジョブのログ | run 41925431798（`push`）の `status` は `completed`、`conclusion` は `success`、`headSha` は `25a2535dd9a530cf9b8f2507d017dc90306dc98d`。`make deny (cargo-deny)` ジョブは `success`、`wasm32 build + size + node (macos-latest)` ジョブは `success`。`deny` ジョブのログの `test result:` の行は下のコードブロック |
+| (7) | unsafe・依存の追加 0 | TASK-2957 の 3 つのコミット（`000f060`・`01d8515`・`25a2535`）に絞った `git show --stat --format= <コミット> -- crates wasm/Cargo.toml wasm/crates/glue/Cargo.toml wasm/Cargo.lock wasm/deps-approved.toml Cargo.toml Cargo.lock deps-approved.toml` と `grep -n unsafe wasm/crates/glue/src/lib.rs` と `grep -n unsafe_code wasm/Cargo.toml` | `git show` の出力は空。`grep` の出力は下のコードブロック |
+
+```console
+$ grep -n -A1 wasm_bindgen wasm/crates/glue/src/lib.rs
+25:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+26-pub fn roundtrip_f32(input: &[f32]) -> Vec<f32> {
+--
+34:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+35-pub fn gemm_scalar(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) -> u32 {
+--
+47:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+48-pub fn gemm_simd(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) -> u32 {
+--
+58:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+59-pub fn detect_isa_bits() -> u32 {
+--
+79:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+80-pub fn elementwise_scalar(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32 {
+--
+95:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+96-pub fn elementwise_simd(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32 {
+--
+137:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+138-pub fn topk_scalar(scores: &[f32], k: usize, out: &mut [u8]) -> u32 {
+--
+147:#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+148-pub fn topk_simd(scores: &[f32], k: usize, out: &mut [u8]) -> u32 {
+$ gh run view 41925431798 --job 126908464503 --log
+[wasm-verify.sh] cargo test (wasm/, host)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ grep -n unsafe wasm/crates/glue/src/lib.rs
+8://! 手で書く unsafe は持たない。配列の受け渡しは wasm-bindgen の型の変換に任せる。
+$ grep -n unsafe_code wasm/Cargo.toml
+19:unsafe_code = "forbid"
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
