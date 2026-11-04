@@ -131,7 +131,7 @@ fn query_route_matches_entry_report() {
                 }
                 match entry {
                     Ok(Outcome::Ran { report }) => {
-                        assert_eq!(op, OpId::F16Fma, "{ctx}");
+                        assert!(matches!(op, OpId::F16Fma | OpId::SubgroupSumU32), "{ctx}");
                         let Ok(r) = route else {
                             panic!("expected Ok: {ctx}");
                         };

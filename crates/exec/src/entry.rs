@@ -2,9 +2,9 @@
 //!
 //! 上の層や利用側が device を借りて [`Exec`] を作り、入口を呼ぶ。4 つの入口は
 //! 能力を問い合わせて経路の届き方を決め（`select` の関数）、経路なしなら報告つきの
-//! `Ok(Outcome::Unavailable { .. })` を返す。`f16_fma` は経路が `Route::Cpu` で host の形なら出力の列に書いて
-//! `Ok(Outcome::Ran { .. })` を返し、それ以外で経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
-//! `subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add` は経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
+//! `Ok(Outcome::Unavailable { .. })` を返す。`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32` は経路が `Route::Cpu` で host の形なら
+//! 出力の列に書いて `Ok(Outcome::Ran { .. })` を返し、それ以外で経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
+//! `atomic_add` は経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
 //! `external_interop_shared_memory`・`hardware_ray_tracing`・`unified_memory_sharing` は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
 //! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
 //! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
@@ -278,7 +278,10 @@ impl<'d> Exec<'d> {
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
     /// 能力を問い合わせない。host の形で `x` の長さが `n` と、`out` の長さが `n` を 256 で割って切り上げた数と違えば
     /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。device の形は長さを照らさない。
-    /// 列の中身は読まず、出力に書かない。
+    /// 経路が `Route::Cpu` で host の形なら、`x` を 256 要素ずつのブロックに分け、ブロックごとに添字の順に足した値
+    /// （u32 は 2^32 を法として）を `out` に書き、`Ok(Outcome::Ran { report })` を返す（`memory()`・`queue()` を呼ばない）。
+    /// 経路が無ければ `Ok(Outcome::Unavailable { report })` を返し、列の中身は読まず出力に書かない。
+    /// device の形と、ほかの経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
     pub fn subgroup_sum_u32(
         &self,
         opt_in: Option<OptIn>,
@@ -299,15 +302,27 @@ impl<'d> Exec<'d> {
             #[cfg(feature = "native-blocking-wait")]
             SubgroupSumU32Operands::Device { .. } => {}
         }
-        let _ = operands;
-        self.run(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")
+        let report = self.route_report(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")?;
+        match (report.route, operands) {
+            (None, _) => Ok(Outcome::Unavailable { report }),
+            (Some(Route::Cpu), SubgroupSumU32Operands::Host { x, out }) => {
+                crate::cpu::subgroup_sum_u32(x, out);
+                Ok(Outcome::Ran { report })
+            }
+            (Some(_), _) => Err(self.unsupported("subgroup_sum_u32")),
+        }
     }
 
     /// f32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
     /// 能力を問い合わせない。host の形で `x` の長さが `n` と、`out` の長さが `n` を 256 で割って切り上げた数と違えば
     /// `Err(ContractError::InvalidArgument(..))` を返し能力を問い合わせない。device の形は長さを照らさない。
-    /// 列の中身は読まず、出力に書かない。
+    /// 経路が `Route::Cpu` で host の形なら、`x` を 256 要素ずつのブロックに分け、ブロックごとに添字の順に +0.0 から
+    /// f32 で足した値を `out` に書き、`Ok(Outcome::Ran { report })` を返す（`memory()`・`queue()` を呼ばない）。
+    /// 経路が無ければ `Ok(Outcome::Unavailable { report })` を返し、列の中身は読まず出力に書かない。
+    /// device の形と、ほかの経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
+    /// 経路の選び方が f32 の非正規化数の判定を求め、差し込みの無い経路に届く呼び出しは
+    /// `Err(ContractError::Unsupported { op: "subgroup_sum_f32", .. })` を返し、出力に書かない。
     pub fn subgroup_sum_f32(
         &self,
         opt_in: Option<OptIn>,
@@ -328,8 +343,15 @@ impl<'d> Exec<'d> {
             #[cfg(feature = "native-blocking-wait")]
             SubgroupSumF32Operands::Device { .. } => {}
         }
-        let _ = operands;
-        self.run(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")
+        let report = self.route_report(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")?;
+        match (report.route, operands) {
+            (None, _) => Ok(Outcome::Unavailable { report }),
+            (Some(Route::Cpu), SubgroupSumF32Operands::Host { x, out }) => {
+                crate::cpu::subgroup_sum_f32(x, out);
+                Ok(Outcome::Ran { report })
+            }
+            (Some(_), _) => Err(self.unsupported("subgroup_sum_f32")),
+        }
     }
 
     /// atomic の f32 の加算。最初に `n`・`m` を検査し、`n` または `m` が 0、`n` × 4 または `m` × 4 が
@@ -500,24 +522,8 @@ mod tests {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
         let over = Some(opt(false, true));
-        let (mut ou, mut of, mut oa) = ([7u32; 1], [7f32; 1], [7f32; 2]);
-        let (x, y) = ([1u32; 2], [1f32; 2]);
-        assert!(is_unsupported(&exec.subgroup_sum_u32(
-            over,
-            2,
-            SubgroupSumU32Operands::Host {
-                x: &x,
-                out: &mut ou
-            },
-        )));
-        assert!(is_unsupported(&exec.subgroup_sum_f32(
-            over,
-            2,
-            SubgroupSumF32Operands::Host {
-                x: &y,
-                out: &mut of
-            },
-        )));
+        let mut oa = [7f32; 2];
+        let y = [1f32; 2];
         assert!(is_unsupported(&exec.atomic_add(
             over,
             2,
@@ -527,7 +533,51 @@ mod tests {
                 out: &mut oa
             },
         )));
-        assert_eq!((ou, of, oa), ([7; 1], [7.0; 1], [7.0; 2]));
+        assert_eq!(oa, [7.0; 2]);
+    }
+
+    #[test]
+    fn subgroup_sums_with_cpu_override_run_on_host() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let over = Some(opt(false, true));
+        let (x, mut ou) = ([1u32; 2], [7u32; 1]);
+        let r = exec
+            .subgroup_sum_u32(
+                over,
+                2,
+                SubgroupSumU32Operands::Host {
+                    x: &x,
+                    out: &mut ou,
+                },
+            )
+            .unwrap();
+        let Outcome::Ran { report } = r else {
+            panic!("expected Ran");
+        };
+        assert_eq!(report.route, Some(Route::Cpu));
+        assert_eq!(
+            report,
+            exec.query_route(OpId::SubgroupSumU32, over).unwrap()
+        );
+        assert_eq!(ou, [2]);
+        let (y, mut of) = ([1f32; 2], [7f32; 1]);
+        let r = exec.subgroup_sum_f32(
+            over,
+            2,
+            SubgroupSumF32Operands::Host {
+                x: &y,
+                out: &mut of,
+            },
+        );
+        assert!(matches!(
+            r,
+            Err(ContractError::Unsupported {
+                op: "subgroup_sum_f32",
+                ..
+            })
+        ));
+        assert_eq!(of, [7.0; 1]);
     }
 
     #[test]

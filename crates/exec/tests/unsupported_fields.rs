@@ -60,7 +60,7 @@ fn unsupported_carries_entry_name_and_device_backend() {
     );
     expect_fields(
         exec.subgroup_sum_u32(
-            CPU_OK,
+            GPU_OK,
             2,
             SubgroupSumU32Operands::Host {
                 x: &hu,
@@ -126,6 +126,23 @@ fn f16_fma_cpu_route_runs() {
             b: &h16,
             c: &h16,
             out: &mut o16,
+        },
+    );
+    assert!(matches!(r, Ok(Outcome::Ran { .. })));
+}
+
+#[test]
+fn subgroup_sum_u32_cpu_route_runs() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let hu = [1u32; 2];
+    let mut ou = [0u32; 1];
+    let r = exec.subgroup_sum_u32(
+        CPU_OK,
+        2,
+        SubgroupSumU32Operands::Host {
+            x: &hu,
+            out: &mut ou,
         },
     );
     assert!(matches!(r, Ok(Outcome::Ran { .. })));
