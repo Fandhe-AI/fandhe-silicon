@@ -288,7 +288,7 @@ fn forced_op_follows_opt_in() {
                 let (entry, untouched) = call_entry(&exec, over, op);
                 if matches!(
                     op,
-                    OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
+                    OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32 | OpId::AtomicAdd
                 ) && want == Some(Route::Cpu)
                 {
                     match entry {

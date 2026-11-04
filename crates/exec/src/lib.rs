@@ -14,6 +14,7 @@
 //! 4 つの入口は最初に要素数と出力の数を検査する（同 TASK-924）。
 //! `Exec::f16_fma` は CPU の経路で host の列に計算する（同 TASK-930）。
 //! `Exec::subgroup_sum_u32`・`Exec::subgroup_sum_f32` も CPU の経路で host の列に計算する（同 TASK-931）。
+//! `Exec::atomic_add` も CPU の経路で host の列に計算する（同 TASK-932）。
 //! feature `fault-injection` の下では、指定した操作で `Native` を候補に入れない `Exec::force_unsupported` と
 //! 理由の値 `UnavailableReason::ForcedUnsupported` を持つ（同 TASK-921）。
 //! 同じ feature の下で、`Exec::inject_denormal` と判定の値 `DenormalInjection`、

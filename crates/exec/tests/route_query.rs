@@ -134,7 +134,10 @@ fn query_route_matches_entry_report() {
                         assert!(
                             matches!(
                                 op,
-                                OpId::F16Fma | OpId::SubgroupSumU32 | OpId::SubgroupSumF32
+                                OpId::F16Fma
+                                    | OpId::SubgroupSumU32
+                                    | OpId::SubgroupSumF32
+                                    | OpId::AtomicAdd
                             ),
                             "{ctx}"
                         );
@@ -229,10 +232,10 @@ fn unreachable_native_follows_opt_in_order() {
                 let r = match exec.query_route(op, over) {
                     Ok(r) => r,
                     Err(e) => {
-                        // 経路が届く AtomicAdd と、GpuEmulated の SubgroupSumF32 は Unsupported。
+                        // GpuEmulated の SubgroupSumF32・AtomicAdd は Unsupported。
                         assert!(
-                            (op == OpId::AtomicAdd && want.is_some())
-                                || (op == OpId::SubgroupSumF32 && want == Some(Route::GpuEmulated)),
+                            matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd)
+                                && want == Some(Route::GpuEmulated),
                             "unexpected {e:?}: {ctx}"
                         );
                         assert!(matches!(e, ContractError::Unsupported { .. }), "{ctx}");
@@ -243,7 +246,8 @@ fn unreachable_native_follows_opt_in_order() {
                 assert_eq!(r.route, want, "{ctx}");
                 assert_eq!(r.native_reason, Some(native), "{ctx}");
                 assert_eq!(r.observed_level, Some(answer.level), "{ctx}");
-                if op == OpId::SubgroupSumF32 && want == Some(Route::Cpu) {
+                if matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd) && want == Some(Route::Cpu)
+                {
                     let j = r.f32_denormal.expect("judgment");
                     assert_eq!(j.behavior, F32DenormalBehavior::Preserve, "{ctx}");
                     assert_eq!(j.basis, F32DenormalBasis::Observed, "{ctx}");
@@ -302,12 +306,7 @@ fn query_route_follows_per_key_answer() {
         for op in OPS {
             let ctx = format!("{weak:?} {op:?}");
             let Ok(r) = exec.query_route(op, Some(C_ONLY)) else {
-                // 経路が届く SubgroupSumF32・AtomicAdd は Unsupported。
-                assert!(
-                    matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd),
-                    "{ctx}"
-                );
-                continue;
+                panic!("expected Ok: {ctx}");
             };
             // 操作の鍵が弱い鍵なら NotSupported、ほかの鍵は表に無いので UnknownFeature。
             let reason = if key_of(op) == weak {

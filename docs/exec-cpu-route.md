@@ -820,3 +820,70 @@ device の形（`native-blocking-wait`）は列の長さを照らさない。列
 cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
 cargo test -p fandhe-silicon-exec --locked --test length_host
 ```
+
+## CPU の経路の atomic の加算と非正規化数の判定（2/4）（TASK-932）
+
+### 所在
+
+- 計算の本体: `crates/exec/src/cpu.rs` の `atomic_add`（`pub(crate)`）
+- 入口の本体と試しの実行の腕: `grep -n 'crate::cpu::atomic_add\|Outcome::Ran' crates/exec/src/entry.rs`
+
+### 返り値
+
+| 経路と列の形 | 返り値 | 出力 |
+| ------------ | ------ | ---- |
+| 経路なし | `Ok(Outcome::Unavailable { report })` | 書かない |
+| `Route::Cpu` で host の形 | `Ok(Outcome::Ran { report })` | `out` に書く |
+| `Route::Cpu` で device の形 | `Err(ContractError::Unsupported { op: "atomic_add", .. })` | buffer に書かない |
+| `Route::Native`・`Route::GpuEmulated` | `Err(ContractError::Unsupported { .. })` | 書かない |
+
+`report` は `Exec::query_route` と同じ値。`memory()`・`queue()` を呼ばない。
+
+### 計算
+
+| 手順 | 内容 |
+| ---- | ---- |
+| 1 | `out` を `+0.0` で埋める（`out` が空なら何もしない） |
+| 2 | `x` を `out` の長さずつに区切る |
+| 3 | 区切りごとに添字の昇順で、`out` の同じ位置の要素へ f32 の `+` で足す |
+
+### 試しの実行
+
+| 組 | 試しの実行 |
+| -- | ---------- |
+| (`OpId::AtomicAdd`, `Route::Cpu`) | 768 要素の入力を CPU の経路の atomic の加算の関数で計算し、3 つの出力を返す |
+| (`OpId::AtomicAdd`, `Route::Native`・`Route::GpuEmulated`) | `Err(ContractError::Unsupported { .. })` |
+| runner を差した crate の中の試験 | runner の返し |
+
+`allow_cpu: true`・`allow_gpu_emulated: false` の印で呼んだ呼び出しの報告は、`route` が `Some(Route::Cpu)`、`f32_denormal` が `behavior: Preserve`・`basis: Observed`・`documented: None`。
+
+### 入口の数
+
+private の `Exec::run` を消した。入口の数と返し方は変わらない。
+
+### 試験
+
+| ファイル | 試験 | 照らし |
+| -------- | ---- | ------ |
+| `cpu.rs` | `atomic_add_starts_from_positive_zero_in_index_order` | 添字の昇順の足し込み、`-0.0` の列の和が `+0.0`、足す順で結果が変わる入力、空の `out` |
+| `entry.rs` | `atomic_add_with_cpu_override_runs_on_host` | `Ran`・`out` が 2・報告が `query_route` と等しい・`Preserve`・`Observed` |
+| `entry.rs` | `uninjected_cpu_route_is_judged_on_host` | 差し込みの無い `Route::Cpu` の経路が `Preserve`・`Observed`（`SubgroupSumF32` と `AtomicAdd`） |
+| `opt_in_default.rs` | `cpu_route_writes_atomic_output` | `Ran`・`out` が 2・`memory()`・`queue()` の呼びが 0 |
+| `unsupported_fields.rs` | `atomic_add_cpu_route_runs` | `Ran` |
+
+### 直した既存の試験
+
+| ファイル | 直し |
+| -------- | ---- |
+| `entry.rs` | `query_route_reports_fallback_route` が `AtomicAdd` を `Route::Cpu` の `Ok` として照らす。`uninjected_route_keeps_unsupported_error` が `SubgroupSumF32` と `AtomicAdd` の `Route::GpuEmulated` の `Unsupported` を照らす |
+| `fault_injection_ports.rs` | `forced_op_follows_opt_in` が `Route::Cpu` に差し込んだ `atomic_add` を `Ran` として照らす |
+| `opt_in_default.rs` | `chosen_route_does_not_write_output` が `Route::GpuEmulated` に決まる印の 4 つの入口を照らす |
+| `route_query.rs` | `query_route_matches_entry_report` の `Ran` の腕が `AtomicAdd` を含む。`query_route_follows_per_key_answer` と `unreachable_native_follows_opt_in_order` が `AtomicAdd` の `Route::Cpu` を `Ok` として照らす |
+| `unsupported_fields.rs` | `unsupported_carries_entry_name_and_device_backend` の `atomic_add` が `Route::GpuEmulated` に決まる印で呼ぶ |
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --lib
+cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields
+```

@@ -84,7 +84,7 @@ fn unsupported_carries_entry_name_and_device_backend() {
     );
     expect_fields(
         exec.atomic_add(
-            CPU_OK,
+            GPU_OK,
             2,
             1,
             AtomicAddOperands::Host {
@@ -160,6 +160,24 @@ fn subgroup_sum_f32_cpu_route_runs() {
         SubgroupSumF32Operands::Host {
             x: &hf,
             out: &mut of,
+        },
+    );
+    assert!(matches!(r, Ok(Outcome::Ran { .. })));
+}
+
+#[test]
+fn atomic_add_cpu_route_runs() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let hf = [1.0f32; 2];
+    let mut oa = [0.0f32; 1];
+    let r = exec.atomic_add(
+        CPU_OK,
+        2,
+        1,
+        AtomicAddOperands::Host {
+            x: &hf,
+            out: &mut oa,
         },
     );
     assert!(matches!(r, Ok(Outcome::Ran { .. })));
