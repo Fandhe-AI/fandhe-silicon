@@ -1,4 +1,4 @@
-//! wasm32 向けの glue の cdylib（spec TASK-22 のポインタ）。
+//! wasm32 向けの glue の cdylib（spec TASK-22・TASK-2957 のポインタ）。
 //!
 //! 別 workspace `wasm/` の唯一の member。製品の crate `fandhe-silicon-contract`
 //! （feature は `contract-core`・`cpu-isa`・`cpu-ops` のみ）に path で依存し（試験だけが `fandhe-silicon-core` にも path で依存する）、
@@ -6,9 +6,16 @@
 //! 依存の向きは「本 crate → 製品」だけで、製品の crate は本 crate を知らない。
 //!
 //! 手で書く unsafe は持たない。配列の受け渡しは wasm-bindgen の型の変換に任せる。
+//! 契約の crate の `cpu_ops` の `DefaultCpuOps` を呼ぶ関数を export として持ち、
+//! 出力は呼び出し元が渡す領域に書いて成否を `u32` で返す（spec BUILD-42 のポインタ）。
 
-// 製品の crate をリンクに入れる。glue は契約の crate の `cpu_ops` を呼ばない。リンクに入れるだけ。
-use fandhe_silicon_contract as _;
+// 契約の crate の CPU の演算を呼ぶ。
+use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps};
+
+/// 成功の戻り値。
+const OK: u32 = 0;
+/// 拒否の戻り値。拒否の種類では値を分けない。
+const REJECTED: u32 = 1;
 
 /// 受け取った `f32` の列を、同じ値・同じ順序で新しい `Vec` に写して返す。
 ///
@@ -20,9 +27,45 @@ pub fn roundtrip_f32(input: &[f32]) -> Vec<f32> {
     input.to_vec()
 }
 
+/// 行優先の `a`（m×k）と `b`（k×n）の積を `out`（m×n）に書き、0 を返す。
+///
+/// 長さが `m`・`k`・`n` と合わない、または次元の積が `usize` に収まらないときは
+/// `out` を変えずに 1 を返す。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn gemm_scalar(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) -> u32 {
+    if DefaultCpuOps.gemm_scalar(a, b, m, k, n, out).is_ok() {
+        OK
+    } else {
+        REJECTED
+    }
+}
+
+/// `gemm_scalar` と同じ入力・戻り値の行列積。
+///
+/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、それ以外のビルドでは
+/// `gemm_scalar` と同じ計算を使う。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn gemm_simd(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) -> u32 {
+    if DefaultCpuOps.gemm_simd(a, b, m, k, n, out).is_ok() {
+        OK
+    } else {
+        REJECTED
+    }
+}
+
+/// `all(target_arch = "wasm32", target_feature = "simd128")` の `cfg` が真のビルドで 1、
+/// 偽のビルドで 0 を返す。bit0 以外は立てない。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn detect_isa_bits() -> u32 {
+    u32::from(cfg!(all(
+        target_arch = "wasm32",
+        target_feature = "simd128"
+    )))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::roundtrip_f32;
+    use super::{CpuOps, DefaultCpuOps, gemm_scalar, gemm_simd, roundtrip_f32};
 
     fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
@@ -43,6 +86,85 @@ mod tests {
     fn non_finite_values_and_negative_zero_keep_their_bits() {
         let input = [f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -0.0_f32];
         assert_eq!(bits(&roundtrip_f32(&input)), bits(&input));
+    }
+
+    type GemmFn = fn(&[f32], &[f32], usize, usize, usize, &mut [f32]) -> u32;
+
+    const GEMMS: [GemmFn; 2] = [gemm_scalar, gemm_simd];
+
+    #[test]
+    fn gemm_matches_default_cpu_ops() {
+        let cases = [
+            (
+                vec![1.0, -2.0, 3.0, -0.0, 5.0, 6.0],
+                vec![1.0, 0.0, -1.0, 2.0, 3.0, -4.0],
+                2,
+                3,
+                2,
+            ),
+            (vec![-3.0], vec![2.0], 1, 1, 1),
+            (vec![], vec![1.0, 2.0], 0, 1, 2),
+        ];
+        for (a, b, m, k, n) in &cases {
+            let mut want_scalar = vec![7.0_f32; m * n];
+            let mut want_simd = vec![7.0_f32; m * n];
+            DefaultCpuOps
+                .gemm_scalar(a, b, *m, *k, *n, &mut want_scalar)
+                .unwrap();
+            DefaultCpuOps
+                .gemm_simd(a, b, *m, *k, *n, &mut want_simd)
+                .unwrap();
+            let mut got = vec![7.0_f32; m * n];
+            assert_eq!(gemm_scalar(a, b, *m, *k, *n, &mut got), 0);
+            assert_eq!(bits(&got), bits(&want_scalar));
+            let mut got = vec![7.0_f32; m * n];
+            assert_eq!(gemm_simd(a, b, *m, *k, *n, &mut got), 0);
+            assert_eq!(bits(&got), bits(&want_simd));
+        }
+        let mut empty: Vec<f32> = vec![];
+        for f in GEMMS {
+            assert_eq!(f(&[1.0, 2.0], &[], 2, 1, 0, &mut empty), 0);
+        }
+    }
+
+    #[test]
+    fn gemm_rejects_mismatched_lengths() {
+        let a = [1.0_f32; 6];
+        let b = [1.0_f32; 6];
+        for f in GEMMS {
+            for (la, lb, lo) in [
+                (5, 6, 4),
+                (7, 6, 4),
+                (6, 5, 4),
+                (6, 7, 4),
+                (6, 6, 3),
+                (6, 6, 5),
+            ] {
+                let a2 = vec![1.0_f32; la];
+                let b2 = vec![1.0_f32; lb];
+                let mut out = vec![7.0_f32; lo];
+                assert_eq!(f(&a2, &b2, 2, 3, 2, &mut out), 1);
+                assert_eq!(bits(&out), bits(&vec![7.0_f32; lo]));
+            }
+            let mut out = [7.0_f32; 4];
+            assert_eq!(f(&a, &b, 2, 3, 2, &mut out), 0);
+        }
+    }
+
+    #[test]
+    fn gemm_rejects_overflowing_dimensions() {
+        for f in GEMMS {
+            let mut out = [7.0_f32; 4];
+            assert_eq!(f(&[], &[], usize::MAX, 0, 2, &mut out), 1);
+            assert_eq!(bits(&out), bits(&[7.0_f32; 4]));
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn detect_isa_bits_is_zero_on_host() {
+        use super::detect_isa_bits;
+        assert_eq!(detect_isa_bits(), 0);
     }
 
     /// ロストの通知先の関数の型（DEV-136）。wasm32 では `Send` でない関数（`Rc` を捕まえる）が登録でき、
