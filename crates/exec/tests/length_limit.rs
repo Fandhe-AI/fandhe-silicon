@@ -52,8 +52,8 @@ fn make_device(i: usize, limit: u64) -> Scripted {
     .with_max_buffer_bytes(limit)
 }
 
-/// 入口を 1 回呼び、結果と、出力の列（長さ 1 の番兵）が番兵のままかを返す。
-/// 列は短くてよい（長さ n の列を作らない）。`m` は `atomic_add` だけが使う。
+/// 入口を 1 回呼び、結果と、出力の列（番兵）が番兵のままかを返す。
+/// `f16_fma` の列は長さ `n.min(64)`（最小 1）、ほかの入口の列は長さ 1。`m` は `atomic_add` だけが使う。
 fn call(
     exec: &Exec<'_>,
     op: OpId,
@@ -64,10 +64,11 @@ fn call(
     let s16 = u16::from_ne_bytes([SENTINEL_BYTE; 2]);
     let s32 = u32::from_ne_bytes([SENTINEL_BYTE; 4]);
     let sf = f32::from_bits(s32);
-    let in16 = [1u16];
+    let k = usize::try_from(n.min(64)).unwrap().max(1);
+    let in16 = vec![1u16; k];
     let in_u = [1u32];
     let in_f = [1.0f32];
-    let (mut o16, mut ou, mut of, mut oa) = ([s16], [s32], [sf], [sf]);
+    let (mut o16, mut ou, mut of, mut oa) = (vec![s16; k], [s32], [sf], [sf]);
     let (result, bytes): (_, Vec<u8>) = match op {
         OpId::F16Fma => {
             let r = exec.f16_fma(
@@ -206,14 +207,22 @@ fn byte_count_overflow_is_rejected_through_entry() {
             assert!(untouched, "{tag}");
         });
     }
-    // 一つ手前はあふれず、拒否にならない。
+    // 一つ手前は、`f16_fma` は host の列の長さが `n` と違うので `InvalidArgument`、ほかは拒否にならない。
     for (op, n, m) in cases(u64::MAX / 2, u64::MAX / 4, u64::MAX / 4) {
         for_each_combo(|over, d, dev_i| {
             let dev = make_device(dev_i, u64::MAX);
             let exec = Exec::new(&dev, d);
-            let (r, _) = call(&exec, op, over, n, m);
+            let (r, untouched) = call(&exec, op, over, n, m);
             let tag = format!("{op:?} {n} {m} {over:?} {d:?} {dev_i}");
-            assert!(!is_rejected(&r), "{tag}: {r:?}");
+            if op == OpId::F16Fma {
+                assert!(is_rejected(&r), "{tag}: {r:?}");
+                assert_eq!(dev.query_ex_calls(), 0, "{tag}");
+                assert_eq!(dev.memory_calls(), 0, "{tag}");
+                assert_eq!(dev.queue_calls(), 0, "{tag}");
+                assert!(untouched, "{tag}");
+            } else {
+                assert!(!is_rejected(&r), "{tag}: {r:?}");
+            }
         });
     }
 }

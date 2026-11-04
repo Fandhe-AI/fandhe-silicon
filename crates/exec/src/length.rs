@@ -3,6 +3,7 @@
 //! 要素数 `n` と出力の数 `m` から buffer ごとの必要バイト数を求め、不正なら
 //! `Err(ContractError::InvalidArgument(..))` を返す純粋関数を持つ。device・buffer・列には触れない。
 //! `Exec` の 4 つの入口（`entry.rs`）が、能力の問合せより前に呼ぶ。
+//! host の形の列の長さと要素数の照合の関数も持つ（TASK-930）。
 
 use crate::route::OpId;
 use fandhe_silicon_core::error::ContractError;
@@ -22,6 +23,19 @@ fn invalid(msg: &str) -> ContractError {
 fn mul(a: u64, b: u64) -> Result<u64, ContractError> {
     a.checked_mul(b)
         .ok_or_else(|| invalid("required byte length overflows u64"))
+}
+
+/// 列の長さ `len` が要素数 `expected` と同じかを調べる。違えば `Err(ContractError::InvalidArgument(..))`。
+///
+/// 長さの値だけを受け、列には触れない。`f16_fma` の host の形が 4 つの列それぞれに呼ぶ。
+pub(crate) fn check_host_len(len: usize, expected: u64) -> Result<(), ContractError> {
+    if u64::try_from(len) == Ok(expected) {
+        Ok(())
+    } else {
+        Err(ContractError::InvalidArgument(format!(
+            "host column length {len} does not match element count {expected}"
+        )))
+    }
 }
 
 /// `op` の `n`（と `AtomicAdd` の `m`）が、拒否される長さでないかを調べる。
@@ -68,6 +82,19 @@ fn required_bytes(op: OpId, n: u64, m: Option<u64>) -> Result<(u64, u64), Contra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_len_matches_only_the_element_count() {
+        assert!(check_host_len(0, 0).is_ok());
+        assert!(check_host_len(4, 4).is_ok());
+        assert!(check_host_len(usize::MAX, usize::MAX as u64).is_ok());
+        for (len, n) in [(3, 4), (5, 4), (1, u64::MAX), (0, 1)] {
+            assert!(matches!(
+                check_host_len(len, n),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+    }
 
     const OPS: [OpId; 4] = [
         OpId::F16Fma,
