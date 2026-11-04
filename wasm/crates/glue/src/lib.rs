@@ -10,7 +10,7 @@
 //! 出力は呼び出し元が渡す領域に書いて成否を `u32` で返す（spec BUILD-42 のポインタ）。
 
 // 契約の crate の CPU の演算を呼ぶ。
-use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps};
+use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, UnaryElementwiseOp};
 
 /// 成功の戻り値。
 const OK: u32 = 0;
@@ -63,9 +63,53 @@ pub fn detect_isa_bits() -> u32 {
     )))
 }
 
+/// `op_code` と定数 `c` を契約の crate の単項演算に読み替える。未割当の `op_code` は `None`。
+fn elementwise_op(op_code: u32, c: f32) -> Option<UnaryElementwiseOp> {
+    match op_code {
+        0 => Some(UnaryElementwiseOp::Relu),
+        1 => Some(UnaryElementwiseOp::AddScalar(c)),
+        _ => None,
+    }
+}
+
+/// `a` の各要素に `op_code` の演算をかけた値を `out` に書き、0 を返す。
+///
+/// `op_code` 0 は各要素を `max(x, 0.0)` にする（`c` は使わない）。1 は各要素に `c` を足す。
+/// `op_code` が 2 以上、または `a` と `out` の長さが違うときは `out` を変えずに 1 を返す。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn elementwise_scalar(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32 {
+    let Some(op) = elementwise_op(op_code, c) else {
+        return REJECTED;
+    };
+    if DefaultCpuOps.elementwise_scalar(op, a, out).is_ok() {
+        OK
+    } else {
+        REJECTED
+    }
+}
+
+/// `elementwise_scalar` と同じ入力・戻り値の要素ごとの演算。
+///
+/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、それ以外のビルドでは
+/// `elementwise_scalar` と同じ計算を使う。
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn elementwise_simd(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32 {
+    let Some(op) = elementwise_op(op_code, c) else {
+        return REJECTED;
+    };
+    if DefaultCpuOps.elementwise_simd(op, a, out).is_ok() {
+        OK
+    } else {
+        REJECTED
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CpuOps, DefaultCpuOps, gemm_scalar, gemm_simd, roundtrip_f32};
+    use super::{
+        CpuOps, DefaultCpuOps, UnaryElementwiseOp, elementwise_scalar, elementwise_simd,
+        gemm_scalar, gemm_simd, roundtrip_f32,
+    };
 
     fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
@@ -157,6 +201,83 @@ mod tests {
             let mut out = [7.0_f32; 4];
             assert_eq!(f(&[], &[], usize::MAX, 0, 2, &mut out), 1);
             assert_eq!(bits(&out), bits(&[7.0_f32; 4]));
+        }
+    }
+
+    type ElementwiseFn = fn(u32, f32, &[f32], &mut [f32]) -> u32;
+
+    const ELEMENTWISES: [ElementwiseFn; 2] = [elementwise_scalar, elementwise_simd];
+
+    #[test]
+    fn elementwise_matches_default_cpu_ops() {
+        let input = [
+            -0.0_f32,
+            -1.5,
+            2.5,
+            0.0,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            3.0,
+            -7.0,
+            0.25,
+        ];
+        let c = 0.5_f32;
+        for (op_code, op) in [
+            (0_u32, UnaryElementwiseOp::Relu),
+            (1_u32, UnaryElementwiseOp::AddScalar(c)),
+        ] {
+            let mut want_scalar = vec![7.0_f32; input.len()];
+            let mut want_simd = vec![7.0_f32; input.len()];
+            DefaultCpuOps
+                .elementwise_scalar(op, &input, &mut want_scalar)
+                .unwrap();
+            DefaultCpuOps
+                .elementwise_simd(op, &input, &mut want_simd)
+                .unwrap();
+            let mut got = vec![7.0_f32; input.len()];
+            assert_eq!(elementwise_scalar(op_code, c, &input, &mut got), 0);
+            assert_eq!(bits(&got), bits(&want_scalar));
+            let mut got = vec![7.0_f32; input.len()];
+            assert_eq!(elementwise_simd(op_code, c, &input, &mut got), 0);
+            assert_eq!(bits(&got), bits(&want_simd));
+        }
+        for f in ELEMENTWISES {
+            let mut with_c = vec![7.0_f32; input.len()];
+            let mut without_c = vec![7.0_f32; input.len()];
+            assert_eq!(f(0, 123.0, &input, &mut with_c), 0);
+            assert_eq!(f(0, 0.0, &input, &mut without_c), 0);
+            assert_eq!(bits(&with_c), bits(&without_c));
+            let mut empty: Vec<f32> = vec![];
+            assert_eq!(f(0, c, &[], &mut empty), 0);
+            assert_eq!(f(1, c, &[], &mut empty), 0);
+        }
+    }
+
+    #[test]
+    fn elementwise_rejects_unassigned_op_code() {
+        for f in ELEMENTWISES {
+            for op_code in [2_u32, 3, u32::MAX] {
+                for (la, lo) in [(4, 4), (4, 3), (0, 0)] {
+                    let a = vec![1.0_f32; la];
+                    let mut out = vec![7.0_f32; lo];
+                    assert_eq!(f(op_code, 0.5, &a, &mut out), 1);
+                    assert_eq!(bits(&out), bits(&vec![7.0_f32; lo]));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn elementwise_rejects_mismatched_lengths() {
+        for f in ELEMENTWISES {
+            for op_code in [0_u32, 1] {
+                for (la, lo) in [(4, 3), (4, 5), (0, 1), (1, 0)] {
+                    let a = vec![1.0_f32; la];
+                    let mut out = vec![7.0_f32; lo];
+                    assert_eq!(f(op_code, 0.5, &a, &mut out), 1);
+                    assert_eq!(bits(&out), bits(&vec![7.0_f32; lo]));
+                }
+            }
         }
     }
 
