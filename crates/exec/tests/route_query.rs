@@ -126,8 +126,19 @@ fn query_route_matches_entry_report() {
                 let (entry, untouched) = call_entry(&exec, over, op);
                 let route = exec.query_route(op, over);
                 let ctx = format!("{answer:?} {op:?} {over:?}");
-                assert!(untouched, "{ctx}");
+                if !matches!(entry, Ok(Outcome::Ran { .. })) {
+                    assert!(untouched, "{ctx}");
+                }
                 match entry {
+                    Ok(Outcome::Ran { report }) => {
+                        assert_eq!(op, OpId::F16Fma, "{ctx}");
+                        let Ok(r) = route else {
+                            panic!("expected Ok: {ctx}");
+                        };
+                        assert_eq!(r, report, "{ctx}");
+                        assert_eq!(r.route, Some(Route::Cpu), "{ctx}");
+                        assert!(!untouched, "{ctx}");
+                    }
                     Ok(Outcome::Unavailable { report }) => {
                         let Ok(r) = route else {
                             panic!("expected Ok: {ctx}");

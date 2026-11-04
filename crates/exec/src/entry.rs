@@ -2,12 +2,14 @@
 //!
 //! 上の層や利用側が device を借りて [`Exec`] を作り、入口を呼ぶ。4 つの入口は
 //! 能力を問い合わせて経路の届き方を決め（`select` の関数）、経路なしなら報告つきの
-//! `Ok(Outcome::Unavailable { .. })` を、経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
+//! `Ok(Outcome::Unavailable { .. })` を返す。`f16_fma` は経路が `Route::Cpu` で host の形なら出力の列に書いて
+//! `Ok(Outcome::Ran { .. })` を返し、それ以外で経路が決まった呼び出しは `Err(ContractError::Unsupported { .. })` を返す。
+//! 残りの 3 つの入口は経路が決まれば `Err(ContractError::Unsupported { .. })` を返す。
 //! 3 つの入口は能力を問い合わせず `Err(ContractError::Unsupported { .. })` を返す。
 //! 4 つの入口は最初に要素数と出力の数を検査し（`length` の関数。`docs/spec/05-tasks.md` の TASK-924）、
 //! 不正なら能力を問い合わせず `Err(ContractError::InvalidArgument(..))` を返す。
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
-//! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
+//! どの入口も buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
 use crate::denormal::HeldJudgments;
 use crate::length::{check_host_len, check_lengths};
@@ -239,7 +241,11 @@ impl<'d> Exec<'d> {
     /// f16 の融合積和。最初に `n` を検査し、`n` が 0、`n` × 2 が `u64` であふれる、
     /// device の `max_buffer_bytes` を超える、のどれかなら `Err(ContractError::InvalidArgument(..))` を返し
     /// 能力を問い合わせない。host の形で `a`・`b`・`c`・`out` の長さのどれかが `n` と違うときも同じ。
-    /// device の形は長さを照らさない。列の中身は読まず、出力に書かない。
+    /// device の形は長さを照らさない。経路が `Route::Cpu` で host の形なら、要素ごとに f16 を f32 に広げて
+    /// 融合積和をとり f16 へ 1 回丸めた値を `out` に書き、`Ok(Outcome::Ran { report })` を返す
+    /// （`memory()`・`queue()` を呼ばない）。経路が無ければ `Ok(Outcome::Unavailable { report })` を返し、
+    /// 列の中身は読まず出力に書かない。device の形と、ほかの経路が決まった呼び出しは
+    /// `Err(ContractError::Unsupported { .. })` を返す。
     pub fn f16_fma(
         &self,
         opt_in: Option<OptIn>,
@@ -256,7 +262,15 @@ impl<'d> Exec<'d> {
             #[cfg(feature = "native-blocking-wait")]
             F16FmaOperands::Device { .. } => {}
         }
-        self.run(OpId::F16Fma, opt_in, "f16_fma")
+        let report = self.route_report(OpId::F16Fma, opt_in, "f16_fma")?;
+        match (report.route, operands) {
+            (None, _) => Ok(Outcome::Unavailable { report }),
+            (Some(Route::Cpu), F16FmaOperands::Host { a, b, c, out }) => {
+                crate::cpu::f16_fma(a, b, c, out);
+                Ok(Outcome::Ran { report })
+            }
+            (Some(_), _) => Err(self.unsupported("f16_fma")),
+        }
     }
 
     /// u32 の subgroup 総和。最初に `n` を検査し、`n` が 0、`n` × 4 が `u64` であふれる、
@@ -465,18 +479,8 @@ mod tests {
         let dev = stub();
         let exec = Exec::deny_by_default(&dev);
         let over = Some(opt(false, true));
-        let (mut o16, mut ou, mut of, mut oa) = ([7u16; 2], [7u32; 2], [7f32; 2], [7f32; 2]);
-        let (a, x, y) = ([1u16; 2], [1u32; 2], [1f32; 2]);
-        assert!(is_unsupported(&exec.f16_fma(
-            over,
-            2,
-            F16FmaOperands::Host {
-                a: &a,
-                b: &a,
-                c: &a,
-                out: &mut o16,
-            },
-        )));
+        let (mut ou, mut of, mut oa) = ([7u32; 2], [7f32; 2], [7f32; 2]);
+        let (x, y) = ([1u32; 2], [1f32; 2]);
         assert!(is_unsupported(&exec.subgroup_sum_u32(
             over,
             2,
@@ -502,7 +506,33 @@ mod tests {
                 out: &mut oa
             },
         )));
-        assert_eq!((o16, ou, of, oa), ([7; 2], [7; 2], [7.0; 2], [7.0; 2]));
+        assert_eq!((ou, of, oa), ([7; 2], [7.0; 2], [7.0; 2]));
+    }
+
+    #[test]
+    fn f16_fma_with_cpu_override_runs_on_host() {
+        let dev = stub();
+        let exec = Exec::deny_by_default(&dev);
+        let over = Some(opt(false, true));
+        let (a, mut out) = ([0x3C00u16; 2], [7u16; 2]);
+        let got = exec
+            .f16_fma(
+                over,
+                2,
+                F16FmaOperands::Host {
+                    a: &a,
+                    b: &a,
+                    c: &a,
+                    out: &mut out,
+                },
+            )
+            .unwrap();
+        let Outcome::Ran { report } = got else {
+            panic!("expected Ran, got {got:?}");
+        };
+        assert_eq!(report.route, Some(Route::Cpu));
+        assert_eq!(report, exec.query_route(OpId::F16Fma, over).unwrap());
+        assert_eq!(out, [0x4000; 2]);
     }
 
     #[test]

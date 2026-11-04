@@ -12,7 +12,7 @@ use fandhe_silicon_core::feature_key::{
     FEATURE_SHADER_F16, FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP,
 };
 use fandhe_silicon_exec::{
-    AtomicAddOperands, Exec, F16FmaOperands, OpId, OptIn, Outcome, SubgroupSumF32Operands,
+    AtomicAddOperands, Exec, F16FmaOperands, OpId, OptIn, Outcome, Route, SubgroupSumF32Operands,
     SubgroupSumU32Operands, UnavailableReason,
 };
 
@@ -280,7 +280,10 @@ fn each_flag_reaches_route_choice() {
 fn chosen_route_does_not_write_output() {
     let dev = Scripted::bare();
     let exec = Exec::deny_by_default(&dev);
-    for call in call_four(&exec, Some(C_ONLY)) {
+    for call in call_four(&exec, Some(C_ONLY))
+        .into_iter()
+        .filter(|call| call.op != OpId::F16Fma)
+    {
         assert!(is_unsupported(&call.result), "{:?}", call.op);
         assert!(call.untouched, "{:?}", call.op);
     }
@@ -289,6 +292,31 @@ fn chosen_route_does_not_write_output() {
         assert!(is_unsupported(&exec.hardware_ray_tracing(over)));
         assert!(is_unsupported(&exec.unified_memory_sharing(over)));
     }
+}
+
+#[test]
+fn cpu_route_writes_f16_output() {
+    let dev = Scripted::bare();
+    let exec = Exec::deny_by_default(&dev);
+    let in16 = [1u16; 2];
+    let mut out = [7u16; 2];
+    let r = exec.f16_fma(
+        Some(C_ONLY),
+        2,
+        F16FmaOperands::Host {
+            a: &in16,
+            b: &in16,
+            c: &in16,
+            out: &mut out,
+        },
+    );
+    match r {
+        Ok(Outcome::Ran { report }) => assert_eq!(report.route, Some(Route::Cpu)),
+        other => panic!("expected Ran: {other:?}"),
+    }
+    assert_ne!(out, [7u16; 2]);
+    assert_eq!(dev.memory_calls(), 0);
+    assert_eq!(dev.queue_calls(), 0);
 }
 
 #[test]
