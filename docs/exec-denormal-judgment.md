@@ -254,3 +254,61 @@ device は能力が `S2` の device。4 操作それぞれに次の 9 行を、�
 cargo test -p fandhe-silicon-exec --locked --features fault-injection --lib denormal_tests
 cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::judged_unknown
 ```
+
+## 完了の条件の確かめ（6/6）
+
+6/6（#6032）で、下-2 の f32 の非正規化数の判定について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-925（ポインタのみ）。GPU の無い Linux の作業ツリーで実行した。件数は実測で、コードと試験は変えていない。
+
+確かめた時点は、main のコミット `e69d8ee` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 判定の入力・判定の関数・保持 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal::` | `Running unittests src/lib.rs` の `test result: ok. 5 passed; 0 failed; 0 ignored`（79 件中、74 filtered out）。走った試験は `denormal::tests::` の `classify_maps_outputs`・`errors_are_not_kept`・`inputs_are_denormal_only`・`preserve_values_do_not_depend_on_order`・`judgment_is_kept_per_op_and_route` |
+| (2) | `query_route` と入口の共有・値ごとの保持 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib -- denormal_tests::query_route_and_entries_share_judgment denormal_tests::each_exec_value_keeps_its_own_judgment denormal_tests::flush_to_zero_and_fallback_routes_are_reported denormal_tests::ports::` | `test result: ok. 4 passed; 0 failed; 0 ignored`（75 filtered out）。`ports::judgment_survives_ports` を含む |
+| (3) | 報告の資料の記述の項 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented` | `test result: ok. 3 passed; 0 failed; 0 ignored`（76 filtered out） |
+| (4) | 拒否と経路の無い呼び出しで試しの実行を流さない | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected` | `test result: ok. 5 passed; 0 failed; 0 ignored`（74 filtered out） |
+| (5) | 試しの実行の失敗をそのまま返す | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure` | `test result: ok. 4 passed; 0 failed; 0 ignored`（75 filtered out） |
+| (6) | 組み合わせの表の回数と判定できない経路 | `cargo test -p fandhe-silicon-exec --locked --features fault-injection --lib denormal_tests::matrix`、同 `denormal_tests::injected_unknown`、feature なしの `cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::judged_unknown` | `matrix` は 2 passed; 0 failed; 0 ignored（76 filtered out）、`injected_unknown` は 4 passed; 0 failed; 0 ignored（74 filtered out）、`judged_unknown` は 2 passed; 0 failed; 0 ignored（54 filtered out） |
+| (7) | 製品のビルドの動き（既存の試験） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib -- entry::tests:: entry::forced_tests:: entry::injected_tests:: select::tests:: select::combination_tests::`、`cargo test -p fandhe-silicon-exec --all-features --locked --tests`、`grep -n 'cfg(test)' crates/exec/src/entry.rs`。1/6 の前の commit `dc1ae4a`（`e9d9a67` の親）は `git archive dc1ae4a` を一時ディレクトリへ展開して同じコマンドを流した | 既存の試験の絞り込みは、今の commit も `dc1ae4a` も `35 passed; 0 failed; 0 ignored`（今は 44 filtered out、`dc1ae4a` は 15 filtered out）。`--tests` の lib は今 79 passed、`dc1ae4a` は 50 passed（差は 29。`denormal::tests` が 5、`denormal_tests::` が 24）。`tests/*.rs` の 10 本（`device_operands` 1・`fault_injection_ports` 8・`length_device` 1・`length_limit` 4・`length_zero` 5・`opt_in_default` 5・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 1）は両方で同じ本数。`entry.rs` の `cfg(test)` は 65・79・87・224・333 行 |
+| (8) | 公開の面と依存 | `make exec-surface-check`、`make public-api-check`、`gh pr diff <n> --name-only`（#7966〜#7970 のそれぞれを `grep -E 'Cargo.toml\|Cargo.lock\|deps-approved.toml\|crates/core\|crates/upper\|scripts/\|crates/exec/tests/'` に通した）、`grep -n forbid crates/exec/src/lib.rs` | `record:` と `ok:` の行は下のコードブロックのとおり。`make public-api-check` の exec の行は `public_items=458`（production）・`public_items=511`（all-features）で、どちらも `wgpu_type_refs=0 wgpu_other_refs=0`。5 本の PR の grep の出力は空。`crates/exec/src/lib.rs` の 19 行に `#![forbid(unsafe_code)]` |
+| (9) | CI で流れる場所 | main の push の CI の run `41781760002`（`gh run view 41781760002 --json conclusion,headSha`）の job `make verify (fmt + clippy + test)` のログ（`gh run view 41781760002 --job 126414677734 --log`）を grep | `conclusion` は `success`、`headSha` は `e69d8ee50a56f2f4547d3cf4afcea90170b36600`。`make verify` のステップは exec の `Running unittests src/lib.rs` の `test result: ok. 79 passed; 0 failed; 0 ignored`（間に `test denormal` で始まる行が 29）。`make build-profiles` のステップは exec を 3 組で流し、`56 passed`（`test denormal` の行 20）・`57 passed`（20）・`78 passed`（29）。いずれも `0 failed; 0 ignored` |
+
+(8) の `make exec-surface-check` の出力のうち `record:` と `ok:` の行:
+
+```text
+record: commit=e69d8ee50a56f2f4547d3cf4afcea90170b36600 rs_files=22 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-925）。
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal::
+cargo test -p fandhe-silicon-exec --all-features --locked --lib -- denormal_tests::query_route_and_entries_share_judgment denormal_tests::each_exec_value_keeps_its_own_judgment denormal_tests::flush_to_zero_and_fallback_routes_are_reported denormal_tests::ports::
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected
+cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure
+cargo test -p fandhe-silicon-exec --locked --features fault-injection --lib denormal_tests::matrix
+cargo test -p fandhe-silicon-exec --locked --features fault-injection --lib denormal_tests::injected_unknown
+cargo test -p fandhe-silicon-exec --locked --lib denormal_tests::judged_unknown
+cargo test -p fandhe-silicon-exec --all-features --locked --tests
+make exec-surface-check
+make public-api-check
+grep -n forbid crates/exec/src/lib.rs
+gh run view 41781760002 --json conclusion,headSha
+```
+
+## 段の表
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/6 | #6027（PR #7966） | 判定と操作・経路ごとの保持（1/6） |
+| 2/6 | #6028（PR #7967） | 報告の資料の記述の項（2/6） |
+| 3/6 | #6029（PR #7968） | 拒否した呼び出しと経路の無い呼び出しで試しの実行を流さない試験（3/6） |
+| 4/6 | #6030（PR #7969） | 試しの実行の失敗をそのまま返す試験（4/6） |
+| 5/6 | #6031（PR #7970） | 組み合わせの表の呼び出しの回数と判定できない経路を外す試験（5/6） |
+| 6/6 | #6032 | 完了の条件の確かめ（6/6） |
+
+親 Issue は #869。
