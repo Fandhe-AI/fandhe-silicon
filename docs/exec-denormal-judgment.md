@@ -385,3 +385,34 @@ gh run view 41781760002 --json conclusion,headSha
 | (7) の `tests/*.rs` | 12 本 → 13 本。`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`device_operands` 3・`fault_injection_ports` 8・`length_device` 3・`length_host` 4・`length_limit` 4・`length_zero` 5・`opt_in_default` 8・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 4（`cpu_subgroup_sum` が加わり、`device_operands`・`length_device`・`length_host`・`opt_in_default`・`unsupported_fields` の本数が増えた） | 同上 |
 | (7) の `entry.rs` の `cfg(test)` | 67・81・89・226・356 行 → 68・82・90・230・409 行 | `grep -n 'cfg(test)' crates/exec/src/entry.rs` |
 | (8) の `record:` | `rs_files=26` → `rs_files=27`（ほかの欄は変わらない）。`public_items=458`（production）・`511`（all-features）のまま。`crates/exec/src/lib.rs` の `forbid` の行は 20 行 → 21 行。`crates/exec/src` は 13 ファイルのまま | `make exec-surface-check`、`grep -n forbid crates/exec/src/lib.rs` |
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値（0 failed; 0 ignored。実行環境は GPU なしの Linux）。
+
+### 試しの実行の手段を持たない `Exec`
+
+「今の値の補い（base 515bb19）」の表は、(`OpId::AtomicAdd`, `Route::Cpu`) の組については次のとおり。
+
+| 組 | 試しの実行 | 保持 |
+| -- | ---------- | ---- |
+| (`OpId::SubgroupSumF32`, `Route::Cpu`)・(`OpId::AtomicAdd`, `Route::Cpu`) | 入力を CPU の経路の関数（`crate::cpu::subgroup_sum_f32`・`crate::cpu::atomic_add`）で計算した 3 つの出力で判定する | 保持する |
+| ほかの組 | `Err(ContractError::Unsupported { op: <入口の関数名 または "query_route">, .. })` | 保持しない |
+
+`crates/exec/src/entry.rs` の `fn probe`（207 行）が `match (op, route)` で分ける。差し込みの無い `Route::Cpu` の経路は、`entry::tests::uninjected_cpu_route_is_judged_on_host` が `SubgroupSumF32` と `AtomicAdd` の両方で `behavior` を `Preserve`、`basis` を `Observed`、`documented` を `None` と照らす。`AtomicAdd` の `Route::GpuEmulated` で試しの実行が `Err` を返す呼び出しは、`op` が入口の関数名または `"query_route"` の `Unsupported` を返す。`make exec-surface-check` の `record:` は `port_names_all=6`・`other_fns=5`・`unlisted_fns=0` のまま。`F16Fma`・`SubgroupSumU32` の `HeldJudgments::judge` は、保持の動きの表の最後の行のとおり `InvalidArgument` を返す。
+
+### 完了の条件の確かめ（6/6）の「今は」の値
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| (1) | 6 passed（92 件中、86 filtered out）→ 6 passed（93 件中、87 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal::` |
+| (2) | 4 passed（88 filtered out）→ 4 passed（89 filtered out） | (2) の `--lib -- denormal_tests::…` の 4 つの絞り込み |
+| (3) | 3 passed（89 filtered out）→ 3 passed（90 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::documented` |
+| (4) | 5 passed（87 filtered out）→ 5 passed（88 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::rejected` |
+| (5) | 4 passed（88 filtered out）→ 4 passed（89 filtered out） | `cargo test -p fandhe-silicon-exec --all-features --locked --lib denormal_tests::failure` |
+| (6) | `matrix` 2 passed（89 filtered out）→ 2 passed（90 filtered out）、`injected_unknown` 4 passed（87 filtered out）→ 4 passed（88 filtered out）、`judged_unknown` 2 passed（66 filtered out）→ 2 passed（67 filtered out） | (6) の 3 つのコマンド |
+| (7) の既存の試験の絞り込み | 39 passed（53 filtered out）→ 39 passed（54 filtered out） | (7) の `--lib -- entry::tests:: entry::forced_tests:: entry::injected_tests:: select::tests:: select::combination_tests::` |
+| (7) の `--tests` の lib | 92 passed → 93 passed | `cargo test -p fandhe-silicon-exec --all-features --locked --tests` |
+| (7) の `tests/*.rs` | 13 本 → 14 本。`cpu_atomic_add` 5・`cpu_f16_fma` 4・`cpu_subgroup_sum` 6・`device_operands` 4・`fault_injection_ports` 8・`length_device` 4・`length_host` 6・`length_limit` 4・`length_zero` 5・`opt_in_default` 9・`reasons_and_denormal` 4・`route_evidence_calls` 4・`route_query` 6・`unsupported_fields` 5（`cpu_atomic_add` が加わり、`device_operands`・`length_device`・`length_host`・`opt_in_default`・`unsupported_fields` の本数が増えた） | 同上 |
+| (7) の `entry.rs` の `cfg(test)` | 68・82・90・230・409 行 → 67・81・89・214・422 行 | `grep -n 'cfg(test)' crates/exec/src/entry.rs` |
+| (8) の `record:` | `rs_files=27` → `rs_files=28`（ほかの欄は変わらない）。`public_items=458`（production）・`511`（all-features）のまま。`crates/exec/src/lib.rs` の `forbid` の行は 21 行 → 22 行。`crates/exec/src` は 13 ファイルのまま | `make exec-surface-check`、`grep -n forbid crates/exec/src/lib.rs` |

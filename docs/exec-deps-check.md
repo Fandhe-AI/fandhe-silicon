@@ -241,3 +241,14 @@ ok: 26 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, oth
 record: commit=515bb196d9ee162f877a437fc1ffba9223cd84fe rs_files=27 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
 ok: 27 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
 ```
+
+## 今の値の補い（base 8e4b99b）
+
+記録時点の表と既存の節は書き換えない。以下は base `8e4b99b` で観測した今の値。
+
+- 「今の値の補い（base 515bb19）」の `rs_files=27` は、いまは `rs_files=28`。`crates/exec/src` は 13 ファイルのまま、`crates/exec/tests` は `common/mod.rs` を含め 14 ファイル → 15 ファイル（`cpu_atomic_add.rs` が加わった）。`make exec-deps-check` は終了コード 0 で、`declared_deps=2` のまま。
+
+```text
+record: commit=8e4b99b9c26f5a4eba683321b8ce41ec0fe4ceaa rs_files=28 declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0
+ok: 28 .rs file(s), 2 declared dependenc(ies) and 1 tree package(s) checked, other_deps=0 dep_source=0 tree_forbidden=0 source_hits=0
+```
