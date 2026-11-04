@@ -980,3 +980,153 @@ rm -r "$d"
 cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add
 cargo test -p fandhe-silicon-exec --locked --test cpu_atomic_add
 ```
+
+## 完了の条件の確かめ（4/4）（TASK-932）
+
+4/4（#6062）で、下-2 の CPU の経路の `atomic_add` について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-932（ポインタのみ）。`uname -sm` は `Linux x86_64`。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 入口の照合と本体と判定の順 | `grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::atomic_add' crates/exec/src/entry.rs`、`grep -n 'fn run\b' crates/exec/src/entry.rs` | `atomic_add` の中は 375 行 `check_lengths`、383 行と 384 行 `check_host_len`、389 行 `route_report`、393 行 `crate::cpu::atomic_add`。`probe` の中の `crate::cpu::atomic_add` は 226 行。2 本目の grep は 0 行。全部の行は下の (1) の出力 |
+| (2) | 照合と本体と判定の単体試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` | `test result: ok. 93 passed; 0 failed; 0 ignored` |
+| (3) | 列の長さの照合の入口経由の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device` | `tests/length_device.rs` が 4 passed、`tests/length_host.rs` が 6 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed。4 本とも 0 failed; 0 ignored |
+| (4) | 入力の組と参照との比べ | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add`、`cargo test -p fandhe-silicon-exec --locked --test cpu_atomic_add` | `--all-features` は 5 passed; 0 failed; 0 ignored、既定の feature は 4 passed; 0 failed; 0 ignored |
+| (5) | 余裕の行 | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add ag_is_within -- --nocapture` の出力の `^margin ` の行 | 39 行。下の (5) の出力 |
+| (6) | `cargo test` を 3 回流した sha256 の行 | 「入力の組と CPU の参照との比べと出力の sha256 の行（3/4）（TASK-932）」の「3 回の流し方」のコマンド | 各回の `wc -l` は 112、3 つのファイルの `sha256sum` の値は 3 回とも `6b113ab7a6ff664d3d4194e6ee1a0f7189a632f6bdc649d4c51e9a12cf7e0e6f`、`uniq -c` の集計は `112 3` の 1 行。入力の名前ごとの行の数は `atomic-add-ag` が 39、`atomic-add-as` が 39、`atomic-add-ax` が 34 |
+| (7) | 直した既存の試験 | `gh pr diff 7987 --name-only`・`gh pr diff 7988 --name-only` の `crates/exec/` の行、`cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields --test reasons_and_denormal --test route_evidence_calls` | #7987 は `src/entry.rs`・`src/length.rs` と `tests/` の `fault_injection_ports.rs`・`length_device.rs`・`length_host.rs`・`length_limit.rs`・`length_zero.rs`・`opt_in_default.rs`・`reasons_and_denormal.rs`・`route_evidence_calls.rs`・`route_query.rs`・`unsupported_fields.rs`。#7988 は `src/cpu.rs`・`src/entry.rs`・`src/lib.rs` と `tests/` の `fault_injection_ports.rs`・`opt_in_default.rs`・`route_query.rs`・`unsupported_fields.rs`。件数は `fault_injection_ports` が 8 passed、`opt_in_default` が 9 passed、`reasons_and_denormal` が 4 passed、`route_evidence_calls` が 4 passed、`route_query` が 6 passed、`unsupported_fields` が 5 passed で、すべて 0 failed; 0 ignored |
+| (8) | 既存の試験とビルドの組 | `make verify`、`make build-profiles`、`make wasm-verify` | 3 つとも終了コード 0。`make verify` の exec は lib が 93 passed、`tests/cpu_atomic_add.rs` が 5 passed、`tests/cpu_f16_fma.rs` が 4 passed、`tests/cpu_subgroup_sum.rs` が 6 passed、`tests/device_operands.rs` が 3 passed、`tests/fault_injection_ports.rs` が 8 passed、`tests/length_device.rs` が 4 passed、`tests/length_host.rs` が 6 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed、`tests/opt_in_default.rs` が 9 passed、`tests/reasons_and_denormal.rs` が 4 passed、`tests/route_evidence_calls.rs` が 4 passed、`tests/route_query.rs` が 6 passed、`tests/unsupported_fields.rs` が 5 passed で、すべて 0 failed。`make build-profiles` の exec は feature なし・`native-blocking-wait`・`fault-injection` の 3 組で `clippy`・`test`・wasm32 の `cargo check` が通る。`make wasm-verify` は `cargo check (fandhe-silicon-exec tests, wasm32-unknown-unknown, …)` を default features・`native-blocking-wait`・`fault-injection` で通る |
+| (9) | 公開の面が変わらない | `make exec-surface-check` | 終了コード 0。`op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0`、`port_names_all=6`、`items_default=458 items_all=511`。下の (9) の出力 |
+| (10) | 依存と unsafe を足していない | `gh pr diff <n> --name-only`（n は 7987・7988・7989）を `grep -E '^(Cargo\.toml\|Cargo\.lock\|deps-approved\.toml\|deny\.toml\|crates/core/\|crates/upper/\|crates/exec/Cargo\.toml)'` で絞る、`grep -n forbid crates/exec/src/lib.rs` | 3 つとも grep の出力は空。`crates/exec/src/lib.rs` の 22 行に `#![forbid(unsafe_code)]` |
+| (11) | CI で流れる場所 | main の push の CI の run 41868695385（`conclusion=success`、`headSha=d2893a9bf6512370d790793feda235beb7106da3`）の job `make verify (fmt + clippy + test)`（job id 126709542476）のログ | 下の (11) のログの行。`cpu_atomic_add` と `length_host` が出る |
+
+(1) の出力。
+
+```text
+15:use crate::length::{check_host_len, check_lengths};
+150:    fn route_report(
+200:        self.route_report(op, opt_in, "query_route")
+226:                crate::cpu::atomic_add(input, &mut out);
+254:        check_lengths(OpId::F16Fma, n, None, self.device.limits().max_buffer_bytes)?;
+258:                    check_host_len(len, n)?;
+264:        let report = self.route_report(OpId::F16Fma, opt_in, "f16_fma")?;
+289:        check_lengths(
+297:                check_host_len(x.len(), n)?;
+298:                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+303:        let report = self.route_report(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")?;
+331:        check_lengths(
+339:                check_host_len(x.len(), n)?;
+340:                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+345:        let report = self.route_report(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")?;
+375:        check_lengths(
+383:                check_host_len(x.len(), n)?;
+384:                check_host_len(out.len(), m)?;
+389:        let report = self.route_report(OpId::AtomicAdd, opt_in, "atomic_add")?;
+393:                crate::cpu::atomic_add(x, out);
+752:    fn query_route_reports_fallback_route() {
+```
+
+(5) の出力。
+
+```text
+margin atomic-add-ag n=1 m=1 max=0e0
+margin atomic-add-ag n=1 m=64 max=0e0
+margin atomic-add-ag n=1 m=4096 max=0e0
+margin atomic-add-ag n=31 m=1 max=1.4212126353121722e-7
+margin atomic-add-ag n=31 m=64 max=0e0
+margin atomic-add-ag n=31 m=4096 max=0e0
+margin atomic-add-ag n=32 m=1 max=0e0
+margin atomic-add-ag n=32 m=64 max=0e0
+margin atomic-add-ag n=32 m=4096 max=0e0
+margin atomic-add-ag n=33 m=1 max=0e0
+margin atomic-add-ag n=33 m=64 max=0e0
+margin atomic-add-ag n=33 m=4096 max=0e0
+margin atomic-add-ag n=255 m=1 max=2.6274075555018383e-8
+margin atomic-add-ag n=255 m=64 max=1.1455645756409365e-7
+margin atomic-add-ag n=255 m=4096 max=0e0
+margin atomic-add-ag n=256 m=1 max=1.4913489657336404e-8
+margin atomic-add-ag n=256 m=64 max=1.1896968729991551e-7
+margin atomic-add-ag n=256 m=4096 max=0e0
+margin atomic-add-ag n=257 m=1 max=5.5649060695687195e-8
+margin atomic-add-ag n=257 m=64 max=1.1260264787608179e-7
+margin atomic-add-ag n=257 m=4096 max=0e0
+margin atomic-add-ag n=1000 m=1 max=4.189949681834022e-8
+margin atomic-add-ag n=1000 m=64 max=1.2713833054027617e-7
+margin atomic-add-ag n=1000 m=4096 max=0e0
+margin atomic-add-ag n=65539 m=1 max=4.591491703389732e-8
+margin atomic-add-ag n=65539 m=64 max=1.5845194743196718e-7
+margin atomic-add-ag n=65539 m=4096 max=2.67072941338045e-7
+margin atomic-add-ag n=4096 m=1 max=1.314528607385641e-8
+margin atomic-add-ag n=4096 m=64 max=1.758139166306915e-7
+margin atomic-add-ag n=4096 m=4096 max=0e0
+margin atomic-add-ag n=65536 m=1 max=5.4405779834576424e-8
+margin atomic-add-ag n=65536 m=64 max=2.40819414122819e-7
+margin atomic-add-ag n=65536 m=4096 max=2.872197959403692e-7
+margin atomic-add-ag n=262144 m=1 max=1.954442517842839e-8
+margin atomic-add-ag n=262144 m=64 max=1.2958882866885887e-7
+margin atomic-add-ag n=262144 m=4096 max=3.2007235218561117e-7
+margin atomic-add-ag n=4194304 m=1 max=2.4376108914373616e-8
+margin atomic-add-ag n=4194304 m=64 max=1.8418538516965294e-7
+margin atomic-add-ag n=4194304 m=4096 max=3.135756748211731e-7
+```
+
+(9) の出力。
+
+```text
+record: commit=d2893a9bf6512370d790793feda235beb7106da3 rs_files=28 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+(11) のログ（ジョブ名・ステップ名・時刻を除いて `Running` の行と `test result:` の行をログの出た順に並べた）。
+
+```text
+Running unittests src/lib.rs (target/debug/deps/fandhe_silicon_exec-86ed7c4c97b219bf)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+Running tests/cpu_atomic_add.rs (target/debug/deps/cpu_atomic_add-caae2dc3a33fb01d)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.88s
+Running tests/cpu_f16_fma.rs (target/debug/deps/cpu_f16_fma-94c5986b155befb1)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+Running tests/cpu_subgroup_sum.rs (target/debug/deps/cpu_subgroup_sum-1fec7f5e66070089)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+Running tests/device_operands.rs (target/debug/deps/device_operands-f38e027ecd725064)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/fault_injection_ports.rs (target/debug/deps/fault_injection_ports-3b7137a9d5d214b6)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/length_device.rs (target/debug/deps/length_device-716b5f7cf8ef7941)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/length_host.rs (target/debug/deps/length_host-d17c7b4c6c32ccc1)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+確かめた時点は、main のコミット `d2893a9` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-932）。
+
+### 確かめ方
+
+```text
+grep -n 'check_lengths\|check_host_len\|route_report\|crate::cpu::atomic_add' crates/exec/src/entry.rs
+grep -n 'fn run\b' crates/exec/src/entry.rs
+cargo test -p fandhe-silicon-exec --all-features --locked --lib
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add
+cargo test -p fandhe-silicon-exec --locked --test cpu_atomic_add
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add ag_is_within -- --nocapture
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add outputs_print_sha256_per_case -- --nocapture
+cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields --test reasons_and_denormal --test route_evidence_calls
+make verify
+make build-profiles
+make wasm-verify
+make exec-surface-check
+grep -n forbid crates/exec/src/lib.rs
+```
+
+## 段の表（TASK-932）
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/4 | #6059（PR #7987） | atomic の加算の host の列の長さと出力の数の照合（1/4） |
+| 2/4 | #6060（PR #7988） | CPU の経路の atomic の加算と非正規化数の判定（2/4） |
+| 3/4 | #6061（PR #7989） | 入力の組と CPU の参照との比べと出力の sha256 の行（3/4） |
+| 4/4 | #6062 | 完了の条件の確かめ（4/4） |
+
+親 Issue は #874。
