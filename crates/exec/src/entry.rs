@@ -146,7 +146,7 @@ impl<'d> Exec<'d> {
     /// 効く印・`query_ex` の 1 回・選び方・報告の組み立てを通す、`run` と `query_route` の共通の処理。
     ///
     /// 経路の選び方が判定を求めたとき、(操作, 経路) の保持があればそれを使い、無ければ試しの実行を
-    /// 1 回流して判定を保持する。試しの実行が `Err` を返す組（(`OpId::SubgroupSumF32`, `Route::Cpu`) のほか）では `name` の `Unsupported` を返し、
+    /// 1 回流して判定を保持する。(`OpId::SubgroupSumF32`, `Route::Cpu`) 以外の組で試しの実行が `Err` を返すときは `name` の `Unsupported` を返し、
     /// 保持しない。その `Err` は選び方を中断してそのまま返る。
     fn route_report(
         &self,
