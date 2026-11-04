@@ -114,3 +114,51 @@ cargo test -p fandhe-silicon-core --features test-support --lib route_evidence
 cargo test -p fandhe-silicon-core --features test-support --lib route_evidence
 cargo test -p fandhe-silicon-core --features test-support --test route_evidence_check
 ```
+
+## 下-2 の経路の報告と模擬の呼び出しの突き合わせ（3/4）
+
+exec の統合テスト `crates/exec/tests/route_evidence_calls.rs` が、下-2 の公開のパスが返した経路の報告と、試験の中の模擬の実行関数が作った値を `check_call`／`EvidenceTally` で突き合わせる。`crates/exec/Cargo.toml` と exec のライブラリのコードは変えていない。
+
+### 使う公開のパス
+
+| 経路 | 報告の取り方 |
+| ---- | ------------ |
+| 経路なし | 4 つの入口（`f16_fma`・`subgroup_sum_u32`・`subgroup_sum_f32`・`atomic_add`）の `Ok(Outcome::Unavailable { report })` の `report.route`（`Scripted::answering` の `Unsupported`・理由なしと `Exec::deny_by_default`） |
+| 経路が決まる | `Exec::query_route` の `route`（`F16Fma`・`SubgroupSumU32`） |
+| feature `fault-injection` | `Exec::inject_denormal(op, route, DenormalInjection::Preserve)` の後の `query_route`（`SubgroupSumF32`・`AtomicAdd`） |
+
+### 模擬の実行が作る値
+
+試験の中の関数が、返った経路を実行したとして値を作る。
+
+| 経路 | 印の値 | 増やす回数の欄 | 出力の列 | 成果物の SHA-256 |
+| ---- | ------ | -------------- | -------- | ---------------- |
+| `Native` | `MARKER_NATIVE` | `native` | 番兵と違う値を書く | `native()` |
+| `GpuEmulated` | `MARKER_GPU_EMULATED` | `gpu_emulated` | 番兵と違う値を書く | `gpu_emulated()` |
+| `Cpu` | `MARKER_CLEAR` | `cpu` | 番兵と違う値を書く | なし |
+| 経路なし | `MARKER_CLEAR` | なし | 書かない | なし |
+
+食い違わせる 4 通り（引数で 1 つを選ぶ）。
+
+| 食い違い | 変えるもの |
+| -------- | ---------- |
+| `Marker` | 別の経路の印の値 |
+| `Counts` | 返した経路と別の経路の欄に +1 |
+| `Output` | 経路があれば出力を書かない（経路なしは 1 バイトを書き換える） |
+| `Artifact` | 別の成果物の SHA-256 |
+
+### 対応するテスト（`crates/exec/tests/route_evidence_calls.rs`）
+
+| 試験 | 確かめる動き |
+| ---- | ------------ |
+| `unavailable_entries_match_without_writes` | 4 入口の経路なしの報告が 4 件の一致に数えられ、食い違い 4 通りがそれぞれ対応する欄に 1 件 |
+| `queried_routes_match_simulated_runs` | `query_route` の 3 経路 × 2 操作が 6 件の一致に数えられ、全組の食い違いが対応する欄に 1 件 |
+| `tally_labels_through_the_frame` | 一致だけで `Label::Ok`、不一致 1 件で `Label::Ng` |
+| `injected_routes_match_simulated_runs` | 差し込み後の 3 経路 × 2 操作で同じ突き合わせ（feature `fault-injection` のときだけ流れる） |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-exec --test route_evidence_calls
+cargo test -p fandhe-silicon-exec --features fault-injection --test route_evidence_calls
+```
