@@ -155,7 +155,7 @@ fn for_each_combo(mut f: impl FnMut(OpId, Option<OptIn>, OptIn, usize)) {
 
 /// 拒否の結果か。
 fn is_rejected(r: &Result<Outcome, ContractError>) -> bool {
-    // 引数の不正の種類だけを照らし、文言は照らさない。
+    // FB-57: 引数の不正の種類だけを照らし、文言は照らさない。
     matches!(r, Err(ContractError::InvalidArgument(_)))
 }
 
@@ -218,7 +218,6 @@ fn valid_length_reaches_route_choice() {
         let m = if op == OpId::AtomicAdd { 1 } else { 0 };
         let (r, _) = call(&exec, op, over, 2, m, 2, 2);
         let tag = format!("{op:?} {over:?} {d:?} {dev_i}");
-        // FB-57
         assert!(!is_rejected(&r), "{tag}: {r:?}");
         assert_eq!(dev.query_ex_calls(), 1, "{tag}");
     });

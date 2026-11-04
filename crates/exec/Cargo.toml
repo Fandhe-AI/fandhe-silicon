@@ -32,7 +32,7 @@ required-features = ["native-blocking-wait"]
 name = "fault_injection_ports"
 required-features = ["fault-injection"]
 
-# device の形の列で長さの拒否を確かめる試験なので、feature native-blocking-wait のビルドでだけ流す。
+# device の形の列で長さの拒否を確かめる試験。feature native-blocking-wait のビルドでだけ流す。
 [[test]]
 name = "length_device"
 required-features = ["native-blocking-wait"]

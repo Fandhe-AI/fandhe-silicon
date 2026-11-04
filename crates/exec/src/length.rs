@@ -47,16 +47,22 @@ pub(crate) fn check_lengths(
     if m == Some(0) {
         return Err(invalid("output count must be greater than zero"));
     }
-    let (input, output) = match op {
+    let (input, output) = required_bytes(op, n, m)?;
+    validate_allocation_size(input, max_buffer_bytes)?;
+    validate_allocation_size(output, max_buffer_bytes)
+}
+
+/// `op` の入力・出力の buffer の必要バイト数を `(入力, 出力)` の順で求める。
+/// `check_lengths` が長さの拒否の判定に使い、`u64` であふれるときは `Err` を返す。
+fn required_bytes(op: OpId, n: u64, m: Option<u64>) -> Result<(u64, u64), ContractError> {
+    Ok(match op {
         OpId::F16Fma => (mul(n, F16_BYTES)?, mul(n, F16_BYTES)?),
         OpId::SubgroupSumU32 | OpId::SubgroupSumF32 => (
             mul(n, WORD_BYTES)?,
             mul(n.div_ceil(SUM_BLOCK_ELEMS), WORD_BYTES)?,
         ),
         OpId::AtomicAdd => (mul(n, WORD_BYTES)?, mul(m.unwrap_or(0), WORD_BYTES)?),
-    };
-    validate_allocation_size(input, max_buffer_bytes)?;
-    validate_allocation_size(output, max_buffer_bytes)
+    })
 }
 
 #[cfg(test)]
@@ -154,5 +160,19 @@ mod tests {
         for op in [OpId::F16Fma, OpId::SubgroupSumU32, OpId::SubgroupSumF32] {
             assert!(rejected(check_lengths(op, 8, Some(1), u64::MAX)));
         }
+    }
+
+    #[test]
+    fn output_bytes_follow_each_op() {
+        for op in [OpId::SubgroupSumU32, OpId::SubgroupSumF32] {
+            for (n, out) in [(1, 4), (256, 4), (257, 8), (512, 8), (513, 12)] {
+                assert_eq!(required_bytes(op, n, None).unwrap(), (n * 4, out));
+            }
+        }
+        assert_eq!(required_bytes(OpId::F16Fma, 3, None).unwrap(), (6, 6));
+        assert_eq!(
+            required_bytes(OpId::AtomicAdd, 7, Some(5)).unwrap(),
+            (28, 20)
+        );
     }
 }
