@@ -576,3 +576,120 @@ rm -r "$d"
 cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum
 cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum
 ```
+
+## 完了の条件の確かめ（6/6）（TASK-931）
+
+6/6（#6058）で、下-2 の CPU の経路の `subgroup_sum_u32`・`subgroup_sum_f32` について本リポで観測できる事実だけを記録する。対応する作業は `docs/spec/05-tasks.md` の TASK-931（ポインタのみ）。`uname -sm` は `Linux x86_64`。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 2 つの入口の照合と本体の順 | `grep -n 'check_lengths\|check_host_len\|subgroup_output_len\|route_report\|crate::cpu::' crates/exec/src/entry.rs` | `subgroup_sum_u32` の中は 300 行 `check_lengths`、308 行と 309 行 `check_host_len`、314 行 `route_report`、318 行 `crate::cpu::subgroup_sum_u32`。`subgroup_sum_f32` の中は 342 行 `check_lengths`、350 行と 351 行 `check_host_len`、356 行 `route_report`、360 行 `crate::cpu::subgroup_sum_f32`。`probe` の中の `crate::cpu::subgroup_sum_f32` は 237 行。全部の行は下の (1) の出力 |
+| (2) | 照合と本体と判定の単体試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --lib` | `test result: ok. 92 passed; 0 failed; 0 ignored` |
+| (3) | 列の長さの照合の入口経由の試験 | `cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device` | `tests/length_device.rs` が 3 passed、`tests/length_host.rs` が 4 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed。4 本とも 0 failed; 0 ignored |
+| (4) | 入力の組と参照との比べ | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum`、`cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum` | `--all-features` は 6 passed; 0 failed; 0 ignored、既定の feature は 5 passed; 0 failed; 0 ignored |
+| (5) | 余裕の行 | `cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum fg_is_within -- --nocapture` の出力の `^margin ` の行 | 13 行。下の (5) の出力 |
+| (6) | `cargo test` を 3 回流した sha256 の行 | 「出力の sha256 の行（5/6）（TASK-931）」の「3 回の流し方」のコマンド | 各回の `wc -l` は 52、`sha256sum` の値は 3 回とも `f1f8c0cb11672f8013a00ce12d55dcc0fddca5fb03638a6a35550f61c61d6513`、`uniq -c` の集計は `52 3` の 1 行 |
+| (7) | 直した既存の試験 | `gh pr diff 7979 --name-only`・`gh pr diff 7980 --name-only`・`gh pr diff 7981 --name-only` の `crates/exec/` の行、`cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields --test reasons_and_denormal --test route_evidence_calls` | #7979 は `src/denormal_tests.rs`・`src/entry.rs`・`src/length.rs` と `tests/` の `fault_injection_ports.rs`・`length_device.rs`・`length_host.rs`・`length_limit.rs`・`length_zero.rs`・`opt_in_default.rs`・`reasons_and_denormal.rs`・`route_evidence_calls.rs`・`route_query.rs`・`unsupported_fields.rs`。#7980 は `src/cpu.rs`・`src/entry.rs`・`src/lib.rs` と `tests/` の `fault_injection_ports.rs`・`opt_in_default.rs`・`route_query.rs`・`unsupported_fields.rs`。#7981 は `src/entry.rs` と `tests/` の `opt_in_default.rs`・`route_query.rs`・`unsupported_fields.rs`。件数は `fault_injection_ports` が 8 passed、`opt_in_default` が 8 passed、`reasons_and_denormal` が 4 passed、`route_evidence_calls` が 4 passed、`route_query` が 6 passed、`unsupported_fields` が 4 passed で、すべて 0 failed; 0 ignored |
+| (8) | 既存の試験とビルドの組 | `make verify`、`make build-profiles`、`make wasm-verify` | 3 つとも終了コード 0。`make verify` の exec は lib が 92 passed、`tests/cpu_f16_fma.rs` が 4 passed、`tests/cpu_subgroup_sum.rs` が 6 passed、`tests/device_operands.rs` が 2 passed、`tests/fault_injection_ports.rs` が 8 passed、`tests/length_device.rs` が 3 passed、`tests/length_host.rs` が 4 passed、`tests/length_limit.rs` が 4 passed、`tests/length_zero.rs` が 5 passed、`tests/opt_in_default.rs` が 8 passed、`tests/reasons_and_denormal.rs` が 4 passed、`tests/route_evidence_calls.rs` が 4 passed、`tests/route_query.rs` が 6 passed、`tests/unsupported_fields.rs` が 4 passed で、すべて 0 failed。`make build-profiles` の exec は feature なし・`native-blocking-wait`・`fault-injection` の 3 組で `clippy`・`test`・wasm32 の `cargo check` が通る。`make wasm-verify` は `cargo check (fandhe-silicon-exec tests, wasm32-unknown-unknown, …)` を default features・`native-blocking-wait`・`fault-injection` で通る |
+| (9) | 公開の面が変わらない | `make exec-surface-check` | 終了コード 0。`op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0`、`port_names_all=6`。下の (9) の出力 |
+| (10) | 依存と unsafe を足していない | `gh pr diff <n> --name-only`（n は 7979・7980・7981・7982・7983）を `grep -E '^(Cargo\.toml\|Cargo\.lock\|deps-approved\.toml\|deny\.toml\|crates/core/\|crates/upper/\|crates/exec/Cargo\.toml)'` で絞る、`grep -n forbid crates/exec/src/lib.rs` | 5 つとも grep の出力は空。`crates/exec/src/lib.rs` の 21 行に `#![forbid(unsafe_code)]` |
+| (11) | CI で流れる場所 | main の push の CI の run 41833856707（`conclusion=success`、`headSha=112380bbb00b6932fae9a9c1cc90aec0aa28a5c1`）の job `make verify (fmt + clippy + test)`（job id 126587613184）のログ | 下の (11) のログの行。`cpu_subgroup_sum` と `length_host` が出る |
+
+(1) の出力。
+
+```text
+16:use crate::length::{check_host_len, check_lengths};
+151:    fn route_report(
+187:    /// `route_report` に入口の関数名を渡し、試しの実行の手段が無いときの `Unsupported` に使わせる。
+194:        let report = self.route_report(op, opt_in, name)?;
+217:        self.route_report(op, opt_in, "query_route")
+237:                crate::cpu::subgroup_sum_f32(input, &mut out);
+265:        check_lengths(OpId::F16Fma, n, None, self.device.limits().max_buffer_bytes)?;
+269:                    check_host_len(len, n)?;
+275:        let report = self.route_report(OpId::F16Fma, opt_in, "f16_fma")?;
+279:                crate::cpu::f16_fma(a, b, c, out);
+300:        check_lengths(
+308:                check_host_len(x.len(), n)?;
+309:                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+314:        let report = self.route_report(OpId::SubgroupSumU32, opt_in, "subgroup_sum_u32")?;
+318:                crate::cpu::subgroup_sum_u32(x, out);
+342:        check_lengths(
+350:                check_host_len(x.len(), n)?;
+351:                check_host_len(out.len(), crate::length::subgroup_output_len(n))?;
+356:        let report = self.route_report(OpId::SubgroupSumF32, opt_in, "subgroup_sum_f32")?;
+360:                crate::cpu::subgroup_sum_f32(x, out);
+377:        check_lengths(
+729:    fn query_route_reports_fallback_route() {
+```
+
+(5) の出力。
+
+```text
+margin subgroup-sum-f32-fg n=1 blocks=1 max=0e0
+margin subgroup-sum-f32-fg n=31 blocks=1 max=0e0
+margin subgroup-sum-f32-fg n=32 blocks=1 max=3.35686796849697e-8
+margin subgroup-sum-f32-fg n=33 blocks=1 max=5.337674224106808e-8
+margin subgroup-sum-f32-fg n=255 blocks=1 max=2.2240440556387224e-8
+margin subgroup-sum-f32-fg n=256 blocks=1 max=1.6173850889528602e-8
+margin subgroup-sum-f32-fg n=257 blocks=2 max=4.596052684280081e-8
+margin subgroup-sum-f32-fg n=1000 blocks=4 max=4.919321777944319e-8
+margin subgroup-sum-f32-fg n=65539 blocks=257 max=3.0823860390701323e-7
+margin subgroup-sum-f32-fg n=4096 blocks=16 max=1.4504704131737224e-7
+margin subgroup-sum-f32-fg n=65536 blocks=256 max=1.5740754378890993e-7
+margin subgroup-sum-f32-fg n=262144 blocks=1024 max=2.790627640649346e-7
+margin subgroup-sum-f32-fg n=4194304 blocks=16384 max=4.5725164680961514e-7
+```
+
+(9) の出力。
+
+```text
+record: commit=112380bbb00b6932fae9a9c1cc90aec0aa28a5c1 rs_files=27 build_rs=no env_fs=0 items_default=458 items_all=511 port_names_default=0 port_names_all=6 port_names_missing_all=0 op_fns=7 op_fns_with_report=7 other_fns=5 unlisted_fns=0
+ok: exec surface check passed
+```
+
+(11) のログ（ジョブ名・ステップ名・時刻を除いて `Running` の行と `test result:` の行をログの出た順に並べた。lib の 92 passed の直後の 4 passed が `cpu_f16_fma` の結果）。
+
+```text
+Running unittests src/lib.rs (target/debug/deps/fandhe_silicon_exec-86ed7c4c97b219bf)
+test result: ok. 92 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+Running tests/cpu_subgroup_sum.rs (target/debug/deps/cpu_subgroup_sum-1fec7f5e66070089)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+Running tests/length_host.rs (target/debug/deps/length_host-d17c7b4c6c32ccc1)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+確かめた時点は、main のコミット `112380b` と、`docs/spec` の gitlink `8e2bc9c0d89ce5c106b6d722cfd630cb393ebf45`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-931）。
+
+### 確かめ方
+
+```text
+grep -n 'check_lengths\|check_host_len\|subgroup_output_len\|route_report\|crate::cpu::' crates/exec/src/entry.rs
+cargo test -p fandhe-silicon-exec --all-features --locked --lib
+cargo test -p fandhe-silicon-exec --all-features --locked --test length_host --test length_limit --test length_zero --test length_device
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum
+cargo test -p fandhe-silicon-exec --locked --test cpu_subgroup_sum
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum fg_is_within -- --nocapture
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_subgroup_sum outputs_print_sha256_per_case -- --nocapture
+cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields --test reasons_and_denormal --test route_evidence_calls
+make verify
+make build-profiles
+make wasm-verify
+make exec-surface-check
+grep -n forbid crates/exec/src/lib.rs
+```
+
+## 段の表（TASK-931）
+
+| 段 | Issue・PR | 節 |
+| -- | --------- | -- |
+| 1/6 | #6053（PR #7979） | subgroup の総和の host の列の長さと出力の数の照合（1/6） |
+| 2/6 | #6054（PR #7980） | CPU の経路の subgroup の総和（2/6） |
+| 3/6 | #6055（PR #7981） | CPU の経路の f32 の総和の非正規化数の判定（3/6） |
+| 4/6 | #6056（PR #7982） | 入力の組と CPU の参照との比べの試験（4/6） |
+| 5/6 | #6057（PR #7983） | 出力の sha256 の行（5/6） |
+| 6/6 | #6058 | 完了の条件の確かめ（6/6） |
+
+親 Issue は #873。
