@@ -815,3 +815,354 @@ mod failure {
         }
     }
 }
+/// 4 操作 × 9 行の組み合わせで、試しの実行（模擬の runner）が流れる回数を数える試験。
+///
+/// 回数は (操作, 経路) ごとの、各呼び出しの前後の差。入口の戻り値の種類と文言は照らさない。
+/// 強制した操作の扱いは FB-28 のポインタ。
+#[cfg(feature = "fault-injection")]
+mod matrix {
+    use super::*;
+
+    const NONE: OptIn = opt(false, false);
+    const OPS: [OpId; 4] = [
+        OpId::F16Fma,
+        OpId::SubgroupSumU32,
+        OpId::SubgroupSumF32,
+        OpId::AtomicAdd,
+    ];
+    const ROUTES: [Route; 3] = [Route::Native, Route::GpuEmulated, Route::Cpu];
+    /// 代表の長さ。`atomic_add` の `m` は `M`。
+    const N: usize = 1000;
+    const M: u64 = 64;
+
+    /// 強制の掛け方。
+    #[derive(Clone, Copy)]
+    enum Force {
+        No,
+        Own,
+        Partner,
+    }
+
+    /// 9 行。(強制, 上書き)。
+    const ROWS: [(Force, OptIn); 9] = [
+        (Force::No, NONE),
+        (Force::No, G_ONLY),
+        (Force::No, C_ONLY),
+        (Force::No, BOTH),
+        (Force::Own, NONE),
+        (Force::Own, G_ONLY),
+        (Force::Own, C_ONLY),
+        (Force::Own, BOTH),
+        (Force::Partner, NONE),
+    ];
+
+    /// 別の操作の対応。
+    fn partner(op: OpId) -> OpId {
+        match op {
+            OpId::F16Fma => OpId::AtomicAdd,
+            OpId::SubgroupSumU32 => OpId::SubgroupSumF32,
+            OpId::SubgroupSumF32 => OpId::SubgroupSumU32,
+            OpId::AtomicAdd => OpId::F16Fma,
+        }
+    }
+
+    /// 行ごとの期待の回数 `[Native, GpuEmulated, Cpu]`。試しの実行を求めない操作は 0。
+    fn expected(op: OpId, force: Force, over: OptIn) -> [usize; 3] {
+        if !matches!(op, OpId::SubgroupSumF32 | OpId::AtomicAdd) {
+            return [0; 3];
+        }
+        match force {
+            Force::No | Force::Partner => [1, 0, 0],
+            Force::Own => match (over.allow_gpu_emulated, over.allow_cpu) {
+                (true, _) => [0, 1, 0],
+                (false, true) => [0, 0, 1],
+                (false, false) => [0; 3],
+            },
+        }
+    }
+
+    fn forced<'a>(exec: Exec<'a>, op: OpId, force: Force) -> Exec<'a> {
+        match force {
+            Force::No => exec,
+            Force::Own => exec.force_unsupported(op),
+            Force::Partner => exec.force_unsupported(partner(op)),
+        }
+    }
+
+    /// 4 操作の入口を代表の長さで 1 回呼ぶ。host の列は長さを合わせる。
+    fn call_entry_at(
+        exec: &Exec<'_>,
+        op: OpId,
+        over: Option<OptIn>,
+    ) -> Result<Outcome, ContractError> {
+        let (h, mut o16) = (vec![1u16; N], vec![0u16; N]);
+        let (xu, mut ou) = (vec![1u32; N], vec![0u32; 4]);
+        let (xf, mut of) = (vec![1.0f32; N], vec![0.0f32; 4]);
+        match op {
+            OpId::F16Fma => exec.f16_fma(
+                over,
+                N as u64,
+                F16FmaOperands::Host {
+                    a: &h,
+                    b: &h,
+                    c: &h,
+                    out: &mut o16,
+                },
+            ),
+            OpId::SubgroupSumU32 => exec.subgroup_sum_u32(
+                over,
+                N as u64,
+                SubgroupSumU32Operands::Host {
+                    x: &xu,
+                    out: &mut ou,
+                },
+            ),
+            OpId::SubgroupSumF32 => exec.subgroup_sum_f32(
+                over,
+                N as u64,
+                SubgroupSumF32Operands::Host {
+                    x: &xf,
+                    out: &mut of,
+                },
+            ),
+            OpId::AtomicAdd => {
+                let mut oa = vec![0.0f32; M as usize];
+                exec.atomic_add(
+                    over,
+                    N as u64,
+                    M,
+                    AtomicAddOperands::Host {
+                        x: &xf,
+                        out: &mut oa,
+                    },
+                )
+            }
+        }
+    }
+
+    /// 36 行を流し、行ごとの回数を照らして、経路ごとの合計を返す。
+    fn run_rows(via_entry: bool) -> [usize; 3] {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        let log = CallLog::default();
+        let runner = preserving_runner(&log);
+        let mut total = [0usize; 3];
+        for op in OPS {
+            for (force, over) in ROWS {
+                let before = ROUTES.map(|r| calls_of(&log, op, r));
+                let exec = forced(Exec::deny_by_default(&dev).with_probe(&runner), op, force);
+                if via_entry {
+                    let _ = call_entry_at(&exec, op, Some(over));
+                } else {
+                    let _ = exec.query_route(op, Some(over));
+                }
+                let want = expected(op, force, over);
+                for (i, r) in ROUTES.into_iter().enumerate() {
+                    let diff = calls_of(&log, op, r) - before[i];
+                    assert_eq!(diff, want[i], "{op:?} {r:?}");
+                    total[i] += diff;
+                }
+                // 同じ行の作り方の別の Exec で経路を照らす。
+                let other_log = CallLog::default();
+                let other_runner = preserving_runner(&other_log);
+                let other = forced(
+                    Exec::deny_by_default(&dev).with_probe(&other_runner),
+                    op,
+                    force,
+                );
+                let report = other.query_route(op, Some(over)).expect("report");
+                let routed = ROUTES.into_iter().zip(want).find(|(_, n)| *n == 1);
+                if let Some((route, _)) = routed {
+                    assert_eq!(report.route, Some(route), "{op:?}");
+                }
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn table_calls_count_judgment_runs() {
+        assert_eq!(run_rows(true), [10, 4, 2]);
+    }
+
+    #[test]
+    fn table_query_routes_count_judgment_runs() {
+        assert_eq!(run_rows(false), [10, 4, 2]);
+    }
+}
+
+/// 差し込みで判定できない値にした経路が外れ、次の経路へ進む（残らなければ経路なし）ことの試験。
+/// 判定できない値の差し込みは FB-8 のポインタ。
+#[cfg(feature = "fault-injection")]
+mod injected_unknown {
+    use super::*;
+    use crate::report::DenormalInjection;
+
+    const NONE: OptIn = opt(false, false);
+    const OPS: [OpId; 2] = [OpId::SubgroupSumF32, OpId::AtomicAdd];
+
+    fn observed_preserve(r: &crate::report::RouteReport) -> bool {
+        matches!(
+            r.f32_denormal,
+            Some(F32DenormalReport {
+                behavior: F32DenormalBehavior::Preserve,
+                basis: F32DenormalBasis::Observed,
+                ..
+            })
+        )
+    }
+
+    #[test]
+    fn injected_unknown_native_moves_to_observed_route() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            for over in [G_ONLY, BOTH] {
+                let log = CallLog::default();
+                let runner = preserving_runner(&log);
+                let exec = Exec::deny_by_default(&dev)
+                    .with_probe(&runner)
+                    .inject_denormal(op, Route::Native, DenormalInjection::Unknown);
+                let r = exec.query_route(op, Some(over)).expect("report");
+                assert_eq!(r.route, Some(Route::GpuEmulated));
+                assert_eq!(
+                    r.native_reason,
+                    Some(UnavailableReason::F32DenormalBehaviorUnknown)
+                );
+                assert!(observed_preserve(&r));
+                assert_eq!(calls_of(&log, op, Route::GpuEmulated), 1);
+                assert_eq!(calls_of(&log, op, Route::Native), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn injected_unknown_two_routes_moves_to_cpu() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            let log = CallLog::default();
+            let runner = preserving_runner(&log);
+            let exec = Exec::deny_by_default(&dev)
+                .with_probe(&runner)
+                .inject_denormal(op, Route::Native, DenormalInjection::Unknown)
+                .inject_denormal(op, Route::GpuEmulated, DenormalInjection::Unknown);
+            let r = exec.query_route(op, Some(BOTH)).expect("report");
+            assert_eq!(r.route, Some(Route::Cpu));
+            assert!(observed_preserve(&r));
+            assert_eq!(calls_of(&log, op, Route::Cpu), 1);
+            assert_eq!(calls_of(&log, op, Route::Native), 0);
+            assert_eq!(calls_of(&log, op, Route::GpuEmulated), 0);
+        }
+    }
+
+    #[test]
+    fn all_injected_unknown_is_unavailable() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            for (over, fallback) in [
+                (BOTH, UnavailableReason::F32DenormalBehaviorUnknown),
+                (NONE, UnavailableReason::OptInNotGiven),
+            ] {
+                let log = CallLog::default();
+                let runner = preserving_runner(&log);
+                let mut exec = Exec::deny_by_default(&dev).with_probe(&runner);
+                for route in [Route::Native, Route::GpuEmulated, Route::Cpu] {
+                    exec = exec.inject_denormal(op, route, DenormalInjection::Unknown);
+                }
+                let Ok(Outcome::Unavailable { report }) = call_entry(&exec, op, Some(over)) else {
+                    panic!("expected Unavailable");
+                };
+                assert_eq!(report.route, None);
+                assert_eq!(report.fallback_reason, Some(fallback));
+                assert_eq!(
+                    report.native_reason,
+                    Some(UnavailableReason::F32DenormalBehaviorUnknown)
+                );
+                assert_eq!(log.borrow().len(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn injection_on_unchosen_route_keeps_observed_basis() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            for over in [None, Some(BOTH)] {
+                let log = CallLog::default();
+                let runner = preserving_runner(&log);
+                let exec = Exec::deny_by_default(&dev)
+                    .with_probe(&runner)
+                    .inject_denormal(op, Route::GpuEmulated, DenormalInjection::FlushToZero);
+                let r = exec.query_route(op, over).expect("report");
+                assert_eq!(r.route, Some(Route::Native));
+                assert!(observed_preserve(&r));
+            }
+        }
+    }
+}
+
+/// 試しの実行の出力が判定できない値のとき、その経路が外れることの試験（feature の条件なし）。
+mod judged_unknown {
+    use super::*;
+
+    const NONE: OptIn = opt(false, false);
+    const OPS: [OpId; 2] = [OpId::SubgroupSumF32, OpId::AtomicAdd];
+
+    #[test]
+    fn unknown_output_moves_to_next_route() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            let log = CallLog::default();
+            let runner = |op: OpId, route: Route, input: &ProbeInput| {
+                log.borrow_mut().push((op, route));
+                let keep = preserving(op, input);
+                match route {
+                    Route::Native => Ok([0.0, 0.0, keep[2]]),
+                    _ => Ok(keep),
+                }
+            };
+            let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+            let first = exec.query_route(op, Some(G_ONLY)).expect("report");
+            assert_eq!(first.route, Some(Route::GpuEmulated));
+            assert_eq!(
+                first.native_reason,
+                Some(UnavailableReason::F32DenormalBehaviorUnknown)
+            );
+            assert_eq!(
+                first.f32_denormal.map(|d| (d.behavior, d.basis)),
+                Some((F32DenormalBehavior::Preserve, F32DenormalBasis::Observed))
+            );
+            let count = log.borrow().len();
+            assert_eq!(exec.query_route(op, Some(G_ONLY)), Ok(first));
+            assert_eq!(log.borrow().len(), count);
+        }
+    }
+
+    #[test]
+    fn unknown_without_opt_in_is_unavailable() {
+        let dev = QueryDevice::new(BackendKind::Metal, S2);
+        for op in OPS {
+            let log = CallLog::default();
+            let runner = unknown_runner(&log);
+            let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+            let r = exec.query_route(op, Some(NONE)).expect("report");
+            assert_eq!(r.route, None);
+            assert_eq!(
+                r.native_reason,
+                Some(UnavailableReason::F32DenormalBehaviorUnknown)
+            );
+            assert_eq!(r.fallback_reason, Some(UnavailableReason::OptInNotGiven));
+
+            let log = CallLog::default();
+            let runner = unknown_runner(&log);
+            let exec = Exec::deny_by_default(&dev).with_probe(&runner);
+            let r = exec.query_route(op, Some(BOTH)).expect("report");
+            assert_eq!(r.route, None);
+            assert_eq!(
+                r.fallback_reason,
+                Some(UnavailableReason::F32DenormalBehaviorUnknown)
+            );
+            for route in [Route::Native, Route::GpuEmulated, Route::Cpu] {
+                assert_eq!(calls_of(&log, op, route), 1);
+            }
+        }
+    }
+}
