@@ -240,6 +240,10 @@ fn mismatched_lengths_do_not_panic() {
         (2, 3, 2, 6, 6, 3),
         (2, 3, 2, 6, 6, 5),
         (usize::MAX, 2, 2, 4, 4, 4),
+        // あふれた積が一周して渡した長さと一致する入力。
+        (1_usize << (usize::BITS - 1), 2, 2, 0, 4, 0),
+        (2, 1_usize << (usize::BITS - 1), 2, 0, 0, 4),
+        (0, 1_usize << (usize::BITS - 1), 2, 0, 0, 0),
     ];
     for (m, k, n, al, bl, ol) in gemm_shapes {
         let (a, b) = (vec![1.0_f32; al], vec![1.0_f32; bl]);
