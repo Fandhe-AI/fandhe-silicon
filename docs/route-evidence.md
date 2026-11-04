@@ -57,3 +57,60 @@
 ```text
 cargo test -p fandhe-silicon-core --features test-support --lib route_evidence
 ```
+
+## 呼び出しの数え上げと試験の枠への受け渡し（2/4）
+
+`CallCheck` を呼び出しの列として数える型 `EvidenceTally` を足した。この節の後の module は core の中の `test_frame`（`RunResult`・`Verdict`・`IndeterminateReason`）も使う（`grep -n '^use' crates/core/src/route_evidence.rs`）。
+
+### 公開の項目
+
+| 項目 | 内容 |
+| ---- | ---- |
+| `EvidenceTally` | 数え上げ。`new`・`record`・`record_call`・getter 9 個・`run_result` |
+| `EvidenceError::TallyOverflow` | 数え上げの欄があふれたときの `Err`。`Display` は固定の英語の文言 |
+
+### 数える欄
+
+| 欄 | 1 増えるとき |
+| -- | ------------ |
+| `calls` | `record` ごとに必ず |
+| `matched` / `mismatched` | `is_match()` が真 / 偽 |
+| `marker_mismatches` / `count_mismatches` / `output_mismatches` | `marker()` / `counts()` / `output()` が偽 |
+| `artifact_mismatches` | `artifact()` が `Some(false)` |
+| `artifact_not_compared` | `artifact()` が `None`（`matched` にも数える） |
+| `probe_runs` | `probe_runs()` の値を足す（一致・不一致の判定には入らない） |
+
+### `run_result` の結果
+
+| 数え上げ | 結果 |
+| -------- | ---- |
+| `calls` が 0 | `RunResult::Indeterminate(IndeterminateReason::EvidenceMissing)` |
+| `mismatched` が 1 以上 | `RunResult::Verdict(Verdict::Mismatch)` |
+| それ以外 | `RunResult::Verdict(Verdict::Match)` |
+
+### `Err` になる入力
+
+| 入力 | 戻り値 |
+| ---- | ------ |
+| 欄のどれかがあふれる | `Err(TallyOverflow)`。数え上げは変わらない |
+| `record_call` に渡した値が `check_call` の `Err` になる | その `Err` をそのまま返す。数え上げは変わらない |
+
+### 対応するテスト（`crates/core/tests/route_evidence_check.rs`）
+
+| 試験 | 確かめる動き |
+| ---- | ------------ |
+| `all_routes_match` | 4 つの経路の一致を数えると 4 件の一致で `Verdict(Match)` |
+| `one_injected_mismatch_is_detected` | 経路 × 値の全組で 1 件の食い違いが、その値の欄にだけ数えられ `Verdict(Mismatch)` |
+| `probe_runs_are_counted_apart` | 試しの実行の回数は合計にだけ入り、一致のまま |
+| `artifact_not_compared_is_counted` | 成果物を比べない呼び出しは一致と比べなかった欄に数える |
+| `input_errors_are_not_counted` | 空の出力・回数の減少・同じ SHA-256 で `Err`、数え上げは不変 |
+| `empty_tally_is_indeterminate` | 0 件は `Indeterminate(EvidenceMissing)` |
+| `tally_overflow_keeps_counts` | あふれで `Err(TallyOverflow)`、数え上げは不変 |
+| `labels_through_the_frame` | `judge` の本体から返して 0 件は判定不能、一致のみは `Label::Ok`、不一致 1 件で `Label::Ng` |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features test-support --lib route_evidence
+cargo test -p fandhe-silicon-core --features test-support --test route_evidence_check
+```

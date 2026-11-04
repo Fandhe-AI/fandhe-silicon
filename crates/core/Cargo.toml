@@ -387,3 +387,7 @@ required-features = ["test-support", "graphics"]
 [[test]]
 name = "graphics_ops_doctest_shape"
 required-features = ["graphics"]
+
+[[test]]
+name = "route_evidence_check"
+required-features = ["test-support"]
