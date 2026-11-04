@@ -887,3 +887,96 @@ private の `Exec::run` を消した。入口の数と返し方は変わらな�
 cargo test -p fandhe-silicon-exec --all-features --locked --lib
 cargo test -p fandhe-silicon-exec --all-features --locked --test fault_injection_ports --test opt_in_default --test route_query --test unsupported_fields
 ```
+
+## 入力の組と CPU の参照との比べと出力の sha256 の行（3/4）（TASK-932）
+
+### 所在
+
+`crates/exec/tests/cpu_atomic_add.rs`（公開のパスから `Exec::atomic_add` を host の形で呼ぶ外の crate の統合テスト）。
+
+### 経路 `Route::Cpu` を選ばせる組
+
+| 組 | device の答え | `Exec` の作り方 | 上書き |
+| -- | ------------- | --------------- | ------ |
+| (a) | `Unsupported` | `Exec::new(&dev, CPU_ONLY)` | `None` |
+| (b) | `Unsupported` | `Exec::deny_by_default(&dev)` | `Some(CPU_ONLY)` |
+| 故障の差し込み（feature `fault-injection` のビルドでだけ） | `S2` | `Exec::deny_by_default(&dev).force_unsupported(OpId::AtomicAdd)` | `Some(CPU_ONLY)` |
+
+呼び出しごとに新しい試験用の device を作る。
+
+### 入力と比べ方
+
+| 入力 | 参照 | 比べ方 |
+| ---- | ---- | ------ |
+| `generate_atomic_add_ax` | `reference_atomic_add_f32`（`F32SubnormalHandling::Preserve`） | `compare_bits_f32` |
+| `generate_atomic_add_ag` | 同上 | `compare_relative_sum_f32` |
+| `generate_atomic_add_as` | 同上 | `compare_relative_sum_f32` |
+
+長さは `FALLBACK_LENGTHS` の 13 通り、出力の数は `ATOMIC_ADD_OUTPUT_COUNTS`（1・64・4096）。`generate_atomic_add_ax` の組は `ax_pair_allowed(n, m)` が真のものだけ。詳細は [parity-fallback-inputs.md](parity-fallback-inputs.md)・[parity-fallback-compare.md](parity-fallback-compare.md)。
+
+### (n, m) の組の数
+
+| 入力 | m = 1 | m = 64 | m = 4096 | 計 |
+| ---- | ----- | ------ | -------- | -- |
+| `generate_atomic_add_ax` | 9 | 12 | 13 | 34 |
+| `generate_atomic_add_ag` | 13 | 13 | 13 | 39 |
+| `generate_atomic_add_as` | 13 | 13 | 13 | 39 |
+
+### 試験
+
+| 試験 | 入力 | 組 | 期待 |
+| ---- | ---- | -- | ---- |
+| `ax_outputs_match_bits_over_lengths_and_counts` | `generate_atomic_add_ax` の 34 組 | (a)・(b) | ビット同一。組の数が 34 |
+| `ag_is_within_relative_bound_over_lengths_and_counts` | `generate_atomic_add_ag` の 39 組 | (a) | 相対の条件に合い、余裕の最大が有限 |
+| `as_patterns_are_compared_with_preserving_reference_over_lengths_and_counts` | `generate_atomic_add_as` の 39 組 | (a) | 相対の条件に合う |
+| `outputs_print_sha256_per_case` | 上の 3 入力の 112 組 | (a) | 同じ入力の 2 回の sha256 が等しい |
+| `forced_native_off_runs_cpu`（feature `fault-injection`） | `generate_atomic_add_as(1000, 64)` | 故障の差し込み | 上の照らしに加え `native_reason` が `Some(UnavailableReason::ForcedUnsupported)` |
+
+### 報告と数えるもの
+
+- `route` が `Some(Route::Cpu)`。`query_route` と同じ報告になる。
+- `f32_denormal` が `behavior: Preserve`・`basis: Observed`・`documented: None`。
+- `query_ex_calls()` が 1、`memory_calls()`・`queue_calls()` が 0。
+- `out` は長さ m で、`7.0` で埋めて渡す。
+
+### 余裕の行の出し方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add ag_is_within -- --nocapture
+```
+
+`margin atomic-add-ag n=… m=… max=…` の行が 39 行出る。照らすのは `is_match()` と最大が有限であることだけ。`make verify` のログには出ない。
+
+### sha256 の行の形
+
+`sha256 <入力の名前> n=<n> m=<m> <16 進>`。入力の名前は `FallbackInputKind::….name()` の値（`atomic-add-ax`・`atomic-add-ag`・`atomic-add-as`）、16 進は小文字の 64 文字。1 回の流しで 112 行出る。
+
+### バイト列の作り方
+
+出力の各要素について、`0.0` に等しい要素は `0u32`、それ以外は `to_bits()` とし、その `to_le_bytes()` を添字の順に並べる（`-0.0` は `+0.0` のビット列になる）。sha256 は core の `hash::sha256_bytes`。
+
+### 照らすもの
+
+呼ぶたびに新しい試験用の device と `Exec` を作り、同じ入力を 2 回呼ぶ。照らすのは 2 つの sha256 が等しいことと、上の報告・数えの照らし。組は (a)。
+
+### 3 回の流し方
+
+```bash
+d=$(mktemp -d)
+for i in 1 2 3; do
+  cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add outputs_print_sha256_per_case -- --nocapture | grep '^sha256 ' > "$d/run-$i.txt"
+done
+wc -l "$d"/run-*.txt
+sha256sum "$d"/run-*.txt
+cat "$d"/run-1.txt "$d"/run-2.txt "$d"/run-3.txt | sort | uniq -c | awk '{print $1}' | sort | uniq -c
+rm -r "$d"
+```
+
+各回の行を比べる。`--test-threads=1` を付けると最初の行の頭に `test … ` が付き、`grep '^sha256 '` から 1 行漏れる。
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-exec --all-features --locked --test cpu_atomic_add
+cargo test -p fandhe-silicon-exec --locked --test cpu_atomic_add
+```
