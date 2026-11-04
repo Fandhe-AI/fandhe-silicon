@@ -7,6 +7,7 @@
 //! `Exec::query_route` は 4 つの入口と同じ選び方で、入口を呼ぶ前に経路の報告を返す。
 //! どの入口も出力の列・buffer に書かず、下-1 の投入・確保・読み出しを呼ばない。
 
+use crate::denormal::HeldJudgments;
 use crate::length::check_lengths;
 use crate::operands::{
     AtomicAddOperands, F16FmaOperands, SubgroupSumF32Operands, SubgroupSumU32Operands,
@@ -40,6 +41,11 @@ fn feature_of(op: OpId) -> FeatureId {
 pub struct Exec<'d> {
     device: &'d dyn Device,
     default_opt_in: OptIn,
+    /// (操作, 経路) ごとの f32 の非正規化数の判定の保持。
+    held: HeldJudgments,
+    /// 試験が差す模擬の runner。製品のビルドには無い。
+    #[cfg(test)]
+    runner: Option<crate::denormal::ProbeRunner<'d>>,
     /// 操作ごとの試験用の印。
     #[cfg(feature = "fault-injection")]
     ports: crate::hooks::Ports,
@@ -51,8 +57,21 @@ impl<'d> Exec<'d> {
         Self {
             device,
             default_opt_in,
+            held: HeldJudgments::default(),
+            #[cfg(test)]
+            runner: None,
             #[cfg(feature = "fault-injection")]
             ports: crate::hooks::Ports::default(),
+        }
+    }
+
+    /// 試験用: 試しの実行に使う模擬の runner を差した `Exec` を返す。
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_probe(self, runner: crate::denormal::ProbeRunner<'d>) -> Self {
+        Self {
+            runner: Some(runner),
+            ..self
         }
     }
 
@@ -105,13 +124,19 @@ impl<'d> Exec<'d> {
 
     /// 効く印・`query_ex` の 1 回・選び方・報告の組み立てを通す、`run` と `query_route` の共通の処理。
     ///
-    /// 判定の関数は経路の選び方が判定を求めたときに呼ばれ、その `Err` はそのまま返る。
+    /// 経路の選び方が判定を求めたとき、(操作, 経路) の保持があればそれを使い、無ければ試しの実行を
+    /// 1 回流して判定を保持する。試しの実行の手段が無い `Exec` では `name` の `Unsupported` を返し、
+    /// 保持しない。その `Err` は選び方を中断してそのまま返る。
     fn route_report(
         &self,
         op: OpId,
         opt_in: Option<OptIn>,
-        judge: impl FnMut(Route) -> Result<DenormalJudgment, ContractError>,
+        name: &'static str,
     ) -> Result<RouteReport, ContractError> {
+        let judge = |route: Route| -> Result<DenormalJudgment, ContractError> {
+            self.held
+                .judge(op, route, |input| self.probe(op, route, input, name))
+        };
         let effective = effective_opt_in(self.default_opt_in, opt_in);
         let query = self.device.query_ex(feature_of(op));
         let input = selection_input(op, effective, query);
@@ -124,7 +149,6 @@ impl<'d> Exec<'d> {
         #[cfg(feature = "fault-injection")]
         let judge = {
             let ports = self.ports;
-            let mut judge = judge;
             move |route: Route| match ports.injected(op, route) {
                 Some(j) => Ok(crate::hooks::judgment_of(j)),
                 None => judge(route),
@@ -139,14 +163,14 @@ impl<'d> Exec<'d> {
 
     /// 能力を問い合わせて経路を決め、報告か `Unsupported` を返す共通の処理。
     ///
-    /// `route_report` を通し、ここでは入口の関数名の `Unsupported` を判定の関数の `Err` に使う。
+    /// `route_report` に入口の関数名を渡し、試しの実行の手段が無いときの `Unsupported` に使わせる。
     fn run(
         &self,
         op: OpId,
         opt_in: Option<OptIn>,
         name: &'static str,
     ) -> Result<Outcome, ContractError> {
-        let report = self.route_report(op, opt_in, |_: Route| Err(self.unsupported(name)))?;
+        let report = self.route_report(op, opt_in, name)?;
         if report.route.is_none() {
             return Ok(Outcome::Unavailable { report });
         }
@@ -167,7 +191,24 @@ impl<'d> Exec<'d> {
         op: OpId,
         opt_in: Option<OptIn>,
     ) -> Result<RouteReport, ContractError> {
-        self.route_report(op, opt_in, |_: Route| Err(self.unsupported("query_route")))
+        self.route_report(op, opt_in, "query_route")
+    }
+
+    /// 試しの実行を 1 回流して 3 つの出力を返す。runner を差した試験のビルドではそれを呼び、
+    /// 差していなければ（製品のビルドは常にこちら）`name` の `Unsupported` を返す。
+    fn probe(
+        &self,
+        op: OpId,
+        route: Route,
+        input: &crate::denormal::ProbeInput,
+        name: &'static str,
+    ) -> Result<[f32; 3], ContractError> {
+        #[cfg(test)]
+        if let Some(runner) = self.runner {
+            return runner(op, route, input);
+        }
+        let _ = (op, route, input);
+        Err(self.unsupported(name))
     }
 
     fn unsupported(&self, op: &'static str) -> ContractError {

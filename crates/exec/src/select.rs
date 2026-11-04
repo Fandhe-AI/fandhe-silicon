@@ -51,9 +51,7 @@ pub(crate) fn selection_input(op: OpId, opt_in: OptIn, query: CapabilityQuery) -
 
 /// f32 の非正規化数の扱いの判定の結果。経路ごとに判定の関数が返す。
 ///
-/// feature を付けないライブラリのビルドでは値を作る所が無いので dead_code を許す
-/// （試験と、feature `fault-injection` の差し込みが値を作る）。
-#[cfg_attr(not(any(test, feature = "fault-injection")), allow(dead_code))]
+/// `denormal` の判定の関数が試しの実行の出力から作る（feature `fault-injection` の差し込みも値を作る）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DenormalJudgment {
     /// 非正規化数を保つ。
