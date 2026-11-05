@@ -30,6 +30,8 @@
 # （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd・elementwise_scalar・elementwise_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
 # ネイティブの参照で、ケースの種類ごとの単位〔gemm・elementwise は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
 # 種類の表は KINDS。行の export の種類と case の種類が違えば終了コード 2。TASK-996）。
+# KINDS の t1 の組（今は gemm の gemm_simd・simd128）は完全一致でなく T-1 の閾値で語ごとに比べ、`t1: <行> max-abs=… max-rel=… abs-over=… rel-over=…`
+# の行を出す（TASK-995。出すだけで判定には関わらない）。
 # topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
 # 出すだけで判定と終了コードには関わらない）。
 # elementwise のケースがあるときは `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行を出す（入力の語の
@@ -73,6 +75,7 @@ abspath() {
 read -r -d '' PY_CODE <<'PY' || true
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -82,12 +85,19 @@ import sys
 HEX = re.compile(r"[0-9a-f]{8}\Z")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
+# T-1 の閾値（TASK-995）。要素ごとに、相対が T1_RELATIVE 未満か絶対が T1_ABSOLUTE 未満なら一致（厳密な `<`・誤差は f64）。
+# 共通の道具の `T1` と同じ値で、閾値で比べる行（KINDS の t1 の欄）の判定と `t1:` の行だけが読む。引数・環境変数・入力では変えない。
+# BEGIN t1-thresholds
+T1_RELATIVE = 1e-3
+T1_ABSOLUTE = 1e-5
+# END t1-thresholds
 # ケースの種類ごとの性質の表（TASK-994・TASK-996）。種類を足すときはこの表に 1 項と run-glue.cjs の許可表に 1 項を足す。
 # keys: manifest のケースの鍵の完全一致 / dims: 正の整数の寸法の鍵 / files: (ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) /
 # unit: 比べの単位のバイト数 / exports: この種類を呼ぶ生成の行の export /
 # nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）/
 # fields: 種類に固有の欄の照らし（(鍵, 判定の関数) の組の列。無ければ ()。TASK-997）/
-# special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）。
+# special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）/
+# t1: 完全一致でなく T-1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）。
 KINDS = {
     "gemm": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
@@ -102,6 +112,7 @@ KINDS = {
         "nonfinite": None,
         "fields": (),
         "special": None,
+        "t1": (("gemm_simd", "simd128"),),
     },
     "topk": {
         "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
@@ -115,6 +126,7 @@ KINDS = {
         "nonfinite": (("scores_file", 4, 0), ("native_scalar_file", 8, 4)),
         "fields": (),
         "special": None,
+        "t1": (),
     },
     "elementwise": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "input_sha256", "native_scalar_sha256"),
@@ -131,6 +143,7 @@ KINDS = {
         "exports": ("elementwise_scalar", "elementwise_simd"),
         "nonfinite": None,
         "special": "input_file",
+        "t1": (),
     },
 }
 # 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
@@ -176,6 +189,11 @@ def kind_of_export(export):
         if export in spec["exports"]:
             return kind
     return None
+
+
+def uses_t1(kind, export, build):
+    # (export, build) の行が T-1 の閾値で比べる組か（TASK-995）。比べの種類は表だけで決め、入力・保存の形の欄では変えない。
+    return (export, build) in KINDS[kind]["t1"]
 
 
 def die(msg):
@@ -547,6 +565,43 @@ def input_special_lines(manifest_cases, cases, used_cases):
     return out
 
 
+def t1_count(want, data):
+    # 参照 want と実測 data（どちらも 4 バイトの語の列で長さは揃っている）を T-1 の閾値で語ごとに比べる（TASK-995）。
+    # 判定の順は共通の道具の特殊値つきの要素ごとの判定と同じ。戻りは不一致の語の数と `t1:` の行の本文（id の後ろ）。
+    # 集計に入れるのはどちらも有限の語だけ。行は出すだけで、判定と終了コードには関わらない。
+    n = len(want) // 4
+    wv = struct.unpack("<%df" % n, want)
+    dv = struct.unpack("<%df" % n, data)
+    diff = 0
+    max_abs = max_rel = 0.0
+    abs_at = rel_at = "-"
+    abs_over = rel_over = 0
+    for i in range(n):
+        r, a = wv[i], dv[i]
+        if math.isnan(r):
+            ok = math.isnan(a)
+        elif math.isinf(r):
+            ok = a == r
+        elif not math.isfinite(a):
+            ok = False
+        else:
+            err = abs(a - r)
+            rel = err / abs(r) if r != 0.0 else None
+            ok = err < T1_ABSOLUTE or (rel is not None and rel < T1_RELATIVE)
+            if err > max_abs:
+                max_abs, abs_at = err, str(i)
+            if rel is not None and rel > max_rel:
+                max_rel, rel_at = rel, str(i)
+            if err >= T1_ABSOLUTE:
+                abs_over += 1
+            if rel is not None and rel >= T1_RELATIVE:
+                rel_over += 1
+        if not ok:
+            diff += 1
+    body = "max-abs=%r max-abs-at=%s max-rel=%r max-rel-at=%s abs-over=%d rel-over=%d" % (max_abs, abs_at, max_rel, rel_at, abs_over, rel_over)
+    return diff, body
+
+
 def recount_form(d):
     # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
     # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
@@ -583,7 +638,7 @@ def recount_form_inner(d):
                 die("outputs.json row output entry is inconsistent")
         elif of != rid + ".bin" or not isinstance(osha, str) or not SHA.match(osha):
             die("outputs.json row output entry is invalid")
-        rows.append({"id": rid, "export": e["export"], "case": e["case"], "gen": True, "has_out": of is not None, "sha": osha})
+        rows.append({"id": rid, "export": e["export"], "case": e["case"], "gen": True, "build": e["build"], "has_out": of is not None, "sha": osha})
     manifest_cases, cases = load_manifest(d, rows)
     expected = ["manifest.json", "outputs.json"]
     for c in manifest_cases:
@@ -617,10 +672,16 @@ def recount_form_inner(d):
             uncompared.add(rid)
             rec_lines.append("recount-uncompared: %s" % rid)
             continue
-        diff = sum(1 for i in range(0, len(want), unit) if data[i:i + unit] != want[i:i + unit])
+        t1 = None
+        if uses_t1(cases[r["case"]]["kind"], r["export"], r["build"]):
+            diff, t1 = t1_count(want, data)
+        else:
+            diff = sum(1 for i in range(0, len(want), unit) if data[i:i + unit] != want[i:i + unit])
         compared[rid] = (diff, len(want) // unit)
         rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // unit))
         sha_lines.append("sha256: %s %s" % (rid, r["sha"]))
+        if t1 is not None:
+            sha_lines.append("t1: %s %s" % (rid, t1))
     used = {r["case"] for r in rows}
     sha_lines += case_sha_lines(manifest_cases, used)
     sha_lines += nonfinite_lines(manifest_cases, cases, used)
@@ -742,12 +803,18 @@ def main():
                 detail = "length expected %d got %d" % (len(want) // unit, len(val) // unit)
             else:
                 nwords = len(want) // unit
-                diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
+                t1 = None
+                if uses_t1(cases[r["case"]]["kind"], r["export"], r["build"]):
+                    diff, t1 = t1_count(want, val)
+                else:
+                    diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 state = "match" if diff == 0 else "mismatch"
                 if diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
                 cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
                 cmp_lines.append("sha256: %s %s" % (rid, hashlib.sha256(val).hexdigest()))
+                if t1 is not None:
+                    cmp_lines.append("t1: %s %s" % (rid, t1))
                 if src == "native-scalar":
                     j_compared[rid] = (diff, nwords)
                     j_uncompared.discard(rid)
@@ -784,6 +851,8 @@ def main():
             die("recount disagrees")
         sp_lines = input_special_lines(manifest_cases, cases, used_cases)
         if [ln for ln in rc_res["sha_lines"] if ln.startswith("input-special: ")] != sp_lines:
+            die("recount disagrees")
+        if [ln for ln in rc_res["sha_lines"] if ln.startswith("t1: ")] != [ln for ln in cmp_lines if ln.startswith("t1: ")]:
             die("recount disagrees")
         rec_extra = rc_res["rec_lines"] + [rc_res["summary"]]
         if norm_out is not None:
