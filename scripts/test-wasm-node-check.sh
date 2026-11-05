@@ -470,10 +470,10 @@ print(len(rows))' "${cf}" "${FAKE_RESULTS}" "${fix}/rowmap-${name}")"
   expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
 }
 bundled_check bundled "${CASES_REAL}"
-# 実物の生成の行（export が gemm_ で始まる行）は 3 ケース × 3 組の 9 行にちょうど等しい（ほかの種類の行は数えない）
-check "22 bundled generated rows are exactly 3 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar)" "$(python3 -I -c 'import json,sys
+# 実物の生成の行（export が gemm_ で始まる行）は 3 ケース × 4 組の 12 行にちょうど等しい（ほかの種類の行は数えない）
+check "22 bundled generated rows are exactly 3 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("gemm_")]
-want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128")))
+want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の部分 Top-k の行（export が topk_ で始まる行）は 10 組にちょうど等しい（TASK-996）
@@ -1965,21 +1965,21 @@ rm -rf "${work}/mut"
 reset_gen
 res_ok
 
-# 77. 実物の cases-reference-unavailable.json は 5 行とも not-run (reference-unavailable)（TASK-996・TASK-997）
+# 77. 実物の cases-reference-unavailable.json は 8 行とも not-run (reference-unavailable)（TASK-996・TASK-997・TASK-995）
 python3 -I - "${CASES_UNAVAILABLE_REAL}" "${FAKE_RESULTS}" "${fix}/rowmap-77" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))["rows"]
 open(sys.argv[2], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
 open(sys.argv[3], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
 PY
-mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite elementwise-relu elementwise-add-scalar
+mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite elementwise-relu elementwise-add-scalar gemm-64 gemm-256 gemm-37x41x53
 export FAKE_HOST_FIXTURE="${fix}/hf-77" FAKE_ROW_MAP="${fix}/rowmap-77"
 w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${CASES_UNAVAILABLE_REAL}"
 reset_gen
-expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "row: elementwise-relu-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-native-neon not-run (reference-unavailable)" "summary: rows=5 match=0 mismatch=0 not-run=5" "!count:" "!recount:" "!recount-summary:" "!nonfinite:" "!input-special:" "!sha256:"
-check "77 the file has five rows, all native-neon" "$(python3 -I -c 'import json,sys
+expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "row: elementwise-relu-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-native-neon not-run (reference-unavailable)" "row: gemm-64-native-neon not-run (reference-unavailable)" "row: gemm-256-native-neon not-run (reference-unavailable)" "row: gemm-37x41x53-native-neon not-run (reference-unavailable)" "summary: rows=8 match=0 mismatch=0 not-run=8" "!count:" "!t1:" "!recount:" "!recount-summary:" "!nonfinite:" "!input-special:" "!sha256:"
+check "77 the file has eight rows, all native-neon" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
-sys.exit(0 if len(rows) == 5 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
+sys.exit(0 if len(rows) == 8 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
 res_ok
 
 # ---- 要素ごと演算の種類（TASK-997 の 1/4） ----

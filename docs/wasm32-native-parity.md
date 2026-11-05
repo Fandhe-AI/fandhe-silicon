@@ -1386,9 +1386,39 @@ script_thresholds_match_core: test
 
 時点のコミット: `cfea6d2`（この変更の土台）。
 
+### simd128 のビルドの `gemm_simd` の 3 行（3/4）
+
+`wasm/node/cases.json` の既定の入力に足した生成の行。並びは要素ごと演算の行の後に、ケースの順。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `gemm-64-simd128-gemm-simd` | `simd128` | `gemm_simd` | `gemm-64` | `native-scalar` |
+| `gemm-256-simd128-gemm-simd` | `simd128` | `gemm_simd` | `gemm-256` | `native-scalar` |
+| `gemm-37x41x53-simd128-gemm-simd` | `simd128` | `gemm_simd` | `gemm-37x41x53` | `native-scalar` |
+
+`wasm/node/cases-reference-unavailable.json` に足した 3 行。`make test-wasm-node-check` が `--cases` で読む。
+
+| id | 参照の出どころ | 回帰テストで出る状態 |
+| -- | -------------- | -------------------- |
+| `gemm-64-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+| `gemm-256-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+| `gemm-37x41x53-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+
+#### 確かめ方
+
+```console
+$ grep -c '"export": "gemm_simd"' wasm/node/cases.json
+6
+$ grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json
+8
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 542, failed: 0
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に閾値の比べを足す | #6277 |
 | 2/4 | 閾値の比べを共通の道具の口と突き合わせる試験を足す | #6278 |
+| 3/4 | simd128 のビルドの `gemm_simd` の 3 行を照合の入力に足す | #6279 |
