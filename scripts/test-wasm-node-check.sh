@@ -1128,6 +1128,20 @@ gw --cases "${fix}/gen.json" --output-dir "${work}/out52c" --record-dir "${work}
 expect "52 a failed record write removes the saved outputs" 2 "error:" "!summary:" "!row:"
 check "52 nothing left in either directory but the existing record" "$([ "$(nfiles "${work}/out52c")" = 0 ] && [ "$(nfiles "${work}/rec52c")" = 1 ] && echo 0 || echo 1)"
 
+# 52d. 空でない保存先と、保存先と記録先が同じディレクトリは保存の前に 2
+newdir out52d
+echo other >"${work}/out52d/unrelated.txt"
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52d"
+expect "52 non-empty output dir is refused" 2 "output dir must be empty" "!summary:" "!row:"
+check "52 non-empty output dir left as it was" "$([ "$(nfiles "${work}/out52d")" = 1 ] && echo 0 || echo 1)"
+newdir out52e
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52e" --record-dir "${work}/out52e" --record-combination metal-mac-mini
+expect "52 same output and record dir is refused" 2 "must differ" "!summary:" "!row:"
+check "52 same dir left empty" "$([ "$(nfiles "${work}/out52e")" = 0 ] && echo 0 || echo 1)"
+check "52 node body not started (non-empty / same dir)" "$(no_node_started)"
+
 # 53. 不正な書き出し先と値の欠け
 newdir out53
 ln -sfn "${work}/out53" "${work}/dirs/link53"

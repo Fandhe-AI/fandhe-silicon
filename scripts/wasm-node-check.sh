@@ -12,7 +12,7 @@
 #   --wasm-simd128 既にある simd128 の .wasm（TASK-994）。どちらかの口を渡したら cargo でビルドしない
 #   --cases 照合の入力の JSON（既定: wasm/node/cases.json）
 #   --output-dir 選んだときだけ、native-scalar の生成の行の保存の形（manifest・入力・参照・wasm の出力・outputs.json）
-#           を <dir> へ新しく書く（TASK-994。書き出し先の規則は --record-dir と同じ。native-scalar の生成の行が無い入力では
+#           を <dir> へ新しく書く（TASK-994。書き出し先の規則は --record-dir と同じで、加えて空のディレクトリに限り --record-dir と別のディレクトリであること。native-scalar の生成の行が無い入力では
 #           終了コード 2）
 #   --recount 保存の形のディレクトリだけから件数を数え直して `recount:` の行を出す（TASK-994。ほかの口とは併用できない。
 #           python3 だけを要り、node・wasm-bindgen・cargo は要らない。終了コード 0 全行の件数が 0・1 件数が 0 でない行か
@@ -153,6 +153,25 @@ def check_dir(path, what):
     if not stat.S_ISDIR(st.st_mode):
         die(what + " is not a directory")
     return norm
+
+
+def out_dir(path):
+    # 保存先（--output-dir）は空のディレクトリに限る。空でないと保存に成功しても --recount の完全一致検査が落ちる。
+    norm = check_dir(path, "output dir")
+    try:
+        if os.listdir(norm):
+            die("output dir must be empty")
+    except OSError:
+        die("cannot inspect output dir")
+    return norm
+
+
+def same_dir(a, b):
+    # 保存先と記録先が同じディレクトリを指すか（記録の部品が保存先の余分なファイルになるため禁じる）。
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 def record_dir(path, combination):
@@ -520,11 +539,13 @@ def main():
     if mode == "validate":
         # 書き出しを選んだときだけ組み合わせと書き出し先を検査する。要るビルドと生成の入力の有無を語で返す。
         if sys.argv[3] != "-":
-            check_dir(sys.argv[3], "output dir")
+            vout = out_dir(sys.argv[3])
             if not any(r["gen"] and r["src"] == "native-scalar" for r in rows):
                 die("output dir needs native-scalar generated rows")
         if sys.argv[4:]:
-            record_dir(sys.argv[4], sys.argv[5])
+            vrec = record_dir(sys.argv[4], sys.argv[5])
+            if sys.argv[3] != "-" and same_dir(vout, vrec):
+                die("output dir and record dir must differ")
         needs = [b for b in BUILDS if any(r["build"] == b for r in rows)]
         if any(r["gen"] for r in rows):
             needs.append("generated")
@@ -538,10 +559,12 @@ def main():
     extra = sys.argv[8:]
     norm_out = None
     if out_arg != "-":
-        norm_out = check_dir(out_arg, "output dir")
+        norm_out = out_dir(out_arg)
     norm = None
     if extra:
         norm = record_dir(extra[0], extra[1])
+        if norm_out is not None and same_dir(norm_out, norm):
+            die("output dir and record dir must differ")
     manifest_cases = []
     cases = {}
     if any(r["gen"] for r in rows):
