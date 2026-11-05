@@ -1363,8 +1363,32 @@ passed: 542, failed: 0
 $ grep -n "BEGIN t1-thresholds\|^def t1_count\|^def uses_t1\|\"t1\":" scripts/wasm-node-check.sh
 ```
 
+### 閾値の比べと共通の道具の突き合わせ（2/4）
+
+`wasm/crates/parity-host/tests/t1_compare.rs` は、スクリプトの `--recount` の閾値の比べを共通の道具（`T1`・`compare_f32_with_special_values`）の答えと突き合わせる。試験は `m=1`・`k=1` の `gemm` のケースの保存の形（`gemm_simd`・`simd128` の 1 行）を一時ディレクトリに書き、`bash scripts/wasm-node-check.sh --recount <dir>` を流す。python3 が無いときは試験が落ちる。
+
+| 試験 | 何と何を比べるか |
+| ---- | ---------------- |
+| `script_thresholds_match_core` | 目印の間の `T1_RELATIVE`・`T1_ABSOLUTE` の値と、`T1` の getter の値（ビット一致）。目印が 1 組でない・行が無いときは落ちる |
+| `recount_agrees_with_core_on_boundary_words` | 境界の語の 20 組を 1 組ずつと全部を並べた列で、`recount: row` の `mismatches` と終了コードを、共通の道具の不一致の件数と比べる。`t1: row` の `max-abs`・`max-rel`・`abs-over`・`rel-over` を、試験の中で式で数えた値と比べる |
+| `recount_agrees_with_core_on_generated_words` | `SplitMix64` の 4,096 語の参照と、揺れを足した実測で同じ比べをし、不一致の件数が 0 でも全語でもないことを確かめる |
+
+#### 確かめ方
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test t1_compare --locked
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+$ cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test t1_compare --locked -- --list
+recount_agrees_with_core_on_boundary_words: test
+recount_agrees_with_core_on_generated_words: test
+script_thresholds_match_core: test
+```
+
+時点のコミット: `cfea6d2`（この変更の土台）。
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に閾値の比べを足す | #6277 |
+| 2/4 | 閾値の比べを共通の道具の口と突き合わせる試験を足す | #6278 |
