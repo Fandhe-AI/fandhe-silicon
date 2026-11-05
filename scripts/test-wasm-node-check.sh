@@ -427,6 +427,12 @@ print(len(rows))' "${cf}" "${FAKE_RESULTS}" "${fix}/rowmap-${name}")"
   expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
 }
 bundled_check bundled "${CASES_REAL}"
+# 実物の生成の行（export が gemm_ で始まる行）は 3 ケース × 3 組の 9 行にちょうど等しい（ほかの種類の行は数えない）
+check "22 bundled generated rows are exactly 3 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar)" "$(python3 -I -c 'import json,sys
+rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("gemm_")]
+want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128")))
+got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
+sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 check "22 every bundled fixed row has a reference, every generated row has the exact five keys" "$(python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 def ok(r):
@@ -443,7 +449,7 @@ python3 -I - "${fix}/nine.json" <<'PY'
 import json, sys
 rows = [{"id": "keep-fixed", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]}]
 for c in ("gemm-a", "gemm-b", "gemm-c"):
-    for exp, build in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_simd", "simd128")):
+    for exp, build in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128")):
         rows.append({"id": "%s-%s-%s" % (c, exp.split("_")[1], build), "export": exp, "build": build, "case": c, "reference_source": "native-scalar"})
 json.dump({"rows": rows}, open(sys.argv[1], "w"))
 PY
@@ -492,11 +498,12 @@ expect "23 run-glue old three-argument form is a usage error" 2 "usage:"
 mk_host_fixture "${work}/glue/in" gemm-a
 cat >"${work}/glue/gemm.js" <<'JS'
 exports.gemm_scalar = (a, b, m, k, n, out) => {
+  if (m !== 2 || k !== 3 || n !== 2) return 9;
   out[0] = a[0];
   out[1] = a[1];
   return 0;
 };
-exports.gemm_simd = () => 7;
+exports.gemm_simd = (a, b, m, k, n) => (m === 2 && k === 3 && n === 2 ? 7 : 0);
 JS
 echo 'exports.gemm_simd = () => { throw new Error("boom"); };' >"${work}/glue/gemmthrow.js"
 cat >"${work}/glue/gemm-cases.json" <<'JSON'
@@ -829,6 +836,10 @@ elif mode == "neg-zero":
     w[1] = 0x00000000
 elif mode == "short":
     w = w[:3]
+elif mode == "first-word":
+    w[0] ^= 1
+elif mode == "last-word":
+    w[-1] ^= 1
 data = b"".join(struct.pack("<I", x) for x in w)
 if mode == "odd":
     data = data[:-1]
@@ -851,7 +862,7 @@ h = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
 sys.exit(0 if ("sha256: g-scalar " + h) in open(sys.argv[2]).read() else 1)' "${fix}/hf/gemm-a.native-scalar.bin" "${OUT_F}" && echo 0 || echo 1)"
 
 # 38. 1 語だけ違う（NaN のペイロード・-0.0 と +0.0）は不一致、件数が出る
-for mode in nan-payload neg-zero; do
+for mode in nan-payload neg-zero first-word last-word; do
   gen_setup
   mut_out "${mode}" g-scalar.bin
   export FAKE_OUTPUTS="${fix}/outs"
@@ -1230,6 +1241,10 @@ if mode == "word":
     b = flip("g-scalar.bin", 4)
     o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
     save()
+elif mode == "first-word" or mode == "last-word":
+    b = flip("g-scalar.bin", 0 if mode == "first-word" else 15)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
 elif mode == "out-sha":
     flip("g-scalar.bin")
 elif mode == "input-sha":
@@ -1295,6 +1310,13 @@ saved_copy out57
 saved_mut out57 word
 w --recount "${work}/out57"
 expect "57 one rewritten word with a fixed sha256" 1 "recount: g-scalar mismatches=1 n=4" "recount: g-simd mismatches=0 n=4" "recount-summary: rows=2 zero=1 nonzero=1 uncompared=0"
+
+for mode in first-word last-word; do
+  saved_copy out57b
+  saved_mut out57b "${mode}"
+  w --recount "${work}/out57b"
+  expect "57 one rewritten ${mode} with a fixed sha256" 1 "recount: g-scalar mismatches=1 n=4" "recount: g-simd mismatches=0 n=4" "recount-summary: rows=2 zero=1 nonzero=1 uncompared=0"
+done
 
 # 58. 2: 壊れた保存の形
 for mode in out-sha input-sha ref-sha missing extra subdir symlink broken-json extra-key missing-key file-name file-path no-rows dup-id half-null odd-length unknown-case unknown-export deep top-level-list; do
