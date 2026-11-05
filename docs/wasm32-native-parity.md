@@ -125,8 +125,93 @@ a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b  gemm-37x41x53.
 
 定数と関数の所在は `grep -n "GEMM_CASES\|pub fn" wasm/crates/parity-host/src/lib.rs` で確かめる。
 
+### 生成の入力の行と 2 つのビルド（2/5）
+
+`scripts/wasm-node-check.sh` と `wasm/node/run-glue.cjs` が、1/5 の道具の出力を読む行と、scalar・simd128 の 2 つのビルドを扱う。
+
+#### 行の 2 つの形（`wasm/node/cases.json`）
+
+| 形 | 欄 | `export` | `reference_source` |
+| -- | -- | -------- | ------------------ |
+| 固定の行 | `id`・`export`・`input`・`reference_source` と任意の `reference`・`build`（無ければ `scalar`） | `roundtrip_f32`・`detect_isa_bits`（`input` は空の列だけ） | `fixed`・`native-neon`（`native-scalar` は終了コード 2） |
+| 生成の行 | ちょうど `id`・`export`・`build`・`case`・`reference_source` | `gemm_scalar`・`gemm_simd` | `native-scalar`・`native-neon`（`fixed` は終了コード 2） |
+
+生成の行は値を JSON に書かない。`case` は 1/5 の道具の manifest にあるケースの名前で、manifest を読んだ後に照らす（未知は終了コード 2）。
+欄の過不足・未知の `build`・未知の `export`・形の混ざりも終了コード 2 で、Node の本体は起動しない。
+既定の入力に足した行は `isa-scalar`（`build` が `scalar`、参照 `00000000`）と `isa-simd128`（`build` が `simd128`、参照 `00000001`）の 2 行。
+
+#### 2 つのビルド
+
+| ビルド | cargo の呼び方 | `--wasm` 系の口 |
+| ------ | -------------- | --------------- |
+| scalar | `cargo build --manifest-path wasm/Cargo.toml -p wasm-glue --locked --target wasm32-unknown-unknown --profile wasm-size`（`CARGO_ENCODED_RUSTFLAGS` は空） | `--wasm <path>` |
+| simd128 | 同上に `--target-dir <target>/node-simd128`、`CARGO_ENCODED_RUSTFLAGS` に `-C` と `target-feature=+simd128`（`\x1f` 区切り） | `--wasm-simd128 <path>` |
+
+どちらも `RUSTFLAGS`・`CARGO_BUILD_RUSTFLAGS`・`CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS` は `env -u` で外す。
+行が使うビルドだけを作る。口を 1 つでも渡したら cargo でビルドせず、行が使うビルドの `.wasm` が無ければ終了コード 2。
+`wasm-bindgen --target nodejs` はビルドごとに別のディレクトリへ出す。
+
+#### host 側の道具の呼び方
+
+生成の行が 1 行以上あるときだけ、`cargo run --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked --quiet -- gen <work>/inputs` を呼ぶ
+（`--wasm` を渡していても cargo が要る。標準出力・標準エラーは標準エラーへ。0 以外は終了コード 2）。
+manifest は python3 で読み、各ファイルの sha256・長さ・通常のファイルであること・ファイル名（`[a-z0-9.-]` だけで `..` と先頭の `.` を含まない）を照らす。違えば終了コード 2。
+
+#### `run-glue.cjs` の呼び方
+
+```console
+node wasm/node/run-glue.cjs <scalar の glue|-> <cases> <results> <simd128 の glue|-> <inputs|-> <outputs>
+```
+
+引数はちょうど 6 つ（数が違えば usage で 2）。行の `build` が `simd128` なら simd128 の glue、それ以外は scalar の glue を使う。
+許可表は `roundtrip_f32`・`detect_isa_bits`（戻りを `>>> 0` にして 1 語の 16 進で書く）・`gemm_scalar`・`gemm_simd`。
+gemm は `.bin` を新しい `ArrayBuffer` に写して `Float32Array` にし、長さ m×n の `out` を `0x7fc0dead` で埋めて渡す。
+戻りが 0 のときだけ `out` のバイト列を `<outputs>/<行の id>.bin` に書き、結果に `output_file` を書く。0 以外は `nonzero return`、例外は `call failed`。
+
+#### 判定と出力の行
+
+| 場面 | 状態 |
+| ---- | ---- |
+| 出どころが `PRODUCIBLE`（`fixed`・`native-scalar`）に無い（`native-neon`） | `not-run (reference-unavailable)`。比べず、`count:`・`sha256:` を出さない |
+| 呼び出しの失敗 | `mismatch (call error)`。`count:`・`sha256:` は出さない |
+| 生成の行で語の数が違う | `mismatch (length expected <n> got <m>)`（語の数）。`count:`・`sha256:` は出さない |
+| 生成の行で 4 バイトの語ごとの比べに違いがある | `mismatch (mismatches <件数>/<語の数>)` |
+| 生成の行で全語が同じ | `match` |
+
+標準出力の並びは、`row:`（入力の行の順）、語ごとに比べた生成の行の `count: <id> mismatches=<件数> n=<語の数>` と `sha256: <id> <64 桁>`、
+`native-scalar` の生成の行が指すケースの `sha256: <ケース>.a`・`.b`・`.native-scalar`（manifest の順）、最後に `summary:`。
+終了コードの規則は変わらない。
+
+#### 参照の出どころ
+
+トークンは `fixed`・`native-neon`・`native-scalar`。所在は `crates/core/src/rerun/reference.rs` の `ReferenceSource`（TASK-29 のポインタ）。
+この環境で作れる出どころはスクリプトの `PRODUCIBLE` が持つ。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の足した項目（22 と 23 は生成の行も扱う形に直した）。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 22 | 同梱の入力と、生成の行を 9 行足した合成の入力が全行 `match` |
+| 23・23b | `run-glue.cjs` を本物の node で偽の glue に当て、`out` の埋め・戻り 0 のときだけ書くこと・ビット列を保つこと・ビルドごとの glue の選択 |
+| 37 | 生成の行が全部一致のときの `count:`・`sha256:` の行と並び |
+| 38〜40 | 1 語違い（NaN のペイロード・`-0.0`）・語の数の違い・呼び出しの失敗 |
+| 41・42 | `isa-simd128` の値違い、`native-neon` の生成の行 |
+| 43〜45 | 行の形の不正・manifest の不正・結果の形の不正（どれも終了コード 2） |
+| 46〜48 | `--wasm`・`--wasm-simd128` の口、ビルドの形、host 側の道具の呼び方と失敗 |
+| 49 | `--record-dir` で生成の行も部品になる |
+
+#### 確かめ方
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+$ grep -n "PRODUCIBLE\|GEN_EXPORTS" scripts/wasm-node-check.sh
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | GEMM の入力とネイティブの scalar の参照を書き出す host 側の道具 | #6271 |
+| 2/5 | Node での照合を生成の入力の行と 2 つのビルドに広げる | #6272 |

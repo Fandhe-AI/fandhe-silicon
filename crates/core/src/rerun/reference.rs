@@ -19,17 +19,24 @@ pub enum ReferenceSource {
     Fixed,
     /// ネイティブの NEON で作る値。
     NativeNeon,
+    /// ネイティブの scalar 版で作る値。
+    NativeScalar,
 }
 
 impl ReferenceSource {
     /// 全ての出どころ。重複は無い。
-    pub const ALL: [ReferenceSource; 2] = [ReferenceSource::Fixed, ReferenceSource::NativeNeon];
+    pub const ALL: [ReferenceSource; 3] = [
+        ReferenceSource::Fixed,
+        ReferenceSource::NativeNeon,
+        ReferenceSource::NativeScalar,
+    ];
 
     /// 出どころのトークン（`[a-z0-9-]`）。
     pub const fn name(self) -> &'static str {
         match self {
             ReferenceSource::Fixed => "fixed",
             ReferenceSource::NativeNeon => "native-neon",
+            ReferenceSource::NativeScalar => "native-scalar",
         }
     }
 

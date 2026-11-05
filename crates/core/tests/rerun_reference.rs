@@ -46,6 +46,7 @@ fn source_tokens_round_trip() {
     }
     assert_eq!(ReferenceSource::ALL[0].name(), "fixed");
     assert_eq!(ReferenceSource::ALL[1].name(), "native-neon");
+    assert_eq!(ReferenceSource::ALL[2].name(), "native-scalar");
     for bad in [
         "",
         "Fixed",
@@ -53,6 +54,9 @@ fn source_tokens_round_trip() {
         " fixed",
         "fixed ",
         "native_neon",
+        "native_scalar",
+        "native-scalar ",
+        "Native-Scalar",
         "neon",
     ] {
         assert_eq!(ReferenceSource::from_name(bad), None, "{bad:?}");
@@ -111,6 +115,26 @@ fn gap_prefers_unavailable_source() {
     );
     assert_eq!(
         reference_gap(ReferenceSource::NativeNeon, true, &ReferenceSource::ALL),
+        None
+    );
+}
+
+#[test]
+fn native_scalar_gap_follows_producible_list() {
+    let only_fixed = [ReferenceSource::Fixed];
+    for has in [true, false] {
+        assert_eq!(
+            reference_gap(ReferenceSource::NativeScalar, has, &only_fixed),
+            Some(ReferenceGap::Unavailable)
+        );
+    }
+    let producible = [ReferenceSource::Fixed, ReferenceSource::NativeScalar];
+    assert_eq!(
+        reference_gap(ReferenceSource::NativeScalar, false, &producible),
+        Some(ReferenceGap::Missing)
+    );
+    assert_eq!(
+        reference_gap(ReferenceSource::NativeScalar, true, &producible),
         None
     );
 }
