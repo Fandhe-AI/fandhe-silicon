@@ -8,7 +8,7 @@
 // 偽の node で差し替えた回帰テストが判定の全経路を機材なしで確かめられるようにするため。
 // 固定の行の値は Number を経由せず、f32 のビット列（8 桁の 16 進）を Uint32Array と Float32Array の同じ
 // ArrayBuffer のビューで受け渡す。NaN のペイロード・-0.0・±Inf を落とさないため。
-// 生成の行（gemm_*）は入力の .bin を読み、出力を <出力のディレクトリ>/<行の id>.bin にバイト列のまま書く。
+// 生成の行（gemm_*・topk_*。TASK-996）は入力の .bin を読み、出力を <出力のディレクトリ>/<行の id>.bin にバイト列のまま書く。
 // 使うのは Node の組み込み（node: 付き）と引数で渡された glue だけ。npm パッケージには依存しない。
 "use strict";
 
@@ -44,12 +44,14 @@ function readF32(file) {
 }
 
 // 呼べる export の許可表。入力由来の名前でプロパティを引かない。
-// 固定の行（kind "fixed"）は出力の 16 進の列を返し、生成の行（kind "gemm"）は戻りの語を返す。
+// 固定の行（kind "fixed"）は出力の 16 進の列を返し、生成の行（kind "gemm"・"topk"）は戻りの語を返す。
 const EXPORTS = {
   roundtrip_f32: { kind: "fixed", call: (glue, row) => f32ToHex(glue.roundtrip_f32(hexToF32(row.input))) },
   detect_isa_bits: { kind: "fixed", call: (glue) => [(glue.detect_isa_bits() >>> 0).toString(16).padStart(8, "0")] },
   gemm_scalar: { kind: "gemm", call: (glue, a, b, m, k, n, out) => glue.gemm_scalar(a, b, m, k, n, out) },
   gemm_simd: { kind: "gemm", call: (glue, a, b, m, k, n, out) => glue.gemm_simd(a, b, m, k, n, out) },
+  topk_scalar: { kind: "topk", call: (glue, scores, k, out) => glue.topk_scalar(scores, k, out) },
+  topk_simd: { kind: "topk", call: (glue, scores, k, out) => glue.topk_simd(scores, k, out) },
 };
 
 function runGemm(entry, glue, c, id, outputs) {
@@ -65,6 +67,28 @@ function runGemm(entry, glue, c, id, outputs) {
   fs.writeFileSync(nodePath.join(outputs, name), new Uint8Array(out.buffer, out.byteOffset, out.byteLength));
   return { id, output_file: name };
 }
+
+// 部分 Top-k（TASK-996）。out は k 件 × 8 バイト（スロット番号とスコアの 32 ビットを並べた 1 件）の Uint8Array で、
+// 同じ buffer の Uint32Array で番兵を埋めて渡す。
+function runTopk(entry, glue, c, id, outputs) {
+  const scores = readF32(nodePath.join(c.inputs, c.scores_file));
+  const buf = new ArrayBuffer(c.k * 8);
+  new Uint32Array(buf).fill(FILL_WORD);
+  const out = new Uint8Array(buf);
+  const r = entry.call(glue, scores, c.k, out) >>> 0;
+  if (r !== 0) {
+    return { id, error: "nonzero return" };
+  }
+  const name = id + ".bin";
+  fs.writeFileSync(nodePath.join(outputs, name), out);
+  return { id, output_file: name };
+}
+
+// 生成の行の種類 → 実行する関数。入力由来の名前でプロパティを引かないよう Map で引く。
+const RUNNERS = new Map([
+  ["gemm", runGemm],
+  ["topk", runTopk],
+]);
 
 function main(argv) {
   if (argv.length !== 6) {
@@ -97,8 +121,8 @@ function main(argv) {
     const entry = EXPORTS[row.export];
     const glue = row.build === "simd128" ? glues.simd128 : glues.scalar;
     try {
-      if (entry.kind === "gemm") {
-        lines.push(JSON.stringify(runGemm(entry, glue, manifest.get(row.case), row.id, outputsDir)));
+      if (RUNNERS.has(entry.kind)) {
+        lines.push(JSON.stringify(RUNNERS.get(entry.kind)(entry, glue, manifest.get(row.case), row.id, outputsDir)));
       } else {
         lines.push(JSON.stringify({ id: row.id, output: entry.call(glue, row) }));
       }

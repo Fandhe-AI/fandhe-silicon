@@ -502,3 +502,82 @@ $ grep -n 'must be empty\|samefile' scripts/wasm-node-check.sh
 | -- | ----------------- | -------------- |
 | `make test-wasm-node-check` の最終行（「今の値の補い（base 55c2789）」の `passed: 337, failed: 0`） | `passed: 337, failed: 0` → `passed: 342, failed: 0`。4/5 の節の `229` と 5/5 の節の `328` は記録時点の値のまま | `make test-wasm-node-check` |
 | 5/5 の節の `make wasm-node-check` の CI の run の後の main の run | run `42004939587`（`b7efe77`）は attempt 2 が `success`。ログの行は `summary: rows=14 match=14 mismatch=0 not-run=0`・`recount-summary: rows=9 zero=9 nonzero=0 uncompared=0` | `gh run view 42004939587 -R Fandhe-AI/fandhe-silicon --json attempt,conclusion` |
+
+## 部分 Top-k の比べ（TASK-996）
+
+### 記録の所在
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-996。ポインタのみ）。本文は転記しない
+（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+
+### Node での照合の部分 Top-k の種類（1/4）
+
+`scripts/wasm-node-check.sh` の python の中に、ケースの種類ごとの性質を持つ表 `KINDS` を置く。`load_manifest`・`load_results`・判定・`case_sha_lines`・`recount_form_inner`・`form_items` はこの表を引く。`wasm/node/run-glue.cjs` の許可表に `topk_scalar`・`topk_simd` を足し、`runTopk` が呼ぶ。
+
+#### 種類の表
+
+| 種類 | manifest の鍵 | ファイル | 比べの単位 | `sha256:` の接尾辞 | `export` |
+| ---- | ------------- | -------- | ---------- | ------------------ | -------- |
+| `gemm` | `name`・`kind`・`m`・`k`・`n`・`a_file`・`b_file`・`native_scalar_file`・`a_sha256`・`b_sha256`・`native_scalar_sha256` | `a_file`（m×k×4 バイト）・`b_file`（k×n×4）・`native_scalar_file`（m×n×4） | 4 バイト | `.a`・`.b`・`.native-scalar` | `gemm_scalar`・`gemm_simd` |
+| `topk` | `name`・`kind`・`n`・`k`・`scores_file`・`native_scalar_file`・`scores_sha256`・`native_scalar_sha256` | `scores_file`（n×4 バイト）・`native_scalar_file`（k×8） | 8 バイト | `.scores`・`.native-scalar` | `topk_scalar`・`topk_simd` |
+
+鍵は種類ごとに完全一致で、`n`・`k` は正の整数（真偽値は不可）。`topk` の 1 件はスロット番号の u32 とスコアの f32 をこの順にリトルエンディアンで並べた 8 バイト。`kind` が欠ければ鍵の過不足、文字列でない値と表に無い値は `manifest case kind is unknown`（どちらも終了コード 2）。ファイル名・sha256・通常のファイルの照らしは種類によらず同じ。
+
+#### `run-glue.cjs` の呼び方
+
+| 引数・戻り | 内容 |
+| ---------- | ---- |
+| `scores` | `scores_file` を新しい `ArrayBuffer` に写した `Float32Array` |
+| `k` | manifest の `k` |
+| `out` | 長さ k×8 の `Uint8Array`。同じ `ArrayBuffer` の `Uint32Array` で全語を `0x7fc0dead` に埋めて渡す |
+| 戻り | `>>> 0` で語にする。0 のときだけ `out` のバイト列を `<outputs>/<行の id>.bin` に書き `{id, output_file}`、0 以外は `{id, error: "nonzero return"}`、例外は `call failed` |
+
+呼ぶ関数は種類 → 関数の `Map` で引く（`gemm` は `runGemm`、`topk` は `runTopk`）。
+
+#### 判定と出力の行
+
+| 場面 | 状態・行 |
+| ---- | -------- |
+| 1 件のスロット番号かスコアのビット列のどちらかが違う | その 1 件が不一致。`mismatch (mismatches <件数>/<k>)` |
+| 件数が違う | `mismatch (length expected <k> got <m>)`。`count:`・`sha256:` は出さない |
+| 全件が同じ | `match`。`count: <id> mismatches=0 n=<k>` |
+| 出力の長さが単位の倍数でない | 終了コード 2（`not a multiple of 8`）。`--recount` も同じ |
+| `native-neon` の `topk` の行 | `not-run (reference-unavailable)`。`count:`・`nonfinite:` を出さない |
+
+`nonfinite: <ケース> input=<件数> output=<件数>` は、`native-scalar` の生成の行が指す `topk` のケースごとに manifest の順で出す。`input` は `scores_file` の 4 バイトの語のうち `w & 0x7f800000 == 0x7f800000` の語の数、`output` は `native_scalar_file` の各件のスコア（件の先頭から 4 バイト目の語）のうち同じ条件の語の数。出す位置は、判定が `sha256: <ケース>…` の行の後で `recount:` の行の前、`--recount` が `sha256:` の行の後で `recount-summary:` の行の前。判定と終了コードには関わらない。実行の中の数え直しは、この行も判定の側と突き合わせる（違えば `recount disagrees` で終了コード 2）。
+
+#### export とケースの種類の照らし
+
+行の `export` の種類（`gemm_*` は `gemm`、`topk_*` は `topk`）と、行の `case` の manifest の種類が違えば終了コード 2（Node の本体は起動しない）。`--recount` の `outputs.json` の行にも同じ照らしを当てる。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の足した項目と直した項目。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 22 | `topk` の行を足した合成の入力が、回帰テストを直さずに全行 `match` |
+| 23c | `run-glue.cjs` を本物の node で偽の glue に当て、`scores` のビット列・`k`・`out` の長さと埋め・戻り 0 のときだけ書くこと・書かなかった語が番兵のまま残ること |
+| 44 | `kind` の欠け・未知の値・文字列でない値 |
+| 64 | 数え直しの比べの式の変異体（単位を引く形の字句に追随） |
+| 66・67 | 全部一致の行と並び、スロット番号だけ・スコアだけ・両方・`-0.0` と `+0.0`・最後の件だけの不一致 |
+| 68・69 | 件数の違い・12 バイトの出力・呼び出しの失敗、`native-neon` の `topk` の行 |
+| 70 | 参照のスコアが非有限のとき `output` の件数（スコアの語で数える） |
+| 71・72 | export とケースの種類の照らし、`topk` の manifest の不正 |
+| 73・74 | `gemm` と `topk` が混ざった保存の形、manifest に `topk` があり行が `gemm` だけの実行 |
+| 75・76 | `topk` の保存の形の `--recount`（0・1・2）、`nonfinite:` の数え直しの食い違いの変異体 |
+
+#### 確かめ方
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 416, failed: 0
+$ grep -n "^KINDS\|def nonfinite_lines\|def kind_of_export" scripts/wasm-node-check.sh
+$ grep -n "RUNNERS\|runTopk" wasm/node/run-glue.cjs
+```
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/4 | Node での照合に部分 Top-k の種類を足す | #6281 |
