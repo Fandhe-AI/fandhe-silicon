@@ -20,6 +20,22 @@
       "input": ["7f800000", "ff800000", "7fc00000", "80000000"],
       "reference_source": "fixed",
       "reference": ["7f800000", "ff800000", "7fc00000", "80000000"]
+    },
+    {
+      "id": "isa-scalar",
+      "export": "detect_isa_bits",
+      "build": "scalar",
+      "input": [],
+      "reference_source": "fixed",
+      "reference": ["00000000"]
+    },
+    {
+      "id": "isa-simd128",
+      "export": "detect_isa_bits",
+      "build": "simd128",
+      "input": [],
+      "reference_source": "fixed",
+      "reference": ["00000001"]
     }
   ]
 }

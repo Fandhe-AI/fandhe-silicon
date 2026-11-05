@@ -5,7 +5,9 @@
 # `make test-wasm-node-check`＝scripts/test-wasm-node-check.sh。CI の deny ジョブが呼ぶ）。
 #
 # 使い方: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]
-#   --wasm  既にある .wasm を使う（cargo を呼ばない）。省略時は wasm/ を --profile wasm-size でビルドする
+#   --wasm  既にある scalar の .wasm を使う（cargo を呼ばない）。省略時は行が使うビルドだけを
+#           `-p wasm-glue` で --profile wasm-size でビルドする（simd128 は +simd128 と別の target ディレクトリ）
+#   --wasm-simd128 既にある simd128 の .wasm（TASK-994）。どちらかの口を渡したら cargo でビルドしない
 #   --cases 照合の入力の JSON（既定: wasm/node/cases.json）
 #   --record-dir / --record-combination  選んだときだけ、行の結果を試験の枠の記録の部品
 #           （`<行の id>.<組み合わせ>.json`）として <dir> へ書く（必ず組で渡す。既定なし）。<dir> は既存のディレクトリで、
@@ -15,7 +17,11 @@
 #
 # 役割の分担: wasm/node/run-glue.cjs は glue を呼んで f32 のビット列を書き出すだけで、判定は持たない。
 # 判定は本スクリプトの python3（標準ライブラリだけ・-I）にあり、入力の値をシェルに展開しない。
-# 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON）で、
+# 行は 2 つの形（TASK-994）。固定の行（export は roundtrip_f32・detect_isa_bits。値は行に書く）と、生成の行
+# （export は gemm_scalar・gemm_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力とネイティブの参照で、
+# 4 バイトの語ごとに完全一致で比べて件数を出す）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
+# 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON /
+# native-scalar＝ネイティブの scalar 版）で、
 # 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
 # `not-run (reference-unavailable)`、作れる出どころで参照（reference）が無い行は `not-run (reference-missing)` にする。
 # どちらも一致扱いにしない。出どころを先に見る。TASK-23 のラベルへの写しは crates/core/src/rerun/reference.rs（TASK-29）。
@@ -35,7 +41,7 @@ source "${DIR}/lib.sh"
 NODE_EXPECTED="v24.13.0"
 GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
 NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
-USAGE="usage: $(basename "$0") [--wasm <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]"
+USAGE="usage: $(basename "$0") [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]"
 
 # 相対パスは呼び出し元の cwd 基準で絶対パスにする（後でリポジトリルートへ cd しても同じファイルを指させる）。
 abspath() {
@@ -46,8 +52,9 @@ abspath() {
 }
 
 # 入力の検査と判定（固定の文字列。入力のパスは引数で渡し、値はシェルに触れさせない）。
-# 引数: validate <cases> / judge <cases> <results>。終了コード 0 / 1（judge の不一致・未実施・行 0 件）/ 2（入力が不正）。
+# 引数: validate <cases> [dir combo] / inputs <cases> <dir> / judge <cases> <results> <inputs|-> <outputs> [dir combo]。終了コード 0 / 1（judge の不一致・未実施・行 0 件）/ 2（入力が不正）。
 read -r -d '' PY_CODE <<'PY' || true
+import hashlib
 import json
 import os
 import re
@@ -56,11 +63,18 @@ import sys
 
 HEX = re.compile(r"[0-9a-f]{8}\Z")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
-EXPORTS = ("roundtrip_f32",)
+FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
+# 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。
+GEN_EXPORTS = ("gemm_scalar", "gemm_simd")
+BUILDS = ("scalar", "simd128")
 # 参照の出どころ（綴りは crates/core/src/rerun/reference.rs の ReferenceSource::name に揃える）。
-SOURCES = ("fixed", "native-neon")
-# この環境で参照を作れる出どころ（定数の 1 か所。ネイティブで作る経路は無いので fixed だけ）。引数・環境変数では変えない。
-PRODUCIBLE = ("fixed",)
+SOURCES = ("fixed", "native-neon", "native-scalar")
+# 生成の行が取れる出どころ（fixed は値を行に書く形なので生成の行では使わない）。
+GEN_SOURCES = ("native-scalar", "native-neon")
+# この環境で参照を作れる出どころ（定数の 1 か所。native-scalar は host 側の道具が作る）。引数・環境変数では変えない。
+PRODUCIBLE = ("fixed", "native-scalar")
+FILE_NAME = re.compile(r"[a-z0-9.-]+\Z")
+SHA = re.compile(r"[0-9a-f]{64}\Z")
 # 行の状態 → 枠のラベル（state, 理由, label, label_reason）。RowState::from_tokens → run_result → ラベルの写しと同じにする。
 ROW_LABELS = (
     # BEGIN row-labels
@@ -186,28 +200,117 @@ def load_cases(path):
     seen = set()
     rows = []
     for r in d["rows"]:
-        if not isinstance(r, dict) or not {"id", "export", "input", "reference_source"} <= set(r) or not set(r) <= {"id", "export", "input", "reference_source", "reference"}:
+        if not isinstance(r, dict):
             die("a row has missing or unknown keys")
+        # 行の形の判別は 1 か所。case の鍵があるか export が生成の export なら生成の行。
+        gen = "case" in r or r.get("export") in GEN_EXPORTS
+        if gen:
+            if set(r) != {"id", "export", "build", "case", "reference_source"}:
+                die("a row has missing or unknown keys")
+        else:
+            need = {"id", "export", "input", "reference_source"}
+            if not need <= set(r) or not set(r) <= need | {"reference", "build"}:
+                die("a row has missing or unknown keys")
         rid = r["id"]
         if not isinstance(rid, str) or not ID.match(rid):
             die("a row id has an invalid form")
         if rid in seen:
             die("duplicate row id: " + rid)
         seen.add(rid)
-        if not isinstance(r["export"], str) or r["export"] not in EXPORTS:
+        exports = GEN_EXPORTS if gen else FIXED_EXPORTS
+        if not isinstance(r["export"], str) or r["export"] not in exports:
             die("unknown export in row: " + rid)
-        inp = hexlist(r["input"], "input")
-        src = r["reference_source"]
-        if not isinstance(src, str) or src not in SOURCES:
-            die("unknown reference_source in row: " + rid)
-        ref = r.get("reference")
-        if ref is not None:
-            ref = hexlist(ref, "reference")
-        rows.append((rid, inp, ref, src))
+        build = r.get("build", "scalar")
+        if not isinstance(build, str) or build not in BUILDS:
+            die("unknown build in row: " + rid)
+        row = {"id": rid, "export": r["export"], "build": build, "gen": gen}
+        if gen:
+            case = r["case"]
+            if not isinstance(case, str) or not ID.match(case):
+                die("a row case has an invalid form")
+            src = r["reference_source"]
+            if not isinstance(src, str) or src not in SOURCES:
+                die("unknown reference_source in row: " + rid)
+            if src not in GEN_SOURCES:
+                die("reference_source not allowed in row: " + rid)
+            row.update(case=case, src=src, inp=None, ref=None)
+        else:
+            inp = hexlist(r["input"], "input")
+            if r["export"] == "detect_isa_bits" and inp:
+                die("detect_isa_bits takes no input in row: " + rid)
+            src = r["reference_source"]
+            if not isinstance(src, str) or src not in SOURCES:
+                die("unknown reference_source in row: " + rid)
+            if src == "native-scalar":
+                die("reference_source not allowed in row: " + rid)
+            ref = r.get("reference")
+            if ref is not None:
+                ref = hexlist(ref, "reference")
+            row.update(case=None, src=src, inp=inp, ref=ref)
+        rows.append(row)
     return rows
 
 
-def load_results(path, ids):
+def load_manifest(dirpath, rows):
+    # host 側の道具の出力（manifest.json と .bin）を読んで照らす。ファイル名は文字種と `..`・先頭の `.` で拒否し、
+    # 通常のファイルであること・sha256・長さを確かめる。エラーに引数のパスの値は入れない。
+    def name_ok(n):
+        return isinstance(n, str) and FILE_NAME.match(n) is not None and ".." not in n and not n.startswith(".")
+
+    try:
+        with open(os.path.join(dirpath, "manifest.json"), encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        die("cannot read manifest")
+    if not isinstance(m, dict) or set(m) != {"cases"} or not isinstance(m["cases"], list):
+        die("manifest must be an object with a cases list")
+    keys = {"name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"}
+    cases = {}
+    for c in m["cases"]:
+        if not isinstance(c, dict) or set(c) != keys:
+            die("manifest case has missing or unknown keys")
+        name = c["name"]
+        if not isinstance(name, str) or not ID.match(name) or name in cases:
+            die("manifest case name is invalid or repeated")
+        if c["kind"] != "gemm":
+            die("manifest case kind is unknown")
+        dims = []
+        for key in ("m", "k", "n"):
+            v = c[key]
+            if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
+                die("manifest case dimension is invalid")
+            dims.append(v)
+        mm, kk, nn = dims
+        files = {}
+        for fk, hk, words in (("a_file", "a_sha256", mm * kk), ("b_file", "b_sha256", kk * nn), ("native_scalar_file", "native_scalar_sha256", mm * nn)):
+            fname, want = c[fk], c[hk]
+            if not name_ok(fname) or not isinstance(want, str) or not SHA.match(want):
+                die("manifest file entry is invalid")
+            full = os.path.join(dirpath, fname)
+            try:
+                st = os.lstat(full)
+                if not stat.S_ISREG(st.st_mode):
+                    die("manifest file is not a regular file")
+                with open(full, "rb") as f:
+                    data = f.read()
+            except OSError:
+                die("cannot read a manifest file")
+            if hashlib.sha256(data).hexdigest() != want:
+                die("manifest sha256 mismatch")
+            if len(data) != words * 4:
+                die("manifest file length mismatch")
+            files[fk] = (full, want)
+        cases[name] = {"m": mm, "k": kk, "n": nn, "files": files}
+    for r in rows:
+        if r["gen"] and r["case"] not in cases:
+            die("unknown case in row: " + r["id"])
+    return m["cases"], cases
+
+
+def load_results(path, rows, outputs):
+    ids = {r["id"] for r in rows}
+    gen = {r["id"]: r["gen"] for r in rows}
+    srcs = {r["id"]: r["src"] for r in rows}
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
@@ -221,12 +324,26 @@ def load_results(path, ids):
             die("results line is not JSON")
         if not isinstance(o, dict) or not isinstance(o.get("id"), str) or o["id"] not in ids:
             die("results line has an unknown or missing id")
-        if o["id"] in res:
+        rid = o["id"]
+        if rid in res:
             die("results repeat an id")
-        if set(o) == {"id", "output"}:
-            res[o["id"]] = ("output", hexlist(o["output"], "output"))
+        if set(o) == {"id", "output"} and not gen[rid]:
+            res[rid] = ("output", hexlist(o["output"], "output"))
+        elif set(o) == {"id", "output_file"} and gen[rid] and o["output_file"] == rid + ".bin":
+            # 出力のパスは結果の値を使わず id から組み立てる。
+            full = os.path.join(outputs, rid + ".bin")
+            try:
+                if not stat.S_ISREG(os.lstat(full).st_mode):
+                    die("an output file is not a regular file")
+                with open(full, "rb") as f:
+                    data = f.read()
+            except OSError:
+                die("cannot read an output file")
+            if srcs[rid] == "native-scalar" and len(data) % 4 != 0:
+                die("an output file length is not a multiple of 4")
+            res[rid] = ("file", data)
         elif set(o) == {"id", "error"} and isinstance(o["error"], str):
-            res[o["id"]] = ("error", o["error"])
+            res[rid] = ("error", o["error"])
         else:
             die("results line has an unexpected shape")
     if set(res) != ids:
@@ -237,29 +354,65 @@ def load_results(path, ids):
 def main():
     mode = sys.argv[1]
     rows = load_cases(sys.argv[2])
-    nres = 1 if mode == "judge" else 0
-    extra = sys.argv[3 + nres:]
+    if mode == "validate":
+        # 書き出しを選んだときだけ組み合わせと書き出し先を検査する。要るビルドと生成の入力の有無を語で返す。
+        if sys.argv[3:]:
+            record_dir(sys.argv[3], sys.argv[4])
+        needs = [b for b in BUILDS if any(r["build"] == b for r in rows)]
+        if any(r["gen"] for r in rows):
+            needs.append("generated")
+        for n in needs:
+            print(n)
+        return 0
+    if mode == "inputs":
+        load_manifest(sys.argv[3], rows)
+        return 0
+    results_path, inputs, outputs = sys.argv[3], sys.argv[4], sys.argv[5]
+    extra = sys.argv[6:]
     norm = None
     if extra:
         norm = record_dir(extra[0], extra[1])
-    if mode == "validate":
-        return 0
-    res = load_results(sys.argv[3], {r[0] for r in rows})
+    manifest_cases = []
+    cases = {}
+    if any(r["gen"] for r in rows):
+        if inputs == "-":
+            die("generated rows need an inputs directory")
+        manifest_cases, cases = load_manifest(inputs, rows)
+    res = load_results(results_path, rows, outputs)
     counts = {"match": 0, "mismatch": 0, "not-run": 0}
     lines = []
     outs = []
-    for rid, _inp, ref, src in rows:
+    cmp_lines = []
+    used_cases = set()
+    for r in rows:
+        rid, ref, src = r["id"], r["ref"], r["src"]
         kind, val = res[rid]
         detail = ""
+        if r["gen"] and src == "native-scalar":
+            used_cases.add(r["case"])
         if src not in PRODUCIBLE:
             state = "not-run"
             detail = "reference-unavailable"
-        elif ref is None:
+        elif not r["gen"] and ref is None:
             state = "not-run"
             detail = "reference-missing"
         elif kind == "error":
             state = "mismatch"
             detail = "call error"
+        elif r["gen"]:
+            with open(cases[r["case"]]["files"]["native_scalar_file"][0], "rb") as f:
+                want = f.read()
+            if len(val) != len(want):
+                state = "mismatch"
+                detail = "length expected %d got %d" % (len(want) // 4, len(val) // 4)
+            else:
+                nwords = len(want) // 4
+                diff = sum(1 for i in range(0, len(want), 4) if want[i:i + 4] != val[i:i + 4])
+                state = "match" if diff == 0 else "mismatch"
+                if diff:
+                    detail = "mismatches %d/%d" % (diff, nwords)
+                cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
+                cmp_lines.append("sha256: %s %s" % (rid, hashlib.sha256(val).hexdigest()))
         elif val == ref:
             state = "match"
         else:
@@ -280,6 +433,13 @@ def main():
         write_parts(norm, extra[1], outs)
     for ln in lines:
         print(ln)
+    for ln in cmp_lines:
+        print(ln)
+    for c in manifest_cases:
+        if c["name"] in used_cases:
+            print("sha256: %s.a %s" % (c["name"], c["a_sha256"]))
+            print("sha256: %s.b %s" % (c["name"], c["b_sha256"]))
+            print("sha256: %s.native-scalar %s" % (c["name"], c["native_scalar_sha256"]))
     print("summary: rows=%d match=%d mismatch=%d not-run=%d" % (len(rows), counts["match"], counts["mismatch"], counts["not-run"]))
     if not rows:
         print("error: no rows", file=sys.stderr)
@@ -301,13 +461,18 @@ need() {
 }
 
 main() {
-  local wasm_arg="" cases="${ROOT_DIR}/wasm/node/cases.json"
+  local wasm_arg="" wasm_simd_arg="" cases="${ROOT_DIR}/wasm/node/cases.json"
   local rec_dir="" rec_combo="" have_dir=0 have_combo=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --wasm)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
         wasm_arg="$(abspath "$2")"
+        shift 2
+        ;;
+      --wasm-simd128)
+        [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
+        wasm_simd_arg="$(abspath "$2")"
         shift 2
         ;;
       --cases)
@@ -339,7 +504,7 @@ main() {
   need node
   need wasm-bindgen
   need python3
-  if [ -z "${wasm_arg}" ]; then
+  if [ -z "${wasm_arg}" ] && [ -z "${wasm_simd_arg}" ]; then
     need cargo
     need jq
   fi
@@ -355,39 +520,88 @@ main() {
   echo "node: ${node_actual}"
   echo "wasm-bindgen: ${wb_expected}"
 
-  # 書き出しを選んだときだけ、組み合わせと書き出し先を .wasm のビルドより前に検査する（${rec_dir:+...} は選ばないと 0 語）。
-  python3 -I -c "${PY_CODE}" validate "${cases}" ${rec_dir:+"${rec_dir}" "${rec_combo}"} || exit "$?"
-
-  local wasm_file
-  if [ -n "${wasm_arg}" ]; then
-    wasm_file="${wasm_arg}"
-  else
-    cd "${ROOT_DIR}"
-    log "cargo build (wasm/, wasm32-unknown-unknown, profile wasm-size)"
-    cargo build --manifest-path wasm/Cargo.toml --workspace --locked \
-      --target wasm32-unknown-unknown --profile wasm-size >&2
-    local target_dir
-    target_dir="$(cargo metadata --format-version 1 --no-deps --locked --manifest-path wasm/Cargo.toml | jq -r '.target_directory')"
-    wasm_file="${target_dir}/wasm32-unknown-unknown/wasm-size/wasm_glue.wasm"
+  # 入力を検査し、要るビルドと生成の入力の有無を語で受ける（書き出しを選んだときは組み合わせと書き出し先も、
+  # .wasm のビルドより前に検査する。${rec_dir:+...} は選ばないと 0 語）。語は標準出力に出さない。
+  local needs
+  needs="$(python3 -I -c "${PY_CODE}" validate "${cases}" ${rec_dir:+"${rec_dir}" "${rec_combo}"})" || exit "$?"
+  local need_scalar=0 need_simd=0 need_gen=0 w
+  for w in ${needs}; do
+    case "${w}" in
+      scalar) need_scalar=1 ;;
+      simd128) need_simd=1 ;;
+      generated) need_gen=1 ;;
+    esac
+  done
+  if [ "${need_gen}" = 1 ]; then
+    need cargo
   fi
-  [ -s "${wasm_file}" ] || die2 "missing or empty wasm file: ${wasm_file}"
 
-  # EXIT の trap から参照するので関数のローカルにしない。
+  # 一時ディレクトリは cargo の後始末も含めて、ここから使う（EXIT の trap から参照するので関数のローカルにしない）。
   work=""
   work="$(mktemp -d "${TMPDIR:-/tmp}/wasm-node-check.XXXXXX")"
   trap 'rm -rf "${work:?}"' EXIT
 
-  wasm-bindgen --target nodejs --out-dir "${work}" "${wasm_file}" >&2 || die2 "wasm-bindgen failed"
-  local base glue
-  base="$(basename "${wasm_file}" .wasm)"
-  glue="${work}/${base}.js"
-  [ -s "${glue}" ] || die2 "glue was not generated: ${base}.js"
+  # 生成の行があるときだけ、host 側の道具で入力とネイティブの参照を作って照らす（TASK-994）。
+  local inputs="-"
+  if [ "${need_gen}" = 1 ]; then
+    inputs="${work}/inputs"
+    mkdir "${inputs}"
+    (cd "${ROOT_DIR}" && cargo run --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked --quiet -- gen "${inputs}" >&2) || die2 "host tool failed"
+    python3 -I -c "${PY_CODE}" inputs "${cases}" "${inputs}" || exit "$?"
+  fi
 
-  local results="${work}/results.jsonl"
-  node "${NODE_SCRIPT}" "${glue}" "${cases}" "${results}" >&2 || die2 "node run failed"
+  # 行が使うビルドの .wasm。口を渡さなければ、使うビルドだけをここで作る。
+  local wasm_scalar="" wasm_simd="" target_dir=""
+  if [ -z "${wasm_arg}" ] && [ -z "${wasm_simd_arg}" ] && { [ "${need_scalar}" = 1 ] || [ "${need_simd}" = 1 ]; }; then
+    cd "${ROOT_DIR}"
+    target_dir="$(cargo metadata --format-version 1 --no-deps --locked --manifest-path wasm/Cargo.toml | jq -r '.target_directory')"
+    if [ "${need_scalar}" = 1 ]; then
+      log "cargo build (wasm-glue, wasm32-unknown-unknown, profile wasm-size, scalar)"
+      env -u RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS CARGO_ENCODED_RUSTFLAGS= \
+        cargo build --manifest-path wasm/Cargo.toml -p wasm-glue --locked \
+        --target wasm32-unknown-unknown --profile wasm-size >&2
+      wasm_scalar="${target_dir}/wasm32-unknown-unknown/wasm-size/wasm_glue.wasm"
+    fi
+    if [ "${need_simd}" = 1 ]; then
+      log "cargo build (wasm-glue, wasm32-unknown-unknown, profile wasm-size, simd128)"
+      env -u RUSTFLAGS -u CARGO_BUILD_RUSTFLAGS -u CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS \
+        CARGO_ENCODED_RUSTFLAGS="$(printf -- '-C\037target-feature=+simd128')" \
+        cargo build --manifest-path wasm/Cargo.toml -p wasm-glue --locked \
+        --target wasm32-unknown-unknown --profile wasm-size --target-dir "${target_dir}/node-simd128" >&2
+      wasm_simd="${target_dir}/node-simd128/wasm32-unknown-unknown/wasm-size/wasm_glue.wasm"
+    fi
+  else
+    wasm_scalar="${wasm_arg}"
+    wasm_simd="${wasm_simd_arg}"
+    [ "${need_scalar}" = 0 ] || [ -n "${wasm_scalar}" ] || die2 "a scalar wasm file is required (--wasm)"
+    [ "${need_simd}" = 0 ] || [ -n "${wasm_simd}" ] || die2 "a simd128 wasm file is required (--wasm-simd128)"
+  fi
+  local glue_scalar="-" glue_simd="-" wf base
+  if [ "${need_scalar}" = 1 ]; then
+    wf="${wasm_scalar}"
+    [ -s "${wf}" ] || die2 "missing or empty wasm file: ${wf}"
+    mkdir "${work}/glue-scalar"
+    wasm-bindgen --target nodejs --out-dir "${work}/glue-scalar" "${wf}" >&2 || die2 "wasm-bindgen failed"
+    base="$(basename "${wf}" .wasm)"
+    glue_scalar="${work}/glue-scalar/${base}.js"
+    [ -s "${glue_scalar}" ] || die2 "glue was not generated: ${base}.js"
+  fi
+  if [ "${need_simd}" = 1 ]; then
+    wf="${wasm_simd}"
+    [ -s "${wf}" ] || die2 "missing or empty wasm file: ${wf}"
+    mkdir "${work}/glue-simd128"
+    wasm-bindgen --target nodejs --out-dir "${work}/glue-simd128" "${wf}" >&2 || die2 "wasm-bindgen failed"
+    base="$(basename "${wf}" .wasm)"
+    glue_simd="${work}/glue-simd128/${base}.js"
+    [ -s "${glue_simd}" ] || die2 "glue was not generated: ${base}.js"
+  fi
+
+  local results="${work}/results.jsonl" outputs="${work}/outputs"
+  mkdir "${outputs}"
+  node "${NODE_SCRIPT}" "${glue_scalar}" "${cases}" "${results}" "${glue_simd}" "${inputs}" "${outputs}" >&2 || die2 "node run failed"
 
   local rc=0
-  python3 -I -c "${PY_CODE}" judge "${cases}" "${results}" ${rec_dir:+"${rec_dir}" "${rec_combo}"} || rc=$?
+  python3 -I -c "${PY_CODE}" judge "${cases}" "${results}" "${inputs}" "${outputs}" ${rec_dir:+"${rec_dir}" "${rec_combo}"} || rc=$?
   exit "${rc}"
 }
 

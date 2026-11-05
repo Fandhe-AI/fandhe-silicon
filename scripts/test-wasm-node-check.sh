@@ -38,7 +38,7 @@ passed=0
 failed=0
 rc=0
 
-unset FAKE_NODE_VERSION FAKE_NODE_RC FAKE_WB_VERSION FAKE_WB_NO_GLUE FAKE_CARGO_RC FAKE_CARGO_NO_ARTIFACT
+unset FAKE_ROW_MAP FAKE_OUTPUTS FAKE_HOST_FIXTURE FAKE_HOST_RC FAKE_NODE_VERSION FAKE_NODE_RC FAKE_WB_VERSION FAKE_WB_NO_GLUE FAKE_CARGO_RC FAKE_CARGO_NO_ARTIFACT
 
 # ---- 偽のコマンド ----
 
@@ -53,6 +53,10 @@ export FAKE_TARGET="${work}/target"
 mkfake node 'if [ "$1" = "--version" ]; then echo "${FAKE_NODE_VERSION:-v24.13.0}"; exit 0; fi
 echo "node $*" >>"$FAKE_LOG"
 [ -f "$FAKE_RESULTS" ] && cp "$FAKE_RESULTS" "$4"
+if [ -n "${FAKE_ROW_MAP:-}" ] && [ -f "$FAKE_ROW_MAP" ]; then
+  while read -r rid cname; do cp "$6/$cname.native-scalar.bin" "$7/$rid.bin"; done <"$FAKE_ROW_MAP"
+fi
+if [ -n "${FAKE_OUTPUTS:-}" ] && [ -d "$FAKE_OUTPUTS" ]; then cp "$FAKE_OUTPUTS"/* "$7"/; fi
 exit "${FAKE_NODE_RC:-0}"'
 mkfake wasm-bindgen 'if [ "$1" = "--version" ]; then echo "${FAKE_WB_VERSION:-wasm-bindgen '"${WB_VER}"'}"; exit 0; fi
 echo "wasm-bindgen $*" >>"$FAKE_LOG"
@@ -69,9 +73,21 @@ echo "// fake glue" >"$out/$b.js"'
 mkfake cargo 'echo "cargo $*" >>"$FAKE_LOG"
 case "$1" in
   metadata) printf "{\"target_directory\":\"%s\"}\n" "$FAKE_TARGET" ;;
+  run)
+    for a in "$@"; do last="$a"; done
+    [ -z "${FAKE_HOST_FIXTURE:-}" ] || cp "$FAKE_HOST_FIXTURE"/* "$last"/
+    exit "${FAKE_HOST_RC:-0}"
+    ;;
   build)
+    echo "env rustflags=$(printf %s "${CARGO_ENCODED_RUSTFLAGS-unset}" | tr "\037" "|") RUSTFLAGS=${RUSTFLAGS-unset}" >>"$FAKE_LOG"
     [ -z "${FAKE_CARGO_NO_ARTIFACT:-}" ] || exit "${FAKE_CARGO_RC:-0}"
-    d="$FAKE_TARGET/wasm32-unknown-unknown/wasm-size"
+    td=""
+    prev=""
+    for a in "$@"; do
+      [ "$prev" = "--target-dir" ] && td="$a"
+      prev="$a"
+    done
+    d="${td:-$FAKE_TARGET}/wasm32-unknown-unknown/wasm-size"
     mkdir -p "$d"
     echo wasm >"$d/wasm_glue.wasm"
     exit "${FAKE_CARGO_RC:-0}"
@@ -347,44 +363,163 @@ check "21 run-glue requires only node: builtins and the glue" "$([ -z "${bad_req
 check "21 no eval / child_process" "$(grep -qE 'eval\(|new Function|child_process' "${NODE_SCRIPT}" && echo 1 || echo 0)"
 check "21 no npm package files" "$(git -C "${ROOT_DIR}" ls-files -- wasm scripts package.json package-lock.json node_modules | grep -qE '(^|/)(package\.json|package-lock\.json|node_modules/)' && echo 1 || echo 0)"
 
-# 22. 同梱の入力（偽 node が参照どおりの結果を返すと 0）
-cat >"${FAKE_RESULTS}" <<'EOF'
-{"id":"roundtrip-empty","output":[]}
-{"id":"roundtrip-finite","output":["3f800000","80000000","7f7fffff"]}
-{"id":"roundtrip-non-finite","output":["7f800000","ff800000","7fc00000","80000000"]}
-EOF
-w --wasm "${dummy_wasm}"
-expect "22 bundled cases" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
-check "22 every bundled row is fixed and has a reference" "$(python3 -I -c 'import json,sys
+# 22. 同梱の入力（偽 node が参照どおりの結果を返すと 0）。固定の行と生成の行（TASK-994）の両方を扱う
+# （生成の行が足されても、この項目を直さずに通る）。
+# mk_host_fixture <dir> <ケース名...>: 偽の host 側の道具が書く小さな合成のケース（2x3x2）の manifest と .bin。
+mk_host_fixture() {
+  mkdir -p "$1"
+  python3 -I - "$@" <<'PY'
+import hashlib, json, os, struct, sys
+d = sys.argv[1]
+cases = []
+def wr(fn, words):
+    data = b"".join(struct.pack("<I", w) for w in words)
+    with open(os.path.join(d, fn), "wb") as f:
+        f.write(data)
+    return hashlib.sha256(data).hexdigest()
+for name in sys.argv[2:]:
+    a = [0x3f800000, 0x80000000, 0x7fc00001, 0x40000000, 0xc0000000, 0x00000000]
+    b = [0x3f800000] * 6
+    nat = [0x3f800000, 0x80000000, 0x7fc00001, 0x40490fdb]
+    cases.append({
+        "name": name, "kind": "gemm", "m": 2, "k": 3, "n": 2,
+        "a_file": name + ".a.bin", "b_file": name + ".b.bin", "native_scalar_file": name + ".native-scalar.bin",
+        "a_sha256": wr(name + ".a.bin", a), "b_sha256": wr(name + ".b.bin", b),
+        "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+    })
+with open(os.path.join(d, "manifest.json"), "w") as f:
+    json.dump({"cases": cases}, f, indent=2)
+PY
+}
+# reset_gen: 生成の行の場面で足した環境の値を戻す。
+reset_gen() {
+  unset FAKE_ROW_MAP FAKE_OUTPUTS FAKE_HOST_FIXTURE FAKE_HOST_RC
+}
+# bundled_check <名前> <cases>: 行ごとに参照どおりの結果（生成の行は偽の host 側の道具の参照の写し）を用意して流す。
+bundled_check() {
+  local name="$1" cf="$2" info names n
+  rm -rf "${fix}/hf-${name}" "${fix}/rowmap-${name}"
+  info="$(python3 -I -c 'import json,sys
+rows = json.load(open(sys.argv[1]))["rows"]
+res = []
+rm = []
+cs = []
+for r in rows:
+    if "case" in r:
+        res.append({"id": r["id"], "output_file": r["id"] + ".bin"})
+        rm.append(r["id"] + " " + r["case"])
+        if r["case"] not in cs:
+            cs.append(r["case"])
+    else:
+        res.append({"id": r["id"], "output": r["reference"]})
+open(sys.argv[2], "w").write("".join(json.dumps(x) + "\n" for x in res))
+open(sys.argv[3], "w").write("".join(x + "\n" for x in rm))
+print(" ".join(cs))
+print(len(rows))' "${cf}" "${FAKE_RESULTS}" "${fix}/rowmap-${name}")"
+  names="$(printf '%s\n' "${info}" | head -n 1)"
+  n="$(printf '%s\n' "${info}" | tail -n 1)"
+  # ケース名は空白区切りで渡す（意図した分割）。
+  # shellcheck disable=SC2086
+  mk_host_fixture "${fix}/hf-${name}" ${names}
+  export FAKE_HOST_FIXTURE="${fix}/hf-${name}" FAKE_ROW_MAP="${fix}/rowmap-${name}"
+  w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${cf}"
+  reset_gen
+  expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
+}
+bundled_check bundled "${CASES_REAL}"
+check "22 every bundled fixed row has a reference, every generated row has the exact five keys" "$(python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
-sys.exit(0 if d["rows"] and all(r.get("reference_source") == "fixed" and isinstance(r.get("reference"), list) for r in d["rows"]) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+def ok(r):
+    if "case" in r or str(r.get("export", "")).startswith("gemm_"):
+        return set(r) == {"id", "export", "build", "case", "reference_source"} and r["reference_source"] == "native-scalar"
+    return r.get("reference_source") == "fixed" and isinstance(r.get("reference"), list)
+sys.exit(0 if d["rows"] and all(ok(r) for r in d["rows"]) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+check "22 bundled isa rows pin the scalar and simd128 values" "$(python3 -I -c 'import json,sys
+rows = {r["id"]: r for r in json.load(open(sys.argv[1]))["rows"]}
+a, b = rows.get("isa-scalar"), rows.get("isa-simd128")
+sys.exit(0 if a and b and a["build"] == "scalar" and b["build"] == "simd128" and a["reference"] == ["00000000"] and b["reference"] == ["00000001"] else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+# 生成の行を 3 ケース × 3 行で足した形の合成の入力でも、この回帰テストを直さずに通る
+python3 -I - "${fix}/nine.json" <<'PY'
+import json, sys
+rows = [{"id": "keep-fixed", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]}]
+for c in ("gemm-a", "gemm-b", "gemm-c"):
+    for exp, build in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_simd", "simd128")):
+        rows.append({"id": "%s-%s-%s" % (c, exp.split("_")[1], build), "export": exp, "build": build, "case": c, "reference_source": "native-scalar"})
+json.dump({"rows": rows}, open(sys.argv[1], "w"))
+PY
+bundled_check nine "${fix}/nine.json"
 
-# 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）
+# 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）。引数は 6 つ（TASK-994）
 mkdir -p "${work}/glue"
-echo 'exports.roundtrip_f32 = (a) => a;' >"${work}/glue/id.js"
+echo 'exports.roundtrip_f32 = (a) => a; exports.detect_isa_bits = () => 0;' >"${work}/glue/id.js"
 echo 'exports.roundtrip_f32 = (a) => a.map((x) => x + 1);' >"${work}/glue/inc.js"
 echo 'exports.roundtrip_f32 = () => { throw new Error("boom"); };' >"${work}/glue/throw.js"
+echo 'exports.roundtrip_f32 = (a) => a; exports.detect_isa_bits = () => 1;' >"${work}/glue/simd.js"
+mkdir -p "${work}/glue/out"
+python3 -I - "${CASES_REAL}" "${work}/glue/fixed-cases.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["rows"] = [r for r in d["rows"] if "case" not in r]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+FIXED_CASES="${work}/glue/fixed-cases.json"
 rc=0
-"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${CASES_REAL}" "${work}/glue/r1.jsonl" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${FIXED_CASES}" "${work}/glue/r1.jsonl" "${work}/glue/simd.js" - "${work}/glue/out" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "23 run-glue identity glue" 0
 if python3 -I -c 'import json,sys
 rows = {r["id"]: r for r in json.load(open(sys.argv[1]))["rows"]}
 out = [json.loads(l) for l in open(sys.argv[2])]
-sys.exit(0 if len(out) == len(rows) and all(o["output"] == rows[o["id"]]["reference"] for o in out) else 1)' "${CASES_REAL}" "${work}/glue/r1.jsonl"; then
-  pass "23 run-glue keeps bit patterns (NaN, -0.0, Inf)"
+sys.exit(0 if len(out) == len(rows) and all(o["output"] == rows[o["id"]]["reference"] for o in out) else 1)' "${FIXED_CASES}" "${work}/glue/r1.jsonl"; then
+  pass "23 run-glue keeps bit patterns and picks the glue by build (NaN, -0.0, Inf, isa bits)"
 else
-  fail "23 run-glue keeps bit patterns (NaN, -0.0, Inf)" "output differs from reference"
+  fail "23 run-glue keeps bit patterns and picks the glue by build" "output differs from reference"
 fi
-"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/inc.js" "${CASES_REAL}" "${work}/glue/r2.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/inc.js" "${FIXED_CASES}" "${work}/glue/r2.jsonl" - - "${work}/glue/out" >"${OUT_F}" 2>"${ERR_F}" || true
 check "23 run-glue reports a changed value" "$(grep -q '"id":"roundtrip-finite","output":\["3f800000"' "${work}/glue/r2.jsonl" && echo 1 || echo 0)"
-"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/throw.js" "${CASES_REAL}" "${work}/glue/r3.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/throw.js" "${FIXED_CASES}" "${work}/glue/r3.jsonl" - - "${work}/glue/out" >"${OUT_F}" 2>"${ERR_F}" || true
 check "23 run-glue turns a throw into an error row" "$(grep -qc 'call failed' "${work}/glue/r3.jsonl" && echo 0 || echo 1)"
 echo '{"rows":[{"id":"a","export":"constructor","input":[]}]}' >"${fix}/ctor.json"
-"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${fix}/ctor.json" "${work}/glue/r4.jsonl" >"${OUT_F}" 2>"${ERR_F}" || true
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${fix}/ctor.json" "${work}/glue/r4.jsonl" - - "${work}/glue/out" >"${OUT_F}" 2>"${ERR_F}" || true
 check "23 run-glue rejects a non-listed export" "$(grep -q 'unknown export' "${work}/glue/r4.jsonl" && echo 0 || echo 1)"
 rc=0
 "${REAL_NODE}" "${NODE_SCRIPT}" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "23 run-glue usage" 2 "usage:"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/id.js" "${FIXED_CASES}" "${work}/glue/r5.jsonl" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue old three-argument form is a usage error" 2 "usage:"
+
+# 23b. gemm の呼び方: out は 0x7fc0dead で埋めて渡す・戻り 0 のときだけ .bin を書く・ビット列を保つ
+mk_host_fixture "${work}/glue/in" gemm-a
+cat >"${work}/glue/gemm.js" <<'JS'
+exports.gemm_scalar = (a, b, m, k, n, out) => {
+  out[0] = a[0];
+  out[1] = a[1];
+  return 0;
+};
+exports.gemm_simd = () => 7;
+JS
+echo 'exports.gemm_simd = () => { throw new Error("boom"); };' >"${work}/glue/gemmthrow.js"
+cat >"${work}/glue/gemm-cases.json" <<'JSON'
+{"rows": [
+  {"id": "g1", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "g2", "export": "gemm_simd", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "g3", "export": "gemm_simd", "build": "simd128", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "g4", "export": "gemm_scalar", "build": "scalar", "case": "no-such-case", "reference_source": "native-scalar"}
+]}
+JSON
+rm -rf "${work}/glue/gout"
+mkdir -p "${work}/glue/gout"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/gemm.js" "${work}/glue/gemm-cases.json" "${work}/glue/rg.jsonl" "${work}/glue/gemmthrow.js" "${work}/glue/in" "${work}/glue/gout" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue gemm rows" 0
+check "23 gemm: a zero return writes the output with the fill word kept and the bit patterns intact" "$(python3 -I -c 'import struct,sys
+data = open(sys.argv[1], "rb").read()
+sys.exit(0 if struct.unpack("<4I", data) == (0x3f800000, 0x80000000, 0x7fc0dead, 0x7fc0dead) else 1)' "${work}/glue/gout/g1.bin" && echo 0 || echo 1)"
+check "23 gemm: nonzero return, throw and unknown case are error rows and write nothing" "$(python3 -I -c 'import json,os,sys
+rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
+ok = rows["g1"] == {"id": "g1", "output_file": "g1.bin"} and rows["g2"] == {"id": "g2", "error": "nonzero return"} and rows["g3"] == {"id": "g3", "error": "call failed"} and rows["g4"] == {"id": "g4", "error": "call failed"}
+ok = ok and sorted(os.listdir(sys.argv[2])) == ["g1.bin"]
+sys.exit(0 if ok else 1)' "${work}/glue/rg.jsonl" "${work}/glue/gout" && echo 0 || echo 1)"
 
 # 25. 参照の出どころ（TASK-29）。欠け・未知の値は入力の不正（Node の本体を起動しない）
 res_ok
@@ -430,7 +565,7 @@ res_ok
 REF_SRC="${ROOT_DIR}/crates/core/src/rerun/reference.rs"
 DEC_SRC="${ROOT_DIR}/crates/core/src/test_frame/decision.rs"
 sp=0
-for t in fixed native-neon; do
+for t in fixed native-neon native-scalar; do
   grep -qF "=> \"${t}\"," "${REF_SRC}" || sp=1
   grep -qF "\"${t}\"" "${WNC}" || sp=1
 done
@@ -647,7 +782,7 @@ check "35 nothing written on failure" "$([ "$(nfiles "${work}/rec35")" = 0 ] && 
 res_rec 3f800001
 newdir rec36
 w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec36" --record-combination metal-mac-mini
-leak="$(cat "${work}"/rec36/*.json | grep -cE 'call error|first difference|length expected' || true)"
+leak="$(cat "${work}"/rec36/*.json | grep -cE 'call error|first difference|length expected|mismatches' || true)"
 check "36 mismatch detail is not in the parts" "$([ "${leak}" = 0 ] && echo 0 || echo 1)"
 check "36 ng part has no label_reason" "$(grep -q 'label_reason' "${work}/rec36/rec-mismatch.metal-mac-mini.json" && echo 1 || echo 0)"
 printf '%s\n' '{"id":"rec-match","output":["3f800000"]}' '{"id":"rec-mismatch","error":"call failed"}' '{"id":"rec-missing","output":["3f800000"]}' '{"id":"rec-unavail","output":["3f800000"]}' >"${FAKE_RESULTS}"
@@ -655,6 +790,280 @@ newdir rec36b
 w --wasm "${dummy_wasm}" --cases "${fix}/rec.json" --record-dir "${work}/rec36b" --record-combination metal-mac-mini
 leak="$(cat "${work}"/rec36b/*.json | grep -cE 'call error|call failed' || true)"
 check "36 call error detail is not in the parts" "$([ "${leak}" = 0 ] && echo 0 || echo 1)"
+res_ok
+
+# ---- 生成の入力の行と 2 つのビルド（TASK-994 の 2/5） ----
+
+DW="${dummy_wasm}"
+cat >"${fix}/gen.json" <<'JSON'
+{"rows": [
+  {"id": "g-scalar", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "g-simd", "export": "gemm_simd", "build": "simd128", "case": "gemm-b", "reference_source": "native-scalar"}
+]}
+JSON
+# gen_setup: 2 ケースの偽の host 側の道具の出力と、全行一致の結果を用意する。
+gen_setup() {
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" gemm-a gemm-b
+  printf '%s\n' 'g-scalar gemm-a' 'g-simd gemm-b' >"${fix}/gen-rowmap"
+  printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"g-simd","output_file":"g-simd.bin"}' >"${FAKE_RESULTS}"
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+}
+# gw <引数...>: 2 つの .wasm を渡して生成の行の入力を流す。
+gw() {
+  w --wasm "${DW}" --wasm-simd128 "${DW}" "$@"
+}
+no_node_started() {
+  grep -q '^node ' "${FAKE_LOG}" && echo 1 || echo 0
+}
+# mut_out <モード> <出力のファイル>: 参照の写しを変えた出力を ${fix}/outs に書く。
+mut_out() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "$1" "${fix}/hf/gemm-a.native-scalar.bin" "${fix}/outs/$2" <<'PY'
+import struct, sys
+mode, src, dst = sys.argv[1:4]
+w = list(struct.unpack("<4I", open(src, "rb").read()))
+if mode == "nan-payload":
+    w[2] = 0x7fc00002
+elif mode == "neg-zero":
+    w[1] = 0x00000000
+elif mode == "short":
+    w = w[:3]
+data = b"".join(struct.pack("<I", x) for x in w)
+if mode == "odd":
+    data = data[:-1]
+open(dst, "wb").write(data)
+PY
+}
+
+# 37. 生成の行が全部一致: 0、count・sha256 の行、並び
+gen_setup
+gw --cases "${fix}/gen.json"
+expect "37 generated rows all match" 0 "row: g-scalar match" "row: g-simd match" "count: g-scalar mismatches=0 n=4" "count: g-simd mismatches=0 n=4" "sha256: g-scalar " "sha256: g-simd " "sha256: gemm-a.a " "sha256: gemm-a.b " "sha256: gemm-a.native-scalar " "sha256: gemm-b.native-scalar " "summary: rows=2 match=2 mismatch=0 not-run=0"
+check "37 output order is rows, counts, case hashes, summary last" "$(python3 -I -c 'import sys
+L = [l for l in open(sys.argv[1]).read().splitlines() if not l.startswith(("node:", "wasm-bindgen:"))]
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+ok = first("row: g-scalar") < first("row: g-simd") < first("count: g-scalar") < first("sha256: g-scalar") < first("count: g-simd") < first("sha256: g-simd") < first("sha256: gemm-a.a") < first("sha256: gemm-a.native-scalar") < first("sha256: gemm-b.a") and L[-1].startswith("summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+check "37 sha256 of a compared row is the hash of the wasm output bytes" "$(python3 -I -c 'import hashlib,sys
+h = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
+sys.exit(0 if ("sha256: g-scalar " + h) in open(sys.argv[2]).read() else 1)' "${fix}/hf/gemm-a.native-scalar.bin" "${OUT_F}" && echo 0 || echo 1)"
+
+# 38. 1 語だけ違う（NaN のペイロード・-0.0 と +0.0）は不一致、件数が出る
+for mode in nan-payload neg-zero; do
+  gen_setup
+  mut_out "${mode}" g-scalar.bin
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/gen.json"
+  expect "38 one word differs (${mode})" 1 "row: g-scalar mismatch (mismatches 1/4)" "count: g-scalar mismatches=1 n=4" "row: g-simd match" "match=1 mismatch=1"
+  rm -rf "${fix}/outs"
+done
+
+# 39. 語の数の違い（語の数で出す。count の行は出ない）
+gen_setup
+mut_out short g-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/gen.json"
+expect "39 length differs" 1 "row: g-scalar mismatch (length expected 4 got 3)" "!count: g-scalar" "!sha256: g-scalar" "count: g-simd mismatches=0"
+rm -rf "${fix}/outs"
+
+# 40. 呼び出しの失敗は call error（count の行は出ない）
+gen_setup
+printf '%s\n' '{"id":"g-scalar","error":"nonzero return"}' '{"id":"g-simd","error":"call failed"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/gen.json"
+expect "40 call errors" 1 "row: g-scalar mismatch (call error)" "row: g-simd mismatch (call error)" "!count:" "!sha256: g-" "mismatch=2"
+
+# 41. 固定の isa の行: simd128 の値違いは不一致
+cat >"${fix}/isa.json" <<'JSON'
+{"rows": [
+  {"id": "isa-a", "export": "detect_isa_bits", "build": "scalar", "input": [], "reference_source": "fixed", "reference": ["00000000"]},
+  {"id": "isa-b", "export": "detect_isa_bits", "build": "simd128", "input": [], "reference_source": "fixed", "reference": ["00000001"]}
+]}
+JSON
+reset_gen
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' '{"id":"isa-b","output":["00000001"]}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/isa.json"
+expect "41 isa rows match" 0 "summary: rows=2 match=2"
+check "41 no host tool is run without generated rows" "$(grep -q '^cargo run' "${FAKE_LOG}" && echo 1 || echo 0)"
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' '{"id":"isa-b","output":["00000000"]}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/isa.json"
+expect "41 isa-simd128 value differs" 1 "row: isa-b mismatch (first difference at index 0)" "row: isa-a match"
+
+# 42. native-neon の生成の行は not-run (reference-unavailable)。比べず count・sha256 を出さない
+gen_setup
+cat >"${fix}/gen-neon.json" <<'JSON'
+{"rows": [
+  {"id": "g-scalar", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-neon"}
+]}
+JSON
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/gen-neon.json"
+expect "42 native-neon generated row" 1 "row: g-scalar not-run (reference-unavailable)" "!count:" "!sha256:" "match=0 mismatch=0 not-run=1"
+
+# 43. 入力の不正（終了コード 2・Node の本体を起動しない）
+bad_case() {
+  # bad_case <名前> <行の JSON> <期待の語>
+  printf '{"rows": [%s]}\n' "$2" >"${fix}/bad-gen.json"
+  gen_setup
+  gw --cases "${fix}/bad-gen.json"
+  expect "43 ${1}" 2 "$3" "!summary:"
+  check "43 node body not started (${1})" "$(no_node_started)"
+}
+G='"export":"gemm_scalar","build":"scalar","case":"gemm-a","reference_source":"native-scalar"'
+bad_case "generated row lacks build" '{"id":"x","export":"gemm_scalar","case":"gemm-a","reference_source":"native-scalar"}' "missing or unknown keys"
+bad_case "generated row has an extra key" '{"id":"x",'"${G}"',"input":[]}' "missing or unknown keys"
+bad_case "generated row lacks case" '{"id":"x","export":"gemm_scalar","build":"scalar","reference_source":"native-scalar"}' "missing or unknown keys"
+bad_case "unknown build" '{"id":"x","export":"gemm_scalar","build":"avx","case":"gemm-a","reference_source":"native-scalar"}' "unknown build"
+bad_case "unknown generated export" '{"id":"x","export":"gemm_other","build":"scalar","case":"gemm-a","reference_source":"native-scalar"}' "unknown export"
+bad_case "case with a generated export name on a fixed row" '{"id":"x","export":"gemm_scalar","build":"scalar","input":[],"reference_source":"fixed"}' "missing or unknown keys"
+bad_case "case key on a fixed export" '{"id":"x","export":"roundtrip_f32","build":"scalar","case":"gemm-a","reference_source":"native-scalar"}' "unknown export"
+bad_case "fixed row with native-scalar" '{"id":"x","export":"roundtrip_f32","input":[],"reference_source":"native-scalar","reference":[]}' "reference_source not allowed"
+bad_case "generated row with fixed" '{"id":"x","export":"gemm_scalar","build":"scalar","case":"gemm-a","reference_source":"fixed"}' "reference_source not allowed"
+bad_case "detect_isa_bits with input" '{"id":"x","export":"detect_isa_bits","input":["00000000"],"reference_source":"fixed","reference":["00000000"]}' "takes no input"
+bad_case "fixed row with unknown build" '{"id":"x","export":"roundtrip_f32","build":"avx","input":[],"reference_source":"fixed","reference":[]}' "unknown build"
+bad_case "case with a bad form" '{"id":"x","export":"gemm_scalar","build":"scalar","case":"../x","reference_source":"native-scalar"}' "invalid form"
+bad_case "unknown case" '{"id":"x","export":"gemm_scalar","build":"scalar","case":"nope","reference_source":"native-scalar"}' "unknown case in row: x"
+
+# 44. manifest の不正（sha256・ファイル名・長さ・種類）
+tamper() {
+  # tamper <モード>: ${fix}/hf を壊す
+  python3 -I - "$1" "${fix}/hf" <<'PY'
+import hashlib, json, os, sys
+mode, d = sys.argv[1:3]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+if mode == "sha":
+    with open(os.path.join(d, c["a_file"]), "r+b") as f:
+        f.write(b"\xff")
+elif mode == "slash":
+    c["a_file"] = "../x"
+elif mode == "dotdot":
+    os.rename(os.path.join(d, c["a_file"]), os.path.join(d, "a..bin"))
+    c["a_file"] = "a..bin"
+elif mode == "dot-first":
+    os.rename(os.path.join(d, c["a_file"]), os.path.join(d, ".a.bin"))
+    c["a_file"] = ".a.bin"
+elif mode == "length":
+    data = open(os.path.join(d, c["a_file"]), "rb").read()[:-4]
+    open(os.path.join(d, c["a_file"]), "wb").write(data)
+    c["a_sha256"] = hashlib.sha256(data).hexdigest()
+elif mode == "kind":
+    c["kind"] = "topk"
+elif mode == "dims":
+    c["m"] = 0
+elif mode == "extra":
+    c["extra"] = 1
+json.dump(m, open(mp, "w"))
+PY
+}
+for mode in sha slash dotdot dot-first length kind dims extra; do
+  gen_setup
+  tamper "${mode}"
+  gw --cases "${fix}/gen.json"
+  expect "44 manifest tampered (${mode})" 2 "error:" "!summary:" "!${work}"
+  check "44 node body not started (${mode})" "$(no_node_started)"
+done
+gen_setup
+rm -f "${fix}/hf/manifest.json"
+gw --cases "${fix}/gen.json"
+expect "44 manifest missing" 2 "cannot read manifest" "!summary:"
+
+# 45. 結果の形（生成の行は output_file、固定の行は output）
+res_bad() {
+  # res_bad <名前> <期待の語> <結果の行...>
+  local name="$1" want="$2"
+  shift 2
+  gen_setup
+  printf '%s\n' "$@" >"${FAKE_RESULTS}"
+  gw --cases "${fix}/gen.json"
+  expect "45 ${name}" 2 "${want}" "!summary:"
+}
+res_bad "generated row with output" "unexpected shape" '{"id":"g-scalar","output":["00000000"]}' '{"id":"g-simd","output_file":"g-simd.bin"}'
+res_bad "output_file that is not <id>.bin" "unexpected shape" '{"id":"g-scalar","output_file":"other.bin"}' '{"id":"g-simd","output_file":"g-simd.bin"}'
+res_bad "output_file with a path" "unexpected shape" '{"id":"g-scalar","output_file":"../g-scalar.bin"}' '{"id":"g-simd","output_file":"g-simd.bin"}'
+gen_setup
+rm -f "${fix}/gen-rowmap"
+gw --cases "${fix}/gen.json"
+expect "45 output files not written" 2 "cannot read an output file" "!summary:"
+gen_setup
+printf '%s\n' '{"id":"isa-a","output_file":"isa-a.bin"}' '{"id":"isa-b","output":["00000001"]}' >"${FAKE_RESULTS}"
+reset_gen
+gw --cases "${fix}/isa.json"
+expect "45 fixed row with output_file" 2 "unexpected shape" "!summary:"
+gen_setup
+mut_out odd g-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/gen.json"
+expect "45 native-scalar output length not a multiple of 4" 2 "not a multiple of 4" "!summary:"
+rm -rf "${fix}/outs"
+
+# 46. ビルドの口
+reset_gen
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' '{"id":"isa-b","output":["00000001"]}' >"${FAKE_RESULTS}"
+w --wasm "${DW}" --cases "${fix}/isa.json"
+expect "46 --wasm alone with a simd128 row" 2 "simd128 wasm file is required" "!summary:"
+w --wasm-simd128 "${DW}" --cases "${fix}/isa.json"
+expect "46 --wasm-simd128 alone with a scalar row" 2 "scalar wasm file is required" "!summary:"
+gw --cases "${fix}/isa.json"
+expect "46 both ports" 0 "summary: rows=2 match=2"
+check "46 no cargo build with a port" "$(grep -q '^cargo build' "${FAKE_LOG}" && echo 1 || echo 0)"
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' >"${FAKE_RESULTS}"
+echo '{"rows": [{"id":"isa-a","export":"detect_isa_bits","build":"scalar","input":[],"reference_source":"fixed","reference":["00000000"]}]}' >"${fix}/isa-scalar-only.json"
+w --wasm "${DW}" --cases "${fix}/isa-scalar-only.json"
+expect "46 scalar-only rows need only --wasm" 0 "summary: rows=1 match=1"
+check "46 only one wasm-bindgen call" "$([ "$(grep -c '^wasm-bindgen ' "${FAKE_LOG}")" = 1 ] && echo 0 || echo 1)"
+w --wasm-simd128 "${DW}" --cases "${fix}/isa-scalar-only.json"
+expect "46 --wasm-simd128 alone for scalar-only rows" 2 "scalar wasm file is required"
+
+# 47. 既定の経路のビルド: 使うビルドだけ・env の形・target ディレクトリ
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' '{"id":"isa-b","output":["00000001"]}' >"${FAKE_RESULTS}"
+rm -rf "${FAKE_TARGET}"
+RUSTFLAGS="-C debuginfo=2" CARGO_BUILD_RUSTFLAGS="-C debuginfo=2" w --cases "${fix}/isa.json"
+expect "47 both builds" 0 "summary: rows=2 match=2"
+check "47 two builds with -p wasm-glue and no --workspace" "$([ "$(grep -cE '^cargo build --manifest-path wasm/Cargo.toml -p wasm-glue --locked --target wasm32-unknown-unknown --profile wasm-size' "${FAKE_LOG}")" = 2 ] && ! grep -q -- '--workspace' "${FAKE_LOG}" && echo 0 || echo 1)"
+check "47 scalar build has an empty encoded rustflags and no RUSTFLAGS" "$(grep -qxF 'env rustflags= RUSTFLAGS=unset' "${FAKE_LOG}" && echo 0 || echo 1)"
+check "47 simd128 build has +simd128 and a separate target dir" "$(grep -qxF 'env rustflags=-C|target-feature=+simd128 RUSTFLAGS=unset' "${FAKE_LOG}" && grep -qE "^cargo build .*--target-dir ${FAKE_TARGET}/node-simd128\$" "${FAKE_LOG}" && echo 0 || echo 1)"
+check "47 wasm-bindgen uses a separate out-dir per build" "$([ "$(grep '^wasm-bindgen ' "${FAKE_LOG}" | grep -o -- '--out-dir [^ ]*' | sort -u | wc -l | tr -d ' ')" = 2 ] && echo 0 || echo 1)"
+printf '%s\n' '{"id":"isa-b","output":["00000001"]}' >"${FAKE_RESULTS}"
+echo '{"rows": [{"id":"isa-b","export":"detect_isa_bits","build":"simd128","input":[],"reference_source":"fixed","reference":["00000001"]}]}' >"${fix}/isa-simd-only.json"
+w --cases "${fix}/isa-simd-only.json"
+expect "47 simd128-only rows" 0 "summary: rows=1 match=1"
+check "47 only the simd128 build runs" "$([ "$(grep -c '^cargo build' "${FAKE_LOG}")" = 1 ] && grep -q 'node-simd128' "${FAKE_LOG}" && echo 0 || echo 1)"
+printf '%s\n' '{"id":"isa-a","output":["00000000"]}' >"${FAKE_RESULTS}"
+w --cases "${fix}/isa-scalar-only.json"
+check "47 scalar-only rows do not build simd128" "$(grep -q 'node-simd128' "${FAKE_LOG}" && echo 1 || echo 0)"
+
+# 48. host 側の道具: 生成の行があるときだけ呼ぶ・失敗は 2・cargo が要る
+gen_setup
+gw --cases "${fix}/gen.json"
+check "48 host tool is run once with gen and an inputs directory" "$([ "$(grep -c '^cargo run --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked --quiet -- gen ' "${FAKE_LOG}")" = 1 ] && echo 0 || echo 1)"
+gen_setup
+FAKE_HOST_RC=3 gw --cases "${fix}/gen.json"
+expect "48 host tool failure" 2 "host tool failed" "!summary:"
+check "48 node body not started after a host tool failure" "$(no_node_started)"
+mkbin "${work}/nocargo" python3 dirname basename sed head mktemp rm cat grep
+cp "${bin}/node" "${bin}/wasm-bindgen" "${work}/nocargo/"
+gen_setup
+rc=0
+PATH="${work}/nocargo" "${BASH}" "${WNC}" --wasm "${DW}" --wasm-simd128 "${DW}" --cases "${fix}/gen.json" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "48 generated rows need cargo even with ports" 2 "required command not found on PATH: cargo"
+
+# 49. --record-dir: 生成の行も部品になる（mismatches の語は部品に入らない）
+gen_setup
+mut_out nan-payload g-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+newdir rec49
+gw --cases "${fix}/gen.json" --record-dir "${work}/rec49" --record-combination metal-mac-mini
+expect "49 generated rows with a record dir" 1 "row: g-scalar mismatch" "row: g-simd match"
+check "49 two parts, ng and ok, without detail" "$([ "$(nfiles "${work}/rec49")" = 2 ] && grep -q '"label":"ng"' "${work}/rec49/g-scalar.metal-mac-mini.json" && grep -q '"label":"ok"' "${work}/rec49/g-simd.metal-mac-mini.json" && ! grep -rq 'mismatches' "${work}/rec49" && echo 0 || echo 1)"
+rm -rf "${fix}/outs"
+
+# 50. 誤用
+w --wasm-simd128
+expect "50 missing --wasm-simd128 value" 2 "usage:"
+reset_gen
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"
