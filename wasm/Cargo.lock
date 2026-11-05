@@ -125,3 +125,11 @@ dependencies = [
  "fandhe-silicon-core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "wasm-parity-host"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-contract",
+ "fandhe-silicon-core",
+]

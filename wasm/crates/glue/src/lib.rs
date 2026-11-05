@@ -1,6 +1,6 @@
 //! wasm32 向けの glue の cdylib（spec TASK-22・TASK-2957 のポインタ）。
 //!
-//! 別 workspace `wasm/` の唯一の member。製品の crate `fandhe-silicon-contract`
+//! 別 workspace `wasm/` の member。製品の crate `fandhe-silicon-contract`
 //! （feature は `contract-core`・`cpu-isa`・`cpu-ops` のみ）に path で依存し（試験だけが `fandhe-silicon-core` にも path で依存する）、
 //! wasm32-unknown-unknown でビルドした `.wasm` の入口になる。
 //! 依存の向きは「本 crate → 製品」だけで、製品の crate は本 crate を知らない。
