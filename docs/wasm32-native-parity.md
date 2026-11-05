@@ -1061,9 +1061,43 @@ f951986cfa3ee3f33f94b487d0a65b36cd546269a83b47ac250518d55cbde166  topk-ties.scor
 
 定数と関数の所在は `grep -n "ELEMENTWISE_CASES\|pub fn" wasm/crates/parity-host/src/lib.rs` で確かめる。
 
+### 要素ごと演算の 8 行（3/4）
+
+`wasm/node/cases.json` の既定の入力に足した生成の行。並びは部分 Top-k の行の後に、ケースの順・組の順。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `elementwise-relu-scalar-elementwise-scalar` | `scalar` | `elementwise_scalar` | `elementwise-relu` | `native-scalar` |
+| `elementwise-relu-scalar-elementwise-simd` | `scalar` | `elementwise_simd` | `elementwise-relu` | `native-scalar` |
+| `elementwise-relu-simd128-elementwise-scalar` | `simd128` | `elementwise_scalar` | `elementwise-relu` | `native-scalar` |
+| `elementwise-relu-simd128-elementwise-simd` | `simd128` | `elementwise_simd` | `elementwise-relu` | `native-scalar` |
+| `elementwise-add-scalar-scalar-elementwise-scalar` | `scalar` | `elementwise_scalar` | `elementwise-add-scalar` | `native-scalar` |
+| `elementwise-add-scalar-scalar-elementwise-simd` | `scalar` | `elementwise_simd` | `elementwise-add-scalar` | `native-scalar` |
+| `elementwise-add-scalar-simd128-elementwise-scalar` | `simd128` | `elementwise_scalar` | `elementwise-add-scalar` | `native-scalar` |
+| `elementwise-add-scalar-simd128-elementwise-simd` | `simd128` | `elementwise_simd` | `elementwise-add-scalar` | `native-scalar` |
+
+`wasm/node/cases-reference-unavailable.json` に足した 2 行。`make test-wasm-node-check` が `--cases` で読む。
+
+| id | 参照の出どころ | 回帰テストで出る状態 |
+| -- | -------------- | -------------------- |
+| `elementwise-relu-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+| `elementwise-add-scalar-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+
+#### 確かめ方
+
+```console
+$ grep -c '"elementwise_' wasm/node/cases.json
+8
+$ grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json
+5
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 505, failed: 0
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に要素ごと演算の種類を足す | #6287 |
 | 2/4 | 要素ごと演算の 2 ケースの入力とネイティブの参照を host 側の道具に足す | #6288 |
+| 3/4 | 要素ごと演算の 8 行を照合の入力に足す | #6289 |

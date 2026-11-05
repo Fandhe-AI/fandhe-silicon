@@ -20,6 +20,20 @@
       "build": "scalar",
       "case": "topk-nonfinite",
       "reference_source": "native-neon"
+    },
+    {
+      "id": "elementwise-relu-native-neon",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-relu",
+      "reference_source": "native-neon"
+    },
+    {
+      "id": "elementwise-add-scalar-native-neon",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-neon"
     }
   ]
 }

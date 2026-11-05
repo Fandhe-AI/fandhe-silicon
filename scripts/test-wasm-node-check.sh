@@ -470,6 +470,13 @@ four = [("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_scalar", "sim
 want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+# 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 8 組にちょうど等しい（TASK-997）
+check "22 bundled elementwise rows are exactly the eight (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("elementwise_")]
+four = [("elementwise_scalar", "scalar"), ("elementwise_simd", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "simd128")]
+want = sorted((c, e, b) for c in ("elementwise-relu", "elementwise-add-scalar") for e, b in four)
+got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
+sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 check "22 every bundled row has a reference source of fixed or native-scalar" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
 sys.exit(0 if rows and all(r.get("reference_source") in ("fixed", "native-scalar") for r in rows) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
@@ -1940,21 +1947,21 @@ rm -rf "${work}/mut"
 reset_gen
 res_ok
 
-# 77. 実物の cases-reference-unavailable.json は 3 行とも not-run (reference-unavailable)（TASK-996）
+# 77. 実物の cases-reference-unavailable.json は 5 行とも not-run (reference-unavailable)（TASK-996・TASK-997）
 python3 -I - "${CASES_UNAVAILABLE_REAL}" "${FAKE_RESULTS}" "${fix}/rowmap-77" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))["rows"]
 open(sys.argv[2], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
 open(sys.argv[3], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
 PY
-mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite
+mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite elementwise-relu elementwise-add-scalar
 export FAKE_HOST_FIXTURE="${fix}/hf-77" FAKE_ROW_MAP="${fix}/rowmap-77"
 w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${CASES_UNAVAILABLE_REAL}"
 reset_gen
-expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "summary: rows=3 match=0 mismatch=0 not-run=3" "!count:" "!recount:" "!recount-summary:" "!nonfinite:" "!sha256:"
-check "77 the file has three rows, all native-neon" "$(python3 -I -c 'import json,sys
+expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "row: elementwise-relu-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-native-neon not-run (reference-unavailable)" "summary: rows=5 match=0 mismatch=0 not-run=5" "!count:" "!recount:" "!recount-summary:" "!nonfinite:" "!input-special:" "!sha256:"
+check "77 the file has five rows, all native-neon" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
-sys.exit(0 if len(rows) == 3 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
+sys.exit(0 if len(rows) == 5 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
 res_ok
 
 # ---- 要素ごと演算の種類（TASK-997 の 1/4） ----

@@ -169,6 +169,62 @@
       "build": "simd128",
       "case": "topk-nonfinite",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-relu-scalar-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "scalar",
+      "case": "elementwise-relu",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-relu-scalar-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-relu",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-relu-simd128-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "simd128",
+      "case": "elementwise-relu",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-relu-simd128-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "simd128",
+      "case": "elementwise-relu",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-add-scalar-scalar-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "scalar",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-add-scalar-scalar-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-add-scalar-simd128-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "simd128",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "elementwise-add-scalar-simd128-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "simd128",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-scalar"
     }
   ]
 }
