@@ -393,12 +393,15 @@ for name in sys.argv[2:]:
     if name.startswith("elementwise-"):
         # 要素ごと演算の合成のケース（TASK-997）: n=5。既定の入力の語は NaN・Inf・±0 を含まない。名前に add を含めば
         # op_code 1・定数 0.5、それ以外は op_code 0・定数 0。special の名前は NaN 1・+Inf・-Inf・+0・-0 を 1 語ずつ、
-        # nanbits の名前は NaN の 2 つのビット列を含む入力にする。
+        # nanbits の名前は NaN の 2 つのビット列（quiet の最小と signaling の最小）を含む入力にする。nanin の名前は語 2・語 4 に
+        # payload つきの NaN を置く入力にする。
         inp = [0x3f800000, 0xbf800000, 0x40000000, 0xc0000000, 0x3f000000]
         if "special" in name:
             inp = [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000]
+        elif "nanin" in name:
+            inp = [0x3f800000, 0xbf800000, 0x7fc00003, 0xc0000000, 0x7f800002]
         elif "nanbits" in name:
-            inp = [0x7fc00001, 0x7fc00002, 0x3f800000, 0x3f800000, 0x3f800000]
+            inp = [0x7fc00000, 0x7f800001, 0x3f800000, 0x3f800000, 0x3f800000]
         nat = [0x3f800000, 0x00000000, 0x7fc00001, 0x00000000, 0x3f000000]
         add = "add" in name
         cases.append({
@@ -651,9 +654,9 @@ ok = rows["t1"] == {"id": "t1", "output_file": "t1.bin"} and rows["t2"] == {"id"
 ok = ok and sorted(os.listdir(sys.argv[2])) == ["t1.bin"]
 sys.exit(0 if ok else 1)' "${work}/glue/rt.jsonl" "${work}/glue/tout" && echo 0 || echo 1)"
 
-# 23d. elementwise の呼び方（TASK-997）: op_code と定数（0.5 ちょうど）・a は Float32Array でビット列を保つ・
+# 23d. elementwise の呼び方（TASK-997）: op_code と定数（0.5 ちょうど）・a は Float32Array で payload つきの NaN（語 2・語 4）も含めビット列を保つ・
 # out は長さ n の Float32Array で全語が番兵・戻り 0 のときだけ .bin を書く・書かなかった語は番兵のまま
-mk_host_fixture "${work}/glue/ein" elementwise-add-a
+mk_host_fixture "${work}/glue/ein" elementwise-add-nanin-a
 cat >"${work}/glue/ew-check.js" <<'JS'
 // 渡された引数を照らし、食い違えば 0 以外を返す。
 function check(opCode, c, a, out) {
@@ -661,6 +664,7 @@ function check(opCode, c, a, out) {
   if (!(a instanceof Float32Array) || a.length !== 5) return 8;
   const u = new Uint32Array(a.buffer, a.byteOffset, 5);
   if (u[0] !== 0x3f800000 || u[1] !== 0xbf800000 || u[3] !== 0xc0000000) return 7;
+  if (u[2] !== 0x7fc00003 || u[4] !== 0x7f800002) return 4;
   if (!(out instanceof Float32Array) || out.length !== 5) return 6;
   const w = new Uint32Array(out.buffer, out.byteOffset, 5);
   for (let i = 0; i < 5; i += 1) {
@@ -675,8 +679,12 @@ const { check } = require("./ew-check.js");
 exports.elementwise_scalar = (opCode, c, a, out) => {
   const bad = check(opCode, c, a, out);
   if (bad !== 0) return bad;
-  const w = new Uint32Array(out.buffer, out.byteOffset, 3);
-  for (let i = 0; i < 3; i += 1) w[i] = i + 1;
+  // 受け取った NaN の語（語 2・語 4）をそのまま out の語 0・語 1 へ書き出し、語 2 は固定値にする。
+  const u = new Uint32Array(a.buffer, a.byteOffset, 5);
+  const w = new Uint32Array(out.buffer, out.byteOffset, 5);
+  w[0] = u[2];
+  w[1] = u[4];
+  w[2] = 3;
   return 0;
 };
 exports.elementwise_simd = (opCode, c, a, out) => (check(opCode, c, a, out) === 0 ? 3 : 0);
@@ -686,9 +694,9 @@ exports.elementwise_simd = () => { throw new Error("boom"); };
 JS
 cat >"${work}/glue/ew-cases.json" <<'JSON'
 {"rows": [
-  {"id": "e1", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-add-a", "reference_source": "native-scalar"},
-  {"id": "e2", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-add-a", "reference_source": "native-scalar"},
-  {"id": "e3", "export": "elementwise_simd", "build": "simd128", "case": "elementwise-add-a", "reference_source": "native-scalar"},
+  {"id": "e1", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-add-nanin-a", "reference_source": "native-scalar"},
+  {"id": "e2", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-add-nanin-a", "reference_source": "native-scalar"},
+  {"id": "e3", "export": "elementwise_simd", "build": "simd128", "case": "elementwise-add-nanin-a", "reference_source": "native-scalar"},
   {"id": "e4", "export": "elementwise_scalar", "build": "scalar", "case": "no-such-case", "reference_source": "native-scalar"}
 ]}
 JSON
@@ -699,7 +707,7 @@ rc=0
 expect "23 run-glue elementwise rows" 0
 check "23 elementwise: a zero return writes the out bytes as they are, the unwritten words keep the fill word" "$(python3 -I -c 'import struct,sys
 data = open(sys.argv[1], "rb").read()
-sys.exit(0 if struct.unpack("<5I", data) == (1, 2, 3, 0x7fc0dead, 0x7fc0dead) else 1)' "${work}/glue/eout/e1.bin" && echo 0 || echo 1)"
+sys.exit(0 if struct.unpack("<5I", data) == (0x7fc00003, 0x7f800002, 3, 0x7fc0dead, 0x7fc0dead) else 1)' "${work}/glue/eout/e1.bin" && echo 0 || echo 1)"
 check "23 elementwise: nonzero return, throw and unknown case are error rows and write nothing" "$(python3 -I -c 'import json,os,sys
 rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
 ok = rows["e1"] == {"id": "e1", "output_file": "e1.bin"} and rows["e2"] == {"id": "e2", "error": "nonzero return"} and rows["e3"] == {"id": "e3", "error": "call failed"} and rows["e4"] == {"id": "e4", "error": "call failed"}
