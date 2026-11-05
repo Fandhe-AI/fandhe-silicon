@@ -27,11 +27,13 @@
 # 役割の分担: wasm/node/run-glue.cjs は glue を呼んで f32 のビット列を書き出すだけで、判定は持たない。
 # 判定は本スクリプトの python3（標準ライブラリだけ・-I）にあり、入力の値をシェルに展開しない。
 # 行は 2 つの形（TASK-994）。固定の行（export は roundtrip_f32・detect_isa_bits。値は行に書く）と、生成の行
-# （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
-# ネイティブの参照で、ケースの種類ごとの単位〔gemm は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
+# （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd・elementwise_scalar・elementwise_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
+# ネイティブの参照で、ケースの種類ごとの単位〔gemm・elementwise は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
 # 種類の表は KINDS。行の export の種類と case の種類が違えば終了コード 2。TASK-996）。
 # topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
-# 出すだけで判定と終了コードには関わらない）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
+# 出すだけで判定と終了コードには関わらない）。
+# elementwise のケースがあるときは `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行を出す（入力の語の
+# NaN・Inf・±0 の数。TASK-997。出すだけで判定には関わらない）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
 # 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON /
 # native-scalar＝ネイティブの scalar 版）で、
 # 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
@@ -74,6 +76,7 @@ import json
 import os
 import re
 import stat
+import struct
 import sys
 
 HEX = re.compile(r"[0-9a-f]{8}\Z")
@@ -82,7 +85,9 @@ FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
 # ケースの種類ごとの性質の表（TASK-994・TASK-996）。種類を足すときはこの表に 1 項と run-glue.cjs の許可表に 1 項を足す。
 # keys: manifest のケースの鍵の完全一致 / dims: 正の整数の寸法の鍵 / files: (ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) /
 # unit: 比べの単位のバイト数 / exports: この種類を呼ぶ生成の行の export /
-# nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）。
+# nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）/
+# fields: 種類に固有の欄の照らし（(鍵, 判定の関数) の組の列。無ければ ()。TASK-997）/
+# special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）。
 KINDS = {
     "gemm": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
@@ -95,6 +100,8 @@ KINDS = {
         "unit": 4,
         "exports": ("gemm_scalar", "gemm_simd"),
         "nonfinite": None,
+        "fields": (),
+        "special": None,
     },
     "topk": {
         "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
@@ -106,6 +113,24 @@ KINDS = {
         "unit": 8,
         "exports": ("topk_scalar", "topk_simd"),
         "nonfinite": (("scores_file", 4, 0), ("native_scalar_file", 8, 4)),
+        "fields": (),
+        "special": None,
+    },
+    "elementwise": {
+        "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "input_sha256", "native_scalar_sha256"),
+        "dims": ("n",),
+        "fields": (
+            ("op_code", lambda v: type(v) is int and v in (0, 1)),
+            ("c_bits", lambda v: isinstance(v, str) and HEX.match(v) is not None),
+        ),
+        "files": (
+            ("input_file", "input_sha256", lambda d: d["n"] * 4, "input"),
+            ("native_scalar_file", "native_scalar_sha256", lambda d: d["n"] * 4, "native-scalar"),
+        ),
+        "unit": 4,
+        "exports": ("elementwise_scalar", "elementwise_simd"),
+        "nonfinite": None,
+        "special": "input_file",
     },
 }
 # 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
@@ -391,6 +416,9 @@ def load_manifest(dirpath, rows):
             if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
                 die("manifest case dimension is invalid")
             dims[key] = v
+        for key, ok in spec["fields"]:
+            if not ok(c[key]):
+                die("manifest case field is invalid")
         files = {}
         for fk, hk, size, _suffix in spec["files"]:
             fname, want = c[fk], c[hk]
@@ -496,6 +524,29 @@ def nonfinite_lines(manifest_cases, cases, used_cases):
     return out
 
 
+def input_special_lines(manifest_cases, cases, used_cases):
+    # `input-special:` の行（TASK-997）。表の special を持つケースだけ、manifest の順に入力の 4 バイトの語の
+    # NaN・Inf・±0 の件数を出す。ファイルのバイト列から数え、出すだけで判定には使わない。
+    out = []
+    for c in manifest_cases:
+        key = KINDS[c["kind"]]["special"]
+        if c["name"] not in used_cases or key is None:
+            continue
+        with open(cases[c["name"]]["files"][key][0], "rb") as f:
+            data = f.read()
+        nan = inf = zero = 0
+        for (w,) in struct.iter_unpack("<I", data):
+            e = w & 0x7FFFFFFF
+            if e == 0:
+                zero += 1
+            elif e == 0x7F800000:
+                inf += 1
+            elif e > 0x7F800000:
+                nan += 1
+        out.append("input-special: %s nan=%d inf=%d zero=%d" % (c["name"], nan, inf, zero))
+    return out
+
+
 def recount_form(d):
     # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
     # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
@@ -573,6 +624,7 @@ def recount_form_inner(d):
     used = {r["case"] for r in rows}
     sha_lines += case_sha_lines(manifest_cases, used)
     sha_lines += nonfinite_lines(manifest_cases, cases, used)
+    sha_lines += input_special_lines(manifest_cases, cases, used)
     zero = sum(1 for v in compared.values() if v[0] == 0)
     summary = "recount-summary: rows=%d zero=%d nonzero=%d uncompared=%d" % (len(rows), zero, len(compared) - zero, len(uncompared))
     return {"compared": compared, "uncompared": uncompared, "rec_lines": rec_lines, "sha_lines": sha_lines, "summary": summary}
@@ -717,6 +769,7 @@ def main():
             die("no label for a row state")
     rec_extra = []
     nf_lines = []
+    sp_lines = []
     written = []
     if form_rows:
         # 保存の形を作業の一時ディレクトリへ書き、保存の形だけから数え直して判定の件数と突き合わせる。
@@ -728,6 +781,9 @@ def main():
             die("recount disagrees")
         nf_lines = nonfinite_lines(manifest_cases, cases, used_cases)
         if [ln for ln in rc_res["sha_lines"] if ln.startswith("nonfinite: ")] != nf_lines:
+            die("recount disagrees")
+        sp_lines = input_special_lines(manifest_cases, cases, used_cases)
+        if [ln for ln in rc_res["sha_lines"] if ln.startswith("input-special: ")] != sp_lines:
             die("recount disagrees")
         rec_extra = rc_res["rec_lines"] + [rc_res["summary"]]
         if norm_out is not None:
@@ -746,6 +802,8 @@ def main():
     for ln in case_sha_lines(manifest_cases, used_cases):
         print(ln)
     for ln in nf_lines:
+        print(ln)
+    for ln in sp_lines:
         print(ln)
     for ln in rec_extra:
         print(ln)

@@ -390,6 +390,24 @@ for name in sys.argv[2:]:
             "scores_sha256": wr(name + ".scores.bin", sc), "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
         })
         continue
+    if name.startswith("elementwise-"):
+        # 要素ごと演算の合成のケース（TASK-997）: n=5。既定の入力の語は NaN・Inf・±0 を含まない。名前に add を含めば
+        # op_code 1・定数 0.5、それ以外は op_code 0・定数 0。special の名前は NaN 1・+Inf・-Inf・+0・-0 を 1 語ずつ、
+        # nanbits の名前は NaN の 2 つのビット列を含む入力にする。
+        inp = [0x3f800000, 0xbf800000, 0x40000000, 0xc0000000, 0x3f000000]
+        if "special" in name:
+            inp = [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000]
+        elif "nanbits" in name:
+            inp = [0x7fc00001, 0x7fc00002, 0x3f800000, 0x3f800000, 0x3f800000]
+        nat = [0x3f800000, 0x00000000, 0x7fc00001, 0x00000000, 0x3f000000]
+        add = "add" in name
+        cases.append({
+            "name": name, "kind": "elementwise", "n": 5,
+            "op_code": 1 if add else 0, "c_bits": "3f000000" if add else "00000000",
+            "input_file": name + ".input.bin", "native_scalar_file": name + ".native-scalar.bin",
+            "input_sha256": wr(name + ".input.bin", inp), "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+        })
+        continue
     a = [0x3f800000, 0x80000000, 0x7fc00001, 0x40000000, 0xc0000000, 0x00000000]
     b = [0x3f800000] * 6
     nat = [0x3f800000, 0x80000000, 0x7fc00001, 0x40490fdb]
@@ -487,6 +505,17 @@ for c in ("topk-a", "topk-b"):
 json.dump({"rows": rows}, open(sys.argv[1], "w"))
 PY
 bundled_check topk-rows "${fix}/topk-rows.json"
+# 要素ごと演算の行（TASK-997）を足した形の合成の入力でも、この回帰テストを直さずに通る
+python3 -I - "${fix}/elementwise-rows.json" <<'PY'
+import json, sys
+rows = [{"id": "keep-fixed", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+        {"id": "keep-gemm", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"}]
+for c in ("elementwise-relu", "elementwise-add-scalar"):
+    for exp, build in (("elementwise_scalar", "scalar"), ("elementwise_simd", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "simd128")):
+        rows.append({"id": "%s-%s-%s" % (c, exp.split("_")[1], build), "export": exp, "build": build, "case": c, "reference_source": "native-scalar"})
+json.dump({"rows": rows}, open(sys.argv[1], "w"))
+PY
+bundled_check elementwise-rows "${fix}/elementwise-rows.json"
 
 # 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）。引数は 6 つ（TASK-994）
 mkdir -p "${work}/glue"
@@ -614,6 +643,61 @@ rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
 ok = rows["t1"] == {"id": "t1", "output_file": "t1.bin"} and rows["t2"] == {"id": "t2", "error": "nonzero return"} and rows["t3"] == {"id": "t3", "error": "call failed"} and rows["t4"] == {"id": "t4", "error": "call failed"}
 ok = ok and sorted(os.listdir(sys.argv[2])) == ["t1.bin"]
 sys.exit(0 if ok else 1)' "${work}/glue/rt.jsonl" "${work}/glue/tout" && echo 0 || echo 1)"
+
+# 23d. elementwise の呼び方（TASK-997）: op_code と定数（0.5 ちょうど）・a は Float32Array でビット列を保つ・
+# out は長さ n の Float32Array で全語が番兵・戻り 0 のときだけ .bin を書く・書かなかった語は番兵のまま
+mk_host_fixture "${work}/glue/ein" elementwise-add-a
+cat >"${work}/glue/ew-check.js" <<'JS'
+// 渡された引数を照らし、食い違えば 0 以外を返す。
+function check(opCode, c, a, out) {
+  if (opCode !== 1 || c !== 0.5) return 9;
+  if (!(a instanceof Float32Array) || a.length !== 5) return 8;
+  const u = new Uint32Array(a.buffer, a.byteOffset, 5);
+  if (u[0] !== 0x3f800000 || u[1] !== 0xbf800000 || u[3] !== 0xc0000000) return 7;
+  if (!(out instanceof Float32Array) || out.length !== 5) return 6;
+  const w = new Uint32Array(out.buffer, out.byteOffset, 5);
+  for (let i = 0; i < 5; i += 1) {
+    if (w[i] !== 0x7fc0dead) return 5;
+  }
+  return 0;
+}
+exports.check = check;
+JS
+cat >"${work}/glue/ew.js" <<'JS'
+const { check } = require("./ew-check.js");
+exports.elementwise_scalar = (opCode, c, a, out) => {
+  const bad = check(opCode, c, a, out);
+  if (bad !== 0) return bad;
+  const w = new Uint32Array(out.buffer, out.byteOffset, 3);
+  for (let i = 0; i < 3; i += 1) w[i] = i + 1;
+  return 0;
+};
+exports.elementwise_simd = (opCode, c, a, out) => (check(opCode, c, a, out) === 0 ? 3 : 0);
+JS
+cat >"${work}/glue/ewthrow.js" <<'JS'
+exports.elementwise_simd = () => { throw new Error("boom"); };
+JS
+cat >"${work}/glue/ew-cases.json" <<'JSON'
+{"rows": [
+  {"id": "e1", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-add-a", "reference_source": "native-scalar"},
+  {"id": "e2", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-add-a", "reference_source": "native-scalar"},
+  {"id": "e3", "export": "elementwise_simd", "build": "simd128", "case": "elementwise-add-a", "reference_source": "native-scalar"},
+  {"id": "e4", "export": "elementwise_scalar", "build": "scalar", "case": "no-such-case", "reference_source": "native-scalar"}
+]}
+JSON
+rm -rf "${work}/glue/eout"
+mkdir -p "${work}/glue/eout"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/ew.js" "${work}/glue/ew-cases.json" "${work}/glue/re.jsonl" "${work}/glue/ewthrow.js" "${work}/glue/ein" "${work}/glue/eout" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue elementwise rows" 0
+check "23 elementwise: a zero return writes the out bytes as they are, the unwritten words keep the fill word" "$(python3 -I -c 'import struct,sys
+data = open(sys.argv[1], "rb").read()
+sys.exit(0 if struct.unpack("<5I", data) == (1, 2, 3, 0x7fc0dead, 0x7fc0dead) else 1)' "${work}/glue/eout/e1.bin" && echo 0 || echo 1)"
+check "23 elementwise: nonzero return, throw and unknown case are error rows and write nothing" "$(python3 -I -c 'import json,os,sys
+rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
+ok = rows["e1"] == {"id": "e1", "output_file": "e1.bin"} and rows["e2"] == {"id": "e2", "error": "nonzero return"} and rows["e3"] == {"id": "e3", "error": "call failed"} and rows["e4"] == {"id": "e4", "error": "call failed"}
+ok = ok and sorted(os.listdir(sys.argv[2])) == ["e1.bin"]
+sys.exit(0 if ok else 1)' "${work}/glue/re.jsonl" "${work}/glue/eout" && echo 0 || echo 1)"
 
 # 25. 参照の出どころ（TASK-29）。欠け・未知の値は入力の不正（Node の本体を起動しない）
 res_ok
@@ -1871,6 +1955,336 @@ expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (r
 check "77 the file has three rows, all native-neon" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
 sys.exit(0 if len(rows) == 3 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
+res_ok
+
+# ---- 要素ごと演算の種類（TASK-997 の 1/4） ----
+
+cat >"${fix}/ew.json" <<'JSON'
+{"rows": [
+  {"id": "e-scalar", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-a", "reference_source": "native-scalar"},
+  {"id": "e-simd", "export": "elementwise_simd", "build": "simd128", "case": "elementwise-add-b", "reference_source": "native-scalar"}
+]}
+JSON
+EW_SAVED_NAMES="e-scalar.bin e-simd.bin elementwise-a.input.bin elementwise-a.native-scalar.bin elementwise-add-b.input.bin elementwise-add-b.native-scalar.bin manifest.json outputs.json"
+# ew_setup: 2 ケースの偽の host 側の道具の出力と、全行一致の結果を用意する。
+ew_setup() {
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" elementwise-a elementwise-add-b
+  printf '%s\n' 'e-scalar elementwise-a' 'e-simd elementwise-add-b' >"${fix}/gen-rowmap"
+  printf '%s\n' '{"id":"e-scalar","output_file":"e-scalar.bin"}' '{"id":"e-simd","output_file":"e-simd.bin"}' >"${FAKE_RESULTS}"
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+}
+# ew_mut <モード> <出力のファイル>: elementwise-a の参照の写しを 1 語ごとに崩した出力を ${fix}/outs に書く（4 バイトが 1 語）。
+ew_mut() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "$1" "${fix}/hf/elementwise-a.native-scalar.bin" "${fix}/outs/$2" <<'PY'
+import struct, sys
+mode, src, dst = sys.argv[1:4]
+w = list(struct.unpack("<5I", open(src, "rb").read()))
+extra = b""
+if mode == "first":
+    w[0] ^= 1
+elif mode == "last":
+    w[4] ^= 1
+elif mode == "neg-zero":
+    w[1] = 0x80000000
+elif mode == "payload":
+    w[2] ^= 1
+elif mode == "short":
+    w = w[:3]
+elif mode == "odd":
+    extra = b"\x00"
+open(dst, "wb").write(b"".join(struct.pack("<I", x) for x in w) + extra)
+PY
+}
+
+# 78. elementwise の行が全部一致: 0、count・sha256・input-special の行、並び
+ew_setup
+gw --cases "${fix}/ew.json"
+expect "78 elementwise rows all match" 0 "row: e-scalar match" "row: e-simd match" "count: e-scalar mismatches=0 n=5" "count: e-simd mismatches=0 n=5" "sha256: e-scalar " "sha256: elementwise-a.input " "sha256: elementwise-a.native-scalar " "sha256: elementwise-add-b.input " "input-special: elementwise-a nan=0 inf=0 zero=0" "input-special: elementwise-add-b nan=0 inf=0 zero=0" "!nonfinite:" "summary: rows=2 match=2 mismatch=0 not-run=0"
+check "78 output order is rows, counts, case hashes, input-special, summary last" "$(python3 -I -c 'import sys
+L = [l for l in open(sys.argv[1]).read().splitlines() if not l.startswith(("node:", "wasm-bindgen:"))]
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+ok = first("row: e-simd") < first("count: e-scalar") < first("sha256: e-simd") < first("sha256: elementwise-a.input") < first("sha256: elementwise-add-b.native-scalar") < first("input-special: elementwise-a") < first("input-special: elementwise-add-b") and L[-1].startswith("summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+check "78 the unit is 4 bytes: the sha256 line of a row is the hash of the output bytes" "$(python3 -I -c 'import hashlib,sys
+h = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
+sys.exit(0 if ("sha256: e-scalar " + h) in open(sys.argv[2]).read() else 1)' "${fix}/hf/elementwise-a.native-scalar.bin" "${OUT_F}" && echo 0 || echo 1)"
+
+# 79. 1 語ごとの比べ: 最初の語・最後の語・-0.0 と +0.0・NaN の payload だけの違いは、どれも 1 語の不一致
+for mode in first last neg-zero payload; do
+  ew_setup
+  ew_mut "${mode}" e-scalar.bin
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/ew.json"
+  expect "79 one word differs (${mode})" 1 "row: e-scalar mismatch (mismatches 1/5)" "count: e-scalar mismatches=1 n=5" "row: e-simd match" "match=1 mismatch=1"
+  rm -rf "${fix}/outs"
+done
+
+# 80. 語数の違い・4 の倍数でない出力・呼び出しの失敗
+ew_setup
+ew_mut short e-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/ew.json"
+expect "80 length differs" 1 "row: e-scalar mismatch (length expected 5 got 3)" "!count: e-scalar" "!sha256: e-scalar" "count: e-simd mismatches=0 n=5"
+rm -rf "${fix}/outs"
+ew_setup
+ew_mut odd e-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/ew.json"
+expect "80 a 21-byte output is not a multiple of 4" 2 "not a multiple of 4" "!summary:"
+rm -rf "${fix}/outs"
+ew_setup
+printf '%s\n' '{"id":"e-scalar","error":"nonzero return"}' '{"id":"e-simd","error":"call failed"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/ew.json"
+expect "80 call errors" 1 "row: e-scalar mismatch (call error)" "row: e-simd mismatch (call error)" "!count:" "mismatch=2"
+
+# 81. native-neon の elementwise の行は not-run (reference-unavailable)。比べず count・input-special を出さない
+ew_setup
+cat >"${fix}/ew-neon.json" <<'JSON'
+{"rows": [
+  {"id": "e-scalar", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-a", "reference_source": "native-neon"}
+]}
+JSON
+printf '%s\n' '{"id":"e-scalar","output_file":"e-scalar.bin"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/ew-neon.json"
+expect "81 native-neon elementwise row" 1 "row: e-scalar not-run (reference-unavailable)" "!count:" "!sha256:" "!input-special:" "match=0 mismatch=0 not-run=1"
+
+# 82. 入力に特殊値がある合成のケース: 件数が出て、全行 match なら終了コードは変わらない
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" elementwise-special-a
+printf '%s\n' 'e-sp elementwise-special-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"e-sp","output_file":"e-sp.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+cat >"${fix}/ew-sp.json" <<'JSON'
+{"rows": [
+  {"id": "e-sp", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-special-a", "reference_source": "native-scalar"}
+]}
+JSON
+gw --cases "${fix}/ew-sp.json"
+expect "82 special values in the input are counted by word class" 0 "row: e-sp match" "input-special: elementwise-special-a nan=1 inf=2 zero=2" "summary: rows=1 match=1"
+rm -rf "${fix}/hf"
+mk_host_fixture "${fix}/hf" elementwise-nanbits-a
+printf '%s\n' 'e-sp elementwise-nanbits-a' >"${fix}/gen-rowmap"
+printf '{"rows": [%s]}\n' '{"id":"e-sp","export":"elementwise_scalar","build":"scalar","case":"elementwise-nanbits-a","reference_source":"native-scalar"}' >"${fix}/ew-nb.json"
+gw --cases "${fix}/ew-nb.json"
+expect "82 two NaN bit patterns count as two NaN words" 0 "input-special: elementwise-nanbits-a nan=2 inf=0 zero=0"
+
+# 83. export の種類とケースの種類の照らし（Node の本体を起動しない）
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a topk-a elementwise-a
+printf '%s\n' 'x gemm-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"x","output_file":"x.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+n83=0
+for pair in "elementwise_scalar gemm-a" "elementwise_simd topk-a" "gemm_simd elementwise-a" "topk_scalar elementwise-a"; do
+  n83=$((n83 + 1))
+  printf '{"rows": [{"id":"x","export":"%s","build":"scalar","case":"%s","reference_source":"native-scalar"}]}\n' "${pair%% *}" "${pair##* }" >"${fix}/kind-bad.json"
+  gw --cases "${fix}/kind-bad.json"
+  expect "83 export and case kind differ (${n83})" 2 "does not match the case kind" "!summary:"
+  check "83 node body not started (${n83})" "$(no_node_started)"
+done
+
+# 84. elementwise の manifest の不正（どれも 2。Node の本体を起動しない・一時のパスを出さない）
+ew_tamper() {
+  python3 -I - "$1" "${fix}/hf" <<'PY'
+import hashlib, json, os, sys
+mode, d = sys.argv[1:3]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+def rewrite(fk, hk, data):
+    open(os.path.join(d, c[fk]), "wb").write(data)
+    c[hk] = hashlib.sha256(data).hexdigest()
+if mode == "extra":
+    c["k"] = 1
+elif mode == "no-op":
+    del c["op_code"]
+elif mode == "no-c":
+    del c["c_bits"]
+elif mode == "n-zero":
+    c["n"] = 0
+elif mode == "n-bool":
+    c["n"] = True
+elif mode == "op-2":
+    c["op_code"] = 2
+elif mode == "op-neg":
+    c["op_code"] = -1
+elif mode == "op-bool":
+    c["op_code"] = True
+elif mode == "op-str":
+    c["op_code"] = "1"
+elif mode == "c-short":
+    c["c_bits"] = "3f00000"
+elif mode == "c-upper":
+    c["c_bits"] = "3F000000"
+elif mode == "c-num":
+    c["c_bits"] = 1056964608
+elif mode == "input-length":
+    rewrite("input_file", "input_sha256", open(os.path.join(d, c["input_file"]), "rb").read()[:-4])
+elif mode == "native-length":
+    rewrite("native_scalar_file", "native_scalar_sha256", open(os.path.join(d, c["native_scalar_file"]), "rb").read()[:-4])
+elif mode == "input-sha":
+    with open(os.path.join(d, c["input_file"]), "r+b") as f:
+        f.write(b"\xff")
+elif mode == "native-sha":
+    with open(os.path.join(d, c["native_scalar_file"]), "r+b") as f:
+        f.write(b"\xff")
+elif mode == "slash":
+    c["input_file"] = "../x"
+elif mode == "dotdot":
+    os.rename(os.path.join(d, c["native_scalar_file"]), os.path.join(d, "n..bin"))
+    c["native_scalar_file"] = "n..bin"
+elif mode == "gemm-keys":
+    c["kind"] = "gemm"
+json.dump(m, open(mp, "w"))
+PY
+}
+cat >"${fix}/ew1.json" <<'JSON'
+{"rows": [
+  {"id": "e-scalar", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-a", "reference_source": "native-scalar"}
+]}
+JSON
+for mode in extra no-op no-c n-zero n-bool op-2 op-neg op-bool op-str c-short c-upper c-num input-length native-length input-sha native-sha slash dotdot gemm-keys; do
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" elementwise-a
+  printf '%s\n' 'e-scalar elementwise-a' >"${fix}/gen-rowmap"
+  printf '%s\n' '{"id":"e-scalar","output_file":"e-scalar.bin"}' >"${FAKE_RESULTS}"
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+  ew_tamper "${mode}"
+  gw --cases "${fix}/ew1.json"
+  expect "84 elementwise manifest tampered (${mode})" 2 "error:" "!summary:" "!${work}"
+  check "84 node body not started (${mode})" "$(no_node_started)"
+done
+
+# 85. gemm・topk・elementwise のケースが混ざった入力: --output-dir の名前の集合と中身、その --recount
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a topk-a elementwise-a
+printf '%s\n' 'g-scalar gemm-a' 't-scalar topk-a' 'e-scalar elementwise-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"t-scalar","output_file":"t-scalar.bin"}' '{"id":"e-scalar","output_file":"e-scalar.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+cat >"${fix}/mixed3.json" <<'JSON'
+{"rows": [
+  {"id": "g-scalar", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "t-scalar", "export": "topk_scalar", "build": "scalar", "case": "topk-a", "reference_source": "native-scalar"},
+  {"id": "e-scalar", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-a", "reference_source": "native-scalar"}
+]}
+JSON
+newdir out85
+gw --cases "${fix}/mixed3.json" --output-dir "${work}/out85"
+expect "85 gemm, topk and elementwise rows together" 0 "count: g-scalar mismatches=0 n=4" "count: t-scalar mismatches=0 n=2" "count: e-scalar mismatches=0 n=5" "nonfinite: topk-a input=4 output=0" "!nonfinite: elementwise-a" "input-special: elementwise-a nan=0 inf=0 zero=0" "!input-special: gemm-a" "!input-special: topk-a" "summary: rows=3 match=3"
+check "85 the saved form holds the files of the three kinds" "$(dir_names_ok "${work}/out85" "g-scalar.bin t-scalar.bin e-scalar.bin gemm-a.a.bin gemm-a.b.bin gemm-a.native-scalar.bin topk-a.scores.bin topk-a.native-scalar.bin elementwise-a.input.bin elementwise-a.native-scalar.bin manifest.json outputs.json")"
+check "85 the saved elementwise input and output are copied byte for byte" "$(python3 -I -c 'import os, sys
+hf, o = sys.argv[1:3]
+ok = all(open(os.path.join(hf, n), "rb").read() == open(os.path.join(o, n), "rb").read() for n in ("manifest.json", "elementwise-a.input.bin", "elementwise-a.native-scalar.bin"))
+ok = ok and open(os.path.join(hf, "elementwise-a.native-scalar.bin"), "rb").read() == open(os.path.join(o, "e-scalar.bin"), "rb").read()
+sys.exit(0 if ok else 1)' "${fix}/hf" "${work}/out85" && echo 0 || echo 1)"
+w --recount "${work}/out85"
+expect "85 --recount of the mixed saved form" 0 "recount: e-scalar mismatches=0 n=5" "input-special: elementwise-a nan=0 inf=0 zero=0" "recount-summary: rows=3 zero=3 nonzero=0 uncompared=0"
+
+# 86. manifest に elementwise のケースがあり、行は gemm だけ: input-special の行は無く、保存の形に入力が入り、--recount が 0
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a gemm-b elementwise-a
+printf '%s\n' 'g-scalar gemm-a' 'g-simd gemm-b' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"g-simd","output_file":"g-simd.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+newdir out86
+gw --cases "${fix}/gen.json" --output-dir "${work}/out86"
+expect "86 gemm rows with an elementwise case in the manifest" 0 "summary: rows=2 match=2" "!input-special:"
+check "86 the saved form has the elementwise inputs" "$(dir_names_ok "${work}/out86" "${SAVED_NAMES} elementwise-a.input.bin elementwise-a.native-scalar.bin")"
+w --recount "${work}/out86"
+expect "86 --recount" 0 "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0" "!input-special:"
+
+# 87. elementwise の保存の形の数え直し: 0・1・2
+ew_setup
+newdir out87
+gw --cases "${fix}/ew.json" --output-dir "${work}/out87"
+expect "87 saved elementwise rows" 0 "summary: rows=2 match=2"
+check "87 the file names are exactly the saved form" "$(dir_names_ok "${work}/out87" "${EW_SAVED_NAMES}")"
+w --recount "${work}/out87"
+expect "87 --recount of the saved form" 0 "recount: e-scalar mismatches=0 n=5" "recount: e-simd mismatches=0 n=5" "sha256: elementwise-a.input " "input-special: elementwise-a nan=0 inf=0 zero=0" "input-special: elementwise-add-b nan=0 inf=0 zero=0" "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0"
+check "87 --recount order is recount, sha256, input-special, recount-summary" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+ok = first("recount: e-simd") < first("sha256: e-scalar") < first("sha256: elementwise-add-b.native-scalar") < first("input-special: elementwise-a") < first("input-special: elementwise-add-b") < first("recount-summary:") and L[-1].startswith("recount-summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+# ew_saved_mut <ディレクトリ名> <モード>: elementwise の保存の形を壊す。
+ew_saved_mut() {
+  python3 -I - "${work}/$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+op = os.path.join(d, "outputs.json")
+o = json.load(open(op))
+def save():
+    json.dump(o, open(op, "w"))
+def flip(fn, at=0):
+    p = os.path.join(d, fn)
+    b = bytearray(open(p, "rb").read())
+    b[at] ^= 1
+    open(p, "wb").write(bytes(b))
+    return bytes(b)
+if mode == "first-word" or mode == "last-word":
+    b = flip("e-scalar.bin", 0 if mode == "first-word" else 16)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "odd":
+    b = open(os.path.join(d, "e-scalar.bin"), "rb").read()[:18]
+    open(os.path.join(d, "e-scalar.bin"), "wb").write(b)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "out-sha":
+    flip("e-scalar.bin")
+elif mode == "input-sha":
+    flip("elementwise-a.input.bin")
+elif mode == "missing":
+    os.unlink(os.path.join(d, "e-simd.bin"))
+elif mode == "kind-row":
+    o["rows"][0]["export"] = "gemm_scalar"
+    save()
+PY
+}
+for mode in first-word last-word; do
+  rm -rf "${work:?}/out87m"
+  cp -R "${work}/out87" "${work}/out87m"
+  ew_saved_mut out87m "${mode}"
+  w --recount "${work}/out87m"
+  expect "87 --recount of a saved form with a changed word (${mode})" 1 "recount: e-scalar mismatches=1 n=5" "recount: e-simd mismatches=0 n=5"
+done
+for mode in odd out-sha input-sha missing kind-row; do
+  rm -rf "${work:?}/out87m"
+  cp -R "${work}/out87" "${work}/out87m"
+  ew_saved_mut out87m "${mode}"
+  w --recount "${work}/out87m"
+  expect "87 --recount of a broken saved form (${mode})" 2 "error:" "!recount-summary:"
+done
+
+# 88. 実行の中の数え直しが判定と食い違う場面: 数え直しの側の input-special の呼び出しだけを変えた変異体
+rm -rf "${work}/mut"
+mkdir -p "${work}/mut/scripts" "${work}/mut/wasm/crates/glue"
+cp "${DIR}/lib.sh" "${work}/mut/scripts/lib.sh"
+cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
+python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = "sha_lines += input_special_lines(manifest_cases, cases, used)"
+assert s.count(old) == 1
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "sha_lines += input_special_lines(manifest_cases, cases, set())"))
+PY
+chmod +x "${work}/mut/scripts/wasm-node-check.sh"
+check "88 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
+ew_setup
+newdir out88
+newdir rec88
+WNC_ORIG="${WNC}"
+WNC="${work}/mut/scripts/wasm-node-check.sh"
+gw --cases "${fix}/ew.json" --output-dir "${work}/out88" --record-dir "${work}/rec88" --record-combination metal-mac-mini
+WNC="${WNC_ORIG}"
+expect "88 a disagreeing recount of the input-special lines stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
+check "88 nothing written to either directory" "$([ "$(nfiles "${work}/out88")" = 0 ] && [ "$(nfiles "${work}/rec88")" = 0 ] && echo 0 || echo 1)"
+rm -rf "${work}/mut"
+reset_gen
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"
