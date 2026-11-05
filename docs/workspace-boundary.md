@@ -30,3 +30,11 @@
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 - [dependency-policy](../.claude/rules/dependency-policy.md)
 - [docs/contract/procedure.md](contract/procedure.md)
+
+## 今の値の補い（base 5ea11ff）
+
+記録時点の表と既存の節は書き換えない。以下は base `5ea11ff` の今の値。
+
+| 節 | 事実 | 確かめ方 |
+| -- | ---- | -------- |
+| `wasm/` の行（試験用の `crates/core` への path） | `wasm/` の member は `wasm/crates/glue` と `wasm/crates/parity-host`（package `wasm-parity-host`）の 2 つ。`parity-host` は `crates/core`（feature `test-support`）と `crates/contract` を通常の `[dependencies]` に持つ。向きは `wasm/` → 製品のまま | `grep -n 'members' wasm/Cargo.toml`、`sed -n 12,16p wasm/crates/parity-host/Cargo.toml` |

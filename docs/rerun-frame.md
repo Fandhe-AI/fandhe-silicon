@@ -232,3 +232,12 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base 5ea11ff）
+
+記録時点の表と既存の節は書き換えない。以下は base `5ea11ff` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「出どころのトークン」の行・公開面の行（`ReferenceSource`） | `fixed`・`native-neon` の 2 つ → `NativeScalar`（トークン `native-scalar`）が加わった 3 つ（`wasm/node/cases.json` の `reference_source` と同じ綴り） | `grep -n 'NativeScalar\|native-scalar' crates/core/src/rerun/reference.rs` |
+| F2 の `make test-wasm-node-check` | `passed: 141, failed: 0` → `passed: 342, failed: 0` | `make test-wasm-node-check` |

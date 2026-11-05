@@ -77,7 +77,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `.envrc`・`.env.example` | direnv による `.env` の読み込みと、その雛形 |
 | `.mcp.json` | Claude Code のプロジェクト共有 MCP サーバー定義（ベースは空） |
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
-| `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い） |
+| `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い）・今の値の補い（base 5ea11ff） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方 |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方 |
@@ -158,10 +158,10 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実・本リポでの反映の方針（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方（TASK-112） |
-| `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）（TASK-22） |
+| `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）・今の値の補い（base 5ea11ff）（TASK-22） |
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 801a89d）（TASK-248） |
 | `docs/wasm32-glue-exports.md` | wasm32 の glue の export の所在と、本リポの現状の事実・行列積と ISA のビット（1/4）・要素ごとの演算（2/4）・部分 Top-k（3/4）・完了の条件の確かめ（4/4）（TASK-2957） |
-| `docs/wasm32-native-parity.md` | wasm32 とネイティブの出力の比べの所在と、本リポの現状の事実・入力とネイティブの参照を書き出す道具（1/5）・生成の入力の行と 2 つのビルド（2/5）・GEMM の 9 行（3/5）・出力の保存と数え直し（4/5）・完了の条件の確かめ（5/5）（TASK-994） |
+| `docs/wasm32-native-parity.md` | wasm32 とネイティブの出力の比べの所在と、本リポの現状の事実・入力とネイティブの参照を書き出す道具（1/5）・生成の入力の行と 2 つのビルド（2/5）・GEMM の 9 行（3/5）・出力の保存と数え直し（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 5ea11ff）（TASK-994） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）（TASK-2954） |
 | `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）（TASK-1352） |
 | `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）（TASK-2457） |
@@ -169,7 +169,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2） |
 | `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23） |
-| `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29） |
+| `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）・今の値の補い（base 5ea11ff）（TASK-29） |
 | `docs/route-evidence.md` | 経路の突き合わせの道具の所在と、本リポの現状の事実・値の型と 1 回の呼び出しの照合（1/4）・呼び出しの数え上げと試験の枠への受け渡し（2/4）・下-2 の経路の報告と模擬の呼び出しの突き合わせ（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 2373576）（TASK-922） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実・決定表の語彙の検査（TASK-142）・本リポでの反映の方針（TASK-14・TASK-113） |
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方・今の値の補い（base 801a89d） |
