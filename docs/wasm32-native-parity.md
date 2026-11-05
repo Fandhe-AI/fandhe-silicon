@@ -1094,6 +1094,159 @@ $ make test-wasm-node-check 2>&1 | tail -n 1
 passed: 505, failed: 0
 ```
 
+### 完了の条件の確かめ（4/4）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-997）。
+
+時点のコミット: `558960a`（この変更の土台）。(2)〜(8) は、このコミットの main への push で流れた CI の run `42042476628` から取る（event `push`・conclusion `success`・headSha は `558960a09d3f54d61672d58ac753fa7266242be9`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 2 ケースの入力とネイティブの参照の作り方 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と同じコマンドの `test result:` の行 | 試験の名前 9 行と `test result:` の 5 行（下のコードブロック） |
+| (2) | 8 行の比べ | `gh run view 42042476628 --job 127296593691 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・要素ごと演算の `row:` 8 行・`count:` 8 行・`summary:` の行（下のコードブロック） |
+| (3) | 入力の特殊値の件数 | 同じログの `make wasm-node-check` の段 | `input-special:` 2 行（下のコードブロック） |
+| (4) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 8 行と `recount-summary:` の行（下のコードブロック） |
+| (5) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 12 行（出力 8・ケースのファイル 4。下のコードブロック） |
+| (6) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
+| (7) | 回帰テスト | `gh run view 42042476628 --job 127296592527 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。`ok:` 3 行と最終行は `passed: 505, failed: 0` |
+| (8) | `tests/cpu_ops_reference.rs` の 1 本と `tests/cpu_ops_elementwise_written.rs` の 2 本の試験 | `gh run view 42042476628 --job 127296593588 --log` の `make verify` の段 | ジョブ `make verify + build-profiles (macos-latest)` は `success`。3 本は `ok`、`test result:` は 2 行（下のコードブロック） |
+| (9) | unsafe・外部の依存の追加 0 | `git diff --stat` と `grep -rn unsafe`（下のコードブロック） | stat は空、`grep` は 0 件 |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list 2>&1 | grep -E '^(elementwise_cases_share_input_bytes|elementwise_input_follows_fresh_generator|elementwise_input_has_no_special_values|elementwise_manifest_entries_match_files|gen_refuses_existing_elementwise_file|native_elementwise_error_text|native_elementwise_matches_default_cpu_ops|native_elementwise_matches_expression|native_elementwise_matches_reference_cpu_ops): test$'
+elementwise_cases_share_input_bytes: test
+elementwise_input_follows_fresh_generator: test
+elementwise_input_has_no_special_values: test
+elementwise_manifest_entries_match_files: test
+gen_refuses_existing_elementwise_file: test
+native_elementwise_error_text: test
+native_elementwise_matches_default_cpu_ops: test
+native_elementwise_matches_expression: test
+native_elementwise_matches_reference_cpu_ops: test
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、段の名前で絞って時刻までを落とす。
+
+```console
+$ gh run view 42042476628 --job 127296593691 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|summary): |^(row|count): elementwise-'
+node: v24.13.0
+wasm-bindgen: 0.2.128
+row: elementwise-relu-scalar-elementwise-scalar match
+row: elementwise-relu-scalar-elementwise-simd match
+row: elementwise-relu-simd128-elementwise-scalar match
+row: elementwise-relu-simd128-elementwise-simd match
+row: elementwise-add-scalar-scalar-elementwise-scalar match
+row: elementwise-add-scalar-scalar-elementwise-simd match
+row: elementwise-add-scalar-simd128-elementwise-scalar match
+row: elementwise-add-scalar-simd128-elementwise-simd match
+count: elementwise-relu-scalar-elementwise-scalar mismatches=0 n=1000003
+count: elementwise-relu-scalar-elementwise-simd mismatches=0 n=1000003
+count: elementwise-relu-simd128-elementwise-scalar mismatches=0 n=1000003
+count: elementwise-relu-simd128-elementwise-simd mismatches=0 n=1000003
+count: elementwise-add-scalar-scalar-elementwise-scalar mismatches=0 n=1000003
+count: elementwise-add-scalar-scalar-elementwise-simd mismatches=0 n=1000003
+count: elementwise-add-scalar-simd128-elementwise-scalar mismatches=0 n=1000003
+count: elementwise-add-scalar-simd128-elementwise-simd mismatches=0 n=1000003
+summary: rows=32 match=32 mismatch=0 not-run=0
+```
+
+(3) の出力（(2) と同じ前段に `grep -E '^input-special: '` をつなぐ）。
+
+```console
+input-special: elementwise-relu nan=0 inf=0 zero=0
+input-special: elementwise-add-scalar nan=0 inf=0 zero=0
+```
+
+(4) の出力（同じ前段に `grep -E '^recount: elementwise-|^recount-summary: '` をつなぐ）。
+
+```console
+recount: elementwise-relu-scalar-elementwise-scalar mismatches=0 n=1000003
+recount: elementwise-relu-scalar-elementwise-simd mismatches=0 n=1000003
+recount: elementwise-relu-simd128-elementwise-scalar mismatches=0 n=1000003
+recount: elementwise-relu-simd128-elementwise-simd mismatches=0 n=1000003
+recount: elementwise-add-scalar-scalar-elementwise-scalar mismatches=0 n=1000003
+recount: elementwise-add-scalar-scalar-elementwise-simd mismatches=0 n=1000003
+recount: elementwise-add-scalar-simd128-elementwise-scalar mismatches=0 n=1000003
+recount: elementwise-add-scalar-simd128-elementwise-simd mismatches=0 n=1000003
+recount-summary: rows=27 zero=27 nonzero=0 uncompared=0
+```
+
+(5) の出力（同じ前段に `grep -E '^sha256: elementwise-'` をつなぐ）。
+
+```console
+sha256: elementwise-relu-scalar-elementwise-scalar 52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588
+sha256: elementwise-relu-scalar-elementwise-simd 52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588
+sha256: elementwise-relu-simd128-elementwise-scalar 52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588
+sha256: elementwise-relu-simd128-elementwise-simd 52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588
+sha256: elementwise-add-scalar-scalar-elementwise-scalar 25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509
+sha256: elementwise-add-scalar-scalar-elementwise-simd 25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509
+sha256: elementwise-add-scalar-simd128-elementwise-scalar 25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509
+sha256: elementwise-add-scalar-simd128-elementwise-simd 25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509
+sha256: elementwise-relu.input e9b99b8c78de25bd6fcf651b4674abbb8e6525d4480ce60c5ef8f52f0061ec52
+sha256: elementwise-relu.native-scalar 52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588
+sha256: elementwise-add-scalar.input e9b99b8c78de25bd6fcf651b4674abbb8e6525d4480ce60c5ef8f52f0061ec52
+sha256: elementwise-add-scalar.native-scalar 25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509
+```
+
+(6) の出力。`Set up job` の段は `Operating System` と `Runner Image` の group の行、`Install pinned Node and wasm-bindgen CLI` の段は Node の tar の行、`Show tool versions` の段は末尾の 4 行。
+
+```console
+##[group]Operating System
+macOS
+26.6.2
+25G83
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261026.0455.2
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261026.0455/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261026.0455
+##[endgroup]
+node-v24.13.0-darwin-arm64.tar.gz: OK
+node: v24.13.0
+wasm-bindgen: wasm-bindgen 0.2.128
+jq-1.8.2
+Python 3.15.1
+```
+
+(7) の出力。
+
+```console
+$ gh run view 42042476628 --job 127296592527 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^ok: (22 bundled elementwise rows are exactly|77 reference-unavailable rows|77 the file has five rows)'
+ok: 22 bundled elementwise rows are exactly the eight (case, export, build) pairs
+ok: 77 reference-unavailable rows
+ok: 77 the file has five rows, all native-neon
+$ gh run view 42042476628 --job 127296592527 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | tail -n 1
+passed: 505, failed: 0
+```
+
+(8) の出力（`make verify` の段のうち、試験の名前を含む `running` の行から `test result:` までの塊）。
+
+```console
+$ gh run view 42042476628 --job 127296593588 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test elementwise_simd_matches_scalar_bits \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
+test elementwise_simd_matches_scalar_bits ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+$ gh run view 42042476628 --job 127296593588 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test (relu_writes_every_element|add_scalar_writes_every_element) \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
+test add_scalar_writes_every_element ... ok
+test relu_writes_every_element ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+```
+
+(9) の出力。1/4 の base は `f76f567`。
+
+```console
+$ git diff --stat f76f567..558960a -- wasm/deps-approved.toml deps-approved.toml Cargo.toml Cargo.lock wasm/Cargo.toml wasm/Cargo.lock crates .github
+$ grep -rn unsafe wasm/crates/parity-host
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -1101,3 +1254,4 @@ passed: 505, failed: 0
 | 1/4 | Node での照合に要素ごと演算の種類を足す | #6287 |
 | 2/4 | 要素ごと演算の 2 ケースの入力とネイティブの参照を host 側の道具に足す | #6288 |
 | 3/4 | 要素ごと演算の 8 行を照合の入力に足す | #6289 |
+| 4/4 | 完了の条件の確かめ | #6290 |
