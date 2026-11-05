@@ -374,6 +374,12 @@ mod tests {
         gemm_all(2, 3, 2, 6, 6, 3);
         gemm_all(2, 3, 2, 6, 6, 5);
         gemm_all(usize::MAX, 2, 2, 4, 4, 4);
+        // あふれた積が一周して 0 になり、渡した長さとちょうど一致する入力。
+        // 素の wrapping_mul に崩すと長さの検査をすり抜けるので、checked_mul の拒否を固定する。
+        let half = 1_usize << (usize::BITS - 1);
+        gemm_all(half, 2, 2, 0, 4, 0); // m×k と m×n が一周して 0
+        gemm_all(2, half, 2, 0, 0, 4); // m×k と k×n が一周して 0
+        gemm_all(0, half, 2, 0, 0, 0); // k×n だけが一周して 0
     }
 
     #[test]
