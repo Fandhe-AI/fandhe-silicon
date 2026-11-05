@@ -1,6 +1,7 @@
 //! `wasm-parity-host` の入力・参照・書き出しの試験（spec TASK-994 のポインタ）。
 //! 部分 Top-k の入力と参照の試験は spec TASK-996 のポインタ。
 //! 要素ごと演算の入力と参照の試験は spec TASK-997 のポインタ。
+//! -0.0 を含む部分 Top-k の入力と参照の試験は spec TASK-2451 のポインタ。
 //! 期待の値は生成器と `DefaultCpuOps` の呼び出しで作り、値を手で写さない。
 
 use std::ffi::OsString;
@@ -117,7 +118,7 @@ fn manifest_hashes_match_files() {
     let names = manifest_values(&text, "name");
     assert_eq!(
         names.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
     );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
@@ -442,7 +443,7 @@ fn topk_manifest_entries_match_files() {
     let keys = manifest_entry_keys(&text);
     assert_eq!(
         keys.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
     );
     let mut want = [
         "name",
@@ -631,7 +632,7 @@ fn elementwise_manifest_entries_match_files() {
     let keys = manifest_entry_keys(&text);
     assert_eq!(
         keys.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
     );
     let mut want = [
         "name",
@@ -693,4 +694,224 @@ fn gen_refuses_existing_elementwise_file() {
     assert_eq!(generate(dir.path()), Err(GenError::FileExists));
     assert_eq!(fs::read(&path).unwrap(), b"keep");
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+// ---- -0.0 を含む部分 Top-k（spec TASK-2451 のポインタ） ----
+
+use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_topk_inputs};
+use wasm_parity_host::{
+    SIGNED_ZERO_CASES, SignedZeroCaseSpec, SignedZeroSource, build_signed_zero_case,
+    build_signed_zero_cases,
+};
+
+/// 5 ケースの名前と、入力の出どころの名前（`None` は `CaseId::E4`）。表とは別に字句で持つ。
+const SIGNED_ZERO_EXPECTED: [(&str, Option<&str>); 5] = [
+    ("topk-e-4", None),
+    ("topk-signed-zero-adjacent", Some("signed_zero_adjacent")),
+    ("topk-signed-zero-separated", Some("signed_zero_separated")),
+    ("topk-signed-zero-cut-at-k", Some("signed_zero_cut_at_k")),
+    ("topk-signed-zero-repeated", Some("signed_zero_repeated")),
+];
+
+/// 出どころの名前から core の入力（スコア, k）を引く。
+fn core_signed_zero_input(source: Option<&str>) -> (Vec<f32>, usize) {
+    match source {
+        None => match CaseId::E4.input().unwrap() {
+            CaseInput::TopK { scores, k } => (scores, k),
+            _ => panic!("E4 is not a top-k input"),
+        },
+        Some(name) => {
+            let input = additional_topk_inputs()
+                .iter()
+                .find(|i| i.name() == name)
+                .unwrap();
+            (input.scores().to_vec(), input.k())
+        }
+    }
+}
+
+#[test]
+fn signed_zero_cases_match_core_inputs() {
+    let names: Vec<&str> = SIGNED_ZERO_CASES.iter().map(|s| s.name).collect();
+    let want: Vec<&str> = SIGNED_ZERO_EXPECTED.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, want);
+    let cases = build_signed_zero_cases().unwrap();
+    assert_eq!(cases.len(), SIGNED_ZERO_EXPECTED.len());
+    for (case, (name, source)) in cases.iter().zip(SIGNED_ZERO_EXPECTED) {
+        let (scores, k) = core_signed_zero_input(source);
+        assert_eq!(case.name, name);
+        assert_eq!(bits(&case.scores), bits(&scores), "{name}");
+        assert_eq!(case.k, k, "{name}");
+    }
+}
+
+#[test]
+fn signed_zero_inputs_hold_negative_zero_before_positive_zero() {
+    let dir = TempDir::new("sz-words");
+    generate(dir.path()).unwrap();
+    for (name, _) in SIGNED_ZERO_EXPECTED {
+        let words = bits(&read_f32(&dir.path().join(format!("{name}.scores.bin"))));
+        let neg = words.iter().position(|w| *w == 0x8000_0000);
+        let pos = words.iter().position(|w| *w == 0x0000_0000);
+        assert!(neg.is_some() && pos.is_some(), "{name}");
+        assert!(neg.unwrap() < pos.unwrap(), "{name}");
+    }
+}
+
+#[test]
+fn signed_zero_native_matches_core() {
+    let dir = TempDir::new("sz-native");
+    generate(dir.path()).unwrap();
+    for (case, (name, source)) in build_signed_zero_cases()
+        .unwrap()
+        .iter()
+        .zip(SIGNED_ZERO_EXPECTED)
+    {
+        let records = read_records(&dir.path().join(format!("{name}.native-scalar.bin")));
+        let expected: Vec<TopKEntry> = match source {
+            None => {
+                let output = CaseId::E4.reference().unwrap();
+                output.as_topk().unwrap().to_vec()
+            }
+            Some(input_name) => additional_topk_inputs()
+                .iter()
+                .find(|i| i.name() == input_name)
+                .unwrap()
+                .expected(),
+        };
+        let cmp = compare_topk(&expected, &entries(&records)).unwrap();
+        assert!(cmp.is_match(), "{name}");
+        assert_eq!(cmp.compared(), case.k, "{name}");
+    }
+}
+
+/// `partial_cmp` の降順（同点はスロット番号の昇順）で先頭 k 件を並べた記録のバイト列。
+/// 比べの相手にだけ使う（-0.0 と +0.0 を同点として扱う並び）。
+fn ieee_order_record_bytes(scores: &[f32], k: usize) -> Vec<u8> {
+    let mut idx: Vec<usize> = (0..scores.len())
+        .filter(|i| scores[*i].is_finite())
+        .collect();
+    idx.sort_by(|a, b| scores[*b].partial_cmp(&scores[*a]).unwrap().then(a.cmp(b)));
+    let picked: Vec<(u32, f32)> = idx
+        .iter()
+        .take(k)
+        .map(|i| (*i as u32, scores[*i]))
+        .collect();
+    topk_record_bytes(&picked)
+}
+
+#[test]
+fn signed_zero_native_differs_from_ieee_order() {
+    let dir = TempDir::new("sz-ieee");
+    generate(dir.path()).unwrap();
+    let wanted = [2usize, 2, 1, 4];
+    for ((name, _), want) in SIGNED_ZERO_EXPECTED.iter().skip(1).zip(wanted) {
+        let case = build_signed_zero_cases()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == *name)
+            .unwrap();
+        let native = fs::read(dir.path().join(format!("{name}.native-scalar.bin"))).unwrap();
+        let ieee = ieee_order_record_bytes(&case.scores, case.k);
+        assert_eq!(native.len(), case.k * 8, "{name}");
+        assert_eq!(ieee.len(), native.len(), "{name}");
+        assert_eq!(differing_records(&native, &ieee), want, "{name}");
+    }
+}
+
+#[test]
+fn signed_zero_native_has_no_non_finite_slots() {
+    let dir = TempDir::new("sz-finite");
+    generate(dir.path()).unwrap();
+    for case in build_signed_zero_cases().unwrap() {
+        let records = read_records(&dir.path().join(format!("{}.native-scalar.bin", case.name)));
+        assert_eq!(records.len(), case.k, "{}", case.name);
+        assert!(
+            records.iter().all(|(_, b)| f32::from_bits(*b).is_finite()),
+            "{}",
+            case.name
+        );
+    }
+}
+
+#[test]
+fn signed_zero_manifest_entries_match_files() {
+    let dir = TempDir::new("sz-manifest");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let keys = manifest_entry_keys(&text);
+    let before = GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len();
+    assert_eq!(keys.len(), before + SIGNED_ZERO_CASES.len());
+    let mut want = [
+        "name",
+        "kind",
+        "n",
+        "k",
+        "scores_file",
+        "native_scalar_file",
+        "scores_sha256",
+        "native_scalar_sha256",
+    ];
+    want.sort_unstable();
+    let cases = build_signed_zero_cases().unwrap();
+    for (j, case) in cases.iter().enumerate() {
+        // GEMM・Top-k・要素ごと演算の要素の後に並ぶ。`manifest_values` は鍵を持つ要素だけの列。
+        let i = before + j;
+        let k_index = GEMM_CASES.len() + TOPK_CASES.len() + j;
+        let scores_index = TOPK_CASES.len() + j;
+        let mut got: Vec<&str> = keys[i].iter().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, want);
+        assert_eq!(manifest_values(&text, "name")[i], case.name);
+        assert_eq!(manifest_values(&text, "kind")[i], "topk");
+        assert_eq!(
+            manifest_values(&text, "n")[i],
+            case.scores.len().to_string()
+        );
+        assert_eq!(manifest_values(&text, "k")[k_index], case.k.to_string());
+        let scores_file = &manifest_values(&text, "scores_file")[scores_index];
+        let native_file = &manifest_values(&text, "native_scalar_file")[i];
+        for f in [scores_file, native_file] {
+            assert!(
+                f.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'.'
+                    || b == b'-')
+            );
+        }
+        let scores_bytes = fs::read(dir.path().join(scores_file)).unwrap();
+        let native_bytes = fs::read(dir.path().join(native_file)).unwrap();
+        assert_eq!(scores_bytes.len(), case.scores.len() * 4);
+        assert_eq!(native_bytes.len(), case.k * 8);
+        assert_eq!(scores_bytes, f32_le_bytes(&case.scores));
+        assert_eq!(
+            manifest_values(&text, "scores_sha256")[scores_index],
+            hex(&sha256_bytes(&scores_bytes))
+        );
+        assert_eq!(
+            manifest_values(&text, "native_scalar_sha256")[i],
+            hex(&sha256_bytes(&native_bytes))
+        );
+    }
+}
+
+#[test]
+fn gen_refuses_existing_signed_zero_file() {
+    let dir = TempDir::new("sz-refuse");
+    let path = dir.path().join("topk-e-4.scores.bin");
+    fs::write(&path, b"keep").unwrap();
+    assert_eq!(generate(dir.path()), Err(GenError::FileExists));
+    assert_eq!(fs::read(&path).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn signed_zero_case_rejects_unknown_input_name() {
+    let spec = SignedZeroCaseSpec {
+        name: "topk-unknown",
+        source: SignedZeroSource::Additional("no-such-input"),
+    };
+    assert_eq!(
+        build_signed_zero_case(&spec).err(),
+        Some(GenError::InputFailed)
+    );
 }

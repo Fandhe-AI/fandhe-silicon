@@ -1,15 +1,16 @@
-//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケースの入力と、host の `DefaultCpuOps::gemm_scalar`・
-//! `topk_partial_scalar`・`elementwise_scalar` の出力をファイルに書く host 側の道具
-//! （spec TASK-994・PARITY-20・TASK-996・TASK-997 のポインタ）。
+//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケースの入力と、
+//! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力をファイルに書く
+//! host 側の道具（spec TASK-994・PARITY-20・TASK-996・TASK-997・TASK-2451 のポインタ）。
 //!
 //! 別 workspace `wasm/` の member。`scripts/wasm-node-check.sh` が Node で glue の出力と比べるときに読むファイルを、
-//! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`
-//! （`test-support` の裏）、参照は `fandhe-silicon-contract` の `DefaultCpuOps` を使う。
+//! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`・
+//! `parity::case_inputs`（`test-support` の裏）、参照は `fandhe-silicon-contract` の `DefaultCpuOps` を使う。
 //!
 //! 書くファイルは GEMM の 3 ケースそれぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
-//! 要素ごと演算の 2 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）と、
+//! 要素ごと演算の 2 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
+//! -0.0 を含む部分 Top-k の 5 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, UnaryElementwiseOp};
 use fandhe_silicon_core::hash::sha256_bytes;
+use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_topk_inputs};
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
 };
@@ -263,6 +265,81 @@ pub fn build_topk_case(spec: &TopkCaseSpec) -> Result<TopkCase, GenError> {
 /// 部分 Top-k の 3 ケースの入力を作る。
 pub fn build_topk_cases() -> Result<Vec<TopkCase>, GenError> {
     TOPK_CASES.iter().map(build_topk_case).collect()
+}
+
+/// -0.0 を含む部分 Top-k のケースの入力の出どころ。
+#[derive(Debug, Clone, Copy)]
+pub enum SignedZeroSource {
+    /// core の `CaseId::E4` の入力。
+    CaseE4,
+    /// core の `additional_topk_inputs()` のうち、同じ名前の入力。
+    Additional(&'static str),
+}
+
+/// -0.0 を含む部分 Top-k のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct SignedZeroCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// 入力の出どころ。
+    pub source: SignedZeroSource,
+}
+
+/// 書き出す -0.0 を含む部分 Top-k の 5 ケース（CPU-13）。長さと k は出どころの入力から取る。
+pub const SIGNED_ZERO_CASES: [SignedZeroCaseSpec; 5] = [
+    SignedZeroCaseSpec {
+        name: "topk-e-4",
+        source: SignedZeroSource::CaseE4,
+    },
+    SignedZeroCaseSpec {
+        name: "topk-signed-zero-adjacent",
+        source: SignedZeroSource::Additional("signed_zero_adjacent"),
+    },
+    SignedZeroCaseSpec {
+        name: "topk-signed-zero-separated",
+        source: SignedZeroSource::Additional("signed_zero_separated"),
+    },
+    SignedZeroCaseSpec {
+        name: "topk-signed-zero-cut-at-k",
+        source: SignedZeroSource::Additional("signed_zero_cut_at_k"),
+    },
+    SignedZeroCaseSpec {
+        name: "topk-signed-zero-repeated",
+        source: SignedZeroSource::Additional("signed_zero_repeated"),
+    },
+];
+
+/// 表の 1 行から、core の入力をそのまま使って部分 Top-k の入力を作る。
+pub fn build_signed_zero_case(spec: &SignedZeroCaseSpec) -> Result<TopkCase, GenError> {
+    match spec.source {
+        SignedZeroSource::CaseE4 => match CaseId::E4.input() {
+            Ok(CaseInput::TopK { scores, k }) => Ok(TopkCase {
+                name: spec.name,
+                k,
+                scores,
+            }),
+            _ => Err(GenError::InputFailed),
+        },
+        SignedZeroSource::Additional(name) => {
+            let input = additional_topk_inputs()
+                .iter()
+                .find(|i| i.name() == name)
+                .ok_or(GenError::InputFailed)?;
+            Ok(TopkCase {
+                name: spec.name,
+                k: input.k(),
+                scores: input.scores().to_vec(),
+            })
+        }
+    }
+}
+
+/// -0.0 を含む部分 Top-k の 5 ケースの入力を作る。
+pub fn build_signed_zero_cases() -> Result<Vec<TopkCase>, GenError> {
+    SIGNED_ZERO_CASES
+        .iter()
+        .map(build_signed_zero_case)
+        .collect()
 }
 
 /// `DefaultCpuOps::topk_partial_scalar` の出力（長さ k の（スロット番号, スコア））を返す。
@@ -543,7 +620,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケースの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -559,6 +636,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
     }
     for case in &build_elementwise_cases()? {
         outputs.push(elementwise_case_output(case)?);
+    }
+    for case in &build_signed_zero_cases()? {
+        outputs.push(topk_case_output(case)?);
     }
 
     let manifest = format!(
