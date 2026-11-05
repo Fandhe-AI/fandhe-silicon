@@ -42,3 +42,28 @@ cargo test -p fandhe-silicon-core usage_
 cargo test -p fandhe-silicon-core --test memory_usage_mapping --test memory_usage_check
 make verify
 ```
+
+## 読み戻しの元・upload の宛先・描画先からの写しの先の役割
+
+TASK-1796 の続き。上の「所在」「現状の振る舞い」は記録時点の値で、いまは `UsageRole` に次の 3 役割を `ALL` の末尾へ足した（`ALL` は 17 種、並びは既存の 14 種の後ろに下の順）。
+
+| 役割 | 対象の操作 | 要る用途 | 文言の役割の名前 |
+| ---- | ---------- | -------- | ---------------- |
+| `ReadbackSource` | `download_blocking`・`download_async` の読み出し元のバッファ | `DOWNLOAD` | `readback-source` |
+| `UploadDestination` | `upload` の宛先のバッファ | `UPLOAD` | `upload-destination` |
+| `CopyTargetToBufferDestination` | `copy_target_to_buffer` の書き込み先のバッファ | `UPLOAD` | `copy-target-to-buffer-destination` |
+
+- 判定の規則（包含で `Ok`、欠けると `InvalidArgument`、過申告は通す、空の申告は拒否）は既存の役割と同じ
+- 背後実装からこの検査を呼ぶ配線は無く、背後実装の振る舞いは変えていない
+
+対応する試験:
+
+| ファイル | 内容 |
+| -------- | ---- |
+| `crates/core/src/memory/usage_check.rs` の `usage_check_readback_upload_and_copy_target_roles` | 3 役割の要る用途、含む申告は `Ok`、含まない申告は `InvalidArgument` と文言 |
+| `crates/core/tests/memory_usage_check.rs` | 並びの表を 17 行に、全網羅を 8192 通り × 17 役割（通る・拒否が各 `4096 × 17`）、文言が役割ごとに異なること、`usage_check_readback_upload_copy_target_roles` |
+
+```bash
+cargo test -p fandhe-silicon-core usage_check
+make verify
+```

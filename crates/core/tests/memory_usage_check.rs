@@ -23,7 +23,7 @@ const ALL_USAGES: [BufferUsage; 13] = [
 ];
 
 /// 役割ごとに要る用途（実装の `required_usage` とは別に書き下す）。
-const REQUIRED: [(UsageRole, BufferUsage); 14] = [
+const REQUIRED: [(UsageRole, BufferUsage); 17] = [
     (UsageRole::MapRead, BufferUsage::MAP_READ),
     (UsageRole::MapWrite, BufferUsage::MAP_WRITE),
     (UsageRole::CopyBufferSource, BufferUsage::DOWNLOAD),
@@ -41,6 +41,12 @@ const REQUIRED: [(UsageRole, BufferUsage); 14] = [
     (UsageRole::BlasBuildInput, BufferUsage::BLAS_INPUT),
     (UsageRole::TlasBuildInput, BufferUsage::TLAS_INPUT),
     (UsageRole::Export, BufferUsage::EXPORTABLE),
+    (UsageRole::ReadbackSource, BufferUsage::DOWNLOAD),
+    (UsageRole::UploadDestination, BufferUsage::UPLOAD),
+    (
+        UsageRole::CopyTargetToBufferDestination,
+        BufferUsage::UPLOAD,
+    ),
 ];
 
 fn combo(mask: u32) -> BufferUsage {
@@ -63,7 +69,7 @@ fn usage_check_role_table_matches_expected() {
     }
 }
 
-/// 8192 通りの申告 × 14 役割で、通るのは要る用途を含むときだけ。
+/// 8192 通りの申告 × 17 役割で、通るのは要る用途を含むときだけ。
 #[test]
 fn usage_check_exhaustive_pass_iff_contains() {
     let mut passed = 0usize;
@@ -80,9 +86,9 @@ fn usage_check_exhaustive_pass_iff_contains() {
             }
         }
     }
-    assert_eq!(passed + rejected, 8192 * 14);
-    assert_eq!(passed, 4096 * 14);
-    assert_eq!(rejected, 4096 * 14);
+    assert_eq!(passed + rejected, 8192 * 17);
+    assert_eq!(passed, 4096 * 17);
+    assert_eq!(rejected, 4096 * 17);
 }
 
 #[test]
@@ -142,6 +148,9 @@ fn usage_check_message_names_role_and_missing_usage() {
         "BLAS_INPUT",
         "TLAS_INPUT",
         "EXPORTABLE",
+        "DOWNLOAD",
+        "UPLOAD",
+        "UPLOAD",
     ];
     let mut role_names = Vec::new();
     for (i, role) in UsageRole::ALL.iter().enumerate() {
@@ -155,7 +164,7 @@ fn usage_check_message_names_role_and_missing_usage() {
     }
     role_names.sort();
     role_names.dedup();
-    assert_eq!(role_names.len(), 14, "messages must differ per role");
+    assert_eq!(role_names.len(), 17, "messages must differ per role");
 }
 
 /// 頂点バッファは `VERTEX` だけを要り、`STORAGE` は要らない。
@@ -202,5 +211,41 @@ fn usage_check_reject_keeps_contents() {
                 assert_eq!(buf.bytes, before, "mask {mask:#x} {role:?}");
             }
         }
+    }
+}
+
+/// 読み戻しの元・`upload` の宛先・描画先からの写しの先の 3 役割は、要る用途を含む申告だけが通る。
+#[test]
+fn usage_check_readback_upload_copy_target_roles() {
+    let cases = [
+        (
+            UsageRole::ReadbackSource,
+            BufferUsage::DOWNLOAD,
+            BufferUsage::UPLOAD,
+        ),
+        (
+            UsageRole::UploadDestination,
+            BufferUsage::UPLOAD,
+            BufferUsage::DOWNLOAD,
+        ),
+        (
+            UsageRole::CopyTargetToBufferDestination,
+            BufferUsage::UPLOAD,
+            BufferUsage::DOWNLOAD,
+        ),
+    ];
+    for (role, required, other) in cases {
+        assert!(validate_usage_for_role(required, role).is_ok(), "{role:?}");
+        assert!(
+            validate_usage_for_role(required | other | BufferUsage::STORAGE, role).is_ok(),
+            "{role:?}"
+        );
+        assert!(
+            matches!(
+                validate_usage_for_role(other | BufferUsage::MAP_READ, role),
+                Err(ContractError::InvalidArgument(_))
+            ),
+            "{role:?}"
+        );
     }
 }

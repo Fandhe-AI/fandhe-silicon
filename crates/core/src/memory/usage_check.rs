@@ -5,8 +5,9 @@
 //! `BufferHandle::usage` の値は判定の正にしない（呼び手が `__backend_new` で作れるため）。
 //! 背後実装の API は呼ばず、確保もせず、バッファの内容にも触れない（エラーの文字列を除く）。
 //! 検査の順（device のロスト・未提供・別 device の確認との前後）は背後実装の呼び出し側が決める。
-//! 読み戻しの元・`upload` の宛先・テクスチャからバッファへのコピーの先は、
-//! 対応する [`UsageRole`] を置いていないので、この検査の対象に含まれない。
+//! 読み戻しの元・`upload` の宛先・描画先からバッファへの写しの先は、
+//! それぞれ [`UsageRole::ReadbackSource`]・[`UsageRole::UploadDestination`]・
+//! [`UsageRole::CopyTargetToBufferDestination`] で検査する。
 
 use super::buffer::BufferUsage;
 use crate::error::ContractError;
@@ -45,6 +46,12 @@ pub enum UsageRole {
     TlasBuildInput,
     /// export の対象。
     Export,
+    /// 読み戻し（`download_blocking`・`download_async`）の読み出し元のバッファ。
+    ReadbackSource,
+    /// `upload` の宛先のバッファ。
+    UploadDestination,
+    /// 描画先からバッファへの写し（`copy_target_to_buffer`）の書き込み先のバッファ。
+    CopyTargetToBufferDestination,
 }
 
 impl UsageRole {
@@ -64,6 +71,9 @@ impl UsageRole {
         Self::BlasBuildInput,
         Self::TlasBuildInput,
         Self::Export,
+        Self::ReadbackSource,
+        Self::UploadDestination,
+        Self::CopyTargetToBufferDestination,
     ];
 
     /// この役割に要る用途。常にちょうど 1 つのビットを持つ。
@@ -71,8 +81,12 @@ impl UsageRole {
         match self {
             Self::MapRead => BufferUsage::MAP_READ,
             Self::MapWrite => BufferUsage::MAP_WRITE,
-            Self::CopyBufferSource | Self::CopyBufferToTextureSource => BufferUsage::DOWNLOAD,
-            Self::CopyBufferDestination => BufferUsage::UPLOAD,
+            Self::CopyBufferSource | Self::CopyBufferToTextureSource | Self::ReadbackSource => {
+                BufferUsage::DOWNLOAD
+            }
+            Self::CopyBufferDestination
+            | Self::UploadDestination
+            | Self::CopyTargetToBufferDestination => BufferUsage::UPLOAD,
             Self::IndexBuffer => BufferUsage::INDEX,
             Self::VertexBuffer => BufferUsage::VERTEX,
             Self::UniformBinding => BufferUsage::UNIFORM,
@@ -102,6 +116,9 @@ impl UsageRole {
             Self::BlasBuildInput => "blas-build-input",
             Self::TlasBuildInput => "tlas-build-input",
             Self::Export => "export",
+            Self::ReadbackSource => "readback-source",
+            Self::UploadDestination => "upload-destination",
+            Self::CopyTargetToBufferDestination => "copy-target-to-buffer-destination",
         }
     }
 
@@ -110,8 +127,12 @@ impl UsageRole {
         match self {
             Self::MapRead => "MAP_READ",
             Self::MapWrite => "MAP_WRITE",
-            Self::CopyBufferSource | Self::CopyBufferToTextureSource => "DOWNLOAD",
-            Self::CopyBufferDestination => "UPLOAD",
+            Self::CopyBufferSource | Self::CopyBufferToTextureSource | Self::ReadbackSource => {
+                "DOWNLOAD"
+            }
+            Self::CopyBufferDestination
+            | Self::UploadDestination
+            | Self::CopyTargetToBufferDestination => "UPLOAD",
             Self::IndexBuffer => "INDEX",
             Self::VertexBuffer => "VERTEX",
             Self::UniformBinding => "UNIFORM",
@@ -160,6 +181,41 @@ mod tests {
         assert!(
             matches!(err, Err(ContractError::InvalidArgument(ref m)) if m.contains("INDEX") && m.contains("index-buffer"))
         );
+    }
+
+    #[test]
+    fn usage_check_readback_upload_and_copy_target_roles() {
+        let cases = [
+            (
+                UsageRole::ReadbackSource,
+                BufferUsage::DOWNLOAD,
+                "readback-source",
+            ),
+            (
+                UsageRole::UploadDestination,
+                BufferUsage::UPLOAD,
+                "upload-destination",
+            ),
+            (
+                UsageRole::CopyTargetToBufferDestination,
+                BufferUsage::UPLOAD,
+                "copy-target-to-buffer-destination",
+            ),
+        ];
+        for (role, required, name) in cases {
+            assert_eq!(role.required_usage(), required, "{role:?}");
+            assert!(validate_usage_for_role(required, role).is_ok(), "{role:?}");
+            let other = if required == BufferUsage::UPLOAD {
+                BufferUsage::DOWNLOAD
+            } else {
+                BufferUsage::UPLOAD
+            };
+            let err = validate_usage_for_role(other | BufferUsage::STORAGE, role);
+            assert!(
+                matches!(err, Err(ContractError::InvalidArgument(ref m)) if m.contains(name)),
+                "{role:?}"
+            );
+        }
     }
 
     #[test]
