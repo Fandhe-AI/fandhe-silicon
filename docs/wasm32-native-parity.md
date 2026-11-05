@@ -493,3 +493,12 @@ $ grep -n 'must be empty\|samefile' scripts/wasm-node-check.sh
 | 3/5 | GEMM の 3 ケースの 9 行を照合の入力に足す | #6273 |
 | 4/5 | 照合の出力の保存と保存先からの数え直し | #6274 |
 | 5/5 | 完了の条件の確かめ | #6275 |
+
+## 今の値の補い（base 5ea11ff）
+
+記録時点の表と既存の節は書き換えない。以下は base `5ea11ff` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `make test-wasm-node-check` の最終行（「今の値の補い（base 55c2789）」の `passed: 337, failed: 0`） | `passed: 337, failed: 0` → `passed: 342, failed: 0`。4/5 の節の `229` と 5/5 の節の `328` は記録時点の値のまま | `make test-wasm-node-check` |
+| 5/5 の節の `make wasm-node-check` の CI の run の後の main の run | run `42004939587`（`b7efe77`）は attempt 2 が `success`。ログの行は `summary: rows=14 match=14 mismatch=0 not-run=0`・`recount-summary: rows=9 zero=9 nonzero=0 uncompared=0` | `gh run view 42004939587 -R Fandhe-AI/fandhe-silicon --json attempt,conclusion` |
