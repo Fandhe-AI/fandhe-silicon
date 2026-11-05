@@ -4,11 +4,19 @@
 # 呼び出し元: `make wasm-node-check`（直接実行も可）。CI では `wasm-macos` ジョブが呼ぶ（回帰テストは
 # `make test-wasm-node-check`＝scripts/test-wasm-node-check.sh。CI の deny ジョブが呼ぶ）。
 #
-# 使い方: scripts/wasm-node-check.sh [--wasm <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]
+# 使い方: scripts/wasm-node-check.sh [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--output-dir <dir>]
+#   [--record-dir <dir> --record-combination <name>]
+#        scripts/wasm-node-check.sh --recount <dir>
 #   --wasm  既にある scalar の .wasm を使う（cargo を呼ばない）。省略時は行が使うビルドだけを
 #           `-p wasm-glue` で --profile wasm-size でビルドする（simd128 は +simd128 と別の target ディレクトリ）
 #   --wasm-simd128 既にある simd128 の .wasm（TASK-994）。どちらかの口を渡したら cargo でビルドしない
 #   --cases 照合の入力の JSON（既定: wasm/node/cases.json）
+#   --output-dir 選んだときだけ、native-scalar の生成の行の保存の形（manifest・入力・参照・wasm の出力・outputs.json）
+#           を <dir> へ新しく書く（TASK-994。書き出し先の規則は --record-dir と同じで、加えて空のディレクトリに限り --record-dir と別のディレクトリであること。native-scalar の生成の行が無い入力では
+#           終了コード 2）
+#   --recount 保存の形のディレクトリだけから件数を数え直して `recount:` の行を出す（TASK-994。ほかの口とは併用できない。
+#           python3 だけを要り、node・wasm-bindgen・cargo は要らない。終了コード 0 全行の件数が 0・1 件数が 0 でない行か
+#           比べなかった行がある・2 誤用・読めない・形の不正・sha256 の違い）
 #   --record-dir / --record-combination  選んだときだけ、行の結果を試験の枠の記録の部品
 #           （`<行の id>.<組み合わせ>.json`）として <dir> へ書く（必ず組で渡す。既定なし）。<dir> は既存のディレクトリで、
 #           ファイルは新しく作る（上書きしない）。記録は本リポに置かず、パスは引数で受ける
@@ -25,6 +33,9 @@
 # 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
 # `not-run (reference-unavailable)`、作れる出どころで参照（reference）が無い行は `not-run (reference-missing)` にする。
 # どちらも一致扱いにしない。出どころを先に見る。TASK-23 のラベルへの写しは crates/core/src/rerun/reference.rs（TASK-29）。
+# 保存と数え直し（TASK-994）: native-scalar の生成の行が 1 行以上ある実行は、判定のあと作業の一時ディレクトリに保存の形を
+# 作り、同じ関数（recount_form）で保存の形だけから数え直して判定の件数と突き合わせる（違えば終了コード 2）。
+# `recount:` の行は比べた行、`recount-uncompared:` の行は比べなかった行（呼び出しの失敗・語の数の違い）。
 # 部品の書き出し（TASK-29 の追加の葉）: 判定のあと、標準出力へ印字する前に python3 の中で書く。書けなければ
 # row・summary を出さずに終了コード 2 にする。行の状態から枠のラベルへの写し（ROW_LABELS）と組み合わせ → 機材の表
 # （COMBINATIONS）は目印の間に置き、crates/core/tests/rerun_node_record.rs が RowState・MachineCombination と
@@ -41,7 +52,7 @@ source "${DIR}/lib.sh"
 NODE_EXPECTED="v24.13.0"
 GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
 NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
-USAGE="usage: $(basename "$0") [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--record-dir <dir> --record-combination <name>]"
+USAGE="usage: $(basename "$0") [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--output-dir <dir>] [--record-dir <dir> --record-combination <name>] | --recount <dir>"
 
 # 相対パスは呼び出し元の cwd 基準で絶対パスにする（後でリポジトリルートへ cd しても同じファイルを指させる）。
 abspath() {
@@ -52,7 +63,7 @@ abspath() {
 }
 
 # 入力の検査と判定（固定の文字列。入力のパスは引数で渡し、値はシェルに触れさせない）。
-# 引数: validate <cases> [dir combo] / inputs <cases> <dir> / judge <cases> <results> <inputs|-> <outputs> [dir combo]。終了コード 0 / 1（judge の不一致・未実施・行 0 件）/ 2（入力が不正）。
+# 引数: validate <cases> <outdir|-> [dir combo] / inputs <cases> <dir> / judge <cases> <results> <inputs|-> <outputs> <saved> <outdir|-> [dir combo] / recount <dir>。終了コード 0 / 1（judge の不一致・未実施・行 0 件）/ 2（入力が不正）。
 read -r -d '' PY_CODE <<'PY' || true
 import hashlib
 import json
@@ -122,28 +133,51 @@ def machine_of(combination):
     return None
 
 
-def record_dir(path, combination):
-    # 書き出し先の検査（export.rs の check_dir と同じ規則）。絶対パス・`..` 無し・末尾の区切りと `.` は字句で落とす・
-    # 存在する・ディレクトリ・シンボリックリンクでない。エラーに引数の値は入れない。
-    if machine_of(combination) is None:
-        die("unknown record combination")
+def check_dir(path, what):
+    # 書き出し先・読み取り元の検査（export.rs の check_dir と同じ規則）。絶対パス・`..` 無し・末尾の区切りと `.` は
+    # 字句で落とす・存在する・ディレクトリ・シンボリックリンクでない。エラーに引数の値は入れない。
     if not path.startswith("/"):
-        die("record dir must be absolute")
+        die(what + " must be absolute")
     parts = [p for p in path.split("/") if p not in ("", ".")]
     if ".." in parts:
-        die("record dir must not contain a parent component")
+        die(what + " must not contain a parent component")
     norm = "/" + "/".join(parts)
     try:
         st = os.lstat(norm)
     except FileNotFoundError:
-        die("record dir does not exist")
+        die(what + " does not exist")
     except OSError:
-        die("cannot inspect record dir")
+        die("cannot inspect " + what)
     if stat.S_ISLNK(st.st_mode):
-        die("record dir must not be a symbolic link")
+        die(what + " must not be a symbolic link")
     if not stat.S_ISDIR(st.st_mode):
-        die("record dir is not a directory")
+        die(what + " is not a directory")
     return norm
+
+
+def out_dir(path):
+    # 保存先（--output-dir）は空のディレクトリに限る。空でないと保存に成功しても --recount の完全一致検査が落ちる。
+    norm = check_dir(path, "output dir")
+    try:
+        if os.listdir(norm):
+            die("output dir must be empty")
+    except OSError:
+        die("cannot inspect output dir")
+    return norm
+
+
+def same_dir(a, b):
+    # 保存先と記録先が同じディレクトリを指すか（記録の部品が保存先の余分なファイルになるため禁じる）。
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def record_dir(path, combination):
+    if machine_of(combination) is None:
+        die("unknown record combination")
+    return check_dir(path, "record dir")
 
 
 def part_json(rid, combination, label, reason):
@@ -160,20 +194,20 @@ def part_json(rid, combination, label, reason):
     return json.dumps(rec, separators=(",", ":"), ensure_ascii=True) + "\n"
 
 
-def write_parts(norm, combination, outs):
-    # 新しいファイルだけを作る（O_EXCL。リンクは辿らない）。失敗したらこの実行で作ったものを全部消し、終了コード 2。
+def write_new(norm, items, what):
+    # 新しいファイルだけを作る（O_EXCL。リンクは辿らない）。items は (名前, バイト列) の列。
+    # 失敗したらこの実行で作ったものを全部消し、終了コード 2。作った名前の列を返す。
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     created = []
     failed = False
     dfd = -1
     try:
         dfd = os.open(norm, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
-        for rid, label, reason in outs:
-            name = "%s.%s.json" % (rid, combination)
+        for name, data in items:
             fd = os.open(name, flags, 0o644, dir_fd=dfd)
             created.append(name)
-            with os.fdopen(fd, "w", encoding="ascii") as f:
-                f.write(part_json(rid, combination, label, reason))
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
     except OSError:
         failed = True
     if failed:
@@ -185,8 +219,27 @@ def write_parts(norm, combination, outs):
                 left = True
         if dfd >= 0:
             os.close(dfd)
-        die("cannot write record parts, nothing was kept" if not left else "cannot write record parts and cleanup was incomplete")
+        die("cannot write %s, nothing was kept" % what if not left else "cannot write %s and cleanup was incomplete" % what)
     os.close(dfd)
+    return created
+
+
+def remove_written(norm, names):
+    # 先に書き終えた口の書き出しを、後の口の失敗で取り消す（この実行で作った名前だけ）。
+    try:
+        dfd = os.open(norm, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return
+    for name in names:
+        try:
+            os.unlink(name, dir_fd=dfd)
+        except OSError:
+            pass
+    os.close(dfd)
+
+
+def write_parts(norm, combination, outs):
+    write_new(norm, [("%s.%s.json" % (rid, combination), part_json(rid, combination, label, reason).encode("ascii")) for rid, label, reason in outs], "record parts")
 
 
 def load_cases(path):
@@ -251,6 +304,21 @@ def load_cases(path):
     return rows
 
 
+def load_regular_json(path):
+    # 通常のファイルだけを JSON として読む。リンクは辿らず（O_NOFOLLOW）、FIFO などで open が待たないよう
+    # O_NONBLOCK で開き、fstat で通常のファイルと確かめてから読む。失敗は OSError・ValueError。
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        with os.fdopen(fd, encoding="utf-8") as f:
+            fd = -1
+            return json.load(f)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def load_manifest(dirpath, rows):
     # host 側の道具の出力（manifest.json と .bin）を読んで照らす。ファイル名は文字種と `..`・先頭の `.` で拒否し、
     # 通常のファイルであること・sha256・長さを確かめる。エラーに引数のパスの値は入れない。
@@ -258,8 +326,7 @@ def load_manifest(dirpath, rows):
         return isinstance(n, str) and FILE_NAME.match(n) is not None and ".." not in n and not n.startswith(".")
 
     try:
-        with open(os.path.join(dirpath, "manifest.json"), encoding="utf-8") as f:
-            m = json.load(f)
+        m = load_regular_json(os.path.join(dirpath, "manifest.json"))
     except (OSError, ValueError):
         die("cannot read manifest")
     if not isinstance(m, dict) or set(m) != {"cases"} or not isinstance(m["cases"], list):
@@ -351,13 +418,147 @@ def load_results(path, rows, outputs):
     return res
 
 
+def case_sha_lines(manifest_cases, used_cases):
+    # ケースごとの入力・参照の sha256 の行（manifest のケースの順）。
+    out = []
+    for c in manifest_cases:
+        if c["name"] in used_cases:
+            out.append("sha256: %s.a %s" % (c["name"], c["a_sha256"]))
+            out.append("sha256: %s.b %s" % (c["name"], c["b_sha256"]))
+            out.append("sha256: %s.native-scalar %s" % (c["name"], c["native_scalar_sha256"]))
+    return out
+
+
+def recount_form(d):
+    # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
+    # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
+    try:
+        return recount_form_inner(d)
+    except Exception:
+        die("cannot read saved directory")
+
+
+def recount_form_inner(d):
+    try:
+        o = load_regular_json(os.path.join(d, "outputs.json"))
+    except (OSError, ValueError):
+        die("cannot read outputs.json")
+    if not isinstance(o, dict) or set(o) != {"rows"} or not isinstance(o["rows"], list) or not o["rows"]:
+        die("outputs.json must be an object with a non-empty rows list")
+    keys = {"id", "export", "build", "case", "output_file", "output_sha256"}
+    rows = []
+    seen = set()
+    for e in o["rows"]:
+        if not isinstance(e, dict) or set(e) != keys:
+            die("outputs.json row has missing or unknown keys")
+        rid = e["id"]
+        if not isinstance(rid, str) or not ID.match(rid) or rid in seen:
+            die("outputs.json row id is invalid or repeated")
+        seen.add(rid)
+        if e["export"] not in GEN_EXPORTS or e["build"] not in BUILDS:
+            die("outputs.json row has an unknown export or build")
+        if not isinstance(e["case"], str) or not ID.match(e["case"]):
+            die("outputs.json row case is invalid")
+        of, osha = e["output_file"], e["output_sha256"]
+        if of is None:
+            if osha is not None:
+                die("outputs.json row output entry is inconsistent")
+        elif of != rid + ".bin" or not isinstance(osha, str) or not SHA.match(osha):
+            die("outputs.json row output entry is invalid")
+        rows.append({"id": rid, "case": e["case"], "gen": True, "has_out": of is not None, "sha": osha})
+    manifest_cases, cases = load_manifest(d, rows)
+    expected = ["manifest.json", "outputs.json"]
+    for c in manifest_cases:
+        expected += [c["a_file"], c["b_file"], c["native_scalar_file"]]
+    expected += [r["id"] + ".bin" for r in rows if r["has_out"]]
+    if len(set(expected)) != len(expected) or set(os.listdir(d)) != set(expected):
+        die("saved directory has missing, unexpected or repeated files")
+    for name in expected:
+        if not stat.S_ISREG(os.lstat(os.path.join(d, name)).st_mode):
+            die("saved directory entry is not a regular file")
+    compared = {}
+    uncompared = set()
+    rec_lines = []
+    sha_lines = []
+    for r in rows:
+        rid = r["id"]
+        if not r["has_out"]:
+            uncompared.add(rid)
+            rec_lines.append("recount-uncompared: %s" % rid)
+            continue
+        with open(os.path.join(d, rid + ".bin"), "rb") as f:
+            data = f.read()
+        if hashlib.sha256(data).hexdigest() != r["sha"]:
+            die("saved output sha256 mismatch")
+        if len(data) % 4 != 0:
+            die("saved output length is not a multiple of 4")
+        with open(cases[r["case"]]["files"]["native_scalar_file"][0], "rb") as f:
+            want = f.read()
+        if len(data) != len(want):
+            uncompared.add(rid)
+            rec_lines.append("recount-uncompared: %s" % rid)
+            continue
+        diff = sum(1 for i in range(0, len(want), 4) if data[i:i + 4] != want[i:i + 4])
+        compared[rid] = (diff, len(want) // 4)
+        rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // 4))
+        sha_lines.append("sha256: %s %s" % (rid, r["sha"]))
+    sha_lines += case_sha_lines(manifest_cases, {r["case"] for r in rows})
+    zero = sum(1 for v in compared.values() if v[0] == 0)
+    summary = "recount-summary: rows=%d zero=%d nonzero=%d uncompared=%d" % (len(rows), zero, len(compared) - zero, len(uncompared))
+    return {"compared": compared, "uncompared": uncompared, "rec_lines": rec_lines, "sha_lines": sha_lines, "summary": summary}
+
+
+def form_items(inputs, manifest_cases, form_rows):
+    # 保存の形のファイル（名前 → バイト列）。manifest と入力・参照はそのまま写し、wasm の出力は native-scalar の
+    # 生成の行のものだけを入れる。
+    items = {}
+
+    def put(name, data):
+        if name in items:
+            die("saved form name collision")
+        items[name] = data
+
+    with open(os.path.join(inputs, "manifest.json"), "rb") as f:
+        put("manifest.json", f.read())
+    for c in manifest_cases:
+        for fk in ("a_file", "b_file", "native_scalar_file"):
+            with open(os.path.join(inputs, c[fk]), "rb") as f:
+                put(c[fk], f.read())
+    out_rows = []
+    for rid, r, kind, val in form_rows:
+        has = kind == "file"
+        if has:
+            put(rid + ".bin", val)
+        out_rows.append({
+            "id": rid,
+            "export": r["export"],
+            "build": r["build"],
+            "case": r["case"],
+            "output_file": rid + ".bin" if has else None,
+            "output_sha256": hashlib.sha256(val).hexdigest() if has else None,
+        })
+    put("outputs.json", (json.dumps({"rows": out_rows}, indent=2, ensure_ascii=True) + "\n").encode("ascii"))
+    return list(items.items())
+
+
 def main():
     mode = sys.argv[1]
+    if mode == "recount":
+        res = recount_form(check_dir(sys.argv[2], "saved dir"))
+        for ln in res["rec_lines"] + res["sha_lines"] + [res["summary"]]:
+            print(ln)
+        return 0 if not any(v[0] for v in res["compared"].values()) and not res["uncompared"] else 1
     rows = load_cases(sys.argv[2])
     if mode == "validate":
         # 書き出しを選んだときだけ組み合わせと書き出し先を検査する。要るビルドと生成の入力の有無を語で返す。
-        if sys.argv[3:]:
-            record_dir(sys.argv[3], sys.argv[4])
+        if sys.argv[3] != "-":
+            vout = out_dir(sys.argv[3])
+            if not any(r["gen"] and r["src"] == "native-scalar" for r in rows):
+                die("output dir needs native-scalar generated rows")
+        if sys.argv[4:]:
+            vrec = record_dir(sys.argv[4], sys.argv[5])
+            if sys.argv[3] != "-" and same_dir(vout, vrec):
+                die("output dir and record dir must differ")
         needs = [b for b in BUILDS if any(r["build"] == b for r in rows)]
         if any(r["gen"] for r in rows):
             needs.append("generated")
@@ -367,11 +568,16 @@ def main():
     if mode == "inputs":
         load_manifest(sys.argv[3], rows)
         return 0
-    results_path, inputs, outputs = sys.argv[3], sys.argv[4], sys.argv[5]
-    extra = sys.argv[6:]
+    results_path, inputs, outputs, saved, out_arg = sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
+    extra = sys.argv[8:]
+    norm_out = None
+    if out_arg != "-":
+        norm_out = out_dir(out_arg)
     norm = None
     if extra:
         norm = record_dir(extra[0], extra[1])
+        if norm_out is not None and same_dir(norm_out, norm):
+            die("output dir and record dir must differ")
     manifest_cases = []
     cases = {}
     if any(r["gen"] for r in rows):
@@ -384,12 +590,18 @@ def main():
     outs = []
     cmp_lines = []
     used_cases = set()
+    # native-scalar の生成の行の保存と数え直しの突き合わせ用。
+    form_rows = []
+    j_compared = {}
+    j_uncompared = set()
     for r in rows:
         rid, ref, src = r["id"], r["ref"], r["src"]
         kind, val = res[rid]
         detail = ""
         if r["gen"] and src == "native-scalar":
             used_cases.add(r["case"])
+            form_rows.append((rid, r, kind, val))
+            j_uncompared.add(rid)
         if src not in PRODUCIBLE:
             state = "not-run"
             detail = "reference-unavailable"
@@ -413,6 +625,9 @@ def main():
                     detail = "mismatches %d/%d" % (diff, nwords)
                 cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
                 cmp_lines.append("sha256: %s %s" % (rid, hashlib.sha256(val).hexdigest()))
+                if src == "native-scalar":
+                    j_compared[rid] = (diff, nwords)
+                    j_uncompared.discard(rid)
         elif val == ref:
             state = "match"
         else:
@@ -429,17 +644,34 @@ def main():
                 outs.append((rid, label, label_reason))
         if len(outs) != len(lines):
             die("no label for a row state")
+    rec_extra = []
+    written = []
+    if form_rows:
+        # 保存の形を作業の一時ディレクトリへ書き、保存の形だけから数え直して判定の件数と突き合わせる。
+        items = form_items(inputs, manifest_cases, form_rows)
+        saved_abs = os.path.abspath(saved)
+        write_new(saved_abs, items, "saved form")
+        rc_res = recount_form(saved_abs)
+        if rc_res["compared"] != j_compared or rc_res["uncompared"] != j_uncompared:
+            die("recount disagrees")
+        rec_extra = rc_res["rec_lines"] + [rc_res["summary"]]
+        if norm_out is not None:
+            written = write_new(norm_out, items, "saved outputs")
     if norm is not None and rows:
-        write_parts(norm, extra[1], outs)
+        try:
+            write_parts(norm, extra[1], outs)
+        except SystemExit:
+            if norm_out is not None:
+                remove_written(norm_out, written)
+            raise
     for ln in lines:
         print(ln)
     for ln in cmp_lines:
         print(ln)
-    for c in manifest_cases:
-        if c["name"] in used_cases:
-            print("sha256: %s.a %s" % (c["name"], c["a_sha256"]))
-            print("sha256: %s.b %s" % (c["name"], c["b_sha256"]))
-            print("sha256: %s.native-scalar %s" % (c["name"], c["native_scalar_sha256"]))
+    for ln in case_sha_lines(manifest_cases, used_cases):
+        print(ln)
+    for ln in rec_extra:
+        print(ln)
     print("summary: rows=%d match=%d mismatch=%d not-run=%d" % (len(rows), counts["match"], counts["mismatch"], counts["not-run"]))
     if not rows:
         print("error: no rows", file=sys.stderr)
@@ -463,33 +695,50 @@ need() {
 main() {
   local wasm_arg="" wasm_simd_arg="" cases="${ROOT_DIR}/wasm/node/cases.json"
   local rec_dir="" rec_combo="" have_dir=0 have_combo=0
+  local out_dir="" recount_dir="" others=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --wasm)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
         wasm_arg="$(abspath "$2")"
+        others=1
         shift 2
         ;;
       --wasm-simd128)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
         wasm_simd_arg="$(abspath "$2")"
+        others=1
         shift 2
         ;;
       --cases)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
         cases="$(abspath "$2")"
+        others=1
         shift 2
         ;;
       --record-dir)
         [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "${USAGE}" >&2; exit 2; }
         rec_dir="$(abspath "$2")"
         have_dir=1
+        others=1
         shift 2
         ;;
       --record-combination)
         [ "$#" -ge 2 ] || { echo "${USAGE}" >&2; exit 2; }
         rec_combo="$2"
         have_combo=1
+        others=1
+        shift 2
+        ;;
+      --output-dir)
+        [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "${USAGE}" >&2; exit 2; }
+        out_dir="$(abspath "$2")"
+        others=1
+        shift 2
+        ;;
+      --recount)
+        [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "${USAGE}" >&2; exit 2; }
+        recount_dir="$(abspath "$2")"
         shift 2
         ;;
       *)
@@ -500,6 +749,15 @@ main() {
   done
   # 書き出しは 2 つを組で選ぶ（片方だけは誤用）。
   [ "${have_dir}" = "${have_combo}" ] || { echo "${USAGE}" >&2; exit 2; }
+
+  # 数え直しは保存の形だけを読む。ほかの口とは併用できず、node・wasm-bindgen・cargo を要らない。
+  if [ -n "${recount_dir}" ]; then
+    [ "${others}" = 0 ] || { echo "${USAGE}" >&2; exit 2; }
+    need python3
+    local rrc=0
+    python3 -I -c "${PY_CODE}" recount "${recount_dir}" || rrc=$?
+    exit "${rrc}"
+  fi
 
   need node
   need wasm-bindgen
@@ -523,7 +781,7 @@ main() {
   # 入力を検査し、要るビルドと生成の入力の有無を語で受ける（書き出しを選んだときは組み合わせと書き出し先も、
   # .wasm のビルドより前に検査する。${rec_dir:+...} は選ばないと 0 語）。語は標準出力に出さない。
   local needs
-  needs="$(python3 -I -c "${PY_CODE}" validate "${cases}" ${rec_dir:+"${rec_dir}" "${rec_combo}"})" || exit "$?"
+  needs="$(python3 -I -c "${PY_CODE}" validate "${cases}" "${out_dir:--}" ${rec_dir:+"${rec_dir}" "${rec_combo}"})" || exit "$?"
   local need_scalar=0 need_simd=0 need_gen=0 w
   for w in ${needs}; do
     case "${w}" in
@@ -596,12 +854,12 @@ main() {
     [ -s "${glue_simd}" ] || die2 "glue was not generated: ${base}.js"
   fi
 
-  local results="${work}/results.jsonl" outputs="${work}/outputs"
-  mkdir "${outputs}"
+  local results="${work}/results.jsonl" outputs="${work}/outputs" saved="${work}/saved"
+  mkdir "${outputs}" "${saved}"
   node "${NODE_SCRIPT}" "${glue_scalar}" "${cases}" "${results}" "${glue_simd}" "${inputs}" "${outputs}" >&2 || die2 "node run failed"
 
   local rc=0
-  python3 -I -c "${PY_CODE}" judge "${cases}" "${results}" "${inputs}" "${outputs}" ${rec_dir:+"${rec_dir}" "${rec_combo}"} || rc=$?
+  python3 -I -c "${PY_CODE}" judge "${cases}" "${results}" "${inputs}" "${outputs}" "${saved}" "${out_dir:--}" ${rec_dir:+"${rec_dir}" "${rec_combo}"} || rc=$?
   exit "${rc}"
 }
 

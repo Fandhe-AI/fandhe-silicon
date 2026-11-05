@@ -1066,6 +1066,377 @@ expect "50 missing --wasm-simd128 value" 2 "usage:"
 reset_gen
 res_ok
 
+# ---- 出力の保存と保存先からの数え直し（TASK-994 の 4/5） ----
+
+# 2 ケース・2 行の gen.json の保存の形のファイル名。
+SAVED_NAMES="g-scalar.bin g-simd.bin gemm-a.a.bin gemm-a.b.bin gemm-a.native-scalar.bin gemm-b.a.bin gemm-b.b.bin gemm-b.native-scalar.bin manifest.json outputs.json"
+# dir_names_ok <dir> <空白区切りの名前>: ディレクトリの直下の名前の集合が完全一致で、全部が通常のファイル（0 なら成功）。
+dir_names_ok() {
+  python3 -I -c 'import os, sys
+d = sys.argv[1]
+got = set(os.listdir(d))
+ok = got == set(sys.argv[2].split()) and all(os.path.isfile(os.path.join(d, n)) and not os.path.islink(os.path.join(d, n)) for n in got)
+sys.exit(0 if ok else 1)' "$1" "$2" && echo 0 || echo 1
+}
+
+# 51. --output-dir: 名前の集合・中身・sha256 の行・出力の不変
+gen_setup
+gw --cases "${fix}/gen.json"
+cp "${OUT_F}" "${work}/o51-without.txt"
+newdir out51
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out51"
+expect "51 --output-dir writes the saved form" 0 "summary: rows=2 match=2" "!${work}/out51"
+check "51 the file names are exactly the saved form" "$(dir_names_ok "${work}/out51" "${SAVED_NAMES}")"
+check "51 manifest and inputs are copied byte for byte" "$(python3 -I -c 'import os, sys
+hf, o = sys.argv[1:3]
+names = os.listdir(hf)
+ok = all(open(os.path.join(hf, n), "rb").read() == open(os.path.join(o, n), "rb").read() for n in names)
+ok = ok and open(os.path.join(hf, "gemm-a.native-scalar.bin"), "rb").read() == open(os.path.join(o, "g-scalar.bin"), "rb").read()
+sys.exit(0 if ok else 1)' "${fix}/hf" "${work}/out51" && echo 0 || echo 1)"
+check "51 sha256 of each saved output is the sha256 line of the run" "$(python3 -I -c 'import hashlib, json, os, sys
+o, out = sys.argv[1:3]
+txt = open(out).read()
+rows = json.load(open(os.path.join(o, "outputs.json")))["rows"]
+ok = len(rows) == 2
+for r in rows:
+    h = hashlib.sha256(open(os.path.join(o, r["id"] + ".bin"), "rb").read()).hexdigest()
+    ok = ok and h == r["output_sha256"] and ("sha256: " + r["id"] + " " + h + "\n") in txt
+ok = ok and all(set(r) == {"id", "export", "build", "case", "output_file", "output_sha256"} for r in rows)
+sys.exit(0 if ok else 1)' "${work}/out51" "${OUT_F}" && echo 0 || echo 1)"
+check "51 stdout is the same with and without --output-dir" "$(cmp -s "${OUT_F}" "${work}/o51-without.txt" && echo 0 || echo 1)"
+
+# 52. 上書きしない・リンクを辿らない・record の失敗で消える
+newdir out52
+echo keep >"${work}/out52/outputs.json"
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52"
+expect "52 existing file is not overwritten" 2 "error:" "!summary:" "!row:" "!${work}"
+check "52 existing content kept and nothing else left" "$([ "$(cat "${work}/out52/outputs.json")" = keep ] && [ "$(nfiles "${work}/out52")" = 1 ] && echo 0 || echo 1)"
+newdir out52b
+echo target >"${work}/out52b-target"
+ln -s "${work}/out52b-target" "${work}/out52b/g-simd.bin"
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52b"
+expect "52 symlink with the same name is not followed" 2 "error:" "!summary:"
+check "52 symlink target untouched and nothing else left" "$([ "$(cat "${work}/out52b-target")" = target ] && [ "$(find "${work}/out52b" -type f | wc -l | tr -d ' ')" = 0 ] && echo 0 || echo 1)"
+newdir out52c
+newdir rec52c
+echo keep >"${work}/rec52c/g-scalar.metal-mac-mini.json"
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52c" --record-dir "${work}/rec52c" --record-combination metal-mac-mini
+expect "52 a failed record write removes the saved outputs" 2 "error:" "!summary:" "!row:"
+check "52 nothing left in either directory but the existing record" "$([ "$(nfiles "${work}/out52c")" = 0 ] && [ "$(nfiles "${work}/rec52c")" = 1 ] && echo 0 || echo 1)"
+
+# 52d. 空でない保存先と、保存先と記録先が同じディレクトリは保存の前に 2
+newdir out52d
+echo other >"${work}/out52d/unrelated.txt"
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52d"
+expect "52 non-empty output dir is refused" 2 "output dir must be empty" "!summary:" "!row:"
+check "52 non-empty output dir left as it was" "$([ "$(nfiles "${work}/out52d")" = 1 ] && echo 0 || echo 1)"
+newdir out52e
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out52e" --record-dir "${work}/out52e" --record-combination metal-mac-mini
+expect "52 same output and record dir is refused" 2 "must differ" "!summary:" "!row:"
+check "52 same dir left empty" "$([ "$(nfiles "${work}/out52e")" = 0 ] && echo 0 || echo 1)"
+check "52 node body not started (non-empty / same dir)" "$(no_node_started)"
+
+# 53. 不正な書き出し先と値の欠け
+newdir out53
+ln -sfn "${work}/out53" "${work}/dirs/link53"
+bad_out() {
+  gen_setup
+  gw --cases "${fix}/gen.json" --output-dir "$1"
+  expect "53 invalid output dir ($2)" 2 "error:" "!summary:" "!$1"
+  check "53 node body not started ($2)" "$(no_node_started)"
+}
+bad_out "${work}/dirs/missing" "missing"
+bad_out "${work}/dirs/afile" "file"
+bad_out "${work}/dirs/link53" "symlink"
+bad_out "${work}/dirs/link53/" "symlink with slash"
+bad_out "${work}/dirs/link53/." "symlink with dot"
+bad_out "${work}/dirs/../out53" "parent component"
+check "53 nothing written through the symlink" "$([ "$(nfiles "${work}/out53")" = 0 ] && echo 0 || echo 1)"
+w --wasm "${DW}" --output-dir
+expect "53 --output-dir without value" 2 "usage:"
+w --wasm "${DW}" --output-dir ""
+expect "53 empty --output-dir" 2 "usage:"
+gen_setup
+rc=0
+(cd "${work}" && "${BASH}" "${WNC}" --wasm "${DW}" --wasm-simd128 "${DW}" --cases "${fix}/gen.json" --output-dir out53 >"${OUT_F}" 2>"${ERR_F}" </dev/null) || rc=$?
+expect "53 relative output dir resolves from the caller cwd" 0 "summary: rows=2 match=2"
+check "53 relative output dir got the saved form" "$(dir_names_ok "${work}/out53" "${SAVED_NAMES}")"
+
+# 54. native-scalar の生成の行が無い入力で --output-dir は 2
+newdir out54
+for f in isa gen-neon empty; do
+  gen_setup
+  gw --cases "${fix}/${f}.json" --output-dir "${work}/out54"
+  expect "54 --output-dir with no native-scalar generated row (${f})" 2 "needs native-scalar generated rows" "!summary:"
+  check "54 node body not started (${f})" "$(no_node_started)"
+done
+check "54 nothing written" "$([ "$(nfiles "${work}/out54")" = 0 ] && echo 0 || echo 1)"
+
+# 55. native-neon の生成の行は保存の形に入らない
+cat >"${fix}/gen-mixed.json" <<'JSON'
+{"rows": [
+  {"id": "g-scalar", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "g-neon", "export": "gemm_simd", "build": "simd128", "case": "gemm-b", "reference_source": "native-neon"}
+]}
+JSON
+gen_setup
+printf '%s\n' 'g-scalar gemm-a' 'g-neon gemm-b' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"g-neon","output_file":"g-neon.bin"}' >"${FAKE_RESULTS}"
+newdir out55
+gw --cases "${fix}/gen-mixed.json" --output-dir "${work}/out55"
+expect "55 mixed native-scalar and native-neon rows" 1 "row: g-scalar match" "row: g-neon not-run (reference-unavailable)" "recount: g-scalar mismatches=0 n=4" "recount-summary: rows=1 zero=1 nonzero=0 uncompared=0"
+check "55 the neon output is not saved and not in outputs.json or the recount lines" "$([ ! -e "${work}/out55/g-neon.bin" ] && [ -e "${work}/out55/g-scalar.bin" ] && ! grep -q 'g-neon' "${work}/out55/outputs.json" && ! grep -q '^recount.*g-neon' "${OUT_F}" && echo 0 || echo 1)"
+
+# 56. --recount: 0 と出力の形
+gen_setup
+gw --cases "${fix}/gen.json"
+grep '^sha256: ' "${OUT_F}" >"${work}/sha-run.txt"
+newdir out56
+gen_setup
+gw --cases "${fix}/gen.json" --output-dir "${work}/out56"
+w --recount "${work}/out56"
+expect "56 --recount all zero" 0 "recount: g-scalar mismatches=0 n=4" "recount: g-simd mismatches=0 n=4" "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0" "sha256: g-scalar " "sha256: gemm-a.native-scalar "
+check "56 the sha256 lines are the same bytes as the run" "$(grep '^sha256: ' "${OUT_F}" | cmp -s - "${work}/sha-run.txt" && echo 0 || echo 1)"
+check "56 no row or count lines and no tool is started" "$(! grep -q -e '^count:' -e '^row:' -e '^summary:' "${OUT_F}" && [ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+check "56 the last line is recount-summary" "$(tail -n 1 "${OUT_F}" | grep -q '^recount-summary: ' && echo 0 || echo 1)"
+
+# saved_copy <新しいディレクトリ名>: out56 の写しを作る。
+saved_copy() {
+  rm -rf "${work:?}/$1"
+  cp -R "${work}/out56" "${work}/$1"
+}
+# saved_mut <ディレクトリ名> <モード>: 保存の形を壊す。
+saved_mut() {
+  python3 -I - "${work}/$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+op = os.path.join(d, "outputs.json")
+o = json.load(open(op))
+def save():
+    json.dump(o, open(op, "w"))
+def flip(fn, at=0):
+    p = os.path.join(d, fn)
+    b = bytearray(open(p, "rb").read())
+    b[at] ^= 1
+    open(p, "wb").write(bytes(b))
+    return bytes(b)
+if mode == "word":
+    b = flip("g-scalar.bin", 4)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "out-sha":
+    flip("g-scalar.bin")
+elif mode == "input-sha":
+    flip("gemm-a.a.bin")
+elif mode == "ref-sha":
+    flip("gemm-a.native-scalar.bin")
+elif mode == "missing":
+    os.unlink(os.path.join(d, "g-simd.bin"))
+elif mode == "extra":
+    open(os.path.join(d, "extra.txt"), "w").write("x")
+elif mode == "subdir":
+    os.mkdir(os.path.join(d, "sub"))
+elif mode == "symlink":
+    p = os.path.join(d, "gemm-a.b.bin")
+    os.rename(p, p + ".real")
+    os.symlink(p + ".real", p)
+elif mode == "broken-json":
+    open(op, "w").write("{")
+elif mode == "extra-key":
+    o["rows"][0]["x"] = 1
+    save()
+elif mode == "missing-key":
+    del o["rows"][0]["build"]
+    save()
+elif mode == "file-name":
+    o["rows"][0]["output_file"] = "other.bin"
+    save()
+elif mode == "file-path":
+    o["rows"][0]["output_file"] = "../g-scalar.bin"
+    save()
+elif mode == "no-rows":
+    o["rows"] = []
+    save()
+elif mode == "dup-id":
+    o["rows"][1]["id"] = o["rows"][0]["id"]
+    save()
+elif mode == "half-null":
+    o["rows"][0]["output_file"] = None
+    save()
+elif mode == "odd-length":
+    p = os.path.join(d, "g-scalar.bin")
+    b = open(p, "rb").read()[:-1]
+    open(p, "wb").write(b)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "unknown-case":
+    o["rows"][0]["case"] = "nope"
+    save()
+elif mode == "unknown-export":
+    o["rows"][0]["export"] = "gemm_other"
+    save()
+elif mode == "deep":
+    open(op, "w").write("[" * 200000)
+elif mode == "top-level-list":
+    open(op, "w").write("[]")
+else:
+    raise SystemExit("unknown mode")
+PY
+}
+
+# 57. 1 語書き換えて sha256 を直した保存の形は 1
+saved_copy out57
+saved_mut out57 word
+w --recount "${work}/out57"
+expect "57 one rewritten word with a fixed sha256" 1 "recount: g-scalar mismatches=1 n=4" "recount: g-simd mismatches=0 n=4" "recount-summary: rows=2 zero=1 nonzero=1 uncompared=0"
+
+# 58. 2: 壊れた保存の形
+for mode in out-sha input-sha ref-sha missing extra subdir symlink broken-json extra-key missing-key file-name file-path no-rows dup-id half-null odd-length unknown-case unknown-export deep top-level-list; do
+  saved_copy out58
+  saved_mut out58 "${mode}"
+  w --recount "${work}/out58"
+  expect "58 broken saved form (${mode})" 2 "error:" "!recount-summary:" "!${work}"
+done
+w --recount "${work}/dirs/missing"
+expect "58 --recount missing directory" 2 "error:" "!${work}"
+w --recount "${work}/dirs/afile"
+expect "58 --recount on a file" 2 "error:" "!recount-summary:"
+w --recount "${work}/dirs/link53"
+expect "58 --recount on a symlink" 2 "error:" "!recount-summary:"
+w --recount "${work}/dirs/../out56"
+expect "58 --recount with a parent component" 2 "error:" "!recount-summary:"
+saved_copy out58
+printf '' >"${work}/out58/outputs.json"
+w --recount "${work}/out58"
+expect "58 empty outputs.json" 2 "error:"
+# 58b. 保存先の JSON が FIFO・シンボリックリンクなら待たずに 2（見張りの kill で待ちを失敗にする）
+for jf in outputs.json manifest.json; do
+  for kind in fifo symlink; do
+    saved_copy out58
+    rm -f "${work}/out58/${jf}"
+    if [ "${kind}" = fifo ]; then mkfifo "${work}/out58/${jf}"; else ln -s "${work}/out56/${jf}" "${work}/out58/${jf}"; fi
+    rc=0
+    # GNU timeout は macOS に無いので、見張りの子プロセスと kill で待ちを 20 秒に絞る
+    "${BASH}" "${WNC}" --recount "${work}/out58" >"${OUT_F}" 2>"${ERR_F}" </dev/null &
+    cpid=$!
+    (sleep 20; kill "${cpid}" 2>/dev/null) >/dev/null 2>&1 &
+    wpid=$!
+    wait "${cpid}" || rc=$?
+    kill "${wpid}" 2>/dev/null || true
+    wait "${wpid}" 2>/dev/null || true
+    expect "58 ${jf} is a ${kind}" 2 "error:" "!recount-summary:"
+  done
+done
+
+# 59. --recount はほかの口と組めない
+newdir out59
+for opts in "--wasm ${DW}" "--wasm-simd128 ${DW}" "--cases ${fix}/gen.json" "--output-dir ${work}/out59" "--record-dir ${work}/out59 --record-combination metal-mac-mini" "--record-dir ${work}/out59"; do
+  # shellcheck disable=SC2086
+  w --recount "${work}/out56" ${opts}
+  expect "59 --recount then ${opts%% *}" 2 "usage:" "!recount-summary:"
+  # shellcheck disable=SC2086
+  w ${opts} --recount "${work}/out56"
+  expect "59 ${opts%% *} then --recount" 2 "usage:" "!recount-summary:"
+done
+w --recount
+expect "59 --recount without value" 2 "usage:"
+w --recount ""
+expect "59 empty --recount" 2 "usage:"
+
+# 60. --recount は node・wasm-bindgen・cargo を要らない
+mkbin "${work}/recount-min" python3 dirname basename sed head mktemp rm cat grep
+rc=0
+PATH="${work}/recount-min" "${BASH}" "${WNC}" --recount "${work}/out56" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+expect "60 --recount with only python3 on PATH" 0 "recount-summary: rows=2 zero=2"
+w --recount "${work}/out56"
+check "60 no fake command was called" "$([ ! -s "${FAKE_LOG}" ] && echo 0 || echo 1)"
+
+# 61. 実行の中の数え直し
+gen_setup
+gw --cases "${fix}/gen.json"
+check "61 a recount line per compared row, once each" "$([ "$(grep -c '^recount: ' "${OUT_F}")" = 2 ] && [ "$(grep -c '^sha256: g-scalar ' "${OUT_F}")" = 1 ] && [ "$(grep -c '^recount-summary: ' "${OUT_F}")" = 1 ] && echo 0 || echo 1)"
+check "61 recount lines come before summary and summary is last" "$(python3 -I -c 'import sys
+L = [l for l in open(sys.argv[1]).read().splitlines() if not l.startswith(("node:", "wasm-bindgen:"))]
+def first(p):
+    return next(i for i, l in enumerate(L) if l.startswith(p))
+ok = first("sha256: gemm-b.native-scalar") < first("recount: g-scalar") < first("recount: g-simd") < first("recount-summary:") < first("summary:") and L[-1].startswith("summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+check "61 count lines equal recount lines" "$([ "$(grep '^count: ' "${OUT_F}" | sed 's/^count: //')" = "$(grep '^recount: ' "${OUT_F}" | sed 's/^recount: //')" ] && echo 0 || echo 1)"
+gw --cases "${fix}/isa.json"
+check "61 rows without native-scalar generated rows print no recount line" "$(grep -q 'recount' "${OUT_F}" && echo 1 || echo 0)"
+
+# 62. 不一致のある実行
+gen_setup
+mut_out nan-payload g-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out62
+gw --cases "${fix}/gen.json" --output-dir "${work}/out62"
+expect "62 a mismatch run" 1 "count: g-scalar mismatches=1 n=4" "recount: g-scalar mismatches=1 n=4" "recount-summary: rows=2 zero=1 nonzero=1 uncompared=0" "!recount disagrees"
+w --recount "${work}/out62"
+expect "62 --recount of the saved mismatch run" 1 "recount: g-scalar mismatches=1 n=4" "nonzero=1"
+rm -rf "${fix}/outs"
+
+# 63. 呼び出しの失敗・語の数の違いは比べなかった行
+gen_setup
+printf '%s\n' '{"id":"g-scalar","error":"nonzero return"}' '{"id":"g-simd","output_file":"g-simd.bin"}' >"${FAKE_RESULTS}"
+mut_out short g-simd.bin
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out63
+gw --cases "${fix}/gen.json" --output-dir "${work}/out63"
+expect "63 uncompared rows" 1 "recount-uncompared: g-scalar" "recount-uncompared: g-simd" "recount-summary: rows=2 zero=0 nonzero=0 uncompared=2" "!recount: g-"
+check "63 the failed row has no saved output and the short one is saved" "$([ ! -e "${work}/out63/g-scalar.bin" ] && [ "$(wc -c <"${work}/out63/g-simd.bin" | tr -d ' ')" = 12 ] && echo 0 || echo 1)"
+w --recount "${work}/out63"
+expect "63 --recount does not exit 0 with uncompared rows" 1 "recount-uncompared: g-scalar" "recount-summary: rows=2 zero=0 nonzero=0 uncompared=2"
+rm -rf "${fix}/outs"
+
+# 64. 判定と数え直しが食い違う場面: 数え直しの比べの式だけを変えた変異体
+rm -rf "${work}/mut"
+mkdir -p "${work}/mut/scripts" "${work}/mut/wasm/crates/glue"
+cp "${DIR}/lib.sh" "${work}/mut/scripts/lib.sh"
+cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
+python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = "if data[i:i + 4] != want[i:i + 4])"
+assert s.count(old) == 1
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "if data[i:i + 4] != want[i:i + 4] and i < 0)"))
+PY
+chmod +x "${work}/mut/scripts/wasm-node-check.sh"
+check "64 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
+gen_setup
+mut_out nan-payload g-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out64
+newdir rec64
+WNC_ORIG="${WNC}"
+WNC="${work}/mut/scripts/wasm-node-check.sh"
+gw --cases "${fix}/gen.json" --output-dir "${work}/out64" --record-dir "${work}/rec64" --record-combination metal-mac-mini
+WNC="${WNC_ORIG}"
+expect "64 a disagreeing recount stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
+check "64 nothing written to either directory" "$([ "$(nfiles "${work}/out64")" = 0 ] && [ "$(nfiles "${work}/rec64")" = 0 ] && echo 0 || echo 1)"
+rm -rf "${fix}/outs" "${work}/mut"
+
+# 65. --output-dir を選ばない実行は一時ディレクトリ以外に何も残さない
+gen_setup
+newdir tmp65
+newdir rec65
+newdir out65
+TMPDIR="${work}/tmp65" gw --cases "${fix}/gen.json"
+expect "65 a run without --output-dir" 0 "summary: rows=2 match=2"
+check "65 nothing is left in the temporary directory" "$([ "$(find "${work}/tmp65" -mindepth 1 | wc -l | tr -d ' ')" = 0 ] && echo 0 || echo 1)"
+gen_setup
+gw --cases "${fix}/gen.json" --record-dir "${work}/rec65" --record-combination metal-mac-mini --output-dir "${work}/out65"
+expect "65 --record-dir with --output-dir" 0 "summary: rows=2 match=2"
+check "65 record parts and saved form are separate" "$([ "$(nfiles "${work}/rec65")" = 2 ] && [ "$(dir_names_ok "${work}/out65" "${SAVED_NAMES}")" = 0 ] && echo 0 || echo 1)"
+reset_gen
+res_ok
+
 echo "passed: ${passed}, failed: ${failed}"
 if [ "${failed}" -ne 0 ]; then
   exit 1

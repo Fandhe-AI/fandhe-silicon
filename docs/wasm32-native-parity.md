@@ -240,6 +240,78 @@ CI の `wasm-macos` ジョブの `make wasm-node-check` の行は次で読む（
 $ gh run view --job <id> --log | grep -E ' (row|count|sha256|summary): '
 ```
 
+### 出力の保存と数え直し（4/5）
+
+`scripts/wasm-node-check.sh` の口 2 つ（`--output-dir`・`--recount`）と、実行の中の数え直し。対象は参照の出どころが `native-scalar` の生成の行だけで、`native-neon` の生成の行は保存の形にも `recount:` の行にも入らない。
+
+#### 保存の形のファイル
+
+| ファイル | 中身 |
+| -------- | ---- |
+| `manifest.json` | host 側の道具の出力のバイト列そのまま |
+| manifest の各ケースの `a_file`・`b_file`・`native_scalar_file` | host 側の道具の出力のバイト列そのまま（行が使わないケースも入る） |
+| `<行の id>.bin` | wasm の出力。`native-scalar` の生成の行で出力があるものだけ（語の数が参照と違うものも入る） |
+| `outputs.json` | `{"rows": [...]}`。行は `id`・`export`・`build`・`case`・`output_file`・`output_sha256`。呼び出しの失敗の行は後ろの 2 欄が `null` |
+
+#### 口
+
+| 口 | 要るもの | 終了コード |
+| -- | -------- | ---------- |
+| `--output-dir <dir>` | 実行と同じ（node・wasm-bindgen・cargo・python3）。`<dir>` は絶対パス・`..` 無し・存在する・ディレクトリ・シンボリックリンクでない（`.wasm` のビルドより前に検査）。`native-scalar` の生成の行が無い入力では 2。`O_EXCL` とリンクを辿らない書き方で新しく書き、失敗したらこの実行で作ったものを消す | 実行と同じ（0 全行 match・1 mismatch か not-run・2 誤用か前提の不足か入力の不正） |
+| `--recount <dir>` | python3 だけ。ほかの口とは併用できない | 0 全行の件数が 0 で比べなかった行も無い・1 件数が 0 でない行か比べなかった行がある・2 誤用・読めない・形の不正・sha256 の違い・想定外のファイル |
+
+`--output-dir` を選ばないとき、標準出力と終了コードは変わらない（下の `recount:` の行を除く）。`--record-dir` と `--record-combination` の書き出しは別の口のまま変わらない。
+
+#### `--recount` が照らすもの
+
+`outputs.json` の形、`manifest.json` の各ファイルの名前・sha256・長さ、`<id>.bin` の sha256 を照らし、ディレクトリの中身が期待の集合と完全に一致すること（余り・欠け・シンボリックリンク・サブディレクトリは 2）を確かめる。そのうえで行ごとに wasm の出力と `.native-scalar.bin` を 4 バイトの語ごとに比べる。
+
+| 出力の行 | 意味 |
+| -------- | ---- |
+| `recount: <id> mismatches=<件数> n=<語の数>` | 比べた行 |
+| `recount-uncompared: <id>` | 比べなかった行（出力が無い行、語の数が参照と違う行） |
+| `sha256: <id> <64 桁>` と `sha256: <ケース>.a`・`.b`・`.native-scalar` | 実行のときの `sha256:` の行と同じ形と並び |
+| `recount-summary: rows=<n> zero=<n> nonzero=<n> uncompared=<n>` | 最後の行 |
+
+#### 実行の中の数え直し
+
+`native-scalar` の生成の行が 1 行以上ある実行は、判定のあと作業の一時ディレクトリに保存の形を作り、`--recount` と同じ関数でそのディレクトリだけから数え直す。判定の件数・比べなかった行の集合と 1 つでも違えば、`row:` や `summary:` を出さず `error: recount disagrees` で終了コード 2 にする（`--output-dir`・`--record-dir` にも何も書かない）。違わなければ `recount:`・`recount-uncompared:` の行と `recount-summary:` の行を `summary:` の前に出す。`sha256:` の行は実行のときの 1 組だけで、数え直しでは重ねて出さない。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の項目 51 以降。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 51〜55 | `--output-dir` の名前の集合・中身・sha256、出力の不変、上書きしない・リンクを辿らない・`--record-dir` の失敗で消える、不正な書き出し先と値の欠け、`native-scalar` の生成の行が無い入力、`native-neon` の生成の行が入らないこと |
+| 56〜60 | `--recount` の 0・1・2（sha256 の違い・欠け・余り・サブディレクトリ・リンク・壊れた JSON・鍵の過不足・深い入れ子など）、ほかの口との組、node・wasm-bindgen・cargo を要らないこと |
+| 61〜63 | 実行の中の `recount:` の行と並び、不一致の実行、呼び出しの失敗・語の数の違いの行 |
+| 64 | 数え直しの比べの式だけを変えた変異体で、判定と食い違うと 2 になり何も書かないこと |
+| 65 | `--output-dir` を選ばない実行が一時ディレクトリに何も残さないこと |
+
+#### 確かめ方
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 328, failed: 0
+$ grep -n "recount_form\|def write_new" scripts/wasm-node-check.sh
+```
+
+合成の入力で `--recount` を流す手順は、host 側の道具の出力のディレクトリに `<行の id>.bin`（参照と同じバイト列）と `outputs.json` を足した保存の形に対して行う（実行した出力の先頭の 3 行）。
+
+```console
+$ scripts/wasm-node-check.sh --recount <dir>
+recount: gemm-64-scalar-gemm-scalar mismatches=0 n=4096
+recount: gemm-256-scalar-gemm-scalar mismatches=0 n=65536
+recount: gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+```
+
+CI の `wasm-macos` ジョブの `make wasm-node-check` の `recount:` の行は次で取り出す（`<id>` は job の id）。
+
+```console
+$ gh run view --job <id> --log | grep -E ' (recount|recount-summary): '
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -247,3 +319,4 @@ $ gh run view --job <id> --log | grep -E ' (row|count|sha256|summary): '
 | 1/5 | GEMM の入力とネイティブの scalar の参照を書き出す host 側の道具 | #6271 |
 | 2/5 | Node での照合を生成の入力の行と 2 つのビルドに広げる | #6272 |
 | 3/5 | GEMM の 3 ケースの 9 行を照合の入力に足す | #6273 |
+| 4/5 | 照合の出力の保存と保存先からの数え直し | #6274 |
