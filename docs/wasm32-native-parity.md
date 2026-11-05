@@ -712,6 +712,170 @@ $ make test-wasm-node-check 2>&1 | tail -n 1
 passed: 420, failed: 0
 ```
 
+### 完了の条件の確かめ（4/4）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-996）。
+
+時点のコミット: `a7a6960`（この変更の土台）。(2)〜(8) は、このコミットの main への push で流れた CI の run `42024246697` から取る（event `push`・conclusion `success`・headSha は `a7a696001a662cbd2c920e529cc3f29e85a28dab`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 3 ケースの入力とネイティブの参照の作り方 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と同じコマンドの `test result:` の行 | 試験の名前 11 行と `test result:` の 5 行（下のコードブロック） |
+| (2) | 10 行の比べ | `gh run view 42024246697 --job 127234347057 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・Top-k の `row:` 10 行・`count:` 10 行・`summary:` の行（下のコードブロック） |
+| (3) | 非有限の件数 | 同じログの `make wasm-node-check` の段 | `nonfinite:` 3 行（下のコードブロック） |
+| (4) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 10 行と `recount-summary:` の行（下のコードブロック） |
+| (5) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 16 行（出力 10・ケースのファイル 6。下のコードブロック） |
+| (6) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
+| (7) | 回帰テスト | `gh run view 42024246697 --job 127234346903 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。`ok:` 4 行と最終行は `passed: 420, failed: 0` |
+| (8) | `tests/cpu_ops_topk_reference.rs` の 2 本の試験 | `gh run view 42024246697 --job 127234347235 --log` の `make verify` の段 | ジョブ `make verify + build-profiles (macos-latest)` は `success`。2 本は `ok`、`test result:` は 1 行（下のコードブロック） |
+| (9) | unsafe・外部の依存の追加 0 | `git diff --stat` と `grep -rn unsafe`（下のコードブロック） | stat は空、`grep` は 0 件 |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list 2>&1 | grep -E '^(topk_batch_follows_fresh_generator|topk_ties_input_shape|topk_nonfinite_input_shape|native_topk_matches_default_cpu_ops|native_topk_matches_cpu_reference|native_topk_has_no_non_finite_slots|topk_record_layout|record_compare_agrees_with_compare_topk|topk_manifest_entries_match_files|gen_refuses_existing_topk_file|native_topk_error_text): test$'
+gen_refuses_existing_topk_file: test
+native_topk_error_text: test
+native_topk_has_no_non_finite_slots: test
+native_topk_matches_cpu_reference: test
+native_topk_matches_default_cpu_ops: test
+record_compare_agrees_with_compare_topk: test
+topk_batch_follows_fresh_generator: test
+topk_manifest_entries_match_files: test
+topk_nonfinite_input_shape: test
+topk_record_layout: test
+topk_ties_input_shape: test
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、段の名前で絞って時刻までを落とす。
+
+```console
+$ gh run view 42024246697 --job 127234347057 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|summary): |^(row|count): topk-'
+node: v24.13.0
+wasm-bindgen: 0.2.128
+row: topk-batch-scalar-topk-scalar match
+row: topk-batch-scalar-topk-simd match
+row: topk-batch-simd128-topk-scalar match
+row: topk-batch-simd128-topk-simd match
+row: topk-ties-scalar-topk-scalar match
+row: topk-ties-scalar-topk-simd match
+row: topk-ties-simd128-topk-scalar match
+row: topk-ties-simd128-topk-simd match
+row: topk-nonfinite-scalar-topk-scalar match
+row: topk-nonfinite-simd128-topk-simd match
+count: topk-batch-scalar-topk-scalar mismatches=0 n=64
+count: topk-batch-scalar-topk-simd mismatches=0 n=64
+count: topk-batch-simd128-topk-scalar mismatches=0 n=64
+count: topk-batch-simd128-topk-simd mismatches=0 n=64
+count: topk-ties-scalar-topk-scalar mismatches=0 n=10
+count: topk-ties-scalar-topk-simd mismatches=0 n=10
+count: topk-ties-simd128-topk-scalar mismatches=0 n=10
+count: topk-ties-simd128-topk-simd mismatches=0 n=10
+count: topk-nonfinite-scalar-topk-scalar mismatches=0 n=10
+count: topk-nonfinite-simd128-topk-simd mismatches=0 n=10
+summary: rows=24 match=24 mismatch=0 not-run=0
+```
+
+(3) の出力（(2) と同じ前段に `grep -E '^nonfinite: '` をつなぐ）。
+
+```console
+nonfinite: topk-batch input=0 output=0
+nonfinite: topk-ties input=0 output=0
+nonfinite: topk-nonfinite input=4 output=0
+```
+
+(4) の出力（同じ前段に `grep -E '^recount: topk-|^recount-summary: '` をつなぐ）。
+
+```console
+recount: topk-batch-scalar-topk-scalar mismatches=0 n=64
+recount: topk-batch-scalar-topk-simd mismatches=0 n=64
+recount: topk-batch-simd128-topk-scalar mismatches=0 n=64
+recount: topk-batch-simd128-topk-simd mismatches=0 n=64
+recount: topk-ties-scalar-topk-scalar mismatches=0 n=10
+recount: topk-ties-scalar-topk-simd mismatches=0 n=10
+recount: topk-ties-simd128-topk-scalar mismatches=0 n=10
+recount: topk-ties-simd128-topk-simd mismatches=0 n=10
+recount: topk-nonfinite-scalar-topk-scalar mismatches=0 n=10
+recount: topk-nonfinite-simd128-topk-simd mismatches=0 n=10
+recount-summary: rows=19 zero=19 nonzero=0 uncompared=0
+```
+
+(5) の出力（同じ前段に `grep -E '^sha256: topk-'` をつなぐ）。
+
+```console
+sha256: topk-batch-scalar-topk-scalar 562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f
+sha256: topk-batch-scalar-topk-simd 562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f
+sha256: topk-batch-simd128-topk-scalar 562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f
+sha256: topk-batch-simd128-topk-simd 562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f
+sha256: topk-ties-scalar-topk-scalar 0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c
+sha256: topk-ties-scalar-topk-simd 0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c
+sha256: topk-ties-simd128-topk-scalar 0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c
+sha256: topk-ties-simd128-topk-simd 0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c
+sha256: topk-nonfinite-scalar-topk-scalar 98fa0af29bc71ec2b760aab079d2091327c9294f52258debc07524215c0062d2
+sha256: topk-nonfinite-simd128-topk-simd 98fa0af29bc71ec2b760aab079d2091327c9294f52258debc07524215c0062d2
+sha256: topk-batch.scores e583c60181f74537ccb440169920ca11583822f4e65653b8dd34ea420ebd21be
+sha256: topk-batch.native-scalar 562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f
+sha256: topk-ties.scores f951986cfa3ee3f33f94b487d0a65b36cd546269a83b47ac250518d55cbde166
+sha256: topk-ties.native-scalar 0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c
+sha256: topk-nonfinite.scores a8c42cd6034f57cb241fa7a4b9023dff42547a234f64d2a9aa152ce2084bcb45
+sha256: topk-nonfinite.native-scalar 98fa0af29bc71ec2b760aab079d2091327c9294f52258debc07524215c0062d2
+```
+
+(6) の出力。`Set up job` の段は `Operating System` と `Runner Image` の group の行、`Install pinned Node and wasm-bindgen CLI` の段は Node の tar の行、`Show tool versions` の段は末尾の 4 行。
+
+```console
+##[group]Operating System
+macOS
+26.7.2
+25G332
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261102.0473.1
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261102.0473/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261102.0473
+##[endgroup]
+node-v24.13.0-darwin-arm64.tar.gz: OK
+node: v24.13.0
+wasm-bindgen: wasm-bindgen 0.2.128
+jq-1.8.2
+Python 3.15.2
+```
+
+(7) の出力。
+
+```console
+$ gh run view 42024246697 --job 127234346903 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^ok: (22 bundled topk rows are exactly|22 every bundled row has a reference source|77 reference-unavailable rows|77 the file has three rows)'
+ok: 22 bundled topk rows are exactly the ten (case, export, build) pairs
+ok: 22 every bundled row has a reference source of fixed or native-scalar
+ok: 77 reference-unavailable rows
+ok: 77 the file has three rows, all native-neon
+$ gh run view 42024246697 --job 127234346903 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | tail -n 1
+passed: 420, failed: 0
+```
+
+(8) の出力（`make verify` の段のうち `Running tests/cpu_ops_topk_reference.rs` から最初の `test result:` まで）。
+
+```console
+$ gh run view 42024246697 --job 127234347235 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/Running tests\/cpu_ops_topk_reference\.rs/{f=1} f&&/^test (topk_simd_matches_scalar_bytes|topk_simd_scalar_byte_sequences_match) \.\.\. |^test result:/{print} f&&/^test result:/{exit}'
+test topk_simd_scalar_byte_sequences_match ... ok
+test topk_simd_matches_scalar_bytes ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+```
+
+(9) の出力。1/4 の base は `9d458e1`。
+
+```console
+$ git diff --stat 9d458e1..a7a6960 -- wasm/deps-approved.toml deps-approved.toml Cargo.toml Cargo.lock wasm/Cargo.toml wasm/Cargo.lock crates .github
+$ grep -rn unsafe wasm/crates/parity-host
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -719,3 +883,4 @@ passed: 420, failed: 0
 | 1/4 | Node での照合に部分 Top-k の種類を足す | #6281 |
 | 2/4 | 部分 Top-k の 3 ケースの入力とネイティブの参照を host 側の道具に足す | #6282 |
 | 3/4 | 部分 Top-k の 10 行を照合の入力に足す | #6283 |
+| 4/4 | 完了の条件の確かめ | #6284 |
