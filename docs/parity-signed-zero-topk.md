@@ -130,3 +130,11 @@ submodule（`docs/spec`）が指している版は `git ls-tree origin/main docs
 ## 関連
 
 [parity-tool](parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[test-frame](test-frame.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「別 crate からの利用」の行（`:31`） | `contract` の試験が `compare_topk`・`reference_topk_f32` を呼ぶ → `wasm/crates/parity-host/tests/gen.rs` も `compare_topk`・`reference_topk_f32` を呼ぶ（`wasm/` の別 workspace の試験。`fandhe_silicon_core::parity::topk` を使う） | `grep -n -E 'compare_topk\|reference_topk_f32' wasm/crates/parity-host/tests/gen.rs` |

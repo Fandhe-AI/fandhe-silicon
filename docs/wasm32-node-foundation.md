@@ -306,3 +306,14 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | 「入力」の行 | `wasm/node/cases.json` は 3 行 → 14 行（`roundtrip_f32` 3・`detect_isa_bits` 2・`gemm_scalar`・`gemm_simd` 9）。`reference_source` の値は `fixed`・`native-neon` の 2 つ → `native-scalar` が加わった 3 つ。同梱の行は `fixed` と `native-scalar` | `jq '.rows \| length' wasm/node/cases.json` |
 | 「`roundtrip_f32` と Node の入力」の行（上の「Node のスクリプト」「入力」の今の値の行）の「7 つの export は Node の照合の入力に無い」 | glue の export のうち Node の照合の入力に無いものは `topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd` の 4 つ（残りの 4 つは入る） | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、`jq -r '.rows[].export' wasm/node/cases.json \| sort -u` |
 | 完了の条件の確かめ（6/6）の A3、「`passed: 141, failed: 0`」 | `passed: 141, failed: 0` → `passed: 342, failed: 0`。終了コード 0 | `make test-wasm-node-check` |
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「Node のスクリプト」の行（`:305`）の呼べる export | `roundtrip_f32`・`detect_isa_bits`・`gemm_scalar`・`gemm_simd` の 4 つ → `topk_scalar`・`topk_simd`（kind `topk`）・`elementwise_scalar`・`elementwise_simd`（kind `elementwise`）が加わった 8 つ | `grep -n 'call:' wasm/node/run-glue.cjs` |
+| 「入力」の行（`:306`）の `wasm/node/cases.json` | 14 行 → 32 行（`roundtrip_f32` 3・`detect_isa_bits` 2・`gemm_scalar` 6・`gemm_simd` 3・`topk_scalar` 5・`topk_simd` 5・`elementwise_scalar` 4・`elementwise_simd` 4） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| 「入力に無い export」の行（`:307`） | 入力に無い glue の export は 4 つ → 0（glue の 8 つの `pub fn` は全部が入力の行に現れる） | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、上の `jq` |
+| 回帰テストの最終行（`:308`） | `passed: 342, failed: 0` → `passed: 505, failed: 0` | `make test-wasm-node-check` |

@@ -80,3 +80,11 @@ make wasm-verify                                                                
 | 試験 | 所在 | 本数 |
 | ---- | ---- | ---- |
 | `elementwise_add_scalar_other_constants`（#7917） | `crates/contract/tests/cpu_ops_reference.rs` の 277 行目。`AddScalar(c)` を 0.5 以外の定数（`-2.5`・`1.0`・`3.75`・`0.3`・`-0.125`・`1.0e6`）で、長さ `0`・`1`・`3`・`4`・`5`・`7`・`8`・`13`・`1024`・`1027`・`ELEMENTWISE_LEN` について、`DefaultCpuOps` と `ReferenceCpuOps` の scalar 版・SIMD 版が `x + c` とビットまで一致することを確かめる | `cpu_ops_reference` は 8 本（`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` が `8 passed; 0 failed; 0 ignored`）のうちの 1 本 |
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「再実行の契機」（`:75`） | `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_elementwise_written.rs`・`scripts/wasm-verify.sh` の wasm32 の clippy の段 → 契機に、要素ごとの演算の export を通して Node で流れる `make wasm-node-check`（`wasm/node/cases.json` の `elementwise_scalar`・`elementwise_simd` の 8 行）の実行も加わる。回帰テストは `make test-wasm-node-check` が `passed: 505, failed: 0` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c`、`make test-wasm-node-check` |
