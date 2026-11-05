@@ -24,7 +24,7 @@ TASK-312 の 1/4〜4/4。private spec の本文は写さない（[spec-confident
 
 ```sh
 cargo test -p fandhe-silicon-core --lib memory::mapped_range
-cargo test -p fandhe-silicon-core --doc mapped_range
+cargo test -p fandhe-silicon-core --doc memory::mapped_range
 ```
 
 ## 範囲の絞り（2/4）

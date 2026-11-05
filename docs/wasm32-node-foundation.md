@@ -279,3 +279,18 @@ glue を Node で読み込み、最小の export を呼んで結果をネイテ�
 ## 関連
 
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[implementation-scope](implementation-scope.md)・[ci-job-split](ci-job-split.md)・[test-frame](test-frame.md)
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux。wasm-bindgen の CLI は PATH に無いので `make wasm-size`・`make wasm-node-check` は流していない）。
+
+glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は TASK-247）。上の節で export の持ち主を TASK-1350・1351・1352・237 のポインタで書いた箇所は、この向きに読み替える。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 別 workspace の表の「export」の行 | `roundtrip_f32` の 1 つ → `roundtrip_f32` に加え `gemm_scalar`・`gemm_simd`・`topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd`・`detect_isa_bits` の 7 つ（`wasm_bindgen` の属性は 8 行、`pub fn` は 8 本）。`scripts/wasm-size.sh` の `REQUIRED_EXPORTS` の 7 名と同じ | `grep -c wasm_bindgen wasm/crates/glue/src/lib.rs`、`grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、`grep -n -A3 '^REQUIRED_EXPORTS' scripts/wasm-size.sh` |
+| 同・「対応するテスト」の行と完了の条件の確かめ（6/6）の A1 | 単体テスト 3 件、`3 passed; 0 failed` → `15 passed; 0 failed`（`#[test]` は 16 行）。終了コード 0 | `make wasm-verify` |
+| 「glue の export の現状」の行（93 行付近）・「測った成果物の位置づけ」「閾値との関係」の行（138・139 行付近）・完了の条件の確かめの A6（172 行付近）・178 行付近の文 | export が `roundtrip_f32` だけ → ソースには `REQUIRED_EXPORTS` の 7 名が揃っている。`--require-exports` を付けた実物の成果物での 8 組の結果は流していない。量の表と A7 の CI の測定は `roundtrip_f32` だけの時点の成果物のまま（測り直しは TASK-247） | 上の `grep`。合成の入力のケース `exports-only-roundtrip` は今も合成の「`roundtrip_f32` だけの成果物」を作って確かめる（`grep -n 'exports-only-roundtrip' scripts/test-wasm-size.sh`） |
+| 量の測定の側の確かめの A1（回帰テスト） | `82 passed, 0 failed` → 同じ。終了コード 0 | `make test-wasm-size` |
+| 「Node のスクリプト」の行と「入力」の行 | Node から呼べる export は許可表の `roundtrip_f32` だけ、`wasm/node/cases.json` は 3 行 → 同じ（7 つの export は Node の照合の入力に無い） | `grep -n 'roundtrip_f32' wasm/node/run-glue.cjs`、`jq '.rows \| length' wasm/node/cases.json` |
+| 完了の条件の確かめ（6/6）の A3 | `passed: 65, failed: 0` → `passed: 141, failed: 0`。終了コード 0 | `make test-wasm-node-check` |

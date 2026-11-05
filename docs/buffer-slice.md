@@ -139,3 +139,12 @@ cargo test -p fandhe-silicon-core --test memory_buffer_slice
 | 5/5 | #4303 | 完了の条件の確かめ |
 
 親 Issue は #536。
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。`memory.rs` に書き込み用のビューの型（`docs/mapped-range.md`）の `mod mapped_range;` と再公開が足されて、行番号が動いた。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（5/5）の (1) | `mod slice;` は 14 行目、`pub use slice::BufferSlice;` は 21 行目 → 16 行目と 24 行目。`cargo check` は終了コード 0 | `grep -n 'mod slice\|pub use slice' crates/core/src/memory.rs`、`cargo check -p fandhe-silicon-core` |
+| 同・(9) | `#![forbid(unsafe_code)]` は 38 行目、`slice.rs` の `unsafe` は 0 件 → 39 行目、0 件 | `grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe crates/core/src/memory/slice.rs` |

@@ -159,3 +159,16 @@ cargo test -p fandhe-silicon-core --features graphics --doc graphics
 cargo test -p fandhe-silicon-core --features graphics --test graphics_ops_doctest_shape
 cargo test -p fandhe-silicon-core --features graphics --test graphics_types
 ```
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。記録の値は、直前の「今の値の補い（base 2f36d3d）」の値。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| (5) の `public-api-check` | `public_items_total=15244` → `15604`（`documents=10`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0` は同じ） | `make public-api-check` |
+| (5) の `public-api-sdk-check` と `public-name-check` | `public_items_total=13111` → `13428`（`sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0`、`name_hits_total=0` は同じ） | `make public-api-sdk-check`、`make public-name-check` |
+| (5) の `public-api-webgpu-check` | `documents=2 public_items_total=3814` → `3836`（`public_functions_total` は 522 → 526。`submit_token_ops_total=11`・`submit_token_violations_total=0` は同じ） | `make public-api-webgpu-check` |
+| 4 操作の宣言（`graphics.rs`） | 978・985・993・1002 行 → 同じ | `grep -n 'fn draw_mesh_tasks\|fn multi_draw_mesh_tasks' crates/core/src/graphics.rs`（rustdoc の例の行を除く） |
+
+検査は 4 つとも終了コード 0。
