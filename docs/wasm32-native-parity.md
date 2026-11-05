@@ -312,6 +312,178 @@ CI の `wasm-macos` ジョブの `make wasm-node-check` の `recount:` の行は
 $ gh run view --job <id> --log | grep -E ' (recount|recount-summary): '
 ```
 
+### 完了の条件の確かめ（5/5）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-994）。
+
+時点のコミット: `55c2789`（この変更の土台）。(2)〜(6) は、このコミットの main への push で流れた CI の run `42000912040` から取る（event `push`・conclusion `success`・headSha は `55c2789724ec4099d74038ff31ce253a56f916bd`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 3 ケースの入力とネイティブの参照の作り方 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と同じコマンドの `test result:` の行 | `tests/gen.rs` の 8 本と `test result:` の 5 行（下のコードブロック） |
+| (2) | 9 行の比べ | `gh run view 42000912040 --job 127155573357 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・`row:` 14 行・`count:` 9 行・`summary:` の行（下のコードブロック） |
+| (3) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 9 行と `recount-summary:` の行（下のコードブロック） |
+| (4) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 18 行（出力 9・ケースのファイル 9。下のコードブロック） |
+| (5) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
+| (6) | 回帰テスト | `gh run view 42000912040 --job 127155572755 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。最終行は `passed: 337, failed: 0` |
+| (7) | unsafe・外部の依存の追加 0 | `git diff --stat` と `git diff -U0` と `grep -rn unsafe`（下のコードブロック） | stat は空、`wasm/Cargo.lock` の差分は path の package 1 項、`grep` は 0 件 |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list 2>&1 | grep -E ': test$'
+binary_reports_exit_codes: test
+gen_refuses_existing_files: test
+gen_rejects_bad_arguments: test
+inputs_are_finite: test
+manifest_hashes_match_files: test
+native_reference_matches_default_cpu_ops: test
+odd_case_matches_gate_row: test
+square_cases_follow_fresh_generator: test
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、段の名前で絞って時刻までを落とす。
+
+```console
+$ gh run view 42000912040 --job 127155573357 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|row|count|summary): '
+node: v24.13.0
+wasm-bindgen: 0.2.128
+row: roundtrip-empty match
+row: roundtrip-finite match
+row: roundtrip-non-finite match
+row: isa-scalar match
+row: isa-simd128 match
+row: gemm-64-scalar-gemm-scalar match
+row: gemm-64-scalar-gemm-simd match
+row: gemm-64-simd128-gemm-scalar match
+row: gemm-256-scalar-gemm-scalar match
+row: gemm-256-scalar-gemm-simd match
+row: gemm-256-simd128-gemm-scalar match
+row: gemm-37x41x53-scalar-gemm-scalar match
+row: gemm-37x41x53-scalar-gemm-simd match
+row: gemm-37x41x53-simd128-gemm-scalar match
+count: gemm-64-scalar-gemm-scalar mismatches=0 n=4096
+count: gemm-64-scalar-gemm-simd mismatches=0 n=4096
+count: gemm-64-simd128-gemm-scalar mismatches=0 n=4096
+count: gemm-256-scalar-gemm-scalar mismatches=0 n=65536
+count: gemm-256-scalar-gemm-simd mismatches=0 n=65536
+count: gemm-256-simd128-gemm-scalar mismatches=0 n=65536
+count: gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+count: gemm-37x41x53-scalar-gemm-simd mismatches=0 n=1517
+count: gemm-37x41x53-simd128-gemm-scalar mismatches=0 n=1517
+summary: rows=14 match=14 mismatch=0 not-run=0
+```
+
+(3) の出力（(2) と同じ前段に `grep -E '^(recount|recount-summary): '` をつなぐ）。
+
+```console
+recount: gemm-64-scalar-gemm-scalar mismatches=0 n=4096
+recount: gemm-64-scalar-gemm-simd mismatches=0 n=4096
+recount: gemm-64-simd128-gemm-scalar mismatches=0 n=4096
+recount: gemm-256-scalar-gemm-scalar mismatches=0 n=65536
+recount: gemm-256-scalar-gemm-simd mismatches=0 n=65536
+recount: gemm-256-simd128-gemm-scalar mismatches=0 n=65536
+recount: gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+recount: gemm-37x41x53-scalar-gemm-simd mismatches=0 n=1517
+recount: gemm-37x41x53-simd128-gemm-scalar mismatches=0 n=1517
+recount-summary: rows=9 zero=9 nonzero=0 uncompared=0
+```
+
+(4) の出力（同じ前段に `grep -E '^sha256: '` をつなぐ）。
+
+```console
+sha256: gemm-64-scalar-gemm-scalar 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+sha256: gemm-64-scalar-gemm-simd 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+sha256: gemm-64-simd128-gemm-scalar 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+sha256: gemm-256-scalar-gemm-scalar d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1
+sha256: gemm-256-scalar-gemm-simd d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1
+sha256: gemm-256-simd128-gemm-scalar d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1
+sha256: gemm-37x41x53-scalar-gemm-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+sha256: gemm-37x41x53-scalar-gemm-simd a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+sha256: gemm-37x41x53-simd128-gemm-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+sha256: gemm-64.a 2259215901630df152c4b1e0df09edf21118c82c285b4a9968901fca8ca2ca52
+sha256: gemm-64.b 9d19ef5ea664105fe1cfbdc69868867fcecde4652eb739d1912527d4652d3eeb
+sha256: gemm-64.native-scalar 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+sha256: gemm-256.a 0d509543d75aff9fa7372ca461e5c91dd8e9d8e41c81fe3b302e6610b1228b89
+sha256: gemm-256.b e5aae545d81ea7cf7b62df1d03c79055a67967826d0b74ea02c0c68063fbd912
+sha256: gemm-256.native-scalar d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1
+sha256: gemm-37x41x53.a 8b6bdc24887e48cd2bc3598950e2949c599f27b9c14d2a2c11384d2bb9c454d1
+sha256: gemm-37x41x53.b 60efc5337595142f4ec8d78f08e8e2663f4a67630672e1d21d7cc2f21f90e19e
+sha256: gemm-37x41x53.native-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+```
+
+(5) の出力。`Set up job` の段は `Operating System` と `Runner Image` の group の行、`Install pinned Node and wasm-bindgen CLI` の段は Node の tar の行、`Show tool versions` の段は末尾の 4 行。
+
+```console
+##[group]Operating System
+macOS
+26.6.2
+25G83
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261026.0455.2
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261026.0455/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261026.0455
+##[endgroup]
+node-v24.13.0-darwin-arm64.tar.gz: OK
+node: v24.13.0
+wasm-bindgen: wasm-bindgen 0.2.128
+jq-1.8.2
+Python 3.15.1
+```
+
+(6) の出力。
+
+```console
+$ gh run view 42000912040 --job 127155572755 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | tail -n 1
+passed: 337, failed: 0
+```
+
+(7) の出力。1/5 の base は `5cf1d33`。
+
+```console
+$ git diff --stat 5cf1d33..55c2789 -- wasm/deps-approved.toml deps-approved.toml Cargo.toml Cargo.lock crates/contract .github
+$ git diff -U0 5cf1d33..55c2789 -- wasm/Cargo.lock
+diff --git a/wasm/Cargo.lock b/wasm/Cargo.lock
+index e8c2c4b..da2f894 100644
+--- a/wasm/Cargo.lock
++++ b/wasm/Cargo.lock
+@@ -127,0 +128,8 @@ dependencies = [
++
++[[package]]
++name = "wasm-parity-host"
++version = "0.0.0"
++dependencies = [
++ "fandhe-silicon-contract",
++ "fandhe-silicon-core",
++]
+$ grep -rn unsafe wasm/crates/parity-host
+```
+
+#### 今の値の補い（base 55c2789）
+
+4/5 の節の「確かめ方」に書いた `make test-wasm-node-check` の最終行は `passed: 328, failed: 0`。この時点の値は次のとおり（(6) の CI のログの最終行と同じ）。
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 337, failed: 0
+```
+
+`scripts/wasm-node-check.sh` の `--output-dir` は、4/5 の「口」の表の条件のほかに、`<dir>` が空であることと `--record-dir` と別のディレクトリであることを確かめる。
+
+```console
+$ grep -n 'must be empty\|samefile' scripts/wasm-node-check.sh
+163:            die("output dir must be empty")
+172:        return os.path.samefile(a, b)
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -320,3 +492,4 @@ $ gh run view --job <id> --log | grep -E ' (recount|recount-summary): '
 | 2/5 | Node での照合を生成の入力の行と 2 つのビルドに広げる | #6272 |
 | 3/5 | GEMM の 3 ケースの 9 行を照合の入力に足す | #6273 |
 | 4/5 | 照合の出力の保存と保存先からの数え直し | #6274 |
+| 5/5 | 完了の条件の確かめ | #6275 |
