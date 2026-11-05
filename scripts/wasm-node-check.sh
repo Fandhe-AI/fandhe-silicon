@@ -304,6 +304,21 @@ def load_cases(path):
     return rows
 
 
+def load_regular_json(path):
+    # 通常のファイルだけを JSON として読む。リンクは辿らず（O_NOFOLLOW）、FIFO などで open が待たないよう
+    # O_NONBLOCK で開き、fstat で通常のファイルと確かめてから読む。失敗は OSError・ValueError。
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        with os.fdopen(fd, encoding="utf-8") as f:
+            fd = -1
+            return json.load(f)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def load_manifest(dirpath, rows):
     # host 側の道具の出力（manifest.json と .bin）を読んで照らす。ファイル名は文字種と `..`・先頭の `.` で拒否し、
     # 通常のファイルであること・sha256・長さを確かめる。エラーに引数のパスの値は入れない。
@@ -311,8 +326,7 @@ def load_manifest(dirpath, rows):
         return isinstance(n, str) and FILE_NAME.match(n) is not None and ".." not in n and not n.startswith(".")
 
     try:
-        with open(os.path.join(dirpath, "manifest.json"), encoding="utf-8") as f:
-            m = json.load(f)
+        m = load_regular_json(os.path.join(dirpath, "manifest.json"))
     except (OSError, ValueError):
         die("cannot read manifest")
     if not isinstance(m, dict) or set(m) != {"cases"} or not isinstance(m["cases"], list):
@@ -426,8 +440,7 @@ def recount_form(d):
 
 def recount_form_inner(d):
     try:
-        with open(os.path.join(d, "outputs.json"), encoding="utf-8") as f:
-            o = json.load(f)
+        o = load_regular_json(os.path.join(d, "outputs.json"))
     except (OSError, ValueError):
         die("cannot read outputs.json")
     if not isinstance(o, dict) or set(o) != {"rows"} or not isinstance(o["rows"], list) or not o["rows"]:
