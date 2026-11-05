@@ -1415,6 +1415,177 @@ $ make test-wasm-node-check 2>&1 | tail -n 1
 passed: 542, failed: 0
 ```
 
+### 完了の条件の確かめ（4/4）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-995）。
+
+時点のコミット: `75cfdde`（この変更の土台）。(2)〜(8) は、このコミットの main への push で流れた CI の run `42118684042` から取る（event `push`・conclusion `success`・headSha は `75cfdde6fa36fb7f4a2d5cd9e75b962f6ee52d96`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 閾値の比べの試験 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と同じコマンドの `test result:` の行 | 試験の名前 3 行と `test result:` の 6 行（下のコードブロック） |
+| (2) | 3 行の比べ | `gh run view 42118684042 --job 127565001893 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・`isa-` の `row:` 2 行・`gemm_simd` の `row:` 3 行・`count:` 3 行・`summary:` の行（下のコードブロック） |
+| (3) | 最大誤差の集計 | 同じログの `make wasm-node-check` の段 | `t1:` 3 行（下のコードブロック） |
+| (4) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 3 行と `recount-summary:` の行（下のコードブロック） |
+| (5) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 12 行（出力 3・ケースのファイル 9。下のコードブロック） |
+| (6) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
+| (7) | 回帰テスト | `gh run view 42118684042 --job 127565001825 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。`grep` で絞った `ok:` 40 行（ログ全体の `ok:` は 542 行で最終行の件数と同じ）と最終行 `passed: 542, failed: 0` |
+| (8) | 閾値の突き合わせの試験の実物の実行 | 同じ run の `wasm-macos` ジョブの `make wasm-verify` の段 | 3 本は `ok`、`test result:` は 1 行（下のコードブロック） |
+| (9) | unsafe・外部の依存の追加 0 | `git diff --stat` と `grep -rn unsafe`（下のコードブロック） | stat は空、`grep` は 0 件 |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list 2>&1 | grep -E '^(recount_agrees_with_core_on_boundary_words|recount_agrees_with_core_on_generated_words|script_thresholds_match_core): '
+recount_agrees_with_core_on_boundary_words: test
+recount_agrees_with_core_on_generated_words: test
+script_thresholds_match_core: test
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.75s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、段の名前で絞って時刻までを落とす。
+
+```console
+$ gh run view 42118684042 --job 127565001893 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|summary): |^row: isa-(scalar|simd128) |^(row|count): gemm-(64|256|37x41x53)-simd128-gemm-simd '
+node: v24.13.0
+wasm-bindgen: 0.2.128
+row: isa-scalar match
+row: isa-simd128 match
+row: gemm-64-simd128-gemm-simd match
+row: gemm-256-simd128-gemm-simd match
+row: gemm-37x41x53-simd128-gemm-simd match
+count: gemm-64-simd128-gemm-simd mismatches=0 n=4096
+count: gemm-256-simd128-gemm-simd mismatches=0 n=65536
+count: gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+summary: rows=35 match=35 mismatch=0 not-run=0
+```
+
+(3) の出力（(2) と同じ前段に `grep -E '^t1: '` をつなぐ）。
+
+```console
+t1: gemm-64-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=1063 max-rel=0.0005874369857257919 max-rel-at=1828 abs-over=0 rel-over=0
+t1: gemm-256-simd128-gemm-simd max-abs=1.52587890625e-05 max-abs-at=60159 max-rel=0.012768817995209193 max-rel-at=49160 abs-over=26 rel-over=9
+t1: gemm-37x41x53-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=60 max-rel=0.0002225181404437151 max-rel-at=1292 abs-over=0 rel-over=0
+```
+
+(4) の出力（同じ前段に `grep -E '^recount: gemm-(64|256|37x41x53)-simd128-gemm-simd |^recount-summary: '` をつなぐ）。
+
+```console
+recount: gemm-64-simd128-gemm-simd mismatches=0 n=4096
+recount: gemm-256-simd128-gemm-simd mismatches=0 n=65536
+recount: gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+recount-summary: rows=30 zero=30 nonzero=0 uncompared=0
+```
+
+(5) の出力（同じ前段に `grep -E '^sha256: gemm-(64|256|37x41x53)(\.(a|b|native-scalar)|-simd128-gemm-simd) '` をつなぐ）。
+
+```console
+sha256: gemm-64-simd128-gemm-simd df0ff87ae22cf6956ae71aa4abd2579c95ce09a8b732aa13a4689ce080bba9e4
+sha256: gemm-256-simd128-gemm-simd 85edcd2d5973add713f0aacab2e5b170b49096b364545582b9e75643561ecc10
+sha256: gemm-37x41x53-simd128-gemm-simd dcd8a97f3e4925ef029b8f5f28ee208f6ccbda62675f5220b82df94ee6e7e7a9
+sha256: gemm-64.a 2259215901630df152c4b1e0df09edf21118c82c285b4a9968901fca8ca2ca52
+sha256: gemm-64.b 9d19ef5ea664105fe1cfbdc69868867fcecde4652eb739d1912527d4652d3eeb
+sha256: gemm-64.native-scalar 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+sha256: gemm-256.a 0d509543d75aff9fa7372ca461e5c91dd8e9d8e41c81fe3b302e6610b1228b89
+sha256: gemm-256.b e5aae545d81ea7cf7b62df1d03c79055a67967826d0b74ea02c0c68063fbd912
+sha256: gemm-256.native-scalar d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1
+sha256: gemm-37x41x53.a 8b6bdc24887e48cd2bc3598950e2949c599f27b9c14d2a2c11384d2bb9c454d1
+sha256: gemm-37x41x53.b 60efc5337595142f4ec8d78f08e8e2663f4a67630672e1d21d7cc2f21f90e19e
+sha256: gemm-37x41x53.native-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+```
+
+(6) の出力。`Set up job` の段は `Operating System` と `Runner Image` の group の行、`Install pinned Node and wasm-bindgen CLI` の段は Node の tar の行、`Show tool versions` の段は末尾の 4 行。
+
+```console
+##[group]Operating System
+macOS
+26.6.2
+25G83
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261026.0455.2
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261026.0455/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261026.0455
+##[endgroup]
+node-v24.13.0-darwin-arm64.tar.gz: OK
+node: v24.13.0
+wasm-bindgen: wasm-bindgen 0.2.128
+jq-1.8.2
+Python 3.15.1
+```
+
+(7) の出力。
+
+```console
+$ gh run view 42118684042 --job 127565001825 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^ok: (22 bundled generated rows are exactly|77 reference-unavailable rows|77 the file has eight rows|89 |9[0-8] )'
+ok: 22 bundled generated rows are exactly 3 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)
+ok: 77 reference-unavailable rows
+ok: 77 the file has eight rows, all native-neon
+ok: 89 identical words are within the threshold
+ok: 89 output order is count, sha256, t1
+ok: 90 only the gemm_simd simd128 row is compared by the threshold
+ok: 91 the absolute and relative maxima are at different words
+ok: 92 relative error exactly at the limit (above)
+ok: 92 relative error exactly at the limit (below)
+ok: 92 relative error under the limit
+ok: 93 reference zero, the other sign of zero
+ok: 93 reference zero, just under the absolute limit
+ok: 93 reference zero, just over the absolute limit
+ok: 93 reference zero, negative just over the absolute limit
+ok: 94 reference NaN matches a NaN (7f800001)
+ok: 94 reference NaN matches a NaN (ffc00001)
+ok: 94 reference NaN matches a NaN (7fc00000)
+ok: 94 reference NaN against a finite word
+ok: 94 finite reference against a non-finite word (7fc00000)
+ok: 94 finite reference against a non-finite word (7f800001)
+ok: 94 finite reference against a non-finite word (7f800000)
+ok: 94 finite reference against a non-finite word (ff800000)
+ok: 94 reference +Inf against +Inf
+ok: 94 reference +Inf against another word (ff800000)
+ok: 94 reference +Inf against another word (7f7fffff)
+ok: 94 reference +Inf against another word (7fc00000)
+ok: 94 reference -Inf against +Inf
+ok: 95 length differs
+ok: 95 a 33-byte output is not a multiple of 4
+ok: 95 a call error
+ok: 96 native-neon gemm_simd simd128 row
+ok: 97 saved form of a threshold row
+ok: 97 the file names are exactly the saved form
+ok: 97 --recount prints the same t1 line
+ok: 97 --recount order is recount, sha256, t1, recount-summary
+ok: 97 --recount of a saved form over the threshold
+ok: 97 --recount of a row whose build is scalar compares the bits
+ok: 98 the mutant differs from the original
+ok: 98 a disagreeing recount of the t1 lines stops the run
+ok: 98 nothing written to either directory
+$ gh run view 42118684042 --job 127565001825 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | tail -n 1
+passed: 542, failed: 0
+```
+
+(8) の出力（`make wasm-verify` の段のうち、試験の名前を含む `running` の行から `test result:` までの塊）。
+
+```console
+$ gh run view 42118684042 --job 127565001893 --log | awk -F'\t' '$2=="make wasm-verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test (script_thresholds_match_core|recount_agrees_with_core_on_boundary_words|recount_agrees_with_core_on_generated_words) \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
+test script_thresholds_match_core ... ok
+test recount_agrees_with_core_on_generated_words ... ok
+test recount_agrees_with_core_on_boundary_words ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+```
+
+(9) の出力。1/4 の base は `450a581`。
+
+```console
+$ git diff --stat 450a581..75cfdde -- wasm/deps-approved.toml deps-approved.toml Cargo.toml Cargo.lock wasm/Cargo.toml wasm/Cargo.lock crates .github wasm/crates/parity-host/src wasm/crates/parity-host/Cargo.toml wasm/node/run-glue.cjs
+$ grep -rn unsafe wasm/crates/parity-host
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -1422,3 +1593,4 @@ passed: 542, failed: 0
 | 1/4 | Node での照合に閾値の比べを足す | #6277 |
 | 2/4 | 閾値の比べを共通の道具の口と突き合わせる試験を足す | #6278 |
 | 3/4 | simd128 のビルドの `gemm_simd` の 3 行を照合の入力に足す | #6279 |
+| 4/4 | 完了の条件の確かめ | #6280 |
