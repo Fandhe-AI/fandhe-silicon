@@ -884,3 +884,80 @@ $ grep -rn unsafe wasm/crates/parity-host
 | 2/4 | 部分 Top-k の 3 ケースの入力とネイティブの参照を host 側の道具に足す | #6282 |
 | 3/4 | 部分 Top-k の 10 行を照合の入力に足す | #6283 |
 | 4/4 | 完了の条件の確かめ | #6284 |
+
+## 要素ごと演算の比べ（TASK-997）
+
+### 記録の所在
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-997。ポインタのみ）。本文は転記しない
+（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+
+### Node での照合の要素ごと演算の種類（1/4）
+
+`scripts/wasm-node-check.sh` の種類の表 `KINDS` に `elementwise` の項を足す。表の全項に、種類に固有の欄の照らし `fields` と、`input-special:` の数える先 `special` の 2 欄を持たせる（`gemm`・`topk` は `()` と `None`）。`wasm/node/run-glue.cjs` の許可表に `elementwise_scalar`・`elementwise_simd` を足し、`runElementwise` が呼ぶ。
+
+#### 種類の表
+
+| 種類 | manifest の鍵 | ファイル | 比べの単位 | `sha256:` の接尾辞 | `export` |
+| ---- | ------------- | -------- | ---------- | ------------------ | -------- |
+| `elementwise` | `name`・`kind`・`n`・`op_code`・`c_bits`・`input_file`・`native_scalar_file`・`input_sha256`・`native_scalar_sha256` | `input_file`（n×4 バイト）・`native_scalar_file`（n×4） | 4 バイト | `.input`・`.native-scalar` | `elementwise_scalar`・`elementwise_simd` |
+
+鍵は完全一致で、`n` は正の整数（真偽値は不可）。`op_code` は整数の 0 か 1（真偽値・文字列・2 以上・負は不可）、`c_bits` は 8 桁の小文字の 16 進の文字列（f32 のビット列）。違えば `manifest case field is invalid`（終了コード 2・Node の本体は起動しない）。ファイル名・sha256・通常のファイルの照らしは種類によらず同じ。
+
+#### `run-glue.cjs` の呼び方
+
+| 引数・戻り | 内容 |
+| ---------- | ---- |
+| `op_code` | manifest の `op_code` |
+| `c` | `c_bits` を f32 にした値 |
+| `a` | `input_file` を新しい `ArrayBuffer` に写した `Float32Array` |
+| `out` | 長さ n の `Float32Array`。同じ `ArrayBuffer` の `Uint32Array` で全語を `0x7fc0dead` に埋めて渡す |
+| 戻り | `>>> 0` で語にする。0 のときだけ `out` のバイト列を `<outputs>/<行の id>.bin` に書き `{id, output_file}`、0 以外は `{id, error: "nonzero return"}`、例外は `call failed` |
+
+呼ぶ関数は種類 → 関数の `Map` で引く（`gemm` は `runGemm`、`topk` は `runTopk`、`elementwise` は `runElementwise`）。
+
+#### 判定と出力の行
+
+| 場面 | 状態・行 |
+| ---- | -------- |
+| 1 語でも 32 ビットが違う（`+0.0` と `-0.0`、NaN のビット列の違いを含む） | その語が不一致。`mismatch (mismatches <件数>/<n>)` |
+| 語の数が違う | `mismatch (length expected <n> got <m>)`。`count:`・`sha256:` は出さない |
+| 全語が同じ | `match`。`count: <id> mismatches=0 n=<n>` |
+| 出力の長さが 4 の倍数でない | 終了コード 2（`not a multiple of 4`）。`--recount` も同じ |
+| `native-neon` の `elementwise` の行 | `not-run (reference-unavailable)`。`count:`・`input-special:` を出さない |
+
+`input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` は、`native-scalar` の生成の行が指すケースのうち表の `special` を持つもの（`elementwise`）ごとに manifest の順で出す。`input_file` の 4 バイトの語 `w` を `e = w & 0x7fffffff` とし、`e == 0` は `zero`（`+0` と `-0`）、`e == 0x7f800000` は `inf`（`+Inf` と `-Inf`）、`e > 0x7f800000` は `nan`。数えるのはファイルのバイト列で、manifest の申告は使わない。出す位置は、判定が `sha256:`・`nonfinite:` の行の後で `recount:` の行の前、`--recount` が `sha256:`・`nonfinite:` の行の後で `recount-summary:` の行の前。判定と終了コードには関わらない。実行の中の数え直しは、この行も判定の側と突き合わせる（違えば `recount disagrees` で終了コード 2）。
+
+#### export とケースの種類の照らし
+
+行の `export` の種類（`gemm_*` は `gemm`、`topk_*` は `topk`、`elementwise_*` は `elementwise`）と、行の `case` の manifest の種類が違えば終了コード 2（Node の本体は起動しない）。`--recount` の `outputs.json` の行にも同じ照らしを当てる。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の足した項目と直した項目。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 22 | `elementwise` の行を足した合成の入力が、回帰テストを直さずに全行 `match` |
+| 23d | `run-glue.cjs` を本物の node で偽の glue に当て、`op_code`・`c`・`a` のビット列と長さ・`out` の長さと埋め・戻り 0 のときだけ書くこと・書かなかった語が番兵のまま残ること |
+| 78 | 全部一致の行と並び（`count:`・`sha256:`・`input-special:`・`summary:`） |
+| 79・80 | 最初の語・最後の語・`-0.0` と `+0.0`・NaN のビット列だけの不一致、語数の違い・21 バイトの出力・呼び出しの失敗 |
+| 81・82 | `native-neon` の `elementwise` の行、入力に NaN・Inf・±0 がある合成のケースの件数 |
+| 83・84 | export とケースの種類の照らし、`elementwise` の manifest の不正（鍵・`n`・`op_code`・`c_bits`・長さ・sha256・ファイル名） |
+| 85・86 | 3 種類が混ざった保存の形、manifest に `elementwise` があり行が `gemm` だけの実行 |
+| 87・88 | `elementwise` の保存の形の `--recount`（0・1・2）、`input-special:` の数え直しの食い違いの変異体 |
+
+#### 確かめ方
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 504, failed: 0
+$ grep -n "^KINDS\|def input_special_lines\|def kind_of_export" scripts/wasm-node-check.sh
+$ grep -n "RUNNERS\|runElementwise" wasm/node/run-glue.cjs
+```
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/4 | Node での照合に要素ごと演算の種類を足す | #6287 |
