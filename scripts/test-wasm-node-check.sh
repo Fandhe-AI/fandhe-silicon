@@ -378,6 +378,17 @@ def wr(fn, words):
         f.write(data)
     return hashlib.sha256(data).hexdigest()
 for name in sys.argv[2:]:
+    if name.startswith("topk-"):
+        # 部分 Top-k の合成のケース（TASK-996）: n=6・k=2。スコアは非有限が 4 語（NaN 2・+Inf・-Inf）と有限が 2 語。
+        # 参照は有限の 2 件。badscore の名前は参照のスコアに非有限を持ち、スロット番号にも指数部が全部 1 の語を置く。
+        sc = [0x00000000, 0x7fc00001, 0x7fc00002, 0x7f800000, 0xff800000, 0x40800000]
+        nat = [0x7f800000, 0x7fc00001, 0x7f800000, 0x00000000] if "badscore" in name else [5, 0x40800000, 0, 0x00000000]
+        cases.append({
+            "name": name, "kind": "topk", "n": 6, "k": 2,
+            "scores_file": name + ".scores.bin", "native_scalar_file": name + ".native-scalar.bin",
+            "scores_sha256": wr(name + ".scores.bin", sc), "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+        })
+        continue
     a = [0x3f800000, 0x80000000, 0x7fc00001, 0x40000000, 0xc0000000, 0x00000000]
     b = [0x3f800000] * 6
     nat = [0x3f800000, 0x80000000, 0x7fc00001, 0x40490fdb]
@@ -454,6 +465,17 @@ for c in ("gemm-a", "gemm-b", "gemm-c"):
 json.dump({"rows": rows}, open(sys.argv[1], "w"))
 PY
 bundled_check nine "${fix}/nine.json"
+# 部分 Top-k の行（TASK-996）を足した形の合成の入力でも、この回帰テストを直さずに通る
+python3 -I - "${fix}/topk-rows.json" <<'PY'
+import json, sys
+rows = [{"id": "keep-fixed", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]},
+        {"id": "keep-gemm", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"}]
+for c in ("topk-a", "topk-b"):
+    for exp, build in (("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_simd", "simd128")):
+        rows.append({"id": "%s-%s-%s" % (c, exp.split("_")[1], build), "export": exp, "build": build, "case": c, "reference_source": "native-scalar"})
+json.dump({"rows": rows}, open(sys.argv[1], "w"))
+PY
+bundled_check topk-rows "${fix}/topk-rows.json"
 
 # 23. run-glue.cjs 自体（本物の node で偽の glue を読ませる）。引数は 6 つ（TASK-994）
 mkdir -p "${work}/glue"
@@ -527,6 +549,60 @@ rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
 ok = rows["g1"] == {"id": "g1", "output_file": "g1.bin"} and rows["g2"] == {"id": "g2", "error": "nonzero return"} and rows["g3"] == {"id": "g3", "error": "call failed"} and rows["g4"] == {"id": "g4", "error": "call failed"}
 ok = ok and sorted(os.listdir(sys.argv[2])) == ["g1.bin"]
 sys.exit(0 if ok else 1)' "${work}/glue/rg.jsonl" "${work}/glue/gout" && echo 0 || echo 1)"
+
+# 23c. topk の呼び方（TASK-996）: scores は Float32Array でビット列を保つ・out は k×8 バイトの Uint8Array で全語が番兵・
+# 戻り 0 のときだけ .bin を書く・書かなかった語は番兵のまま
+mk_host_fixture "${work}/glue/tin" topk-a
+cat >"${work}/glue/topk-check.js" <<'JS'
+// 渡された引数を照らし、食い違えば 0 以外を返す。
+function check(scores, k, out) {
+  if (k !== 2 || scores.length !== 6) return 9;
+  if (!(scores instanceof Float32Array)) return 8;
+  const u = new Uint32Array(scores.buffer, scores.byteOffset, 6);
+  if (u[1] !== 0x7fc00001 || u[2] !== 0x7fc00002 || u[3] !== 0x7f800000 || u[4] !== 0xff800000) return 7;
+  if (!(out instanceof Uint8Array) || out.length !== k * 8) return 6;
+  const dv = new DataView(out.buffer, out.byteOffset, out.length);
+  for (let i = 0; i < k * 2; i += 1) {
+    if (dv.getUint32(i * 4, true) !== 0x7fc0dead) return 5;
+  }
+  return 0;
+}
+exports.check = check;
+JS
+cat >"${work}/glue/topk.js" <<'JS'
+const { check } = require("./topk-check.js");
+exports.topk_scalar = (scores, k, out) => {
+  const bad = check(scores, k, out);
+  if (bad !== 0) return bad;
+  for (let i = 0; i < 8; i += 1) out[i] = i + 1;
+  return 0;
+};
+exports.topk_simd = (scores, k, out) => (check(scores, k, out) === 0 ? 3 : 0);
+JS
+cat >"${work}/glue/topkthrow.js" <<'JS'
+exports.topk_simd = () => { throw new Error("boom"); };
+JS
+cat >"${work}/glue/topk-cases.json" <<'JSON'
+{"rows": [
+  {"id": "t1", "export": "topk_scalar", "build": "scalar", "case": "topk-a", "reference_source": "native-scalar"},
+  {"id": "t2", "export": "topk_simd", "build": "scalar", "case": "topk-a", "reference_source": "native-scalar"},
+  {"id": "t3", "export": "topk_simd", "build": "simd128", "case": "topk-a", "reference_source": "native-scalar"},
+  {"id": "t4", "export": "topk_scalar", "build": "scalar", "case": "no-such-case", "reference_source": "native-scalar"}
+]}
+JSON
+rm -rf "${work}/glue/tout"
+mkdir -p "${work}/glue/tout"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/topk.js" "${work}/glue/topk-cases.json" "${work}/glue/rt.jsonl" "${work}/glue/topkthrow.js" "${work}/glue/tin" "${work}/glue/tout" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "23 run-glue topk rows" 0
+check "23 topk: a zero return writes the out bytes as they are, the unwritten words keep the fill word" "$(python3 -I -c 'import sys
+data = open(sys.argv[1], "rb").read()
+sys.exit(0 if data == bytes(range(1, 9)) + bytes([0xad, 0xde, 0xc0, 0x7f]) * 2 else 1)' "${work}/glue/tout/t1.bin" && echo 0 || echo 1)"
+check "23 topk: nonzero return, throw and unknown case are error rows and write nothing" "$(python3 -I -c 'import json,os,sys
+rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
+ok = rows["t1"] == {"id": "t1", "output_file": "t1.bin"} and rows["t2"] == {"id": "t2", "error": "nonzero return"} and rows["t3"] == {"id": "t3", "error": "call failed"} and rows["t4"] == {"id": "t4", "error": "call failed"}
+ok = ok and sorted(os.listdir(sys.argv[2])) == ["t1.bin"]
+sys.exit(0 if ok else 1)' "${work}/glue/rt.jsonl" "${work}/glue/tout" && echo 0 || echo 1)"
 
 # 25. 参照の出どころ（TASK-29）。欠け・未知の値は入力の不正（Node の本体を起動しない）
 res_ok
@@ -962,6 +1038,12 @@ elif mode == "length":
     c["a_sha256"] = hashlib.sha256(data).hexdigest()
 elif mode == "kind":
     c["kind"] = "topk"
+elif mode == "kind-unknown":
+    c["kind"] = "mystery"
+elif mode == "kind-list":
+    c["kind"] = ["gemm"]
+elif mode == "kind-missing":
+    del c["kind"]
 elif mode == "dims":
     c["m"] = 0
 elif mode == "extra":
@@ -969,7 +1051,7 @@ elif mode == "extra":
 json.dump(m, open(mp, "w"))
 PY
 }
-for mode in sha slash dotdot dot-first length kind dims extra; do
+for mode in sha slash dotdot dot-first length kind kind-unknown kind-list kind-missing dims extra; do
   gen_setup
   tamper "${mode}"
   gw --cases "${fix}/gen.json"
@@ -1425,9 +1507,9 @@ cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
 python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
 import sys
 s = open(sys.argv[1], encoding="utf-8").read()
-old = "if data[i:i + 4] != want[i:i + 4])"
+old = "if data[i:i + unit] != want[i:i + unit])"
 assert s.count(old) == 1
-open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "if data[i:i + 4] != want[i:i + 4] and i < 0)"))
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "if data[i:i + unit] != want[i:i + unit] and i < 0)"))
 PY
 chmod +x "${work}/mut/scripts/wasm-node-check.sh"
 check "64 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
@@ -1456,6 +1538,310 @@ gen_setup
 gw --cases "${fix}/gen.json" --record-dir "${work}/rec65" --record-combination metal-mac-mini --output-dir "${work}/out65"
 expect "65 --record-dir with --output-dir" 0 "summary: rows=2 match=2"
 check "65 record parts and saved form are separate" "$([ "$(nfiles "${work}/rec65")" = 2 ] && [ "$(dir_names_ok "${work}/out65" "${SAVED_NAMES}")" = 0 ] && echo 0 || echo 1)"
+reset_gen
+res_ok
+
+# ---- 部分 Top-k の種類（TASK-996 の 1/4） ----
+
+cat >"${fix}/tk.json" <<'JSON'
+{"rows": [
+  {"id": "t-scalar", "export": "topk_scalar", "build": "scalar", "case": "topk-a", "reference_source": "native-scalar"},
+  {"id": "t-simd", "export": "topk_simd", "build": "simd128", "case": "topk-b", "reference_source": "native-scalar"}
+]}
+JSON
+TK_SAVED_NAMES="t-scalar.bin t-simd.bin topk-a.scores.bin topk-a.native-scalar.bin topk-b.scores.bin topk-b.native-scalar.bin manifest.json outputs.json"
+# tk_setup: 2 ケースの偽の host 側の道具の出力（topk-a・topk-b）と、全行一致の結果を用意する。
+tk_setup() {
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" topk-a topk-b
+  printf '%s\n' 't-scalar topk-a' 't-simd topk-b' >"${fix}/gen-rowmap"
+  printf '%s\n' '{"id":"t-scalar","output_file":"t-scalar.bin"}' '{"id":"t-simd","output_file":"t-simd.bin"}' >"${FAKE_RESULTS}"
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+}
+# tk_mut <モード> <出力のファイル>: topk-a の参照の写しを 1 件ごとに崩した出力を ${fix}/outs に書く（8 バイトが 1 件）。
+tk_mut() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "$1" "${fix}/hf/topk-a.native-scalar.bin" "${fix}/outs/$2" <<'PY'
+import struct, sys
+mode, src, dst = sys.argv[1:4]
+w = list(struct.unpack("<4I", open(src, "rb").read()))
+if mode == "slot":
+    w[0] ^= 1
+elif mode == "score":
+    w[1] ^= 1
+elif mode == "both":
+    w[0] ^= 1
+    w[1] ^= 1
+elif mode == "last":
+    w[2] ^= 1
+elif mode == "neg-zero":
+    w[3] = 0x80000000
+elif mode == "short":
+    w = w[:2]
+elif mode == "odd":
+    w = w[:3]
+open(dst, "wb").write(b"".join(struct.pack("<I", x) for x in w))
+PY
+}
+
+# 66. topk の行が全部一致: 0、count・sha256・nonfinite の行、並び
+tk_setup
+gw --cases "${fix}/tk.json"
+expect "66 topk rows all match" 0 "row: t-scalar match" "row: t-simd match" "count: t-scalar mismatches=0 n=2" "count: t-simd mismatches=0 n=2" "sha256: t-scalar " "sha256: topk-a.scores " "sha256: topk-a.native-scalar " "sha256: topk-b.scores " "nonfinite: topk-a input=4 output=0" "nonfinite: topk-b input=4 output=0" "summary: rows=2 match=2 mismatch=0 not-run=0"
+check "66 output order is rows, counts, case hashes, nonfinite, summary last" "$(python3 -I -c 'import sys
+L = [l for l in open(sys.argv[1]).read().splitlines() if not l.startswith(("node:", "wasm-bindgen:"))]
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+ok = first("row: t-simd") < first("count: t-scalar") < first("sha256: t-simd") < first("sha256: topk-a.scores") < first("sha256: topk-b.native-scalar") < first("nonfinite: topk-a") < first("nonfinite: topk-b") and L[-1].startswith("summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+check "66 the unit is 8 bytes: the sha256 line of a row is the hash of the output bytes" "$(python3 -I -c 'import hashlib,sys
+h = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
+sys.exit(0 if ("sha256: t-scalar " + h) in open(sys.argv[2]).read() else 1)' "${fix}/hf/topk-a.native-scalar.bin" "${OUT_F}" && echo 0 || echo 1)"
+
+# 67. 1 件ごとの比べ: スロット番号だけ・スコアだけ・両方・-0.0 と +0.0・最後の件だけは、どれも 1 件の不一致
+for mode in slot score both neg-zero last; do
+  tk_setup
+  tk_mut "${mode}" t-scalar.bin
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/tk.json"
+  expect "67 one entry differs (${mode})" 1 "row: t-scalar mismatch (mismatches 1/2)" "count: t-scalar mismatches=1 n=2" "row: t-simd match" "match=1 mismatch=1"
+  rm -rf "${fix}/outs"
+done
+
+# 68. 件数の違い・単位の倍数でない出力・呼び出しの失敗
+tk_setup
+tk_mut short t-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/tk.json"
+expect "68 length differs" 1 "row: t-scalar mismatch (length expected 2 got 1)" "!count: t-scalar" "!sha256: t-scalar" "count: t-simd mismatches=0 n=2"
+rm -rf "${fix}/outs"
+tk_setup
+tk_mut odd t-scalar.bin
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/tk.json"
+expect "68 a 12-byte output is not a multiple of 8" 2 "not a multiple of 8" "!summary:"
+rm -rf "${fix}/outs"
+tk_setup
+printf '%s\n' '{"id":"t-scalar","error":"nonzero return"}' '{"id":"t-simd","error":"call failed"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/tk.json"
+expect "68 call errors" 1 "row: t-scalar mismatch (call error)" "row: t-simd mismatch (call error)" "!count:" "mismatch=2"
+
+# 69. native-neon の topk の行は not-run (reference-unavailable)。比べず count・nonfinite を出さない
+tk_setup
+cat >"${fix}/tk-neon.json" <<'JSON'
+{"rows": [
+  {"id": "t-scalar", "export": "topk_scalar", "build": "scalar", "case": "topk-a", "reference_source": "native-neon"}
+]}
+JSON
+printf '%s\n' '{"id":"t-scalar","output_file":"t-scalar.bin"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/tk-neon.json"
+expect "69 native-neon topk row" 1 "row: t-scalar not-run (reference-unavailable)" "!count:" "!sha256:" "!nonfinite:" "match=0 mismatch=0 not-run=1"
+
+# 70. 参照のスコアに非有限があるケース: output の件数が出て、全行 match なら終了コードは変わらない
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" topk-badscore-a
+printf '%s\n' 't-bad topk-badscore-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"t-bad","output_file":"t-bad.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+cat >"${fix}/tk-bad.json" <<'JSON'
+{"rows": [
+  {"id": "t-bad", "export": "topk_scalar", "build": "scalar", "case": "topk-badscore-a", "reference_source": "native-scalar"}
+]}
+JSON
+gw --cases "${fix}/tk-bad.json"
+expect "70 non-finite scores in the reference are counted at the score word" 0 "row: t-bad match" "nonfinite: topk-badscore-a input=4 output=1" "summary: rows=1 match=1"
+
+# 71. export の種類とケースの種類の照らし（Node の本体を起動しない）
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a topk-a
+printf '%s\n' 'x gemm-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"x","output_file":"x.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+printf '{"rows": [%s]}\n' '{"id":"x","export":"topk_scalar","build":"scalar","case":"gemm-a","reference_source":"native-scalar"}' >"${fix}/kind-bad.json"
+gw --cases "${fix}/kind-bad.json"
+expect "71 a topk export on a gemm case" 2 "does not match the case kind" "!summary:"
+check "71 node body not started (topk export on gemm case)" "$(no_node_started)"
+printf '{"rows": [%s]}\n' '{"id":"x","export":"gemm_simd","build":"scalar","case":"topk-a","reference_source":"native-scalar"}' >"${fix}/kind-bad.json"
+gw --cases "${fix}/kind-bad.json"
+expect "71 a gemm export on a topk case" 2 "does not match the case kind" "!summary:"
+check "71 node body not started (gemm export on topk case)" "$(no_node_started)"
+
+# 72. topk の manifest の不正（どれも 2。Node の本体を起動しない）
+tk_tamper() {
+  python3 -I - "$1" "${fix}/hf" <<'PY'
+import hashlib, json, os, sys
+mode, d = sys.argv[1:3]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+def rewrite(fk, hk, data):
+    open(os.path.join(d, c[fk]), "wb").write(data)
+    c[hk] = hashlib.sha256(data).hexdigest()
+if mode == "extra":
+    c["m"] = 1
+elif mode == "no-k":
+    del c["k"]
+elif mode == "n-zero":
+    c["n"] = 0
+elif mode == "k-zero":
+    c["k"] = 0
+elif mode == "k-bool":
+    c["k"] = True
+elif mode == "n-str":
+    c["n"] = "6"
+elif mode == "scores-length":
+    rewrite("scores_file", "scores_sha256", open(os.path.join(d, c["scores_file"]), "rb").read()[:-4])
+elif mode == "native-length":
+    rewrite("native_scalar_file", "native_scalar_sha256", open(os.path.join(d, c["native_scalar_file"]), "rb").read()[:-4])
+elif mode == "scores-sha":
+    with open(os.path.join(d, c["scores_file"]), "r+b") as f:
+        f.write(b"\xff")
+elif mode == "native-sha":
+    with open(os.path.join(d, c["native_scalar_file"]), "r+b") as f:
+        f.write(b"\xff")
+elif mode == "slash":
+    c["scores_file"] = "../x"
+elif mode == "dotdot":
+    os.rename(os.path.join(d, c["native_scalar_file"]), os.path.join(d, "n..bin"))
+    c["native_scalar_file"] = "n..bin"
+elif mode == "gemm-keys":
+    c["kind"] = "gemm"
+json.dump(m, open(mp, "w"))
+PY
+}
+for mode in extra no-k n-zero k-zero k-bool n-str scores-length native-length scores-sha native-sha slash dotdot gemm-keys; do
+  tk_setup
+  tk_tamper "${mode}"
+  gw --cases "${fix}/tk.json"
+  expect "72 topk manifest tampered (${mode})" 2 "error:" "!summary:" "!${work}"
+  check "72 node body not started (${mode})" "$(no_node_started)"
+done
+
+# 73. gemm と topk のケースが混ざった入力: --output-dir の名前の集合と中身
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a topk-a
+printf '%s\n' 'g-scalar gemm-a' 't-scalar topk-a' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"t-scalar","output_file":"t-scalar.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+cat >"${fix}/mixed.json" <<'JSON'
+{"rows": [
+  {"id": "g-scalar", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "t-scalar", "export": "topk_scalar", "build": "scalar", "case": "topk-a", "reference_source": "native-scalar"}
+]}
+JSON
+newdir out73
+gw --cases "${fix}/mixed.json" --output-dir "${work}/out73"
+expect "73 gemm and topk rows together" 0 "count: g-scalar mismatches=0 n=4" "count: t-scalar mismatches=0 n=2" "nonfinite: topk-a input=4 output=0" "!nonfinite: gemm-a" "summary: rows=2 match=2"
+check "73 the saved form holds the files of both kinds" "$(dir_names_ok "${work}/out73" "g-scalar.bin t-scalar.bin gemm-a.a.bin gemm-a.b.bin gemm-a.native-scalar.bin topk-a.scores.bin topk-a.native-scalar.bin manifest.json outputs.json")"
+check "73 the saved topk inputs and output are copied byte for byte" "$(python3 -I -c 'import os, sys
+hf, o = sys.argv[1:3]
+ok = all(open(os.path.join(hf, n), "rb").read() == open(os.path.join(o, n), "rb").read() for n in ("manifest.json", "topk-a.scores.bin", "topk-a.native-scalar.bin"))
+ok = ok and open(os.path.join(hf, "topk-a.native-scalar.bin"), "rb").read() == open(os.path.join(o, "t-scalar.bin"), "rb").read()
+sys.exit(0 if ok else 1)' "${fix}/hf" "${work}/out73" && echo 0 || echo 1)"
+w --recount "${work}/out73"
+expect "73 --recount of the mixed saved form" 0 "recount: g-scalar mismatches=0 n=4" "recount: t-scalar mismatches=0 n=2" "nonfinite: topk-a input=4 output=0" "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0"
+
+# 74. manifest に topk のケースがあり、行は gemm だけ: nonfinite の行は無く、保存の形に topk の入力が入り、--recount が 0
+rm -rf "${fix}/hf" "${fix}/outs"
+mk_host_fixture "${fix}/hf" gemm-a gemm-b topk-a
+printf '%s\n' 'g-scalar gemm-a' 'g-simd gemm-b' >"${fix}/gen-rowmap"
+printf '%s\n' '{"id":"g-scalar","output_file":"g-scalar.bin"}' '{"id":"g-simd","output_file":"g-simd.bin"}' >"${FAKE_RESULTS}"
+export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+newdir out74
+gw --cases "${fix}/gen.json" --output-dir "${work}/out74"
+expect "74 gemm rows with a topk case in the manifest" 0 "summary: rows=2 match=2" "!nonfinite:"
+check "74 the saved form has the topk inputs" "$(dir_names_ok "${work}/out74" "${SAVED_NAMES} topk-a.scores.bin topk-a.native-scalar.bin")"
+w --recount "${work}/out74"
+expect "74 --recount" 0 "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0" "!nonfinite:"
+
+# 75. topk の保存の形の数え直し: 0・1・2
+tk_setup
+newdir out75
+gw --cases "${fix}/tk.json" --output-dir "${work}/out75"
+expect "75 saved topk rows" 0 "summary: rows=2 match=2"
+check "75 the file names are exactly the saved form" "$(dir_names_ok "${work}/out75" "${TK_SAVED_NAMES}")"
+w --recount "${work}/out75"
+expect "75 --recount of the saved form" 0 "recount: t-scalar mismatches=0 n=2" "recount: t-simd mismatches=0 n=2" "sha256: topk-a.scores " "nonfinite: topk-a input=4 output=0" "nonfinite: topk-b input=4 output=0" "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0"
+check "75 --recount order is recount, sha256, nonfinite, recount-summary" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+ok = first("recount: t-simd") < first("sha256: t-scalar") < first("sha256: topk-b.native-scalar") < first("nonfinite: topk-a") < first("nonfinite: topk-b") < first("recount-summary:") and L[-1].startswith("recount-summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+# tk_saved_mut <ディレクトリ名> <モード>: topk の保存の形を壊す。
+tk_saved_mut() {
+  python3 -I - "${work}/$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+op = os.path.join(d, "outputs.json")
+o = json.load(open(op))
+def save():
+    json.dump(o, open(op, "w"))
+def flip(fn, at=0):
+    p = os.path.join(d, fn)
+    b = bytearray(open(p, "rb").read())
+    b[at] ^= 1
+    open(p, "wb").write(bytes(b))
+    return bytes(b)
+if mode == "first-entry" or mode == "last-entry":
+    b = flip("t-scalar.bin", 0 if mode == "first-entry" else 15)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "odd":
+    b = open(os.path.join(d, "t-scalar.bin"), "rb").read()[:12]
+    open(os.path.join(d, "t-scalar.bin"), "wb").write(b)
+    o["rows"][0]["output_sha256"] = hashlib.sha256(b).hexdigest()
+    save()
+elif mode == "out-sha":
+    flip("t-scalar.bin")
+elif mode == "scores-sha":
+    flip("topk-a.scores.bin")
+elif mode == "missing":
+    os.unlink(os.path.join(d, "t-simd.bin"))
+elif mode == "kind-row":
+    o["rows"][0]["export"] = "gemm_scalar"
+    save()
+PY
+}
+for mode in first-entry last-entry; do
+  rm -rf "${work:?}/out75m"
+  cp -R "${work}/out75" "${work}/out75m"
+  tk_saved_mut out75m "${mode}"
+  w --recount "${work}/out75m"
+  expect "75 --recount of a saved form with a changed entry (${mode})" 1 "recount: t-scalar mismatches=1 n=2" "recount: t-simd mismatches=0 n=2"
+done
+for mode in odd out-sha scores-sha missing kind-row; do
+  rm -rf "${work:?}/out75m"
+  cp -R "${work}/out75" "${work}/out75m"
+  tk_saved_mut out75m "${mode}"
+  w --recount "${work}/out75m"
+  expect "75 --recount of a broken saved form (${mode})" 2 "error:" "!recount-summary:"
+done
+
+# 76. 実行の中の数え直しが判定と食い違う場面: 数え直しの側の nonfinite の呼び出しだけを変えた変異体
+rm -rf "${work}/mut"
+mkdir -p "${work}/mut/scripts" "${work}/mut/wasm/crates/glue"
+cp "${DIR}/lib.sh" "${work}/mut/scripts/lib.sh"
+cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
+python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = "sha_lines += nonfinite_lines(manifest_cases, cases, used)"
+assert s.count(old) == 1
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "sha_lines += nonfinite_lines(manifest_cases, cases, set())"))
+PY
+chmod +x "${work}/mut/scripts/wasm-node-check.sh"
+check "76 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
+tk_setup
+newdir out76
+newdir rec76
+WNC_ORIG="${WNC}"
+WNC="${work}/mut/scripts/wasm-node-check.sh"
+gw --cases "${fix}/tk.json" --output-dir "${work}/out76" --record-dir "${work}/rec76" --record-combination metal-mac-mini
+WNC="${WNC_ORIG}"
+expect "76 a disagreeing recount of the nonfinite lines stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
+check "76 nothing written to either directory" "$([ "$(nfiles "${work}/out76")" = 0 ] && [ "$(nfiles "${work}/rec76")" = 0 ] && echo 0 || echo 1)"
+rm -rf "${work}/mut"
 reset_gen
 res_ok
 

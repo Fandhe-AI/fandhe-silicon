@@ -27,8 +27,11 @@
 # 役割の分担: wasm/node/run-glue.cjs は glue を呼んで f32 のビット列を書き出すだけで、判定は持たない。
 # 判定は本スクリプトの python3（標準ライブラリだけ・-I）にあり、入力の値をシェルに展開しない。
 # 行は 2 つの形（TASK-994）。固定の行（export は roundtrip_f32・detect_isa_bits。値は行に書く）と、生成の行
-# （export は gemm_scalar・gemm_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力とネイティブの参照で、
-# 4 バイトの語ごとに完全一致で比べて件数を出す）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
+# （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
+# ネイティブの参照で、ケースの種類ごとの単位〔gemm は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
+# 種類の表は KINDS。行の export の種類と case の種類が違えば終了コード 2。TASK-996）。
+# topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
+# 出すだけで判定と終了コードには関わらない）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
 # 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON /
 # native-scalar＝ネイティブの scalar 版）で、
 # 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
@@ -76,8 +79,37 @@ import sys
 HEX = re.compile(r"[0-9a-f]{8}\Z")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
-# 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。
-GEN_EXPORTS = ("gemm_scalar", "gemm_simd")
+# ケースの種類ごとの性質の表（TASK-994・TASK-996）。種類を足すときはこの表に 1 項と run-glue.cjs の許可表に 1 項を足す。
+# keys: manifest のケースの鍵の完全一致 / dims: 正の整数の寸法の鍵 / files: (ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) /
+# unit: 比べの単位のバイト数 / exports: この種類を呼ぶ生成の行の export /
+# nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）。
+KINDS = {
+    "gemm": {
+        "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
+        "dims": ("m", "k", "n"),
+        "files": (
+            ("a_file", "a_sha256", lambda d: d["m"] * d["k"] * 4, "a"),
+            ("b_file", "b_sha256", lambda d: d["k"] * d["n"] * 4, "b"),
+            ("native_scalar_file", "native_scalar_sha256", lambda d: d["m"] * d["n"] * 4, "native-scalar"),
+        ),
+        "unit": 4,
+        "exports": ("gemm_scalar", "gemm_simd"),
+        "nonfinite": None,
+    },
+    "topk": {
+        "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
+        "dims": ("n", "k"),
+        "files": (
+            ("scores_file", "scores_sha256", lambda d: d["n"] * 4, "scores"),
+            ("native_scalar_file", "native_scalar_sha256", lambda d: d["k"] * 8, "native-scalar"),
+        ),
+        "unit": 8,
+        "exports": ("topk_scalar", "topk_simd"),
+        "nonfinite": (("scores_file", 4, 0), ("native_scalar_file", 8, 4)),
+    },
+}
+# 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
+GEN_EXPORTS = tuple(e for spec in KINDS.values() for e in spec["exports"])
 BUILDS = ("scalar", "simd128")
 # 参照の出どころ（綴りは crates/core/src/rerun/reference.rs の ReferenceSource::name に揃える）。
 SOURCES = ("fixed", "native-neon", "native-scalar")
@@ -111,6 +143,14 @@ COMBINATIONS = (
 # 部品の固定の欄。ビヘイビア項目の ID はこの葉の範囲のもの 1 件だけ。
 BEHAVIOR_IDS = ["BUILD-41"]
 BODY_KIND = "contract-test"
+
+
+def kind_of_export(export):
+    # 生成の行の export が呼ぶケースの種類（GEN_EXPORTS の export だけを渡す）。
+    for kind, spec in KINDS.items():
+        if export in spec["exports"]:
+            return kind
+    return None
 
 
 def die(msg):
@@ -332,25 +372,27 @@ def load_manifest(dirpath, rows):
         die("cannot read manifest")
     if not isinstance(m, dict) or set(m) != {"cases"} or not isinstance(m["cases"], list):
         die("manifest must be an object with a cases list")
-    keys = {"name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"}
     cases = {}
     for c in m["cases"]:
-        if not isinstance(c, dict) or set(c) != keys:
+        if not isinstance(c, dict) or "kind" not in c:
+            die("manifest case has missing or unknown keys")
+        kind = c["kind"]
+        if not isinstance(kind, str) or kind not in KINDS:
+            die("manifest case kind is unknown")
+        spec = KINDS[kind]
+        if set(c) != set(spec["keys"]):
             die("manifest case has missing or unknown keys")
         name = c["name"]
         if not isinstance(name, str) or not ID.match(name) or name in cases:
             die("manifest case name is invalid or repeated")
-        if c["kind"] != "gemm":
-            die("manifest case kind is unknown")
-        dims = []
-        for key in ("m", "k", "n"):
+        dims = {}
+        for key in spec["dims"]:
             v = c[key]
             if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
                 die("manifest case dimension is invalid")
-            dims.append(v)
-        mm, kk, nn = dims
+            dims[key] = v
         files = {}
-        for fk, hk, words in (("a_file", "a_sha256", mm * kk), ("b_file", "b_sha256", kk * nn), ("native_scalar_file", "native_scalar_sha256", mm * nn)):
+        for fk, hk, size, _suffix in spec["files"]:
             fname, want = c[fk], c[hk]
             if not name_ok(fname) or not isinstance(want, str) or not SHA.match(want):
                 die("manifest file entry is invalid")
@@ -365,20 +407,24 @@ def load_manifest(dirpath, rows):
                 die("cannot read a manifest file")
             if hashlib.sha256(data).hexdigest() != want:
                 die("manifest sha256 mismatch")
-            if len(data) != words * 4:
+            if len(data) != size(dims):
                 die("manifest file length mismatch")
             files[fk] = (full, want)
-        cases[name] = {"m": mm, "k": kk, "n": nn, "files": files}
+        cases[name] = {"kind": kind, "dims": dims, "files": files}
     for r in rows:
-        if r["gen"] and r["case"] not in cases:
-            die("unknown case in row: " + r["id"])
+        if r["gen"]:
+            if r["case"] not in cases:
+                die("unknown case in row: " + r["id"])
+            if kind_of_export(r["export"]) != cases[r["case"]]["kind"]:
+                die("row export does not match the case kind: " + r["id"])
     return m["cases"], cases
 
 
-def load_results(path, rows, outputs):
+def load_results(path, rows, outputs, cases):
     ids = {r["id"] for r in rows}
     gen = {r["id"]: r["gen"] for r in rows}
     srcs = {r["id"]: r["src"] for r in rows}
+    units = {r["id"]: KINDS[cases[r["case"]]["kind"]]["unit"] for r in rows if r["gen"]}
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
@@ -407,8 +453,8 @@ def load_results(path, rows, outputs):
                     data = f.read()
             except OSError:
                 die("cannot read an output file")
-            if srcs[rid] == "native-scalar" and len(data) % 4 != 0:
-                die("an output file length is not a multiple of 4")
+            if srcs[rid] == "native-scalar" and len(data) % units[rid] != 0:
+                die("an output file length is not a multiple of %d" % units[rid])
             res[rid] = ("file", data)
         elif set(o) == {"id", "error"} and isinstance(o["error"], str):
             res[rid] = ("error", o["error"])
@@ -424,9 +470,29 @@ def case_sha_lines(manifest_cases, used_cases):
     out = []
     for c in manifest_cases:
         if c["name"] in used_cases:
-            out.append("sha256: %s.a %s" % (c["name"], c["a_sha256"]))
-            out.append("sha256: %s.b %s" % (c["name"], c["b_sha256"]))
-            out.append("sha256: %s.native-scalar %s" % (c["name"], c["native_scalar_sha256"]))
+            for fk, hk, _size, suffix in KINDS[c["kind"]]["files"]:
+                out.append("sha256: %s.%s %s" % (c["name"], suffix, c[hk]))
+    return out
+
+
+def nonfinite_lines(manifest_cases, cases, used_cases):
+    # `nonfinite:` の行（TASK-996）。種類が数え方を持つケースだけ、manifest の順に
+    # 入力の語と出力の各件の語のうち指数部が全部 1 の語の数を出す。出すだけで判定には使わない。
+    def count(case, spec):
+        fk, stride, off = spec
+        with open(cases[case]["files"][fk][0], "rb") as f:
+            data = f.read()
+        return sum(
+            1
+            for i in range(0, len(data) - stride + 1, stride)
+            if int.from_bytes(data[i + off:i + off + 4], "little") & 0x7F800000 == 0x7F800000
+        )
+
+    out = []
+    for c in manifest_cases:
+        spec = KINDS[c["kind"]]["nonfinite"]
+        if c["name"] in used_cases and spec is not None:
+            out.append("nonfinite: %s input=%d output=%d" % (c["name"], count(c["name"], spec[0]), count(c["name"], spec[1])))
     return out
 
 
@@ -466,11 +532,11 @@ def recount_form_inner(d):
                 die("outputs.json row output entry is inconsistent")
         elif of != rid + ".bin" or not isinstance(osha, str) or not SHA.match(osha):
             die("outputs.json row output entry is invalid")
-        rows.append({"id": rid, "case": e["case"], "gen": True, "has_out": of is not None, "sha": osha})
+        rows.append({"id": rid, "export": e["export"], "case": e["case"], "gen": True, "has_out": of is not None, "sha": osha})
     manifest_cases, cases = load_manifest(d, rows)
     expected = ["manifest.json", "outputs.json"]
     for c in manifest_cases:
-        expected += [c["a_file"], c["b_file"], c["native_scalar_file"]]
+        expected += [c[fk] for fk, _hk, _size, _suffix in KINDS[c["kind"]]["files"]]
     expected += [r["id"] + ".bin" for r in rows if r["has_out"]]
     if len(set(expected)) != len(expected) or set(os.listdir(d)) != set(expected):
         die("saved directory has missing, unexpected or repeated files")
@@ -491,19 +557,22 @@ def recount_form_inner(d):
             data = f.read()
         if hashlib.sha256(data).hexdigest() != r["sha"]:
             die("saved output sha256 mismatch")
-        if len(data) % 4 != 0:
-            die("saved output length is not a multiple of 4")
+        unit = KINDS[cases[r["case"]]["kind"]]["unit"]
+        if len(data) % unit != 0:
+            die("saved output length is not a multiple of %d" % unit)
         with open(cases[r["case"]]["files"]["native_scalar_file"][0], "rb") as f:
             want = f.read()
         if len(data) != len(want):
             uncompared.add(rid)
             rec_lines.append("recount-uncompared: %s" % rid)
             continue
-        diff = sum(1 for i in range(0, len(want), 4) if data[i:i + 4] != want[i:i + 4])
-        compared[rid] = (diff, len(want) // 4)
-        rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // 4))
+        diff = sum(1 for i in range(0, len(want), unit) if data[i:i + unit] != want[i:i + unit])
+        compared[rid] = (diff, len(want) // unit)
+        rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // unit))
         sha_lines.append("sha256: %s %s" % (rid, r["sha"]))
-    sha_lines += case_sha_lines(manifest_cases, {r["case"] for r in rows})
+    used = {r["case"] for r in rows}
+    sha_lines += case_sha_lines(manifest_cases, used)
+    sha_lines += nonfinite_lines(manifest_cases, cases, used)
     zero = sum(1 for v in compared.values() if v[0] == 0)
     summary = "recount-summary: rows=%d zero=%d nonzero=%d uncompared=%d" % (len(rows), zero, len(compared) - zero, len(uncompared))
     return {"compared": compared, "uncompared": uncompared, "rec_lines": rec_lines, "sha_lines": sha_lines, "summary": summary}
@@ -522,7 +591,7 @@ def form_items(inputs, manifest_cases, form_rows):
     with open(os.path.join(inputs, "manifest.json"), "rb") as f:
         put("manifest.json", f.read())
     for c in manifest_cases:
-        for fk in ("a_file", "b_file", "native_scalar_file"):
+        for fk, _hk, _size, _suffix in KINDS[c["kind"]]["files"]:
             with open(os.path.join(inputs, c[fk]), "rb") as f:
                 put(c[fk], f.read())
     out_rows = []
@@ -585,7 +654,7 @@ def main():
         if inputs == "-":
             die("generated rows need an inputs directory")
         manifest_cases, cases = load_manifest(inputs, rows)
-    res = load_results(results_path, rows, outputs)
+    res = load_results(results_path, rows, outputs, cases)
     counts = {"match": 0, "mismatch": 0, "not-run": 0}
     lines = []
     outs = []
@@ -615,12 +684,13 @@ def main():
         elif r["gen"]:
             with open(cases[r["case"]]["files"]["native_scalar_file"][0], "rb") as f:
                 want = f.read()
+            unit = KINDS[cases[r["case"]]["kind"]]["unit"]
             if len(val) != len(want):
                 state = "mismatch"
-                detail = "length expected %d got %d" % (len(want) // 4, len(val) // 4)
+                detail = "length expected %d got %d" % (len(want) // unit, len(val) // unit)
             else:
-                nwords = len(want) // 4
-                diff = sum(1 for i in range(0, len(want), 4) if want[i:i + 4] != val[i:i + 4])
+                nwords = len(want) // unit
+                diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 state = "match" if diff == 0 else "mismatch"
                 if diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
@@ -646,6 +716,7 @@ def main():
         if len(outs) != len(lines):
             die("no label for a row state")
     rec_extra = []
+    nf_lines = []
     written = []
     if form_rows:
         # 保存の形を作業の一時ディレクトリへ書き、保存の形だけから数え直して判定の件数と突き合わせる。
@@ -654,6 +725,9 @@ def main():
         write_new(saved_abs, items, "saved form")
         rc_res = recount_form(saved_abs)
         if rc_res["compared"] != j_compared or rc_res["uncompared"] != j_uncompared:
+            die("recount disagrees")
+        nf_lines = nonfinite_lines(manifest_cases, cases, used_cases)
+        if [ln for ln in rc_res["sha_lines"] if ln.startswith("nonfinite: ")] != nf_lines:
             die("recount disagrees")
         rec_extra = rc_res["rec_lines"] + [rc_res["summary"]]
         if norm_out is not None:
@@ -670,6 +744,8 @@ def main():
     for ln in cmp_lines:
         print(ln)
     for ln in case_sha_lines(manifest_cases, used_cases):
+        print(ln)
+    for ln in nf_lines:
         print(ln)
     for ln in rec_extra:
         print(ln)
