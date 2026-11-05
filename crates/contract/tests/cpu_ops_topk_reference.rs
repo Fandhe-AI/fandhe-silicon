@@ -3,8 +3,10 @@
 //! 公開のパスだけを使い、入力は固定の seed から決定的に作る。
 //! 期待の出力を CPU 参照から作らず、出力に並びの規則を直に当てる試験も置く。
 //! SIMD 版と scalar 版の出力をバイトの列にして比べ、違うバイトの数を数える試験も置く。
+//! -0.0 と +0.0 を含む入力を、scalar 版と SIMD 版の出力に当てる試験も置く。
 
 use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, ReferenceCpuOps};
+use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
 use fandhe_silicon_core::parity::gemm_inputs::{GEMM_INPUT_SEED, SplitMix64};
 use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk, reference_topk_f32};
 use fandhe_silicon_core::parity::topk_inputs::SIGNED_ZERO_INPUTS;
@@ -450,4 +452,164 @@ fn topk_byte_count_detects_divergence() {
         let dropped = &base[..base.len() - entry_bytes];
         assert_eq!(differing_bytes(&base, dropped), None, "{name} len");
     }
+}
+
+/// `CaseId::E4` の入力（スコアの列と k）。
+fn case_e4() -> (Vec<f32>, usize) {
+    match CaseId::E4.input().unwrap() {
+        CaseInput::TopK { scores, k } => (scores, k),
+        _ => panic!("CaseId::E4 is not a top-k input"),
+    }
+}
+
+/// -0.0 と +0.0 を含む入力の 5 件（`CaseId::E4` と `SIGNED_ZERO_INPUTS` の 4 件）。
+fn signed_zero_cases() -> Vec<(String, Vec<f32>, usize)> {
+    let (scores, k) = case_e4();
+    let mut all = vec![("case_e4".to_string(), scores, k)];
+    for input in SIGNED_ZERO_INPUTS {
+        all.push((input.name().to_string(), input.scores().to_vec(), input.k()));
+    }
+    all
+}
+
+/// 2 つの出力で、スロット番号が違うか `f32::total_cmp` が `Equal` でない位置の数。長さが違えば `None`。
+fn total_order_mismatches(a: &[(u32, f32)], b: &[(u32, f32)]) -> Option<usize> {
+    if a.len() != b.len() {
+        return None;
+    }
+    Some(
+        a.iter()
+            .zip(b)
+            .filter(|(x, y)| x.0 != y.0 || x.1.total_cmp(&y.1) != std::cmp::Ordering::Equal)
+            .count(),
+    )
+}
+
+/// 有限のスコアを `partial_cmp` の降順（同点はスロット番号の昇順）に並べた先頭 k 件。
+/// 試験の中の比べの相手で、製品の出力の期待には使わない。
+fn ieee_ordered_topk(scores: &[f32], k: usize) -> Vec<(u32, f32)> {
+    let mut v: Vec<(u32, f32)> = (0_u32..)
+        .zip(scores)
+        .filter(|(_, x)| x.is_finite())
+        .map(|(i, x)| (i, *x))
+        .collect();
+    v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+    v.truncate(k);
+    v
+}
+
+#[test]
+fn topk_case_e4_matches_case_reference() {
+    // CPU-12
+    let (scores, k) = case_e4();
+    assert_eq!(k, 8);
+    let reference = CaseId::E4.reference().unwrap();
+    let expected = reference.as_topk().unwrap();
+    for (label, ops, method) in combos() {
+        let out = run(ops.as_ref(), method, &scores, k);
+        assert!(
+            compare_topk(expected, &to_entries(&out))
+                .unwrap()
+                .is_match(),
+            "{label}"
+        );
+        let slots: Vec<u32> = out.iter().map(|(s, _)| *s).collect();
+        assert_eq!(slots, (5..13).collect::<Vec<u32>>(), "{label}");
+        assert!(
+            out.iter().all(|(_, v)| v.to_bits() == 1.0_f32.to_bits()),
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn topk_case_e4_order_rule_holds_directly() {
+    // CPU-12
+    let (scores, k) = case_e4();
+    for (label, ops, method) in combos() {
+        let out = run(ops.as_ref(), method, &scores, k);
+        assert_order_rule(&format!("case_e4 {label}"), &scores, k, &out);
+    }
+}
+
+#[test]
+fn topk_positive_zero_precedes_negative_zero() {
+    // CPU-12
+    for input in SIGNED_ZERO_INPUTS {
+        let (scores, k) = (input.scores(), input.k());
+        for (label, ops, method) in combos() {
+            let name = format!("{} {label}", input.name());
+            let out = run(ops.as_ref(), method, scores, k);
+            assert_order_rule(&name, scores, k, &out);
+            let pos: Vec<usize> = (0..out.len())
+                .filter(|i| out[*i].1.to_bits() == 0x0000_0000)
+                .collect();
+            let neg: Vec<usize> = (0..out.len())
+                .filter(|i| out[*i].1.to_bits() == 0x8000_0000)
+                .collect();
+            assert!(!pos.is_empty(), "{name}");
+            if !neg.is_empty() {
+                assert!(pos.last() < neg.first(), "{name}");
+            }
+        }
+    }
+}
+
+#[test]
+fn topk_simd_signed_zero_total_order_matches_scalar() {
+    // CPU-13
+    let ops_list: [(&str, Box<dyn CpuOps>); 2] = [
+        ("default", Box::new(DefaultCpuOps)),
+        ("reference", Box::new(ReferenceCpuOps)),
+    ];
+    let mut compared = 0usize;
+    for (name, scores, k) in signed_zero_cases() {
+        assert!(scores.iter().any(|x| x.to_bits() == 0x8000_0000), "{name}");
+        let scalar = run(&DefaultCpuOps, Method::Scalar, &scores, k);
+        for (label, ops) in &ops_list {
+            let simd = run(ops.as_ref(), Method::Simd, &scores, k);
+            assert_eq!(
+                total_order_mismatches(&scalar, &simd),
+                Some(0),
+                "{name} {label}"
+            );
+            compared += scalar.len();
+        }
+    }
+    assert_eq!(compared, 2 * (8 + 2 + 4 + 2 + 4));
+}
+
+#[test]
+fn topk_signed_zero_inputs_differ_from_ieee_order() {
+    // CPU-13
+    assert_eq!(SIGNED_ZERO_INPUTS.len(), 4);
+    let expected = [Some(2), Some(2), Some(1), Some(4)];
+    for (input, want) in SIGNED_ZERO_INPUTS.iter().zip(expected) {
+        let (scores, k) = (input.scores(), input.k());
+        let out = run(&DefaultCpuOps, Method::Scalar, scores, k);
+        let ieee = ieee_ordered_topk(scores, k);
+        assert_eq!(
+            total_order_mismatches(&out, &ieee),
+            want,
+            "{}",
+            input.name()
+        );
+    }
+}
+
+#[test]
+fn topk_total_order_compare_detects_divergence() {
+    // CPU-13
+    let base = vec![(1_u32, 0.0_f32), (0, -0.0_f32)];
+    assert_eq!(total_order_mismatches(&base, &base), Some(0));
+
+    let mut flipped = base.clone();
+    flipped[0].1 = -0.0;
+    assert_eq!(total_order_mismatches(&base, &flipped), Some(1));
+
+    let mut swapped = base.clone();
+    swapped.swap(0, 1);
+    assert_eq!(total_order_mismatches(&base, &swapped), Some(2));
+
+    assert_eq!(total_order_mismatches(&base, &base[..1]), None);
 }
