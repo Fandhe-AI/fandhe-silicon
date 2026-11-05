@@ -23,6 +23,7 @@ require_cmd node
 WNC="${DIR}/wasm-node-check.sh"
 NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
 CASES_REAL="${ROOT_DIR}/wasm/node/cases.json"
+CASES_UNAVAILABLE_REAL="${ROOT_DIR}/wasm/node/cases-reference-unavailable.json"
 GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
 REAL_NODE="$(command -v node)"
 WB_VER="$(sed -n 's/^wasm-bindgen = "=\([0-9][0-9.]*\)".*/\1/p' "${GLUE_MANIFEST}" | head -n 1)"
@@ -444,6 +445,16 @@ rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "
 want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128")))
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+# 実物の部分 Top-k の行（export が topk_ で始まる行）は 10 組にちょうど等しい（TASK-996）
+check "22 bundled topk rows are exactly the ten (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("topk_")]
+four = [("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_scalar", "simd128"), ("topk_simd", "simd128")]
+want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
+got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
+sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
+check "22 every bundled row has a reference source of fixed or native-scalar" "$(python3 -I -c 'import json,sys
+rows = json.load(open(sys.argv[1]))["rows"]
+sys.exit(0 if rows and all(r.get("reference_source") in ("fixed", "native-scalar") for r in rows) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 check "22 every bundled fixed row has a reference, every generated row has the exact five keys" "$(python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 def ok(r):
@@ -1843,6 +1854,23 @@ expect "76 a disagreeing recount of the nonfinite lines stops the run" 2 "error:
 check "76 nothing written to either directory" "$([ "$(nfiles "${work}/out76")" = 0 ] && [ "$(nfiles "${work}/rec76")" = 0 ] && echo 0 || echo 1)"
 rm -rf "${work}/mut"
 reset_gen
+res_ok
+
+# 77. 実物の cases-reference-unavailable.json は 3 行とも not-run (reference-unavailable)（TASK-996）
+python3 -I - "${CASES_UNAVAILABLE_REAL}" "${FAKE_RESULTS}" "${fix}/rowmap-77" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+open(sys.argv[2], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
+open(sys.argv[3], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
+PY
+mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite
+export FAKE_HOST_FIXTURE="${fix}/hf-77" FAKE_ROW_MAP="${fix}/rowmap-77"
+w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${CASES_UNAVAILABLE_REAL}"
+reset_gen
+expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "summary: rows=3 match=0 mismatch=0 not-run=3" "!count:" "!recount:" "!recount-summary:" "!nonfinite:" "!sha256:"
+check "77 the file has three rows, all native-neon" "$(python3 -I -c 'import json,sys
+rows = json.load(open(sys.argv[1]))["rows"]
+sys.exit(0 if len(rows) == 3 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"

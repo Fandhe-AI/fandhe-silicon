@@ -1,0 +1,25 @@
+{
+  "rows": [
+    {
+      "id": "topk-batch-native-neon",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-batch",
+      "reference_source": "native-neon"
+    },
+    {
+      "id": "topk-ties-native-neon",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-ties",
+      "reference_source": "native-neon"
+    },
+    {
+      "id": "topk-nonfinite-native-neon",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-nonfinite",
+      "reference_source": "native-neon"
+    }
+  ]
+}
