@@ -44,3 +44,13 @@ make test-doctest-error-code-check
 ```
 
 本リポの doctest の `compile_fail,E…` は、上の組のすべてで期待のコードと一致している。
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 背景の「`compile_fail,E…` を持つ doctest」の一覧 | `crates/core` の 17 ファイル、`crates/contract/src/memory_free_doctest.rs`、`crates/upper` の 4 ファイル → `crates/core/src` にさらに `memory/mapped_range.rs`（`E0499`）。`crates/contract/src` にさらに `cfg_gate_doctest.rs`（feature `cpu-ops` が有効なときの 1 件が `E0004`。そのほかの `compile_fail` は上の説明どおりコードなし）。`crates/core/tests/graphics_ops_doctest_shape.rs` は `compile_fail,E0046` の文字列を読む統合テストで、doctest ではない | `grep -rl 'compile_fail,E' crates`、`grep -n 'compile_fail' crates/contract/src/cfg_gate_doctest.rs` |
+| 同・「エラーコードを指定しない `compile_fail` の doctest」の一覧に挙げた `cfg_gate_doctest.rs` | コードなしのみ → 上のとおり `cpu-ops` が有効な組では `E0004` の 1 件を持つ。`--workspace --all-features` の組で照合が効く | 同上 |
+| 確かめ方の末尾の文（期待のコードと一致） | 全部の組で一致 → 同じ。`make doctest-error-code-check` は終了コード 0（`doctest error codes ok`） | `make doctest-error-code-check` |

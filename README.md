@@ -110,11 +110,11 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9） |
 | `docs/graphics-types.md` | 描画の公開の型と操作の trait（TASK-837）の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い・今の値の補い（base 2f36d3d） |
 | `docs/render-pass-types.md` | 描画パスの状態の値の型と範囲つきの描画の範囲の型と検査（TASK-838）の所在と、記録の所在・描画パスの状態の値の型と範囲の型と検査（1/4）・描画パスの状態を設定する操作と試験用の device の返し（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d） |
-| `docs/draw-ops-types.md` | mesh shader の描画の操作と試験用の device の返し（TASK-839）の所在と、記録の所在・mesh shader の描画の操作と試験用の device の返し（1/3）・外の crate からの試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d） |
+| `docs/draw-ops-types.md` | mesh shader の描画の操作と試験用の device の返し（TASK-839）の所在と、記録の所在・mesh shader の描画の操作と試験用の device の返し（1/3）・外の crate からの試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d）・今の値の補い（base 801a89d） |
 | `docs/graphics-signature-check.md` | 描画の操作の引数と戻りの型を固定する試験（TASK-908）の所在と、本リポの現状の事実・署名の型の試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 2f36d3d） |
 | `docs/offscreen-target-check.md` | 描画先の大きさとバイト数の純粋関数（TASK-374）の所在・振る舞い・対応するテスト・確かめ方・入力の検査（2/4）・境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d） |
 | `docs/copy-target-check.md` | 描画先からバッファへの写しの書き込み先の検査（TASK-591）の所在・振る舞い・対応するテスト・確かめ方・境界の入力の全組の試験（2/2）・完了の条件の確かめ（2/2）・今の値の補い（base 2f36d3d） |
-| `docs/surface-types.md` | 表示先の設定の大きさの検査と取得の結果の型（TASK-654）の所在・設定の大きさの検査（1/4）・取得の結果の型（2/4）・境界の入力と対応の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d） |
+| `docs/surface-types.md` | 表示先の設定の大きさの検査と取得の結果の型（TASK-654）の所在・設定の大きさの検査（1/4）・取得の結果の型（2/4）・境界の入力と対応の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d）・今の値の補い（base 801a89d） |
 | `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2） |
 | `docs/contract-binding-types.md` | 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型（TASK-419）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
@@ -149,7 +149,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/buffer-range-check.md` | バッファの引数検査の純粋関数（TASK-309 の 1/4）の所在・現状の振る舞い・対応するテスト・確かめ方・境界の入力の試験（2/4）・拒否のときの内容の不変の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/buffer-usage-check.md` | 用途の 12 値の対応表と用途と操作の対応の検査（TASK-1796）の所在・現状の振る舞い・対応するテスト・確かめ方 |
 | `docs/buffer-size-usage-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実 |
-| `docs/buffer-slice.md` | バッファの部分範囲の型（TASK-311）の所在・部分範囲の型と作る口（1/5）・確かめ方・入れ子の絞りと解放の後の型検査（2/5）・境界の入力の試験（3/5）・入れ子と全体の範囲の試験（4/5）・完了の条件の確かめ（5/5） |
+| `docs/buffer-slice.md` | バッファの部分範囲の型（TASK-311）の所在・部分範囲の型と作る口（1/5）・確かめ方・入れ子の絞りと解放の後の型検査（2/5）・境界の入力の試験（3/5）・入れ子と全体の範囲の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 801a89d） |
 | `docs/mapped-range.md` | 書き込み用のビューの型（TASK-312）の所在・書き込み用のビューの型と長さ・空の判定（1/4）・確かめ方・範囲の絞り（2/4）・境界の入力と絞りの試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
@@ -158,8 +158,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実・本リポでの反映の方針（TASK-236） |
 | `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方（TASK-112） |
-| `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-22） |
-| `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）（TASK-248） |
+| `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）（TASK-22） |
+| `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 801a89d）（TASK-248） |
 | `docs/wasm32-glue-exports.md` | wasm32 の glue の export の所在と、本リポの現状の事実・行列積と ISA のビット（1/4）・要素ごとの演算（2/4）・部分 Top-k（3/4）・完了の条件の確かめ（4/4）（TASK-2957） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）（TASK-2954） |
 | `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）（TASK-1352） |
@@ -171,7 +171,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）（TASK-29） |
 | `docs/route-evidence.md` | 経路の突き合わせの道具の所在と、本リポの現状の事実・値の型と 1 回の呼び出しの照合（1/4）・呼び出しの数え上げと試験の枠への受け渡し（2/4）・下-2 の経路の報告と模擬の呼び出しの突き合わせ（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 2373576）（TASK-922） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実・決定表の語彙の検査（TASK-142）・本リポでの反映の方針（TASK-14・TASK-113） |
-| `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方 |
+| `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方・今の値の補い（base 801a89d） |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
 | `docs/exec-deps-check.md` | 下-2 の依存の向きの検査の所在・検査の本体（1/4）・回帰テストと向きの違う依存の陽性対照（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 6b35dd9）・今の値の補い（base 48025c6）・今の値の補い（base f4b9d8f）・今の値の補い（base 2373576）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-259） |
 | `docs/exec-surface-check.md` | 下-2 の走査の所在・下-2 のソースの環境変数・ファイルの読み取りの走査（1/6）・既定の feature の公開の面にある試験用の口の名前の走査（2/6）・操作を実行する関数の戻り値の型と一覧に無い公開の関数の走査（3/6）・一時 workspace を走査する口と実物の下-2 を写した変異体（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）・段の表・今の値の補い（base f4b9d8f）・今の値の補い（base 2373576）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-923） |

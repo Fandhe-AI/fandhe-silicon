@@ -147,3 +147,16 @@ cargo test -p fandhe-silicon-core --features graphics --test graphics_surface_ty
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 表の 1 の再公開の行 | `crates/core/src/graphics.rs` の `:681` が `mod surface;`、`:682` が `pub use surface::{CurrentSurfaceTexture, SurfaceStatus, validate_surface_size};` → `:1043`・`:1044` | `grep -n 'mod surface\|pub use surface' crates/core/src/graphics.rs` |
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux）。記録の値は、上の節の「公開 API の検査」の表の値。
+
+| 検査 | 記録の値 → 今の値 | 測ったコマンド |
+| ---- | ----------------- | -------------- |
+| `public-api-check` | `public_items_total=14780` → `15604`（`documents=10`・`wgpu_type_refs_total=0`・`wgpu_other_refs_total=0` は同じ） | `make public-api-check` |
+| `public-api-webgpu-check` | `public_items_total=3814 public_functions_total=522` → `3836`・`526`（ほかの項目は同じ。`submit_token_ops_total=11`・`submit_token_violations_total=0`） | `make public-api-webgpu-check` |
+| `public-api-sdk-check` | `public_items_total=12763` → `13428`（`sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0` は同じ） | `make public-api-sdk-check` |
+| `public-name-check` | `public_items_total=12763` → `13428`（`name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0` は同じ） | `make public-name-check` |
+
+4 つとも終了コード 0。

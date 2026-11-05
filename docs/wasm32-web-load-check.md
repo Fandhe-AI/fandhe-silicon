@@ -290,3 +290,12 @@ make deny (cargo-deny)	make test-wasm-web-load-check	2026-11-02T23:54:15.9395478
 | 4/4 | 完了の条件の確かめ | #3973 |
 
 親 Issue は #468。
+
+## 今の値の補い（base 801a89d）
+
+上の節の表と文は記録時点の値で、書き換えていない。今の値は次のとおり（実行環境は GPU なしの Linux。wasm-bindgen の CLI は PATH に無いので `make wasm-web-load-check` は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「glue の export」の節（93 行付近）と完了の条件の確かめの (4) | `wasm_bindgen` の付いた関数は 1 件（`roundtrip_f32`）、`18:` の 1 行 → 8 件（`roundtrip_f32` と 7 名の export。属性の行は 25・34・47・58・79・95・137・147）。7 名の export は TASK-2957 の範囲 | `grep -n wasm_bindgen wasm/crates/glue/src/lib.rs` |
+| 回帰テスト | 偽の node・cargo・wasm-bindgen と本物の node で偽の glue を読む試験は、合成の出力を読むので glue の実物の export の数に依らない。`125 passed, 0 failed`、終了コード 0 | `make test-wasm-web-load-check` |
