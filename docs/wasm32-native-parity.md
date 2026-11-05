@@ -956,8 +956,114 @@ $ grep -n "^KINDS\|def input_special_lines\|def kind_of_export" scripts/wasm-nod
 $ grep -n "RUNNERS\|runElementwise" wasm/node/run-glue.cjs
 ```
 
+### 要素ごと演算の入力とネイティブの参照（2/4）
+
+`wasm-parity-host gen <dir>` が、GEMM の 3 ケース・部分 Top-k の 3 ケースに続けて要素ごと演算の 2 ケースの入力と `DefaultCpuOps.elementwise_scalar` の出力を書く。`wasm/node/cases.json` は変わらず、行は 24 行のまま。
+
+#### ケース
+
+定数 `ELEMENTWISE_CASES`（`wasm/crates/parity-host/src/lib.rs`）が持つ。件数は定数 `ELEMENTWISE_LEN`。ケースごとに新しい `SplitMix64::new(GEMM_INPUT_SEED)` から作る。
+
+| 名前 | 件数 | `op_code` | `c_bits` | 入力の作り方 |
+| ---- | ---- | --------- | -------- | ------------ |
+| `elementwise-relu` | 1,000,003 | 0 | `00000000` | `next_signed_unit_f32` を順に取り、`0.0` と等しい値は入れずに引き直して 1,000,003 個 |
+| `elementwise-add-scalar` | 1,000,003 | 1 | `3f000000` | 同じ（`elementwise-relu` と同じ列） |
+
+ネイティブの参照は、同じ入力を `DefaultCpuOps.elementwise_scalar(op, &input, &mut out)`（`out` は長さ 1,000,003 で初期値 `0.0`）に渡した `out`。`op` は `elementwise-relu` が `UnaryElementwiseOp::Relu`、`elementwise-add-scalar` が `UnaryElementwiseOp::AddScalar(0.5)`。
+
+#### 書くファイル
+
+| ファイル | 中身 |
+| -------- | ---- |
+| `<ケース>.input.bin` | 入力の f32 を添字の順にリトルエンディアンで並べたもの。2 ケースで同じ中身 |
+| `<ケース>.native-scalar.bin` | `out` の f32 を添字の順にリトルエンディアンで並べたもの |
+| `manifest.json` の `elementwise` の要素 | `name`・`kind`（`"elementwise"`）・`n`・`op_code`（整数）・`c_bits`（小文字 8 桁の 16 進の文字列）・`input_file`・`native_scalar_file`・`input_sha256`・`native_scalar_sha256` を 1 欄 1 行で持つ |
+
+今の値として、`manifest.json` の `cases` は GEMM の 3 ケース・部分 Top-k の 3 ケースの後に要素ごと演算の 2 ケースを並べた 8 要素で、書く名前は 20 個（`.bin` が 19 個と `manifest.json`）。`elementwise_scalar` が `Err` を返したときは固定の文言 `error: native elementwise_scalar failed` を標準エラーに出し、終了コードは 2。
+
+#### 試験
+
+`wasm/crates/parity-host/tests/gen.rs`。期待は生成器・`DefaultCpuOps`・`ReferenceCpuOps`・式の呼び出しで作る。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `native_elementwise_error_text` | `GenError::NativeElementwiseFailed` の文言が固定 |
+| `elementwise_input_follows_fresh_generator` | 入力が、新しい生成器の `next_signed_unit_f32` の列から `0.0` を除いた先頭 1,000,003 個とビット列で同じ（2 ケース） |
+| `elementwise_input_has_no_special_values` | 件数 1,000,003。NaN 0・Inf 0・`to_bits() & 0x7fff_ffff == 0` の語 0（2 ケース） |
+| `elementwise_cases_share_input_bytes` | 2 ケースの `.input.bin` のバイト列が同じ |
+| `native_elementwise_matches_default_cpu_ops` | 書いた `.native-scalar.bin` が `DefaultCpuOps.elementwise_scalar` の出力を `f32_le_bytes` で並べたものと同じ（2 ケース） |
+| `native_elementwise_matches_expression` | 読み戻した列が、`elementwise-relu` は `x.max(0.0)`、`elementwise-add-scalar` は `x + 0.5` の列とビット列で同じ |
+| `native_elementwise_matches_reference_cpu_ops` | 読み戻した列が `ReferenceCpuOps.elementwise_scalar` の出力とビット列で同じ（2 ケース） |
+| `elementwise_manifest_entries_match_files` | `elementwise` の 2 要素の鍵がちょうど 9 個。`kind`・`n`・`op_code`（0・1）・`c_bits`（`00000000`・`3f000000`）・sha256 が合う。ファイルの長さが `n`×4。ファイル名が `[a-z0-9.-]` だけ。`.input.bin` が `f32_le_bytes` と同じ |
+| `gen_refuses_existing_elementwise_file` | `elementwise-relu.input.bin` が先にあると `FileExists`。ディレクトリの中身はそのファイルだけで、中身も変わらない |
+
+既存の `manifest_hashes_match_files` と `topk_manifest_entries_match_files` の名前の数の期待は、GEMM・部分 Top-k・要素ごと演算のケースの数の和。
+
+#### 確かめ方
+
+時点のコミット: `739a3ae`（この変更の土台）。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+一時のディレクトリに当てた出力（`d` は `mktemp -d` のディレクトリ）。
+
+```console
+$ cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"
+$ (cd "$d" && ls && sha256sum *)
+elementwise-add-scalar.input.bin
+elementwise-add-scalar.native-scalar.bin
+elementwise-relu.input.bin
+elementwise-relu.native-scalar.bin
+gemm-256.a.bin
+gemm-256.b.bin
+gemm-256.native-scalar.bin
+gemm-37x41x53.a.bin
+gemm-37x41x53.b.bin
+gemm-37x41x53.native-scalar.bin
+gemm-64.a.bin
+gemm-64.b.bin
+gemm-64.native-scalar.bin
+manifest.json
+topk-batch.native-scalar.bin
+topk-batch.scores.bin
+topk-nonfinite.native-scalar.bin
+topk-nonfinite.scores.bin
+topk-ties.native-scalar.bin
+topk-ties.scores.bin
+e9b99b8c78de25bd6fcf651b4674abbb8e6525d4480ce60c5ef8f52f0061ec52  elementwise-add-scalar.input.bin
+25996e901beab1e6891ba2b25366fee752e1c350cad2cc239f4a6878c0c3d509  elementwise-add-scalar.native-scalar.bin
+e9b99b8c78de25bd6fcf651b4674abbb8e6525d4480ce60c5ef8f52f0061ec52  elementwise-relu.input.bin
+52444bc37b060fd87456b23132c1f5b2a4e32e2d008fc1d1d453cac5b9913588  elementwise-relu.native-scalar.bin
+0d509543d75aff9fa7372ca461e5c91dd8e9d8e41c81fe3b302e6610b1228b89  gemm-256.a.bin
+e5aae545d81ea7cf7b62df1d03c79055a67967826d0b74ea02c0c68063fbd912  gemm-256.b.bin
+d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1  gemm-256.native-scalar.bin
+8b6bdc24887e48cd2bc3598950e2949c599f27b9c14d2a2c11384d2bb9c454d1  gemm-37x41x53.a.bin
+60efc5337595142f4ec8d78f08e8e2663f4a67630672e1d21d7cc2f21f90e19e  gemm-37x41x53.b.bin
+a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b  gemm-37x41x53.native-scalar.bin
+2259215901630df152c4b1e0df09edf21118c82c285b4a9968901fca8ca2ca52  gemm-64.a.bin
+9d19ef5ea664105fe1cfbdc69868867fcecde4652eb739d1912527d4652d3eeb  gemm-64.b.bin
+25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11  gemm-64.native-scalar.bin
+3bd0b6d3537a65b67f3653b9b27ddcc13ad215b7dd388ccbac7a608411734c3d  manifest.json
+562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f  topk-batch.native-scalar.bin
+e583c60181f74537ccb440169920ca11583822f4e65653b8dd34ea420ebd21be  topk-batch.scores.bin
+98fa0af29bc71ec2b760aab079d2091327c9294f52258debc07524215c0062d2  topk-nonfinite.native-scalar.bin
+a8c42cd6034f57cb241fa7a4b9023dff42547a234f64d2a9aa152ce2084bcb45  topk-nonfinite.scores.bin
+0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c  topk-ties.native-scalar.bin
+f951986cfa3ee3f33f94b487d0a65b36cd546269a83b47ac250518d55cbde166  topk-ties.scores.bin
+```
+
+定数と関数の所在は `grep -n "ELEMENTWISE_CASES\|pub fn" wasm/crates/parity-host/src/lib.rs` で確かめる。
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に要素ごと演算の種類を足す | #6287 |
+| 2/4 | 要素ごと演算の 2 ケースの入力とネイティブの参照を host 側の道具に足す | #6288 |

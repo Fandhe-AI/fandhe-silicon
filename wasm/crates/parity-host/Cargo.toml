@@ -1,9 +1,9 @@
-# parity-host: GEMM と部分 Top-k の入力と、host の scalar 版の出力をファイルに書く host 側の道具。
+# parity-host: GEMM・部分 Top-k・要素ごと演算の入力と、host の scalar 版の出力をファイルに書く host 側の道具。
 # 製品の crate（crates/contract・crates/core）に path で依存する。
 [package]
 name = "wasm-parity-host"
 version = "0.0.0"
-description = "host-side tool that writes GEMM and partial top-k inputs and the native scalar outputs as files"
+description = "host-side tool that writes GEMM, partial top-k and elementwise inputs and the native scalar outputs as files"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
