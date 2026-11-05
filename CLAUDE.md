@@ -111,7 +111,7 @@ fandhe-silicon/
 ├── docs/parity-signed-zero-topk.md # ±0 の扱いと Top-k の規則の所在と、本リポの現状の事実・(1) の確かめ（2/6）・(2) の確かめ（3/6）・追加の入力の確かめ（4/6）・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 42731d8）（TASK-976）
 ├── docs/cpu-ops-topk-order.md  # 部分 Top-k の並びの規則を出力に直に当てる試験の所在・並びの規則を出力に直に当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2450）
 ├── docs/cpu-ops-topk-simd-bytes.md  # 部分 Top-k の SIMD 版と scalar 版の出力の一致の試験の所在・SIMD 版と scalar 版の出力をバイトの列で比べる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）（TASK-2452）
-├── docs/cpu-ops-topk-signed-zero.md  # 部分 Top-k の -0.0 の扱いの確かめの所在・scalar 版と SIMD 版に -0.0 の入力を当てる試験（1/4）（TASK-2451）
+├── docs/cpu-ops-topk-signed-zero.md  # 部分 Top-k の -0.0 の扱いの確かめの所在・scalar 版と SIMD 版に -0.0 の入力を当てる試験（1/4）・-0.0 を含む 5 ケースの入力とネイティブの参照（2/4）（TASK-2451）
 ├── docs/parity-element-rules.md # T-1 の要素ごとの規則の確かめの所在と、本リポの現状の事実・完了の条件の確かめ（6/6）（TASK-975）
 ├── docs/parity-fallback-compare.md # 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-928）
 ├── docs/gemm-test-inputs.md  # GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）の所在・振る舞い・対応するテスト・本リポの現状の事実（TASK-1005）
