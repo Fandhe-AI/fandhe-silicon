@@ -676,9 +676,46 @@ f951986cfa3ee3f33f94b487d0a65b36cd546269a83b47ac250518d55cbde166  topk-ties.scor
 
 定数と関数の所在は `grep -n "TOPK_CASES\|pub fn" wasm/crates/parity-host/src/lib.rs` で確かめる。
 
+### 部分 Top-k の 10 行（3/4）
+
+`wasm/node/cases.json` の既定の入力に足した生成の行。並びは GEMM の行の後に、ケースの順・組の順。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `topk-batch-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-batch` | `native-scalar` |
+| `topk-batch-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-batch` | `native-scalar` |
+| `topk-batch-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-batch` | `native-scalar` |
+| `topk-batch-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-batch` | `native-scalar` |
+| `topk-ties-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-ties` | `native-scalar` |
+| `topk-ties-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-ties` | `native-scalar` |
+| `topk-ties-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-ties` | `native-scalar` |
+| `topk-ties-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-ties` | `native-scalar` |
+| `topk-nonfinite-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-nonfinite` | `native-scalar` |
+| `topk-nonfinite-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-nonfinite` | `native-scalar` |
+
+`wasm/node/cases-reference-unavailable.json` の 3 行。`make test-wasm-node-check` が `--cases` で読む。
+
+| id | 参照の出どころ | 回帰テストで出る状態 |
+| -- | -------------- | -------------------- |
+| `topk-batch-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+| `topk-ties-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+| `topk-nonfinite-native-neon` | `native-neon` | `not-run (reference-unavailable)` |
+
+#### 確かめ方
+
+```console
+$ grep -c '"topk_' wasm/node/cases.json
+10
+$ grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json
+3
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 420, failed: 0
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に部分 Top-k の種類を足す | #6281 |
 | 2/4 | 部分 Top-k の 3 ケースの入力とネイティブの参照を host 側の道具に足す | #6282 |
+| 3/4 | 部分 Top-k の 10 行を照合の入力に足す | #6283 |

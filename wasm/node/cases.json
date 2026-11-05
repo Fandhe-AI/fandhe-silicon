@@ -99,6 +99,76 @@
       "build": "simd128",
       "case": "gemm-37x41x53",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-batch-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-batch",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-batch-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-batch",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-batch-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-batch",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-batch-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-batch",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-ties-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-ties",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-ties-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-ties",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-ties-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-ties",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-ties-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-ties",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-nonfinite-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-nonfinite",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-nonfinite-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-nonfinite",
+      "reference_source": "native-scalar"
     }
   ]
 }
