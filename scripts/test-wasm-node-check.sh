@@ -411,6 +411,16 @@ for name in sys.argv[2:]:
             "input_sha256": wr(name + ".input.bin", inp), "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
         })
         continue
+    if name.startswith("gemm-t1"):
+        # 閾値の比べ用の合成のケース（TASK-995）: m=1・k=1・n=8。参照は添字の順に 1000.0・1024.0・2^-20・+0・1.0・NaN・+Inf・-Inf。
+        nat = [0x447a0000, 0x44800000, 0x35800000, 0x00000000, 0x3f800000, 0x7fc00000, 0x7f800000, 0xff800000]
+        cases.append({
+            "name": name, "kind": "gemm", "m": 1, "k": 1, "n": 8,
+            "a_file": name + ".a.bin", "b_file": name + ".b.bin", "native_scalar_file": name + ".native-scalar.bin",
+            "a_sha256": wr(name + ".a.bin", [0x3f800000]), "b_sha256": wr(name + ".b.bin", [0x3f800000] * 8),
+            "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+        })
+        continue
     a = [0x3f800000, 0x80000000, 0x7fc00001, 0x40000000, 0xc0000000, 0x00000000]
     b = [0x3f800000] * 6
     nat = [0x3f800000, 0x80000000, 0x7fc00001, 0x40490fdb]
@@ -2299,6 +2309,204 @@ WNC="${WNC_ORIG}"
 expect "88 a disagreeing recount of the input-special lines stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
 check "88 nothing written to either directory" "$([ "$(nfiles "${work}/out88")" = 0 ] && [ "$(nfiles "${work}/rec88")" = 0 ] && echo 0 || echo 1)"
 rm -rf "${work}/mut"
+reset_gen
+res_ok
+
+# ---- 閾値の比べ（TASK-995 の 1/4） ----
+
+cat >"${fix}/t1.json" <<'JSON'
+{"rows": [
+  {"id": "t-simd", "export": "gemm_simd", "build": "simd128", "case": "gemm-t1", "reference_source": "native-scalar"}
+]}
+JSON
+cat >"${fix}/t3.json" <<'JSON'
+{"rows": [
+  {"id": "t-simd", "export": "gemm_simd", "build": "simd128", "case": "gemm-t1", "reference_source": "native-scalar"},
+  {"id": "t-simd-scalar", "export": "gemm_simd", "build": "scalar", "case": "gemm-t1", "reference_source": "native-scalar"},
+  {"id": "t-scalar-simd128", "export": "gemm_scalar", "build": "simd128", "case": "gemm-t1", "reference_source": "native-scalar"}
+]}
+JSON
+T1_SAVED_NAMES="t-simd.bin gemm-t1.a.bin gemm-t1.b.bin gemm-t1.native-scalar.bin manifest.json outputs.json"
+# t1_setup <行の入力>: gemm-t1 の偽の host 側の道具の出力と、全行一致の結果を用意する。
+t1_setup() {
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" gemm-t1
+  python3 -I - "$1" "${fix}/gen-rowmap" "${FAKE_RESULTS}" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+open(sys.argv[2], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
+open(sys.argv[3], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
+PY
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+}
+# t1_out <出力のファイル> <添字=語（16 進）|short|odd>...: gemm-t1 の参照の写しの語を置き換えた出力を ${fix}/outs に書く。
+t1_out() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "${fix}/hf/gemm-t1.native-scalar.bin" "${fix}/outs/$1" "$@" <<'PY'
+import struct, sys
+w = list(struct.unpack("<8I", open(sys.argv[1], "rb").read()))
+extra = b""
+for a in sys.argv[4:]:
+    if a == "short":
+        w = w[:7]
+    elif a == "odd":
+        extra = b"\x00"
+    else:
+        i, v = a.split("=")
+        w[int(i)] = int(v, 16)
+open(sys.argv[2], "wb").write(b"".join(struct.pack("<I", x) for x in w) + extra)
+PY
+}
+# t1_case <名前> <期待コード> <添字=語 を空白で区切った文字列> <期待の語>...: 1 行の入力で t-simd の語を置き換えて流す。
+t1_case() {
+  local name="$1" rcw="$2" subs="$3"
+  shift 3
+  t1_setup "${fix}/t1.json"
+  # 語は空白区切りで渡す（意図した分割）。
+  # shellcheck disable=SC2086
+  t1_out t-simd.bin ${subs}
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/t1.json"
+  expect "${name}" "${rcw}" "$@"
+  rm -rf "${fix}/outs"
+}
+
+# 89. 全語が同じ: 0、count・sha256・t1 の行、並び
+t1_setup "${fix}/t1.json"
+gw --cases "${fix}/t1.json"
+expect "89 identical words are within the threshold" 0 "row: t-simd match" "count: t-simd mismatches=0 n=8" "sha256: t-simd " "t1: t-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0" "summary: rows=1 match=1 mismatch=0 not-run=0"
+check "89 output order is count, sha256, t1" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+sys.exit(0 if first("count: t-simd") < first("sha256: t-simd ") < first("t1: t-simd") < first("summary:") else 1)' "${OUT_F}" && echo 0 || echo 1)"
+
+# 90. 比べの範囲: 閾値で比べるのは gemm_simd・simd128 の行だけ（ほかの行はビットの完全一致のまま）
+t1_setup "${fix}/t3.json"
+for f in t-simd.bin t-simd-scalar.bin t-scalar-simd128.bin; do
+  t1_out "${f}" 4=3f800001
+done
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/t3.json"
+expect "90 only the gemm_simd simd128 row is compared by the threshold" 1 "row: t-simd match" "row: t-simd-scalar mismatch (mismatches 1/8)" "row: t-scalar-simd128 mismatch (mismatches 1/8)" "count: t-simd mismatches=0 n=8" "count: t-simd-scalar mismatches=1 n=8" "t1: t-simd " "!t1: t-simd-scalar" "!t1: t-scalar-simd128" "match=1 mismatch=2 not-run=0"
+rm -rf "${fix}/outs"
+
+# 91. 2 つの最大値が別の語（絶対の最大と相対の最大）。不一致は 0 で終了コード 0
+t1_case "91 the absolute and relative maxima are at different words" 0 "1=44800800 2=35c00000" "count: t-simd mismatches=0 n=8" "t1: t-simd max-abs=0.25 max-abs-at=1 max-rel=0.5 max-rel-at=2 abs-over=1 rel-over=1" "row: t-simd match"
+
+# 92. 相対の境界（語 0・参照 1000.0）: 比がちょうど上限は不一致、下回れば一致
+t1_case "92 relative error exactly at the limit (above)" 1 "0=447a4000" "row: t-simd mismatch (mismatches 1/8)" "mismatches=1 n=8" "abs-over=1 rel-over=1"
+t1_case "92 relative error exactly at the limit (below)" 1 "0=4479c000" "row: t-simd mismatch (mismatches 1/8)" "abs-over=1 rel-over=1"
+t1_case "92 relative error under the limit" 0 "0=447a2000" "mismatches=0 n=8" "abs-over=1 rel-over=0" "row: t-simd match"
+
+# 93. 参照が零（語 3）: 絶対誤差だけで判定し、相対は作らない
+t1_case "93 reference zero, the other sign of zero" 0 "3=80000000" "mismatches=0 n=8" "max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=-"
+t1_case "93 reference zero, just under the absolute limit" 0 "3=3727c5ac" "mismatches=0 n=8" "abs-over=0 rel-over=0" "max-rel=0.0 max-rel-at=-"
+t1_case "93 reference zero, just over the absolute limit" 1 "3=3727c5ad" "mismatches=1 n=8" "abs-over=1 rel-over=0" "max-rel-at=-"
+t1_case "93 reference zero, negative just over the absolute limit" 1 "3=b727c5ad" "mismatches=1 n=8" "abs-over=1 rel-over=0"
+
+# 94. 有限でない語: NaN は NaN と一致（payload・符号は見ない）、Inf は同じ符号の Inf とだけ一致。集計には入らない
+for w in 7f800001 ffc00001 7fc00000; do
+  t1_case "94 reference NaN matches a NaN (${w})" 0 "5=${w}" "mismatches=0 n=8" "max-abs=0.0 max-abs-at=-"
+done
+t1_case "94 reference NaN against a finite word" 1 "5=3f800000" "mismatches=1 n=8" "max-abs=0.0 max-abs-at=-"
+for w in 7fc00000 7f800001 7f800000 ff800000; do
+  t1_case "94 finite reference against a non-finite word (${w})" 1 "4=${w}" "mismatches=1 n=8" "max-abs=0.0 max-abs-at=-"
+done
+t1_case "94 reference +Inf against +Inf" 0 "6=7f800000" "mismatches=0 n=8"
+for w in ff800000 7f7fffff 7fc00000; do
+  t1_case "94 reference +Inf against another word (${w})" 1 "6=${w}" "mismatches=1 n=8" "max-abs=0.0 max-abs-at=-"
+done
+t1_case "94 reference -Inf against +Inf" 1 "7=7f800000" "mismatches=1 n=8" "max-abs=0.0 max-abs-at=-"
+
+# 95. 語数の違い・4 の倍数でない出力・呼び出しの失敗
+t1_case "95 length differs" 1 "short" "row: t-simd mismatch (length expected 8 got 7)" "!count: t-simd" "!t1:"
+t1_case "95 a 33-byte output is not a multiple of 4" 2 "odd" "not a multiple of 4" "!summary:" "!t1:"
+t1_setup "${fix}/t1.json"
+printf '%s\n' '{"id":"t-simd","error":"nonzero return"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/t1.json"
+expect "95 a call error" 1 "row: t-simd mismatch (call error)" "!count:" "!t1:"
+
+# 96. native-neon の gemm_simd・simd128 の行は not-run (reference-unavailable)。比べず t1 を出さない
+t1_setup "${fix}/t1.json"
+cat >"${fix}/t1-neon.json" <<'JSON'
+{"rows": [
+  {"id": "t-simd", "export": "gemm_simd", "build": "simd128", "case": "gemm-t1", "reference_source": "native-neon"}
+]}
+JSON
+gw --cases "${fix}/t1-neon.json"
+expect "96 native-neon gemm_simd simd128 row" 1 "row: t-simd not-run (reference-unavailable)" "!count:" "!t1:" "match=0 mismatch=0 not-run=1"
+
+# 97. --output-dir と --recount: 判定と同じ t1 の行が出る。保存の形の語を変えた場合と、行の build を変えた場合
+t1_setup "${fix}/t1.json"
+t1_out t-simd.bin 1=44800800 2=35c00000
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out97
+gw --cases "${fix}/t1.json" --output-dir "${work}/out97"
+expect "97 saved form of a threshold row" 0 "t1: t-simd max-abs=0.25 max-abs-at=1 max-rel=0.5 max-rel-at=2 abs-over=1 rel-over=1" "summary: rows=1 match=1"
+check "97 the file names are exactly the saved form" "$(dir_names_ok "${work}/out97" "${T1_SAVED_NAMES}")"
+w --recount "${work}/out97"
+expect "97 --recount prints the same t1 line" 0 "recount: t-simd mismatches=0 n=8" "t1: t-simd max-abs=0.25 max-abs-at=1 max-rel=0.5 max-rel-at=2 abs-over=1 rel-over=1" "recount-summary: rows=1 zero=1 nonzero=0 uncompared=0"
+check "97 --recount order is recount, sha256, t1, recount-summary" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+sys.exit(0 if first("recount: t-simd") < first("sha256: t-simd ") < first("t1: t-simd") < first("sha256: gemm-t1") and L[-1].startswith("recount-summary:") else 1)' "${OUT_F}" && echo 0 || echo 1)"
+# t1_saved_mut <ディレクトリ名> <モード>: 閾値の行の保存の形を変える。
+t1_saved_mut() {
+  python3 -I - "${work}/$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+op = os.path.join(d, "outputs.json")
+o = json.load(open(op))
+if mode == "over":
+    p = os.path.join(d, "t-simd.bin")
+    b = bytearray(open(p, "rb").read())
+    b[0:4] = (0x447a4000).to_bytes(4, "little")
+    open(p, "wb").write(bytes(b))
+    o["rows"][0]["output_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+elif mode == "scalar":
+    o["rows"][0]["build"] = "scalar"
+json.dump(o, open(op, "w"))
+PY
+}
+rm -rf "${work:?}/out97m"
+cp -R "${work}/out97" "${work}/out97m"
+t1_saved_mut out97m over
+w --recount "${work}/out97m"
+expect "97 --recount of a saved form over the threshold" 1 "recount: t-simd mismatches=1 n=8" "abs-over=2 rel-over=2"
+rm -rf "${work:?}/out97m"
+cp -R "${work}/out97" "${work}/out97m"
+t1_saved_mut out97m scalar
+w --recount "${work}/out97m"
+expect "97 --recount of a row whose build is scalar compares the bits" 1 "recount: t-simd mismatches=2 n=8" "!t1:" "recount-summary: rows=1 zero=0 nonzero=1"
+
+# 98. 実行の中の数え直しが判定と食い違う場面: 数え直しの側の t1_count の引数だけを入れ替えた変異体
+rm -rf "${work}/mut"
+mkdir -p "${work}/mut/scripts" "${work}/mut/wasm/crates/glue"
+cp "${DIR}/lib.sh" "${work}/mut/scripts/lib.sh"
+cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
+python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = "diff, t1 = t1_count(want, data)"
+assert s.count(old) == 1
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "diff, t1 = t1_count(data, want)"))
+PY
+chmod +x "${work}/mut/scripts/wasm-node-check.sh"
+check "98 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
+t1_setup "${fix}/t1.json"
+t1_out t-simd.bin 2=35c00000
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out98
+newdir rec98
+WNC_ORIG="${WNC}"
+WNC="${work}/mut/scripts/wasm-node-check.sh"
+gw --cases "${fix}/t1.json" --output-dir "${work}/out98" --record-dir "${work}/rec98" --record-combination metal-mac-mini
+WNC="${WNC_ORIG}"
+expect "98 a disagreeing recount of the t1 lines stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
+check "98 nothing written to either directory" "$([ "$(nfiles "${work}/out98")" = 0 ] && [ "$(nfiles "${work}/rec98")" = 0 ] && echo 0 || echo 1)"
+rm -rf "${work}/mut" "${fix}/outs"
 reset_gen
 res_ok
 

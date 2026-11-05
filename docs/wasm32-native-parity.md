@@ -1278,3 +1278,93 @@ $ grep -rn unsafe wasm/crates/parity-host
 ```console
 $ gh run view <run> --job <job> --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test (topk_simd_matches_scalar_bytes|topk_simd_scalar_byte_sequences_match) \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
 ```
+
+## simd128 のビルドの GEMM の比べ（TASK-995）
+
+### 記録の所在
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-995。ポインタのみ）。本文は転記しない
+（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+
+### Node での照合の閾値の比べ（1/4）
+
+`scripts/wasm-node-check.sh` の判定に、完全一致でなく T-1 の閾値で語ごとに比べる行の種類を足す。比べの種類は `(export, build)` の組と種類の表 `KINDS` から引き、`cases.json` の行・`outputs.json`・manifest の鍵は変えない。判定の側は行の `export`・`build`、`--recount` の側は `outputs.json` の行の `build` で引く（引く関数は `uses_t1`）。
+
+#### 種類の表
+
+表の全項に欄 `t1`（閾値で比べる `(export, build)` の組の列）を足す。
+
+| 種類 | `t1` の欄 |
+| ---- | --------- |
+| `gemm` | `("gemm_simd", "simd128")` の 1 組 |
+| `topk` | 空 |
+| `elementwise` | 空 |
+
+欄に無い組の行（`gemm` の `gemm_scalar` の 2 行・`gemm_simd` の `scalar` の行を含む）は、今までどおりビットの完全一致で比べる。
+
+#### 比べの規則
+
+閾値で比べる行は、参照と実測の 4 バイトの語を f32 として読み、語ごとに次の順で判定する（共通の道具 `T1` と特殊値つきの要素ごとの判定と同じ順）。誤差は `f64`、比べは厳密な `<`、相対の分母は参照。
+
+| 参照 | 実測 | 判定 |
+| ---- | ---- | ---- |
+| NaN | NaN | 一致（payload・符号は見ない） |
+| NaN | NaN 以外 | 不一致 |
+| ±Inf | 同じ符号の Inf | 一致 |
+| ±Inf | それ以外 | 不一致 |
+| 有限 | 有限でない | 不一致 |
+| 有限 | 有限 | 絶対誤差が絶対の閾値未満、または相対誤差が相対の閾値未満なら一致。参照が `+0.0`・`-0.0` のときは相対誤差は無く、絶対誤差だけで判定する |
+
+#### 判定と出力の行
+
+| 場面 | 状態・行 |
+| ---- | -------- |
+| 不一致の語がある | `mismatch (mismatches <件数>/<n>)` |
+| 語の数が違う | `mismatch (length expected <n> got <m>)`。`count:`・`sha256:`・`t1:` は出さない |
+| 全語が一致 | `match`。`count:`・`sha256:` は今までの形で、閾値で比べる行は続けて `t1:` を出す |
+| `native-neon` の `gemm_simd`・`simd128` の行 | `not-run (reference-unavailable)`。`count:`・`t1:` を出さない |
+
+`t1: <行の id> max-abs=<値> max-abs-at=<添字か -> max-rel=<値> max-rel-at=<添字か -> abs-over=<件数> rel-over=<件数>` は、閾値で比べる行だけが `sha256: <行の id>` の行の次に出す（判定・`--recount` の両方）。
+
+| 欄 | 数え方 |
+| -- | ------ |
+| `max-abs`・`max-abs-at` | 参照・実測がどちらも有限の語の絶対誤差の最大と、最初にその値を取った語の添字。`0.0` から始め、厳密に大きいときだけ更新し、1 度も更新しなければ添字は `-` |
+| `max-rel`・`max-rel-at` | 同じ語の相対誤差（参照が零の語は無し）の最大と添字。更新の規則は同じ |
+| `abs-over` | 絶対誤差が絶対の閾値以上の語の数 |
+| `rel-over` | 相対誤差があり、相対の閾値以上の語の数 |
+
+数値は Python の `repr` で出す。この行は出すだけで、判定と終了コードには関わらない（`abs-over`・`rel-over` が 0 でなくても `match` の場面がある）。実行の中の数え直しは、この行も判定の側と突き合わせる（違えば `recount disagrees` で終了コード 2）。
+
+#### 閾値の所在
+
+閾値はスクリプトの目印 `# BEGIN t1-thresholds`〜`# END t1-thresholds` の間の 2 つの定数 `T1_RELATIVE`・`T1_ABSOLUTE` だけに書く（共通の道具の `T1` と同じ値。引数・環境変数・入力では変えない）。頁には数値を書かない。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の足した項目。合成のケース `gemm-t1`（m=1・k=1・n=8。参照に有限の語・零・NaN・±Inf を持つ）を `mk_host_fixture` に足している。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 89 | 全語が同じ行の `count:`・`sha256:`・`t1:` と並び |
+| 90 | 閾値で比べるのは `gemm_simd`・`simd128` の行だけで、ほかの 2 行は同じ出力でもビットの比べで不一致 |
+| 91 | 絶対の最大と相対の最大が別の語で、不一致 0・終了コード 0 |
+| 92 | 相対誤差がちょうど閾値の語（上下とも不一致）と、下回る語 |
+| 93 | 参照が零の語（`-0.0`・絶対の閾値の直下と直上・負の側） |
+| 94 | NaN（quiet の最小・signaling の最小・符号違い）と ±Inf の組、集計に入らないこと |
+| 95・96 | 語数の違い・4 の倍数でない出力・呼び出しの失敗、`native-neon` の行 |
+| 97 | `--output-dir` と `--recount` の `t1:` の行・並び、保存の形の語と `build` を変えた場合 |
+| 98 | 数え直しの側の `t1_count` の引数だけを入れ替えた変異体が `recount disagrees` で止まること |
+
+#### 確かめ方
+
+```console
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 542, failed: 0
+$ grep -n "BEGIN t1-thresholds\|^def t1_count\|^def uses_t1\|\"t1\":" scripts/wasm-node-check.sh
+```
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/4 | Node での照合に閾値の比べを足す | #6277 |
