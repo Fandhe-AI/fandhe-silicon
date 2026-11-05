@@ -12,8 +12,9 @@
 #   --wasm-simd128 既にある simd128 の .wasm（TASK-994）。どちらかの口を渡したら cargo でビルドしない
 #   --cases 照合の入力の JSON（既定: wasm/node/cases.json）
 #   --output-dir 選んだときだけ、native-scalar の生成の行の保存の形（manifest・入力・参照・wasm の出力・outputs.json）
-#           を <dir> へ新しく書く（TASK-994。書き出し先の規則は --record-dir と同じで、加えて空のディレクトリに限り --record-dir と別のディレクトリであること。native-scalar の生成の行が無い入力では
-#           終了コード 2）
+#           を <dir> へ新しく書く（TASK-994。書き出し先の規則は --record-dir と同じ。
+#           加えて空のディレクトリに限り、--record-dir とは別のディレクトリであること。
+#           native-scalar の生成の行が無い入力では終了コード 2）
 #   --recount 保存の形のディレクトリだけから件数を数え直して `recount:` の行を出す（TASK-994。ほかの口とは併用できない。
 #           python3 だけを要り、node・wasm-bindgen・cargo は要らない。終了コード 0 全行の件数が 0・1 件数が 0 でない行か
 #           比べなかった行がある・2 誤用・読めない・形の不正・sha256 の違い）
@@ -156,7 +157,7 @@ def check_dir(path, what):
 
 
 def out_dir(path):
-    # 保存先（--output-dir）は空のディレクトリに限る。空でないと保存に成功しても --recount の完全一致検査が落ちる。
+    # 保存先（--output-dir）を、空のディレクトリに限って受け付ける。
     norm = check_dir(path, "output dir")
     try:
         if os.listdir(norm):
@@ -167,7 +168,7 @@ def out_dir(path):
 
 
 def same_dir(a, b):
-    # 保存先と記録先が同じディレクトリを指すか（記録の部品が保存先の余分なファイルになるため禁じる）。
+    # 保存先と記録先が同じディレクトリを指すかを返す。
     try:
         return os.path.samefile(a, b)
     except OSError:

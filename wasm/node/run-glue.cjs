@@ -15,7 +15,7 @@
 const fs = require("node:fs");
 const nodePath = require("node:path");
 
-// out を埋める番兵（呼び出しが書かなかった語を取り違えないため）。
+// out を埋める番兵の語。
 const FILL_WORD = 0x7fc0dead;
 
 function loadGlue(gluePath) {
