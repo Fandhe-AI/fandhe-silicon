@@ -576,8 +576,109 @@ $ grep -n "^KINDS\|def nonfinite_lines\|def kind_of_export" scripts/wasm-node-ch
 $ grep -n "RUNNERS\|runTopk" wasm/node/run-glue.cjs
 ```
 
+### 部分 Top-k の入力とネイティブの参照（2/4）
+
+`wasm-parity-host gen <dir>` が、GEMM の 3 ケースに続けて部分 Top-k の 3 ケースの入力と `DefaultCpuOps.topk_partial_scalar` の出力を書く。`wasm/node/cases.json` は変わらず、行は 14 行のまま。
+
+#### ケース
+
+定数 `TOPK_CASES`（`wasm/crates/parity-host/src/lib.rs`）が持つ。ケースごとに新しい `SplitMix64::new(GEMM_INPUT_SEED)` から作る。
+
+| 名前 | 件数 | k | 入力の作り方 |
+| ---- | ---- | -- | ------------ |
+| `topk-batch` | 20,000 | 64 | `next_signed_unit_f32` を 20,000 回 |
+| `topk-ties` | 200 | 10 | 添字 `i` が `i % 10 == 3` なら `0.0`（生成器を進めない）、それ以外は `((next_u64() >> 61) as f32) + 1.0` |
+| `topk-nonfinite` | 200 | 10 | `next_signed_unit_f32` を 200 回の後、添字 5・17・30・77 を `f32::NAN`・`f32::from_bits(0xffc0_0000)`・`f32::INFINITY`・`f32::NEG_INFINITY` に置く |
+
+ネイティブの参照は、同じスコア列を `DefaultCpuOps.topk_partial_scalar(&scores, k, &mut out)` に渡した `out`（長さ k、初期値 `(0, 0.0)`）。
+
+#### 書くファイル
+
+| ファイル | 中身 |
+| -------- | ---- |
+| `<ケース>.scores.bin` | スコアの f32 を添字の順にリトルエンディアンで並べたもの（NaN のビット列を保つ） |
+| `<ケース>.native-scalar.bin` | `out` の各件を、`slot.to_le_bytes()` の 4 バイト、`score.to_bits().to_le_bytes()` の 4 バイトの順に並べたもの（1 件 8 バイト） |
+| `manifest.json` の `topk` の要素 | `name`・`kind`（`"topk"`）・`n`（スコアの件数）・`k`・`scores_file`・`native_scalar_file`・`scores_sha256`・`native_scalar_sha256` を 1 欄 1 行で持つ |
+
+今の値として、`manifest.json` の `cases` は GEMM の 3 ケースの後に部分 Top-k の 3 ケースを並べた 6 要素で、書く名前は 16 個（`.bin` が 15 個と `manifest.json`）。`topk_partial_scalar` が `Err` を返したときは固定の文言 `error: native topk_partial_scalar failed` を標準エラーに出し、終了コードは 2。
+
+#### 試験
+
+`wasm/crates/parity-host/tests/gen.rs`。期待は生成器・`DefaultCpuOps`・`reference_topk_f32`・`compare_topk` の呼び出しで作る。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `topk_batch_follows_fresh_generator` | 列が新しい生成器の `next_signed_unit_f32` の列とビット列で同じ。件数 20,000。全部有限 |
+| `topk_ties_input_shape` | 件数 200。全部有限。`0x0000_0000` が 20 個、`0x8000_0000` が 0 個。`reference_topk_f32(&v, 11)` の 10 件目と 11 件目のスコアのビット列が同じ。生成器から作り直した列とビット列で同じ |
+| `topk_nonfinite_input_shape` | 件数 200。NaN 2 つ（`f32::NAN.to_bits()` と `0xffc0_0000`）・`+Inf`・`-Inf` が添字 5・17・30・77。ほかは有限で、新しい生成器の列とビット列で同じ |
+| `native_topk_matches_default_cpu_ops` | 書いた `.native-scalar.bin` が `DefaultCpuOps.topk_partial_scalar` の出力を 8 バイトずつ並べたものと同じ（3 ケース） |
+| `native_topk_matches_cpu_reference` | 読み戻した列が `compare_topk(&reference_topk_f32(&scores, k), …)` で `is_match`、`compared` が k（3 ケース） |
+| `native_topk_has_no_non_finite_slots` | 3 ケースの `.native-scalar.bin` のスコアが全部有限。`topk-nonfinite` のスロット番号に 5・17・30・77 が無い |
+| `topk_record_layout` | 手書きの 2 件で、1 件の 8 バイトがスロット番号・スコアのビット列の順のリトルエンディアン |
+| `record_compare_agrees_with_compare_topk` | スロット番号の最下位ビット、スコアの最下位ビットを別々に反転すると、8 バイトごとの違いが 1 件で `compare_topk` の `mismatched` も 1（3 ケース） |
+| `topk_manifest_entries_match_files` | `topk` の 3 要素の鍵がちょうど 8 個。`kind`・`n`・`k`・sha256 が合う。ファイルの長さが `n`×4・`k`×8。ファイル名が `[a-z0-9.-]` だけ。`.scores.bin` が `f32_le_bytes` と同じ |
+| `gen_refuses_existing_topk_file` | `topk-ties.scores.bin` が先にあると `FileExists`。ディレクトリの中身はそのファイルだけで、中身も変わらない |
+| `native_topk_error_text` | `GenError::NativeTopkFailed` の文言が固定 |
+
+既存の `manifest_hashes_match_files` の名前の数の期待は、GEMM と部分 Top-k のケースの数の和。
+
+#### 確かめ方
+
+時点のコミット: `cbc8395`（この変更の土台）。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+一時のディレクトリに当てた出力（`d` は `mktemp -d` のディレクトリ）。
+
+```console
+$ cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"
+$ (cd "$d" && ls && sha256sum *)
+gemm-256.a.bin
+gemm-256.b.bin
+gemm-256.native-scalar.bin
+gemm-37x41x53.a.bin
+gemm-37x41x53.b.bin
+gemm-37x41x53.native-scalar.bin
+gemm-64.a.bin
+gemm-64.b.bin
+gemm-64.native-scalar.bin
+manifest.json
+topk-batch.native-scalar.bin
+topk-batch.scores.bin
+topk-nonfinite.native-scalar.bin
+topk-nonfinite.scores.bin
+topk-ties.native-scalar.bin
+topk-ties.scores.bin
+0d509543d75aff9fa7372ca461e5c91dd8e9d8e41c81fe3b302e6610b1228b89  gemm-256.a.bin
+e5aae545d81ea7cf7b62df1d03c79055a67967826d0b74ea02c0c68063fbd912  gemm-256.b.bin
+d7bc8e3c3e96f39fd560a67bc9446532ce233ee46b805c44d59504cdf39956c1  gemm-256.native-scalar.bin
+8b6bdc24887e48cd2bc3598950e2949c599f27b9c14d2a2c11384d2bb9c454d1  gemm-37x41x53.a.bin
+60efc5337595142f4ec8d78f08e8e2663f4a67630672e1d21d7cc2f21f90e19e  gemm-37x41x53.b.bin
+a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b  gemm-37x41x53.native-scalar.bin
+2259215901630df152c4b1e0df09edf21118c82c285b4a9968901fca8ca2ca52  gemm-64.a.bin
+9d19ef5ea664105fe1cfbdc69868867fcecde4652eb739d1912527d4652d3eeb  gemm-64.b.bin
+25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11  gemm-64.native-scalar.bin
+92c07bf7987315eac089e4d7c0d094715f4a7d890e08fca1d0027ea5619e0e14  manifest.json
+562e641919b9d368e848150bd5adff9c5f78022dfae32d7bbfa88b3bc63ae91f  topk-batch.native-scalar.bin
+e583c60181f74537ccb440169920ca11583822f4e65653b8dd34ea420ebd21be  topk-batch.scores.bin
+98fa0af29bc71ec2b760aab079d2091327c9294f52258debc07524215c0062d2  topk-nonfinite.native-scalar.bin
+a8c42cd6034f57cb241fa7a4b9023dff42547a234f64d2a9aa152ce2084bcb45  topk-nonfinite.scores.bin
+0c0b103cd5f6513b413e98ddba0f27fee9bd4658d3289523035841c98a59aa5c  topk-ties.native-scalar.bin
+f951986cfa3ee3f33f94b487d0a65b36cd546269a83b47ac250518d55cbde166  topk-ties.scores.bin
+```
+
+定数と関数の所在は `grep -n "TOPK_CASES\|pub fn" wasm/crates/parity-host/src/lib.rs` で確かめる。
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | Node での照合に部分 Top-k の種類を足す | #6281 |
+| 2/4 | 部分 Top-k の 3 ケースの入力とネイティブの参照を host 側の道具に足す | #6282 |
