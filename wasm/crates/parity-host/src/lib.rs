@@ -1,5 +1,6 @@
-//! GEMM と部分 Top-k の 3 ケースずつの入力と、host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar` の
-//! 出力をファイルに書く host 側の道具（spec TASK-994・PARITY-20・TASK-996 のポインタ）。
+//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケースの入力と、host の `DefaultCpuOps::gemm_scalar`・
+//! `topk_partial_scalar`・`elementwise_scalar` の出力をファイルに書く host 側の道具
+//! （spec TASK-994・PARITY-20・TASK-996・TASK-997 のポインタ）。
 //!
 //! 別 workspace `wasm/` の member。`scripts/wasm-node-check.sh` が Node で glue の出力と比べるときに読むファイルを、
 //! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`
@@ -7,7 +8,8 @@
 //!
 //! 書くファイルは GEMM の 3 ケースそれぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
-//! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）と、
+//! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
+//! 要素ごと演算の 2 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -16,7 +18,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps};
+use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, UnaryElementwiseOp};
 use fandhe_silicon_core::hash::sha256_bytes;
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
@@ -90,6 +92,8 @@ pub enum GenError {
     NativeFailed,
     /// 部分 Top-k の参照の計算が `Err` を返した。
     NativeTopkFailed,
+    /// 要素ごと演算の参照の計算が `Err` を返した。
+    NativeElementwiseFailed,
 }
 
 impl fmt::Display for GenError {
@@ -102,6 +106,7 @@ impl fmt::Display for GenError {
             GenError::InputFailed => "error: cannot generate inputs",
             GenError::NativeFailed => "error: native gemm_scalar failed",
             GenError::NativeTopkFailed => "error: native topk_partial_scalar failed",
+            GenError::NativeElementwiseFailed => "error: native elementwise_scalar failed",
         };
         f.write_str(text)
     }
@@ -269,6 +274,92 @@ pub fn native_topk(case: &TopkCase) -> Result<Vec<(u32, f32)>, GenError> {
     Ok(out)
 }
 
+/// 要素ごと演算のケースの入力の件数。
+pub const ELEMENTWISE_LEN: usize = 1_000_003;
+
+/// 要素ごと演算のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct ElementwiseCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// 参照に渡す演算。
+    pub op: UnaryElementwiseOp,
+    /// glue の export に渡す演算の番号。
+    pub op_code: u32,
+    /// glue の export に渡す定数の f32 のビット列。
+    pub c_bits: u32,
+}
+
+/// 書き出す要素ごと演算の 2 ケース（spec PARITY-23 のポインタ）。
+pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 2] = [
+    ElementwiseCaseSpec {
+        name: "elementwise-relu",
+        op: UnaryElementwiseOp::Relu,
+        op_code: 0,
+        c_bits: 0x0000_0000,
+    },
+    ElementwiseCaseSpec {
+        name: "elementwise-add-scalar",
+        op: UnaryElementwiseOp::AddScalar(0.5),
+        op_code: 1,
+        c_bits: 0.5_f32.to_bits(),
+    },
+];
+
+/// 要素ごと演算の 1 ケースの入力。
+#[derive(Debug, Clone)]
+pub struct ElementwiseCase {
+    /// ケース名。
+    pub name: &'static str,
+    /// 参照に渡す演算。
+    pub op: UnaryElementwiseOp,
+    /// glue の export に渡す演算の番号。
+    pub op_code: u32,
+    /// glue の export に渡す定数の f32 のビット列。
+    pub c_bits: u32,
+    /// 入力の列（`ELEMENTWISE_LEN` 個）。
+    pub input: Vec<f32>,
+}
+
+/// 表の 1 行から要素ごと演算の入力を作る。
+///
+/// ケースごとに新しい `SplitMix64::new(GEMM_INPUT_SEED)` の `next_signed_unit_f32` を順に取り、
+/// `0.0` と等しい値は入れずに引き直して `ELEMENTWISE_LEN` 個にする。
+pub fn build_elementwise_case(spec: &ElementwiseCaseSpec) -> ElementwiseCase {
+    let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
+    let mut input = Vec::with_capacity(ELEMENTWISE_LEN);
+    while input.len() < ELEMENTWISE_LEN {
+        let x = rng.next_signed_unit_f32();
+        if x != 0.0 {
+            input.push(x);
+        }
+    }
+    ElementwiseCase {
+        name: spec.name,
+        op: spec.op,
+        op_code: spec.op_code,
+        c_bits: spec.c_bits,
+        input,
+    }
+}
+
+/// 要素ごと演算の 2 ケースの入力を作る。
+pub fn build_elementwise_cases() -> Result<Vec<ElementwiseCase>, GenError> {
+    Ok(ELEMENTWISE_CASES
+        .iter()
+        .map(build_elementwise_case)
+        .collect())
+}
+
+/// `DefaultCpuOps::elementwise_scalar` の出力（入力と同じ長さ）を返す。
+pub fn native_elementwise(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> {
+    let mut out = vec![0.0_f32; case.input.len()];
+    DefaultCpuOps
+        .elementwise_scalar(case.op, &case.input, &mut out)
+        .map_err(|_| GenError::NativeElementwiseFailed)?;
+    Ok(out)
+}
+
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
 /// リトルエンディアンのバイト列にする。
 pub fn topk_record_bytes(records: &[(u32, f32)]) -> Vec<u8> {
@@ -298,7 +389,7 @@ struct OutFile {
     bytes: Vec<u8>,
 }
 
-/// 1 ケースのファイル（GEMM は 3、部分 Top-k は 2）と、manifest の 1 要素の文字列。
+/// 1 ケースのファイル（GEMM は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
 struct CaseOutput {
     files: Vec<OutFile>,
     manifest_entry: String,
@@ -390,6 +481,47 @@ fn topk_case_output(case: &TopkCase) -> Result<CaseOutput, GenError> {
     })
 }
 
+fn elementwise_case_output(case: &ElementwiseCase) -> Result<CaseOutput, GenError> {
+    let native = native_elementwise(case)?;
+    let input_file = format!("{}.input.bin", case.name);
+    let n_file = format!("{}.native-scalar.bin", case.name);
+    let input_bytes = f32_le_bytes(&case.input);
+    let n_bytes = f32_le_bytes(&native);
+    let entry = [
+        "    {".to_string(),
+        format!("      \"name\": \"{}\",", case.name),
+        "      \"kind\": \"elementwise\",".to_string(),
+        format!("      \"n\": {},", case.input.len()),
+        format!("      \"op_code\": {},", case.op_code),
+        format!("      \"c_bits\": \"{:08x}\",", case.c_bits),
+        format!("      \"input_file\": \"{input_file}\","),
+        format!("      \"native_scalar_file\": \"{n_file}\","),
+        format!(
+            "      \"input_sha256\": \"{}\",",
+            hex(&sha256_bytes(&input_bytes))
+        ),
+        format!(
+            "      \"native_scalar_sha256\": \"{}\"",
+            hex(&sha256_bytes(&n_bytes))
+        ),
+        "    }".to_string(),
+    ]
+    .join("\n");
+    Ok(CaseOutput {
+        files: vec![
+            OutFile {
+                name: input_file,
+                bytes: input_bytes,
+            },
+            OutFile {
+                name: n_file,
+                bytes: n_bytes,
+            },
+        ],
+        manifest_entry: entry,
+    })
+}
+
 /// 同名のものが（シンボリックリンクを含め）あるか。
 fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
@@ -411,7 +543,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -424,6 +556,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
         .collect::<Result<Vec<_>, _>>()?;
     for case in &build_topk_cases()? {
         outputs.push(topk_case_output(case)?);
+    }
+    for case in &build_elementwise_cases()? {
+        outputs.push(elementwise_case_output(case)?);
     }
 
     let manifest = format!(

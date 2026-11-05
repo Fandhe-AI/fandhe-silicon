@@ -1,5 +1,6 @@
 //! `wasm-parity-host` の入力・参照・書き出しの試験（spec TASK-994 のポインタ）。
 //! 部分 Top-k の入力と参照の試験は spec TASK-996 のポインタ。
+//! 要素ごと演算の入力と参照の試験は spec TASK-997 のポインタ。
 //! 期待の値は生成器と `DefaultCpuOps` の呼び出しで作り、値を手で写さない。
 
 use std::ffi::OsString;
@@ -114,7 +115,10 @@ fn manifest_hashes_match_files() {
     let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
     let cases = build_cases().unwrap();
     let names = manifest_values(&text, "name");
-    assert_eq!(names.len(), GEMM_CASES.len() + TOPK_CASES.len());
+    assert_eq!(
+        names.len(),
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+    );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
         assert_eq!(manifest_values(&text, "kind")[i], "gemm");
@@ -436,7 +440,10 @@ fn topk_manifest_entries_match_files() {
     generate(dir.path()).unwrap();
     let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
     let keys = manifest_entry_keys(&text);
-    assert_eq!(keys.len(), GEMM_CASES.len() + TOPK_CASES.len());
+    assert_eq!(
+        keys.len(),
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+    );
     let mut want = [
         "name",
         "kind",
@@ -504,4 +511,186 @@ fn native_topk_error_text() {
         GenError::NativeTopkFailed.to_string(),
         "error: native topk_partial_scalar failed"
     );
+}
+// ---- 要素ごと演算（spec TASK-997 のポインタ） ----
+
+use fandhe_silicon_contract::cpu_ops::ReferenceCpuOps;
+use wasm_parity_host::{
+    ELEMENTWISE_CASES, ELEMENTWISE_LEN, ElementwiseCase, build_elementwise_cases,
+    native_elementwise,
+};
+
+fn elementwise_case(name: &str) -> ElementwiseCase {
+    build_elementwise_cases()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.name == name)
+        .unwrap()
+}
+
+#[test]
+fn native_elementwise_error_text() {
+    assert_eq!(
+        GenError::NativeElementwiseFailed.to_string(),
+        "error: native elementwise_scalar failed"
+    );
+}
+
+#[test]
+fn elementwise_input_follows_fresh_generator() {
+    assert_eq!(ELEMENTWISE_LEN, 1_000_003);
+    for spec in &ELEMENTWISE_CASES {
+        let case = elementwise_case(spec.name);
+        let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
+        let want: Vec<f32> = std::iter::repeat_with(|| rng.next_signed_unit_f32())
+            .filter(|x| *x != 0.0)
+            .take(1_000_003)
+            .collect();
+        assert!(bits(&case.input) == bits(&want), "{}", spec.name);
+    }
+}
+
+#[test]
+fn elementwise_input_has_no_special_values() {
+    for spec in &ELEMENTWISE_CASES {
+        let case = elementwise_case(spec.name);
+        assert_eq!(case.input.len(), 1_000_003);
+        assert_eq!(case.input.iter().filter(|x| x.is_nan()).count(), 0);
+        assert_eq!(case.input.iter().filter(|x| x.is_infinite()).count(), 0);
+        let zeros = case
+            .input
+            .iter()
+            .filter(|x| x.to_bits() & 0x7fff_ffff == 0)
+            .count();
+        assert_eq!(zeros, 0);
+    }
+}
+
+#[test]
+fn elementwise_cases_share_input_bytes() {
+    let dir = TempDir::new("ew-share");
+    generate(dir.path()).unwrap();
+    let a = fs::read(dir.path().join("elementwise-relu.input.bin")).unwrap();
+    let b = fs::read(dir.path().join("elementwise-add-scalar.input.bin")).unwrap();
+    assert!(a == b);
+}
+
+#[test]
+fn native_elementwise_matches_default_cpu_ops() {
+    let dir = TempDir::new("ew-default");
+    generate(dir.path()).unwrap();
+    for spec in &ELEMENTWISE_CASES {
+        let case = elementwise_case(spec.name);
+        let mut out = vec![0.0_f32; case.input.len()];
+        DefaultCpuOps
+            .elementwise_scalar(case.op, &case.input, &mut out)
+            .unwrap();
+        let written =
+            fs::read(dir.path().join(format!("{}.native-scalar.bin", spec.name))).unwrap();
+        assert!(written == f32_le_bytes(&out), "{}", spec.name);
+        assert!(native_elementwise(&case).unwrap() == out, "{}", spec.name);
+    }
+}
+
+#[test]
+fn native_elementwise_matches_expression() {
+    let dir = TempDir::new("ew-expr");
+    generate(dir.path()).unwrap();
+    for spec in &ELEMENTWISE_CASES {
+        let case = elementwise_case(spec.name);
+        let got = read_f32(&dir.path().join(format!("{}.native-scalar.bin", spec.name)));
+        let want: Vec<f32> = match spec.op_code {
+            0 => case.input.iter().map(|x| x.max(0.0)).collect(),
+            1 => case.input.iter().map(|x| x + 0.5).collect(),
+            _ => panic!("unexpected op_code"),
+        };
+        assert!(bits(&got) == bits(&want), "{}", spec.name);
+    }
+}
+
+#[test]
+fn native_elementwise_matches_reference_cpu_ops() {
+    let dir = TempDir::new("ew-ref");
+    generate(dir.path()).unwrap();
+    for spec in &ELEMENTWISE_CASES {
+        let case = elementwise_case(spec.name);
+        let got = read_f32(&dir.path().join(format!("{}.native-scalar.bin", spec.name)));
+        let mut want = vec![0.0_f32; case.input.len()];
+        ReferenceCpuOps
+            .elementwise_scalar(case.op, &case.input, &mut want)
+            .unwrap();
+        assert!(bits(&got) == bits(&want), "{}", spec.name);
+    }
+}
+
+#[test]
+fn elementwise_manifest_entries_match_files() {
+    let dir = TempDir::new("ew-manifest");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let keys = manifest_entry_keys(&text);
+    assert_eq!(
+        keys.len(),
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len()
+    );
+    let mut want = [
+        "name",
+        "kind",
+        "n",
+        "op_code",
+        "c_bits",
+        "input_file",
+        "native_scalar_file",
+        "input_sha256",
+        "native_scalar_sha256",
+    ];
+    want.sort_unstable();
+    let wanted_op_codes = ["0", "1"];
+    let wanted_c_bits = ["00000000", "3f000000"];
+    for (j, spec) in ELEMENTWISE_CASES.iter().enumerate() {
+        // GEMM の 3 要素・Top-k の 3 要素の後に要素ごと演算の 2 要素が並ぶ。
+        let i = GEMM_CASES.len() + TOPK_CASES.len() + j;
+        let case = elementwise_case(spec.name);
+        let mut got: Vec<&str> = keys[i].iter().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, want);
+        assert_eq!(manifest_values(&text, "name")[i], case.name);
+        assert_eq!(manifest_values(&text, "kind")[i], "elementwise");
+        assert_eq!(manifest_values(&text, "n")[i], "1000003");
+        assert_eq!(manifest_values(&text, "op_code")[j], wanted_op_codes[j]);
+        assert_eq!(manifest_values(&text, "c_bits")[j], wanted_c_bits[j]);
+        let input_file = &manifest_values(&text, "input_file")[j];
+        let native_file = &manifest_values(&text, "native_scalar_file")[i];
+        for f in [input_file, native_file] {
+            assert!(
+                f.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'.'
+                    || b == b'-')
+            );
+        }
+        let input_bytes = fs::read(dir.path().join(input_file)).unwrap();
+        let native_bytes = fs::read(dir.path().join(native_file)).unwrap();
+        assert_eq!(input_bytes.len(), case.input.len() * 4);
+        assert_eq!(native_bytes.len(), case.input.len() * 4);
+        assert!(input_bytes == f32_le_bytes(&case.input));
+        assert_eq!(
+            manifest_values(&text, "input_sha256")[j],
+            hex(&sha256_bytes(&input_bytes))
+        );
+        assert_eq!(
+            manifest_values(&text, "native_scalar_sha256")[i],
+            hex(&sha256_bytes(&native_bytes))
+        );
+    }
+}
+
+#[test]
+fn gen_refuses_existing_elementwise_file() {
+    let dir = TempDir::new("ew-refuse");
+    let path = dir.path().join("elementwise-relu.input.bin");
+    fs::write(&path, b"keep").unwrap();
+    assert_eq!(generate(dir.path()), Err(GenError::FileExists));
+    assert_eq!(fs::read(&path).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
