@@ -209,9 +209,41 @@ $ make test-wasm-node-check 2>&1 | tail -n 1
 $ grep -n "PRODUCIBLE\|GEN_EXPORTS" scripts/wasm-node-check.sh
 ```
 
+### GEMM の 9 行（3/5）
+
+`wasm/node/cases.json` の既定の入力に足した生成の行。並びは固定の行の後に、ケースの順・組の順。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `gemm-64-scalar-gemm-scalar` | `scalar` | `gemm_scalar` | `gemm-64` | `native-scalar` |
+| `gemm-64-scalar-gemm-simd` | `scalar` | `gemm_simd` | `gemm-64` | `native-scalar` |
+| `gemm-64-simd128-gemm-scalar` | `simd128` | `gemm_scalar` | `gemm-64` | `native-scalar` |
+| `gemm-256-scalar-gemm-scalar` | `scalar` | `gemm_scalar` | `gemm-256` | `native-scalar` |
+| `gemm-256-scalar-gemm-simd` | `scalar` | `gemm_simd` | `gemm-256` | `native-scalar` |
+| `gemm-256-simd128-gemm-scalar` | `simd128` | `gemm_scalar` | `gemm-256` | `native-scalar` |
+| `gemm-37x41x53-scalar-gemm-scalar` | `scalar` | `gemm_scalar` | `gemm-37x41x53` | `native-scalar` |
+| `gemm-37x41x53-scalar-gemm-simd` | `scalar` | `gemm_simd` | `gemm-37x41x53` | `native-scalar` |
+| `gemm-37x41x53-simd128-gemm-scalar` | `simd128` | `gemm_scalar` | `gemm-37x41x53` | `native-scalar` |
+
+#### 確かめ方
+
+```console
+$ grep -c '"case"' wasm/node/cases.json
+9
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 229, failed: 0
+```
+
+CI の `wasm-macos` ジョブの `make wasm-node-check` の行は次で読む（`<id>` は job の id）。
+
+```console
+$ gh run view --job <id> --log | grep -E ' (row|count|sha256|summary): '
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | GEMM の入力とネイティブの scalar の参照を書き出す host 側の道具 | #6271 |
 | 2/5 | Node での照合を生成の入力の行と 2 つのビルドに広げる | #6272 |
+| 3/5 | GEMM の 3 ケースの 9 行を照合の入力に足す | #6273 |
