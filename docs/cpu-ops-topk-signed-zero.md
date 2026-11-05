@@ -83,9 +83,57 @@ cargo test --manifest-path wasm/Cargo.toml --workspace --locked
 grep -n SIGNED_ZERO_CASES wasm/crates/parity-host/src/lib.rs
 ```
 
+## 照合の 20 行（3/4）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2451。親 Issue は #1070、この節（3/4）は #6950。
+
+### 所在
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 入力の行 | `wasm/node/cases.json` の `rows` の末尾に 20 行 |
+| 回帰テスト | `scripts/test-wasm-node-check.sh` の項目 22。部分 Top-k の行が 30 組にちょうど等しいことを照らす |
+| 枠の頁 | `docs/wasm32-native-parity.md`（TASK-994・TASK-996 のポインタ） |
+
+### 20 行
+
+5 ケースそれぞれに 4 組（scalar 版と simd128 版のビルド × `topk_scalar`・`topk_simd`）。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `topk-e-4-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-e-4` | `native-scalar` |
+| `topk-e-4-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-e-4` | `native-scalar` |
+| `topk-e-4-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-e-4` | `native-scalar` |
+| `topk-e-4-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-e-4` | `native-scalar` |
+| `topk-signed-zero-adjacent-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-signed-zero-adjacent` | `native-scalar` |
+| `topk-signed-zero-adjacent-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-signed-zero-adjacent` | `native-scalar` |
+| `topk-signed-zero-adjacent-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-signed-zero-adjacent` | `native-scalar` |
+| `topk-signed-zero-adjacent-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-signed-zero-adjacent` | `native-scalar` |
+| `topk-signed-zero-separated-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-signed-zero-separated` | `native-scalar` |
+| `topk-signed-zero-separated-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-signed-zero-separated` | `native-scalar` |
+| `topk-signed-zero-separated-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-signed-zero-separated` | `native-scalar` |
+| `topk-signed-zero-separated-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-signed-zero-separated` | `native-scalar` |
+| `topk-signed-zero-cut-at-k-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-signed-zero-cut-at-k` | `native-scalar` |
+| `topk-signed-zero-cut-at-k-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-signed-zero-cut-at-k` | `native-scalar` |
+| `topk-signed-zero-cut-at-k-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-signed-zero-cut-at-k` | `native-scalar` |
+| `topk-signed-zero-cut-at-k-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-signed-zero-cut-at-k` | `native-scalar` |
+| `topk-signed-zero-repeated-scalar-topk-scalar` | `scalar` | `topk_scalar` | `topk-signed-zero-repeated` | `native-scalar` |
+| `topk-signed-zero-repeated-scalar-topk-simd` | `scalar` | `topk_simd` | `topk-signed-zero-repeated` | `native-scalar` |
+| `topk-signed-zero-repeated-simd128-topk-scalar` | `simd128` | `topk_scalar` | `topk-signed-zero-repeated` | `native-scalar` |
+| `topk-signed-zero-repeated-simd128-topk-simd` | `simd128` | `topk_simd` | `topk-signed-zero-repeated` | `native-scalar` |
+
+### 確かめ方
+
+```sh
+grep -c '"case": "topk-e-4"' wasm/node/cases.json
+grep -c '"case": "topk-signed-zero-' wasm/node/cases.json
+make test-wasm-node-check 2>&1 | tail -n 1
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | scalar 版と SIMD 版に -0.0 の入力を当てる試験 | #6948 |
 | 2/4 | -0.0 を含む 5 ケースの入力とネイティブの参照 | #6949 |
+| 3/4 | 照合の 20 行 | #6950 |

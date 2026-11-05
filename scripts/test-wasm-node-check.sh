@@ -476,11 +476,11 @@ rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "
 want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-# 実物の部分 Top-k の行（export が topk_ で始まる行）は 10 組にちょうど等しい（TASK-996）
-check "22 bundled topk rows are exactly the ten (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+# 実物の部分 Top-k の行（export が topk_ で始まる行）は 30 組にちょうど等しい（TASK-996・TASK-2451）
+check "22 bundled topk rows are exactly the thirty (case, export, build) pairs" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("topk_")]
 four = [("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_scalar", "simd128"), ("topk_simd", "simd128")]
-want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
+want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties", "topk-e-4", "topk-signed-zero-adjacent", "topk-signed-zero-separated", "topk-signed-zero-cut-at-k", "topk-signed-zero-repeated") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 8 組にちょうど等しい（TASK-997）
