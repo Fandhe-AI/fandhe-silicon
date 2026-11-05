@@ -1315,14 +1315,21 @@ saved_copy out58
 printf '' >"${work}/out58/outputs.json"
 w --recount "${work}/out58"
 expect "58 empty outputs.json" 2 "error:"
-# 58b. 保存先の JSON が FIFO・シンボリックリンクなら待たずに 2（timeout で待ちを失敗にする）
+# 58b. 保存先の JSON が FIFO・シンボリックリンクなら待たずに 2（見張りの kill で待ちを失敗にする）
 for jf in outputs.json manifest.json; do
   for kind in fifo symlink; do
     saved_copy out58
     rm -f "${work}/out58/${jf}"
     if [ "${kind}" = fifo ]; then mkfifo "${work}/out58/${jf}"; else ln -s "${work}/out56/${jf}" "${work}/out58/${jf}"; fi
     rc=0
-    timeout 20 "${BASH}" "${WNC}" --recount "${work}/out58" >"${OUT_F}" 2>"${ERR_F}" </dev/null || rc=$?
+    # GNU timeout は macOS に無いので、見張りの子プロセスと kill で待ちを 20 秒に絞る
+    "${BASH}" "${WNC}" --recount "${work}/out58" >"${OUT_F}" 2>"${ERR_F}" </dev/null &
+    cpid=$!
+    (sleep 20; kill "${cpid}" 2>/dev/null) >/dev/null 2>&1 &
+    wpid=$!
+    wait "${cpid}" || rc=$?
+    kill "${wpid}" 2>/dev/null || true
+    wait "${wpid}" 2>/dev/null || true
     expect "58 ${jf} is a ${kind}" 2 "error:" "!recount-summary:"
   done
 done
