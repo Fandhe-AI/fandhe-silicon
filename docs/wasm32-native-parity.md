@@ -1429,7 +1429,7 @@ passed: 542, failed: 0
 | (4) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 3 行と `recount-summary:` の行（下のコードブロック） |
 | (5) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 12 行（出力 3・ケースのファイル 9。下のコードブロック） |
 | (6) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
-| (7) | 回帰テスト | `gh run view 42118684042 --job 127565001825 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。`ok:` 40 行と最終行は `passed: 542, failed: 0` |
+| (7) | 回帰テスト | `gh run view 42118684042 --job 127565001825 --log` の `make test-wasm-node-check` の段 | ジョブ `make deny (cargo-deny)` は `success`。`grep` で絞った `ok:` 40 行（ログ全体の `ok:` は 542 行で最終行の件数と同じ）と最終行 `passed: 542, failed: 0` |
 | (8) | 閾値の突き合わせの試験の実物の実行 | 同じ run の `wasm-macos` ジョブの `make wasm-verify` の段 | 3 本は `ok`、`test result:` は 1 行（下のコードブロック） |
 | (9) | unsafe・外部の依存の追加 0 | `git diff --stat` と `grep -rn unsafe`（下のコードブロック） | stat は空、`grep` は 0 件 |
 
