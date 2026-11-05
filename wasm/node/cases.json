@@ -225,6 +225,27 @@
       "build": "simd128",
       "case": "elementwise-add-scalar",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "gemm-64-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "gemm-64",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "gemm-256-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "gemm-256",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "gemm-37x41x53-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "gemm-37x41x53",
+      "reference_source": "native-scalar"
     }
   ]
 }
