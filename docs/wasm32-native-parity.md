@@ -1255,3 +1255,26 @@ $ grep -rn unsafe wasm/crates/parity-host
 | 2/4 | 要素ごと演算の 2 ケースの入力とネイティブの参照を host 側の道具に足す | #6288 |
 | 3/4 | 要素ごと演算の 8 行を照合の入力に足す | #6289 |
 | 4/4 | 完了の条件の確かめ | #6290 |
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 行の 2 つの形の表の生成の行の `export`（`:137`） | `gemm_scalar`・`gemm_simd` → `topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd` の 4 つが加わった 6 つ | `grep -n 'call:' wasm/node/run-glue.cjs` |
+| 「判定と出力の行」の表（`:177`〜`:181`）の「4 バイトの語ごとの比べ」 | 語ごとの比べは 4 バイト → 種類ごとの比べの単位（`gemm`・`elementwise` は 4 バイト、`topk` は 8 バイト）。違いがあれば `mismatch (mismatches <件数>/<単位の数>)`、数が違えば `mismatch (length expected <n> got <m>)`（単位の数）。`topk` の生成の行には `nonfinite: <ケース> input=<件数> output=<件数>`、`elementwise` の生成の行には `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行が加わる | `sed -n 80,95p scripts/wasm-node-check.sh`、`grep -n 'mismatches\|length expected\|nonfinite:\|input-special:' scripts/wasm-node-check.sh` |
+| 確かめ方の `grep -c '"case"' wasm/node/cases.json`（`:231`〜`:232`） | `9` → `27` | `grep -c '"case"' wasm/node/cases.json` |
+| 「保存の形のファイル」の manifest の鍵（`:247`〜`:252`） | `a_file`・`b_file`・`native_scalar_file` → `topk` の要素は `scores_file`、`elementwise` の要素は `input_file` を持ち、どちらも `native_scalar_file` を持つ | `grep -n 'scores_file\|input_file' wasm/crates/parity-host/src/lib.rs` |
+| 「今の値の補い（base 5ea11ff）」の `make test-wasm-node-check` の最終行（`:503`） | `passed: 342, failed: 0` → `passed: 505, failed: 0` | `make test-wasm-node-check` |
+| TASK-996 の確かめ方の `make test-wasm-node-check`（`:574`） | `passed: 416, failed: 0` → `passed: 505, failed: 0` | `make test-wasm-node-check` |
+| `wasm-parity-host gen <dir>` の記述の `wasm/node/cases.json`（`:581`） | 14 行 → 32 行 | `jq '.rows \| length' wasm/node/cases.json` |
+| `manifest.json` の `cases`（`:603`） | 6 要素・書く名前は 16 個 → 8 要素（GEMM 3・部分 Top-k 3・要素ごと演算 2）・書く名前は 20 個（`.bin` が 19 個と `manifest.json`） | `d=$(mktemp -d); (cd wasm && cargo run -q -p wasm-parity-host -- gen "$d"); ls "$d" \| wc -l; grep -c '"name"' "$d/manifest.json"` |
+| `sha256sum *` の `manifest.json`（`:668`） | `92c07bf7987315eac089e4d7c0d094715f4a7d890e08fca1d0027ea5619e0e14` → `3bd0b6d3537a65b67f3653b9b27ddcc13ad215b7dd388ccbac7a608411734c3d`（`topk` の要素の鍵と `elementwise` の要素が加わった `gen` の出力） | 上の `gen` を流し、`(cd "$d" && sha256sum manifest.json)` |
+| TASK-996 の 4/4 の (8) のコマンド（`:866`）の切り方 | `Running tests/cpu_ops_topk_reference.rs` の行から最初の `test result:` まで切る形（`Running` の行の順に依る） → `running N tests` の行で区切り、対象の試験の行を含む組の `test result:` を出す形（順に依らない。TASK-997 の 4/4 の `:1234`・`:1237` と同じ形）。下に今の確かめ方を書く | 下のコマンド |
+
+順に依らないコマンドの形（`<run>`・`<job>` は `make verify` の段を持つ CI のジョブ。`gh` と認証が要る）。
+
+```console
+$ gh run view <run> --job <job> --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test (topk_simd_matches_scalar_bytes|topk_simd_scalar_byte_sequences_match) \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
+```

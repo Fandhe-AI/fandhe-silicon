@@ -366,3 +366,12 @@ make verify
 | `CpuOpsNonExhaustiveGate`（#7926） | `crates/contract/src/cfg_gate_doctest.rs` の 142 行目の目印の型（rustdoc の表示は `line 131`）。`cpu-ops` が有効なときは `compile_fail,E0004`、無効なときは `ignore` | doctest 1 本（詳細は [cpu-ops-surface-check.md](cpu-ops-surface-check.md)） |
 
 `--lib cpu_ops` の本数は `--features test-support` を付けなくても 13 本（`cargo test -p fandhe-silicon-contract --lib cpu_ops`）。`cpu_ops_build_selection` は今も 7 本（`cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection`）。
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「simd128 の構成は型検査と lint までで、wasm32 上の実行は流していない」の文（`:190`） | wasm32 上の実行は流していない → `wasm/crates/glue` の export（`topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd` を含む）を通して、`make wasm-node-check` が Node 上で `cpu_ops` の演算を流す（CI の `wasm-macos` ジョブ）。`crates/wasm-abi` の export を通した実行は無く、`crates/contract` の試験そのものを wasm32 で流してはいない | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、`jq -r '.rows[].export' wasm/node/cases.json \| sort -u` |
+| 回帰テスト `make test-wasm-node-check` の最終行 | `passed: 505, failed: 0` | `make test-wasm-node-check` |

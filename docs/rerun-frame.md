@@ -241,3 +241,11 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | -- | ----------------- | -------------- |
 | 「出どころのトークン」の行・公開面の行（`ReferenceSource`） | `fixed`・`native-neon` の 2 つ → `NativeScalar`（トークン `native-scalar`）が加わった 3 つ（`wasm/node/cases.json` の `reference_source` と同じ綴り） | `grep -n 'NativeScalar\|native-scalar' crates/core/src/rerun/reference.rs` |
 | F2 の `make test-wasm-node-check` | `passed: 141, failed: 0` → `passed: 342, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base 42731d8）
+
+記録時点の表と既存の節は書き換えない。以下は base `42731d8` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 5ea11ff）」の `make test-wasm-node-check`（`:243`） | `passed: 342, failed: 0` → `passed: 505, failed: 0` | `make test-wasm-node-check` |
