@@ -1,4 +1,4 @@
-//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力と、
+//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 6 ケース、特殊値の GEMM の 14 ケースの入力と、
 //! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力、特殊値の GEMM の CPU 参照をファイルに書く
 //! host 側の道具（spec TASK-994・PARITY-20・TASK-996・TASK-997・TASK-2451 のポインタ）。
 //! 特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の 1 ケースは spec TASK-999 のポインタ。番兵が出る部分 Top-k の 1 ケースは spec TASK-2451 のポインタ。
@@ -11,7 +11,7 @@
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
 //! 要素ごと演算の 3 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
-//! -0.0 を含む部分 Top-k の 5 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
+//! -0.0 を含む部分 Top-k の 6 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 特殊値の GEMM の 14 ケース（core の `CaseId::G01`〜`G13`・`E1`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・
 //! `.cpu-reference.bin`（f32 のリトルエンディアン。最後は core の CPU 参照）と、
 //! 特殊値の要素ごと演算の 2 ケース（core の `CaseId::E2` の入力）それぞれの `.input.bin`・`.native-scalar.bin`・`.cpu-reference.bin`
@@ -283,6 +283,8 @@ pub fn build_topk_cases() -> Result<Vec<TopkCase>, GenError> {
 pub enum SignedZeroSource {
     /// core の `CaseId::E4` の入力。
     CaseE4,
+    /// core の `CaseId::E4` の入力のスコアに、指定した k を組み合わせたもの。
+    CaseE4WithK(usize),
     /// core の `additional_topk_inputs()` のうち、同じ名前の入力。
     Additional(&'static str),
 }
@@ -296,8 +298,8 @@ pub struct SignedZeroCaseSpec {
     pub source: SignedZeroSource,
 }
 
-/// 書き出す -0.0 を含む部分 Top-k の 5 ケース（CPU-13）。長さと k は出どころの入力から取る。
-pub const SIGNED_ZERO_CASES: [SignedZeroCaseSpec; 5] = [
+/// 書き出す -0.0 を含む部分 Top-k の 6 ケース（CPU-13）。長さと k は出どころの入力から取る。
+pub const SIGNED_ZERO_CASES: [SignedZeroCaseSpec; 6] = [
     SignedZeroCaseSpec {
         name: "topk-e-4",
         source: SignedZeroSource::CaseE4,
@@ -318,6 +320,12 @@ pub const SIGNED_ZERO_CASES: [SignedZeroCaseSpec; 5] = [
         name: "topk-signed-zero-repeated",
         source: SignedZeroSource::Additional("signed_zero_repeated"),
     },
+    // `topk-e-4` は長さ 16・k=8 で出力が全部 1.0 になり ±0 が入らない。同じ入力で k=13 にすると、
+    // 1.0 の 11 件に続いて +0.0（スロット 4）と -0.0（スロット 3）の両方が出力に入る。
+    SignedZeroCaseSpec {
+        name: "topk-e-4-k-13",
+        source: SignedZeroSource::CaseE4WithK(13),
+    },
 ];
 
 /// 表の 1 行から、core の入力をそのまま使って部分 Top-k の入力を作る。
@@ -325,6 +333,14 @@ pub fn build_signed_zero_case(spec: &SignedZeroCaseSpec) -> Result<TopkCase, Gen
     match spec.source {
         SignedZeroSource::CaseE4 => match CaseId::E4.input() {
             Ok(CaseInput::TopK { scores, k }) => Ok(TopkCase {
+                name: spec.name,
+                k,
+                scores,
+            }),
+            _ => Err(GenError::InputFailed),
+        },
+        SignedZeroSource::CaseE4WithK(k) => match CaseId::E4.input() {
+            Ok(CaseInput::TopK { scores, .. }) => Ok(TopkCase {
                 name: spec.name,
                 k,
                 scores,
@@ -345,7 +361,7 @@ pub fn build_signed_zero_case(spec: &SignedZeroCaseSpec) -> Result<TopkCase, Gen
     }
 }
 
-/// -0.0 を含む部分 Top-k の 5 ケースの入力を作る。
+/// -0.0 を含む部分 Top-k の 6 ケースの入力を作る。
 pub fn build_signed_zero_cases() -> Result<Vec<TopkCase>, GenError> {
     SIGNED_ZERO_CASES
         .iter()
@@ -1005,7 +1021,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケースの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 6 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
