@@ -386,6 +386,482 @@
       "build": "simd128",
       "case": "topk-signed-zero-repeated",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-01-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-01",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-01-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-01",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-01-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-01",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-01-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-01",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-02-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-02",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-02-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-02",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-02-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-02",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-02-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-02",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-03-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-03",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-03-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-03",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-03-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-03",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-03-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-03",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-04-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-04",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-04-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-04",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-04-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-04",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-04-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-04",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-05-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-05",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-05-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-05",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-05-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-05",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-05-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-05",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-06-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-06",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-06-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-06",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-06-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-06",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-06-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-06",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-07-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-07",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-07-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-07",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-07-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-07",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-07-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-07",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-08-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-08",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-08-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-08",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-08-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-08",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-08-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-08",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-09-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-09",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-09-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-09",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-09-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-09",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-09-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-09",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-10-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-10",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-10-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-10",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-10-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-10",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-10-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-10",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-11-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-11",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-11-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-11",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-11-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-11",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-11-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-11",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-12-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-12",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-12-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-12",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-12-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-12",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-12-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-12",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-13-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-g-13",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-13-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-g-13",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-13-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-g-13",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-g-13-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-g-13",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-e-1-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "special-gemm-e-1",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-e-1-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "special-gemm-e-1",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-e-1-simd128-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "simd128",
+      "case": "special-gemm-e-1",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-gemm-e-1-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "special-gemm-e-1",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-relu-e-2-scalar-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "scalar",
+      "case": "special-elementwise-relu-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-relu-e-2-scalar-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "special-elementwise-relu-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-relu-e-2-simd128-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "simd128",
+      "case": "special-elementwise-relu-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-relu-e-2-simd128-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "simd128",
+      "case": "special-elementwise-relu-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-add-scalar-e-2-scalar-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "scalar",
+      "case": "special-elementwise-add-scalar-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-add-scalar-e-2-scalar-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "special-elementwise-add-scalar-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-add-scalar-e-2-simd128-elementwise-scalar",
+      "export": "elementwise_scalar",
+      "build": "simd128",
+      "case": "special-elementwise-add-scalar-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "special-elementwise-add-scalar-e-2-simd128-elementwise-simd",
+      "export": "elementwise_simd",
+      "build": "simd128",
+      "case": "special-elementwise-add-scalar-e-2",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-3-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-e-3",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-3-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-e-3",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-3-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-e-3",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-3-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-e-3",
+      "reference_source": "native-scalar"
     }
   ]
 }

@@ -1863,6 +1863,47 @@ recount_agrees_with_core_on_special_words: test
 
 時点のコミット: `bc51973`（この変更の土台）。
 
+### 特殊値の入力の 68 行（5/6）
+
+`wasm/node/cases.json` の既定の入力に足した生成の行。並びは今までの行の後に、ケースの順・組の順。ケースごとに 4 組（`scalar`・`simd128` のビルドと、2 つの export の組）。
+
+| ケース | ビルド | export | 参照の出どころ |
+| ------ | ------ | ------ | -------------- |
+| `special-gemm-g-01` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-02` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-03` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-04` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-05` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-06` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-07` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-08` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-09` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-10` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-11` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-12` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-g-13` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-gemm-e-1` | `scalar`・`simd128` | `gemm_scalar`・`gemm_simd` | `native-scalar` |
+| `special-elementwise-relu-e-2` | `scalar`・`simd128` | `elementwise_scalar`・`elementwise_simd` | `native-scalar` |
+| `special-elementwise-add-scalar-e-2` | `scalar`・`simd128` | `elementwise_scalar`・`elementwise_simd` | `native-scalar` |
+| `topk-e-3` | `scalar`・`simd128` | `topk_scalar`・`topk_simd` | `native-scalar` |
+
+GEMM の 14 ケース × 4 組、要素ごと演算の 2 ケース × 4 組、部分 Top-k の 1 ケース × 4 組。
+
+#### 確かめ方
+
+```console
+$ grep -c '"case": "special-gemm-' wasm/node/cases.json
+56
+$ grep -c '"case": "special-elementwise-' wasm/node/cases.json
+8
+$ grep -c '"case": "topk-e-3"' wasm/node/cases.json
+4
+$ make test-wasm-node-check 2>&1 | tail -n 1
+passed: 642, failed: 0
+```
+
+時点のコミット: `44834c2`（この変更の土台）。
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -1871,3 +1912,4 @@ recount_agrees_with_core_on_special_words: test
 | 2/6 | GEMM の 14 ケースの入力と 2 つの参照を host 側の道具に足す | #6292 |
 | 3/6 | 要素ごと演算の 2 ケースと部分 Top-k の 1 ケースを host 側の道具に足す | #6293 |
 | 4/6 | 特殊値の入力の比べを共通の道具と突き合わせる | #6294 |
+| 5/6 | 特殊値の入力の 68 行を照合の入力に足す | #6295 |
