@@ -1904,6 +1904,823 @@ passed: 642, failed: 0
 
 時点のコミット: `44834c2`（この変更の土台）。
 
+### 完了の条件の確かめ（6/6）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-999）。
+
+時点のコミット: `3a3dff1`（この変更の土台）。(2)〜(9) は、5/6 のマージ `3a3dff1` の main への push で流れた CI の run `42158595604` から取る（event `push`・conclusion `success`・headSha は `3a3dff188bea14d1d3f7cc37e9d68d3adee6e90e`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | 入力と 2 つの参照の作り方の試験 | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list` と同じコマンドの `test result:` の行 | 試験の名前 27 行と `test result:` の 7 行（下のコードブロック） |
+| (2) | GEMM の比べ | `gh run view 42158595604 --job 127698571460 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・`summary:` の行と、`special-gemm-` の `row:`・`count:`・`cpu-count:` の 168 行の計 171 行（下のコードブロック） |
+| (3) | 要素ごと演算の比べ | 同じログの `make wasm-node-check` の段 | `special-elementwise-` の `row:`・`count:`・`cpu-count:` の 24 行と `input-special:` の 2 行の計 26 行（下のコードブロック） |
+| (4) | 部分 Top-k の比べ | 同じログの `make wasm-node-check` の段 | `topk-e-3`・`topk-e-4`・`topk-signed-zero-` の `row:`・`count:` の 48 行と `nonfinite:` の 6 行の計 54 行（下のコードブロック） |
+| (5) | 語の比べの値 | 同じログの `make wasm-node-check` の段 | `t1:` 64 行（下のコードブロック） |
+| (6) | 保存した出力からの数え直し | 同じログの `make wasm-node-check` の段 | `recount:` 68 行・`recount-cpu:` 64 行と `recount-summary:` の行の計 133 行（下のコードブロック） |
+| (7) | 出力の sha256 | 同じログの `make wasm-node-check` の段 | `sha256:` 132 行（`special-` 126 行・`topk-e-3` 6 行。下のコードブロック） |
+| (8) | `wasm-macos` ジョブの環境の行 | 同じジョブの `Set up job`・`Install pinned Node and wasm-bindgen CLI`・`Show tool versions` の段 | 下のコードブロック |
+| (9) | 回帰テスト | `gh run view 42158595604 --job 127698570918 --log` の `make test-wasm-node-check` の段と、`wasm-macos` ジョブの `make wasm-verify` の段 | ジョブ `make deny (cargo-deny)` は `success`。`grep` で絞った `ok:` 100 行と最終行 `passed: 642, failed: 0`。`make wasm-verify` の段は試験 3 本が `ok`、`test result:` は 1 行（下のコードブロック） |
+| (10) | unsafe・外部の依存の追加 0 | `git diff --stat` と `grep -rn unsafe`（下のコードブロック） | stat は空、`grep` は 0 件 |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked -- --list 2>&1 | grep -E '^(gemm_special_cases_match_core_inputs|gemm_special_files_hold_core_inputs|gemm_special_cpu_reference_matches_core|gemm_special_native_matches_default_cpu_ops|gemm_special_outputs_follow_design|gemm_special_inputs_hold_special_values|gemm_special_native_agrees_with_cpu_reference_by_rule|gemm_special_manifest_entries_match_files|gen_refuses_existing_gemm_special_file|cpu_reference_error_text|gemm_special_case_rejects_non_gemm_input|gemm_special_cpu_reference_rejects_non_f32_output|elementwise_special_cases_hold_core_input|elementwise_special_input_holds_special_values|elementwise_special_native_matches_default_cpu_ops|elementwise_special_relu_cpu_reference_matches_core|elementwise_special_add_scalar_cpu_reference_matches_expression|elementwise_special_relu_maps_nan_to_zero|elementwise_special_native_agrees_with_cpu_reference_by_rule|elementwise_special_manifest_entries_match_files|gen_refuses_existing_elementwise_special_file|elementwise_special_case_rejects_non_relu_input|elementwise_special_cpu_reference_rejects_non_f32_output|topk_e3_case_holds_core_input|topk_e3_native_matches_core|topk_e3_manifest_entry_matches_files|topk_e3_case_rejects_non_topk_input): '
+cpu_reference_error_text: test
+elementwise_special_add_scalar_cpu_reference_matches_expression: test
+elementwise_special_case_rejects_non_relu_input: test
+elementwise_special_cases_hold_core_input: test
+elementwise_special_cpu_reference_rejects_non_f32_output: test
+elementwise_special_input_holds_special_values: test
+elementwise_special_manifest_entries_match_files: test
+elementwise_special_native_agrees_with_cpu_reference_by_rule: test
+elementwise_special_native_matches_default_cpu_ops: test
+elementwise_special_relu_cpu_reference_matches_core: test
+elementwise_special_relu_maps_nan_to_zero: test
+gemm_special_case_rejects_non_gemm_input: test
+gemm_special_cases_match_core_inputs: test
+gemm_special_cpu_reference_matches_core: test
+gemm_special_cpu_reference_rejects_non_f32_output: test
+gemm_special_files_hold_core_inputs: test
+gemm_special_inputs_hold_special_values: test
+gemm_special_manifest_entries_match_files: test
+gemm_special_native_agrees_with_cpu_reference_by_rule: test
+gemm_special_native_matches_default_cpu_ops: test
+gemm_special_outputs_follow_design: test
+gen_refuses_existing_elementwise_special_file: test
+gen_refuses_existing_gemm_special_file: test
+topk_e3_case_holds_core_input: test
+topk_e3_case_rejects_non_topk_input: test
+topk_e3_manifest_entry_matches_files: test
+topk_e3_native_matches_core: test
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.83s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.94s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、段の名前で絞って時刻までを落とす。
+
+```console
+$ gh run view 42158595604 --job 127698571460 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|summary): |^(row|count|cpu-count): special-gemm-'
+node: v24.13.0
+wasm-bindgen: 0.2.128
+row: special-gemm-g-01-scalar-gemm-scalar match
+row: special-gemm-g-01-scalar-gemm-simd match
+row: special-gemm-g-01-simd128-gemm-scalar match
+row: special-gemm-g-01-simd128-gemm-simd match
+row: special-gemm-g-02-scalar-gemm-scalar match
+row: special-gemm-g-02-scalar-gemm-simd match
+row: special-gemm-g-02-simd128-gemm-scalar match
+row: special-gemm-g-02-simd128-gemm-simd match
+row: special-gemm-g-03-scalar-gemm-scalar match
+row: special-gemm-g-03-scalar-gemm-simd match
+row: special-gemm-g-03-simd128-gemm-scalar match
+row: special-gemm-g-03-simd128-gemm-simd match
+row: special-gemm-g-04-scalar-gemm-scalar match
+row: special-gemm-g-04-scalar-gemm-simd match
+row: special-gemm-g-04-simd128-gemm-scalar match
+row: special-gemm-g-04-simd128-gemm-simd match
+row: special-gemm-g-05-scalar-gemm-scalar match
+row: special-gemm-g-05-scalar-gemm-simd match
+row: special-gemm-g-05-simd128-gemm-scalar match
+row: special-gemm-g-05-simd128-gemm-simd match
+row: special-gemm-g-06-scalar-gemm-scalar match
+row: special-gemm-g-06-scalar-gemm-simd match
+row: special-gemm-g-06-simd128-gemm-scalar match
+row: special-gemm-g-06-simd128-gemm-simd match
+row: special-gemm-g-07-scalar-gemm-scalar match
+row: special-gemm-g-07-scalar-gemm-simd match
+row: special-gemm-g-07-simd128-gemm-scalar match
+row: special-gemm-g-07-simd128-gemm-simd match
+row: special-gemm-g-08-scalar-gemm-scalar match
+row: special-gemm-g-08-scalar-gemm-simd match
+row: special-gemm-g-08-simd128-gemm-scalar match
+row: special-gemm-g-08-simd128-gemm-simd match
+row: special-gemm-g-09-scalar-gemm-scalar match
+row: special-gemm-g-09-scalar-gemm-simd match
+row: special-gemm-g-09-simd128-gemm-scalar match
+row: special-gemm-g-09-simd128-gemm-simd match
+row: special-gemm-g-10-scalar-gemm-scalar match
+row: special-gemm-g-10-scalar-gemm-simd match
+row: special-gemm-g-10-simd128-gemm-scalar match
+row: special-gemm-g-10-simd128-gemm-simd match
+row: special-gemm-g-11-scalar-gemm-scalar match
+row: special-gemm-g-11-scalar-gemm-simd match
+row: special-gemm-g-11-simd128-gemm-scalar match
+row: special-gemm-g-11-simd128-gemm-simd match
+row: special-gemm-g-12-scalar-gemm-scalar match
+row: special-gemm-g-12-scalar-gemm-simd match
+row: special-gemm-g-12-simd128-gemm-scalar match
+row: special-gemm-g-12-simd128-gemm-simd match
+row: special-gemm-g-13-scalar-gemm-scalar match
+row: special-gemm-g-13-scalar-gemm-simd match
+row: special-gemm-g-13-simd128-gemm-scalar match
+row: special-gemm-g-13-simd128-gemm-simd match
+row: special-gemm-e-1-scalar-gemm-scalar match
+row: special-gemm-e-1-scalar-gemm-simd match
+row: special-gemm-e-1-simd128-gemm-scalar match
+row: special-gemm-e-1-simd128-gemm-simd match
+count: special-gemm-g-01-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-01-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-01-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-01-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-01-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-01-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-01-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-01-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-02-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-02-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-02-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-02-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-02-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-02-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-02-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-02-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-03-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-03-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-03-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-03-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-03-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-03-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-03-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-03-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-04-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-04-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-04-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-04-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-04-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-04-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-04-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-04-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-05-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-05-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-05-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-05-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-05-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-05-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-05-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-05-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-06-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-06-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-06-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-06-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-06-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-06-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-06-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-06-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-07-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-07-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-07-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-07-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-07-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-07-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-07-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-07-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-08-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-08-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-08-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-08-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-08-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-08-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-08-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-08-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-09-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-09-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-09-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-09-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-09-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-09-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-09-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-09-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-10-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-10-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-10-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-10-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-10-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-10-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-10-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-10-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-11-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-11-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-11-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-11-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-11-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-11-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-11-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-11-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-g-12-scalar-gemm-scalar mismatches=0 n=1517
+cpu-count: special-gemm-g-12-scalar-gemm-scalar mismatches=0 n=1517
+count: special-gemm-g-12-scalar-gemm-simd mismatches=0 n=1517
+cpu-count: special-gemm-g-12-scalar-gemm-simd mismatches=0 n=1517
+count: special-gemm-g-12-simd128-gemm-scalar mismatches=0 n=1517
+cpu-count: special-gemm-g-12-simd128-gemm-scalar mismatches=0 n=1517
+count: special-gemm-g-12-simd128-gemm-simd mismatches=0 n=1517
+cpu-count: special-gemm-g-12-simd128-gemm-simd mismatches=0 n=1517
+count: special-gemm-g-13-scalar-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-13-scalar-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-13-scalar-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-13-scalar-gemm-simd mismatches=0 n=1
+count: special-gemm-g-13-simd128-gemm-scalar mismatches=0 n=1
+cpu-count: special-gemm-g-13-simd128-gemm-scalar mismatches=0 n=1
+count: special-gemm-g-13-simd128-gemm-simd mismatches=0 n=1
+cpu-count: special-gemm-g-13-simd128-gemm-simd mismatches=0 n=1
+count: special-gemm-e-1-scalar-gemm-scalar mismatches=0 n=1517
+cpu-count: special-gemm-e-1-scalar-gemm-scalar mismatches=0 n=1517
+count: special-gemm-e-1-scalar-gemm-simd mismatches=0 n=1517
+cpu-count: special-gemm-e-1-scalar-gemm-simd mismatches=0 n=1517
+count: special-gemm-e-1-simd128-gemm-scalar mismatches=0 n=1517
+cpu-count: special-gemm-e-1-simd128-gemm-scalar mismatches=0 n=1517
+count: special-gemm-e-1-simd128-gemm-simd mismatches=0 n=1517
+cpu-count: special-gemm-e-1-simd128-gemm-simd mismatches=0 n=1517
+summary: rows=123 match=123 mismatch=0 not-run=0
+```
+
+(3) の出力（(2) と同じ前段に `grep` をつなぐ）。
+
+```console
+$ ... | grep -E '^(row|count|cpu-count): special-elementwise-|^input-special: special-elementwise-'
+row: special-elementwise-relu-e-2-scalar-elementwise-scalar match
+row: special-elementwise-relu-e-2-scalar-elementwise-simd match
+row: special-elementwise-relu-e-2-simd128-elementwise-scalar match
+row: special-elementwise-relu-e-2-simd128-elementwise-simd match
+row: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar match
+row: special-elementwise-add-scalar-e-2-scalar-elementwise-simd match
+row: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar match
+row: special-elementwise-add-scalar-e-2-simd128-elementwise-simd match
+count: special-elementwise-relu-e-2-scalar-elementwise-scalar mismatches=0 n=37
+cpu-count: special-elementwise-relu-e-2-scalar-elementwise-scalar mismatches=0 n=37
+count: special-elementwise-relu-e-2-scalar-elementwise-simd mismatches=0 n=37
+cpu-count: special-elementwise-relu-e-2-scalar-elementwise-simd mismatches=0 n=37
+count: special-elementwise-relu-e-2-simd128-elementwise-scalar mismatches=0 n=37
+cpu-count: special-elementwise-relu-e-2-simd128-elementwise-scalar mismatches=0 n=37
+count: special-elementwise-relu-e-2-simd128-elementwise-simd mismatches=0 n=37
+cpu-count: special-elementwise-relu-e-2-simd128-elementwise-simd mismatches=0 n=37
+count: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar mismatches=0 n=37
+cpu-count: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar mismatches=0 n=37
+count: special-elementwise-add-scalar-e-2-scalar-elementwise-simd mismatches=0 n=37
+cpu-count: special-elementwise-add-scalar-e-2-scalar-elementwise-simd mismatches=0 n=37
+count: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar mismatches=0 n=37
+cpu-count: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar mismatches=0 n=37
+count: special-elementwise-add-scalar-e-2-simd128-elementwise-simd mismatches=0 n=37
+cpu-count: special-elementwise-add-scalar-e-2-simd128-elementwise-simd mismatches=0 n=37
+input-special: special-elementwise-relu-e-2 nan=7 inf=12 zero=12
+input-special: special-elementwise-add-scalar-e-2 nan=7 inf=12 zero=12
+```
+
+(4) の出力（同じ前段に `grep` をつなぐ）。
+
+```console
+$ ... | grep -E '^(row|count|nonfinite): topk-(e-3|e-4|signed-zero-)'
+row: topk-e-4-scalar-topk-scalar match
+row: topk-e-4-scalar-topk-simd match
+row: topk-e-4-simd128-topk-scalar match
+row: topk-e-4-simd128-topk-simd match
+row: topk-signed-zero-adjacent-scalar-topk-scalar match
+row: topk-signed-zero-adjacent-scalar-topk-simd match
+row: topk-signed-zero-adjacent-simd128-topk-scalar match
+row: topk-signed-zero-adjacent-simd128-topk-simd match
+row: topk-signed-zero-separated-scalar-topk-scalar match
+row: topk-signed-zero-separated-scalar-topk-simd match
+row: topk-signed-zero-separated-simd128-topk-scalar match
+row: topk-signed-zero-separated-simd128-topk-simd match
+row: topk-signed-zero-cut-at-k-scalar-topk-scalar match
+row: topk-signed-zero-cut-at-k-scalar-topk-simd match
+row: topk-signed-zero-cut-at-k-simd128-topk-scalar match
+row: topk-signed-zero-cut-at-k-simd128-topk-simd match
+row: topk-signed-zero-repeated-scalar-topk-scalar match
+row: topk-signed-zero-repeated-scalar-topk-simd match
+row: topk-signed-zero-repeated-simd128-topk-scalar match
+row: topk-signed-zero-repeated-simd128-topk-simd match
+row: topk-e-3-scalar-topk-scalar match
+row: topk-e-3-scalar-topk-simd match
+row: topk-e-3-simd128-topk-scalar match
+row: topk-e-3-simd128-topk-simd match
+count: topk-e-4-scalar-topk-scalar mismatches=0 n=8
+count: topk-e-4-scalar-topk-simd mismatches=0 n=8
+count: topk-e-4-simd128-topk-scalar mismatches=0 n=8
+count: topk-e-4-simd128-topk-simd mismatches=0 n=8
+count: topk-signed-zero-adjacent-scalar-topk-scalar mismatches=0 n=2
+count: topk-signed-zero-adjacent-scalar-topk-simd mismatches=0 n=2
+count: topk-signed-zero-adjacent-simd128-topk-scalar mismatches=0 n=2
+count: topk-signed-zero-adjacent-simd128-topk-simd mismatches=0 n=2
+count: topk-signed-zero-separated-scalar-topk-scalar mismatches=0 n=4
+count: topk-signed-zero-separated-scalar-topk-simd mismatches=0 n=4
+count: topk-signed-zero-separated-simd128-topk-scalar mismatches=0 n=4
+count: topk-signed-zero-separated-simd128-topk-simd mismatches=0 n=4
+count: topk-signed-zero-cut-at-k-scalar-topk-scalar mismatches=0 n=2
+count: topk-signed-zero-cut-at-k-scalar-topk-simd mismatches=0 n=2
+count: topk-signed-zero-cut-at-k-simd128-topk-scalar mismatches=0 n=2
+count: topk-signed-zero-cut-at-k-simd128-topk-simd mismatches=0 n=2
+count: topk-signed-zero-repeated-scalar-topk-scalar mismatches=0 n=4
+count: topk-signed-zero-repeated-scalar-topk-simd mismatches=0 n=4
+count: topk-signed-zero-repeated-simd128-topk-scalar mismatches=0 n=4
+count: topk-signed-zero-repeated-simd128-topk-simd mismatches=0 n=4
+count: topk-e-3-scalar-topk-scalar mismatches=0 n=5
+count: topk-e-3-scalar-topk-simd mismatches=0 n=5
+count: topk-e-3-simd128-topk-scalar mismatches=0 n=5
+count: topk-e-3-simd128-topk-simd mismatches=0 n=5
+nonfinite: topk-e-4 input=3 output=0
+nonfinite: topk-signed-zero-adjacent input=0 output=0
+nonfinite: topk-signed-zero-separated input=0 output=0
+nonfinite: topk-signed-zero-cut-at-k input=0 output=0
+nonfinite: topk-signed-zero-repeated input=0 output=0
+nonfinite: topk-e-3 input=0 output=0
+```
+
+(5) の出力（同じ前段に `grep` をつなぐ）。
+
+```console
+$ ... | grep -E '^t1: special-'
+t1: special-gemm-g-01-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-01-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-01-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-01-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-02-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-02-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-02-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-02-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-03-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-03-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-03-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-03-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-04-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-04-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-04-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-04-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-05-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-05-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-05-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-05-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-06-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-06-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-06-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-06-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-07-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-07-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-07-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-07-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-08-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-08-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-08-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-08-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-09-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-09-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-09-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-09-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-10-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-10-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-10-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-10-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-11-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-11-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-11-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-11-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-12-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-12-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-12-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-12-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=377 max-rel=1.7634507203696192e-05 max-rel-at=496 abs-over=0 rel-over=0
+t1: special-gemm-g-13-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-13-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-13-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-g-13-simd128-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-e-1-scalar-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-e-1-scalar-gemm-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-e-1-simd128-gemm-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-gemm-e-1-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=45 max-rel=1.7634507203696192e-05 max-rel-at=496 abs-over=0 rel-over=0
+t1: special-elementwise-relu-e-2-scalar-elementwise-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-relu-e-2-scalar-elementwise-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-relu-e-2-simd128-elementwise-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-relu-e-2-simd128-elementwise-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-add-scalar-e-2-scalar-elementwise-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+t1: special-elementwise-add-scalar-e-2-simd128-elementwise-simd max-abs=0.0 max-abs-at=- max-rel=0.0 max-rel-at=- abs-over=0 rel-over=0
+```
+
+(6) の出力（同じ前段に `grep` をつなぐ）。
+
+```console
+$ ... | grep -E '^(recount|recount-cpu): (special-|topk-e-3-)|^recount-summary: '
+recount: special-gemm-g-01-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-01-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-01-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-01-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-01-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-01-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-01-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-01-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-02-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-02-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-02-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-02-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-02-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-02-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-02-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-02-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-03-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-03-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-03-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-03-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-03-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-03-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-03-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-03-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-04-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-04-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-04-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-04-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-04-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-04-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-04-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-04-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-05-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-05-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-05-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-05-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-05-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-05-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-05-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-05-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-06-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-06-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-06-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-06-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-06-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-06-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-06-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-06-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-07-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-07-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-07-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-07-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-07-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-07-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-07-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-07-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-08-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-08-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-08-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-08-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-08-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-08-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-08-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-08-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-09-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-09-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-09-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-09-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-09-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-09-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-09-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-09-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-10-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-10-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-10-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-10-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-10-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-10-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-10-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-10-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-11-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-11-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-11-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-11-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-11-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-11-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-11-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-11-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-12-scalar-gemm-scalar mismatches=0 n=1517
+recount-cpu: special-gemm-g-12-scalar-gemm-scalar mismatches=0 n=1517
+recount: special-gemm-g-12-scalar-gemm-simd mismatches=0 n=1517
+recount-cpu: special-gemm-g-12-scalar-gemm-simd mismatches=0 n=1517
+recount: special-gemm-g-12-simd128-gemm-scalar mismatches=0 n=1517
+recount-cpu: special-gemm-g-12-simd128-gemm-scalar mismatches=0 n=1517
+recount: special-gemm-g-12-simd128-gemm-simd mismatches=0 n=1517
+recount-cpu: special-gemm-g-12-simd128-gemm-simd mismatches=0 n=1517
+recount: special-gemm-g-13-scalar-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-13-scalar-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-13-scalar-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-13-scalar-gemm-simd mismatches=0 n=1
+recount: special-gemm-g-13-simd128-gemm-scalar mismatches=0 n=1
+recount-cpu: special-gemm-g-13-simd128-gemm-scalar mismatches=0 n=1
+recount: special-gemm-g-13-simd128-gemm-simd mismatches=0 n=1
+recount-cpu: special-gemm-g-13-simd128-gemm-simd mismatches=0 n=1
+recount: special-gemm-e-1-scalar-gemm-scalar mismatches=0 n=1517
+recount-cpu: special-gemm-e-1-scalar-gemm-scalar mismatches=0 n=1517
+recount: special-gemm-e-1-scalar-gemm-simd mismatches=0 n=1517
+recount-cpu: special-gemm-e-1-scalar-gemm-simd mismatches=0 n=1517
+recount: special-gemm-e-1-simd128-gemm-scalar mismatches=0 n=1517
+recount-cpu: special-gemm-e-1-simd128-gemm-scalar mismatches=0 n=1517
+recount: special-gemm-e-1-simd128-gemm-simd mismatches=0 n=1517
+recount-cpu: special-gemm-e-1-simd128-gemm-simd mismatches=0 n=1517
+recount: special-elementwise-relu-e-2-scalar-elementwise-scalar mismatches=0 n=37
+recount-cpu: special-elementwise-relu-e-2-scalar-elementwise-scalar mismatches=0 n=37
+recount: special-elementwise-relu-e-2-scalar-elementwise-simd mismatches=0 n=37
+recount-cpu: special-elementwise-relu-e-2-scalar-elementwise-simd mismatches=0 n=37
+recount: special-elementwise-relu-e-2-simd128-elementwise-scalar mismatches=0 n=37
+recount-cpu: special-elementwise-relu-e-2-simd128-elementwise-scalar mismatches=0 n=37
+recount: special-elementwise-relu-e-2-simd128-elementwise-simd mismatches=0 n=37
+recount-cpu: special-elementwise-relu-e-2-simd128-elementwise-simd mismatches=0 n=37
+recount: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar mismatches=0 n=37
+recount-cpu: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar mismatches=0 n=37
+recount: special-elementwise-add-scalar-e-2-scalar-elementwise-simd mismatches=0 n=37
+recount-cpu: special-elementwise-add-scalar-e-2-scalar-elementwise-simd mismatches=0 n=37
+recount: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar mismatches=0 n=37
+recount-cpu: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar mismatches=0 n=37
+recount: special-elementwise-add-scalar-e-2-simd128-elementwise-simd mismatches=0 n=37
+recount-cpu: special-elementwise-add-scalar-e-2-simd128-elementwise-simd mismatches=0 n=37
+recount: topk-e-3-scalar-topk-scalar mismatches=0 n=5
+recount: topk-e-3-scalar-topk-simd mismatches=0 n=5
+recount: topk-e-3-simd128-topk-scalar mismatches=0 n=5
+recount: topk-e-3-simd128-topk-simd mismatches=0 n=5
+recount-summary: rows=118 zero=118 nonzero=0 uncompared=0
+```
+
+(7) の出力（同じ前段に `grep` をつなぐ）。
+
+```console
+$ ... | grep -E '^sha256: (special-|topk-e-3[-.])'
+sha256: special-gemm-g-01-scalar-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-01-scalar-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-01-simd128-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-01-simd128-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-02-scalar-gemm-scalar d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-02-scalar-gemm-simd d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-02-simd128-gemm-scalar d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-02-simd128-gemm-simd d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-03-scalar-gemm-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-03-scalar-gemm-simd d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-03-simd128-gemm-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-03-simd128-gemm-simd d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04-scalar-gemm-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04-scalar-gemm-simd d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04-simd128-gemm-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04-simd128-gemm-simd d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-05-scalar-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-05-scalar-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-05-simd128-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-05-simd128-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06-scalar-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06-scalar-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06-simd128-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06-simd128-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07-scalar-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07-scalar-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07-simd128-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07-simd128-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-08-scalar-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-08-scalar-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-08-simd128-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-08-simd128-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09-scalar-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09-scalar-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09-simd128-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09-simd128-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10-scalar-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10-scalar-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10-simd128-gemm-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10-simd128-gemm-simd df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-11-scalar-gemm-scalar e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-11-scalar-gemm-simd e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-11-simd128-gemm-scalar e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-11-simd128-gemm-simd e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-12-scalar-gemm-scalar a2265245b09483aa71cef9f93c06484070b57b1c4d4e54cf38d7363d8f200b23
+sha256: special-gemm-g-12-scalar-gemm-simd a2265245b09483aa71cef9f93c06484070b57b1c4d4e54cf38d7363d8f200b23
+sha256: special-gemm-g-12-simd128-gemm-scalar a2265245b09483aa71cef9f93c06484070b57b1c4d4e54cf38d7363d8f200b23
+sha256: special-gemm-g-12-simd128-gemm-simd d2aec72e106a27f25c8297a501ff10d2268db6c4cf208d0754518b812678cf7c
+sha256: special-gemm-g-13-scalar-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-13-scalar-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-13-simd128-gemm-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-13-simd128-gemm-simd ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-e-1-scalar-gemm-scalar e9f2e2339d1d038df372496a9f7e8668b4f5ae652ceddc10c3fef46db8c60989
+sha256: special-gemm-e-1-scalar-gemm-simd e9f2e2339d1d038df372496a9f7e8668b4f5ae652ceddc10c3fef46db8c60989
+sha256: special-gemm-e-1-simd128-gemm-scalar e9f2e2339d1d038df372496a9f7e8668b4f5ae652ceddc10c3fef46db8c60989
+sha256: special-gemm-e-1-simd128-gemm-simd 1978dbccf014fdbd5e9079d4f61eac7f6b428c2fe50e398fb714d6510bd8cfa4
+sha256: special-elementwise-relu-e-2-scalar-elementwise-scalar 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-relu-e-2-scalar-elementwise-simd 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-relu-e-2-simd128-elementwise-scalar 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-relu-e-2-simd128-elementwise-simd 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-add-scalar-e-2-scalar-elementwise-scalar ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: special-elementwise-add-scalar-e-2-scalar-elementwise-simd ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: special-elementwise-add-scalar-e-2-simd128-elementwise-scalar ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: special-elementwise-add-scalar-e-2-simd128-elementwise-simd ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: topk-e-3-scalar-topk-scalar 7ede4e9d2f20d9c647c8a203ecace7e8d3e6b9f7c65cfd071d7f9bd9ceaf88dd
+sha256: topk-e-3-scalar-topk-simd 7ede4e9d2f20d9c647c8a203ecace7e8d3e6b9f7c65cfd071d7f9bd9ceaf88dd
+sha256: topk-e-3-simd128-topk-scalar 7ede4e9d2f20d9c647c8a203ecace7e8d3e6b9f7c65cfd071d7f9bd9ceaf88dd
+sha256: topk-e-3-simd128-topk-simd 7ede4e9d2f20d9c647c8a203ecace7e8d3e6b9f7c65cfd071d7f9bd9ceaf88dd
+sha256: special-gemm-g-01.a 3a4efa941207dbe83e974aea027a06735174f607b015ff3b7ab106e78bcbee4b
+sha256: special-gemm-g-01.b f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4
+sha256: special-gemm-g-01.native-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-01.cpu-reference ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-02.a 0f6a80d4c237da1d8cc3cc651044d3e5f85ee71631a76f347a98c7dd09d32f76
+sha256: special-gemm-g-02.b f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4
+sha256: special-gemm-g-02.native-scalar d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-02.cpu-reference d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708
+sha256: special-gemm-g-03.a fe99987b7f7c2dc1f85a9747705ada0b1646b4ce5bb08c51311faec73510ae60
+sha256: special-gemm-g-03.b f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4
+sha256: special-gemm-g-03.native-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-03.cpu-reference d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04.a 0f6a80d4c237da1d8cc3cc651044d3e5f85ee71631a76f347a98c7dd09d32f76
+sha256: special-gemm-g-04.b c068171f78940ada61be944d828edb826995b62b134cc29d749ee1bf724febff
+sha256: special-gemm-g-04.native-scalar d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-04.cpu-reference d9265d7acb11b75517ee713afcd928260e65557829bab071f03d67ee93edb8ea
+sha256: special-gemm-g-05.a 33cba49caa2c1f3116ae8ae96532a41c6a26caffe950c0d2866705cae6b8ba21
+sha256: special-gemm-g-05.b f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4
+sha256: special-gemm-g-05.native-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-05.cpu-reference ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06.a 4c9c4f354e74153db012329d71c8562ec23e498148174b2c49de58f45d47cdbe
+sha256: special-gemm-g-06.b 039a0e81e9615a4fec52911ee99a4a12485ad75883717aa00f6022b6874757b4
+sha256: special-gemm-g-06.native-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-06.cpu-reference ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07.a 81914a623f4dc55b208d08d60f0948da987c6ed3e3bd9a205dbb78f405cebe56
+sha256: special-gemm-g-07.b 039a0e81e9615a4fec52911ee99a4a12485ad75883717aa00f6022b6874757b4
+sha256: special-gemm-g-07.native-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-07.cpu-reference ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-08.a 374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
+sha256: special-gemm-g-08.b ad73b9acd6e4a74b2f5bb5386658ce3bb146cd040a1867646ab3b973fb6632b1
+sha256: special-gemm-g-08.native-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-08.cpu-reference df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09.a df141773470ba96aff5d6e9264a0bd638c9c6f3bb7ad30881cf4db943b5dd021
+sha256: special-gemm-g-09.b ad73b9acd6e4a74b2f5bb5386658ce3bb146cd040a1867646ab3b973fb6632b1
+sha256: special-gemm-g-09.native-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-09.cpu-reference df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10.a 6d58692645c9d1cfaf13541cbd258f86193ef63c2f1d38f6bbca9617372d7bd6
+sha256: special-gemm-g-10.b e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-10.native-scalar df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-10.cpu-reference df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+sha256: special-gemm-g-11.a 53cf7d9fe502513c35c3834ca4437899d0f93bd72bd6efcf8268800afe0576c4
+sha256: special-gemm-g-11.b 9054c63df67b53389612706831644506d7cbc4031c83c31aef0c50a9ebc180d6
+sha256: special-gemm-g-11.native-scalar e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-11.cpu-reference e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c
+sha256: special-gemm-g-12.a b37e90e0f9fa3429e0e4cb768382ff6e13ae845b2ce18083cd45c19fc84215eb
+sha256: special-gemm-g-12.b a702b6a9402a4df8d0b737383bbb8ae9c78e000d74c0f2fb18a50d95ca97bc19
+sha256: special-gemm-g-12.native-scalar a2265245b09483aa71cef9f93c06484070b57b1c4d4e54cf38d7363d8f200b23
+sha256: special-gemm-g-12.cpu-reference a2265245b09483aa71cef9f93c06484070b57b1c4d4e54cf38d7363d8f200b23
+sha256: special-gemm-g-13.a ad73b9acd6e4a74b2f5bb5386658ce3bb146cd040a1867646ab3b973fb6632b1
+sha256: special-gemm-g-13.b 2cfd8740d4e30c6cda1fb1dd08d309cc04717c07e431885022d402aac9af4de4
+sha256: special-gemm-g-13.native-scalar ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-g-13.cpu-reference ef1eaf26cea96eb18f8fa3137abdf23f52852a855c22ae6f169d21a379dcd739
+sha256: special-gemm-e-1.a a01110f99c2dce87d09c0622ac1bf5715d515ed9750f1df11337a33689ccd875
+sha256: special-gemm-e-1.b a702b6a9402a4df8d0b737383bbb8ae9c78e000d74c0f2fb18a50d95ca97bc19
+sha256: special-gemm-e-1.native-scalar e9f2e2339d1d038df372496a9f7e8668b4f5ae652ceddc10c3fef46db8c60989
+sha256: special-gemm-e-1.cpu-reference e9f2e2339d1d038df372496a9f7e8668b4f5ae652ceddc10c3fef46db8c60989
+sha256: special-elementwise-relu-e-2.input f3973b98178c51aecfe234068e78dccd4b0cc17e682d3f1176279297c71d21c6
+sha256: special-elementwise-relu-e-2.native-scalar 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-relu-e-2.cpu-reference 036c590c92cf29d207fd7fd7a3717f3f250de87f0a7648a58f998f39409ccf44
+sha256: special-elementwise-add-scalar-e-2.input f3973b98178c51aecfe234068e78dccd4b0cc17e682d3f1176279297c71d21c6
+sha256: special-elementwise-add-scalar-e-2.native-scalar ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: special-elementwise-add-scalar-e-2.cpu-reference ca3c4c9c481f53fde39f39a569b161c551468080b2d22f570c51b2e222550091
+sha256: topk-e-3.scores 037f422cc160e7f2f7e940b66409641bf5cdb1516202a671366be426f3f23598
+sha256: topk-e-3.native-scalar 7ede4e9d2f20d9c647c8a203ecace7e8d3e6b9f7c65cfd071d7f9bd9ceaf88dd
+```
+
+(8) の出力。`Set up job` の段は `Operating System` と `Runner Image` の group の行、`Install pinned Node and wasm-bindgen CLI` の段は Node の tar の行、`Show tool versions` の段は末尾の 4 行。
+
+```console
+##[group]Operating System
+macOS
+26.7.2
+25G332
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261102.0473.1
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261102.0473/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261102.0473
+##[endgroup]
+node-v24.13.0-darwin-arm64.tar.gz: OK
+node: v24.13.0
+wasm-bindgen: wasm-bindgen 0.2.128
+jq-1.8.2
+Python 3.15.2
+```
+
+(9) の出力。
+
+```console
+$ gh run view 42158595604 --job 127698570918 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^ok: (22 bundled (generated|topk|elementwise) rows are exactly|99 |10[0-9] |110 )'
+ok: 22 bundled generated rows are exactly 17 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)
+ok: 22 bundled topk rows are exactly the thirty-four (case, export, build) pairs
+ok: 22 bundled elementwise rows are exactly the sixteen (case, export, build) pairs
+ok: 99 gemm-special all rows match
+ok: 99 gemm-special output order
+ok: 99 gemm-special no input-special line
+ok: 100 gemm-special 5=7fc00001 is within the rule
+ok: 100 gemm-special 5=ffc00001 is within the rule
+ok: 100 gemm-special 5=7f800001 is within the rule
+ok: 100 gemm-special 3=80000000 is within the rule
+ok: 100 gemm-special the same kind of change is a mismatch for the existing kind
+ok: 101 gemm-special 5=3f800000 is a mismatch
+ok: 101 gemm-special 6=ff800000 is a mismatch
+ok: 101 gemm-special 4=7fc00000 is a mismatch
+ok: 101 gemm-special 7=7f800000 is a mismatch
+ok: 102 gemm-special inside the threshold
+ok: 102 gemm-special outside the threshold
+ok: 103 gemm-special output equal to native but not to the CPU reference
+ok: 103 gemm-special --recount of the saved form is 1
+ok: 103 gemm-special the record parts are ng and do not carry the detail
+ok: 103 gemm-special output different from both references
+ok: 104 gemm-special manifest dropkey
+ok: 104 gemm-special node body not started (dropkey)
+ok: 104 gemm-special manifest dropsha
+ok: 104 gemm-special node body not started (dropsha)
+ok: 104 gemm-special manifest extrakey
+ok: 104 gemm-special node body not started (extrakey)
+ok: 104 gemm-special manifest badsha
+ok: 104 gemm-special node body not started (badsha)
+ok: 104 gemm-special manifest shortfile
+ok: 104 gemm-special node body not started (shortfile)
+ok: 104 gemm-special manifest rmfile
+ok: 104 gemm-special node body not started (rmfile)
+ok: 104 gemm-special manifest kind
+ok: 104 gemm-special node body not started (kind)
+ok: 105 gemm-special --output-dir
+ok: 105 gemm-special the saved names include the CPU reference file
+ok: 105 gemm-special --recount is 0
+ok: 105 gemm-special --recount of a changed output is 1
+ok: 105 gemm-special --recount of a changed CPU reference file only is 1
+ok: 105 gemm-special --recount of a broken saved form (badcpusha) is 2
+ok: 105 gemm-special --recount of a broken saved form (rmcpu) is 2
+ok: 105 gemm-special --recount of a broken saved form (export) is 2
+ok: 108 gemm-special native-neon rows
+ok: 99 elementwise-special all rows match
+ok: 99 elementwise-special output order
+ok: 99 elementwise-special input-special line
+ok: 100 elementwise-special 5=7fc00001 is within the rule
+ok: 100 elementwise-special 5=ffc00001 is within the rule
+ok: 100 elementwise-special 5=7f800001 is within the rule
+ok: 100 elementwise-special 3=80000000 is within the rule
+ok: 100 elementwise-special the same kind of change is a mismatch for the existing kind
+ok: 101 elementwise-special 5=3f800000 is a mismatch
+ok: 101 elementwise-special 6=ff800000 is a mismatch
+ok: 101 elementwise-special 4=7fc00000 is a mismatch
+ok: 101 elementwise-special 7=7f800000 is a mismatch
+ok: 102 elementwise-special inside the threshold
+ok: 102 elementwise-special outside the threshold
+ok: 103 elementwise-special output equal to native but not to the CPU reference
+ok: 103 elementwise-special --recount of the saved form is 1
+ok: 103 elementwise-special the record parts are ng and do not carry the detail
+ok: 103 elementwise-special output different from both references
+ok: 104 elementwise-special manifest dropkey
+ok: 104 elementwise-special node body not started (dropkey)
+ok: 104 elementwise-special manifest dropsha
+ok: 104 elementwise-special node body not started (dropsha)
+ok: 104 elementwise-special manifest extrakey
+ok: 104 elementwise-special node body not started (extrakey)
+ok: 104 elementwise-special manifest badsha
+ok: 104 elementwise-special node body not started (badsha)
+ok: 104 elementwise-special manifest shortfile
+ok: 104 elementwise-special node body not started (shortfile)
+ok: 104 elementwise-special manifest rmfile
+ok: 104 elementwise-special node body not started (rmfile)
+ok: 104 elementwise-special manifest kind
+ok: 104 elementwise-special node body not started (kind)
+ok: 105 elementwise-special --output-dir
+ok: 105 elementwise-special the saved names include the CPU reference file
+ok: 105 elementwise-special --recount is 0
+ok: 105 elementwise-special --recount of a changed output is 1
+ok: 105 elementwise-special --recount of a changed CPU reference file only is 1
+ok: 105 elementwise-special --recount of a broken saved form (badcpusha) is 2
+ok: 105 elementwise-special --recount of a broken saved form (rmcpu) is 2
+ok: 105 elementwise-special --recount of a broken saved form (export) is 2
+ok: 108 elementwise-special native-neon rows
+ok: 106 both kinds of an export are accepted together
+ok: 106 gemm_scalar on special-elementwise-add-a
+ok: 106 node body not started (gemm_scalar on special-elementwise-add-a)
+ok: 106 elementwise_scalar on special-gemm-a
+ok: 106 node body not started (elementwise_scalar on special-gemm-a)
+ok: 106 topk_scalar on special-gemm-a
+ok: 106 node body not started (topk_scalar on special-gemm-a)
+ok: 106 topk_simd on special-elementwise-add-a
+ok: 106 node body not started (topk_simd on special-elementwise-add-a)
+ok: 109 run-glue special rows
+ok: 109 gemm and elementwise special rows write the bit patterns with the fill word kept
+ok: 109 nonzero returns are error rows and write nothing
+ok: 110 the mutant differs from the original
+ok: 110 a disagreeing recount of the CPU reference comparison stops the run
+ok: 110 nothing written to either directory
+$ gh run view 42158595604 --job 127698570918 --log | awk -F'\t' '$2=="make test-wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | tail -n 1
+passed: 642, failed: 0
+$ gh run view 42158595604 --job 127698571460 --log | awk -F'\t' '$2=="make wasm-verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{b="";k=0} /^test (existing_kinds_stay_bit_exact|recount_agrees_with_core_on_generated_special_files|recount_agrees_with_core_on_special_words) \.\.\. /{b=b $0 "\n";k=1} /^test result:/{if(k){printf "%s%s\n",b,$0;exit}}'
+test existing_kinds_stay_bit_exact ... ok
+test recount_agrees_with_core_on_generated_special_files ... ok
+test recount_agrees_with_core_on_special_words ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.41s
+```
+
+(10) の出力。1/6 の base は `d60747f`。
+
+```console
+$ git diff --stat d60747f..3a3dff1 -- wasm/deps-approved.toml deps-approved.toml Cargo.toml Cargo.lock wasm/Cargo.toml wasm/Cargo.lock crates .github wasm/node/run-glue.cjs wasm/node/cases-reference-unavailable.json
+$ grep -rn unsafe wasm/crates/parity-host
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -1913,3 +2730,4 @@ passed: 642, failed: 0
 | 3/6 | 要素ごと演算の 2 ケースと部分 Top-k の 1 ケースを host 側の道具に足す | #6293 |
 | 4/6 | 特殊値の入力の比べを共通の道具と突き合わせる | #6294 |
 | 5/6 | 特殊値の入力の 68 行を照合の入力に足す | #6295 |
+| 6/6 | 完了の条件の確かめ | #6296 |
