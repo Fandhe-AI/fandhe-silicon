@@ -1613,3 +1613,75 @@ $ grep -rn unsafe wasm/crates/parity-host
 | `summary:` の行（`:1466`） | `rows=35 match=35 mismatch=0 not-run=0` → `cases.json` が 55 行なので行の数は `rows=55` | `jq '.rows \| length' wasm/node/cases.json` |
 | `recount-summary:` の行（`:1483`） | `rows=30 zero=30 nonzero=0 uncompared=0` → 保存の形のある行の数は `cases.json` の 55 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除いた `rows=50` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
 | 「Node での照合の閾値の比べ（1/4）」の綴り（`:1291`） | 文中の `T-1` → `T1`（スクリプトの目印の間のコメントの綴りに揃った） | `sed -n 86,93p scripts/wasm-node-check.sh` |
+
+## 特殊値の入力の比べ（TASK-999）
+
+### 記録の所在
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-999。ポインタのみ）。本文は転記しない
+（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
+
+### Node での照合の特殊値の入力の種類（1/6）
+
+`scripts/wasm-node-check.sh` の種類の表 `KINDS` に、ケースの種類を 2 つ足し、wasm の出力を CPU 参照のファイルとも比べる口を足す。実物の `wasm/node/cases.json` と host 側の道具（`wasm/crates/parity-host`）はこの段では変えない。
+
+#### 種類の表
+
+| manifest の `kind` | ファイル（鍵） | 閾値で比べる組 | `sha256:` の接尾辞 |
+| ------------------ | -------------- | -------------- | ------------------ |
+| `gemm-special` | `a_file`・`b_file`・`native_scalar_file`・`cpu_reference_file` | `gemm_scalar`・`gemm_simd` × `scalar`・`simd128` の 4 組 | `a`・`b`・`native-scalar`・`cpu-reference` |
+| `elementwise-special` | `input_file`・`native_scalar_file`・`cpu_reference_file`（`op_code`・`c_bits` の欄は `elementwise` と同じ） | 同じ 4 組 | `input`・`native-scalar`・`cpu-reference` |
+
+- 表の欄 `cpu` が CPU 参照のファイルの鍵を持つ（既存の 3 種類は `None`）。
+- 鍵の集合は完全一致で、`cpu_reference_file`・`cpu_reference_sha256` が足りなくても余分でも終了コード 2。ファイルは長さ（出力と同じ語数）・sha256・通常のファイルであることを既存の種類と同じ表で照らす。
+- 生成の行の `export` は `gemm_scalar`・`gemm_simd`・`elementwise_scalar`・`elementwise_simd` のまま。行の `export` が許される種類は表の `exports` で引く（`GEN_EXPORTS` は表から重複なしで作る）。
+
+#### 語の比べ
+
+閾値で比べる組の語の規則は `t1_count` で、「simd128 のビルドの GEMM の比べ」の節の規則と同じ。`cpu_count` は CPU 参照のファイルを読み、同じ `t1_count` で wasm の出力と語ごとに比べて不一致の語の数を返す（CPU 参照のファイルを持たない種類は `None`）。
+
+#### 判定と出力の行
+
+- 行は、ネイティブの参照との不一致が 0 件で、かつ CPU 参照との不一致が 0 件のときだけ `match`。
+- ネイティブの参照との不一致があれば `row: <id> mismatch (mismatches <件数>/<語数>)`、そうでなく CPU 参照との不一致があれば `row: <id> mismatch (cpu-reference mismatches <件数>/<語数>)`。
+- `cpu-count: <id> mismatches=<件数> n=<語数>` を、CPU 参照を持つ種類の行にだけ `count:` の直後に出す（`count:` → `cpu-count:` → `sha256:` → `t1:` の順）。
+- `--output-dir` の保存の形に `<ケース>.cpu-reference.bin` が入り、`--recount` は `recount-cpu: <id> mismatches=<件数> n=<語数>` を `recount:` の直後に出す。`recount-summary:` の `zero` はネイティブの参照・CPU 参照のどちらとも 0 件の行の数、終了コードは CPU 参照との不一致があれば 1。
+- 実行の中の数え直しは、判定の `(不一致の数, 語数, CPU 参照との不一致の数)` と同じ 3 つ組を突き合わせ、違えば `error: recount disagrees`（終了コード 2）。
+- 参照の出どころが使えない行（`reference-unavailable`）は、これまでどおり比べず `count:`・`cpu-count:` も出さない。
+- `--record-dir` の部品は `ng` のとき `detail` を持たない（CPU 参照との不一致の語も部品に入らない）。
+
+#### export とケースの種類の照らし
+
+行の `export` が、行のケースの種類の `exports` に無ければ終了コード 2（`row export does not match the case kind`）。`gemm_*` は `gemm` と `gemm-special` の両方を、`elementwise_*` は `elementwise` と `elementwise-special` の両方を指せる。`topk_*` は特殊値の 2 種類を指せない。
+
+#### 回帰テスト
+
+`scripts/test-wasm-node-check.sh` の末尾の節（項目 99〜110）。`gemm-special`（m=2・k=3・n=4）と `elementwise-special`（n=8）のそれぞれを、4 組すべての行で流す。
+
+| 項目 | 確かめること |
+| ---- | ------------ |
+| 99 | 全行一致（0）・`cpu-count:`・`t1:`・`sha256: <ケース>.cpu-reference`・`recount-cpu:` の行と順・`input-special:` の行は `elementwise-special` にだけ出る |
+| 100 | NaN の payload だけの違い・`+0.0` と `-0.0` の違いは一致。同じ変更が既存の `gemm`・`elementwise` の行では不一致のまま |
+| 101 | 片方だけ NaN・Inf の符号違い・有限と NaN は不一致 |
+| 102 | 閾値の内は一致・外は不一致 |
+| 103 | ネイティブの参照とは同じで CPU 参照とは違う出力は終了コード 1（`--recount` も 1・部品は `ng`）。両方と違う出力は `mismatches` の詳細 |
+| 104 | manifest の不正（鍵の過不足・sha256・長さ・ファイルの欠け・`kind` の書き換え）は終了コード 2 で、Node の本体を起動しない |
+| 105 | 保存の形の名前の集合と `--recount` の 0・1（出力の語・CPU 参照のファイルだけの変更）・2 |
+| 106 | export とケースの種類の照らし |
+| 107 | 実物の形の名前の特殊値の行を足した合成の入力が、項目 22 の確かめを直さずに通る |
+| 108 | 参照の出どころが使えない行は `not-run (reference-unavailable)` |
+| 109 | 変えていない `wasm/node/run-glue.cjs` に特殊値の種類の manifest を当て、呼び方・引数・ビット列・番兵を本物の node で確かめる |
+| 110 | 数え直しの側の CPU 参照の比べだけを外した変異体が `recount disagrees` で止まり、何も書かない |
+
+#### 確かめ方
+
+```bash
+make test-wasm-node-check 2>&1 | tail -n 1
+grep -n 'def cpu_count\|"gemm-special"\|"elementwise-special"' scripts/wasm-node-check.sh
+```
+
+### 段
+
+| 段 | 内容 | Issue |
+| -- | ---- | ----- |
+| 1/6 | Node での照合に特殊値の入力の種類と CPU 参照の比べを足す | #6291 |

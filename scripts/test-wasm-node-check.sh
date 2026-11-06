@@ -379,6 +379,36 @@ def wr(fn, words):
         f.write(data)
     return hashlib.sha256(data).hexdigest()
 for name in sys.argv[2:]:
+    if name.startswith("special-gemm-") or name.startswith("special-elementwise-"):
+        # 特殊値の入力の種類の合成のケース（TASK-999）: 参照の 8 語は添字の順に 1000.0・1024.0・2^-20・+0・1.0・NaN・+Inf・-Inf。
+        # gemm は m=2・k=3・n=4（a 6 語・b 12 語・出力 8 語）、elementwise は n=8（入力は NaN・±Inf・±0 を含む）。
+        # CPU 参照はネイティブの参照と同じ語で、名前に cpudiff を含めば語 4 だけ 2.0 にする。名前に add を含めば op_code 1・定数 0.5。
+        nat = [0x447a0000, 0x44800000, 0x35800000, 0x00000000, 0x3f800000, 0x7fc00000, 0x7f800000, 0xff800000]
+        cpu = list(nat)
+        if "cpudiff" in name:
+            cpu[4] = 0x40000000
+        if name.startswith("special-gemm-"):
+            cases.append({
+                "name": name, "kind": "gemm-special", "m": 2, "k": 3, "n": 4,
+                "a_file": name + ".a.bin", "b_file": name + ".b.bin", "native_scalar_file": name + ".native-scalar.bin",
+                "cpu_reference_file": name + ".cpu-reference.bin",
+                "a_sha256": wr(name + ".a.bin", [0x3f800000, 0x80000000, 0x7fc00001, 0x40000000, 0xc0000000, 0x00000000]),
+                "b_sha256": wr(name + ".b.bin", [0x3f800000] * 12),
+                "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+                "cpu_reference_sha256": wr(name + ".cpu-reference.bin", cpu),
+            })
+        else:
+            add = "add" in name
+            cases.append({
+                "name": name, "kind": "elementwise-special", "n": 8,
+                "op_code": 1 if add else 0, "c_bits": "3f000000" if add else "00000000",
+                "input_file": name + ".input.bin", "native_scalar_file": name + ".native-scalar.bin",
+                "cpu_reference_file": name + ".cpu-reference.bin",
+                "input_sha256": wr(name + ".input.bin", [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x3f800000, 0x40000000, 0x40400000]),
+                "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+                "cpu_reference_sha256": wr(name + ".cpu-reference.bin", cpu),
+            })
+        continue
     if name.startswith("topk-"):
         # 部分 Top-k の合成のケース（TASK-996）: n=6・k=2。スコアは非有限が 4 語（NaN 2・+Inf・-Inf）と有限が 2 語。
         # 参照は有限の 2 件。badscore の名前は参照のスコアに非有限を持ち、スロット番号にも指数部が全部 1 の語を置く。
@@ -2510,6 +2540,362 @@ gw --cases "${fix}/t1.json" --output-dir "${work}/out98" --record-dir "${work}/r
 WNC="${WNC_ORIG}"
 expect "98 a disagreeing recount of the t1 lines stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
 check "98 nothing written to either directory" "$([ "$(nfiles "${work}/out98")" = 0 ] && [ "$(nfiles "${work}/rec98")" = 0 ] && echo 0 || echo 1)"
+rm -rf "${work}/mut" "${fix}/outs"
+reset_gen
+res_ok
+
+# ---- 特殊値の入力の種類（TASK-999 の 1/6） ----
+
+# sp_rows <出力のファイル> <行の接頭辞> <export の接頭辞> <ケース> [出どころ]: 4 組（scalar・simd128 × scalar・simd）の行の入力を書く。
+sp_rows() {
+  python3 -I - "$@" <<'PY'
+import json, sys
+dst, pre, base, case = sys.argv[1:5]
+src = sys.argv[5] if len(sys.argv) > 5 else "native-scalar"
+rows = []
+for exp, build in (("scalar", "scalar"), ("simd", "scalar"), ("scalar", "simd128"), ("simd", "simd128")):
+    rows.append({"id": "%s-%s-%s" % (pre, exp, build), "export": "%s_%s" % (base, exp), "build": build, "case": case, "reference_source": src})
+json.dump({"rows": rows}, open(dst, "w"))
+PY
+}
+# sp_prep <行の入力> <ケース名...>: 偽の host 側の道具の出力（ケース名の合成のケース）と、全行 output_file の結果を用意する。
+sp_prep() {
+  local rows="$1"
+  shift
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" "$@"
+  python3 -I - "${rows}" "${fix}/gen-rowmap" "${FAKE_RESULTS}" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+open(sys.argv[2], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
+open(sys.argv[3], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
+PY
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+}
+# sp_out <ケース> <出力のファイル> <添字=語（16 進）|short|odd>...: ケースの参照の写しの語を置き換えた出力を ${fix}/outs に書く。
+sp_out() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "${fix}/hf/$1.native-scalar.bin" "${fix}/outs/$2" "$@" <<'PY'
+import struct, sys
+raw = open(sys.argv[1], "rb").read()
+w = list(struct.unpack("<%dI" % (len(raw) // 4), raw))
+extra = b""
+for a in sys.argv[5:]:
+    if a == "short":
+        w = w[:-1]
+    elif a == "odd":
+        extra = b"\x00"
+    else:
+        i, v = a.split("=")
+        w[int(i)] = int(v, 16)
+open(sys.argv[2], "wb").write(b"".join(struct.pack("<I", x) for x in w) + extra)
+PY
+}
+# sp_out_all <ケース> <行の接頭辞> <添字=語...>: 4 行すべての出力に同じ置き換えを書く。
+sp_out_all() {
+  local c="$1" pre="$2" id
+  shift 2
+  rm -rf "${fix}/outs"
+  for id in "${pre}-scalar-scalar" "${pre}-simd-scalar" "${pre}-scalar-simd128" "${pre}-simd-simd128"; do
+    sp_out "${c}" "${id}.bin" "$@"
+  done
+  export FAKE_OUTPUTS="${fix}/outs"
+}
+# sp_tamper <モード> <ケース>: 偽の host 側の道具の manifest（${fix}/hf）を壊す。
+sp_tamper() {
+  python3 -I - "${fix}/hf" "$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode, case = sys.argv[1:4]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = next(x for x in m["cases"] if x["name"] == case)
+cp = os.path.join(d, c["cpu_reference_file"])
+if mode == "dropkey":
+    del c["cpu_reference_file"]
+elif mode == "dropsha":
+    del c["cpu_reference_sha256"]
+elif mode == "extrakey":
+    c["extra"] = 1
+elif mode == "badsha":
+    c["cpu_reference_sha256"] = "0" * 64
+elif mode == "shortfile":
+    b = open(cp, "rb").read()[:-4]
+    open(cp, "wb").write(b)
+    c["cpu_reference_sha256"] = hashlib.sha256(b).hexdigest()
+elif mode == "rmfile":
+    os.remove(cp)
+elif mode == "kind":
+    c["kind"] = "gemm" if c["kind"] == "gemm-special" else "elementwise"
+json.dump(m, open(mp, "w"))
+PY
+}
+# sp_saved_mut <ディレクトリ名> <モード> <ケース>: 保存の形を変える。
+sp_saved_mut() {
+  python3 -I - "${work}/$1" "$2" "$3" <<'PY'
+import hashlib, json, os, sys
+d, mode, case = sys.argv[1:4]
+op = os.path.join(d, "outputs.json")
+o = json.load(open(op))
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = next(x for x in m["cases"] if x["name"] == case)
+cp = os.path.join(d, c["cpu_reference_file"])
+if mode == "word":
+    p = os.path.join(d, o["rows"][0]["output_file"])
+    b = bytearray(open(p, "rb").read())
+    b[16:20] = (0x40400000).to_bytes(4, "little")
+    open(p, "wb").write(bytes(b))
+    o["rows"][0]["output_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+elif mode == "cpuonly":
+    b = bytearray(open(cp, "rb").read())
+    b[16:20] = (0x40400000).to_bytes(4, "little")
+    open(cp, "wb").write(bytes(b))
+    c["cpu_reference_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+elif mode == "badcpusha":
+    c["cpu_reference_sha256"] = "0" * 64
+elif mode == "rmcpu":
+    os.remove(cp)
+elif mode == "export":
+    e = o["rows"][0]["export"]
+    o["rows"][0]["export"] = ("elementwise_" if e.startswith("gemm_") else "gemm_") + e.split("_")[1]
+json.dump(o, open(op, "w"))
+json.dump(m, open(mp, "w"))
+PY
+}
+
+# sp_kind <ラベル> <行の接頭辞> <export の接頭辞> <ケース> <cpudiff のケース> <既存の種類のケース> <既存の種類の語の置き換え> <保存の形の名前の並び>:
+# 1 つの種類について、4 組すべての行で項目 99〜108 を流す。
+sp_kind() {
+  local L="$1" P="$2" B="$3" C="$4" CD="$5" OC="$6" OS="$7" SAVED="$8" subs mode
+  local RJ="${fix}/sp-${P}.json"
+  sp_rows "${RJ}" "${P}" "${B}" "${C}"
+
+  # 99. 全行一致
+  sp_prep "${RJ}" "${C}"
+  gw --cases "${RJ}"
+  expect "99 ${L} all rows match" 0 "row: ${P}-scalar-scalar match" "row: ${P}-simd-simd128 match" "count: ${P}-simd-scalar mismatches=0 n=8" "cpu-count: ${P}-scalar-scalar mismatches=0 n=8" "cpu-count: ${P}-simd-simd128 mismatches=0 n=8" "t1: ${P}-scalar-scalar max-abs=0.0" "t1: ${P}-simd-scalar max-abs=0.0" "t1: ${P}-scalar-simd128 max-abs=0.0" "t1: ${P}-simd-simd128 max-abs=0.0" "sha256: ${C}.cpu-reference " "recount: ${P}-simd-simd128 mismatches=0 n=8" "recount-cpu: ${P}-scalar-scalar mismatches=0 n=8" "recount-summary: rows=4 zero=4 nonzero=0 uncompared=0" "summary: rows=4 match=4 mismatch=0 not-run=0"
+  check "99 ${L} output order" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+p = sys.argv[2]
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+a = p + "-scalar-scalar"
+ok = first("count: " + a) < first("cpu-count: " + a) < first("sha256: " + a + " ") < first("t1: " + a) < first("summary:")
+ok = ok and first("recount: " + a) < first("recount-cpu: " + a) < first("recount-summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" "${P}" && echo 0 || echo 1)"
+  # 99b. input-special の行は elementwise-special のケースにだけ出る
+  case "${P}" in
+    e) expect "99 ${L} input-special line" 0 "input-special: ${C} nan=1 inf=2 zero=2" ;;
+    *) expect "99 ${L} no input-special line" 0 "!input-special:" ;;
+  esac
+
+  # 100. payload だけの NaN の違いと符号違いの零は一致。同じ種類の変更は既存の種類の行では不一致のまま
+  for subs in "5=7fc00001" "5=ffc00001" "5=7f800001" "3=80000000"; do
+    sp_prep "${RJ}" "${C}"
+    # shellcheck disable=SC2086
+    sp_out_all "${C}" "${P}" ${subs}
+    gw --cases "${RJ}"
+    expect "100 ${L} ${subs} is within the rule" 0 "row: ${P}-scalar-scalar match" "row: ${P}-simd-simd128 match" "count: ${P}-scalar-scalar mismatches=0 n=8" "cpu-count: ${P}-simd-scalar mismatches=0 n=8" "summary: rows=4 match=4"
+  done
+  sp_rows "${fix}/sp-old.json" old "${B}" "${OC}"
+  sp_prep "${fix}/sp-old.json" "${OC}"
+  # shellcheck disable=SC2086
+  sp_out "${OC}" old-scalar-scalar.bin ${OS}
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/sp-old.json"
+  expect "100 ${L} the same kind of change is a mismatch for the existing kind" 1 "row: old-scalar-scalar mismatch (mismatches 1/" "!cpu-count:"
+
+  # 101. 語の違い（片方だけ NaN・Inf の符号違い・有限と NaN）
+  for subs in "5=3f800000" "6=ff800000" "4=7fc00000" "7=7f800000"; do
+    sp_prep "${RJ}" "${C}"
+    # shellcheck disable=SC2086
+    sp_out_all "${C}" "${P}" ${subs}
+    gw --cases "${RJ}"
+    expect "101 ${L} ${subs} is a mismatch" 1 "row: ${P}-scalar-scalar mismatch (mismatches 1/8)" "row: ${P}-simd-scalar mismatch (mismatches 1/8)" "row: ${P}-scalar-simd128 mismatch (mismatches 1/8)" "row: ${P}-simd-simd128 mismatch (mismatches 1/8)" "cpu-count: ${P}-scalar-scalar mismatches=1 n=8" "match=0 mismatch=4 not-run=0"
+  done
+
+  # 102. 閾値の内と外
+  sp_prep "${RJ}" "${C}"
+  sp_out_all "${C}" "${P}" 0=447a2000
+  gw --cases "${RJ}"
+  expect "102 ${L} inside the threshold" 0 "row: ${P}-simd-simd128 match" "summary: rows=4 match=4"
+  sp_prep "${RJ}" "${C}"
+  sp_out_all "${C}" "${P}" 0=447a4000
+  gw --cases "${RJ}"
+  expect "102 ${L} outside the threshold" 1 "row: ${P}-simd-simd128 mismatch (mismatches 1/8)" "row: ${P}-scalar-scalar mismatch (mismatches 1/8)"
+
+  # 103. CPU 参照だけと違う: 終了コード 1、数え直しも 1、部品は ng で cpu-reference の語を含まない
+  sp_rows "${fix}/sp-cd.json" "${P}" "${B}" "${CD}"
+  sp_prep "${fix}/sp-cd.json" "${CD}"
+  newdir out103
+  newdir rec103
+  gw --cases "${fix}/sp-cd.json" --output-dir "${work}/out103" --record-dir "${work}/rec103" --record-combination metal-mac-mini
+  expect "103 ${L} output equal to native but not to the CPU reference" 1 "row: ${P}-scalar-scalar mismatch (cpu-reference mismatches 1/8)" "row: ${P}-simd-simd128 mismatch (cpu-reference mismatches 1/8)" "count: ${P}-scalar-scalar mismatches=0 n=8" "cpu-count: ${P}-scalar-scalar mismatches=1 n=8" "recount-cpu: ${P}-scalar-scalar mismatches=1 n=8" "recount-summary: rows=4 zero=0 nonzero=4 uncompared=0" "match=0 mismatch=4 not-run=0"
+  w --recount "${work}/out103"
+  expect "103 ${L} --recount of the saved form is 1" 1 "recount: ${P}-scalar-scalar mismatches=0 n=8" "recount-cpu: ${P}-scalar-scalar mismatches=1 n=8" "recount-summary: rows=4 zero=0 nonzero=4 uncompared=0"
+  check "103 ${L} the record parts are ng and do not carry the detail" "$(python3 -I -c 'import glob, sys
+fs = glob.glob(sys.argv[1] + "/*.json")
+txt = [open(f).read() for f in fs]
+sys.exit(0 if len(fs) == 4 and all("\"ng\"" in t and "cpu-reference" not in t for t in txt) else 1)' "${work}/rec103" && echo 0 || echo 1)"
+  # 両方の参照と違う出力は mismatches の詳細
+  sp_prep "${fix}/sp-cd.json" "${CD}"
+  sp_out_all "${CD}" "${P}" 4=40400000
+  gw --cases "${fix}/sp-cd.json"
+  expect "103 ${L} output different from both references" 1 "row: ${P}-scalar-scalar mismatch (mismatches 1/8)" "cpu-count: ${P}-scalar-scalar mismatches=1 n=8" "!cpu-reference mismatches"
+
+  # 104. manifest の不正（どれも 2。Node の本体を起動しない・一時のパスを出さない）
+  for mode in dropkey dropsha extrakey badsha shortfile rmfile kind; do
+    sp_prep "${RJ}" "${C}"
+    sp_tamper "${mode}" "${C}"
+    gw --cases "${RJ}"
+    expect "104 ${L} manifest ${mode}" 2 "error:" "!summary:" "!${work}"
+    check "104 ${L} node body not started (${mode})" "$(no_node_started)"
+  done
+
+  # 105. 保存の形の名前の集合と数え直し: 0・1・2
+  sp_prep "${RJ}" "${C}"
+  newdir out105
+  gw --cases "${RJ}" --output-dir "${work}/out105"
+  expect "105 ${L} --output-dir" 0 "summary: rows=4 match=4"
+  check "105 ${L} the saved names include the CPU reference file" "$(dir_names_ok "${work}/out105" "${SAVED}")"
+  w --recount "${work}/out105"
+  expect "105 ${L} --recount is 0" 0 "recount-cpu: ${P}-simd-simd128 mismatches=0 n=8" "recount-summary: rows=4 zero=4 nonzero=0 uncompared=0"
+  rm -rf "${work:?}/out105m"
+  cp -R "${work}/out105" "${work}/out105m"
+  sp_saved_mut out105m word "${C}"
+  w --recount "${work}/out105m"
+  expect "105 ${L} --recount of a changed output is 1" 1 "recount: ${P}-scalar-scalar mismatches=1 n=8" "recount-summary: rows=4 zero=3 nonzero=1 uncompared=0"
+  rm -rf "${work:?}/out105m"
+  cp -R "${work}/out105" "${work}/out105m"
+  sp_saved_mut out105m cpuonly "${C}"
+  w --recount "${work}/out105m"
+  expect "105 ${L} --recount of a changed CPU reference file only is 1" 1 "recount: ${P}-scalar-scalar mismatches=0 n=8" "recount-cpu: ${P}-scalar-scalar mismatches=1 n=8" "recount-summary: rows=4 zero=0 nonzero=4 uncompared=0"
+  for mode in badcpusha rmcpu export; do
+    rm -rf "${work:?}/out105m"
+    cp -R "${work}/out105" "${work}/out105m"
+    sp_saved_mut out105m "${mode}" "${C}"
+    w --recount "${work}/out105m"
+    expect "105 ${L} --recount of a broken saved form (${mode}) is 2" 2 "error:" "!recount-summary:"
+  done
+  rm -rf "${work:?}/out105m"
+
+  # 108. native-neon の行は not-run (reference-unavailable)。比べず count・cpu-count を出さない
+  sp_rows "${fix}/sp-neon.json" "${P}" "${B}" "${C}" native-neon
+  sp_prep "${fix}/sp-neon.json" "${C}"
+  gw --cases "${fix}/sp-neon.json"
+  expect "108 ${L} native-neon rows" 1 "row: ${P}-scalar-scalar not-run (reference-unavailable)" "!count:" "!cpu-count:" "match=0 mismatch=0 not-run=4"
+  reset_gen
+}
+
+sp_kind "gemm-special" g gemm special-gemm-a special-gemm-cpudiff-a gemm-a "2=7fc00002" "g-scalar-scalar.bin g-simd-scalar.bin g-scalar-simd128.bin g-simd-simd128.bin special-gemm-a.a.bin special-gemm-a.b.bin special-gemm-a.native-scalar.bin special-gemm-a.cpu-reference.bin manifest.json outputs.json"
+sp_kind "elementwise-special" e elementwise special-elementwise-add-a special-elementwise-add-cpudiff-a elementwise-a "2=7fc00002" "e-scalar-scalar.bin e-simd-scalar.bin e-scalar-simd128.bin e-simd-simd128.bin special-elementwise-add-a.input.bin special-elementwise-add-a.native-scalar.bin special-elementwise-add-a.cpu-reference.bin manifest.json outputs.json"
+
+# 106. export と種類の照らし: 特殊値の種類の export は gemm・elementwise の 2 つだけ。topk の export は 2。両方の種類を指す行は通る
+cat >"${fix}/sp-kinds.json" <<'JSON'
+{"rows": [
+  {"id": "k-ga", "export": "gemm_scalar", "build": "scalar", "case": "gemm-a", "reference_source": "native-scalar"},
+  {"id": "k-gs", "export": "gemm_simd", "build": "simd128", "case": "special-gemm-a", "reference_source": "native-scalar"},
+  {"id": "k-ea", "export": "elementwise_scalar", "build": "scalar", "case": "elementwise-a", "reference_source": "native-scalar"},
+  {"id": "k-es", "export": "elementwise_simd", "build": "simd128", "case": "special-elementwise-add-a", "reference_source": "native-scalar"}
+]}
+JSON
+sp_prep "${fix}/sp-kinds.json" gemm-a special-gemm-a elementwise-a special-elementwise-add-a
+gw --cases "${fix}/sp-kinds.json"
+expect "106 both kinds of an export are accepted together" 0 "summary: rows=4 match=4 mismatch=0 not-run=0" "cpu-count: k-gs mismatches=0 n=8" "cpu-count: k-es mismatches=0 n=8" "!cpu-count: k-ga" "!cpu-count: k-ea"
+for pair in "gemm_scalar special-elementwise-add-a" "elementwise_scalar special-gemm-a" "topk_scalar special-gemm-a" "topk_simd special-elementwise-add-a"; do
+  # shellcheck disable=SC2086
+  set -- ${pair}
+  printf '{"rows": [{"id":"x","export":"%s","build":"scalar","case":"%s","reference_source":"native-scalar"}]}\n' "$1" "$2" >"${fix}/sp-bad.json"
+  sp_prep "${fix}/sp-bad.json" special-gemm-a special-elementwise-add-a
+  gw --cases "${fix}/sp-bad.json"
+  expect "106 ${1} on ${2}" 2 "does not match the case kind" "!summary:"
+  check "106 node body not started (${1} on ${2})" "$(no_node_started)"
+done
+reset_gen
+
+# 107. 実物の形の名前の特殊値の行を足した合成の入力でも、同梱の入力の項目 22 を直さずに通る
+python3 -I - "${fix}/special-rows.json" <<'PY'
+import json, sys
+rows = [{"id": "keep-fixed", "export": "roundtrip_f32", "input": ["3f800000"], "reference_source": "fixed", "reference": ["3f800000"]}]
+cs = (("special-gemm-g-01", "gemm"), ("special-elementwise-relu-e-2", "elementwise"), ("special-elementwise-add-scalar-e-2", "elementwise"))
+for c, base in cs:
+    for exp, build in (("scalar", "scalar"), ("simd", "scalar"), ("scalar", "simd128"), ("simd", "simd128")):
+        rows.append({"id": "%s-%s-%s" % (c, exp, build), "export": "%s_%s" % (base, exp), "build": build, "case": c, "reference_source": "native-scalar"})
+json.dump({"rows": rows}, open(sys.argv[1], "w"))
+PY
+bundled_check special-rows "${fix}/special-rows.json"
+
+# 109. run-glue.cjs（変えていない）に特殊値の種類の manifest を当てる: 呼び方・引数・ビット列・番兵
+mk_host_fixture "${work}/glue/spin" special-gemm-a special-elementwise-add-a
+cat >"${work}/glue/sp.js" <<'JS'
+exports.gemm_scalar = (a, b, m, k, n, out) => {
+  if (m !== 2 || k !== 3 || n !== 4 || a.length !== 6 || b.length !== 12 || out.length !== 8) return 9;
+  const w = new Uint32Array(out.buffer, out.byteOffset, 8);
+  if (w[7] !== 0x7fc0dead) return 5;
+  out[0] = a[2];
+  return 0;
+};
+exports.gemm_simd = () => 7;
+exports.elementwise_scalar = (opCode, c, a, out) => {
+  if (opCode !== 1 || c !== 0.5 || !(a instanceof Float32Array) || a.length !== 8 || out.length !== 8) return 9;
+  const u = new Uint32Array(a.buffer, a.byteOffset, 8);
+  if (u[0] !== 0x7fc00001 || u[1] !== 0x7f800000 || u[2] !== 0xff800000 || u[4] !== 0x80000000) return 7;
+  const w = new Uint32Array(out.buffer, out.byteOffset, 8);
+  if (w[7] !== 0x7fc0dead) return 5;
+  w[0] = u[0];
+  return 0;
+};
+exports.elementwise_simd = () => 7;
+JS
+echo 'exports.gemm_simd = () => 0;' >"${work}/glue/spsimd.js"
+cat >"${work}/glue/sp-cases.json" <<'JSON'
+{"rows": [
+  {"id": "s1", "export": "gemm_scalar", "build": "scalar", "case": "special-gemm-a", "reference_source": "native-scalar"},
+  {"id": "s2", "export": "gemm_simd", "build": "scalar", "case": "special-gemm-a", "reference_source": "native-scalar"},
+  {"id": "s3", "export": "elementwise_scalar", "build": "scalar", "case": "special-elementwise-add-a", "reference_source": "native-scalar"},
+  {"id": "s4", "export": "elementwise_simd", "build": "scalar", "case": "special-elementwise-add-a", "reference_source": "native-scalar"}
+]}
+JSON
+rm -rf "${work}/glue/spout"
+mkdir -p "${work}/glue/spout"
+rc=0
+"${REAL_NODE}" "${NODE_SCRIPT}" "${work}/glue/sp.js" "${work}/glue/sp-cases.json" "${work}/glue/rsp.jsonl" "${work}/glue/spsimd.js" "${work}/glue/spin" "${work}/glue/spout" >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "109 run-glue special rows" 0
+check "109 gemm and elementwise special rows write the bit patterns with the fill word kept" "$(python3 -I -c 'import struct,sys
+g = struct.unpack("<8I", open(sys.argv[1], "rb").read())
+e = struct.unpack("<8I", open(sys.argv[2], "rb").read())
+sys.exit(0 if g == (0x7fc00001,) + (0x7fc0dead,) * 7 and e == (0x7fc00001,) + (0x7fc0dead,) * 7 else 1)' "${work}/glue/spout/s1.bin" "${work}/glue/spout/s3.bin" && echo 0 || echo 1)"
+check "109 nonzero returns are error rows and write nothing" "$(python3 -I -c 'import json,os,sys
+rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
+ok = rows["s1"] == {"id": "s1", "output_file": "s1.bin"} and rows["s3"] == {"id": "s3", "output_file": "s3.bin"}
+ok = ok and rows["s2"] == {"id": "s2", "error": "nonzero return"} and rows["s4"] == {"id": "s4", "error": "nonzero return"}
+ok = ok and sorted(os.listdir(sys.argv[2])) == ["s1.bin", "s3.bin"]
+sys.exit(0 if ok else 1)' "${work}/glue/rsp.jsonl" "${work}/glue/spout" && echo 0 || echo 1)"
+
+# 110. 実行の中の数え直しが判定と食い違う場面: 数え直しの側の CPU 参照の比べだけを外した変異体
+rm -rf "${work}/mut"
+mkdir -p "${work}/mut/scripts" "${work}/mut/wasm/crates/glue"
+cp "${DIR}/lib.sh" "${work}/mut/scripts/lib.sh"
+cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
+python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = 'cpu = cpu_count(cases[r["case"]], data)'
+assert s.count(old) == 1
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "cpu = None"))
+PY
+chmod +x "${work}/mut/scripts/wasm-node-check.sh"
+check "110 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
+sp_rows "${fix}/sp-g.json" g gemm special-gemm-cpudiff-a
+sp_prep "${fix}/sp-g.json" special-gemm-cpudiff-a
+newdir out110
+newdir rec110
+WNC_ORIG="${WNC}"
+WNC="${work}/mut/scripts/wasm-node-check.sh"
+gw --cases "${fix}/sp-g.json" --output-dir "${work}/out110" --record-dir "${work}/rec110" --record-combination metal-mac-mini
+WNC="${WNC_ORIG}"
+expect "110 a disagreeing recount of the CPU reference comparison stops the run" 2 "error: recount disagrees" "!row:" "!summary:" "!recount-summary:"
+check "110 nothing written to either directory" "$([ "$(nfiles "${work}/out110")" = 0 ] && [ "$(nfiles "${work}/rec110")" = 0 ] && echo 0 || echo 1)"
 rm -rf "${work}/mut" "${fix}/outs"
 reset_gen
 res_ok
