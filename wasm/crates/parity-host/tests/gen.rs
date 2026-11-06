@@ -2,6 +2,7 @@
 //! 部分 Top-k の入力と参照の試験は spec TASK-996 のポインタ。
 //! 要素ごと演算の入力と参照の試験は spec TASK-997 のポインタ。
 //! -0.0 を含む部分 Top-k の入力と参照の試験は spec TASK-2451 のポインタ。
+//! 特殊値の GEMM の入力と 2 つの参照の試験は spec TASK-999 のポインタ。
 //! 期待の値は生成器と `DefaultCpuOps` の呼び出しで作り、値を手で写さない。
 //! ただし -0.0 の節の入力の出どころの名前と、IEEE の並びとの記録の差の件数は、独立の照合のため字句で置く。
 
@@ -119,7 +120,11 @@ fn manifest_hashes_match_files() {
     let names = manifest_values(&text, "name");
     assert_eq!(
         names.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
+        GEMM_CASES.len()
+            + TOPK_CASES.len()
+            + ELEMENTWISE_CASES.len()
+            + SIGNED_ZERO_CASES.len()
+            + GEMM_SPECIAL_CASES.len()
     );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
@@ -444,7 +449,11 @@ fn topk_manifest_entries_match_files() {
     let keys = manifest_entry_keys(&text);
     assert_eq!(
         keys.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
+        GEMM_CASES.len()
+            + TOPK_CASES.len()
+            + ELEMENTWISE_CASES.len()
+            + SIGNED_ZERO_CASES.len()
+            + GEMM_SPECIAL_CASES.len()
     );
     let mut want = [
         "name",
@@ -633,7 +642,11 @@ fn elementwise_manifest_entries_match_files() {
     let keys = manifest_entry_keys(&text);
     assert_eq!(
         keys.len(),
-        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len()
+        GEMM_CASES.len()
+            + TOPK_CASES.len()
+            + ELEMENTWISE_CASES.len()
+            + SIGNED_ZERO_CASES.len()
+            + GEMM_SPECIAL_CASES.len()
     );
     let mut want = [
         "name",
@@ -842,7 +855,10 @@ fn signed_zero_manifest_entries_match_files() {
     let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
     let keys = manifest_entry_keys(&text);
     let before = GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len();
-    assert_eq!(keys.len(), before + SIGNED_ZERO_CASES.len());
+    assert_eq!(
+        keys.len(),
+        before + SIGNED_ZERO_CASES.len() + GEMM_SPECIAL_CASES.len()
+    );
     let mut want = [
         "name",
         "kind",
@@ -915,5 +931,285 @@ fn signed_zero_case_rejects_unknown_input_name() {
     assert_eq!(
         build_signed_zero_case(&spec).err(),
         Some(GenError::InputFailed)
+    );
+}
+
+// ---- 特殊値の入力（spec TASK-999 のポインタ） ----
+
+use fandhe_silicon_core::parity::case_inputs::classify;
+use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
+use fandhe_silicon_core::parity::tolerance::T1;
+use wasm_parity_host::{
+    GEMM_SPECIAL_CASES, GemmSpecialCaseSpec, build_gemm_special_case, build_gemm_special_cases,
+    gemm_special_cpu_reference,
+};
+
+/// core の入力のうち GEMM のもの（`CaseId::ALL` の順）の（識別子, 入力）。
+fn core_gemm_inputs() -> Vec<(CaseId, Vec<f32>, Vec<f32>)> {
+    CaseId::ALL
+        .iter()
+        .filter_map(|id| match id.input().unwrap() {
+            CaseInput::Gemm(g) => Some((*id, g.a().to_vec(), g.b().to_vec())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn gs_file(name: &str, suffix: &str, dir: &Path) -> Vec<f32> {
+    read_f32(&dir.join(format!("{name}.{suffix}.bin")))
+}
+
+#[test]
+fn gemm_special_cases_match_core_inputs() {
+    let core = core_gemm_inputs();
+    assert_eq!(GEMM_SPECIAL_CASES.len(), 14);
+    let ids: Vec<CaseId> = GEMM_SPECIAL_CASES.iter().map(|s| s.id).collect();
+    let want: Vec<CaseId> = core.iter().map(|(id, _, _)| *id).collect();
+    assert_eq!(ids, want);
+    for spec in &GEMM_SPECIAL_CASES {
+        assert_eq!(spec.name, format!("special-gemm-{}", spec.id.name()));
+    }
+    let cases = build_gemm_special_cases().unwrap();
+    assert_eq!(cases.len(), core.len());
+    for (case, (id, a, b)) in cases.iter().zip(core) {
+        assert_eq!(bits(&case.a), bits(&a), "{}", id.name());
+        assert_eq!(bits(&case.b), bits(&b), "{}", id.name());
+    }
+}
+
+#[test]
+fn gemm_special_files_hold_core_inputs() {
+    let dir = TempDir::new("gs-inputs");
+    generate(dir.path()).unwrap();
+    for (spec, (_, a, b)) in GEMM_SPECIAL_CASES.iter().zip(core_gemm_inputs()) {
+        assert_eq!(
+            bits(&gs_file(spec.name, "a", dir.path())),
+            bits(&a),
+            "{}",
+            spec.name
+        );
+        assert_eq!(
+            bits(&gs_file(spec.name, "b", dir.path())),
+            bits(&b),
+            "{}",
+            spec.name
+        );
+    }
+}
+
+#[test]
+fn gemm_special_cpu_reference_matches_core() {
+    let dir = TempDir::new("gs-cpuref");
+    generate(dir.path()).unwrap();
+    for spec in &GEMM_SPECIAL_CASES {
+        let output = spec.id.reference().unwrap();
+        let expected = output.as_f32().unwrap();
+        let actual = gs_file(spec.name, "cpu-reference", dir.path());
+        assert_eq!(bits(&actual), bits(expected), "{}", spec.name);
+        assert_eq!(
+            bits(&gemm_special_cpu_reference(spec).unwrap()),
+            bits(expected)
+        );
+    }
+}
+
+#[test]
+fn gemm_special_native_matches_default_cpu_ops() {
+    let dir = TempDir::new("gs-native");
+    generate(dir.path()).unwrap();
+    for (spec, case) in GEMM_SPECIAL_CASES
+        .iter()
+        .zip(build_gemm_special_cases().unwrap())
+    {
+        let mut expected = vec![0.0f32; case.m * case.n];
+        DefaultCpuOps
+            .gemm_scalar(&case.a, &case.b, case.m, case.k, case.n, &mut expected)
+            .unwrap();
+        let actual = gs_file(spec.name, "native-scalar", dir.path());
+        assert_eq!(bits(&actual), bits(&expected), "{}", spec.name);
+    }
+}
+
+#[test]
+fn gemm_special_outputs_follow_design() {
+    let dir = TempDir::new("gs-design");
+    generate(dir.path()).unwrap();
+    for spec in &GEMM_SPECIAL_CASES {
+        let design = match spec.id.input().unwrap() {
+            CaseInput::Gemm(g) => g.design().to_vec(),
+            _ => panic!("not a gemm input"),
+        };
+        for suffix in ["native-scalar", "cpu-reference"] {
+            let classes: Vec<_> = gs_file(spec.name, suffix, dir.path())
+                .iter()
+                .map(|x| classify(*x))
+                .collect();
+            assert_eq!(classes, design, "{} {suffix}", spec.name);
+        }
+    }
+}
+
+/// 語の列に含まれる（NaN, +Inf, -Inf, +0, -0）の件数。
+fn special_counts(words: &[f32]) -> [usize; 5] {
+    let mut counts = [0usize; 5];
+    for x in words {
+        if x.is_nan() {
+            counts[0] += 1;
+        } else if x.to_bits() == f32::INFINITY.to_bits() {
+            counts[1] += 1;
+        } else if x.to_bits() == f32::NEG_INFINITY.to_bits() {
+            counts[2] += 1;
+        } else if x.to_bits() == 0 {
+            counts[3] += 1;
+        } else if x.to_bits() == 0x8000_0000 {
+            counts[4] += 1;
+        }
+    }
+    counts
+}
+
+#[test]
+fn gemm_special_inputs_hold_special_values() {
+    let dir = TempDir::new("gs-special");
+    generate(dir.path()).unwrap();
+    let mut file_total = [0usize; 5];
+    let mut core_total = [0usize; 5];
+    for (spec, (_, a, b)) in GEMM_SPECIAL_CASES.iter().zip(core_gemm_inputs()) {
+        for (suffix, core) in [("a", &a), ("b", &b)] {
+            let from_file = special_counts(&gs_file(spec.name, suffix, dir.path()));
+            let from_core = special_counts(core);
+            assert_eq!(from_file, from_core, "{} {suffix}", spec.name);
+            for i in 0..5 {
+                file_total[i] += from_file[i];
+                core_total[i] += from_core[i];
+            }
+        }
+    }
+    assert_eq!(file_total, core_total);
+    assert!(file_total.iter().all(|c| *c > 0), "{file_total:?}");
+}
+
+#[test]
+fn gemm_special_native_agrees_with_cpu_reference_by_rule() {
+    let dir = TempDir::new("gs-rule");
+    generate(dir.path()).unwrap();
+    for spec in &GEMM_SPECIAL_CASES {
+        let native = gs_file(spec.name, "native-scalar", dir.path());
+        let reference = gs_file(spec.name, "cpu-reference", dir.path());
+        let cmp = compare_f32_with_special_values(&reference, &native, T1).unwrap();
+        assert!(cmp.is_match(), "{}", spec.name);
+    }
+}
+
+#[test]
+fn gemm_special_manifest_entries_match_files() {
+    let dir = TempDir::new("gs-manifest");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let keys = manifest_entry_keys(&text);
+    let before =
+        GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len();
+    assert_eq!(keys.len(), before + GEMM_SPECIAL_CASES.len());
+    let mut want = [
+        "name",
+        "kind",
+        "m",
+        "k",
+        "n",
+        "a_file",
+        "b_file",
+        "native_scalar_file",
+        "cpu_reference_file",
+        "a_sha256",
+        "b_sha256",
+        "native_scalar_sha256",
+        "cpu_reference_sha256",
+    ];
+    assert_eq!(want.len(), 13);
+    want.sort_unstable();
+    let cases = build_gemm_special_cases().unwrap();
+    for (j, case) in cases.iter().enumerate() {
+        // `manifest_values` は鍵を持つ要素だけの列。鍵ごとに特殊値の要素の位置が違う。
+        let i = before + j;
+        let m_index = GEMM_CASES.len() + j;
+        let k_index = GEMM_CASES.len() + TOPK_CASES.len() + SIGNED_ZERO_CASES.len() + j;
+        let mut got: Vec<&str> = keys[i].iter().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, want);
+        assert_eq!(manifest_values(&text, "name")[i], case.name);
+        assert_eq!(manifest_values(&text, "kind")[i], "gemm-special");
+        assert_eq!(manifest_values(&text, "m")[m_index], case.m.to_string());
+        assert_eq!(manifest_values(&text, "k")[k_index], case.k.to_string());
+        assert_eq!(manifest_values(&text, "n")[i], case.n.to_string());
+        let lens = [
+            case.m * case.k,
+            case.k * case.n,
+            case.m * case.n,
+            case.m * case.n,
+        ];
+        for (file_key, hash_key, index, len) in [
+            ("a_file", "a_sha256", m_index, lens[0]),
+            ("b_file", "b_sha256", m_index, lens[1]),
+            ("native_scalar_file", "native_scalar_sha256", i, lens[2]),
+            ("cpu_reference_file", "cpu_reference_sha256", j, lens[3]),
+        ] {
+            let file = &manifest_values(&text, file_key)[index];
+            assert!(
+                file.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'.'
+                    || b == b'-'),
+                "{file}"
+            );
+            let bytes = fs::read(dir.path().join(file)).unwrap();
+            assert_eq!(bytes.len(), len * 4, "{file}");
+            assert_eq!(
+                manifest_values(&text, hash_key)[index],
+                hex(&sha256_bytes(&bytes)),
+                "{file}"
+            );
+        }
+    }
+}
+
+#[test]
+fn gen_refuses_existing_gemm_special_file() {
+    let dir = TempDir::new("gs-refuse");
+    let path = dir.path().join("special-gemm-g-01.a.bin");
+    fs::write(&path, b"keep").unwrap();
+    assert_eq!(generate(dir.path()), Err(GenError::FileExists));
+    assert_eq!(fs::read(&path).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn cpu_reference_error_text() {
+    assert_eq!(
+        GenError::CpuReferenceFailed.to_string(),
+        "error: cpu reference failed"
+    );
+}
+
+#[test]
+fn gemm_special_case_rejects_non_gemm_input() {
+    let spec = GemmSpecialCaseSpec {
+        name: "special-gemm-e-2",
+        id: CaseId::E2,
+    };
+    assert_eq!(
+        build_gemm_special_case(&spec).err(),
+        Some(GenError::InputFailed)
+    );
+}
+
+#[test]
+fn gemm_special_cpu_reference_rejects_non_f32_output() {
+    let spec = GemmSpecialCaseSpec {
+        name: "special-gemm-e-3",
+        id: CaseId::E3,
+    };
+    assert_eq!(
+        gemm_special_cpu_reference(&spec).err(),
+        Some(GenError::CpuReferenceFailed)
     );
 }
