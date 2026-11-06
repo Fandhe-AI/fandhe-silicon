@@ -1,7 +1,7 @@
 //! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力と、
 //! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力、特殊値の GEMM の CPU 参照をファイルに書く
 //! host 側の道具（spec TASK-994・PARITY-20・TASK-996・TASK-997・TASK-2451 のポインタ）。
-//! 特殊値の GEMM の 14 ケースは spec TASK-999 のポインタ。
+//! 特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の 1 ケースは spec TASK-999 のポインタ。
 //!
 //! 別 workspace `wasm/` の member。`scripts/wasm-node-check.sh` が Node で glue の出力と比べるときに読むファイルを、
 //! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`・
@@ -14,6 +14,9 @@
 //! -0.0 を含む部分 Top-k の 5 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 特殊値の GEMM の 14 ケース（core の `CaseId::G01`〜`G13`・`E1`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・
 //! `.cpu-reference.bin`（f32 のリトルエンディアン。最後は core の CPU 参照）と、
+//! 特殊値の要素ごと演算の 2 ケース（core の `CaseId::E2` の入力）それぞれの `.input.bin`・`.native-scalar.bin`・`.cpu-reference.bin`
+//! （f32 のリトルエンディアン。最後は `Relu` が core の CPU 参照、`AddScalar` が入力に定数を足した式の列）と、
+//! `topk-e-3`（core の `CaseId::E3` の入力）の `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -503,7 +506,7 @@ pub struct ElementwiseCase {
     pub op_code: u32,
     /// glue の export に渡す定数の f32 のビット列。
     pub c_bits: u32,
-    /// 入力の列（`ELEMENTWISE_LEN` 個）。
+    /// 入力の列。
     pub input: Vec<f32>,
 }
 
@@ -546,6 +549,118 @@ pub fn native_elementwise(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> 
     Ok(out)
 }
 
+/// 特殊値の要素ごと演算のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct ElementwiseSpecialCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// 入力の出どころの core のケース。
+    pub id: CaseId,
+    /// 参照に渡す演算。
+    pub op: UnaryElementwiseOp,
+    /// glue の export に渡す演算の番号。
+    pub op_code: u32,
+    /// glue の export に渡す定数の f32 のビット列。
+    pub c_bits: u32,
+}
+
+/// 書き出す特殊値の要素ごと演算の 2 ケース（入力はどちらも core の `CaseId::E2`）。
+pub const ELEMENTWISE_SPECIAL_CASES: [ElementwiseSpecialCaseSpec; 2] = [
+    ElementwiseSpecialCaseSpec {
+        name: "special-elementwise-relu-e-2",
+        id: CaseId::E2,
+        op: UnaryElementwiseOp::Relu,
+        op_code: 0,
+        c_bits: 0x0000_0000,
+    },
+    ElementwiseSpecialCaseSpec {
+        name: "special-elementwise-add-scalar-e-2",
+        id: CaseId::E2,
+        op: UnaryElementwiseOp::AddScalar(0.5),
+        op_code: 1,
+        c_bits: 0.5_f32.to_bits(),
+    },
+];
+
+/// 表の 1 行から、core の入力をそのまま使って要素ごと演算の入力を作る。`Relu` の入力でなければ `InputFailed`。
+pub fn build_elementwise_special_case(
+    spec: &ElementwiseSpecialCaseSpec,
+) -> Result<ElementwiseCase, GenError> {
+    match spec.id.input() {
+        Ok(CaseInput::Relu(input)) => Ok(ElementwiseCase {
+            name: spec.name,
+            op: spec.op,
+            op_code: spec.op_code,
+            c_bits: spec.c_bits,
+            input,
+        }),
+        _ => Err(GenError::InputFailed),
+    }
+}
+
+/// 特殊値の要素ごと演算の 2 ケースの入力を作る。
+pub fn build_elementwise_special_cases() -> Result<Vec<ElementwiseCase>, GenError> {
+    ELEMENTWISE_SPECIAL_CASES
+        .iter()
+        .map(build_elementwise_special_case)
+        .collect()
+}
+
+/// CPU 参照の出力を返す。
+///
+/// `Relu` は core の CPU 参照（`CaseId::reference`）の f32 の出力。`Err` と f32 でない出力は `CpuReferenceFailed`。
+/// `AddScalar(c)` は `input` の各要素に `c` を足した列。
+pub fn elementwise_special_cpu_reference(
+    spec: &ElementwiseSpecialCaseSpec,
+    input: &[f32],
+) -> Result<Vec<f32>, GenError> {
+    match spec.op {
+        UnaryElementwiseOp::Relu => {
+            let out = spec
+                .id
+                .reference()
+                .map_err(|_| GenError::CpuReferenceFailed)?;
+            out.as_f32()
+                .map(<[f32]>::to_vec)
+                .ok_or(GenError::CpuReferenceFailed)
+        }
+        UnaryElementwiseOp::AddScalar(c) => Ok(input.iter().map(|&x| x + c).collect()),
+        _ => Err(GenError::CpuReferenceFailed),
+    }
+}
+
+/// `topk-e-3` のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct TopkE3CaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// 入力の出どころの core のケース。
+    pub id: CaseId,
+}
+
+/// 書き出す `topk-e-3` の 1 ケース（入力は core の `CaseId::E3`）。
+pub const TOPK_E3_CASES: [TopkE3CaseSpec; 1] = [TopkE3CaseSpec {
+    name: "topk-e-3",
+    id: CaseId::E3,
+}];
+
+/// 表の 1 行から、core の入力をそのまま使って部分 Top-k の入力を作る。部分 Top-k の入力でなければ `InputFailed`。
+pub fn build_topk_e3_case(spec: &TopkE3CaseSpec) -> Result<TopkCase, GenError> {
+    match spec.id.input() {
+        Ok(CaseInput::TopK { scores, k }) => Ok(TopkCase {
+            name: spec.name,
+            k,
+            scores,
+        }),
+        _ => Err(GenError::InputFailed),
+    }
+}
+
+/// `topk-e-3` の 1 ケースの入力を作る。
+pub fn build_topk_e3_cases() -> Result<Vec<TopkCase>, GenError> {
+    TOPK_E3_CASES.iter().map(build_topk_e3_case).collect()
+}
+
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
 /// リトルエンディアンのバイト列にする。
 pub fn topk_record_bytes(records: &[(u32, f32)]) -> Vec<u8> {
@@ -575,7 +690,7 @@ struct OutFile {
     bytes: Vec<u8>,
 }
 
-/// 1 ケースのファイル（GEMM は 3、特殊値の GEMM は 4、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
+/// 1 ケースのファイル（GEMM は 3、特殊値の GEMM は 4、特殊値の要素ごと演算は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
 struct CaseOutput {
     files: Vec<OutFile>,
     manifest_entry: String,
@@ -767,6 +882,62 @@ fn elementwise_case_output(case: &ElementwiseCase) -> Result<CaseOutput, GenErro
     })
 }
 
+fn elementwise_special_case_output(
+    spec: &ElementwiseSpecialCaseSpec,
+) -> Result<CaseOutput, GenError> {
+    let case = build_elementwise_special_case(spec)?;
+    let native = native_elementwise(&case)?;
+    let reference = elementwise_special_cpu_reference(spec, &case.input)?;
+    let input_file = format!("{}.input.bin", case.name);
+    let n_file = format!("{}.native-scalar.bin", case.name);
+    let r_file = format!("{}.cpu-reference.bin", case.name);
+    let input_bytes = f32_le_bytes(&case.input);
+    let n_bytes = f32_le_bytes(&native);
+    let r_bytes = f32_le_bytes(&reference);
+    let entry = [
+        "    {".to_string(),
+        format!("      \"name\": \"{}\",", case.name),
+        "      \"kind\": \"elementwise-special\",".to_string(),
+        format!("      \"n\": {},", case.input.len()),
+        format!("      \"op_code\": {},", case.op_code),
+        format!("      \"c_bits\": \"{:08x}\",", case.c_bits),
+        format!("      \"input_file\": \"{input_file}\","),
+        format!("      \"native_scalar_file\": \"{n_file}\","),
+        format!("      \"cpu_reference_file\": \"{r_file}\","),
+        format!(
+            "      \"input_sha256\": \"{}\",",
+            hex(&sha256_bytes(&input_bytes))
+        ),
+        format!(
+            "      \"native_scalar_sha256\": \"{}\",",
+            hex(&sha256_bytes(&n_bytes))
+        ),
+        format!(
+            "      \"cpu_reference_sha256\": \"{}\"",
+            hex(&sha256_bytes(&r_bytes))
+        ),
+        "    }".to_string(),
+    ]
+    .join("\n");
+    Ok(CaseOutput {
+        files: vec![
+            OutFile {
+                name: input_file,
+                bytes: input_bytes,
+            },
+            OutFile {
+                name: n_file,
+                bytes: n_bytes,
+            },
+            OutFile {
+                name: r_file,
+                bytes: r_bytes,
+            },
+        ],
+        manifest_entry: entry,
+    })
+}
+
 /// 同名のものが（シンボリックリンクを含め）あるか。
 fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
@@ -788,7 +959,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -810,6 +981,12 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
     }
     for spec in &GEMM_SPECIAL_CASES {
         outputs.push(gemm_special_case_output(spec)?);
+    }
+    for spec in &ELEMENTWISE_SPECIAL_CASES {
+        outputs.push(elementwise_special_case_output(spec)?);
+    }
+    for case in &build_topk_e3_cases()? {
+        outputs.push(topk_case_output(case)?);
     }
 
     let manifest = format!(
