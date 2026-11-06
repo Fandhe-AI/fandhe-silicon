@@ -167,6 +167,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base e416527）（TASK-1352） |
 | `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）（TASK-2457） |
 | `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）（TASK-2455） |
+| `docs/cpu-ops-elementwise-special.md` | 要素ごとの演算の NaN・±Inf・±0 の確かめの所在・NaN・±Inf・±0 の入力を当てる試験（1/2）（TASK-2456） |
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2） |
 | `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23） |
