@@ -569,3 +569,11 @@ $ git diff --stat fbbd70d..ff59ff0 -- deps-approved.toml wasm/deps-approved.toml
 ### 再実行の契機
 
 `crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたときに、表を取り直す。
+
+## 今の値の補い（base ed82c18）
+
+記録時点の表と既存の節は書き換えない。以下は base `ed82c18` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `:241` の `make wasm-build-check` の `cfg:` の行 | `sites=5 label=match` → `sites=6 label=match` | `scripts/wasm-build-check.sh --cfg-only` |

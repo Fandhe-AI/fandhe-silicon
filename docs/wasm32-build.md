@@ -281,6 +281,14 @@ record: commit=08b18aa artifact=2/2 types=0/0 cfg_sites=5 not_run=1
 rc=1
 ```
 
+## 今の値の補い（base ed82c18）
+
+記録時点の表と既存の節は書き換えない。以下は base `ed82c18` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `cfg:` の行を記録した各節 | `cfg: sites=5 label=match` → `cfg: sites=6 label=match`（#8058 が `crates/contract/tests/` に `cfg` を足した）。`record:` の `cfg_sites=5` → `cfg_sites=6` | `scripts/wasm-build-check.sh --cfg-only` |
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)

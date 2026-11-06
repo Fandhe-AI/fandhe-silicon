@@ -160,3 +160,12 @@ make build-profiles                                                             
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 完了の条件の確かめ（4/4）の (5)（`:144`） | `bba66a5..25d8dc2` の `Cargo.toml` は +4 行 → `bba66a5..0f8b01c` で +8 行。`cfg_gate_doctest.rs` は +17 行・-2 行、`cpu_ops.rs` は +7 行・-1 行 | `git diff --numstat bba66a5..0f8b01c -- crates/contract/src crates/contract/Cargo.toml` |
+
+## 今の値の補い（base ed82c18）
+
+記録時点の表と既存の節は書き換えない。以下は base `ed82c18` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（4/4）の (3)（`:110`） | `cfg: sites=5 label=match` → `cfg: sites=6 label=match` | `scripts/wasm-build-check.sh --cfg-only` |
+| 「今の値の補い（base 25d8dc2）」の `cpu_ops_reference` の本数（`:154`） | 8 本 → Linux x86_64 で 13 本。aarch64 で `neon` が有効なビルドは 14 本（[cpu-ops](cpu-ops.md) の「完了の条件の確かめ（12/12）」の (1)・(2)） | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` |
