@@ -1,6 +1,7 @@
-//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケースの入力と、
-//! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力をファイルに書く
+//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力と、
+//! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力、特殊値の GEMM の CPU 参照をファイルに書く
 //! host 側の道具（spec TASK-994・PARITY-20・TASK-996・TASK-997・TASK-2451 のポインタ）。
+//! 特殊値の GEMM の 14 ケースは spec TASK-999 のポインタ。
 //!
 //! 別 workspace `wasm/` の member。`scripts/wasm-node-check.sh` が Node で glue の出力と比べるときに読むファイルを、
 //! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`・
@@ -11,6 +12,8 @@
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
 //! 要素ごと演算の 2 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
 //! -0.0 を含む部分 Top-k の 5 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
+//! 特殊値の GEMM の 14 ケース（core の `CaseId::G01`〜`G13`・`E1`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・
+//! `.cpu-reference.bin`（f32 のリトルエンディアン。最後は core の CPU 参照）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -96,6 +99,8 @@ pub enum GenError {
     NativeTopkFailed,
     /// 要素ごと演算の参照の計算が `Err` を返した。
     NativeElementwiseFailed,
+    /// core の CPU 参照を作れなかった（`Err`、または f32 の出力でない）。
+    CpuReferenceFailed,
 }
 
 impl fmt::Display for GenError {
@@ -109,6 +114,7 @@ impl fmt::Display for GenError {
             GenError::NativeFailed => "error: native gemm_scalar failed",
             GenError::NativeTopkFailed => "error: native topk_partial_scalar failed",
             GenError::NativeElementwiseFailed => "error: native elementwise_scalar failed",
+            GenError::CpuReferenceFailed => "error: cpu reference failed",
         };
         f.write_str(text)
     }
@@ -351,6 +357,109 @@ pub fn native_topk(case: &TopkCase) -> Result<Vec<(u32, f32)>, GenError> {
     Ok(out)
 }
 
+/// 特殊値の GEMM のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct GemmSpecialCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// 入力と CPU 参照の出どころの core のケース。
+    pub id: CaseId,
+}
+
+/// 書き出す特殊値の GEMM の 14 ケース（`CaseId::G01`〜`G13`・`E1`。spec PARITY-25 のポインタ）。
+pub const GEMM_SPECIAL_CASES: [GemmSpecialCaseSpec; 14] = [
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-01",
+        id: CaseId::G01,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-02",
+        id: CaseId::G02,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-03",
+        id: CaseId::G03,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-04",
+        id: CaseId::G04,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-05",
+        id: CaseId::G05,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-06",
+        id: CaseId::G06,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-07",
+        id: CaseId::G07,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-08",
+        id: CaseId::G08,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-09",
+        id: CaseId::G09,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-10",
+        id: CaseId::G10,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-11",
+        id: CaseId::G11,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-12",
+        id: CaseId::G12,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-g-13",
+        id: CaseId::G13,
+    },
+    GemmSpecialCaseSpec {
+        name: "special-gemm-e-1",
+        id: CaseId::E1,
+    },
+];
+
+/// 表の 1 行から、core の入力をそのまま使って GEMM の入力を作る。GEMM の入力でなければ `InputFailed`。
+pub fn build_gemm_special_case(spec: &GemmSpecialCaseSpec) -> Result<GemmCase, GenError> {
+    match spec.id.input() {
+        Ok(CaseInput::Gemm(g)) => Ok(GemmCase {
+            name: spec.name,
+            m: g.m(),
+            k: g.k(),
+            n: g.n(),
+            a: g.a().to_vec(),
+            b: g.b().to_vec(),
+        }),
+        _ => Err(GenError::InputFailed),
+    }
+}
+
+/// 特殊値の GEMM の 14 ケースの入力を作る。
+pub fn build_gemm_special_cases() -> Result<Vec<GemmCase>, GenError> {
+    GEMM_SPECIAL_CASES
+        .iter()
+        .map(build_gemm_special_case)
+        .collect()
+}
+
+/// core の CPU 参照（`CaseId::reference`）の f32 の出力（m×n）を返す。`Err` と f32 でない出力は `CpuReferenceFailed`。
+pub fn gemm_special_cpu_reference(spec: &GemmSpecialCaseSpec) -> Result<Vec<f32>, GenError> {
+    let out = spec
+        .id
+        .reference()
+        .map_err(|_| GenError::CpuReferenceFailed)?;
+    out.as_f32()
+        .map(<[f32]>::to_vec)
+        .ok_or(GenError::CpuReferenceFailed)
+}
+
 /// 要素ごと演算のケースの入力の件数。
 pub const ELEMENTWISE_LEN: usize = 1_000_003;
 
@@ -466,7 +575,7 @@ struct OutFile {
     bytes: Vec<u8>,
 }
 
-/// 1 ケースのファイル（GEMM は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
+/// 1 ケースのファイル（GEMM は 3、特殊値の GEMM は 4、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
 struct CaseOutput {
     files: Vec<OutFile>,
     manifest_entry: String,
@@ -512,6 +621,65 @@ fn case_output(case: &GemmCase) -> Result<CaseOutput, GenError> {
             OutFile {
                 name: n_file,
                 bytes: n_bytes,
+            },
+        ],
+        manifest_entry: entry,
+    })
+}
+
+fn gemm_special_case_output(spec: &GemmSpecialCaseSpec) -> Result<CaseOutput, GenError> {
+    let case = build_gemm_special_case(spec)?;
+    let native = native_scalar(&case)?;
+    let reference = gemm_special_cpu_reference(spec)?;
+    let a_file = format!("{}.a.bin", case.name);
+    let b_file = format!("{}.b.bin", case.name);
+    let n_file = format!("{}.native-scalar.bin", case.name);
+    let r_file = format!("{}.cpu-reference.bin", case.name);
+    let a_bytes = f32_le_bytes(&case.a);
+    let b_bytes = f32_le_bytes(&case.b);
+    let n_bytes = f32_le_bytes(&native);
+    let r_bytes = f32_le_bytes(&reference);
+    let entry = [
+        "    {".to_string(),
+        format!("      \"name\": \"{}\",", case.name),
+        "      \"kind\": \"gemm-special\",".to_string(),
+        format!("      \"m\": {},", case.m),
+        format!("      \"k\": {},", case.k),
+        format!("      \"n\": {},", case.n),
+        format!("      \"a_file\": \"{a_file}\","),
+        format!("      \"b_file\": \"{b_file}\","),
+        format!("      \"native_scalar_file\": \"{n_file}\","),
+        format!("      \"cpu_reference_file\": \"{r_file}\","),
+        format!("      \"a_sha256\": \"{}\",", hex(&sha256_bytes(&a_bytes))),
+        format!("      \"b_sha256\": \"{}\",", hex(&sha256_bytes(&b_bytes))),
+        format!(
+            "      \"native_scalar_sha256\": \"{}\",",
+            hex(&sha256_bytes(&n_bytes))
+        ),
+        format!(
+            "      \"cpu_reference_sha256\": \"{}\"",
+            hex(&sha256_bytes(&r_bytes))
+        ),
+        "    }".to_string(),
+    ]
+    .join("\n");
+    Ok(CaseOutput {
+        files: vec![
+            OutFile {
+                name: a_file,
+                bytes: a_bytes,
+            },
+            OutFile {
+                name: b_file,
+                bytes: b_bytes,
+            },
+            OutFile {
+                name: n_file,
+                bytes: n_bytes,
+            },
+            OutFile {
+                name: r_file,
+                bytes: r_bytes,
             },
         ],
         manifest_entry: entry,
@@ -620,7 +788,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケースの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -639,6 +807,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
     }
     for case in &build_signed_zero_cases()? {
         outputs.push(topk_case_output(case)?);
+    }
+    for spec in &GEMM_SPECIAL_CASES {
+        outputs.push(gemm_special_case_output(spec)?);
     }
 
     let manifest = format!(

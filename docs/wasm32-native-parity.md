@@ -1680,8 +1680,88 @@ make test-wasm-node-check 2>&1 | tail -n 1
 grep -n 'def cpu_count\|"gemm-special"\|"elementwise-special"' scripts/wasm-node-check.sh
 ```
 
+### GEMM の 14 ケースの入力と 2 つの参照（2/6）
+
+`wasm-parity-host gen <dir>` が、既存のケースに続けて特殊値の GEMM の 14 ケースの入力と 2 つの参照（`DefaultCpuOps.gemm_scalar` の出力と、core の `CaseId::reference()` の CPU 参照）を書く。`wasm/node/cases.json` は変わらず、行は足さない。
+
+#### ケース
+
+定数 `GEMM_SPECIAL_CASES`（`wasm/crates/parity-host/src/lib.rs`）が持つ。入力は core の `CaseId::input()` の GEMM の入力をそのまま使い、順は `CaseId::ALL` のうち GEMM のもの。
+
+| 名前 | `CaseId` | `m`・`k`・`n` |
+| ---- | -------- | ------------- |
+| `special-gemm-g-01`〜`special-gemm-g-09` | `G01`〜`G09` | 1・4・1 |
+| `special-gemm-g-10` | `G10` | 1・1・1 |
+| `special-gemm-g-11` | `G11` | 1・4・1 |
+| `special-gemm-g-12` | `G12` | 37・53・41 |
+| `special-gemm-g-13` | `G13` | 1・4・1 |
+| `special-gemm-e-1` | `E1` | 37・53・41 |
+
+2 つの参照は、`native_scalar` が同じ入力を `DefaultCpuOps.gemm_scalar` に渡した出力、`gemm_special_cpu_reference` が `CaseId::reference()` の `as_f32()` を返したもの。
+
+#### 書くファイル
+
+| ファイル | 中身 |
+| -------- | ---- |
+| `<ケース>.a.bin`・`<ケース>.b.bin` | 入力の f32 を添字の順にリトルエンディアンで並べたもの |
+| `<ケース>.native-scalar.bin` | `DefaultCpuOps.gemm_scalar` の出力の f32 を同じ形で並べたもの |
+| `<ケース>.cpu-reference.bin` | CPU 参照の f32 を同じ形で並べたもの |
+| `manifest.json` の `gemm-special` の要素 | `name`・`kind`（`"gemm-special"`）・`m`・`k`・`n`・`a_file`・`b_file`・`native_scalar_file`・`cpu_reference_file`・`a_sha256`・`b_sha256`・`native_scalar_sha256`・`cpu_reference_sha256` の 13 鍵を 1 欄 1 行で持つ |
+
+今の値として、`manifest.json` の `cases` は既存の 13 ケースの後に 14 ケースを並べた 27 要素で、書く名前は 86 個（`.bin` が 85 個と `manifest.json`）。CPU 参照が `Err` か f32 でない出力のときは固定の文言 `error: cpu reference failed` を標準エラーに出し、終了コードは 2。
+
+#### 試験
+
+`wasm/crates/parity-host/tests/gen.rs` の末尾の節。期待は core の呼び出しで作り、値を手で写さない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `gemm_special_cases_match_core_inputs` | 表の `id` の列が `CaseId::ALL` のうち GEMM の入力の全部と順まで同じ。名前が `special-gemm-<識別名>`。14 個 |
+| `gemm_special_files_hold_core_inputs` | `.a.bin`・`.b.bin` が core の入力とビット列で同じ（14 ケース） |
+| `gemm_special_cpu_reference_matches_core` | `.cpu-reference.bin` が `CaseId::reference()` の出力とビット列で同じ |
+| `gemm_special_native_matches_default_cpu_ops` | `.native-scalar.bin` が `DefaultCpuOps.gemm_scalar` の出力とビット列で同じ |
+| `gemm_special_outputs_follow_design` | 2 つの参照を `classify` した列がどちらも core の `design()` と同じ |
+| `gemm_special_inputs_hold_special_values` | 14 ケースの入力の全語で、NaN・`+Inf`・`-Inf`・`+0`・`-0` の件数がどれも 0 より大きく、core の入力から数えた件数と同じ |
+| `gemm_special_native_agrees_with_cpu_reference_by_rule` | 2 つの参照が `compare_f32_with_special_values`（`T1`）で一致 |
+| `gemm_special_manifest_entries_match_files` | 鍵がちょうど 13 個。`kind`・`m`・`k`・`n`・ファイル名の文字種・ファイルの長さ・sha256 が合う |
+| `gen_refuses_existing_gemm_special_file` | `special-gemm-g-01.a.bin` が先にあると `FileExists`。ディレクトリの中身はそのファイルだけで、中身も変わらない |
+| `cpu_reference_error_text` | `GenError::CpuReferenceFailed` の文言が固定 |
+| `gemm_special_case_rejects_non_gemm_input` | GEMM でない `CaseId`（`E2`）の行が `InputFailed` |
+| `gemm_special_cpu_reference_rejects_non_f32_output` | f32 でない出力の `CaseId`（`E3`）の行が `CpuReferenceFailed` |
+
+既存の `manifest_hashes_match_files`・`topk_manifest_entries_match_files`・`elementwise_manifest_entries_match_files`・`signed_zero_manifest_entries_match_files` の件数の期待は、特殊値の GEMM のケースの数を足した和。
+
+#### 確かめ方
+
+時点のコミット: `81062ff`（この変更の土台）。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+一時のディレクトリ（`d` は `mktemp -d`）に当てた出力。
+
+```console
+$ cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"
+$ ls "$d" | wc -l
+86
+$ grep -c '"name"' "$d/manifest.json"
+27
+```
+
+```bash
+grep -n 'GEMM_SPECIAL_CASES\|fn gemm_special_case_output\|CpuReferenceFailed' wasm/crates/parity-host/src/lib.rs
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/6 | Node での照合に特殊値の入力の種類と CPU 参照の比べを足す | #6291 |
+| 2/6 | GEMM の 14 ケースの入力と 2 つの参照を host 側の道具に足す | #6292 |
