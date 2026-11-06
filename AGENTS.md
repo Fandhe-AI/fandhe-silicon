@@ -41,7 +41,7 @@ P0 と P1 はいずれも codex ジョブを失敗させる（マージ前に解
   データ競合・未同期のデバイスメモリ読み書き）へ到達できる経路は P0。FFI から受け取る
   ポインタ・長さ・ハンドルの検証省略、サイズ・オフセット計算の未検査オーバーフローを含む
 - **unsafe の配置と根拠（P0/P1）**: `unsafe` は `crates/contract` の backend モジュール
-  （FFI 境界）に限る。`core`・`exec`・`upper` の `#![forbid(unsafe_code)]` の除去・緩和は P0。
+  （FFI 境界）と、`cpu_ops` の aarch64 の NEON の module（組み込み関数を呼ぶ橋）に限る。`core`・`exec`・`upper` の `#![forbid(unsafe_code)]` の除去・緩和は P0。
   `// SAFETY:`（`unsafe fn` は `/// # Safety`）の欠落・根拠不十分、workspace lints
   （`undocumented_unsafe_blocks`・`missing_safety_doc`・`unsafe_op_in_unsafe_fn`）の緩和は P1
 - **依存とサプライチェーン（P0/P1）**: wgpu・wgpu-core・wgpu-hal・wgpu-types・naga の

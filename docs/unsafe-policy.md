@@ -139,7 +139,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 ### してはいけないこと
 
 - 期待値だけを先に、または後から変える PR を出す
-- `#[allow(unsafe_code)]` を backend 以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
+- `#[allow(unsafe_code)]` を backend と `cpu_ops` の NEON の module 以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
 - 個数テストを `#[ignore]` や cfg で外す、検査を弱める
 - `git commit --no-verify` を使う
 - 文書・README・コメントに個数の値や変化の履歴を持つ
