@@ -404,7 +404,7 @@ for name in sys.argv[2:]:
                 "op_code": 1 if add else 0, "c_bits": "3f000000" if add else "00000000",
                 "input_file": name + ".input.bin", "native_scalar_file": name + ".native-scalar.bin",
                 "cpu_reference_file": name + ".cpu-reference.bin",
-                "input_sha256": wr(name + ".input.bin", [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x3f800000, 0x40000000, 0x40400000]),
+                "input_sha256": wr(name + ".input.bin", [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x80000000, 0x40000000, 0x40400000]),
                 "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
                 "cpu_reference_sha256": wr(name + ".cpu-reference.bin", cpu),
             })
@@ -422,20 +422,22 @@ for name in sys.argv[2:]:
         continue
     if name.startswith("elementwise-"):
         # 要素ごと演算の合成のケース（TASK-997）: n=5。既定の入力の語は NaN・Inf・±0 を含まない。名前に add を含めば
-        # op_code 1・定数 0.5、それ以外は op_code 0・定数 0。special の名前は NaN 1・+Inf・-Inf・+0・-0 を 1 語ずつ、
+        # op_code 1・定数 0.5、それ以外は op_code 0・定数 0。special の名前は NaN 1 語・Inf 2 語（+Inf・-Inf）・零 3 語（+0・-0・-0）の 6 語（nan・inf・zero の 3 つの数が全部違う）、
         # nanbits の名前は NaN の 2 つのビット列（quiet の最小と signaling の最小）を含む入力にする。nanin の名前は語 2・語 4 に
         # payload つきの NaN を置く入力にする。
         inp = [0x3f800000, 0xbf800000, 0x40000000, 0xc0000000, 0x3f000000]
         if "special" in name:
-            inp = [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000]
+            inp = [0x7fc00001, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x80000000]
         elif "nanin" in name:
             inp = [0x3f800000, 0xbf800000, 0x7fc00003, 0xc0000000, 0x7f800002]
         elif "nanbits" in name:
             inp = [0x7fc00000, 0x7f800001, 0x3f800000, 0x3f800000, 0x3f800000]
         nat = [0x3f800000, 0x00000000, 0x7fc00001, 0x00000000, 0x3f000000]
+        if len(inp) > len(nat):
+            nat = nat + [0x00000000] * (len(inp) - len(nat))
         add = "add" in name
         cases.append({
-            "name": name, "kind": "elementwise", "n": 5,
+            "name": name, "kind": "elementwise", "n": len(inp),
             "op_code": 1 if add else 0, "c_bits": "3f000000" if add else "00000000",
             "input_file": name + ".input.bin", "native_scalar_file": name + ".native-scalar.bin",
             "input_sha256": wr(name + ".input.bin", inp), "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
@@ -2118,7 +2120,7 @@ cat >"${fix}/ew-sp.json" <<'JSON'
 ]}
 JSON
 gw --cases "${fix}/ew-sp.json"
-expect "82 special values in the input are counted by word class" 0 "row: e-sp match" "input-special: elementwise-special-a nan=1 inf=2 zero=2" "summary: rows=1 match=1"
+expect "82 special values in the input are counted by word class" 0 "row: e-sp match" "input-special: elementwise-special-a nan=1 inf=2 zero=3" "summary: rows=1 match=1"
 rm -rf "${fix}/hf"
 mk_host_fixture "${fix}/hf" elementwise-nanbits-a
 printf '%s\n' 'e-sp elementwise-nanbits-a' >"${fix}/gen-rowmap"
@@ -2685,7 +2687,7 @@ ok = ok and first("recount: " + a) < first("recount-cpu: " + a) < first("recount
 sys.exit(0 if ok else 1)' "${OUT_F}" "${P}" && echo 0 || echo 1)"
   # 99b. input-special の行は elementwise-special のケースにだけ出る
   case "${P}" in
-    e) expect "99 ${L} input-special line" 0 "input-special: ${C} nan=1 inf=2 zero=2" ;;
+    e) expect "99 ${L} input-special line" 0 "input-special: ${C} nan=1 inf=2 zero=3" ;;
     *) expect "99 ${L} no input-special line" 0 "!input-special:" ;;
   esac
 
