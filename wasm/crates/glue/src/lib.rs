@@ -42,7 +42,7 @@ pub fn gemm_scalar(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut
 
 /// `gemm_scalar` と同じ入力・戻り値の行列積。
 ///
-/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、それ以外のビルドでは
+/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、`simd128` が無効な wasm32 のビルドでは
 /// `gemm_scalar` と同じ計算を使う。
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn gemm_simd(a: &[f32], b: &[f32], m: usize, k: usize, n: usize, out: &mut [f32]) -> u32 {
@@ -90,7 +90,7 @@ pub fn elementwise_scalar(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u
 
 /// `elementwise_scalar` と同じ入力・戻り値の要素ごとの演算。
 ///
-/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、それ以外のビルドでは
+/// wasm32 で `simd128` が有効なビルドでは 4 レーンの版を、`simd128` が無効な wasm32 のビルドでは
 /// `elementwise_scalar` と同じ計算を使う。
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn elementwise_simd(op_code: u32, c: f32, a: &[f32], out: &mut [f32]) -> u32 {

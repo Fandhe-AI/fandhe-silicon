@@ -8,7 +8,7 @@
 //! 実行時に CPU の機能を調べず、unsafe も使わない。
 
 use super::UnaryElementwiseOp;
-use super::scalar::{elementwise_lengths_ok, gemm_lengths_ok};
+use super::scalar::{elementwise_lengths_ok, gemm_lengths_ok, relu};
 use core::arch::wasm32::{
     f32x4, f32x4_add, f32x4_extract_lane, f32x4_gt, f32x4_mul, f32x4_splat, v128, v128_and,
 };
@@ -79,7 +79,7 @@ pub(super) fn elementwise(
     for (o, x) in oc.iter_mut().zip(ac) {
         let v = f32x4(x[0], x[1], x[2], x[3]);
         let r = match op {
-            // 比較の真偽のマスクで選ぶ。NaN は比較が偽になり 0.0 へ落ちるので、端数の `x.max(0.0)` と揃う。
+            // 比較の真偽のマスクで選ぶ。NaN は比較が偽になり 0.0 へ落ちるので、端数の式と揃う。
             UnaryElementwiseOp::Relu => v128_and(v, f32x4_gt(v, f32x4_splat(0.0))),
             UnaryElementwiseOp::AddScalar(c) => f32x4_add(v, f32x4_splat(c)),
         };
@@ -92,7 +92,7 @@ pub(super) fn elementwise(
     }
     for (o, &x) in orest.iter_mut().zip(arest) {
         *o = match op {
-            UnaryElementwiseOp::Relu => x.max(0.0),
+            UnaryElementwiseOp::Relu => relu(x),
             UnaryElementwiseOp::AddScalar(c) => x + c,
         };
     }

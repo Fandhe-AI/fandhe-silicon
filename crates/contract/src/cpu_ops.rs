@@ -4,10 +4,14 @@
 //! [`DefaultCpuOps`]・[`ReferenceCpuOps`] を持つ。計算の本体は非公開の `scalar` module にある。
 //!
 //! `DefaultCpuOps` の `gemm_simd`・`elementwise_simd` の版はビルド時の `cfg` で選ぶ。wasm32 で `simd128` が
-//! 有効なビルドでは 4 レーンの命令の版を使い、それ以外のビルドでは `*_scalar` と同じ計算をする。
+//! 有効なビルドと aarch64 で `neon` が有効なビルドでは 4 レーンの命令の版を使い、それ以外のビルドでは
+//! `*_scalar` と同じ計算をする。
 //! `topk_partial_simd` はどのビルドでも `topk_partial_scalar` と同じ計算をする。
 //! 実行時に CPU の機能を調べない（spec CPU-26 のポインタ）。
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[allow(unsafe_code)]
+mod neon;
 mod scalar;
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 mod simd128;
@@ -96,8 +100,22 @@ fn gemm_simd_impl(
     simd128::gemm(a, b, m, k, n, out)
 }
 
+/// `DefaultCpuOps::gemm_simd` の版（aarch64 で `neon` が有効なビルド）。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn gemm_simd_impl(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    out: &mut [f32],
+) -> Result<(), ContractError> {
+    neon::gemm(a, b, m, k, n, out)
+}
+
 /// `DefaultCpuOps::gemm_simd` の版（それ以外のビルド。scalar 版と同じ計算をする）。
 #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
 fn gemm_simd_impl(
     a: &[f32],
     b: &[f32],
@@ -119,8 +137,19 @@ fn elementwise_simd_impl(
     simd128::elementwise(op, a, out)
 }
 
+/// `DefaultCpuOps::elementwise_simd` の版（aarch64 で `neon` が有効なビルド）。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn elementwise_simd_impl(
+    op: UnaryElementwiseOp,
+    a: &[f32],
+    out: &mut [f32],
+) -> Result<(), ContractError> {
+    neon::elementwise(op, a, out)
+}
+
 /// `DefaultCpuOps::elementwise_simd` の版（それ以外のビルド。scalar 版と同じ計算をする）。
 #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
 fn elementwise_simd_impl(
     op: UnaryElementwiseOp,
     a: &[f32],
@@ -129,8 +158,8 @@ fn elementwise_simd_impl(
     scalar::elementwise(op, a, out)
 }
 
-/// [`CpuOps`] を実装する型。`gemm_simd`・`elementwise_simd` は、wasm32 で `simd128` が有効なビルドでは
-/// 4 レーンの版を呼び、それ以外のビルドでは `*_scalar` と同じ計算をする。長さが合わなければどのビルドでも
+/// [`CpuOps`] を実装する型。`gemm_simd`・`elementwise_simd` は、wasm32 で `simd128` が有効なビルドと
+/// aarch64 で `neon` が有効なビルドでは 4 レーンの版を呼び、それ以外のビルドでは `*_scalar` と同じ計算をする。長さが合わなければどのビルドでも
 /// `InvalidArgument`。`topk_partial_simd` はどのビルドでも `topk_partial_scalar` と同じ計算をする。
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultCpuOps;

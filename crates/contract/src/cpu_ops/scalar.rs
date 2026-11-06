@@ -56,6 +56,11 @@ pub(super) fn gemm(
     Ok(())
 }
 
+/// `Relu` の 1 要素の式。正の値はそのまま、それ以外は `+0.0`。
+pub(super) fn relu(x: f32) -> f32 {
+    if x > 0.0 { x } else { 0.0 }
+}
+
 /// 単項の要素ごと演算を `a` から `out` に書く。長さが違えば `out` に触れず `InvalidArgument` を返す。
 pub(super) fn elementwise(
     op: UnaryElementwiseOp,
@@ -69,7 +74,7 @@ pub(super) fn elementwise(
     }
     for (o, &x) in out.iter_mut().zip(a) {
         *o = match op {
-            UnaryElementwiseOp::Relu => x.max(0.0),
+            UnaryElementwiseOp::Relu => relu(x),
             UnaryElementwiseOp::AddScalar(c) => x + c,
         };
     }

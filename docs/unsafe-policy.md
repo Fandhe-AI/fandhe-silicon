@@ -12,9 +12,9 @@
 | `unsafe` の禁止 | `crates/core`・`crates/exec`・`crates/upper` の `lib.rs` に `#![forbid(unsafe_code)]` | 各 `src/lib.rs` |
 | 記述の強制 | ルート `Cargo.toml` の `[workspace.lints]` で `unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` を deny | ルート `Cargo.toml` |
 | 背後実装のモジュール | `crates/contract/src/backend_{metal,vulkan,cuda}.rs`。Vulkan は `crates/contract/src/backend_vulkan/` に子モジュールを持つ | `ls crates/contract/src` |
-| `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言に `#[allow(unsafe_code)]`（backend 以外に `unsafe` を書くとビルドが失敗する） | `crates/contract/src/lib.rs` |
+| `contract` の crate 直下 | `lib.rs` に `#![deny(unsafe_code)]`、`pub mod backend_{metal,vulkan,cuda};` の宣言と `cpu_ops.rs` の `mod neon;` の宣言に `#[allow(unsafe_code)]`（backend と `cpu_ops/neon.rs` の外に `unsafe` を書くとビルドが失敗する） | `crates/contract/src/lib.rs` |
 | cfg ゲート | Metal は feature のみ、Vulkan・CUDA は feature かつ `not(target_arch = "wasm32")` | `crates/contract/src/lib.rs`、`crates/contract/tests/backend_cfg_gate.rs` |
-| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `common_unsafe_count_samples.rs` と `common_scanner_regression.rs` | `ls crates/contract/tests` |
+| 個数テスト | `crates/contract/tests/backend_{metal,vulkan,cuda}_unsafe_count.rs`・`crates/contract/tests/cpu_ops_neon_unsafe_count.rs` と `crates/contract/tests/common/mod.rs`。道具を見本で確かめるテストは `common_unsafe_count_samples.rs` と `common_scanner_regression.rs` | `ls crates/contract/tests` |
 | 外部依存 | `crates/contract` の Metal の背後実装だけが、macOS 向けに `objc2` 系の 4 件を持つ（`deps-approved.toml`）。ほかの crate は 0 件。追加はユーザー承認制（[dependency-policy](../.claude/rules/dependency-policy.md)） | `Cargo.lock`・`deps-approved.toml` |
 
 ## `unsafe` を置ける場所
@@ -22,9 +22,9 @@
 - 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
 - `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する
 - `contract` の中の守り
-    - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend 以外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
-    - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend 以外のファイルの `unsafe` を検出する
-    - `cpu_ops/neon.rs` は、ファイルを足す PR で上の 2 つの守りの対象に入れる（個数の期待値の表を持ち、`#[allow(unsafe_code)]` はこの module の宣言だけに付ける）。その PR は小節「承認」の PR ごとの承認を要する
+    - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言と `cpu_ops.rs` の `mod neon;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend と `cpu_ops/neon.rs` の外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
+    - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend と `cpu_ops/neon.rs` の外のファイルの `unsafe` を検出する
+    - `cpu_ops/neon.rs` は上の 2 つの守りの対象で、個数の期待値の表を `tests/cpu_ops_neon_unsafe_count.rs` に持つ。`#[allow(unsafe_code)]` は `cpu_ops.rs` の `mod neon;` の宣言だけに付ける。この module の変更は小節「承認」の PR ごとの承認を要する
 
 ## 不変条件の書式
 
@@ -64,12 +64,12 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 種別 | ブロック（`unsafe {`）/ `unsafe impl` / `unsafe fn`（`unsafe extern "…" fn` を含む）/ `unsafe extern` ブロック / その他（`unsafe trait`・`#[unsafe(...)]` など）。期待値はこの 5 種別を個別に持つ（`UnsafeCounts`）。全種別の合計が `unsafe` キーワードの総数に一致する |
 | 背後実装ごとのテスト | `crates/contract/tests/backend_<名前>_unsafe_count.rs` を背後実装ごとに 1 ファイル。対象のソースを `include_str!` で読み、ファイルごとの期待値と `check_backend` で照合する |
 | 期待値の置き場 | 各テストファイルの中の表 `EXPECTED`（ファイルの相対パスから種別ごとの個数）だけ。文書・README に数値を二重に持たない |
-| 登録点 | `common` の `BACKENDS`。登録した全背後実装のテストファイルの存在も検査する |
+| 登録点 | `common` の `BACKENDS` と、背後実装の外で `unsafe` を持てるファイルの表 `UNSAFE_MODULES`（`(名前, src/ からの相対パス)`）。登録した全背後実装と `UNSAFE_MODULES` の全ファイルのテストファイルの存在も検査する |
 | cfg ゲート | 個数テストは feature・target でゲートしない。数える対象はソースの文字列でビルドの構成に依らず、どの feature の組でも走る |
 | 走る場所 | `make verify` と `make build-profiles` の `cargo test`。GPU の実機は要らない |
 | 背後実装を足すとき | `BACKENDS` への登録、同じ形のテストファイルを 1 つ、`lib.rs` の mod 宣言に `#[allow(unsafe_code)]` |
 
-`check_backend` が行う検査: 登録済みの名前か／表の各行がその背後実装の持ち場か・重複が無いか／`include_str!` の中身が実ファイルと一致するか／個数の照合／持ち場の `.rs` が表に載っているか／backend 以外のファイルに `unsafe` が無いか／`src/` 配下にシンボリックリンクが無いか／登録済みの全背後実装にテストファイルがあるか。失敗は集めて 1 回で返す。
+`check_backend` が行う検査: 登録済みの名前か／表の各行がその背後実装の持ち場か・重複が無いか／`include_str!` の中身が実ファイルと一致するか／個数の照合／持ち場の `.rs` が表に載っているか／持ち場の外のファイルに `unsafe` が無いか／`src/` 配下にシンボリックリンクが無いか／登録済みの全背後実装と `UNSAFE_MODULES` の全ファイルにテストファイルがあるか。`UNSAFE_MODULES` に載せたファイルは、その名前の `check_backend` の持ち場になる。失敗は集めて 1 回で返す。
 
 ## 振る舞いとテストの対応
 
@@ -87,13 +87,14 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 期待値と一致なら通り、実際が多い・少ない・種別だけが違うときは失敗 | `compare_counts_passes_when_equal`・`compare_counts_fails_when_actual_exceeds_expected`・`compare_counts_fails_when_actual_is_below_expected`・`compare_counts_fails_when_only_kinds_differ` |
 | 実ファイルの表を 1 ずらすと背後実装ごとに失敗する | `check_backend_fails_when_expected_is_off_by_one` |
 | 文字リテラルのエスケープ・結合文字を含む識別子で取りこぼさない | `escaped_quote_char_literal_does_not_hide_unsafe`・`escaped_quote_byte_literal_does_not_hide_unsafe`・`hex_and_unicode_escapes_are_skipped_whole`・`backslash_char_literal_is_skipped`・`identifier_with_combining_mark_is_not_the_keyword`（`common_scanner_regression.rs`） |
+| `cpu_ops/neon.rs` の行を照合し、登録の無いファイルを持ち場にしない | `check_backend_covers_only_the_registered_module`（`common_unsafe_count_samples.rs`）・`cpu_ops_neon_unsafe_count_matches_expected`（`cpu_ops_neon_unsafe_count.rs`） |
 | feature を有効にした背後実装のモジュールが見える | `backend_metal_module_is_visible`・`backend_vulkan_module_is_visible`・`backend_cuda_module_is_visible`（`backend_cfg_gate.rs`） |
 
-公開テストから到達させていない検査（コードにはある）: 表に無い `.rs` の検出、backend 以外のファイルの `unsafe` の検出、シンボリックリンクの拒否、表の重複・取り違えの検出、`BACKENDS` に無い名前の拒否。
+公開テストから到達させていない検査（コードにはある）: 表に無い `.rs` の検出、持ち場の外のファイルの `unsafe` の検出、シンボリックリンクの拒否、表の重複の検出、`BACKENDS` と `UNSAFE_MODULES` に無い名前の拒否。
 
 ## 個数が変わるときの扱い
 
-期待値の表（`crates/contract/tests/backend_<名前>_unsafe_count.rs` の `EXPECTED`）を変える PR の手順。承認の要否は小節「承認」に書く。
+期待値の表（`crates/contract/tests/backend_<名前>_unsafe_count.rs` と `crates/contract/tests/cpu_ops_neon_unsafe_count.rs` の `EXPECTED`）を変える PR の手順。承認の要否は小節「承認」に書く。
 
 ### 対象になる変更
 
@@ -107,13 +108,13 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 | 背後実装を足す | 登録したがテストファイルが無いと失敗 | `BACKENDS` への登録、テストファイル 1 つ、`lib.rs` の mod 宣言の `#[allow(unsafe_code)]` |
 | 数える道具（`tests/common/mod.rs`）の数え方を変える | 見本のテスト（`common_unsafe_count_samples.rs`）が失敗しうる | 見本を同じ PR で直す。表が変わるなら増減として扱う |
 
-- backend 以外のファイルに `unsafe` を置く変更は、この手順では通せない（`lib.rs` の `deny` でビルドが失敗する）
+- backend と `cpu_ops/neon.rs` の外のファイルに `unsafe` を置く変更は、この手順では通せない（`lib.rs` の `deny` でビルドが失敗する）
 
 ### 手順
 
-1. `unsafe` が要るかを確かめる。safe な書き方で足りるなら足さない。置き場は `backend_<名前>` の中だけ
+1. `unsafe` が要るかを確かめる。safe な書き方で足りるなら足さない。置き場は `backend_<名前>` の中と `cpu_ops/neon.rs` だけ
 2. `// SAFETY:`・`/// # Safety` を「不変条件の書式」どおりに書く（ブロックは呼び出し箇所ごと）
-3. `cargo test -p fandhe-silicon-contract --test backend_<名前>_unsafe_count` を走らせ、失敗の出力からファイル・種別ごとの期待と実際の差を読む
+3. `cargo test -p fandhe-silicon-contract --test backend_<名前>_unsafe_count`（`cpu_ops/neon.rs` は `--test cpu_ops_neon_unsafe_count`）を走らせ、失敗の出力からファイル・種別ごとの期待と実際の差を読む
 4. 差の 1 件ずつを、足した・消した箇所と突き合わせる。説明できない差があれば表を直さず原因を調べる
     - 数え方の注意: `unsafe extern` ブロックは extern block、`#[unsafe(...)]` は other、マクロ定義・呼び出しの中の `unsafe` も数える
 5. 同じ PR で、該当する背後実装のテストファイルの表だけを直す。出力の `actual` を写すだけにしない（4 を済ませてから）
@@ -163,6 +164,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 worktree のルートで実行する。
 
 - `cargo test -p fandhe-silicon-contract --test backend_metal_unsafe_count`（`vulkan`・`cuda` も同様）: 背後実装ごとの個数
+- `cargo test -p fandhe-silicon-contract --test cpu_ops_neon_unsafe_count`: `cpu_ops/neon.rs` の個数
 - `cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples --test common_scanner_regression`: 数える道具
 - `make verify`・`make build-profiles`: どの feature の組でも個数テストが走ること
 - `make check`・`make deny`: 整形・依存

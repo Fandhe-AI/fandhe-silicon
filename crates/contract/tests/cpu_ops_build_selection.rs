@@ -1,10 +1,15 @@
 //! `cpu_ops` の `*_simd` の版の選び分けが、ビルド時の `cfg` だけで決まることを固定する試験（spec TASK-1351 のポインタ）。
 //!
-//! 見るのは次の 4 点。
+//! 見るのは次の 8 点。
 //! - (a) 実行時に CPU の機能を調べる字句（`is_*_feature_detected`・`std_detect`・`std::detect`）がどのファイルにも無い（コメントも数える）。
 //! - (b) `cpu_ops.rs` に、`simd128` が有効な形と無効な形の `#[cfg(...)]` の行がそれぞれ 1 件以上ある。
 //! - (c) `core::arch::wasm32`・`std::arch::wasm32` の字句は `cpu_ops/simd128.rs` の中だけにある。
 //! - (d) `mod simd128;` の行がちょうど 1 行で、直前の属性が `simd128` が有効な形の `#[cfg(...)]` である。
+//! - (e) `cpu_ops.rs` に、`neon` が有効な形と無効な形の `#[cfg(...)]` の行がそれぞれ 1 件以上ある。
+//! - (f) `core::arch::aarch64`・`std::arch::aarch64` の字句は `cpu_ops/neon.rs` の中だけにある。
+//! - (g) `mod neon;` の行がちょうど 1 行で、直前の属性が `neon` が有効な形の `#[cfg(...)]` と `unsafe_code` を許す属性の順で、
+//!   その属性は `cpu_ops.rs` に 1 件だけある（ほかのファイルには無い）。
+//! - (h) `gemm_simd_impl`・`elementwise_simd_impl` が 3 枝あり、`simd128`・`neon`・scalar の `cfg` がそれぞれの版を呼ぶ。
 //!
 //! 外部 crate もコマンドの起動も使わず、ソースの文字列だけを読む。
 //! 判定は純粋関数 `problems` に分け、実物を 1 か所だけ変えた入力を渡す陽性対照を常設する。
@@ -27,8 +32,21 @@ const NOT_SIMD128_CFG: &str =
     r#"#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]"#;
 /// wasm32 の arch の字句。
 const WASM_ARCH_WORDS: [&str; 2] = ["core::arch::wasm32", "std::arch::wasm32"];
+/// `neon` が有効なときの `cfg` の形。
+const NEON_CFG: &str = r#"#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]"#;
+/// `neon` が無効なときの `cfg` の形。
+const NOT_NEON_CFG: &str = r#"#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]"#;
+/// aarch64 の arch の字句。
+const AARCH64_ARCH_WORDS: [&str; 2] = ["core::arch::aarch64", "std::arch::aarch64"];
+const ALLOW_UNSAFE: &str = "#[allow(unsafe_code)]";
 const ROOT_FILE: &str = "cpu_ops.rs";
 const SIMD128_FILE: &str = "cpu_ops/simd128.rs";
+const NEON_FILE: &str = "cpu_ops/neon.rs";
+/// 版の選び分けの関数と、それぞれの版が呼ぶ関数の名前。
+const SELECTORS: [(&str, &str); 2] = [
+    ("fn gemm_simd_impl(", "gemm"),
+    ("fn elementwise_simd_impl(", "elementwise"),
+];
 
 type Sources = Vec<(String, String)>;
 
@@ -83,7 +101,95 @@ fn attr_before(text: &str, decl: &str) -> Result<Option<String>, String> {
     Ok((i > 0 && lines[i - 1].trim().starts_with("#[")).then(|| lines[i - 1].trim().to_string()))
 }
 
-/// 問題の列を返す。先頭の `(a)`〜`(d)` が項目を表す。
+/// `head` で始まる行ごとに、直前に続く属性の行（上から順）と本体の最初の `::` を含む行を返す。
+fn items<'a>(text: &'a str, head: &str) -> Vec<(Vec<&'a str>, &'a str)> {
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if !l.starts_with(head) {
+            continue;
+        }
+        let mut attrs = Vec::new();
+        let mut j = i;
+        while j > 0 && lines[j - 1].starts_with("#[") {
+            j -= 1;
+            attrs.insert(0, lines[j]);
+        }
+        let call = lines[i..]
+            .iter()
+            .find(|x| x.contains("::") && !x.contains("Result<"))
+            .copied()
+            .unwrap_or("");
+        out.push((attrs, call));
+    }
+    out
+}
+
+/// `neon` の版の項目（`(e)`〜`(h)`）の問題を `out` に積む。
+fn neon_problems(sources: &Sources, out: &mut Vec<String>) {
+    let Some(root) = text_of(sources, ROOT_FILE) else {
+        return;
+    };
+    // (e)
+    for form in [NEON_CFG, NOT_NEON_CFG] {
+        if !root.lines().any(|l| l.trim() == form) {
+            out.push(format!("(e) {ROOT_FILE}: no `{form}` line"));
+        }
+    }
+    // (f)
+    if text_of(sources, NEON_FILE).is_none() {
+        out.push(format!("(f) {NEON_FILE} is missing"));
+    }
+    for (name, text) in sources {
+        if name == NEON_FILE {
+            continue;
+        }
+        for word in AARCH64_ARCH_WORDS {
+            if text.contains(word) {
+                out.push(format!("(f) {name}: `{word}` outside {NEON_FILE}"));
+            }
+        }
+    }
+    // (g)
+    let want = vec![NEON_CFG, ALLOW_UNSAFE];
+    let neon_mods = items(root, "mod neon;");
+    if neon_mods.len() != 1 || neon_mods[0].0 != want {
+        out.push(format!(
+            "(g) {ROOT_FILE}: `mod neon;` attributes are {neon_mods:?}"
+        ));
+    }
+    for (name, text) in sources {
+        let n = text.lines().filter(|l| l.trim() == ALLOW_UNSAFE).count();
+        let limit = usize::from(name == ROOT_FILE);
+        if n != limit || text.matches("allow(unsafe_code)").count() != limit {
+            out.push(format!("(g) {name}: {n} `{ALLOW_UNSAFE}` line(s)"));
+        }
+    }
+    // (h)
+    for (head, op) in SELECTORS {
+        let found = items(root, head);
+        let rows: [(Vec<&str>, String); 3] = [
+            (vec![SIMD128_CFG], format!("simd128::{op}(")),
+            (vec![NEON_CFG], format!("neon::{op}(")),
+            (
+                vec![NOT_SIMD128_CFG, NOT_NEON_CFG],
+                format!("scalar::{op}("),
+            ),
+        ];
+        if found.len() != rows.len() {
+            out.push(format!("(h) {ROOT_FILE}: {} `{head}` item(s)", found.len()));
+        }
+        for (attrs, call) in rows {
+            if !found.iter().any(|(a, c)| *a == attrs && c.contains(&call)) {
+                out.push(format!(
+                    "(h) {ROOT_FILE}: no `{head}` with {attrs:?} calling `{call}`"
+                ));
+            }
+        }
+    }
+}
+
+/// 問題の列を返す。先頭の `(a)`〜`(h)` が項目を表す。
 fn problems(sources: &Sources) -> Vec<String> {
     let mut out = Vec::new();
     // (a)
@@ -128,6 +234,7 @@ fn problems(sources: &Sources) -> Vec<String> {
             }
         }
     }
+    neon_problems(sources, &mut out);
     out
 }
 
@@ -159,7 +266,7 @@ fn flagged(sources: &Sources, tag: &str) -> bool {
     problems(sources).iter().any(|p| p.starts_with(tag))
 }
 
-/// 実物のソースが 4 項目をすべて満たす（CPU-26 のポインタ）。
+/// 実物のソースが 8 項目をすべて満たす（CPU-26 のポインタ）。
 #[test]
 fn selection_is_by_build_cfg_only() {
     let p = problems(&real_sources());
@@ -229,4 +336,84 @@ fn positive_control_simd128_mod_without_cfg() {
         changed(t, kept.join("\n"))
     });
     assert!(flagged(&s, "(d)"));
+}
+
+#[test]
+fn positive_control_neon_selector_falls_to_scalar() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        changed(
+            t,
+            t.replace(
+                "neon::gemm(a, b, m, k, n, out)",
+                "scalar::gemm(a, b, m, k, n, out)",
+            ),
+        )
+    });
+    assert!(flagged(&s, "(h)"));
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        changed(
+            t,
+            t.replace(
+                "neon::elementwise(op, a, out)",
+                "scalar::elementwise(op, a, out)",
+            ),
+        )
+    });
+    assert!(flagged(&s, "(h)"));
+}
+
+#[test]
+fn positive_control_neon_cfg_swapped_with_simd128() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        changed(
+            t,
+            t.replace(
+                "simd128::gemm(a, b, m, k, n, out)",
+                "neon::gemm(a, b, m, k, n, out)",
+            ),
+        )
+    });
+    assert!(flagged(&s, "(h)"));
+}
+
+#[test]
+fn positive_control_scalar_selector_loses_not_neon() {
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        let kept: Vec<&str> = t.lines().filter(|l| l.trim() != NOT_NEON_CFG).collect();
+        changed(t, kept.join("\n"))
+    });
+    assert!(flagged(&s, "(e)"));
+    assert!(flagged(&s, "(h)"));
+}
+
+#[test]
+fn positive_control_aarch64_arch_outside_neon() {
+    let s = with_file(&real_sources(), "cpu_ops/scalar.rs", |t| {
+        changed(t, format!("{t}\nuse core::arch::aarch64::vaddq_f32;\n"))
+    });
+    assert!(flagged(&s, "(f)"));
+}
+
+#[test]
+fn positive_control_neon_file_missing() {
+    let s: Sources = real_sources()
+        .into_iter()
+        .filter(|(n, _)| n != NEON_FILE)
+        .collect();
+    assert!(flagged(&s, "(f)"));
+}
+
+#[test]
+fn positive_control_allow_outside_neon_mod() {
+    let s = with_file(&real_sources(), "cpu_ops/scalar.rs", |t| {
+        changed(t, format!("{t}\n#[allow(unsafe_code)]\nfn extra() {{}}\n"))
+    });
+    assert!(flagged(&s, "(g)"));
+    let s = with_file(&real_sources(), ROOT_FILE, |t| {
+        changed(
+            t,
+            t.replacen("#[allow(unsafe_code)]\nmod neon;", "mod neon;", 1),
+        )
+    });
+    assert!(flagged(&s, "(g)"));
 }

@@ -446,3 +446,23 @@ fn check_backend_fails_when_expected_is_off_by_one() {
         assert!(err.contains(&want), "{name}: {err}");
     }
 }
+
+/// `cpu_ops/neon.rs` の行の照合と、登録の無いファイルが持ち場にならないことを固定する。
+#[test]
+fn check_backend_covers_only_the_registered_module() {
+    let path = "src/cpu_ops/neon.rs";
+    let source = include_str!("../src/cpu_ops/neon.rs");
+    assert_eq!(
+        check_backend("cpu_ops_neon", &table_for(path, source, 0)),
+        Ok(())
+    );
+    let err = check_backend("cpu_ops_neon", &table_for(path, source, 1)).unwrap_err();
+    assert!(
+        err.contains("src/cpu_ops/neon.rs: block: expected 3, actual 2"),
+        "{err}"
+    );
+    let other = "src/cpu_ops/simd128.rs";
+    let text = include_str!("../src/cpu_ops/simd128.rs");
+    let err = check_backend("cpu_ops_neon", &table_for(other, text, 0)).unwrap_err();
+    assert!(err.contains("not a file of backend"), "{err}");
+}

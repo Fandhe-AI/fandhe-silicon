@@ -18,6 +18,10 @@ use std::path::Path;
 /// 枠が知っている背後実装の名前。背後実装を足すときの登録点（テストファイルの存在も検査する）。
 pub const BACKENDS: &[&str] = &["metal", "vulkan", "cuda"];
 
+/// 背後実装の外で `unsafe` を持てるファイル。`(名前, src/ からの相対パス)`。名前は `check_backend` に渡し、
+/// テストファイルは `tests/<名前>_unsafe_count.rs`。
+const UNSAFE_MODULES: &[(&str, &str)] = &[("cpu_ops_neon", "cpu_ops/neon.rs")];
+
 /// `unsafe` の種別ごとの個数。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnsafeCounts {
@@ -341,8 +345,11 @@ pub fn compare_counts(
     }
 }
 
-/// `src/` 配下の相対パスから、持ち主の背後実装の名前を返す（backend 以外は `None`）。
+/// `src/` 配下の相対パスから、持ち主の名前を返す（持ち場の外は `None`）。
 fn owner_of(rel_in_src: &str) -> Option<&'static str> {
+    if let Some((name, _)) = UNSAFE_MODULES.iter().find(|(_, p)| *p == rel_in_src) {
+        return Some(name);
+    }
     let top = rel_in_src.split('/').next().unwrap_or("");
     BACKENDS
         .iter()
@@ -383,11 +390,11 @@ fn collect_rs(root: &Path, dir: &Path, files: &mut Vec<String>, errors: &mut Vec
 /// 背後実装 1 つ分の検査の全体。不一致・取りこぼしを集めて 1 つの `Err` で返す（fail-closed）。
 ///
 /// 検査: 登録済みの名前か／表の各行がその背後実装の持ち場か・重複が無いか／`include_str!` の中身が
-/// 実ファイルと一致するか／個数の照合／持ち場の `.rs` が表に載っているか／backend 以外に `unsafe` が
-/// 無いか／登録済みの全背後実装にテストファイルがあるか。
+/// 実ファイルと一致するか／個数の照合／持ち場の `.rs` が表に載っているか／持ち場の外に `unsafe` が
+/// 無いか／登録済みの全背後実装と `UNSAFE_MODULES` の全ファイルにテストファイルがあるか。
 pub fn check_backend(backend: &str, table: &[ExpectedFile]) -> Result<(), String> {
     let mut errors: Vec<String> = Vec::new();
-    if !BACKENDS.contains(&backend) {
+    if !BACKENDS.contains(&backend) && !UNSAFE_MODULES.iter().any(|(n, _)| *n == backend) {
         return Err(format!("backend '{backend}' is not registered in BACKENDS"));
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -447,6 +454,15 @@ pub fn check_backend(backend: &str, table: &[ExpectedFile]) -> Result<(), String
         if !root.join(&t).is_file() {
             errors.push(format!(
                 "{t}: missing test file for registered backend '{n}'"
+            ));
+        }
+    }
+
+    for (n, _) in UNSAFE_MODULES {
+        let t = format!("tests/{n}_unsafe_count.rs");
+        if !root.join(&t).is_file() {
+            errors.push(format!(
+                "{t}: missing test file for registered module '{n}'"
             ));
         }
     }

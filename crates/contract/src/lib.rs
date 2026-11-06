@@ -2,11 +2,12 @@
 //!
 //! `fandhe-silicon-core` の共通型を入口に、Metal / Vulkan / CUDA の背後実装を
 //! `backend-*` feature で切り替えて提供する。`unsafe` と FFI はこの crate の backend
-//! モジュールに閉じ込め、公開 API は safe なラッパーとして下-2・上へ渡す。
+//! モジュールに閉じ込め（`unsafe` は `cpu_ops/neon.rs` にも置く）、公開 API は safe なラッパーとして下-2・上へ渡す。
 //! CPU の演算は feature `cpu-ops` の `cpu_ops` にある。
 
-// backend 以外のモジュールに `unsafe` を書けなくする（一次の守り）。内側の `allow` で外せるのは
-// `deny` だけなので `forbid` は使わない。個数の固定は tests/backend_*_unsafe_count.rs
+// backend と `cpu_ops/neon.rs` の外のモジュールに `unsafe` を書けなくする（一次の守り）。内側の `allow` で外せるのは
+// `deny` だけなので `forbid` は使わない。個数の固定は tests/backend_*_unsafe_count.rs と
+// tests/cpu_ops_neon_unsafe_count.rs
 // （方針: docs/unsafe-policy.md、spec TASK-9 のポインタ）。
 #![deny(unsafe_code)]
 
