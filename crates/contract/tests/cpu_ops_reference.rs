@@ -71,10 +71,36 @@ fn gemm_cases() -> Vec<GemmCase> {
     vec![square_case(64), square_case(256), odd_case()]
 }
 
+/// k の端数が 2 個と 3 個のケース。端数を足す順でビットが変わる入力を、同じ seed の生成器から作る。
+fn tail_cases() -> Vec<GemmCase> {
+    [6, 7]
+        .into_iter()
+        .map(|k| {
+            let (m, n) = (32, 32);
+            let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
+            let a: Vec<f32> = (0..m * k).map(|_| rng.next_signed_unit_f32()).collect();
+            let b: Vec<f32> = (0..k * n).map(|_| rng.next_signed_unit_f32()).collect();
+            assert_finite(&a);
+            assert_finite(&b);
+            GemmCase { m, k, n, a, b }
+        })
+        .collect()
+}
+
 /// k を 4 つずつ 4 レーンの積和に積み、`(l0 + l1) + (l2 + l3)` で足し、端数の k を昇順の `mul_add` で足す。
 fn lane_order_gemm(c: &GemmCase) -> Vec<f32> {
+    lanes_then_tail(c, false)
+}
+
+/// 4 レーンの積和の後に端数の k を足す。`reverse_tail` は端数を降順に足す（順の見分けの対照）。
+fn lanes_then_tail(c: &GemmCase, reverse_tail: bool) -> Vec<f32> {
     let (m, k, n) = (c.m, c.k, c.n);
     let k4 = k - k % 4;
+    let tail: Vec<usize> = if reverse_tail {
+        (k4..k).rev().collect()
+    } else {
+        (k4..k).collect()
+    };
     let mut out = vec![0.0_f32; m * n];
     for i in 0..m {
         for j in 0..n {
@@ -85,7 +111,7 @@ fn lane_order_gemm(c: &GemmCase) -> Vec<f32> {
                 }
             }
             let mut s = (l[0] + l[1]) + (l[2] + l[3]);
-            for p in k4..k {
+            for &p in &tail {
                 s = c.a[i * k + p].mul_add(c.b[p * n + j], s);
             }
             out[i * n + j] = s;
@@ -354,6 +380,21 @@ fn lane_order_differs_from_scalar() {
     }
 }
 
+/// `tail_cases` の入力は端数を足す順を逆にするとビットが変わる（下の和の順の試験の見分けの前提）。
+#[test]
+fn tail_order_changes_bits() {
+    for c in tail_cases() {
+        assert_ne!(
+            bits(&lane_order_gemm(&c)),
+            bits(&lanes_then_tail(&c, true)),
+            "{}x{}x{}",
+            c.m,
+            c.k,
+            c.n
+        );
+    }
+}
+
 /// aarch64 で `neon` が有効なビルドの `gemm_simd` は `gemm_scalar` と別のビットを書く。
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[test]
@@ -375,7 +416,7 @@ fn gemm_simd_differs_from_scalar_on_neon() {
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[test]
 fn gemm_simd_follows_lane_order_on_neon() {
-    for c in gemm_cases() {
+    for c in gemm_cases().into_iter().chain(tail_cases()) {
         let got = DefaultCpuOps.simd_gemm(&c).unwrap();
         assert_eq!(
             bits(&got),

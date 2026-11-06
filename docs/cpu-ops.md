@@ -427,7 +427,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 
 | 試験 | 流れるビルド |
 | ---- | ------------ |
-| `cpu_ops_reference`: `gemm_simd_matches_scalar_by_t1`・`lane_order_differs_from_scalar`・`gemm_simd_exact_on_small_integers_for_each_k` | すべて |
+| `cpu_ops_reference`: `gemm_simd_matches_scalar_by_t1`・`lane_order_differs_from_scalar`・`tail_order_changes_bits`・`gemm_simd_exact_on_small_integers_for_each_k` | すべて |
 | `cpu_ops_reference`: `gemm_simd_differs_from_scalar_on_neon`・`gemm_simd_follows_lane_order_on_neon` | aarch64 で `neon` が有効なビルド |
 | `cpu_ops_reference`: `gemm_simd_equals_scalar_without_lanes` | wasm32 の `simd128` も aarch64 の `neon` も無効なビルド |
 | `cpu_ops_build_selection`: (e)〜(h) と陽性対照 6 本 | すべて（ソースの文字列を読む） |
@@ -443,4 +443,4 @@ cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples
 cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --features contract-core,cpu-isa,cpu-ops --target aarch64-unknown-linux-gnu -- -D warnings
 ```
 
-観測した件数（Linux x86_64）: `cpu_ops_reference` 12 passed、`cpu_ops_build_selection` 13 passed、`cpu_ops_neon_unsafe_count` 1 passed、`common_unsafe_count_samples` 16 passed。aarch64 の型検査と lint は `--target aarch64-unknown-linux-gnu` の clippy までで、aarch64 上の実行は CI の `verify-macos` ジョブが流す。
+観測した件数（Linux x86_64）: `cpu_ops_reference` 13 passed、`cpu_ops_build_selection` 13 passed、`cpu_ops_neon_unsafe_count` 1 passed、`common_unsafe_count_samples` 16 passed。aarch64 の型検査と lint は `--target aarch64-unknown-linux-gnu` の clippy までで、aarch64 上の実行は CI の `verify-macos` ジョブが流す。
