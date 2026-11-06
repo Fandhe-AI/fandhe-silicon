@@ -1586,3 +1586,53 @@ fn topk_e3_case_rejects_non_topk_input() {
     };
     assert_eq!(build_topk_e3_case(&spec).err(), Some(GenError::InputFailed));
 }
+
+/// 表の行の `op` から、glue に渡す演算の番号と定数のビット列を導く。表の `op_code`・`c_bits` との照合の期待に使う。
+fn expected_op_fields(op: UnaryElementwiseOp) -> (u32, u32) {
+    match op {
+        UnaryElementwiseOp::Relu => (0, 0),
+        UnaryElementwiseOp::AddScalar(c) => (1, c.to_bits()),
+        _ => panic!("unexpected op"),
+    }
+}
+
+/// 通常と特殊値の要素ごと演算の表の全行で、`op` と `op_code`・`c_bits` が合い、`generate` が書く manifest の値も表と同じになる。
+#[test]
+fn elementwise_tables_op_matches_op_code_and_c_bits() {
+    let rows: Vec<(&str, UnaryElementwiseOp, u32, u32)> = ELEMENTWISE_CASES
+        .iter()
+        .map(|s| (s.name, s.op, s.op_code, s.c_bits))
+        .chain(
+            ELEMENTWISE_SPECIAL_CASES
+                .iter()
+                .map(|s| (s.name, s.op, s.op_code, s.c_bits)),
+        )
+        .collect();
+    assert_eq!(rows.len(), 4);
+    for (name, op, op_code, c_bits) in &rows {
+        assert_eq!(expected_op_fields(*op), (*op_code, *c_bits), "{name}");
+    }
+    let dir = TempDir::new("ew-op-fields");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let names = manifest_values(&text, "name");
+    let kinds = manifest_values(&text, "kind");
+    assert_eq!(names.len(), kinds.len());
+    let ew_names: Vec<&String> = names
+        .iter()
+        .zip(&kinds)
+        .filter(|(_, k)| k.starts_with("elementwise"))
+        .map(|(n, _)| n)
+        .collect();
+    let codes = manifest_values(&text, "op_code");
+    let cbits = manifest_values(&text, "c_bits");
+    assert_eq!(ew_names.len(), rows.len());
+    assert_eq!(codes.len(), rows.len());
+    assert_eq!(cbits.len(), rows.len());
+    for (name, op, _, _) in &rows {
+        let i = ew_names.iter().position(|n| n.as_str() == *name).unwrap();
+        let (code, bits) = expected_op_fields(*op);
+        assert_eq!(codes[i], code.to_string(), "{name}");
+        assert_eq!(cbits[i], format!("{bits:08x}"), "{name}");
+    }
+}
