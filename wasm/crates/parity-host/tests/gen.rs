@@ -127,6 +127,7 @@ fn manifest_hashes_match_files() {
             + GEMM_SPECIAL_CASES.len()
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
@@ -458,6 +459,7 @@ fn topk_manifest_entries_match_files() {
             + GEMM_SPECIAL_CASES.len()
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     let mut want = [
         "name",
@@ -656,6 +658,7 @@ fn elementwise_manifest_entries_match_files() {
             + GEMM_SPECIAL_CASES.len()
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     let mut want = [
         "name",
@@ -871,6 +874,7 @@ fn signed_zero_manifest_entries_match_files() {
             + GEMM_SPECIAL_CASES.len()
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     let mut want = [
         "name",
@@ -1124,7 +1128,11 @@ fn gemm_special_manifest_entries_match_files() {
         GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len();
     assert_eq!(
         keys.len(),
-        before + GEMM_SPECIAL_CASES.len() + ELEMENTWISE_SPECIAL_CASES.len() + TOPK_E3_CASES.len()
+        before
+            + GEMM_SPECIAL_CASES.len()
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     let mut want = [
         "name",
@@ -1233,9 +1241,9 @@ fn gemm_special_cpu_reference_rejects_non_f32_output() {
 
 use fandhe_silicon_contract::cpu_ops::UnaryElementwiseOp;
 use wasm_parity_host::{
-    ELEMENTWISE_SPECIAL_CASES, ElementwiseSpecialCaseSpec, TOPK_E3_CASES, TopkE3CaseSpec,
-    build_elementwise_special_case, build_elementwise_special_cases, build_topk_e3_case,
-    build_topk_e3_cases, elementwise_special_cpu_reference,
+    ELEMENTWISE_SPECIAL_CASES, ElementwiseSpecialCaseSpec, TOPK_E3_CASES, TOPK_SENTINEL_CASES,
+    TopkE3CaseSpec, build_elementwise_special_case, build_elementwise_special_cases,
+    build_topk_e3_case, build_topk_e3_cases, elementwise_special_cpu_reference,
 };
 
 /// core の `CaseId::E2` の入力の列。
@@ -1375,7 +1383,10 @@ fn elementwise_special_manifest_entries_match_files() {
     let all_before = GEMM_CASES.len() + TOPK_CASES.len() + ew + SIGNED_ZERO_CASES.len() + gs;
     assert_eq!(
         keys.len(),
-        all_before + ELEMENTWISE_SPECIAL_CASES.len() + TOPK_E3_CASES.len()
+        all_before
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
+            + TOPK_SENTINEL_CASES.len()
     );
     let mut want = [
         "name",
@@ -1529,7 +1540,10 @@ fn topk_e3_manifest_entry_matches_files() {
         + SIGNED_ZERO_CASES.len()
         + GEMM_SPECIAL_CASES.len()
         + ELEMENTWISE_SPECIAL_CASES.len();
-    assert_eq!(keys.len(), all_before + TOPK_E3_CASES.len());
+    assert_eq!(
+        keys.len(),
+        all_before + TOPK_E3_CASES.len() + TOPK_SENTINEL_CASES.len()
+    );
     let mut want = [
         "name",
         "kind",
@@ -1638,4 +1652,57 @@ fn elementwise_tables_op_matches_op_code_and_c_bits() {
         assert_eq!(codes[i], code.to_string(), "{name}");
         assert_eq!(cbits[i], format!("{bits:08x}"), "{name}");
     }
+}
+
+// ---- 番兵が出る部分 Top-k（spec TASK-2451 のポインタ） ----
+
+use fandhe_silicon_core::parity::topk_inputs::PAD_POSITION_INPUTS;
+use wasm_parity_host::{TopkSentinelCaseSpec, build_topk_sentinel_case, build_topk_sentinel_cases};
+
+/// 出力の埋める位置に書かれる番兵（スロット番号が `u32::MAX`、スコアが負の無限大）。
+const SENTINEL: (u32, u32) = (u32::MAX, 0xff80_0000);
+
+#[test]
+fn topk_sentinel_case_holds_core_input() {
+    assert_eq!(TOPK_SENTINEL_CASES.len(), 1);
+    let spec = &TOPK_SENTINEL_CASES[0];
+    assert_eq!(spec.name, "topk-pad-after-one-finite");
+    let core = PAD_POSITION_INPUTS
+        .iter()
+        .find(|i| i.name() == "pad_after_one_finite")
+        .unwrap();
+    let cases = build_topk_sentinel_cases().unwrap();
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0].k, core.k());
+    assert!(bits(&cases[0].scores) == bits(core.scores()));
+}
+
+/// 有限のスコアの件数が k に満たず、書き出した参照の出力の残りの位置に番兵が現れる。
+#[test]
+fn topk_sentinel_native_output_ends_with_sentinels() {
+    let dir = TempDir::new("sentinel-native");
+    generate(dir.path()).unwrap();
+    let case = build_topk_sentinel_cases().unwrap().remove(0);
+    let finite = case.scores.iter().filter(|s| s.is_finite()).count();
+    assert!(finite < case.k);
+    let records = read_records(
+        &dir.path()
+            .join("topk-pad-after-one-finite.native-scalar.bin"),
+    );
+    assert_eq!(records.len(), case.k);
+    assert!(records[..finite].iter().all(|r| *r != SENTINEL));
+    assert!(records[finite..].iter().all(|r| *r == SENTINEL));
+    assert_eq!(records.len() - finite, 2);
+}
+
+#[test]
+fn topk_sentinel_case_rejects_unknown_input_name() {
+    let spec = TopkSentinelCaseSpec {
+        name: "topk-pad-unknown",
+        input_name: "no_such_input",
+    };
+    assert_eq!(
+        build_topk_sentinel_case(&spec).err(),
+        Some(GenError::InputFailed)
+    );
 }

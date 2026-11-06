@@ -890,6 +890,34 @@
       "build": "simd128",
       "case": "topk-e-3",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-pad-after-one-finite-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-pad-after-one-finite",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-pad-after-one-finite-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-pad-after-one-finite",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-pad-after-one-finite-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-pad-after-one-finite",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-pad-after-one-finite-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-pad-after-one-finite",
+      "reference_source": "native-scalar"
     }
   ]
 }

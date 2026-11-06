@@ -31,6 +31,7 @@ use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_top
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
 };
+use fandhe_silicon_core::parity::topk_inputs::PAD_POSITION_INPUTS;
 
 /// ケースの入力の出どころ。
 #[derive(Debug, Clone, Copy)]
@@ -669,6 +670,42 @@ pub fn build_topk_e3_cases() -> Result<Vec<TopkCase>, GenError> {
     TOPK_E3_CASES.iter().map(build_topk_e3_case).collect()
 }
 
+/// 番兵が出力に現れる部分 Top-k のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct TopkSentinelCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// core の `PAD_POSITION_INPUTS` の中の入力の名前。
+    pub input_name: &'static str,
+}
+
+/// 書き出す番兵が出る部分 Top-k の 1 ケース。有限のスコアが 1 件で k が 3 なので、出力の残り 2 件が番兵になる（TASK-2451 のポインタ）。
+pub const TOPK_SENTINEL_CASES: [TopkSentinelCaseSpec; 1] = [TopkSentinelCaseSpec {
+    name: "topk-pad-after-one-finite",
+    input_name: "pad_after_one_finite",
+}];
+
+/// 表の 1 行から、core の `PAD_POSITION_INPUTS` の入力をそのまま使って部分 Top-k の入力を作る。名前が無ければ `InputFailed`。
+pub fn build_topk_sentinel_case(spec: &TopkSentinelCaseSpec) -> Result<TopkCase, GenError> {
+    let input = PAD_POSITION_INPUTS
+        .iter()
+        .find(|i| i.name() == spec.input_name)
+        .ok_or(GenError::InputFailed)?;
+    Ok(TopkCase {
+        name: spec.name,
+        k: input.k(),
+        scores: input.scores().to_vec(),
+    })
+}
+
+/// 番兵が出る部分 Top-k の 1 ケースの入力を作る。
+pub fn build_topk_sentinel_cases() -> Result<Vec<TopkCase>, GenError> {
+    TOPK_SENTINEL_CASES
+        .iter()
+        .map(build_topk_sentinel_case)
+        .collect()
+}
+
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
 /// リトルエンディアンのバイト列にする。
 pub fn topk_record_bytes(records: &[(u32, f32)]) -> Vec<u8> {
@@ -967,7 +1004,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -994,6 +1031,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
         outputs.push(elementwise_special_case_output(spec)?);
     }
     for case in &build_topk_e3_cases()? {
+        outputs.push(topk_case_output(case)?);
+    }
+    for case in &build_topk_sentinel_cases()? {
         outputs.push(topk_case_output(case)?);
     }
 
