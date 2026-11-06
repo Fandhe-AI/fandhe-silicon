@@ -1746,3 +1746,55 @@ fn topk_sentinel_case_rejects_unknown_input_name() {
         Some(GenError::InputFailed)
     );
 }
+
+// ---- ネイティブの NEON の参照（spec TASK-995 のポインタ） ----
+
+/// aarch64 で `neon` が有効なビルド: GEMM の 3 ケースに `native-neon` の参照のファイルと 2 つの鍵が在る。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[test]
+fn native_neon_reference_is_written() {
+    let dir = TempDir::new("native-neon");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let files = manifest_values(&text, "native_neon_file");
+    let hashes = manifest_values(&text, "native_neon_sha256");
+    assert_eq!(files.len(), GEMM_CASES.len());
+    assert_eq!(hashes.len(), GEMM_CASES.len());
+    for (i, case) in build_cases().unwrap().iter().enumerate() {
+        assert_eq!(files[i], format!("{}.native-neon.bin", case.name));
+        let bytes = fs::read(dir.path().join(&files[i])).unwrap();
+        assert_eq!(bytes.len(), case.m * case.n * 4);
+        assert_eq!(hashes[i], hex(&sha256_bytes(&bytes)));
+        let mut expected = vec![0.0f32; case.m * case.n];
+        DefaultCpuOps
+            .gemm_simd(&case.a, &case.b, case.m, case.k, case.n, &mut expected)
+            .unwrap();
+        assert_eq!(bytes, f32_le_bytes(&expected), "{}", case.name);
+        let scalar = fs::read(dir.path().join(format!("{}.native-scalar.bin", case.name))).unwrap();
+        assert_ne!(bytes, scalar, "{}", case.name);
+    }
+}
+
+/// それ以外のビルド: 2 つの鍵も `.native-neon.bin` のファイルも書かない。
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+#[test]
+fn native_neon_reference_is_absent() {
+    let dir = TempDir::new("native-neon-absent");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    assert!(!text.contains("native_neon"));
+    assert!(fs::read_dir(dir.path()).unwrap().all(|e| {
+        !e.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("native-neon")
+    }));
+}
+
+#[test]
+fn native_neon_error_text() {
+    assert_eq!(
+        GenError::NativeNeonFailed.to_string(),
+        "error: native gemm_simd failed"
+    );
+}
