@@ -1,7 +1,7 @@
-//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力と、
+//! GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケースの入力と、
 //! host の `DefaultCpuOps::gemm_scalar`・`topk_partial_scalar`・`elementwise_scalar` の出力、特殊値の GEMM の CPU 参照をファイルに書く
 //! host 側の道具（spec TASK-994・PARITY-20・TASK-996・TASK-997・TASK-2451 のポインタ）。
-//! 特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の 1 ケースは spec TASK-999 のポインタ。
+//! 特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の 1 ケースは spec TASK-999 のポインタ。番兵が出る部分 Top-k の 1 ケースは spec TASK-2451 のポインタ。
 //!
 //! 別 workspace `wasm/` の member。`scripts/wasm-node-check.sh` が Node で glue の出力と比べるときに読むファイルを、
 //! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`・
@@ -10,13 +10,14 @@
 //! 書くファイルは GEMM の 3 ケースそれぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
-//! 要素ごと演算の 2 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
+//! 要素ごと演算の 3 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
 //! -0.0 を含む部分 Top-k の 5 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 特殊値の GEMM の 14 ケース（core の `CaseId::G01`〜`G13`・`E1`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・
 //! `.cpu-reference.bin`（f32 のリトルエンディアン。最後は core の CPU 参照）と、
 //! 特殊値の要素ごと演算の 2 ケース（core の `CaseId::E2` の入力）それぞれの `.input.bin`・`.native-scalar.bin`・`.cpu-reference.bin`
 //! （f32 のリトルエンディアン。最後は `Relu` が core の CPU 参照、`AddScalar` が入力に定数を足した式の列）と、
 //! `topk-e-3`（core の `CaseId::E3` の入力）の `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
+//! `topk-pad-after-one-finite`（core の `PAD_POSITION_INPUTS` の入力）の `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -31,6 +32,7 @@ use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_top
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
 };
+use fandhe_silicon_core::parity::topk_inputs::PAD_POSITION_INPUTS;
 
 /// ケースの入力の出どころ。
 #[derive(Debug, Clone, Copy)]
@@ -479,8 +481,10 @@ pub struct ElementwiseCaseSpec {
     pub c_bits: u32,
 }
 
-/// 書き出す要素ごと演算の 2 ケース（spec PARITY-23 のポインタ）。
-pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 2] = [
+/// 書き出す要素ごと演算の 3 ケース（spec PARITY-23 のポインタ）。
+///
+/// 3 つ目は 0.5 以外の定数（f32 で丸めが起きる 0.1）の `AddScalar`。定数が 0.5 に固定された誤りを値の比べで拾う（TASK-997 のポインタ）。
+pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 3] = [
     ElementwiseCaseSpec {
         name: "elementwise-relu",
         op: UnaryElementwiseOp::Relu,
@@ -492,6 +496,12 @@ pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 2] = [
         op: UnaryElementwiseOp::AddScalar(0.5),
         op_code: 1,
         c_bits: 0.5_f32.to_bits(),
+    },
+    ElementwiseCaseSpec {
+        name: "elementwise-add-scalar-c-0-1",
+        op: UnaryElementwiseOp::AddScalar(0.1),
+        op_code: 1,
+        c_bits: 0x3dcc_cccd,
     },
 ];
 
@@ -532,7 +542,7 @@ pub fn build_elementwise_case(spec: &ElementwiseCaseSpec) -> ElementwiseCase {
     }
 }
 
-/// 要素ごと演算の 2 ケースの入力を作る。
+/// 要素ごと演算の 3 ケースの入力を作る。
 pub fn build_elementwise_cases() -> Result<Vec<ElementwiseCase>, GenError> {
     Ok(ELEMENTWISE_CASES
         .iter()
@@ -659,6 +669,42 @@ pub fn build_topk_e3_case(spec: &TopkE3CaseSpec) -> Result<TopkCase, GenError> {
 /// `topk-e-3` の 1 ケースの入力を作る。
 pub fn build_topk_e3_cases() -> Result<Vec<TopkCase>, GenError> {
     TOPK_E3_CASES.iter().map(build_topk_e3_case).collect()
+}
+
+/// 番兵が出力に現れる部分 Top-k のケースの表の 1 行。
+#[derive(Debug, Clone, Copy)]
+pub struct TopkSentinelCaseSpec {
+    /// ファイル名の前半になるケース名（`[a-z0-9.-]` だけ）。
+    pub name: &'static str,
+    /// core の `PAD_POSITION_INPUTS` の中の入力の名前。
+    pub input_name: &'static str,
+}
+
+/// 書き出す番兵が出る部分 Top-k の 1 ケース。有限のスコアが 1 件で k が 3 なので、出力の残り 2 件が番兵になる（TASK-2451 のポインタ）。
+pub const TOPK_SENTINEL_CASES: [TopkSentinelCaseSpec; 1] = [TopkSentinelCaseSpec {
+    name: "topk-pad-after-one-finite",
+    input_name: "pad_after_one_finite",
+}];
+
+/// 表の 1 行から、core の `PAD_POSITION_INPUTS` の入力をそのまま使って部分 Top-k の入力を作る。名前が無ければ `InputFailed`。
+pub fn build_topk_sentinel_case(spec: &TopkSentinelCaseSpec) -> Result<TopkCase, GenError> {
+    let input = PAD_POSITION_INPUTS
+        .iter()
+        .find(|i| i.name() == spec.input_name)
+        .ok_or(GenError::InputFailed)?;
+    Ok(TopkCase {
+        name: spec.name,
+        k: input.k(),
+        scores: input.scores().to_vec(),
+    })
+}
+
+/// 番兵が出る部分 Top-k の 1 ケースの入力を作る。
+pub fn build_topk_sentinel_cases() -> Result<Vec<TopkCase>, GenError> {
+    TOPK_SENTINEL_CASES
+        .iter()
+        .map(build_topk_sentinel_case)
+        .collect()
 }
 
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
@@ -959,7 +1005,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 2 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` の入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 5 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -986,6 +1032,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
         outputs.push(elementwise_special_case_output(spec)?);
     }
     for case in &build_topk_e3_cases()? {
+        outputs.push(topk_case_output(case)?);
+    }
+    for case in &build_topk_sentinel_cases()? {
         outputs.push(topk_case_output(case)?);
     }
 
