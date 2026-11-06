@@ -500,24 +500,24 @@ print(len(rows))' "${cf}" "${FAKE_RESULTS}" "${fix}/rowmap-${name}")"
   expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
 }
 bundled_check bundled "${CASES_REAL}"
-# 実物の生成の行（export が gemm_ で始まる行）は 3 ケース × 4 組の 12 行にちょうど等しい（ほかの種類の行は数えない）
-check "22 bundled generated rows are exactly 3 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)" "$(python3 -I -c 'import json,sys
+# 実物の生成の行（export が gemm_ で始まる行）は 17 ケース × 4 組の 68 行にちょうど等しい（ほかの種類の行は数えない）（TASK-999）
+check "22 bundled generated rows are exactly 17 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("gemm_")]
-want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
+want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53", "special-gemm-g-01", "special-gemm-g-02", "special-gemm-g-03", "special-gemm-g-04", "special-gemm-g-05", "special-gemm-g-06", "special-gemm-g-07", "special-gemm-g-08", "special-gemm-g-09", "special-gemm-g-10", "special-gemm-g-11", "special-gemm-g-12", "special-gemm-g-13", "special-gemm-e-1") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-# 実物の部分 Top-k の行（export が topk_ で始まる行）は 30 組にちょうど等しい（TASK-996・TASK-2451）
-check "22 bundled topk rows are exactly the thirty (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+# 実物の部分 Top-k の行（export が topk_ で始まる行）は 34 組にちょうど等しい（TASK-996・TASK-2451・TASK-999）
+check "22 bundled topk rows are exactly the thirty-four (case, export, build) pairs" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("topk_")]
 four = [("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_scalar", "simd128"), ("topk_simd", "simd128")]
-want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties", "topk-e-4", "topk-signed-zero-adjacent", "topk-signed-zero-separated", "topk-signed-zero-cut-at-k", "topk-signed-zero-repeated") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
+want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties", "topk-e-4", "topk-signed-zero-adjacent", "topk-signed-zero-separated", "topk-signed-zero-cut-at-k", "topk-signed-zero-repeated", "topk-e-3") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-# 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 8 組にちょうど等しい（TASK-997）
-check "22 bundled elementwise rows are exactly the eight (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+# 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 16 組にちょうど等しい（TASK-997・TASK-999）
+check "22 bundled elementwise rows are exactly the sixteen (case, export, build) pairs" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("elementwise_")]
 four = [("elementwise_scalar", "scalar"), ("elementwise_simd", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "simd128")]
-want = sorted((c, e, b) for c in ("elementwise-relu", "elementwise-add-scalar") for e, b in four)
+want = sorted((c, e, b) for c in ("elementwise-relu", "elementwise-add-scalar", "special-elementwise-relu-e-2", "special-elementwise-add-scalar-e-2") for e, b in four)
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 check "22 every bundled row has a reference source of fixed or native-scalar" "$(python3 -I -c 'import json,sys
