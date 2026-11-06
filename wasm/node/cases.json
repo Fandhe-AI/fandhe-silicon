@@ -246,6 +246,146 @@
       "build": "simd128",
       "case": "gemm-37x41x53",
       "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-4-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-e-4",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-4-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-e-4",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-4-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-e-4",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-e-4-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-e-4",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-adjacent-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-signed-zero-adjacent",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-adjacent-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-signed-zero-adjacent",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-adjacent-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-signed-zero-adjacent",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-adjacent-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-signed-zero-adjacent",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-separated-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-signed-zero-separated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-separated-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-signed-zero-separated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-separated-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-signed-zero-separated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-separated-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-signed-zero-separated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-cut-at-k-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-signed-zero-cut-at-k",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-cut-at-k-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-signed-zero-cut-at-k",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-cut-at-k-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-signed-zero-cut-at-k",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-cut-at-k-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-signed-zero-cut-at-k",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-repeated-scalar-topk-scalar",
+      "export": "topk_scalar",
+      "build": "scalar",
+      "case": "topk-signed-zero-repeated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-repeated-scalar-topk-simd",
+      "export": "topk_simd",
+      "build": "scalar",
+      "case": "topk-signed-zero-repeated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-repeated-simd128-topk-scalar",
+      "export": "topk_scalar",
+      "build": "simd128",
+      "case": "topk-signed-zero-repeated",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "topk-signed-zero-repeated-simd128-topk-simd",
+      "export": "topk_simd",
+      "build": "simd128",
+      "case": "topk-signed-zero-repeated",
+      "reference_source": "native-scalar"
     }
   ]
 }
