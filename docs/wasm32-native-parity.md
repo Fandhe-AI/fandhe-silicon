@@ -2812,3 +2812,41 @@ $ grep -rn unsafe wasm/crates/parity-host
 | `not-run` の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json` | `5` |
 | 回帰テスト | `make test-wasm-node-check 2>&1 \| tail -n 1` | `passed: 683, failed: 0` |
 | host の道具の試験（ビルドの種類ごとに `native_neon_reference_is_written`・`native_neon_reference_is_absent` のどちらかが流れる） | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` | 全部 ok |
+
+## 要素ごと演算のネイティブの NEON の比べ（5/5）
+
+`wasm-parity-host gen` が要素ごと演算にも `native-neon` の参照を書き、`scripts/wasm-node-check.sh` がその参照を native-scalar の参照と語ごとのビットで直に比べて `neon-count:` の行を出す（TASK-997）。
+
+### host が書く条件
+
+- `target_arch = "aarch64"` かつ `target_feature = "neon"` のビルドでだけ、要素ごと演算の 3 ケースの `DefaultCpuOps::elementwise_simd` の出力を `<ケース>.native-neon.bin`（f32 のリトルエンディアン）に書き、`manifest.json` の該当ケースに `native_neon_file`・`native_neon_sha256` を足す。鍵の並びは GEMM と同じ（`native_scalar_file` の次と、最後）。
+- それ以外のビルドでは 2 つの鍵も `.native-neon.bin` も書かない。manifest のバイト列は鍵を足す前と同じ。
+- 特殊値の要素ごと演算（`ELEMENTWISE_SPECIAL_CASES`）には足さない。
+
+### 判定
+
+- `KINDS` の `elementwise` の欄 `optional` が 2 つの鍵を持つ。片方だけ・`elementwise-special` などほかの種類に在る場合は `manifest case has missing or unknown keys` で終了コード 2。在るときの照らし（ファイル名・通常のファイル・sha256・長さ `n*4`）は必須の鍵と同じ。
+- 欄 `neon_bits` が真の種類（`elementwise` だけ）の `native-neon` の生成の行は、wasm の出力を `native_neon_file` と完全一致で比べるのに加え、`native_neon_file` と `native_scalar_file` を 4 バイトの語ごとにバイト列で比べ、`neon-count: <行> mismatches=<件数> n=<語数>` の行を出す（`count:` の次）。float に直さないので `+0.0` と `-0.0`、NaN の payload の違いも 1 語に数える。
+- 不一致の語が 1 語以上なら行は `mismatch`、`row:` の detail は `native-neon mismatches <件数>/<n>`（`mismatches <件数>/<n>` より先）。語数の違い・呼び出しの失敗の行には出さない。数え直し（`--recount`）には出さない。
+- `sha256: <ケース>.native-neon <hex>` の行を 1 ケースに 1 行出す。`simd_sum_order_differs` は `gemm` だけが持てるので、`native-neon equals native-scalar` は要素ごと演算には出ない。
+
+### 3 行の表
+
+`wasm/node/cases.json` に在る（`wasm/node/cases-reference-unavailable.json` からは外した）。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `elementwise-relu-native-neon` | `scalar` | `elementwise_simd` | `elementwise-relu` | `native-neon` |
+| `elementwise-add-scalar-native-neon` | `scalar` | `elementwise_simd` | `elementwise-add-scalar` | `native-neon` |
+| `elementwise-add-scalar-c-0-1-native-neon` | `scalar` | `elementwise_simd` | `elementwise-add-scalar-c-0-1` | `native-neon` |
+
+前の節の記述との差の今の値は、`optional` の鍵を受ける種類が `gemm` と `elementwise` の 2 つ、既定の入力の `native-neon` の行が 6、`not-run` の入力の `native-neon` の行が 3。
+
+#### 確かめ方
+
+| 確かめること | コマンド | 値 |
+| ------------ | -------- | -- |
+| 既定の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases.json` | `6` |
+| `not-run` の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json` | `3` |
+| 回帰テスト | `make test-wasm-node-check 2>&1 \| tail -n 1` | `passed: 702, failed: 0` |
+| host の道具の試験（ビルドの種類ごとに `native_neon_reference_is_written`・`native_neon_elementwise_reference_is_written` か `native_neon_reference_is_absent` が流れる） | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` | 全部 ok |

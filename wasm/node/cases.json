@@ -967,6 +967,27 @@
       "build": "simd128",
       "case": "gemm-37x41x53",
       "reference_source": "native-neon"
+    },
+    {
+      "id": "elementwise-relu-native-neon",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-relu",
+      "reference_source": "native-neon"
+    },
+    {
+      "id": "elementwise-add-scalar-native-neon",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-add-scalar",
+      "reference_source": "native-neon"
+    },
+    {
+      "id": "elementwise-add-scalar-c-0-1-native-neon",
+      "export": "elementwise_simd",
+      "build": "scalar",
+      "case": "elementwise-add-scalar-c-0-1",
+      "reference_source": "native-neon"
     }
   ],
   "cases": [

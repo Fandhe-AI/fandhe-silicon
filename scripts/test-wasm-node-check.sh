@@ -555,16 +555,17 @@ got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 20 組にちょうど等しい（TASK-997・TASK-999）
 check "22 bundled elementwise rows are exactly the twenty (case, export, build) pairs" "$(python3 -I -c 'import json,sys
-rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("elementwise_")]
+rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("elementwise_") and r.get("reference_source") == "native-scalar"]
 four = [("elementwise_scalar", "scalar"), ("elementwise_simd", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "simd128")]
 want = sorted((c, e, b) for c in ("elementwise-relu", "elementwise-add-scalar", "elementwise-add-scalar-c-0-1", "special-elementwise-relu-e-2", "special-elementwise-add-scalar-e-2") for e, b in four)
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-check "22 bundled native-neon rows are exactly the three gemm_simd simd128 rows" "$(python3 -I -c 'import json,sys
+check "22 bundled native-neon rows are exactly the three gemm_simd simd128 rows and the three elementwise_simd scalar rows" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if r.get("reference_source") == "native-neon"]
 want = [{"id": c + "-native-neon", "export": "gemm_simd", "build": "simd128", "case": c, "reference_source": "native-neon"} for c in ("gemm-64", "gemm-256", "gemm-37x41x53")]
+want += [{"id": c + "-native-neon", "export": "elementwise_simd", "build": "scalar", "case": c, "reference_source": "native-neon"} for c in ("elementwise-relu", "elementwise-add-scalar", "elementwise-add-scalar-c-0-1")]
 sys.exit(0 if rows == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-check "22 every bundled row has a reference source of fixed or native-scalar, except the three native-neon rows" "$(python3 -I -c 'import json,sys
+check "22 every bundled row has a reference source of fixed or native-scalar, except the six native-neon rows" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
 sys.exit(0 if rows and all(r.get("reference_source") in ("fixed", "native-scalar", "native-neon") for r in rows) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 check "22 every bundled fixed row has a reference, every generated row has the exact five keys" "$(python3 -I -c 'import json,sys
@@ -2039,21 +2040,21 @@ rm -rf "${work}/mut"
 reset_gen
 res_ok
 
-# 77. 実物の cases-reference-unavailable.json は 5 行とも not-run (reference-unavailable)（TASK-996・TASK-997・TASK-995）
+# 77. 実物の cases-reference-unavailable.json は 3 行とも not-run (reference-unavailable)（TASK-996・TASK-997・TASK-995）
 python3 -I - "${CASES_UNAVAILABLE_REAL}" "${FAKE_RESULTS}" "${fix}/rowmap-77" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))["rows"]
 open(sys.argv[2], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
 open(sys.argv[3], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
 PY
-mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite elementwise-relu elementwise-add-scalar
+mk_host_fixture "${fix}/hf-77" topk-batch topk-ties topk-nonfinite
 export FAKE_HOST_FIXTURE="${fix}/hf-77" FAKE_ROW_MAP="${fix}/rowmap-77"
 w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${CASES_UNAVAILABLE_REAL}"
 reset_gen
-expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "row: elementwise-relu-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-native-neon not-run (reference-unavailable)" "summary: rows=5 match=0 mismatch=0 not-run=5" "!count:" "!t1:" "!recount:" "!recount-summary:" "!nonfinite:" "!input-special:" "!sha256:"
-check "77 the file has five rows, all native-neon" "$(python3 -I -c 'import json,sys
+expect "77 reference-unavailable rows" 1 "row: topk-batch-native-neon not-run (reference-unavailable)" "row: topk-ties-native-neon not-run (reference-unavailable)" "row: topk-nonfinite-native-neon not-run (reference-unavailable)" "summary: rows=3 match=0 mismatch=0 not-run=3" "!count:" "!t1:" "!recount:" "!recount-summary:" "!nonfinite:" "!input-special:" "!sha256:"
+check "77 the file has three rows, all native-neon" "$(python3 -I -c 'import json,sys
 rows = json.load(open(sys.argv[1]))["rows"]
-sys.exit(0 if len(rows) == 5 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
+sys.exit(0 if len(rows) == 3 and all(r.get("reference_source") == "native-neon" for r in rows) else 1)' "${CASES_UNAVAILABLE_REAL}" && echo 0 || echo 1)"
 res_ok
 
 # ---- 要素ごと演算の種類（TASK-997 の 1/4） ----
@@ -3140,10 +3141,10 @@ open(sys.argv[3], "w").write("".join(json.dumps({"id": r["id"], "output_file": r
 open(sys.argv[4], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
 PY
 rm -rf "${fix}/hf114"
-mk_host_fixture "${fix}/hf114" gemm-64 gemm-256 gemm-37x41x53
+mk_host_fixture "${fix}/hf114" gemm-64 gemm-256 gemm-37x41x53 elementwise-relu elementwise-add-scalar elementwise-add-scalar-c-0-1
 export FAKE_HOST_FIXTURE="${fix}/hf114" FAKE_ROW_MAP="${fix}/n3-rowmap"
 gw --cases "${fix}/n3rows.json"
-expect "114 the three bundled native-neon rows are not-run against a host output without the keys" 1 "row: gemm-64-native-neon not-run (reference-unavailable)" "row: gemm-256-native-neon not-run (reference-unavailable)" "row: gemm-37x41x53-native-neon not-run (reference-unavailable)" "summary: rows=3 match=0 mismatch=0 not-run=3"
+expect "114 the six bundled native-neon rows are not-run against a host output without the keys" 1 "row: gemm-64-native-neon not-run (reference-unavailable)" "row: gemm-256-native-neon not-run (reference-unavailable)" "row: gemm-37x41x53-native-neon not-run (reference-unavailable)" "row: elementwise-relu-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-native-neon not-run (reference-unavailable)" "row: elementwise-add-scalar-c-0-1-native-neon not-run (reference-unavailable)" "summary: rows=6 match=0 mismatch=0 not-run=6" "!neon-count:"
 reset_gen
 res_ok
 
@@ -3280,6 +3281,212 @@ printf '%s\n' '{"id":"n-neon","error":"call failed"}' >"${FAKE_RESULTS}"
 gw --cases "${fix}/n1.json"
 expect "119 a call error is a mismatch" 1 "row: n-neon mismatch (call error)"
 reset_gen
+res_ok
+
+# ---- 要素ごと演算のネイティブの参照の行（TASK-997 の 5/5） ----
+cat >"${fix}/en1.json" <<'JSON'
+{"rows": [
+  {"id": "en-neon", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-a", "reference_source": "native-neon"}
+]}
+JSON
+cat >"${fix}/en2.json" <<'JSON'
+{"rows": [
+  {"id": "en-scalar", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-a", "reference_source": "native-scalar"},
+  {"id": "en-neon", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-a", "reference_source": "native-neon"}
+]}
+JSON
+cat >"${fix}/en1-expect.json" <<'JSON'
+{"rows": [
+  {"id": "en-neon", "export": "elementwise_simd", "build": "scalar", "case": "elementwise-a", "reference_source": "native-neon"}
+], "cases": [
+  {"name": "elementwise-a", "kind": "elementwise", "dims": {"n": 5}}
+]}
+JSON
+# en_setup <行の入力> [add_neon_ref の引数（添字=語）...|none]: elementwise-a の host 側の道具の出力に native-neon の参照を足し、全行の結果を用意する。
+en_setup() {
+  local rows="$1"
+  shift
+  rm -rf "${fix}/hf" "${fix}/outs"
+  mk_host_fixture "${fix}/hf" elementwise-a
+  python3 -I - "${rows}" "${fix}/gen-rowmap" "${FAKE_RESULTS}" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))["rows"]
+open(sys.argv[2], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
+open(sys.argv[3], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
+PY
+  export FAKE_HOST_FIXTURE="${fix}/hf" FAKE_ROW_MAP="${fix}/gen-rowmap"
+  if [ "${1:-}" != "none" ]; then
+    add_neon_ref "${fix}/hf" elementwise-a "$@"
+  fi
+}
+# en_out <出力のファイル> <neon|scalar> [添字=語...|short]: 参照の写し（neon か scalar）の語を置き換えた出力を ${fix}/outs に書く。
+en_out() {
+  mkdir -p "${fix}/outs"
+  python3 -I - "${fix}/hf/elementwise-a.native-$2.bin" "${fix}/outs/$1" "${@:3}" <<'PY'
+import sys
+b = bytearray(open(sys.argv[1], "rb").read())
+for a in sys.argv[3:]:
+    if a == "short":
+        b = b[:-4]
+    else:
+        i, v = a.split("=")
+        b[int(i) * 4:int(i) * 4 + 4] = int(v, 16).to_bytes(4, "little")
+open(sys.argv[2], "wb").write(bytes(b))
+PY
+}
+EN_SAVED_NAMES="en-scalar.bin elementwise-a.input.bin elementwise-a.native-scalar.bin elementwise-a.native-neon.bin manifest.json outputs.json"
+
+# 120. 参照が scalar の参照と語ごとのビットで同じ: 一致、neon-count は 0
+en_setup "${fix}/en1.json"
+en_out en-neon.bin neon
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/en1.json"
+expect "120 an elementwise native-neon row equal to the native-scalar reference matches" 0 "row: en-neon match" "count: en-neon mismatches=0 n=5" "neon-count: en-neon mismatches=0 n=5" "sha256: en-neon " "sha256: elementwise-a.native-neon " "summary: rows=1 match=1 mismatch=0 not-run=0" "!t1:" "!recount-summary:"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 121. 参照が scalar の参照と 1 語違う: 出力が参照の写しでも scalar の写しでも mismatch（neon-count が 1）
+for base in neon scalar; do
+  en_setup "${fix}/en1.json" 1=3f800000
+  en_out en-neon.bin "${base}"
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/en1.json"
+  expect "121 a native-neon reference that differs from native-scalar in one word is a mismatch (output copy of ${base})" 1 "row: en-neon mismatch (native-neon mismatches 1/5)" "neon-count: en-neon mismatches=1 n=5" "summary: rows=1 match=0 mismatch=1 not-run=0"
+  reset_gen
+  rm -rf "${fix}/outs"
+done
+
+# 122. +0 と -0、NaN の payload だけの違いも 1 語として数える
+for sub in 1=80000000 2=7fc00002; do
+  en_setup "${fix}/en1.json" "${sub}"
+  en_out en-neon.bin neon
+  export FAKE_OUTPUTS="${fix}/outs"
+  gw --cases "${fix}/en1.json"
+  expect "122 a bit-only difference (${sub}) is counted" 1 "row: en-neon mismatch (native-neon mismatches 1/5)" "neon-count: en-neon mismatches=1 n=5"
+  reset_gen
+  rm -rf "${fix}/outs"
+done
+
+# 123. 参照は scalar と同じで、出力だけ 1 語違う（1 ULP）: 完全一致なので mismatch、neon-count は 0
+en_setup "${fix}/en1.json"
+en_out en-neon.bin neon 4=3f000001
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/en1.json"
+expect "123 an output one ulp off the reference is an exact-compare mismatch" 1 "row: en-neon mismatch (mismatches 1/5)" "neon-count: en-neon mismatches=0 n=5" "!native-neon mismatches"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 124. 鍵が無い manifest は not-run
+en_setup "${fix}/en1.json" none
+gw --cases "${fix}/en1.json"
+expect "124 an elementwise manifest without the native-neon keys leaves the row not-run" 1 "row: en-neon not-run (reference-unavailable)" "summary: rows=1 match=0 mismatch=0 not-run=1" "!count:" "!neon-count:" "!sha256:"
+reset_gen
+
+# 125. manifest の不正は終了コード 2（片方の鍵だけ・長さ違い・sha256 違い・special の種類の鍵）
+for drop in native_neon_file native_neon_sha256; do
+  en_setup "${fix}/en1.json"
+  python3 -I - "${fix}/hf/manifest.json" "${drop}" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+del m["cases"][0][sys.argv[2]]
+json.dump(m, open(sys.argv[1], "w"))
+PY
+  gw --cases "${fix}/en1.json"
+  expect "125 only ${drop} present stops the run" 2 "error: manifest case has missing or unknown keys" "!row:" "!neon-count:"
+  reset_gen
+done
+en_setup "${fix}/en1.json"
+python3 -I - "${fix}/hf" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+fn = os.path.join(d, "elementwise-a.native-neon.bin")
+b = open(fn, "rb").read()[:16]
+open(fn, "wb").write(b)
+m = json.load(open(os.path.join(d, "manifest.json")))
+m["cases"][0]["native_neon_sha256"] = hashlib.sha256(b).hexdigest()
+json.dump(m, open(os.path.join(d, "manifest.json"), "w"))
+PY
+gw --cases "${fix}/en1.json"
+expect "125 a native-neon file of the wrong length stops the run" 2 "error: manifest file length mismatch" "!row:"
+reset_gen
+en_setup "${fix}/en1.json"
+python3 -I - "${fix}/hf/manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["cases"][0]["native_neon_sha256"] = "0" * 64
+json.dump(m, open(sys.argv[1], "w"))
+PY
+gw --cases "${fix}/en1.json"
+expect "125 a native-neon sha256 that differs from the file stops the run" 2 "error: manifest sha256 mismatch" "!row:"
+reset_gen
+cat >"${fix}/en-sp.json" <<'JSON'
+{"rows": [
+  {"id": "en-sp", "export": "elementwise_simd", "build": "scalar", "case": "special-elementwise-relu-x", "reference_source": "native-neon"}
+]}
+JSON
+rm -rf "${fix}/hf-sp"
+mk_host_fixture "${fix}/hf-sp" special-elementwise-relu-x
+python3 -I - "${fix}/hf-sp/manifest.json" "${fix}/en-sp.json" "${FAKE_RESULTS}" "${fix}/sp-rowmap" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+c = m["cases"][0]
+c["native_neon_file"] = c["native_scalar_file"]
+c["native_neon_sha256"] = c["native_scalar_sha256"]
+json.dump(m, open(sys.argv[1], "w"))
+rows = json.load(open(sys.argv[2]))["rows"]
+open(sys.argv[3], "w").write("".join(json.dumps({"id": r["id"], "output_file": r["id"] + ".bin"}) + "\n" for r in rows))
+open(sys.argv[4], "w").write("".join(r["id"] + " " + r["case"] + "\n" for r in rows))
+PY
+export FAKE_HOST_FIXTURE="${fix}/hf-sp" FAKE_ROW_MAP="${fix}/sp-rowmap"
+gw --cases "${fix}/en-sp.json"
+expect "125 the native-neon keys on an elementwise-special case stop the run" 2 "error: manifest case has missing or unknown keys" "!row:"
+reset_gen
+
+# 126. 保存の形: 参照のファイルは入り、native-neon の行の出力は入らない。数え直しに neon-count は出ない
+en_setup "${fix}/en2.json"
+en_out en-scalar.bin scalar
+en_out en-neon.bin neon
+export FAKE_OUTPUTS="${fix}/outs"
+newdir out126
+gw --cases "${fix}/en2.json" --output-dir "${work}/out126"
+expect "126 a mixed elementwise run matches and saves" 0 "row: en-scalar match" "row: en-neon match" "neon-count: en-neon mismatches=0 n=5" "summary: rows=2 match=2 mismatch=0 not-run=0" "recount-summary: rows=1 zero=1 nonzero=0 uncompared=0" "sha256: elementwise-a.native-neon "
+check "126 the saved form holds the reference file and no output of the native-neon row" "$(dir_names_ok "${work}/out126" "${EN_SAVED_NAMES}")"
+w --recount "${work}/out126"
+expect "126 the saved form is recounted without neon-count" 0 "recount: en-scalar mismatches=0 n=5" "sha256: elementwise-a.native-neon " "recount-summary: rows=1 zero=1 nonzero=0 uncompared=0" "!neon-count:" "!en-neon"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 127. 期待の入力の cases の欄つきでも、elementwise の参照が scalar と同じなら一致（native-neon equals native-scalar にならない）
+en_setup "${fix}/en1-expect.json"
+en_out en-neon.bin neon
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/en1-expect.json"
+expect "127 an elementwise native-neon reference equal to native-scalar matches with an expected case" 0 "row: en-neon match" "neon-count: en-neon mismatches=0 n=5" "!native-neon equals native-scalar"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 128. 語数の違い・呼び出しの失敗は neon-count を出さない
+en_setup "${fix}/en1.json"
+en_out en-neon.bin neon short
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/en1.json"
+expect "128 a short output is a length mismatch" 1 "row: en-neon mismatch (length expected 5 got 4)" "!neon-count:"
+reset_gen
+rm -rf "${fix}/outs"
+en_setup "${fix}/en1.json"
+printf '%s\n' '{"id":"en-neon","error":"call failed"}' >"${FAKE_RESULTS}"
+gw --cases "${fix}/en1.json"
+expect "128 a call error is a mismatch" 1 "row: en-neon mismatch (call error)" "!neon-count:"
+reset_gen
+
+# 129. gemm の native-neon の行は neon-count を出さない
+n_setup "${fix}/n1.json" 4=40000000
+t1_out n-neon.bin 4=40000000
+export FAKE_OUTPUTS="${fix}/outs"
+gw --cases "${fix}/n1.json"
+expect "129 a gemm native-neon row has no neon-count" 0 "row: n-neon match" "!neon-count:"
+reset_gen
+rm -rf "${fix}/outs"
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"
