@@ -3258,12 +3258,12 @@ rm -rf "${work}/mut"
 reset_gen
 rm -rf "${fix}/outs"
 
-# 118. 期待の入力があり、参照が scalar と違い、出力が参照とビットで同じ: 別の和の順を通らなかった行
+# 118. 期待の入力があり、参照が scalar と違い、出力が NEON の参照とビットで同じ: 正しい出力なので一致（flat の印は native-scalar の比べだけ）
 n_setup "${fix}/n1-expect.json" 4=3f800001
 t1_out n-neon.bin 4=3f800001
 export FAKE_OUTPUTS="${fix}/outs"
 gw --cases "${fix}/n1-expect.json"
-expect "118 an output identical to a differing reference is flagged as flat" 1 "row: n-neon mismatch (max-abs is zero" "summary: rows=1 match=0 mismatch=1 not-run=0"
+expect "118 an output identical to a differing native-neon reference matches" 0 "row: n-neon match" "summary: rows=1 match=1 mismatch=0 not-run=0"
 reset_gen
 rm -rf "${fix}/outs"
 

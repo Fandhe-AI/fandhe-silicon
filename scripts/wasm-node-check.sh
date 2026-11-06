@@ -954,7 +954,8 @@ def main():
                 else:
                     diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 cpu = cpu_count(cases[r["case"]], val)
-                flat = sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
+                # 別の和の順の確認は native-scalar の参照との比べに限る（NEON の参照と完全一致するのは正しい）。
+                flat = src == "native-scalar" and sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
                 same_ref = (
                     src == "native-neon"
                     and expect is not None
