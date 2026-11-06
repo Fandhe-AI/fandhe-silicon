@@ -1,6 +1,6 @@
 //! `cpu_ops` の `*_simd` の版の選び分けが、ビルド時の `cfg` だけで決まることを固定する試験（spec TASK-1351 のポインタ）。
 //!
-//! 見るのは次の 8 点。
+//! 見るのは次の 9 点。
 //! - (a) 実行時に CPU の機能を調べる字句（`is_*_feature_detected`・`std_detect`・`std::detect`）がどのファイルにも無い（コメントも数える）。
 //! - (b) `cpu_ops.rs` に、`simd128` が有効な形と無効な形の `#[cfg(...)]` の行がそれぞれ 1 件以上ある。
 //! - (c) `core::arch::wasm32`・`std::arch::wasm32` の字句は `cpu_ops/simd128.rs` の中だけにある。
@@ -10,6 +10,8 @@
 //! - (g) `mod neon;` の行がちょうど 1 行で、直前の属性が `neon` が有効な形の `#[cfg(...)]` と `unsafe_code` を許す属性の順で、
 //!   その属性は `cpu_ops.rs` に 1 件だけある（ほかのファイルには無い）。
 //! - (h) `gemm_simd_impl`・`elementwise_simd_impl` が 3 枝あり、`simd128`・`neon`・scalar の `cfg` がそれぞれの版を呼ぶ。
+//! - (i) `cpu_ops/neon.rs` の `elementwise_lanes` の 4 要素の `Relu` の腕が、比較のマスク（`vcgtq_f32` と `vandq_u32`）で書かれ、
+//!   `vmaxq_f32`・`vmaxnmq_f32`・`vcgeq_f32` を使わない（コメントの語は数えない）。
 //!
 //! 外部 crate もコマンドの起動も使わず、ソースの文字列だけを読む。
 //! 判定は純粋関数 `problems` に分け、実物を 1 か所だけ変えた入力を渡す陽性対照を常設する。
@@ -47,6 +49,11 @@ const SELECTORS: [(&str, &str); 2] = [
     ("fn gemm_simd_impl(", "gemm"),
     ("fn elementwise_simd_impl(", "elementwise"),
 ];
+
+/// 4 要素の `Relu` の腕が使う比較のマスクの組み込み関数。
+const RELU_MASK_WORDS: [&str; 2] = ["vcgtq_f32", "vandq_u32"];
+/// 4 要素の `Relu` の腕に置かない組み込み関数（NaN や -0.0 の扱いが比較のマスクと変わる）。
+const RELU_FORBIDDEN_WORDS: [&str; 3] = ["vmaxq_f32", "vmaxnmq_f32", "vcgeq_f32"];
 
 type Sources = Vec<(String, String)>;
 
@@ -165,6 +172,10 @@ fn neon_problems(sources: &Sources, out: &mut Vec<String>) {
             out.push(format!("(g) {name}: {n} `{ALLOW_UNSAFE}` line(s)"));
         }
     }
+    // (i)
+    if let Some(neon) = text_of(sources, NEON_FILE) {
+        relu_mask_problems(neon, out);
+    }
     // (h)
     for (head, op) in SELECTORS {
         let found = items(root, head);
@@ -189,7 +200,48 @@ fn neon_problems(sources: &Sources, out: &mut Vec<String>) {
     }
 }
 
-/// 問題の列を返す。先頭の `(a)`〜`(h)` が項目を表す。
+/// `elementwise_lanes` の 4 要素の `Relu` の腕（`Relu =>` の行から `AddScalar` の腕の手前まで）を
+/// 行末のコメントを除いて返す。`neon.rs` の外の同名の関数や端数の腕は見ない。
+fn relu_lane_arm(neon: &str) -> Result<String, String> {
+    let body = neon
+        .split_once("fn elementwise_lanes(")
+        .ok_or("no `fn elementwise_lanes(`")?
+        .1;
+    let (_, from) = body
+        .split_once("UnaryElementwiseOp::Relu =>")
+        .ok_or("no `Relu` arm in `elementwise_lanes`")?;
+    let (arm, _) = from
+        .split_once("UnaryElementwiseOp::AddScalar")
+        .ok_or("no `AddScalar` arm after the `Relu` arm")?;
+    let code: Vec<&str> = arm
+        .lines()
+        .map(|l| l.split_once("//").map_or(l, |(code, _)| code))
+        .collect();
+    Ok(code.join("\n"))
+}
+
+/// `(i)`: 4 要素の `Relu` の腕が比較のマスクで書かれていることの問題を積む。
+fn relu_mask_problems(neon: &str, out: &mut Vec<String>) {
+    let arm = match relu_lane_arm(neon) {
+        Ok(a) => a,
+        Err(e) => {
+            out.push(format!("(i) {NEON_FILE}: {e}"));
+            return;
+        }
+    };
+    for word in RELU_MASK_WORDS {
+        if !arm.contains(word) {
+            out.push(format!("(i) {NEON_FILE}: lane `Relu` arm lacks `{word}`"));
+        }
+    }
+    for word in RELU_FORBIDDEN_WORDS {
+        if arm.contains(word) {
+            out.push(format!("(i) {NEON_FILE}: lane `Relu` arm uses `{word}`"));
+        }
+    }
+}
+
+/// 問題の列を返す。先頭の `(a)`〜`(i)` が項目を表す。
 fn problems(sources: &Sources) -> Vec<String> {
     let mut out = Vec::new();
     // (a)
@@ -266,7 +318,7 @@ fn flagged(sources: &Sources, tag: &str) -> bool {
     problems(sources).iter().any(|p| p.starts_with(tag))
 }
 
-/// 実物のソースが 8 項目をすべて満たす（CPU-26 のポインタ）。
+/// 実物のソースが 9 項目をすべて満たす（CPU-26 のポインタ）。
 #[test]
 fn selection_is_by_build_cfg_only() {
     let p = problems(&real_sources());
@@ -416,4 +468,52 @@ fn positive_control_allow_outside_neon_mod() {
         )
     });
     assert!(flagged(&s, "(g)"));
+}
+
+/// `neon.rs` の 4 要素の `Relu` の腕のマスクの 2 行を `repl` に置き換えた入力を作る。
+fn with_relu_arm(repl: &str) -> Sources {
+    const MASK: &str = "let mask = vcgtq_f32(v, vdupq_n_f32(0.0));\n                vreinterpretq_f32_u32(vandq_u32(vreinterpretq_u32_f32(v), mask))";
+    with_file(&real_sources(), NEON_FILE, |t| {
+        assert!(t.contains(MASK), "mask lines not found in {NEON_FILE}");
+        changed(t, t.replacen(MASK, repl, 1))
+    })
+}
+
+#[test]
+fn positive_control_neon_relu_lane_by_scalar_relu() {
+    let s = with_relu_arm(
+        "let mut lanes = [0.0f32; 4];\n                for (l, &e) in lanes.iter_mut().zip(x) {\n                    *l = relu(e);\n                }\n                load(&lanes)",
+    );
+    let p = problems(&s);
+    assert!(p.iter().any(|m| m.contains("lacks `vcgtq_f32`")), "{p:#?}");
+    assert!(p.iter().any(|m| m.contains("lacks `vandq_u32`")), "{p:#?}");
+}
+
+#[test]
+fn positive_control_neon_relu_mask_uses_ge() {
+    let s = with_file(&real_sources(), NEON_FILE, |t| {
+        changed(
+            t,
+            t.replacen(
+                "let mask = vcgtq_f32(v, vdupq_n_f32(0.0));",
+                "let mask = vcgeq_f32(v, vdupq_n_f32(0.0));",
+                1,
+            ),
+        )
+    });
+    assert!(flagged(&s, "(i)"));
+}
+
+#[test]
+fn positive_control_neon_relu_by_max() {
+    let s = with_relu_arm("vmaxq_f32(v, vdupq_n_f32(0.0))");
+    assert!(flagged(&s, "(i)"));
+}
+
+#[test]
+fn positive_control_neon_relu_word_in_comment_does_not_count() {
+    // 腕の中のコメントにだけ必要な語があっても通らない。
+    let s = with_relu_arm("// vcgtq_f32 vandq_u32\n                vmaxq_f32(v, vdupq_n_f32(0.0))");
+    let p = problems(&s);
+    assert!(p.iter().any(|m| m.contains("lacks `vcgtq_f32`")), "{p:#?}");
 }
