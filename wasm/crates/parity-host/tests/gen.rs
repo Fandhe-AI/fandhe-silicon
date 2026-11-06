@@ -730,7 +730,8 @@ use wasm_parity_host::{
     build_signed_zero_cases,
 };
 
-/// 5 ケースの名前と、入力の出どころの名前（`None` は `CaseId::E4`）。表とは別に字句で持つ。
+/// `CaseId::E4` と追加の入力から作る 5 ケースの名前と、入力の出どころの名前（`None` は `CaseId::E4`）。表とは別に字句で持つ。
+/// `CaseId::E4` のスコアに別の k を組み合わせる 6 つ目は `SIGNED_ZERO_WIDE_K` で持つ。
 const SIGNED_ZERO_EXPECTED: [(&str, Option<&str>); 5] = [
     ("topk-e-4", None),
     ("topk-signed-zero-adjacent", Some("signed_zero_adjacent")),
@@ -738,6 +739,9 @@ const SIGNED_ZERO_EXPECTED: [(&str, Option<&str>); 5] = [
     ("topk-signed-zero-cut-at-k", Some("signed_zero_cut_at_k")),
     ("topk-signed-zero-repeated", Some("signed_zero_repeated")),
 ];
+
+/// `CaseId::E4` のスコアに組み合わせる k を変えたケースの名前と k。出力に -0.0 と +0.0 の両方が入る最小の k。
+const SIGNED_ZERO_WIDE_K: (&str, usize) = ("topk-e-4-k-13", 13);
 
 /// 出どころの名前から core の入力（スコア, k）を引く。
 fn core_signed_zero_input(source: Option<&str>) -> (Vec<f32>, usize) {
@@ -759,10 +763,17 @@ fn core_signed_zero_input(source: Option<&str>) -> (Vec<f32>, usize) {
 #[test]
 fn signed_zero_cases_match_core_inputs() {
     let names: Vec<&str> = SIGNED_ZERO_CASES.iter().map(|s| s.name).collect();
-    let want: Vec<&str> = SIGNED_ZERO_EXPECTED.iter().map(|(n, _)| *n).collect();
+    let mut want: Vec<&str> = SIGNED_ZERO_EXPECTED.iter().map(|(n, _)| *n).collect();
+    want.push(SIGNED_ZERO_WIDE_K.0);
     assert_eq!(names, want);
     let cases = build_signed_zero_cases().unwrap();
-    assert_eq!(cases.len(), SIGNED_ZERO_EXPECTED.len());
+    assert_eq!(cases.len(), SIGNED_ZERO_EXPECTED.len() + 1);
+    let wide = &cases[SIGNED_ZERO_EXPECTED.len()];
+    let (e4_scores, e4_k) = core_signed_zero_input(None);
+    assert_eq!(wide.name, SIGNED_ZERO_WIDE_K.0);
+    assert_eq!(bits(&wide.scores), bits(&e4_scores));
+    assert_eq!(wide.k, SIGNED_ZERO_WIDE_K.1);
+    assert_ne!(wide.k, e4_k);
     for (case, (name, source)) in cases.iter().zip(SIGNED_ZERO_EXPECTED) {
         let (scores, k) = core_signed_zero_input(source);
         assert_eq!(case.name, name);
@@ -843,6 +854,35 @@ fn signed_zero_native_differs_from_ieee_order() {
         assert_eq!(ieee.len(), native.len(), "{name}");
         assert_eq!(differing_records(&native, &ieee), want, "{name}");
     }
+}
+
+/// 出力の（スロット番号, スコアのビット列）の列。
+fn wide_k_expected() -> Vec<(u32, u32)> {
+    // 長さ 16 の入力は [NaN, +Inf, -Inf, -0.0, +0.0, 1.0 が 11 件]。有限の値の降順で、1.0 が 11 件（スロット 5〜15）、
+    // 続いて +0.0（スロット 4）、-0.0（スロット 3）。字句で置き、host の出力とは別に持つ。
+    let mut want: Vec<(u32, u32)> = (5..=15).map(|slot| (slot, 0x3f80_0000)).collect();
+    want.push((4, 0x0000_0000));
+    want.push((3, 0x8000_0000));
+    want
+}
+
+#[test]
+fn signed_zero_wide_k_output_holds_both_zeros() {
+    let dir = TempDir::new("sz-wide");
+    generate(dir.path()).unwrap();
+    let (name, k) = SIGNED_ZERO_WIDE_K;
+    let records = read_records(&dir.path().join(format!("{name}.native-scalar.bin")));
+    assert_eq!(records.len(), k);
+    assert_eq!(records, wide_k_expected());
+    let out_words: Vec<u32> = records.iter().map(|(_, b)| *b).collect();
+    assert!(out_words.contains(&0x8000_0000) && out_words.contains(&0x0000_0000));
+    // 同じスコアで k=8 の `topk-e-4` の出力には ±0 のどちらも入らない（この入力を足した理由）。
+    let base = read_records(&dir.path().join("topk-e-4.native-scalar.bin"));
+    assert_eq!(base.len(), 8);
+    assert!(
+        base.iter()
+            .all(|(_, b)| *b != 0x8000_0000 && *b != 0x0000_0000)
+    );
 }
 
 #[test]

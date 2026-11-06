@@ -519,11 +519,11 @@ rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "
 want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53", "special-gemm-g-01", "special-gemm-g-02", "special-gemm-g-03", "special-gemm-g-04", "special-gemm-g-05", "special-gemm-g-06", "special-gemm-g-07", "special-gemm-g-08", "special-gemm-g-09", "special-gemm-g-10", "special-gemm-g-11", "special-gemm-g-12", "special-gemm-g-13", "special-gemm-e-1") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-# 実物の部分 Top-k の行（export が topk_ で始まる行）は 38 組にちょうど等しい（TASK-996・TASK-2451・TASK-999）
-check "22 bundled topk rows are exactly the thirty-eight (case, export, build) pairs" "$(python3 -I -c 'import json,sys
+# 実物の部分 Top-k の行（export が topk_ で始まる行）は 42 組にちょうど等しい（TASK-996・TASK-2451・TASK-999）
+check "22 bundled topk rows are exactly the forty-two (case, export, build) pairs" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("topk_")]
 four = [("topk_scalar", "scalar"), ("topk_simd", "scalar"), ("topk_scalar", "simd128"), ("topk_simd", "simd128")]
-want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties", "topk-e-4", "topk-signed-zero-adjacent", "topk-signed-zero-separated", "topk-signed-zero-cut-at-k", "topk-signed-zero-repeated", "topk-e-3", "topk-pad-after-one-finite") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
+want = sorted([(c, e, b) for c in ("topk-batch", "topk-ties", "topk-e-4", "topk-signed-zero-adjacent", "topk-signed-zero-separated", "topk-signed-zero-cut-at-k", "topk-signed-zero-repeated", "topk-e-4-k-13", "topk-e-3", "topk-pad-after-one-finite") for e, b in four] + [("topk-nonfinite", "topk_scalar", "scalar"), ("topk-nonfinite", "topk_simd", "simd128")])
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の要素ごと演算の行（export が elementwise_ で始まる行）は 20 組にちょうど等しい（TASK-997・TASK-999）
