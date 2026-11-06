@@ -616,7 +616,10 @@ fn native_elementwise_matches_expression() {
         let got = read_f32(&dir.path().join(format!("{}.native-scalar.bin", spec.name)));
         let want: Vec<f32> = match spec.op_code {
             0 => case.input.iter().map(|x| x.max(0.0)).collect(),
-            1 => case.input.iter().map(|x| x + 0.5).collect(),
+            1 => {
+                let c = f32::from_bits(spec.c_bits);
+                case.input.iter().map(|x| x + c).collect()
+            }
             _ => panic!("unexpected op_code"),
         };
         assert!(bits(&got) == bits(&want), "{}", spec.name);
@@ -666,10 +669,10 @@ fn elementwise_manifest_entries_match_files() {
         "native_scalar_sha256",
     ];
     want.sort_unstable();
-    let wanted_op_codes = ["0", "1"];
-    let wanted_c_bits = ["00000000", "3f000000"];
+    let wanted_op_codes = ["0", "1", "1"];
+    let wanted_c_bits = ["00000000", "3f000000", "3dcccccd"];
     for (j, spec) in ELEMENTWISE_CASES.iter().enumerate() {
-        // GEMM の 3 要素・Top-k の 3 要素の後に要素ごと演算の 2 要素が並ぶ。
+        // GEMM の 3 要素・Top-k の 3 要素の後に要素ごと演算の 3 要素が並ぶ。
         let i = GEMM_CASES.len() + TOPK_CASES.len() + j;
         let case = elementwise_case(spec.name);
         let mut got: Vec<&str> = keys[i].iter().map(String::as_str).collect();
@@ -1608,7 +1611,7 @@ fn elementwise_tables_op_matches_op_code_and_c_bits() {
                 .map(|s| (s.name, s.op, s.op_code, s.c_bits)),
         )
         .collect();
-    assert_eq!(rows.len(), 4);
+    assert_eq!(rows.len(), 5);
     for (name, op, op_code, c_bits) in &rows {
         assert_eq!(expected_op_fields(*op), (*op_code, *c_bits), "{name}");
     }

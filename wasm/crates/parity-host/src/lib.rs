@@ -479,8 +479,10 @@ pub struct ElementwiseCaseSpec {
     pub c_bits: u32,
 }
 
-/// 書き出す要素ごと演算の 2 ケース（spec PARITY-23 のポインタ）。
-pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 2] = [
+/// 書き出す要素ごと演算の 3 ケース（spec PARITY-23 のポインタ）。
+///
+/// 3 つ目は 0.5 以外の定数（f32 で丸めが起きる 0.1）の `AddScalar`。定数が 0.5 に固定された誤りを値の比べで拾う（TASK-997 のポインタ）。
+pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 3] = [
     ElementwiseCaseSpec {
         name: "elementwise-relu",
         op: UnaryElementwiseOp::Relu,
@@ -492,6 +494,12 @@ pub const ELEMENTWISE_CASES: [ElementwiseCaseSpec; 2] = [
         op: UnaryElementwiseOp::AddScalar(0.5),
         op_code: 1,
         c_bits: 0.5_f32.to_bits(),
+    },
+    ElementwiseCaseSpec {
+        name: "elementwise-add-scalar-c-0-1",
+        op: UnaryElementwiseOp::AddScalar(0.1),
+        op_code: 1,
+        c_bits: 0x3dcc_cccd,
     },
 ];
 
@@ -532,7 +540,7 @@ pub fn build_elementwise_case(spec: &ElementwiseCaseSpec) -> ElementwiseCase {
     }
 }
 
-/// 要素ごと演算の 2 ケースの入力を作る。
+/// 要素ごと演算の 3 ケースの入力を作る。
 pub fn build_elementwise_cases() -> Result<Vec<ElementwiseCase>, GenError> {
     Ok(ELEMENTWISE_CASES
         .iter()
