@@ -577,3 +577,16 @@ $ git diff --stat fbbd70d..ff59ff0 -- deps-approved.toml wasm/deps-approved.toml
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | `:241` の `make wasm-build-check` の `cfg:` の行 | `sites=5 label=match` → `sites=6 label=match` | `scripts/wasm-build-check.sh --cfg-only` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42255828793 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 型と scalar 版（1/5）の `Relu` の式（`:24`） | `x.max(0.0)` → `if x > 0.0 { x } else { 0.0 }`（`:406` の節のとおり） | `grep -n 'x > 0.0' crates/contract/src/cpu_ops/*.rs` |
+| 「今の値の補い（base 25d8dc2）」の `cpu_ops_reference` の本数（`:352`・`:353`・`:364`） | 8 本 → Linux x86_64 で 13 本。aarch64 で `neon` が有効なビルドは 14 本（「完了の条件の確かめ（12/12）」の (1)・(2)） | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` |
+| 同じ節の `elementwise_add_scalar_other_constants` の行（`:364`） | 277 行目 → 330 行目 | `grep -n 'fn elementwise_add_scalar_other_constants' crates/contract/tests/cpu_ops_reference.rs` |
+| 同じ節の `cpu_ops_build_selection` の本数（`:368`） | 7 本 → 17 本（走査の項目 (i) と陽性対照 4 本が増えた） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
+| 11/12 の試験の表と観測した件数（`:433`・`:446`） | `(e)〜(h) と陽性対照 6 本` → `(e)〜(i) と陽性対照 10 本`、`cpu_ops_build_selection` 13 passed → 17 passed | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
+| 完了の条件の確かめ（12/12）の `summary:` の行（`:541`） | `rows=135` → `summary: rows=141 match=141 mismatch=0 not-run=0` | CI のログの `summary:` の行 |

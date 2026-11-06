@@ -390,3 +390,12 @@ $ git grep -n unsafe 9cd7da5 -- wasm/crates/parity-host/src/lib.rs crates/contra
 | run の記録の `summary:`（`:257`） | `rows=55 match=55 mismatch=0 not-run=0` → `rows=123`（今の `cases.json` の行数。`cases.json` は 123 行） | `jq '.rows \| length' wasm/node/cases.json` |
 | run の記録の `recount-summary:`（`:293`） | `rows=50 zero=50 nonzero=0 uncompared=0` → `rows=118` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
 | run の記録の項目 22（`:356`） | `the thirty (case, export, build) pairs` → `the thirty-four (case, export, build) pairs` | `grep -n 'bundled topk rows' scripts/test-wasm-node-check.sh` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42255828793 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 0f8b01c）」の `summary:`（`:390`） | `rows=123` → `summary: rows=141 match=141 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
+| 「今の値の補い（base 0f8b01c）」の `recount-summary:`（`:391`） | `rows=118` → `recount-summary: rows=130 zero=130 nonzero=0 uncompared=0`（`cases.json` の 141 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行・`native-neon` の 6 行を除く） | CI のログの `recount-summary:` の行 |

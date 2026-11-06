@@ -237,3 +237,12 @@ $ grep -c unsafe crates/contract/tests/cpu_ops_elementwise_special.rs
 | -- | ----------------- | -------------- |
 | 「所在」の試験のファイル（`:11`） | 試験のファイルが増えた。`crates/contract/tests/cpu_ops_add_scalar_nonfinite.rs`（`Cargo.toml` の `[[test]]` に `required-features = ["cpu-ops"]`）が、`AddScalar` の入力の側と定数の側の NaN・±Inf の答えを、字句で置いた期待と `elementwise_scalar` の出力で比べる。`DefaultCpuOps` と `ReferenceCpuOps` の 2 つに当て、NaN は種類だけ、ほかはビット列で比べる | `sed -n 1,3p crates/contract/tests/cpu_ops_add_scalar_nonfinite.rs` |
 | 「確かめ方」の結果（`:34`） | 増えた試験の結果は `2 passed; 0 failed; 0 ignored` | `cargo test -p fandhe-silicon-contract --features cpu-ops --test cpu_ops_add_scalar_nonfinite` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42255828793 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| run の記録の `summary:` の行（`:115`） | `rows=123` → `summary: rows=141 match=141 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
+| run の記録の `recount-summary:` の行（`:160`） | `rows=118` → `recount-summary: rows=130 zero=130 nonzero=0 uncompared=0`（`cases.json` の 141 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行・`native-neon` の 6 行を除く） | CI のログの `recount-summary:` の行 |

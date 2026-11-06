@@ -97,3 +97,12 @@ make wasm-verify                                                                
 | -- | ----------------- | -------------- |
 | 「今の値の補い（base 25d8dc2）」の試験の表（`:78`） | 同じ試験の表に `cpu_ops_elementwise_special`（5 本）が加わった。所在は [cpu-ops-elementwise-special.md](cpu-ops-elementwise-special.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_elementwise_special` |
 | 「今の値の補い（base 42731d8）」の `cases.json` の行（`:90`） | `elementwise_scalar`・`elementwise_simd` の 8 行 → 16 行（各 8 行）。回帰テストは `passed: 505, failed: 0` → `passed: 642, failed: 0` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c`、`make test-wasm-node-check` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 25d8dc2）」の `elementwise_add_scalar_other_constants` の行（`:82`） | 277 行目 → 330 行目。`cpu_ops_reference` は Linux x86_64 で 13 本、aarch64 で `neon` が有効なビルドは 14 本 | `grep -n 'fn elementwise_add_scalar_other_constants' crates/contract/tests/cpu_ops_reference.rs`、`cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` |
+| 「今の値の補い（base 0f8b01c）」の `cases.json` の行（`:99`） | `elementwise_scalar`・`elementwise_simd` の各 8 行 → `elementwise_scalar` 10 行・`elementwise_simd` 13 行。回帰テストは `passed: 642, failed: 0` → `passed: 702, failed: 0` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c`、`make test-wasm-node-check` |

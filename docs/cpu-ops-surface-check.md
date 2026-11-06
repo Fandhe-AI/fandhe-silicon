@@ -169,3 +169,12 @@ make build-profiles                                                             
 | -- | ----------------- | -------------- |
 | 完了の条件の確かめ（4/4）の (3)（`:110`） | `cfg: sites=5 label=match` → `cfg: sites=6 label=match` | `scripts/wasm-build-check.sh --cfg-only` |
 | 「今の値の補い（base 25d8dc2）」の `cpu_ops_reference` の本数（`:154`） | 8 本 → Linux x86_64 で 13 本。aarch64 で `neon` が有効なビルドは 14 本（[cpu-ops](cpu-ops.md) の「完了の条件の確かめ（12/12）」の (1)・(2)） | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（4/4）の (3)（`:110`） | `7 passed; 0 failed` → `17 passed; 0 failed`（走査の項目 (i) と陽性対照 4 本が増えた） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
+| 「今の値の補い（base 25d8dc2）」の `elementwise_add_scalar_other_constants` の行（`:154`） | 277 行目 → 330 行目 | `grep -n 'fn elementwise_add_scalar_other_constants' crates/contract/tests/cpu_ops_reference.rs` |

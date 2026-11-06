@@ -2850,3 +2850,24 @@ $ grep -rn unsafe wasm/crates/parity-host
 | `not-run` の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json` | `3` |
 | 回帰テスト | `make test-wasm-node-check 2>&1 \| tail -n 1` | `passed: 702, failed: 0` |
 | host の道具の試験（ビルドの種類ごとに `native_neon_reference_is_written`・`native_neon_elementwise_reference_is_written` か `native_neon_reference_is_absent` が流れる） | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` | 全部 ok |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42255828793 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 判定の表の `native-neon` の行（`:175`・`:927`・`:1325`） | 生成の行は比べない → そのケースの manifest に `native_neon_file` があるときだけ比べる（下の 2 つの 5/5 の節）。`topk` の行と鍵が無いケースは `not-run (reference-unavailable)` のまま | `grep -n 'native_neon_file' scripts/wasm-node-check.sh` |
+| `not-run` の入力の表（要素ごと演算の `:1083`〜`:1084`、GEMM の `:1403`〜`:1405`） | この 5 行は `wasm/node/cases-reference-unavailable.json` から `wasm/node/cases.json` へ移った。`cases-reference-unavailable.json` に残るのは `:700`〜`:702` の部分 Top-k の 3 行 | `jq -r '.rows[].id' wasm/node/cases-reference-unavailable.json` |
+| `native-neon` の行の `grep -c`（`:2811`・`:2812`） | 既定の入力 `3` → `6`、`not-run` の入力 `5` → `3`（`:2849`・`:2850` と同じ） | `grep -c '"reference_source": "native-neon"' wasm/node/cases.json wasm/node/cases-reference-unavailable.json` |
+| 要素ごと演算の段の表（`:1250`） | 4 段 → 5/5 が増えた。`5/5` は要素ごと演算のネイティブの NEON の比べを足す段で、Issue は #8066 | `gh issue view 8066` |
+| simd128 のビルドの GEMM の段の表（`:1589`） | 4 段 → 5/5 が増えた。`5/5` はネイティブの NEON の参照と `gemm_simd` の 3 行を足す段で、Issue は #8064 | `gh issue view 8064` |
+| 確かめ方の `grep -c '"case"' wasm/node/cases.json`（`:2764`） | `130` → `136` | `grep -c '"case"' wasm/node/cases.json` |
+| `make test-wasm-node-check` の最終行（`:2765`） | `passed: 664, failed: 0` → `passed: 702, failed: 0` | `make test-wasm-node-check 2>&1 \| tail -n 1` |
+| `wasm/node/cases.json` の行数（`:2766`） | 135 行 → 141 行（`gemm_scalar` 34・`gemm_simd` 37・`topk_scalar` 21・`topk_simd` 21・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 10・`elementwise_simd` 13） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| `manifest.json` の `cases` と書く名前（`:2767`） | x86_64 の Linux は 33 要素・書く名前は 100 個のまま。aarch64 で `neon` が有効なビルドは `.native-neon.bin` の 6 個（GEMM 3・要素ごと演算 3）が増えて 106 個で、`gemm` と `elementwise` の要素に `native_neon_file`・`native_neon_sha256` の鍵が足される | `d=$(mktemp -d); cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"; ls "$d" \| wc -l`、CI のログの `sha256: <ケース>.native-neon` の行 |
+| `sha256sum *` の `manifest.json`（`:2768`） | x86_64 の Linux は `04d53603d0e3d8c709a264c8b81686cc95df9c0101942b00be4866494551d3fd` のまま | 上の `gen` を流し、`(cd "$d" && sha256sum manifest.json)`、`uname -m` |
+| 回帰テストの項目 22 の名前（`:2769`） | 項目が増えた。`22 bundled native-neon rows are exactly the three gemm_simd simd128 rows and the three elementwise_simd scalar rows`、`22 every bundled row has a reference source of fixed or native-scalar, except the six native-neon rows` | `grep -n 'bundled .* rows' scripts/test-wasm-node-check.sh` |
+| `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:2770`） | `68 passed` → x86_64 の Linux で `71 passed`。`tests/recount_expected.rs` は `4 passed` のまま | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
+| `summary:` の行（`:2771`） | `rows=135` → `summary: rows=141 match=141 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
+| `recount-summary:` の行（`:2772`） | `rows=130` のまま。`recount-summary: rows=130 zero=130 nonzero=0 uncompared=0`（`cases.json` の 141 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行・`native-neon` の 6 行を除く） | CI のログの `recount-summary:` の行 |

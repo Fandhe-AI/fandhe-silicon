@@ -289,6 +289,14 @@ rc=1
 | -- | ----------------- | -------------- |
 | `cfg:` の行を記録した各節 | `cfg: sites=5 label=match` → `cfg: sites=6 label=match`（#8058 が `crates/contract/tests/` に `cfg` を足した）。`record:` の `cfg_sites=5` → `cfg_sites=6` | `scripts/wasm-build-check.sh --cfg-only` |
 
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめの 6 の行（`:217`） | `7 passed` → `17 passed`（走査の項目 (i) と陽性対照 4 本が増えた） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
