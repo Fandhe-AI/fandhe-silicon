@@ -20,7 +20,7 @@ tools: [Read, Edit, Write, Glob, Grep, Bash]
 
 ## 遵守事項
 
-- `.claude/rules/coding-rust.md` の「unsafe と FFI」節を厳守する（`unsafe` は FFI 境界に閉じ、`// SAFETY:` で不変条件を明記し、公開は safe ラッパー）
+- `.claude/rules/coding-rust.md` の「unsafe と FFI」節を厳守する（`unsafe` は FFI 境界と `cpu_ops` の NEON の module に閉じ、`// SAFETY:` で不変条件を明記し、公開は safe ラッパー）
 - `.claude/rules/security.md` のメモリ安全性（P0）に従う
 - 共通型（`crates/core`）の変更が必要な場合は自分で変えず、core-builder の担当として main へ報告する
 - 対象外プラットフォームでもビルドが壊れないよう feature / `cfg` を維持する
