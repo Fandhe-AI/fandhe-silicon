@@ -281,6 +281,46 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 
 確かめた base は `32cdcb2`、`docs/spec` の gitlink は `f0ff0fe`。
 
+## CPU の演算の時間を測る bin（TASK-2960）
+
+### 所在
+
+- crate `measure/crates/cpu-ops-arm`（package `measure-cpu-ops-arm`、bin `cpu-ops-arm`）。測定専用の別 workspace `measure/` の member
+- 依存は path のみ: `fandhe-silicon-contract`（`default-features = false`、feature は `cpu-ops` だけ。`test-support`・`fault-injection` は有効にしない）、`fandhe-silicon-core`（`test-support`。入力の生成器 `parity::gemm_inputs` を使う）、`measure-perf`。`measure-perf` の Cargo.toml は変えていない。外部 crate の依存は無い
+- 向きは測定 → 製品の一方向のまま。`crates/` は変えていない
+- 本文は `src/lib.rs`（引数の解析 `parse_args`・測定と書き出し `run`・照合 `check_known_output`）、入口は `src/main.rs`、公開テストは `tests/arms.rs`
+
+### 腕
+
+1 プロセスが 1 run で、`ARMS` の 10 個を順に測り、腕ごとに記録を 1 ファイル書く。`DefaultCpuOps` の公開の口を呼ぶ。
+
+| 腕の名前の型 | 数 | 呼ぶ口 | 入力 |
+| ------------ | -- | ------ | ---- |
+| `gemm-scalar-<形>`・`gemm-simd-<形>` | 6 | `gemm_scalar`・`gemm_simd` | `64`（64³）・`256`（256³）・`37x41x53` |
+| `elementwise-scalar-<演算>`・`elementwise-simd-<演算>` | 4 | `elementwise_scalar`・`elementwise_simd` | `relu`（`Relu`）・`add-scalar`（`AddScalar(0.5)`）、長さ 1,000,003 |
+
+- 入力は `wasm/crates/parity-host` の `gen` と同じ生成器・同じ値（`tests/arms.rs` が `a`・`b`・`input` の sha256 を `gen` の値で固定している）
+- 標本は腕ごとに cold 1 回・warmup 20 回・計測 200 回（定数 `DEFAULT_COLD`・`DEFAULT_WARMUP`・`DEFAULT_MEASURED`）。`measure_perf::sample::collect` で集める。入力と出力には `std::hint::black_box` を当てる。GPU 時間は無く、記録の `gpu_ns` は取得不能の形で出る
+- 記録は `measure_perf::record` で作る。`machine_combination` は `metal-mac-mini`、`machine` は `mac-mini`、`label` は `pending`、`task_ids` は `TASK-2960`。`evidence.input_sha256`（行列積は `a`・`b`、要素ごと演算は `input`）と `output_sha256` に sha256 を入れる。`adapter_backend`・`adapter_name`・`environment.gpu` は取得不能の形。`target_features` は neon が有効なビルドでだけ `neon` を含む
+
+### 引数
+
+`--run-id <id>`（必須。腕ごとの run の ID は `<id>-<腕の名前>`）、`--out-dir <dir>`（必須。呼び手が作る）、`--session-ref <id>`（省略時は回に属さない予約語）、`--repo-commit <40 桁>`、`--cpu <名前>`、`--os-version <版>`、`--rustc-version <版>`。`--cold`・`--warmup`・`--measured` は回数を変える試験用の口。不正な引数・未知の引数・重複は標準エラーに英語 1 行を出して非ゼロで終える。測る前に出力先の存在と 10 ファイルの不在を確かめ、既存のファイルは上書きしない。
+
+### 出力の読み方
+
+標準出力は `neon=<true|false>` の行に続き、腕ごとに `arm=<名前> neon=<..> median_ns=<..> output_sha256=<..>` の 1 行を出す。
+
+- aarch64 で `neon` が有効なビルド（`neon=true`）では、simd の腕の出力の sha256 を `KNOWN_NEON_OUTPUT_SHA256` と照合し、一致しなければその腕の記録を書かず非ゼロで終える。定義は `wasm-parity-host` の `*.native-neon.bin`（f32 のリトルエンディアンのバイト列）の sha256 と同じ
+- それ以外のビルドでは照合しない。simd の腕は scalar と同じ計算になる
+
+### 確かめ方
+
+- `make measure-verify`: `tests/arms.rs` が、10 ファイルが読めて `label`・`machine_combination`・`task_ids` が決めた値であること、既定の回数、腕の名前が 10 個で重複しないこと、入力の sha256、照合の関数が有効なときだけ値の違いで失敗すること（陽性対照）、不正な引数・存在しない出力先・既存のファイルで失敗することを確かめる。aarch64 を要求しない
+- 実走: `cargo run --release --manifest-path measure/Cargo.toml -p measure-cpu-ops-arm -- --run-id <id> --out-dir <dir>` で出た 10 ファイルを `scripts/perf-record-check.sh <ファイル>` に通す
+- 回の検査: 腕の記録は `adapter_backend` などが取得不能の形で、`environment.before`・`after` は時刻だけなので、`scripts/perf-record-check.sh --session <回> <run>` に run として渡すと除外される（`power-not-ac`・`unavailable-field`）。`--session` には回の記録だけを渡し、`run_ids` の各 ID の `runs/<ID>.json` の実在を見る
+- run 間の集計: `across-runs` は渡したファイルだけを集計し、腕の違いを見ない。同じ腕の run の記録だけを渡す
+
 ## 本リポでの反映の方針
 
 - 道具の置き場・記録の欄・統計・検査は、受け持つ段の PR のコードと公開テストが示す（親 #121）
@@ -304,4 +344,4 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 
 測定の道具に関わる件数は、`grep -c '^used_by = .*measure-perf' deps-approved.toml` が 0 を返す（ルートに `measure-perf` を `used_by` に持つ記録は無い）。
 
-今の `measure/Cargo.lock` の `[[package]]` は `fandhe-silicon-core`・`measure-detect`・`measure-perf` の 3 件である（`grep -c '^\[\[package\]\]' measure/Cargo.lock` が 3 を返す）。
+今の `measure/Cargo.lock` の `[[package]]` は `fandhe-silicon-contract`・`fandhe-silicon-core`・`measure-cpu-ops-arm`・`measure-detect`・`measure-perf` の 5 件である（`grep -c '^\[\[package\]\]' measure/Cargo.lock` が 5 を返す）。

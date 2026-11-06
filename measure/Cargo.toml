@@ -6,7 +6,7 @@
 # 検査の入口は `make measure-verify`（scripts/measure-verify.sh）。
 [workspace]
 resolver = "3"
-members = ["crates/detect", "crates/perf"]
+members = ["crates/cpu-ops-arm", "crates/detect", "crates/perf"]
 
 [workspace.package]
 edition = "2024"

@@ -3,8 +3,24 @@
 version = 4
 
 [[package]]
+name = "fandhe-silicon-contract"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-core",
+]
+
+[[package]]
 name = "fandhe-silicon-core"
 version = "0.0.0"
+
+[[package]]
+name = "measure-cpu-ops-arm"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-contract",
+ "fandhe-silicon-core",
+ "measure-perf",
+]
 
 [[package]]
 name = "measure-detect"

@@ -25,7 +25,7 @@ main() {
   cargo test --manifest-path measure/Cargo.toml --workspace --all-features --locked
 
   log "deps-check (measure/)"
-  # 製品の crate（crates/）への path だけを免除する（試験が core を dev-dependency で使うため）
+  # 製品の crate（crates/）への path だけを免除する（試験が core を dev-dependency で使い、`cpu-ops-arm` が contract と core に依存するため）
   "${DIR}/deps-check.sh" --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/measure/Cargo.toml"
 }
 
