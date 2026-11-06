@@ -261,3 +261,12 @@ origin/main のコミット `7dcbd25`、`docs/spec` の gitlink は `c7887a1` �
 | ------ | --------------- | -------------- |
 | そのほかの make ターゲットの `make exec-deps-check` の `record:` | `rs_files=27` → `rs_files=28`（`declared_deps=2 other_deps=0 dep_source=0 tree_pkgs=1 tree_direct=1 tree_forbidden=0 source_hits=0` のまま。終了コード 0） | `make exec-deps-check` |
 | 同 `make verify` | `test result:` の行は 231、passed の合計 2368 → 行は 232、passed の合計 2380（failed の合計 0、ignored の合計 7 のまま。終了コード 0） | `make verify` の出力の `test result:` の行を数え、passed・failed・ignored を足す |
+
+## 今の値の補い（base 1b5ab17）
+
+記録時点の表と既存の節は書き換えない。以下は base `1b5ab17` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 2/3 の表の `measure_pkgs`・`measure_contract_pkgs` | 2・0 → 3・1（`measure_forbidden` は 0 のまま。`measure/crates/cpu-ops-arm` が契約の crate に path で依存するようになった） | `make upper-layer-check \| grep '^record:'` |
+| 2/3 のコマンド 12〜14 と、完了の条件の確かめ（3/3）の (6) の行 | コマンド 12・13・14 の行数 0・1・0 → 1・2・1（`measure-cpu-ops-arm` が core の `test-support` を通常の依存で有効にする）。`measure_pkgs=2 measure_contract_pkgs=0` → `measure_pkgs=3 measure_contract_pkgs=1` | `grep -c 'name = "fandhe-silicon-contract"' measure/Cargo.lock`、`make upper-layer-check \| grep '^record:'` |

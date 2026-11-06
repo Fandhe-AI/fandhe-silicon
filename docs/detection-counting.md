@@ -207,3 +207,11 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 ## 関連
 
 [measurement-tool](measurement-tool.md)・[workspace-boundary](workspace-boundary.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 今の値の補い（base 1b5ab17）
+
+記録時点の表と既存の節は書き換えない。以下は base `1b5ab17` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 完了の条件の確かめ（4/4）の 1 の行 | `members = ["crates/detect", "crates/perf"]` → `members = ["crates/cpu-ops-arm", "crates/detect", "crates/perf"]`、`measure_pkgs=2 measure_contract_pkgs=0` → `measure_pkgs=3 measure_contract_pkgs=1`（`measure_forbidden=0` のまま。`measure/crates/cpu-ops-arm` が契約の crate に path で依存するようになった） | `grep -n members measure/Cargo.toml`、`make upper-layer-check \| grep '^record:'` |

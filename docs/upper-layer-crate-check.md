@@ -243,3 +243,12 @@ grep -nE 'run: make upper-layer-check|run: make test-upper-layer-check' .github/
 ## 今の値の補い（base f4b9d8f）
 
 上の表の 7 と :119・:209 付近の `ci.yml` の行番号は、今の `.github/workflows/ci.yml` では `run: make upper-layer-check` が 270 行目、`run: make test-upper-layer-check` が 344 行目（`grep -n 'run: make upper-layer-check\|run: make test-upper-layer-check' .github/workflows/ci.yml` の出力）。
+
+## 今の値の補い（base 1b5ab17）
+
+記録時点の表と既存の節は書き換えない。以下は base `1b5ab17` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「単独のビルドと feature の木の記録（2/3）」の測定の workspace の feature の木の行数（通常・build の辺、dev の辺を含む）・`measure/Cargo.lock` の `fandhe-silicon-contract` の package・`measure_pkgs`・`measure_contract_pkgs` | 0・1・0・2・0 → 1・2・1・3・1（`measure_forbidden=0` のまま。`measure/crates/cpu-ops-arm` が契約の crate に path で依存し、core の `test-support` を通常の依存で有効にする） | `grep -c 'name = "fandhe-silicon-contract"' measure/Cargo.lock`、`make upper-layer-check \| grep '^record:'` |
+| 完了の条件の確かめ（3/3）の 6 の行（`measure/` の値）と、各「今の値の補い」の `record:` の行 | `measure/` の通常・build の辺 0 → 1、dev の辺を含めて 1 → 2、契約の crate 0 → 1、`measure_pkgs=2 measure_contract_pkgs=0` → `measure_pkgs=3 measure_contract_pkgs=1`（ほかの欄は `rs_files=10 direct_deps=3 forbid=yes unsafe_total=0 chip_deps=0 chip_paths=0 other_deps=0 measure_forbidden=0`） | `make upper-layer-check \| grep '^record:'` |
