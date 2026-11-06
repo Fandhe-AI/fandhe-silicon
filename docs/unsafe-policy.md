@@ -19,11 +19,12 @@
 
 ## `unsafe` を置ける場所
 
-- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
+- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
 - `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する
 - `contract` の中の守り
     - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend 以外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
     - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend 以外のファイルの `unsafe` を検出する
+    - `cpu_ops/neon.rs` は、ファイルを足す PR で上の 2 つの守りの対象に入れる（個数の期待値の表を持ち、`#[allow(unsafe_code)]` はこの module の宣言だけに付ける）。その PR は小節「承認」の PR ごとの承認を要する
 
 ## 不変条件の書式
 
