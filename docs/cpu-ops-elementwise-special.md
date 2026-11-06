@@ -228,3 +228,12 @@ $ grep -c unsafe crates/contract/tests/cpu_ops_elementwise_special.rs
 | -- | ---- | ----- |
 | 1/2 | NaN・±Inf・±0 の入力を当てる試験 | #6958 |
 | 2/2 | 完了の条件の確かめ | #6959 |
+
+## 今の値の補い（base fbbd70d）
+
+記録時点の表と既存の節は書き換えない。以下は base `fbbd70d` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「所在」の試験のファイル（`:11`） | 試験のファイルが増えた。`crates/contract/tests/cpu_ops_add_scalar_nonfinite.rs`（`Cargo.toml` の `[[test]]` に `required-features = ["cpu-ops"]`）が、`AddScalar` の入力の側と定数の側の NaN・±Inf の答えを、字句で置いた期待と `elementwise_scalar` の出力で比べる。`DefaultCpuOps` と `ReferenceCpuOps` の 2 つに当て、NaN は種類だけ、ほかはビット列で比べる | `sed -n 1,3p crates/contract/tests/cpu_ops_add_scalar_nonfinite.rs` |
+| 「確かめ方」の結果（`:34`） | 増えた試験の結果は `2 passed; 0 failed; 0 ignored` | `cargo test -p fandhe-silicon-contract --features cpu-ops --test cpu_ops_add_scalar_nonfinite` |

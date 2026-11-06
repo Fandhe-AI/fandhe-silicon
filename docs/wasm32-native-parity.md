@@ -2750,3 +2750,23 @@ $ grep -rn unsafe wasm/crates/parity-host
 | `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:1612`） | `36 passed` → `64 passed` | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
 | `summary:` の行（`:1613`） | `rows=55` → `rows=123` | `jq '.rows \| length' wasm/node/cases.json` |
 | `recount-summary:` の行（`:1614`） | `rows=50` → `rows=118`（`cases.json` の 123 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除く） | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+
+## 今の値の補い（base fbbd70d）
+
+記録時点の表と既存の節は書き換えない。以下は base `fbbd70d` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42220227269 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `--recount` の口の表（`:261`） | 口が増えた。`--recount <dir> --expect-cases <path>` は、入力の JSON（`--cases` と同じ形）の `native-scalar` の生成の行と欄 `cases` を期待として、保存の形の行の集合（id・export・build・case）と `manifest.json` のケースの集合・種類・寸法を比べ、違えば終了コード 2。`--expect-cases` を渡さない `--recount` の動きは変わらず、保存の形の中の値だけで数える | `sed -n 21,24p scripts/wasm-node-check.sh` |
+| `wasm/node/cases.json` の形（`:2746` の行） | 欄 `rows` のほかに欄 `cases` が増えた。ケースごとの `name`・`kind`・`dims` を持ち、実行の中の判定はこの欄を期待に使う（`manifest.json` のケースと違えば終了コード 2）。33 要素で、`gemm-64`・`gemm-256`・`gemm-37x41x53` の 3 要素は `simd_sum_order_differs: true` を持つ | `jq '.cases \| length' wasm/node/cases.json`、`jq -r '.cases[] \| select(.simd_sum_order_differs) \| .name' wasm/node/cases.json` |
+| 「今の値の補い（base 0f8b01c）」の語ごとの比べ（`:2743`） | 比べが増えた。`simd_sum_order_differs` を持つケースの `simd128` の `gemm_simd` の行は、max-abs が 0 なら mismatch（`row: … mismatch (max-abs is zero (simd128 sum order not exercised))`）で、`recount-flat:` の行を出し、終了コード 1 | `grep -n 'recount-flat\|max-abs is zero' scripts/wasm-node-check.sh` |
+| 回帰テストの項目の表（`:287`〜） | 項目 111 が増えた（`--expect-cases` の 0・1・2 と、実行の中の期待の照らし） | `grep -n '"111 ' scripts/test-wasm-node-check.sh` |
+| 確かめ方の `grep -c '"case"' wasm/node/cases.json`（`:2744`） | `118` → `130` | `grep -c '"case"' wasm/node/cases.json` |
+| `make test-wasm-node-check` の最終行（`:2745`） | `passed: 642, failed: 0` → `passed: 664, failed: 0` | `make test-wasm-node-check 2>&1 \| tail -n 1` |
+| `wasm/node/cases.json` の行数（`:2746`） | 123 行 → 135 行（`gemm_scalar` 34・`gemm_simd` 34・`topk_scalar` 21・`topk_simd` 21・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 10・`elementwise_simd` 10） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| `manifest.json` の `cases` と書く名前（`:2747`） | 30 要素・書く名前は 94 個 → 33 要素（`gemm` 3・`topk` 11・`elementwise` 3・`gemm-special` 14・`elementwise-special` 2）・書く名前は 100 個。増えた 3 要素は `elementwise-add-scalar-c-0-1`・`topk-pad-after-one-finite`・`topk-e-4-k-13` | `d=$(mktemp -d); cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"; ls "$d" \| wc -l; jq -r '.cases[].kind' "$d/manifest.json" \| sort \| uniq -c` |
+| `sha256sum *` の `manifest.json`（`:2748`） | `e2351cce5ecb46c3dfb8a116d36eff8be43e9de3160283207823d5dc327894c1` → `04d53603d0e3d8c709a264c8b81686cc95df9c0101942b00be4866494551d3fd`（x86_64 の Linux で測った値） | 上の `gen` を流し、`(cd "$d" && sha256sum manifest.json)`、`uname -m` |
+| 回帰テストの項目 22 の名前（`:2749`） | `the thirty-four` → `the forty-two`、`the sixteen` → `the twenty` | `grep -n 'bundled .* rows' scripts/test-wasm-node-check.sh` |
+| `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:2750`） | `64 passed` → `68 passed`。別に `tests/recount_expected.rs` が増えて `4 passed` | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
+| `summary:` の行（`:2751`） | `rows=123` → `summary: rows=135 match=135 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
+| `recount-summary:` の行（`:2752`） | `rows=118` → `recount-summary: rows=130 zero=130 nonzero=0 uncompared=0`（`cases.json` の 135 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除く） | CI のログの `recount-summary:` の行 |
