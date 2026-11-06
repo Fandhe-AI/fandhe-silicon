@@ -7,7 +7,9 @@
 //! `wasm-parity-host gen <dir>` が `<dir>` に書く。入力の生成器は `fandhe-silicon-core` の `parity::gemm_inputs`・
 //! `parity::case_inputs`（`test-support` の裏）、参照は `fandhe-silicon-contract` の `DefaultCpuOps` を使う。
 //!
-//! 書くファイルは GEMM の 3 ケースそれぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
+//! 書くファイルは GEMM の 3 ケースそれぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`（f32 のリトルエンディアン。
+//! aarch64 で `neon` が有効なビルドでは `DefaultCpuOps::gemm_simd` の出力の `.native-neon.bin` も書き、manifest に
+//! `native_neon_file`・`native_neon_sha256` を足す。TASK-995）、
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
 //! 要素ごと演算の 3 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
@@ -100,6 +102,8 @@ pub enum GenError {
     InputFailed,
     /// 参照の計算が `Err` を返した。
     NativeFailed,
+    /// `gemm_simd` の参照の計算が `Err` を返した。
+    NativeNeonFailed,
     /// 部分 Top-k の参照の計算が `Err` を返した。
     NativeTopkFailed,
     /// 要素ごと演算の参照の計算が `Err` を返した。
@@ -117,6 +121,7 @@ impl fmt::Display for GenError {
             GenError::WriteFailed => "error: cannot write output file",
             GenError::InputFailed => "error: cannot generate inputs",
             GenError::NativeFailed => "error: native gemm_scalar failed",
+            GenError::NativeNeonFailed => "error: native gemm_simd failed",
             GenError::NativeTopkFailed => "error: native topk_partial_scalar failed",
             GenError::NativeElementwiseFailed => "error: native elementwise_scalar failed",
             GenError::CpuReferenceFailed => "error: cpu reference failed",
@@ -179,6 +184,39 @@ pub fn native_scalar(case: &GemmCase) -> Result<Vec<f32>, GenError> {
         .gemm_scalar(&case.a, &case.b, case.m, case.k, case.n, &mut out)
         .map_err(|_| GenError::NativeFailed)?;
     Ok(out)
+}
+
+/// `DefaultCpuOps::gemm_simd` の出力（m×n）を返す。aarch64 で `neon` が有効なビルドでだけ在る
+/// （`native-neon` の参照。TASK-995）。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+pub fn native_neon(case: &GemmCase) -> Result<Vec<f32>, GenError> {
+    let mut out = vec![0.0f32; checked_len(case.m, case.n)?];
+    DefaultCpuOps
+        .gemm_simd(&case.a, &case.b, case.m, case.k, case.n, &mut out)
+        .map_err(|_| GenError::NativeNeonFailed)?;
+    Ok(out)
+}
+
+/// `native-neon` の参照のファイルと manifest の 2 行（`native_neon_file`・`native_neon_sha256`）。
+/// aarch64 で `neon` が有効なビルドでだけ `Some` を返す。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn neon_reference(case: &GemmCase) -> Result<Option<(OutFile, [String; 2])>, GenError> {
+    let bytes = f32_le_bytes(&native_neon(case)?);
+    let name = format!("{}.native-neon.bin", case.name);
+    let lines = [
+        format!("      \"native_neon_file\": \"{name}\""),
+        format!(
+            "      \"native_neon_sha256\": \"{}\"",
+            hex(&sha256_bytes(&bytes))
+        ),
+    ];
+    Ok(Some((OutFile { name, bytes }, lines)))
+}
+
+/// `native-neon` の参照を持たないビルドでは、ファイルも鍵も書かない。
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+fn neon_reference(_case: &GemmCase) -> Result<Option<(OutFile, [String; 2])>, GenError> {
+    Ok(None)
 }
 
 /// 部分 Top-k のケースの入力の作り方。どれもケースごとに新しい `SplitMix64::new(GEMM_INPUT_SEED)` から作る。
@@ -752,7 +790,7 @@ struct OutFile {
     bytes: Vec<u8>,
 }
 
-/// 1 ケースのファイル（GEMM は 3、特殊値の GEMM は 4、特殊値の要素ごと演算は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
+/// 1 ケースのファイル（GEMM は 3〔`native-neon` の参照を書くビルドでは 4〕、特殊値の GEMM は 4、特殊値の要素ごと演算は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
 struct CaseOutput {
     files: Vec<OutFile>,
     manifest_entry: String,
@@ -766,40 +804,55 @@ fn case_output(case: &GemmCase) -> Result<CaseOutput, GenError> {
     let a_bytes = f32_le_bytes(&case.a);
     let b_bytes = f32_le_bytes(&case.b);
     let n_bytes = f32_le_bytes(&native);
-    let entry = [
-        "    {".to_string(),
-        format!("      \"name\": \"{}\",", case.name),
-        "      \"kind\": \"gemm\",".to_string(),
-        format!("      \"m\": {},", case.m),
-        format!("      \"k\": {},", case.k),
-        format!("      \"n\": {},", case.n),
-        format!("      \"a_file\": \"{a_file}\","),
-        format!("      \"b_file\": \"{b_file}\","),
-        format!("      \"native_scalar_file\": \"{n_file}\","),
-        format!("      \"a_sha256\": \"{}\",", hex(&sha256_bytes(&a_bytes))),
-        format!("      \"b_sha256\": \"{}\",", hex(&sha256_bytes(&b_bytes))),
-        format!(
-            "      \"native_scalar_sha256\": \"{}\"",
-            hex(&sha256_bytes(&n_bytes))
-        ),
-        "    }".to_string(),
-    ]
-    .join("\n");
+    let mut lines = vec![
+        format!("      \"name\": \"{}\"", case.name),
+        "      \"kind\": \"gemm\"".to_string(),
+        format!("      \"m\": {}", case.m),
+        format!("      \"k\": {}", case.k),
+        format!("      \"n\": {}", case.n),
+        format!("      \"a_file\": \"{a_file}\""),
+        format!("      \"b_file\": \"{b_file}\""),
+        format!("      \"native_scalar_file\": \"{n_file}\""),
+    ];
+    let neon = neon_reference(case)?;
+    if let Some((_, neon_lines)) = &neon {
+        lines.push(neon_lines[0].clone());
+    }
+    lines.push(format!(
+        "      \"a_sha256\": \"{}\"",
+        hex(&sha256_bytes(&a_bytes))
+    ));
+    lines.push(format!(
+        "      \"b_sha256\": \"{}\"",
+        hex(&sha256_bytes(&b_bytes))
+    ));
+    lines.push(format!(
+        "      \"native_scalar_sha256\": \"{}\"",
+        hex(&sha256_bytes(&n_bytes))
+    ));
+    if let Some((_, neon_lines)) = &neon {
+        lines.push(neon_lines[1].clone());
+    }
+    let entry = format!("    {{\n{}\n    }}", lines.join(",\n"));
+    let mut files = vec![
+        OutFile {
+            name: a_file,
+            bytes: a_bytes,
+        },
+        OutFile {
+            name: b_file,
+            bytes: b_bytes,
+        },
+        OutFile {
+            name: n_file,
+            bytes: n_bytes,
+        },
+    ];
+    if let Some((file, _)) = neon {
+        files.push(file);
+    }
     Ok(CaseOutput {
-        files: vec![
-            OutFile {
-                name: a_file,
-                bytes: a_bytes,
-            },
-            OutFile {
-                name: b_file,
-                bytes: b_bytes,
-            },
-            OutFile {
-                name: n_file,
-                bytes: n_bytes,
-            },
-        ],
+        files,
         manifest_entry: entry,
     })
 }

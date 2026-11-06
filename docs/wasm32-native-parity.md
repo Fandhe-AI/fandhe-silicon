@@ -2770,3 +2770,45 @@ $ grep -rn unsafe wasm/crates/parity-host
 | `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:2750`） | `64 passed` → `68 passed`。別に `tests/recount_expected.rs` が増えて `4 passed` | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
 | `summary:` の行（`:2751`） | `rows=123` → `summary: rows=135 match=135 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
 | `recount-summary:` の行（`:2752`） | `rows=118` → `recount-summary: rows=130 zero=130 nonzero=0 uncompared=0`（`cases.json` の 135 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除く） | CI のログの `recount-summary:` の行 |
+
+## ネイティブの NEON の参照と `gemm_simd` の 3 行（5/5）
+
+`wasm-parity-host gen` が `native-neon` の参照を書き、`scripts/wasm-node-check.sh` がその参照があるときだけ `native-neon` の 3 行を比べる（TASK-995）。
+
+### host が書く条件
+
+- `wasm/crates/parity-host` は、`target_arch = "aarch64"` かつ `target_feature = "neon"` のビルドでだけ、GEMM の 3 ケースの `DefaultCpuOps::gemm_simd` の出力を `<ケース>.native-neon.bin`（f32 のリトルエンディアン）に書く。
+- 同じビルドで、`manifest.json` の GEMM の 3 ケースに `native_neon_file`・`native_neon_sha256` の 2 つの鍵を足す。鍵の並びは `native_scalar_file` の次と、最後。
+- それ以外のビルドでは 2 つの鍵も `.native-neon.bin` も書かない。manifest のバイト列は鍵を足す前と同じ。
+- 特殊値の GEMM（`GEMM_SPECIAL_CASES`）には足さない。
+
+### 判定
+
+- `KINDS` の `gemm` の欄 `optional` が 2 つの鍵を持つ。manifest のケースに 2 つとも在るか 2 つとも無いかのどちらかだけを受け、片方だけ・`gemm` 以外の種類に在る場合は `manifest case has missing or unknown keys` で終了コード 2。在るときの照らし（ファイル名・通常のファイル・sha256・長さ `m*n*4`）は必須の鍵と同じ。
+- `reference_source` が `native-neon` の生成の行は、そのケースの manifest に `native_neon_file` があるときだけ、そのファイルと `T1` の閾値で比べる。`count:`・`t1:`・`sha256:` の行と語の規則は `native-scalar` の `gemm_simd`・`simd128` の行と同じで、`cpu-count:` は出さない。無いときは `not-run (reference-unavailable)`（終了コード 1）。固定の行の `native-neon` は常に `not-run (reference-unavailable)`。
+- `sha256: <ケース>.native-neon <hex>` の行を 1 ケースに 1 行出す。
+- 欄 `simd_sum_order_differs` が真のケースで、`native_neon_file` の sha256 が `native_scalar_file` の sha256 と等しいとき、行は `mismatch (native-neon equals native-scalar)`。`--cases` に欄 `cases` が無い入力では見ない。
+
+### 保存の形
+
+- `--output-dir` の保存の形に `<ケース>.native-neon.bin` が入る。`native-neon` の行の wasm の出力は保存の形・`outputs.json`・`recount:` に入らず、`recount-summary:` の `rows=` は `native-scalar` の行だけを数える。
+- 実行の中の数え直しの突き合わせ（`recount disagrees`）の `t1:` の行は、`native-scalar` の生成の行のものだけを比べる。
+
+### 3 行の表
+
+`wasm/node/cases.json` に在る（`wasm/node/cases-reference-unavailable.json` からは外した）。
+
+| id | ビルド | export | ケース | 参照の出どころ |
+| -- | ------ | ------ | ------ | -------------- |
+| `gemm-64-native-neon` | `simd128` | `gemm_simd` | `gemm-64` | `native-neon` |
+| `gemm-256-native-neon` | `simd128` | `gemm_simd` | `gemm-256` | `native-neon` |
+| `gemm-37x41x53-native-neon` | `simd128` | `gemm_simd` | `gemm-37x41x53` | `native-neon` |
+
+#### 確かめ方
+
+| 確かめること | コマンド | 値 |
+| ------------ | -------- | -- |
+| 既定の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases.json` | `3` |
+| `not-run` の入力の `native-neon` の行 | `grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json` | `5` |
+| 回帰テスト | `make test-wasm-node-check 2>&1 \| tail -n 1` | `passed: 683, failed: 0` |
+| host の道具の試験（ビルドの種類ごとに `native_neon_reference_is_written`・`native_neon_reference_is_absent` のどちらかが流れる） | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked` | 全部 ok |

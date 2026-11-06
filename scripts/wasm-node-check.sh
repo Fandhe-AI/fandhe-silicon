@@ -45,7 +45,10 @@
 # NaN・Inf・±0 の数。TASK-997。出すだけで判定には関わらない）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
 # 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON /
 # native-scalar＝ネイティブの scalar 版）で、
-# 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（今は native-neon の全行。値があっても比べない）は
+# 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（固定の行の native-neon と、manifest のケースに native_neon_file が無い
+# 生成の行の native-neon。後者は KINDS の optional の 2 つの鍵が在るときだけ、そのファイルと T1 の閾値で比べ、TASK-995。
+# 比べる相手のあるケースで simd_sum_order_differs が真かつ参照が native-scalar のファイルと同じ sha256 なら
+# `mismatch (native-neon equals native-scalar)`）は
 # `not-run (reference-unavailable)`、作れる出どころで参照（reference）が無い行は `not-run (reference-missing)` にする。
 # どちらも一致扱いにしない。出どころを先に見る。TASK-23 のラベルへの写しは crates/core/src/rerun/reference.rs（TASK-29）。
 # 保存と数え直し（TASK-994）: native-scalar の生成の行が 1 行以上ある実行は、判定のあと作業の一時ディレクトリに保存の形を
@@ -105,7 +108,8 @@ T1_ABSOLUTE = 1e-5
 # fields: 種類に固有の欄の照らし（(鍵, 判定の関数) の組の列。無ければ ()。TASK-997）/
 # special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）/
 # t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）/
-# cpu: CPU 参照のファイルの鍵（無ければ None。TASK-999）。
+# cpu: CPU 参照のファイルの鍵（無ければ None。TASK-999）/
+# optional: manifest に在るときだけ読む任意の組（(ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) の列。2 つの鍵は両方在るか両方無いかのどちらか。無ければ ()。TASK-995）。
 KINDS = {
     "gemm": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
@@ -122,6 +126,7 @@ KINDS = {
         "special": None,
         "t1": (("gemm_simd", "simd128"),),
         "cpu": None,
+        "optional": (("native_neon_file", "native_neon_sha256", lambda d: d["m"] * d["n"] * 4, "native-neon"),),
     },
     "topk": {
         "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
@@ -137,6 +142,7 @@ KINDS = {
         "special": None,
         "t1": (),
         "cpu": None,
+        "optional": (),
     },
     "elementwise": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "input_sha256", "native_scalar_sha256"),
@@ -155,6 +161,7 @@ KINDS = {
         "special": "input_file",
         "t1": (),
         "cpu": None,
+        "optional": (),
     },
     "gemm-special": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "cpu_reference_file", "a_sha256", "b_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
@@ -172,6 +179,7 @@ KINDS = {
         "special": None,
         "t1": (("gemm_scalar", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "scalar"), ("gemm_simd", "simd128")),
         "cpu": "cpu_reference_file",
+        "optional": (),
     },
     "elementwise-special": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "cpu_reference_file", "input_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
@@ -191,6 +199,7 @@ KINDS = {
         "special": "input_file",
         "t1": (("elementwise_scalar", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "scalar"), ("elementwise_simd", "simd128")),
         "cpu": "cpu_reference_file",
+        "optional": (),
     },
 }
 # 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
@@ -491,6 +500,22 @@ def load_regular_json(path):
             os.close(fd)
 
 
+def case_files(c, spec=None):
+    # manifest のケース c が持つファイルの組。必須の files に、c に在る任意の組（optional）を足す。
+    spec = spec or KINDS[c["kind"]]
+    extra = tuple(o for o in spec["optional"] if o[0] in c)
+    return tuple(spec["files"]) + extra
+
+
+def reference_file_key(r, cases):
+    # 生成の行が比べる参照のファイルの鍵。比べる相手が無ければ None。
+    if r["src"] == "native-scalar":
+        return "native_scalar_file"
+    if r["src"] == "native-neon" and "native_neon_file" in cases[r["case"]]["files"]:
+        return "native_neon_file"
+    return None
+
+
 def load_manifest(dirpath, rows, expect=None):
     # host 側の道具の出力（manifest.json と .bin）を読んで照らす。ファイル名は文字種と `..`・先頭の `.` で拒否し、
     # 通常のファイルであること・sha256・長さを確かめる。エラーに引数のパスの値は入れない。
@@ -511,7 +536,8 @@ def load_manifest(dirpath, rows, expect=None):
         if not isinstance(kind, str) or kind not in KINDS:
             die("manifest case kind is unknown")
         spec = KINDS[kind]
-        if set(c) != set(spec["keys"]):
+        opt_keys = [k for o in spec["optional"] for k in o[:2]]
+        if set(c) != set(spec["keys"]) and set(c) != set(spec["keys"]) | set(opt_keys):
             die("manifest case has missing or unknown keys")
         name = c["name"]
         if not isinstance(name, str) or not ID.match(name) or name in cases:
@@ -526,7 +552,7 @@ def load_manifest(dirpath, rows, expect=None):
             if not ok(c[key]):
                 die("manifest case field is invalid")
         files = {}
-        for fk, hk, size, _suffix in spec["files"]:
+        for fk, hk, size, _suffix in case_files(c, spec):
             fname, want = c[fk], c[hk]
             if not name_ok(fname) or not isinstance(want, str) or not SHA.match(want):
                 die("manifest file entry is invalid")
@@ -605,7 +631,7 @@ def case_sha_lines(manifest_cases, used_cases):
     out = []
     for c in manifest_cases:
         if c["name"] in used_cases:
-            for fk, hk, _size, suffix in KINDS[c["kind"]]["files"]:
+            for fk, hk, _size, suffix in case_files(c):
                 out.append("sha256: %s.%s %s" % (c["name"], suffix, c[hk]))
     return out
 
@@ -744,7 +770,7 @@ def recount_form_inner(d, expect, exp_rows):
     manifest_cases, cases = load_manifest(d, rows, expect)
     expected = ["manifest.json", "outputs.json"]
     for c in manifest_cases:
-        expected += [c[fk] for fk, _hk, _size, _suffix in KINDS[c["kind"]]["files"]]
+        expected += [c[fk] for fk, _hk, _size, _suffix in case_files(c)]
     expected += [r["id"] + ".bin" for r in rows if r["has_out"]]
     if len(set(expected)) != len(expected) or set(os.listdir(d)) != set(expected):
         die("saved directory has missing, unexpected or repeated files")
@@ -813,7 +839,7 @@ def form_items(inputs, manifest_cases, form_rows):
     with open(os.path.join(inputs, "manifest.json"), "rb") as f:
         put("manifest.json", f.read())
     for c in manifest_cases:
-        for fk, _hk, _size, _suffix in KINDS[c["kind"]]["files"]:
+        for fk, _hk, _size, _suffix in case_files(c):
             with open(os.path.join(inputs, c[fk]), "rb") as f:
                 put(c[fk], f.read())
     out_rows = []
@@ -900,7 +926,8 @@ def main():
             used_cases.add(r["case"])
             form_rows.append((rid, r, kind, val))
             j_uncompared.add(rid)
-        if src not in PRODUCIBLE:
+        ref_key = reference_file_key(r, cases) if r["gen"] else None
+        if src not in PRODUCIBLE and ref_key is None:
             state = "not-run"
             detail = "reference-unavailable"
         elif not r["gen"] and ref is None:
@@ -910,9 +937,11 @@ def main():
             state = "mismatch"
             detail = "call error"
         elif r["gen"]:
-            with open(cases[r["case"]]["files"]["native_scalar_file"][0], "rb") as f:
+            with open(cases[r["case"]]["files"][ref_key][0], "rb") as f:
                 want = f.read()
             unit = KINDS[cases[r["case"]]["kind"]]["unit"]
+            if src == "native-neon":
+                used_cases.add(r["case"])
             if len(val) != len(want):
                 state = "mismatch"
                 detail = "length expected %d got %d" % (len(want) // unit, len(val) // unit)
@@ -926,8 +955,16 @@ def main():
                     diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 cpu = cpu_count(cases[r["case"]], val)
                 flat = sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
-                state = "match" if diff == 0 and not cpu and not flat else "mismatch"
-                if diff:
+                same_ref = (
+                    src == "native-neon"
+                    and expect is not None
+                    and expect[r["case"]]["differs"]
+                    and cases[r["case"]]["files"]["native_neon_file"][1] == cases[r["case"]]["files"]["native_scalar_file"][1]
+                )
+                state = "match" if diff == 0 and not cpu and not flat and not same_ref else "mismatch"
+                if same_ref:
+                    detail = "native-neon equals native-scalar"
+                elif diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
                 elif cpu:
                     detail = "cpu-reference mismatches %d/%d" % (cpu, nwords)
@@ -976,7 +1013,8 @@ def main():
         sp_lines = input_special_lines(manifest_cases, cases, used_cases)
         if [ln for ln in rc_res["sha_lines"] if ln.startswith("input-special: ")] != sp_lines:
             die("recount disagrees")
-        if [ln for ln in rc_res["sha_lines"] if ln.startswith("t1: ")] != [ln for ln in cmp_lines if ln.startswith("t1: ")]:
+        scalar_ids = {rid for rid, _r, _k, _v in form_rows}
+        if [ln for ln in rc_res["sha_lines"] if ln.startswith("t1: ")] != [ln for ln in cmp_lines if ln.startswith("t1: ") and ln.split()[1] in scalar_ids]:
             die("recount disagrees")
         rec_extra = rc_res["rec_lines"] + [rc_res["summary"]]
         if norm_out is not None:
