@@ -6,7 +6,7 @@
 #
 # 使い方: scripts/wasm-node-check.sh [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--output-dir <dir>]
 #   [--record-dir <dir> --record-combination <name>]
-#        scripts/wasm-node-check.sh --recount <dir>
+#        scripts/wasm-node-check.sh --recount <dir> [--expect-cases <path>]
 #   --wasm  既にある scalar の .wasm を使う（cargo を呼ばない）。省略時は行が使うビルドだけを
 #           `-p wasm-glue` で --profile wasm-size でビルドする（simd128 は +simd128 と別の target ディレクトリ）
 #   --wasm-simd128 既にある simd128 の .wasm（TASK-994）。どちらかの口を渡したら cargo でビルドしない
@@ -18,6 +18,10 @@
 #   --recount 保存の形のディレクトリだけから件数を数え直して `recount:` の行を出す（TASK-994。ほかの口とは併用できない。
 #           python3 だけを要り、node・wasm-bindgen・cargo は要らない。終了コード 0 全行の件数が 0・1 件数が 0 でない行か
 #           比べなかった行がある・2 誤用・読めない・形の不正・sha256 の違い）
+#   --expect-cases <path> --recount と組でだけ渡せる。入力の JSON（--cases と同じ形）の native-scalar の生成の行と欄 `cases`
+#           （ケースごとの kind・dims）を期待として、保存の形の行の集合（id・export・build・case）と manifest のケースの
+#           集合・種類・寸法が一致しなければ終了コード 2。欄 `simd_sum_order_differs` を持つケースの simd128 の gemm_simd の行は
+#           max-abs が 0 なら不一致（`recount-flat:` の行・終了コード 1）。渡さなければ保存の形の中の値だけで数える
 #   --record-dir / --record-combination  選んだときだけ、行の結果を試験の枠の記録の部品
 #           （`<行の id>.<組み合わせ>.json`）として <dir> へ書く（必ず組で渡す。既定なし）。<dir> は既存のディレクトリで、
 #           ファイルは新しく作る（上書きしない）。記録は本リポに置かず、パスは引数で受ける
@@ -63,7 +67,7 @@ source "${DIR}/lib.sh"
 NODE_EXPECTED="v24.13.0"
 GLUE_MANIFEST="${ROOT_DIR}/wasm/crates/glue/Cargo.toml"
 NODE_SCRIPT="${ROOT_DIR}/wasm/node/run-glue.cjs"
-USAGE="usage: $(basename "$0") [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--output-dir <dir>] [--record-dir <dir> --record-combination <name>] | --recount <dir>"
+USAGE="usage: $(basename "$0") [--wasm <path>] [--wasm-simd128 <path>] [--cases <path>] [--output-dir <dir>] [--record-dir <dir> --record-combination <name>] | --recount <dir> [--expect-cases <cases.json>]"
 
 # 相対パスは呼び出し元の cwd 基準で絶対パスにする（後でリポジトリルートへ cd しても同じファイルを指させる）。
 abspath() {
@@ -367,8 +371,9 @@ def load_cases(path):
             d = json.load(f)
     except (OSError, ValueError):
         die("cannot read cases as JSON")
-    if not isinstance(d, dict) or set(d) != {"rows"} or not isinstance(d["rows"], list):
+    if not isinstance(d, dict) or not {"rows"} <= set(d) <= {"rows", "cases"} or not isinstance(d["rows"], list):
         die("cases must be an object with a rows list")
+    expect = load_expect(d["cases"]) if "cases" in d else None
     seen = set()
     rows = []
     for r in d["rows"]:
@@ -420,7 +425,55 @@ def load_cases(path):
                 ref = hexlist(ref, "reference")
             row.update(case=None, src=src, inp=inp, ref=ref)
         rows.append(row)
-    return rows
+    return rows, expect
+
+
+def load_expect(v):
+    # 入力の JSON の任意の欄 `cases`（ケースごとの期待）を読む。比べ方と寸法は保存の形や manifest の中の値でなく、ここから決める。
+    # 各項は name・kind・dims（種類の表の寸法の鍵と正の整数）と、任意の simd_sum_order_differs（kind が gemm のときだけ。
+    # simd128 版の gemm_simd が scalar の参照と別の和の順で走ることを期待する印）。
+    if not isinstance(v, list) or not v:
+        die("cases must be a non-empty list")
+    out = {}
+    for e in v:
+        if not isinstance(e, dict) or not {"name", "kind", "dims"} <= set(e) <= {"name", "kind", "dims", "simd_sum_order_differs"}:
+            die("an expected case has missing or unknown keys")
+        name, kind, dims = e["name"], e["kind"], e["dims"]
+        if not isinstance(name, str) or not ID.match(name) or name in out:
+            die("an expected case name is invalid or repeated")
+        if not isinstance(kind, str) or kind not in KINDS:
+            die("an expected case kind is unknown")
+        if not isinstance(dims, dict) or set(dims) != set(KINDS[kind]["dims"]):
+            die("an expected case has wrong dimensions")
+        for dv in dims.values():
+            if not isinstance(dv, int) or isinstance(dv, bool) or dv <= 0:
+                die("an expected case dimension is invalid")
+        flat = e.get("simd_sum_order_differs", False)
+        if not isinstance(flat, bool) or (flat and kind != "gemm"):
+            die("an expected case flag is invalid")
+        out[name] = {"kind": kind, "dims": dims, "differs": flat}
+    return out
+
+
+def expected_rows(rows):
+    # 保存の形に入るべき行（native-scalar の生成の行）の id → (export, build, case)。
+    return {r["id"]: (r["export"], r["build"], r["case"]) for r in rows if r["gen"] and r["src"] == "native-scalar"}
+
+
+def check_expected(expect, cases):
+    # manifest のケースの集合・種類・寸法を期待と突き合わせる。期待が無ければ何もしない。
+    if expect is None:
+        return
+    if set(cases) != set(expect):
+        die("manifest cases differ from the expected cases")
+    for name, c in cases.items():
+        if c["kind"] != expect[name]["kind"] or c["dims"] != expect[name]["dims"]:
+            die("manifest case differs from the expected case")
+
+
+def sum_order_flat(expect, case, export, build, max_abs):
+    # 別の和の順で走ることを期待した simd128 版の gemm_simd の行で max-abs が 0 なら True（走らなかった疑い）。
+    return expect is not None and expect[case]["differs"] and (export, build) == ("gemm_simd", "simd128") and max_abs == 0.0
 
 
 def load_regular_json(path):
@@ -438,7 +491,7 @@ def load_regular_json(path):
             os.close(fd)
 
 
-def load_manifest(dirpath, rows):
+def load_manifest(dirpath, rows, expect=None):
     # host 側の道具の出力（manifest.json と .bin）を読んで照らす。ファイル名は文字種と `..`・先頭の `.` で拒否し、
     # 通常のファイルであること・sha256・長さを確かめる。エラーに引数のパスの値は入れない。
     def name_ok(n):
@@ -498,6 +551,7 @@ def load_manifest(dirpath, rows):
                 die("unknown case in row: " + r["id"])
             if r["export"] not in KINDS[cases[r["case"]]["kind"]]["exports"]:
                 die("row export does not match the case kind: " + r["id"])
+    check_expected(expect, cases)
     return m["cases"], cases
 
 
@@ -634,7 +688,7 @@ def t1_count(want, data):
         if not ok:
             diff += 1
     body = "max-abs=%r max-abs-at=%s max-rel=%r max-rel-at=%s abs-over=%d rel-over=%d" % (max_abs, abs_at, max_rel, rel_at, abs_over, rel_over)
-    return diff, body
+    return diff, body, max_abs
 
 
 def cpu_count(case, data):
@@ -648,16 +702,16 @@ def cpu_count(case, data):
     return t1_count(want, data)[0]
 
 
-def recount_form(d):
+def recount_form(d, expect=None, exp_rows=None):
     # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
     # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
     try:
-        return recount_form_inner(d)
+        return recount_form_inner(d, expect, exp_rows)
     except Exception:
         die("cannot read saved directory")
 
 
-def recount_form_inner(d):
+def recount_form_inner(d, expect, exp_rows):
     try:
         o = load_regular_json(os.path.join(d, "outputs.json"))
     except (OSError, ValueError):
@@ -685,7 +739,9 @@ def recount_form_inner(d):
         elif of != rid + ".bin" or not isinstance(osha, str) or not SHA.match(osha):
             die("outputs.json row output entry is invalid")
         rows.append({"id": rid, "export": e["export"], "case": e["case"], "gen": True, "build": e["build"], "has_out": of is not None, "sha": osha})
-    manifest_cases, cases = load_manifest(d, rows)
+    if exp_rows is not None and {r["id"]: (r["export"], r["build"], r["case"]) for r in rows} != exp_rows:
+        die("saved rows differ from the expected rows")
+    manifest_cases, cases = load_manifest(d, rows, expect)
     expected = ["manifest.json", "outputs.json"]
     for c in manifest_cases:
         expected += [c[fk] for fk, _hk, _size, _suffix in KINDS[c["kind"]]["files"]]
@@ -719,13 +775,17 @@ def recount_form_inner(d):
             rec_lines.append("recount-uncompared: %s" % rid)
             continue
         t1 = None
+        max_abs = None
         if uses_t1(cases[r["case"]]["kind"], r["export"], r["build"]):
-            diff, t1 = t1_count(want, data)
+            diff, t1, max_abs = t1_count(want, data)
         else:
             diff = sum(1 for i in range(0, len(want), unit) if data[i:i + unit] != want[i:i + unit])
         cpu = cpu_count(cases[r["case"]], data)
-        compared[rid] = (diff, len(want) // unit, cpu)
+        flat = sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
+        compared[rid] = (diff, len(want) // unit, cpu, flat)
         rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // unit))
+        if flat:
+            rec_lines.append("recount-flat: %s max-abs=0.0" % rid)
         if cpu is not None:
             rec_lines.append("recount-cpu: %s mismatches=%d n=%d" % (rid, cpu, len(want) // unit))
         sha_lines.append("sha256: %s %s" % (rid, r["sha"]))
@@ -735,7 +795,7 @@ def recount_form_inner(d):
     sha_lines += case_sha_lines(manifest_cases, used)
     sha_lines += nonfinite_lines(manifest_cases, cases, used)
     sha_lines += input_special_lines(manifest_cases, cases, used)
-    zero = sum(1 for v in compared.values() if v[0] == 0 and not v[2])
+    zero = sum(1 for v in compared.values() if v[0] == 0 and not v[2] and not v[3])
     summary = "recount-summary: rows=%d zero=%d nonzero=%d uncompared=%d" % (len(rows), zero, len(compared) - zero, len(uncompared))
     return {"compared": compared, "uncompared": uncompared, "rec_lines": rec_lines, "sha_lines": sha_lines, "summary": summary}
 
@@ -776,11 +836,17 @@ def form_items(inputs, manifest_cases, form_rows):
 def main():
     mode = sys.argv[1]
     if mode == "recount":
-        res = recount_form(check_dir(sys.argv[2], "saved dir"))
+        saved_dir = check_dir(sys.argv[2], "saved dir")
+        expect = exp_rows = None
+        if sys.argv[3:]:
+            # 期待の入力を渡したときだけ、保存の形の行・ケースを期待と突き合わせる。
+            exp_cases, expect = load_cases(sys.argv[3])
+            exp_rows = expected_rows(exp_cases)
+        res = recount_form(saved_dir, expect, exp_rows)
         for ln in res["rec_lines"] + res["sha_lines"] + [res["summary"]]:
             print(ln)
-        return 0 if not any(v[0] or v[2] for v in res["compared"].values()) and not res["uncompared"] else 1
-    rows = load_cases(sys.argv[2])
+        return 0 if not any(v[0] or v[2] or v[3] for v in res["compared"].values()) and not res["uncompared"] else 1
+    rows, expect = load_cases(sys.argv[2])
     if mode == "validate":
         # 書き出しを選んだときだけ組み合わせと書き出し先を検査する。要るビルドと生成の入力の有無を語で返す。
         if sys.argv[3] != "-":
@@ -798,7 +864,7 @@ def main():
             print(n)
         return 0
     if mode == "inputs":
-        load_manifest(sys.argv[3], rows)
+        load_manifest(sys.argv[3], rows, expect)
         return 0
     results_path, inputs, outputs, saved, out_arg = sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
     extra = sys.argv[8:]
@@ -815,7 +881,7 @@ def main():
     if any(r["gen"] for r in rows):
         if inputs == "-":
             die("generated rows need an inputs directory")
-        manifest_cases, cases = load_manifest(inputs, rows)
+        manifest_cases, cases = load_manifest(inputs, rows, expect)
     res = load_results(results_path, rows, outputs, cases)
     counts = {"match": 0, "mismatch": 0, "not-run": 0}
     lines = []
@@ -853,16 +919,20 @@ def main():
             else:
                 nwords = len(want) // unit
                 t1 = None
+                max_abs = None
                 if uses_t1(cases[r["case"]]["kind"], r["export"], r["build"]):
-                    diff, t1 = t1_count(want, val)
+                    diff, t1, max_abs = t1_count(want, val)
                 else:
                     diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 cpu = cpu_count(cases[r["case"]], val)
-                state = "match" if diff == 0 and not cpu else "mismatch"
+                flat = sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
+                state = "match" if diff == 0 and not cpu and not flat else "mismatch"
                 if diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
                 elif cpu:
                     detail = "cpu-reference mismatches %d/%d" % (cpu, nwords)
+                elif flat:
+                    detail = "max-abs is zero (simd128 sum order not exercised)"
                 cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
                 if cpu is not None:
                     cmp_lines.append("cpu-count: %s mismatches=%d n=%d" % (rid, cpu, nwords))
@@ -870,7 +940,7 @@ def main():
                 if t1 is not None:
                     cmp_lines.append("t1: %s %s" % (rid, t1))
                 if src == "native-scalar":
-                    j_compared[rid] = (diff, nwords, cpu)
+                    j_compared[rid] = (diff, nwords, cpu, flat)
                     j_uncompared.discard(rid)
         elif val == ref:
             state = "match"
@@ -897,7 +967,7 @@ def main():
         items = form_items(inputs, manifest_cases, form_rows)
         saved_abs = os.path.abspath(saved)
         write_new(saved_abs, items, "saved form")
-        rc_res = recount_form(saved_abs)
+        rc_res = recount_form(saved_abs, expect, expected_rows(rows))
         if rc_res["compared"] != j_compared or rc_res["uncompared"] != j_uncompared:
             die("recount disagrees")
         nf_lines = nonfinite_lines(manifest_cases, cases, used_cases)
@@ -953,7 +1023,7 @@ need() {
 main() {
   local wasm_arg="" wasm_simd_arg="" cases="${ROOT_DIR}/wasm/node/cases.json"
   local rec_dir="" rec_combo="" have_dir=0 have_combo=0
-  local out_dir="" recount_dir="" others=0
+  local out_dir="" recount_dir="" others=0 expect_cases="" have_expect=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --wasm)
@@ -999,6 +1069,12 @@ main() {
         recount_dir="$(abspath "$2")"
         shift 2
         ;;
+      --expect-cases)
+        [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "${USAGE}" >&2; exit 2; }
+        expect_cases="$(abspath "$2")"
+        have_expect=1
+        shift 2
+        ;;
       *)
         echo "${USAGE}" >&2
         exit 2
@@ -1009,11 +1085,13 @@ main() {
   [ "${have_dir}" = "${have_combo}" ] || { echo "${USAGE}" >&2; exit 2; }
 
   # 数え直しは保存の形だけを読む。ほかの口とは併用できず、node・wasm-bindgen・cargo を要らない。
+  # --expect-cases は --recount と組のときだけ受ける（保存の形の行・ケースを期待の入力と突き合わせる）。
+  [ "${have_expect}" = 0 ] || [ -n "${recount_dir}" ] || { echo "${USAGE}" >&2; exit 2; }
   if [ -n "${recount_dir}" ]; then
     [ "${others}" = 0 ] || { echo "${USAGE}" >&2; exit 2; }
     need python3
     local rrc=0
-    python3 -I -c "${PY_CODE}" recount "${recount_dir}" || rrc=$?
+    python3 -I -c "${PY_CODE}" recount "${recount_dir}" ${expect_cases:+"${expect_cases}"} || rrc=$?
     exit "${rrc}"
   fi
 

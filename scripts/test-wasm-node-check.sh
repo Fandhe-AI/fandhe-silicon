@@ -501,7 +501,18 @@ print(len(rows))' "${cf}" "${FAKE_RESULTS}" "${fix}/rowmap-${name}")"
   reset_gen
   expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
 }
-bundled_check bundled "${CASES_REAL}"
+# 偽の host 側の道具の寸法は同梱の `cases` の欄の寸法と違うので、行の入力だけの写しを流す（欄と host の表の一致は
+# wasm/crates/parity-host/tests/recount_expected.rs が実物で確かめる）。
+python3 -I - "${CASES_REAL}" "${fix}/bundled-real.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+del d["cases"]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+bundled_check bundled "${fix}/bundled-real.json"
+check "22 bundled cases table names exactly the cases the generated rows use" "$(python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if {c["name"] for c in d["cases"]} == {r["case"] for r in d["rows"] if "case" in r} and len(d["cases"]) == len({c["name"] for c in d["cases"]}) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の生成の行（export が gemm_ で始まる行）は 17 ケース × 4 組の 68 行にちょうど等しい（ほかの種類の行は数えない）（TASK-999）
 check "22 bundled generated rows are exactly 17 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("gemm_")]
@@ -2525,9 +2536,9 @@ cp "${GLUE_MANIFEST}" "${work}/mut/wasm/crates/glue/Cargo.toml"
 python3 -I - "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" <<'PY'
 import sys
 s = open(sys.argv[1], encoding="utf-8").read()
-old = "diff, t1 = t1_count(want, data)"
+old = "diff, t1, max_abs = t1_count(want, data)"
 assert s.count(old) == 1
-open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "diff, t1 = t1_count(data, want)"))
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "diff, t1, max_abs = t1_count(data, want)"))
 PY
 chmod +x "${work}/mut/scripts/wasm-node-check.sh"
 check "98 the mutant differs from the original" "$(cmp -s "${WNC}" "${work}/mut/scripts/wasm-node-check.sh" && echo 1 || echo 0)"
@@ -2901,6 +2912,140 @@ check "110 nothing written to either directory" "$([ "$(nfiles "${work}/out110")
 rm -rf "${work}/mut" "${fix}/outs"
 reset_gen
 res_ok
+
+# 111. --recount --expect-cases: 保存の形の行の集合・build・種類・寸法を期待の入力から決める。別の和の順の印
+# exp_json <出力> [simd 印をつけるケース]: gen.json の行に、gemm-a・gemm-b の期待（m=2・k=3・n=2）を足した期待の入力を書く。
+exp_json() {
+  python3 -I - "${fix}/gen.json" "$1" "${2:-}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["cases"] = []
+for name in ("gemm-a", "gemm-b"):
+    e = {"name": name, "kind": "gemm", "dims": {"m": 2, "k": 3, "n": 2}}
+    if name == sys.argv[3]:
+        e["simd_sum_order_differs"] = True
+    d["cases"].append(e)
+json.dump(d, open(sys.argv[2], "w"))
+PY
+}
+# exp_mut <ディレクトリ名> <モード>: out56 の写しの保存の形を、期待の入力と食い違うように書き換える（sha256 は書き換えに合わせる）。
+exp_mut() {
+  python3 -I - "${work}/$1" "$2" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+op, mp = os.path.join(d, "outputs.json"), os.path.join(d, "manifest.json")
+o, m = json.load(open(op)), json.load(open(mp))
+sha = lambda b: hashlib.sha256(b).hexdigest()
+def wr(fn, b):
+    open(os.path.join(d, fn), "wb").write(b)
+    return sha(b)
+def rd(fn):
+    return open(os.path.join(d, fn), "rb").read()
+def case(name):
+    return next(c for c in m["cases"] if c["name"] == name)
+if mode == "drop-row":
+    os.unlink(os.path.join(d, "g-simd.bin"))
+    o["rows"] = o["rows"][:1]
+elif mode == "build":
+    o["rows"][1]["build"] = "scalar"
+elif mode == "shrink":
+    c = case("gemm-b")
+    c.update(m=1, k=1, n=1)
+    c["a_sha256"] = wr(c["a_file"], rd(c["a_file"])[:4])
+    c["b_sha256"] = wr(c["b_file"], rd(c["b_file"])[:4])
+    nat = rd(c["native_scalar_file"])[:4]
+    c["native_scalar_sha256"] = wr(c["native_scalar_file"], nat)
+    o["rows"][1]["output_sha256"] = wr("g-simd.bin", nat)
+elif mode == "kind":
+    # gemm-a を gemm-special の項に替え、出力の語を 1 ビットだけ動かす（厳密な比べなら不一致・閾値の比べなら一致）。
+    c = case("gemm-a")
+    c["kind"] = "gemm-special"
+    c["cpu_reference_file"] = "gemm-a.cpu-reference.bin"
+    c["cpu_reference_sha256"] = wr(c["cpu_reference_file"], rd(c["native_scalar_file"]))
+    keys = ["name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "cpu_reference_file", "a_sha256", "b_sha256", "native_scalar_sha256", "cpu_reference_sha256"]
+    m["cases"][m["cases"].index(c)] = {k: c[k] for k in keys}
+    b = bytearray(rd("g-scalar.bin"))
+    b[0] ^= 1
+    o["rows"][0]["output_sha256"] = wr("g-scalar.bin", bytes(b))
+elif mode == "near":
+    b = bytearray(rd("g-simd.bin"))
+    b[0] ^= 1
+    o["rows"][1]["output_sha256"] = wr("g-simd.bin", bytes(b))
+json.dump(o, open(op, "w"))
+json.dump(m, open(mp, "w"))
+PY
+}
+exp_json "${fix}/exp.json"
+exp_json "${fix}/exp-flat.json" gemm-b
+w --recount "${work}/out56" --expect-cases "${fix}/exp.json"
+expect "111 --recount with the expected cases" 0 "recount: g-scalar mismatches=0 n=4" "recount-summary: rows=2 zero=2 nonzero=0 uncompared=0" "!recount-flat:"
+w --expect-cases "${fix}/exp.json"
+expect "111 --expect-cases needs --recount" 2 "usage:"
+w --wasm "${DW}" --expect-cases "${fix}/exp.json"
+expect "111 --expect-cases does not combine with the run options" 2 "usage:"
+w --recount "${work}/out56" --expect-cases
+expect "111 --expect-cases without value" 2 "usage:"
+w --recount "${work}/out56" --expect-cases "${work}/dirs/missing.json"
+expect "111 --expect-cases with an unreadable file" 2 "cannot read cases" "!recount-summary:"
+for mode in drop-row build; do
+  saved_copy out111
+  exp_mut out111 "${mode}"
+  w --recount "${work}/out111" --expect-cases "${fix}/exp.json"
+  expect "111 saved form with ${mode} against the expected rows" 2 "saved rows differ from the expected rows" "!recount-summary:"
+done
+saved_copy out111
+exp_mut out111 shrink
+w --recount "${work}/out111" --expect-cases "${fix}/exp.json"
+expect "111 gemm-b shrunk in the saved form" 2 "manifest case differs from the expected case" "!recount-summary:"
+saved_copy out111
+exp_mut out111 kind
+w --recount "${work}/out111" --expect-cases "${fix}/exp.json"
+expect "111 gemm-a rewritten as gemm-special in the saved form" 2 "manifest case differs from the expected case" "!recount-summary:"
+w --recount "${work}/out111"
+expect "111 the same rewritten form is counted by the threshold without --expect-cases" 0 "recount: g-scalar mismatches=0 n=4"
+# 別の和の順の印: 参照と全語が同じなら不一致、1 ビット違えば一致
+w --recount "${work}/out56" --expect-cases "${fix}/exp-flat.json"
+expect "111 simd128 gemm_simd identical to the reference with the flag" 1 "recount: g-simd mismatches=0 n=4" "recount-flat: g-simd max-abs=0.0" "recount-summary: rows=2 zero=1 nonzero=1 uncompared=0"
+saved_copy out111
+exp_mut out111 near
+w --recount "${work}/out111" --expect-cases "${fix}/exp-flat.json"
+expect "111 simd128 gemm_simd one bit away from the reference with the flag" 0 "recount-summary: rows=2 zero=2 nonzero=0" "!recount-flat:"
+# 実行の中の判定でも同じ期待を使う
+gen_setup
+gw --cases "${fix}/exp.json"
+expect "111 a run with matching expected cases" 0 "row: g-simd match" "summary: rows=2 match=2"
+gen_setup
+gw --cases "${fix}/exp-flat.json"
+expect "111 a run whose flagged row never left the reference" 1 "row: g-simd mismatch (max-abs is zero (simd128 sum order not exercised))" "recount-flat: g-simd max-abs=0.0" "summary: rows=2 match=1 mismatch=1" "!recount disagrees"
+gen_setup
+python3 -I - "${fix}/exp.json" "${fix}/exp-dims.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["cases"][1]["dims"]["n"] = 3
+json.dump(d, open(sys.argv[2], "w"))
+PY
+gw --cases "${fix}/exp-dims.json"
+expect "111 a run whose expected dimensions differ from the manifest" 2 "manifest case differs from the expected case" "!row:" "!summary:"
+python3 -I - "${fix}/exp.json" "${fix}/exp-extra.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["cases"].append({"name": "gemm-c", "kind": "gemm", "dims": {"m": 2, "k": 3, "n": 2}})
+json.dump(d, open(sys.argv[2], "w"))
+PY
+gen_setup
+gw --cases "${fix}/exp-extra.json"
+expect "111 a run whose expected cases name a case the manifest lacks" 2 "manifest cases differ from the expected cases" "!summary:"
+for bad in '{"name": "x", "kind": "nope", "dims": {"n": 1}}' '{"name": "x", "kind": "gemm", "dims": {"m": 1, "k": 1}}' '{"name": "x", "kind": "gemm", "dims": {"m": 1, "k": 1, "n": 0}}' '{"name": "x", "kind": "topk", "dims": {"n": 1, "k": 1}, "simd_sum_order_differs": true}' '{"name": "x", "kind": "gemm", "dims": {"m": 1, "k": 1, "n": 1}, "other": 1}'; do
+  python3 -I - "${fix}/exp.json" "${fix}/exp-bad.json" "${bad}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["cases"] = [json.loads(sys.argv[3])]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+  w --recount "${work}/out56" --expect-cases "${fix}/exp-bad.json"
+  expect "111 an invalid expected case ${bad}" 2 "error:" "!recount-summary:"
+done
+reset_gen
 
 echo "passed: ${passed}, failed: ${failed}"
 if [ "${failed}" -ne 0 ]; then
