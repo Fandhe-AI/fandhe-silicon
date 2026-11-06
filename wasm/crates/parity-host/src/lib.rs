@@ -12,7 +12,9 @@
 //! `native_neon_file`・`native_neon_sha256` を足す。TASK-995）、
 //! 部分 Top-k の 3 ケースそれぞれの `.scores.bin`（f32 のリトルエンディアン）・`.native-scalar.bin`
 //! （1 件が、スロット番号の u32、スコアの f32 のビット列の順のリトルエンディアン 8 バイト）、
-//! 要素ごと演算の 3 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン）、
+//! 要素ごと演算の 3 ケースそれぞれの `.input.bin`・`.native-scalar.bin`（f32 のリトルエンディアン。
+//! aarch64 で `neon` が有効なビルドでは `DefaultCpuOps::elementwise_simd` の出力の `.native-neon.bin` も書き、manifest に
+//! `native_neon_file`・`native_neon_sha256` を足す。TASK-997）、
 //! -0.0 を含む部分 Top-k の 6 ケースそれぞれの `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! 特殊値の GEMM の 14 ケース（core の `CaseId::G01`〜`G13`・`E1`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・
 //! `.cpu-reference.bin`（f32 のリトルエンディアン。最後は core の CPU 参照）と、
@@ -108,6 +110,8 @@ pub enum GenError {
     NativeTopkFailed,
     /// 要素ごと演算の参照の計算が `Err` を返した。
     NativeElementwiseFailed,
+    /// `elementwise_simd` の参照の計算が `Err` を返した。
+    NativeElementwiseNeonFailed,
     /// core の CPU 参照を作れなかった（`Err`、または f32 の出力でない）。
     CpuReferenceFailed,
 }
@@ -124,6 +128,7 @@ impl fmt::Display for GenError {
             GenError::NativeNeonFailed => "error: native gemm_simd failed",
             GenError::NativeTopkFailed => "error: native topk_partial_scalar failed",
             GenError::NativeElementwiseFailed => "error: native elementwise_scalar failed",
+            GenError::NativeElementwiseNeonFailed => "error: native elementwise_simd failed",
             GenError::CpuReferenceFailed => "error: cpu reference failed",
         };
         f.write_str(text)
@@ -613,6 +618,43 @@ pub fn native_elementwise(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> 
     Ok(out)
 }
 
+/// `DefaultCpuOps::elementwise_simd` の出力（入力と同じ長さ）を返す。aarch64 で `neon` が有効なビルドでだけ在る
+/// （要素ごと演算の `native-neon` の参照。TASK-997）。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+pub fn native_elementwise_neon(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> {
+    let mut out = vec![0.0_f32; case.input.len()];
+    DefaultCpuOps
+        .elementwise_simd(case.op, &case.input, &mut out)
+        .map_err(|_| GenError::NativeElementwiseNeonFailed)?;
+    Ok(out)
+}
+
+/// 要素ごと演算の `native-neon` の参照のファイルと manifest の 2 行（`native_neon_file`・`native_neon_sha256`）。
+/// aarch64 で `neon` が有効なビルドでだけ `Some` を返す。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn elementwise_neon_reference(
+    case: &ElementwiseCase,
+) -> Result<Option<(OutFile, [String; 2])>, GenError> {
+    let bytes = f32_le_bytes(&native_elementwise_neon(case)?);
+    let name = format!("{}.native-neon.bin", case.name);
+    let lines = [
+        format!("      \"native_neon_file\": \"{name}\""),
+        format!(
+            "      \"native_neon_sha256\": \"{}\"",
+            hex(&sha256_bytes(&bytes))
+        ),
+    ];
+    Ok(Some((OutFile { name, bytes }, lines)))
+}
+
+/// `native-neon` の参照を持たないビルドでは、ファイルも鍵も書かない。
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+fn elementwise_neon_reference(
+    _case: &ElementwiseCase,
+) -> Result<Option<(OutFile, [String; 2])>, GenError> {
+    Ok(None)
+}
+
 /// 特殊値の要素ごと演算のケースの表の 1 行。
 #[derive(Debug, Clone, Copy)]
 pub struct ElementwiseSpecialCaseSpec {
@@ -790,7 +832,7 @@ struct OutFile {
     bytes: Vec<u8>,
 }
 
-/// 1 ケースのファイル（GEMM は 3〔`native-neon` の参照を書くビルドでは 4〕、特殊値の GEMM は 4、特殊値の要素ごと演算は 3、部分 Top-k と要素ごと演算は 2）と、manifest の 1 要素の文字列。
+/// 1 ケースのファイル（GEMM は 3、要素ごと演算は 2〔どちらも `native-neon` の参照を書くビルドでは 1 つ多い〕、特殊値の GEMM は 4、特殊値の要素ごと演算は 3、部分 Top-k は 2）と、manifest の 1 要素の文字列。
 struct CaseOutput {
     files: Vec<OutFile>,
     manifest_entry: String,
@@ -962,37 +1004,46 @@ fn elementwise_case_output(case: &ElementwiseCase) -> Result<CaseOutput, GenErro
     let n_file = format!("{}.native-scalar.bin", case.name);
     let input_bytes = f32_le_bytes(&case.input);
     let n_bytes = f32_le_bytes(&native);
-    let entry = [
-        "    {".to_string(),
-        format!("      \"name\": \"{}\",", case.name),
-        "      \"kind\": \"elementwise\",".to_string(),
-        format!("      \"n\": {},", case.input.len()),
-        format!("      \"op_code\": {},", case.op_code),
-        format!("      \"c_bits\": \"{:08x}\",", case.c_bits),
-        format!("      \"input_file\": \"{input_file}\","),
-        format!("      \"native_scalar_file\": \"{n_file}\","),
-        format!(
-            "      \"input_sha256\": \"{}\",",
-            hex(&sha256_bytes(&input_bytes))
-        ),
-        format!(
-            "      \"native_scalar_sha256\": \"{}\"",
-            hex(&sha256_bytes(&n_bytes))
-        ),
-        "    }".to_string(),
-    ]
-    .join("\n");
+    let neon = elementwise_neon_reference(case)?;
+    let mut lines = vec![
+        format!("      \"name\": \"{}\"", case.name),
+        "      \"kind\": \"elementwise\"".to_string(),
+        format!("      \"n\": {}", case.input.len()),
+        format!("      \"op_code\": {}", case.op_code),
+        format!("      \"c_bits\": \"{:08x}\"", case.c_bits),
+        format!("      \"input_file\": \"{input_file}\""),
+        format!("      \"native_scalar_file\": \"{n_file}\""),
+    ];
+    if let Some((_, neon_lines)) = &neon {
+        lines.push(neon_lines[0].clone());
+    }
+    lines.push(format!(
+        "      \"input_sha256\": \"{}\"",
+        hex(&sha256_bytes(&input_bytes))
+    ));
+    lines.push(format!(
+        "      \"native_scalar_sha256\": \"{}\"",
+        hex(&sha256_bytes(&n_bytes))
+    ));
+    if let Some((_, neon_lines)) = &neon {
+        lines.push(neon_lines[1].clone());
+    }
+    let entry = format!("    {{\n{}\n    }}", lines.join(",\n"));
+    let mut files = vec![
+        OutFile {
+            name: input_file,
+            bytes: input_bytes,
+        },
+        OutFile {
+            name: n_file,
+            bytes: n_bytes,
+        },
+    ];
+    if let Some((file, _)) = neon {
+        files.push(file);
+    }
     Ok(CaseOutput {
-        files: vec![
-            OutFile {
-                name: input_file,
-                bytes: input_bytes,
-            },
-            OutFile {
-                name: n_file,
-                bytes: n_bytes,
-            },
-        ],
+        files,
         manifest_entry: entry,
     })
 }

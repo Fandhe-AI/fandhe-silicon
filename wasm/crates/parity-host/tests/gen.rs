@@ -660,7 +660,7 @@ fn elementwise_manifest_entries_match_files() {
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
     );
-    let mut want = [
+    let mut want = vec![
         "name",
         "kind",
         "n",
@@ -671,6 +671,9 @@ fn elementwise_manifest_entries_match_files() {
         "input_sha256",
         "native_scalar_sha256",
     ];
+    // `native-neon` の参照を書くビルドでは、2 つの鍵が増える。
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    want.extend(["native_neon_file", "native_neon_sha256"]);
     want.sort_unstable();
     let wanted_op_codes = ["0", "1", "1"];
     let wanted_c_bits = ["00000000", "3f000000", "3dcccccd"];
@@ -1749,7 +1752,8 @@ fn topk_sentinel_case_rejects_unknown_input_name() {
 
 // ---- ネイティブの NEON の参照（spec TASK-995 のポインタ） ----
 
-/// aarch64 で `neon` が有効なビルド: GEMM の 3 ケースに `native-neon` の参照のファイルと 2 つの鍵が在る。
+/// aarch64 で `neon` が有効なビルド: GEMM の 3 ケースと要素ごと演算の 3 ケースに `native-neon` の参照のファイルと 2 つの鍵が在る
+/// （manifest の並びは GEMM が先）。
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[test]
 fn native_neon_reference_is_written() {
@@ -1758,8 +1762,8 @@ fn native_neon_reference_is_written() {
     let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
     let files = manifest_values(&text, "native_neon_file");
     let hashes = manifest_values(&text, "native_neon_sha256");
-    assert_eq!(files.len(), GEMM_CASES.len());
-    assert_eq!(hashes.len(), GEMM_CASES.len());
+    assert_eq!(files.len(), GEMM_CASES.len() + ELEMENTWISE_CASES.len());
+    assert_eq!(hashes.len(), GEMM_CASES.len() + ELEMENTWISE_CASES.len());
     for (i, case) in build_cases().unwrap().iter().enumerate() {
         assert_eq!(files[i], format!("{}.native-neon.bin", case.name));
         let bytes = fs::read(dir.path().join(&files[i])).unwrap();
@@ -1772,6 +1776,40 @@ fn native_neon_reference_is_written() {
         assert_eq!(bytes, f32_le_bytes(&expected), "{}", case.name);
         let scalar = fs::read(dir.path().join(format!("{}.native-scalar.bin", case.name))).unwrap();
         assert_ne!(bytes, scalar, "{}", case.name);
+    }
+}
+
+/// aarch64 で `neon` が有効なビルド: 要素ごと演算の 3 ケースの `native-neon` の参照は、ファイル名・長さ・sha256・
+/// `elementwise_simd` の出力・`native-scalar` のファイルとのバイト列が揃い、特殊値のケースには鍵が無い。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[test]
+fn native_neon_elementwise_reference_is_written() {
+    let dir = TempDir::new("native-neon-ew");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let files = manifest_values(&text, "native_neon_file");
+    let hashes = manifest_values(&text, "native_neon_sha256");
+    let want_names: Vec<String> = GEMM_CASES
+        .iter()
+        .map(|c| c.name)
+        .chain(ELEMENTWISE_CASES.iter().map(|c| c.name))
+        .map(|n| format!("{n}.native-neon.bin"))
+        .collect();
+    assert_eq!(files, want_names);
+    for (j, spec) in ELEMENTWISE_CASES.iter().enumerate() {
+        let i = GEMM_CASES.len() + j;
+        let case = elementwise_case(spec.name);
+        assert_eq!(files[i], format!("{}.native-neon.bin", case.name));
+        let bytes = fs::read(dir.path().join(&files[i])).unwrap();
+        assert_eq!(bytes.len(), case.input.len() * 4);
+        assert_eq!(hashes[i], hex(&sha256_bytes(&bytes)));
+        let mut expected = vec![0.0f32; case.input.len()];
+        DefaultCpuOps
+            .elementwise_simd(case.op, &case.input, &mut expected)
+            .unwrap();
+        assert_eq!(bytes, f32_le_bytes(&expected), "{}", case.name);
+        let scalar = fs::read(dir.path().join(format!("{}.native-scalar.bin", case.name))).unwrap();
+        assert_eq!(bytes, scalar, "{}", case.name);
     }
 }
 
@@ -1796,5 +1834,13 @@ fn native_neon_error_text() {
     assert_eq!(
         GenError::NativeNeonFailed.to_string(),
         "error: native gemm_simd failed"
+    );
+}
+
+#[test]
+fn native_elementwise_neon_error_text() {
+    assert_eq!(
+        GenError::NativeElementwiseNeonFailed.to_string(),
+        "error: native elementwise_simd failed"
     );
 }

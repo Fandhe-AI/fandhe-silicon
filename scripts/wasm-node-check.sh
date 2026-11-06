@@ -47,6 +47,9 @@
 # native-scalar＝ネイティブの scalar 版）で、
 # 欠け・未知の値は終了コード 2。出どころをこの環境で作れない行（固定の行の native-neon と、manifest のケースに native_neon_file が無い
 # 生成の行の native-neon。後者は KINDS の optional の 2 つの鍵が在るときだけ、そのファイルと T1 の閾値で比べ、TASK-995。
+# 要素ごと演算（elementwise）の native-neon の行は、参照が native-scalar のファイルと語ごとのビットで同じかも直に比べ、
+# `neon-count: <行> mismatches=… n=…` の行を出す（不一致があれば行は mismatch。`row:` の detail は `native-neon mismatches <件数>/<n>`。
+# 数え直しの `recount` には出さない。TASK-997）。
 # 比べる相手のあるケースで simd_sum_order_differs が真かつ参照が native-scalar のファイルと同じ sha256 なら
 # `mismatch (native-neon equals native-scalar)`）は
 # `not-run (reference-unavailable)`、作れる出どころで参照（reference）が無い行は `not-run (reference-missing)` にする。
@@ -109,6 +112,7 @@ T1_ABSOLUTE = 1e-5
 # special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）/
 # t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）/
 # cpu: CPU 参照のファイルの鍵（無ければ None。TASK-999）/
+# neon_bits: 真の種類は native-neon の参照を native-scalar の参照と語ごとのビットで直に比べ、`neon-count:` の行を出す（TASK-997。gemm は偽）/
 # optional: manifest に在るときだけ読む任意の組（(ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) の列。2 つの鍵は両方在るか両方無いかのどちらか。無ければ ()。TASK-995）。
 KINDS = {
     "gemm": {
@@ -127,6 +131,7 @@ KINDS = {
         "t1": (("gemm_simd", "simd128"),),
         "cpu": None,
         "optional": (("native_neon_file", "native_neon_sha256", lambda d: d["m"] * d["n"] * 4, "native-neon"),),
+        "neon_bits": False,
     },
     "topk": {
         "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
@@ -143,6 +148,7 @@ KINDS = {
         "t1": (),
         "cpu": None,
         "optional": (),
+        "neon_bits": False,
     },
     "elementwise": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "input_sha256", "native_scalar_sha256"),
@@ -161,7 +167,8 @@ KINDS = {
         "special": "input_file",
         "t1": (),
         "cpu": None,
-        "optional": (),
+        "optional": (("native_neon_file", "native_neon_sha256", lambda d: d["n"] * 4, "native-neon"),),
+        "neon_bits": True,
     },
     "gemm-special": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "cpu_reference_file", "a_sha256", "b_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
@@ -180,6 +187,7 @@ KINDS = {
         "t1": (("gemm_scalar", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "scalar"), ("gemm_simd", "simd128")),
         "cpu": "cpu_reference_file",
         "optional": (),
+        "neon_bits": False,
     },
     "elementwise-special": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "cpu_reference_file", "input_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
@@ -200,6 +208,7 @@ KINDS = {
         "t1": (("elementwise_scalar", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "scalar"), ("elementwise_simd", "simd128")),
         "cpu": "cpu_reference_file",
         "optional": (),
+        "neon_bits": False,
     },
 }
 # 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
@@ -728,6 +737,21 @@ def cpu_count(case, data):
     return t1_count(want, data)[0]
 
 
+def neon_count(case):
+    # 種類が neon_bits を持つとき、native-neon の参照を native-scalar の参照と unit ごとのバイト列で直に比べた不一致の語の数を返す
+    # （持たない種類は None。+0.0 と -0.0、NaN のビットの違いも数えるため float に直さない。TASK-997）。
+    # manifest の照らし（sha256・長さ）の後に呼ぶ。
+    spec = KINDS[case["kind"]]
+    if not spec["neon_bits"]:
+        return None
+    with open(case["files"]["native_neon_file"][0], "rb") as f:
+        neon = f.read()
+    with open(case["files"]["native_scalar_file"][0], "rb") as f:
+        scalar = f.read()
+    unit = spec["unit"]
+    return sum(1 for i in range(0, len(scalar), unit) if neon[i:i + unit] != scalar[i:i + unit])
+
+
 def recount_form(d, expect=None, exp_rows=None):
     # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
     # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
@@ -954,6 +978,7 @@ def main():
                 else:
                     diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
                 cpu = cpu_count(cases[r["case"]], val)
+                neon = neon_count(cases[r["case"]]) if src == "native-neon" else None
                 # 別の和の順の確認は native-scalar の参照との比べに限る（NEON の参照と完全一致するのは正しい）。
                 flat = src == "native-scalar" and sum_order_flat(expect, r["case"], r["export"], r["build"], max_abs)
                 same_ref = (
@@ -962,9 +987,11 @@ def main():
                     and expect[r["case"]]["differs"]
                     and cases[r["case"]]["files"]["native_neon_file"][1] == cases[r["case"]]["files"]["native_scalar_file"][1]
                 )
-                state = "match" if diff == 0 and not cpu and not flat and not same_ref else "mismatch"
+                state = "match" if diff == 0 and not cpu and not flat and not same_ref and not neon else "mismatch"
                 if same_ref:
                     detail = "native-neon equals native-scalar"
+                elif neon:
+                    detail = "native-neon mismatches %d/%d" % (neon, nwords)
                 elif diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
                 elif cpu:
@@ -972,6 +999,8 @@ def main():
                 elif flat:
                     detail = "max-abs is zero (simd128 sum order not exercised)"
                 cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
+                if neon is not None:
+                    cmp_lines.append("neon-count: %s mismatches=%d n=%d" % (rid, neon, nwords))
                 if cpu is not None:
                     cmp_lines.append("cpu-count: %s mismatches=%d n=%d" % (rid, cpu, nwords))
                 cmp_lines.append("sha256: %s %s" % (rid, hashlib.sha256(val).hexdigest()))
