@@ -2731,3 +2731,22 @@ $ grep -rn unsafe wasm/crates/parity-host
 | 4/6 | 特殊値の入力の比べを共通の道具と突き合わせる | #6294 |
 | 5/6 | 特殊値の入力の 68 行を照合の入力に足す | #6295 |
 | 6/6 | 完了の条件の確かめ | #6296 |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `:575` の `grep … def kind_of_export` | `def kind_of_export` は当たらない（関数は消えた）。種類と export の照らしは `load_manifest` の中の `r["export"] not in KINDS[cases[r["case"]]["kind"]]["exports"]` にある。今のコマンドは `def load_manifest` を使う形 | `grep -n "^KINDS\|def nonfinite_lines\|def load_manifest" scripts/wasm-node-check.sh`、`grep -n 'not in KINDS\[cases' scripts/wasm-node-check.sh` |
+| `:955` の `grep … def kind_of_export` | 同上。`def kind_of_export` を `def load_manifest` に替え、`def input_special_lines` は残る | `grep -n "^KINDS\|def input_special_lines\|def load_manifest" scripts/wasm-node-check.sh` |
+| 「今の値の補い（base e416527）」の語ごとの比べ（`:1604`） | `gemm` の `gemm_simd`・`simd128` の行だけ閾値で語ごとに比べる → `gemm-special`・`elementwise-special` の 4 組（種類 2 つ × `scalar`・`simd128` の組で表 `KINDS` の `t1` の欄）も閾値で比べ、`t1:` の行を出す。さらに `KINDS` の `cpu` の欄を持つ種類は wasm の出力を CPU 参照とも閾値で比べ、不一致があれば行は mismatch（`cpu-count:`・`recount-cpu:` の行を出す） | `sed -n 28,40p scripts/wasm-node-check.sh`、`grep -n '"t1"\|"cpu"' scripts/wasm-node-check.sh` |
+| 確かめ方の `grep -c '"case"' wasm/node/cases.json`（`:1605`） | `50` → `118` | `grep -c '"case"' wasm/node/cases.json` |
+| `make test-wasm-node-check` の最終行（`:1607`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check 2>&1 \| tail -n 1` |
+| `wasm/node/cases.json` の行数（`:1608`） | 55 行 → 123 行（`gemm_scalar` 34・`gemm_simd` 34・`topk_scalar` 17・`topk_simd` 17・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 8・`elementwise_simd` 8） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| `manifest.json` の `cases` と書く名前（`:1609`） | 13 要素（GEMM 3・部分 Top-k 8・要素ごと演算 2）・書く名前は 30 個 → 30 要素（`gemm` 3・`topk` 9・`elementwise` 2・`gemm-special` 14・`elementwise-special` 2）・書く名前は 94 個 | `d=$(mktemp -d); (cd wasm && cargo run -q -p wasm-parity-host -- gen "$d"); ls "$d" \| wc -l; jq -r '.cases[].kind' "$d/manifest.json" \| sort \| uniq -c` |
+| `sha256sum *` の `manifest.json`（`:1610`） | `fae32ffa06473452882cfb5c5991c0ac2ed0af3807b09beee867b50ba5c3f987` → `e2351cce5ecb46c3dfb8a116d36eff8be43e9de3160283207823d5dc327894c1`（x86_64 の Linux で測った値）。x86_64 と arm64 で NaN の符号が違う語を含むケースがあり、`manifest.json` の sha256 は環境で異なる | 上の `gen` を流し、`(cd "$d" && sha256sum manifest.json)`、`uname -m` |
+| 回帰テストの項目 22 の名前（`:1611`） | `3 cases x` → `17 cases x`（`22 bundled generated rows are exactly 17 cases x (…)`）。`the thirty` → `the thirty-four`、`the eight` → `the sixteen`（`22 bundled topk rows are exactly the thirty-four (case, export, build) pairs`・`22 bundled elementwise rows are exactly the sixteen (case, export, build) pairs`） | `grep -n 'bundled .* rows' scripts/test-wasm-node-check.sh` |
+| `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:1612`） | `36 passed` → `64 passed` | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
+| `summary:` の行（`:1613`） | `rows=55` → `rows=123` | `jq '.rows \| length' wasm/node/cases.json` |
+| `recount-summary:` の行（`:1614`） | `rows=50` → `rows=118`（`cases.json` の 123 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除く） | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |

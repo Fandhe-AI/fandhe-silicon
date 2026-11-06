@@ -257,3 +257,11 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 「今の値の補い（base 42731d8）」の `make test-wasm-node-check`（`:251`） | `passed: 505, failed: 0` → `passed: 544, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base e416527）」の `make test-wasm-node-check`（`:259`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check` |

@@ -380,3 +380,13 @@ $ git grep -n unsafe 9cd7da5 -- wasm/crates/parity-host/src/lib.rs crates/contra
 | 2/4 | -0.0 を含む 5 ケースの入力とネイティブの参照 | #6949 |
 | 3/4 | 照合の 20 行 | #6950 |
 | 4/4 | 完了の条件の確かめ | #6951 |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| run の記録の `summary:`（`:257`） | `rows=55 match=55 mismatch=0 not-run=0` → `rows=123`（今の `cases.json` の行数。`cases.json` は 123 行） | `jq '.rows \| length' wasm/node/cases.json` |
+| run の記録の `recount-summary:`（`:293`） | `rows=50 zero=50 nonzero=0 uncompared=0` → `rows=118` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| run の記録の項目 22（`:356`） | `the thirty (case, export, build) pairs` → `the thirty-four (case, export, build) pairs` | `grep -n 'bundled topk rows' scripts/test-wasm-node-check.sh` |

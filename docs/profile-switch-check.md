@@ -184,3 +184,11 @@ profile-test-count-check: all profiles passed
 | 同じ表の (7) | `git diff --stat 2ea8f74..HEAD -- Cargo.lock deps-approved.toml` は（出力なし）→ 今も出力なし | 同じ `git diff --stat` |
 | 同じ表の (1)・(2) | `profile_feature_sets` は 10 件、`feature_default_scope` は 15 件 → 今も同じ（`10 passed`・`15 passed`） | `cargo test -p fandhe-silicon-contract --test profile_feature_sets`、`cargo test -p fandhe-silicon-contract --test feature_default_scope` |
 | 同じ表の (3) の出力 | `record:` の 3 行（`passed=6 graphics=0`・`passed=6 graphics=0`・`passed=9 graphics=3`）→ 今も同じ。最終行は `profile-test-count-check: all profiles passed` | `make profile-test-count-check` |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 同じ表の (6)（`:183`） | `2ea8f74..25d8dc2` で `crates/contract/Cargo.toml` が +16 行、`scripts/build-profiles.sh` が +37 行・-3 行 → `2ea8f74..0f8b01c` で `Cargo.toml` が +20 行、`scripts/build-profiles.sh` が +42 行・-3 行。`stub_device_profiles.rs` は差分なし | `git diff --numstat 2ea8f74..0f8b01c -- crates/contract/tests/stub_device_profiles.rs scripts/build-profiles.sh crates/contract/Cargo.toml` |

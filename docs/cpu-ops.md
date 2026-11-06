@@ -385,3 +385,16 @@ make verify
 | 「今の値の補い（base 25d8dc2）」の `cpu_ops_topk_reference` の本数（`:357`） | 12 本 → 18 本（`18 passed; 0 failed; 0 ignored`）。足された 6 本は -0.0 を含む入力を扱う試験で、所在は [cpu-ops-topk-signed-zero.md](cpu-ops-topk-signed-zero.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` |
 | 「今の値の補い（base 42731d8）」の `make test-wasm-node-check` の最終行（`:377`） | `passed: 505, failed: 0` → `passed: 544, failed: 0` | `make test-wasm-node-check` |
 | 「今の値の補い（base 42731d8）」の `wasm/crates/glue` の export を通した実行（`:190` の文の今の値） | `make wasm-node-check` が Node 上で流す行は、ビットの完全一致で比べるものに加えて、`gemm_simd`・`simd128` の行を閾値で語ごとに比べるもの（`t1:` の行を出す）がある。所在は [wasm32-native-parity.md](wasm32-native-parity.md) の「Node での照合の閾値の比べ（1/4）」 | `grep -n 't1\|T1' scripts/wasm-node-check.sh` |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 所在・頁の一覧（`:351`） | `cpu-ops-topk-order.md` などの一覧 → 要素ごとの演算の NaN・±Inf・±0 の確かめの頁 [cpu-ops-elementwise-special.md](cpu-ops-elementwise-special.md) が加わった | `ls docs/cpu-ops*.md` |
+| `Cargo.toml` の差分（`:355`） | `947283a..25d8dc2` で +16 行 → `947283a..0f8b01c` で +20 行（`[[test]]` の 5 項目。`cpu_ops_elementwise_special` が加わった）。`Cargo.lock`・`deps-approved.toml` は差分なし | `git diff --numstat 947283a..0f8b01c -- crates/contract/Cargo.toml Cargo.lock deps-approved.toml` |
+| `Cargo.toml` の差分（`:356`） | `3b6fa07..25d8dc2` で +12 行 → `3b6fa07..0f8b01c` で +16 行。`simd128.rs` は +5 行・-2 行 → +3 行・-2 行。`Cargo.lock`・`deps-approved.toml` は差分なし | `git diff --numstat 3b6fa07..0f8b01c -- crates/contract/Cargo.toml crates/contract/src/cpu_ops/simd128.rs Cargo.lock deps-approved.toml` |
+| 試験の表（`:360`） | `cpu_ops_elementwise_special`（`Cargo.toml` に `[[test]]`、`required-features = ["cpu-ops", "test-support"]`）が加わった。5 本: `input_holds_special_values`・`relu_scalar_maps_nan_to_positive_zero`・`relu_matches_case_reference_by_rule`・`rule_detects_nan_passed_through`・`simd_matches_scalar_by_rule`（`5 passed; 0 failed; 0 ignored`）。所在は [cpu-ops-elementwise-special.md](cpu-ops-elementwise-special.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_elementwise_special` |
+| `make test-wasm-node-check` の最終行（`:386`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check` |
+| 閾値の比べの行（`:387`） | `gemm_simd`・`simd128` の行を閾値で語ごとに比べる → 特殊値の入力の 2 種類（`gemm-special`・`elementwise-special`）の 4 組も閾値で比べる。所在は [wasm32-native-parity.md](wasm32-native-parity.md) | `sed -n 28,40p scripts/wasm-node-check.sh` |
