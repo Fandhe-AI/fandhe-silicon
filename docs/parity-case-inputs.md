@@ -146,3 +146,11 @@ CI の結果（`verify`・`deny` ジョブ）は PR の checks で確かめる�
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 「別 crate からの利用」の行（`:32`） | `contract` の `test_support_*` の試験から読み込める → 利用の先に `crates/contract/tests/cpu_ops_topk_reference.rs`（`parity::topk` の `compare_topk`・`reference_topk_f32` と `parity::topk_inputs` の `SIGNED_ZERO_INPUTS`）と `wasm/crates/parity-host/src/lib.rs`（`parity::case_inputs` の `additional_topk_inputs`）が加わる | `grep -n -E 'compare_topk\|reference_topk_f32\|SIGNED_ZERO_INPUTS' crates/contract/tests/cpu_ops_topk_reference.rs`、`grep -n 'additional_topk_inputs' wasm/crates/parity-host/src/lib.rs` |
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「別 crate からの利用」の行（`:32`） | 利用の先に `wasm/crates/parity-host/src/lib.rs`（特殊値の入力）と `crates/contract/tests/cpu_ops_elementwise_special.rs` が加わる | `grep -n 'cpu_ops_elementwise_special' crates/contract/Cargo.toml`、`ls wasm/crates/parity-host/src/lib.rs` |

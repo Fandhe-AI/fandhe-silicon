@@ -152,3 +152,11 @@ make build-profiles                                                             
 | `cpu_ops_feature_sets` | `crates/contract/tests/cpu_ops_feature_sets.rs`（`Cargo.toml` に `[[test]]` の項目は無く、feature の組に依らず流れる）。`real_manifest_contract_core_does_not_imply_cpu_ops`・`manifest_mutations_are_caught`・`real_script_has_the_contract_core_only_row`・`script_mutations_are_caught` | 4 本（`cargo test -p fandhe-silicon-contract --test cpu_ops_feature_sets` が `4 passed; 0 failed; 0 ignored`） |
 
 `AddScalar` を 0.5 以外の定数で確かめる `elementwise_add_scalar_other_constants`（#7917）は `crates/contract/tests/cpu_ops_reference.rs` の 277 行目にあり、`cpu_ops_reference` は 8 本（`8 passed; 0 failed; 0 ignored`）。所在の頁は [cpu-ops-elementwise-check.md](cpu-ops-elementwise-check.md) と [cpu-ops.md](cpu-ops.md)。
+
+## 今の値の補い（base 0f8b01c）
+
+記録時点の表と既存の節は書き換えない。以下は base `0f8b01c` で観測した今の値（実行環境は GPU なしの Linux x86_64。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 完了の条件の確かめ（4/4）の (5)（`:144`） | `bba66a5..25d8dc2` の `Cargo.toml` は +4 行 → `bba66a5..0f8b01c` で +8 行。`cfg_gate_doctest.rs` は +17 行・-2 行、`cpu_ops.rs` は +7 行・-1 行 | `git diff --numstat bba66a5..0f8b01c -- crates/contract/src crates/contract/Cargo.toml` |
