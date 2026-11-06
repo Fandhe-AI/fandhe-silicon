@@ -52,9 +52,9 @@ fandhe-silicon/
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
 ├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base f4b9d8f）（TASK-2387）
-├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）（TASK-262）
+├── docs/upper-layer-crate-check.md  # 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 1b5ab17）（TASK-262）
 ├── docs/cross-layer-types.md  # 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-260）
-├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-261）
+├── docs/upper-exec-same-device.md  # 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）・今の値の補い（base 1b5ab17）（TASK-261）
 ├── docs/baseline-positive-control.md  # 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12）
 ├── docs/sha256-hash.md       # SHA-256 の関数の所在・振る舞い・対応するテスト・確かめ方（TASK-471）
 ├── docs/decision-table.md    # 決定表の純関数と型の所在・公開名・対応するテスト・確かめ方（TASK-141・TASK-143）
@@ -170,7 +170,7 @@ fandhe-silicon/
 ├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・本リポでの反映の方針・依存の承認の件数の現状
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
-├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1082）
+├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）（TASK-1082）
 ├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験（TASK-317）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
