@@ -221,7 +221,7 @@ impl CaseOutput {
 
 /// Relu の CPU 参照。正の値（+Inf を含む）はそのまま、それ以外（NaN・-Inf・負・±0.0）は `+0.0`。
 ///
-/// `f32::max(x, 0.0)` は零の符号と NaN の扱いが決まっていないので使わず、分岐で明示する。
+/// `f32::max(x, 0.0)` は零の符号が決まっていないので使わず、分岐で明示する。
 fn relu_reference(input: &[f32]) -> Result<Vec<f32>, ReferenceError> {
     let mut out = vec_with(input.len())?;
     out.extend(input.iter().map(|&x| if x > 0.0 { x } else { 0.0 }));
