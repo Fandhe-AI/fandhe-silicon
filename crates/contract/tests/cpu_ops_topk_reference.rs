@@ -611,5 +611,10 @@ fn topk_total_order_compare_detects_divergence() {
     swapped.swap(0, 1);
     assert_eq!(total_order_mismatches(&base, &swapped), Some(2));
 
+    // スコアのビットが同じでスロット番号だけが違う組は、スロットの比べで数えられる。
+    let mut slot_only = base.clone();
+    slot_only[0].0 = 7;
+    assert_eq!(total_order_mismatches(&base, &slot_only), Some(1));
+
     assert_eq!(total_order_mismatches(&base, &base[..1]), None);
 }
