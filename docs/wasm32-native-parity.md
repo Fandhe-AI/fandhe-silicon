@@ -1840,6 +1840,29 @@ $ grep -c '"name"' "$d/manifest.json"
 grep -n 'ELEMENTWISE_SPECIAL_CASES\|TOPK_E3_CASES\|fn elementwise_special_case_output\|fn elementwise_special_cpu_reference' wasm/crates/parity-host/src/lib.rs
 ```
 
+### 特殊値の入力の比べと共通の道具の突き合わせ（4/6）
+
+`wasm/crates/parity-host/tests/special_compare.rs`（TASK-999）は、スクリプトの `--recount` の `recount:`・`recount-cpu:` の件数を、共通の道具（`T1`・`compare_f32_with_special_values`）の件数と突き合わせる。試験は保存の形を一時ディレクトリに書き、`bash scripts/wasm-node-check.sh --recount <dir>` を流す。python3 が無いときは試験が落ちる。
+
+| 試験 | 何と何を比べるか |
+| ---- | ---------------- |
+| `recount_agrees_with_core_on_special_words` | `gemm-special`・`elementwise-special` の保存の形に、NaN の payload 違い・符号違い・±0 違い・片方だけ NaN・Inf の符号違い・閾値の内外の語を置く。ネイティブ側と CPU 参照側に別々に置いた場合と、全部の語を並べた列、両方が 0 でなく件数が違う列で、4 つの `(export, build)` の組の `recount:`・`recount-cpu:` の `mismatches`・終了コード・`recount-summary:` を、共通の道具の件数と比べる |
+| `recount_agrees_with_core_on_generated_special_files` | `generate` が書いた全部の `special-*` のケースのファイルから保存の形を作り（ネイティブの出力を行の出力に置く）、終了コード 0・`recount-summary:` の `nonzero=0`・`recount-cpu:` の `mismatches` が共通の道具の件数（0）と等しいことを確かめる。ケース名の集合は `GEMM_SPECIAL_CASES`・`ELEMENTWISE_SPECIAL_CASES` とちょうど等しい |
+| `existing_kinds_stay_bit_exact` | 規則では等しくビットが違う語を既存の `gemm`（`gemm_scalar` の 2 行）・`elementwise`（4 行）に当てると、`recount:` の `mismatches` が語の数と等しく終了コード 1。`recount-cpu:`・`t1:` の行は出ない。同じ語を特殊値の 2 種類に当てると `mismatches=0`・終了コード 0 |
+
+#### 確かめ方
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test special_compare --locked
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s
+$ cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test special_compare --locked -- --list
+existing_kinds_stay_bit_exact: test
+recount_agrees_with_core_on_generated_special_files: test
+recount_agrees_with_core_on_special_words: test
+```
+
+時点のコミット: `bc51973`（この変更の土台）。
+
 ### 段
 
 | 段 | 内容 | Issue |
@@ -1847,3 +1870,4 @@ grep -n 'ELEMENTWISE_SPECIAL_CASES\|TOPK_E3_CASES\|fn elementwise_special_case_o
 | 1/6 | Node での照合に特殊値の入力の種類と CPU 参照の比べを足す | #6291 |
 | 2/6 | GEMM の 14 ケースの入力と 2 つの参照を host 側の道具に足す | #6292 |
 | 3/6 | 要素ごと演算の 2 ケースと部分 Top-k の 1 ケースを host 側の道具に足す | #6293 |
+| 4/6 | 特殊値の入力の比べを共通の道具と突き合わせる | #6294 |
