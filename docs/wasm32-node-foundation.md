@@ -337,3 +337,13 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | 「今の値の補い（base e416527）」の比べ方（`:327`） | `gemm` の `gemm_simd`・`simd128` の行だけ閾値で語ごとに比べる → 特殊値の入力の 2 種類（`gemm-special`・`elementwise-special`）の 4 組も閾値で比べ（`t1:` の行を出す）、CPU 参照の欄を持つ種類は CPU 参照とも比べる。所在は [wasm32-native-parity](wasm32-native-parity.md) | `sed -n 28,40p scripts/wasm-node-check.sh` |
 | `wasm/node/cases.json`（`:328`） | 55 行 → 123 行（`gemm_scalar` 34・`gemm_simd` 34・`topk_scalar` 17・`topk_simd` 17・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 8・`elementwise_simd` 8） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
 | 回帰テストの最終行（`:329`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base 2f35b9e）
+
+記録時点の表と既存の節は書き換えない。以下は base `2f35b9e` で観測した今の値（`summary:`・`recount-summary:` の行は main の push の CI の run 42255828793 の `wasm32 build + size + node (macos-latest)` のログ。ほかの値の実行環境は GPU なしの Linux x86_64 で、node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「判定」の行と対応の表（`:202`・`:217`） | `native-neon` の全行が `not-run (reference-unavailable)` → 固定の行の `native-neon` と、manifest のケースに `native_neon_file` が無い生成の行の `native-neon` が `not-run (reference-unavailable)`。鍵があるケースの生成の行は比べる（[wasm32-native-parity](wasm32-native-parity.md) の 2 つの 5/5 の節） | `grep -n 'native_neon_file' scripts/wasm-node-check.sh` |
+| `wasm/node/cases.json`（`:338`） | 123 行 → 141 行（`gemm_scalar` 34・`gemm_simd` 37・`topk_scalar` 21・`topk_simd` 21・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 10・`elementwise_simd` 13） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| 回帰テストの最終行（`:339`） | `passed: 642, failed: 0` → `passed: 702, failed: 0` | `make test-wasm-node-check` |
