@@ -1,5 +1,5 @@
 # contract: 下-1（チップごとの薄い呼び出し）。Metal / Vulkan / CUDA の背後実装を
-# backend-* feature で持ち、unsafe / FFI はこの crate の backend モジュールに閉じる。
+# backend-* feature で持ち、unsafe / FFI はこの crate の backend モジュールに閉じる（unsafe は cpu_ops/neon.rs にも置く）。
 [package]
 name = "fandhe-silicon-contract"
 version = "0.0.0"

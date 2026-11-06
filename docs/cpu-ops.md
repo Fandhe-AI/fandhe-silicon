@@ -398,3 +398,49 @@ make verify
 | 試験の表（`:360`） | `cpu_ops_elementwise_special`（`Cargo.toml` に `[[test]]`、`required-features = ["cpu-ops", "test-support"]`）が加わった。5 本: `input_holds_special_values`・`relu_scalar_maps_nan_to_positive_zero`・`relu_matches_case_reference_by_rule`・`rule_detects_nan_passed_through`・`simd_matches_scalar_by_rule`（`5 passed; 0 failed; 0 ignored`）。所在は [cpu-ops-elementwise-special.md](cpu-ops-elementwise-special.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_elementwise_special` |
 | `make test-wasm-node-check` の最終行（`:386`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check` |
 | 閾値の比べの行（`:387`） | `gemm_simd`・`simd128` の行を閾値で語ごとに比べる → 特殊値の入力の 2 種類（`gemm-special`・`elementwise-special`）の 4 組も閾値で比べる。所在は [wasm32-native-parity.md](wasm32-native-parity.md) | `sed -n 28,40p scripts/wasm-node-check.sh` |
+
+## aarch64 の NEON 版（11/12）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1351。親 Issue は #930、この節（11/12）は #8055。
+
+この節より前の節の `x.max(0.0)` の字句と `cfg` の 2 枝の説明は 11/12 の前の形。現状は下の「所在」と「動き」のとおり（`grep -n 'max(0.0)' crates/contract/src/cpu_ops/*.rs` が 0 件）。
+
+### 所在
+
+| 対象 | 所在 |
+| ---- | ---- |
+| NEON 版の計算 | `crates/contract/src/cpu_ops/neon.rs`（`pub(super)` の `gemm`・`elementwise`） |
+| 版の選び分け | `crates/contract/src/cpu_ops.rs` の `gemm_simd_impl`・`elementwise_simd_impl`。`simd128`・`neon`・scalar の 3 枝。scalar の枝は `not(all(wasm32, simd128))` と `not(all(aarch64, neon))` の 2 行の `cfg` を積む |
+| `Relu` の 1 要素の式 | `crates/contract/src/cpu_ops/scalar.rs` の `relu`。scalar・simd128 の端数・neon の端数が呼ぶ |
+| `unsafe` の個数テスト | `crates/contract/tests/cpu_ops_neon_unsafe_count.rs`。登録は `tests/common/mod.rs` の `UNSAFE_MODULES` |
+| 方針 | [unsafe-policy.md](unsafe-policy.md) |
+
+### 動き
+
+- `cfg(all(target_arch = "aarch64", target_feature = "neon"))` のビルドで、`DefaultCpuOps` の `gemm_simd`・`elementwise_simd` が `neon.rs` の 4 レーンの版を呼ぶ。`topk_partial_simd` は変わらない。
+- GEMM: k を 4 つずつ `vfmaq_f32` で 4 レーンに蓄え、`vaddvq_f32` で水平和を取る。k の端数は昇順の `f32::mul_add`。
+- `Relu`: `vcgtq_f32` の比較のマスクと `vandq_u32`。`AddScalar(c)`: `vaddq_f32`。4 要素の分割は `as_chunks::<4>`、端数は `relu(x)` と `x + c`。
+- 長さが合わない入力は、`out` に触れず simd128 版と同じ文字列の `InvalidArgument` を返す。
+- 読み書きは長さ 4 の配列と lane の設定・取り出しで、生のポインタを作らない。`unsafe` は `gemm`・`elementwise` が内側の関数を呼ぶ 2 か所のブロックだけ。
+
+### 試験
+
+| 試験 | 流れるビルド |
+| ---- | ------------ |
+| `cpu_ops_reference`: `gemm_simd_matches_scalar_by_t1`・`lane_order_differs_from_scalar`・`gemm_simd_exact_on_small_integers_for_each_k` | すべて |
+| `cpu_ops_reference`: `gemm_simd_differs_from_scalar_on_neon`・`gemm_simd_follows_lane_order_on_neon` | aarch64 で `neon` が有効なビルド |
+| `cpu_ops_reference`: `gemm_simd_equals_scalar_without_lanes` | wasm32 の `simd128` も aarch64 の `neon` も無効なビルド |
+| `cpu_ops_build_selection`: (e)〜(h) と陽性対照 6 本 | すべて（ソースの文字列を読む） |
+| `cpu_ops_neon_unsafe_count`・`common_unsafe_count_samples` の `check_backend_covers_only_the_registered_module` | すべて |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_reference
+cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection
+cargo test -p fandhe-silicon-contract --test cpu_ops_neon_unsafe_count
+cargo test -p fandhe-silicon-contract --test common_unsafe_count_samples
+cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --features contract-core,cpu-isa,cpu-ops --target aarch64-unknown-linux-gnu -- -D warnings
+```
+
+観測した件数（Linux x86_64）: `cpu_ops_reference` 12 passed、`cpu_ops_build_selection` 13 passed、`cpu_ops_neon_unsafe_count` 1 passed、`common_unsafe_count_samples` 16 passed。aarch64 の型検査と lint は `--target aarch64-unknown-linux-gnu` の clippy までで、aarch64 上の実行は CI の `verify-macos` ジョブが流す。

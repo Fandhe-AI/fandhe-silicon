@@ -71,6 +71,29 @@ fn gemm_cases() -> Vec<GemmCase> {
     vec![square_case(64), square_case(256), odd_case()]
 }
 
+/// k を 4 つずつ 4 レーンの積和に積み、`(l0 + l1) + (l2 + l3)` で足し、端数の k を昇順の `mul_add` で足す。
+fn lane_order_gemm(c: &GemmCase) -> Vec<f32> {
+    let (m, k, n) = (c.m, c.k, c.n);
+    let k4 = k - k % 4;
+    let mut out = vec![0.0_f32; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            let mut l = [0.0_f32; 4];
+            for p in (0..k4).step_by(4) {
+                for (q, lane) in l.iter_mut().enumerate() {
+                    *lane = c.a[i * k + p + q].mul_add(c.b[(p + q) * n + j], *lane);
+                }
+            }
+            let mut s = (l[0] + l[1]) + (l[2] + l[3]);
+            for p in k4..k {
+                s = c.a[i * k + p].mul_add(c.b[p * n + j], s);
+            }
+            out[i * n + j] = s;
+        }
+    }
+    out
+}
+
 /// 長さ 1,000,003 の有限で 0 を含まない入力。
 fn elementwise_input() -> Vec<f32> {
     let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
@@ -301,5 +324,100 @@ fn elementwise_add_scalar_other_constants() {
                 want
             );
         }
+    }
+}
+
+/// `gemm_simd` の出力が `gemm_scalar` の出力と T1 で一致する（どのビルドでも流れる。spec CPU-2 のポインタ）。
+#[test]
+fn gemm_simd_matches_scalar_by_t1() {
+    for c in gemm_cases() {
+        let want = DefaultCpuOps.scalar_gemm(&c).unwrap();
+        let got = DefaultCpuOps.simd_gemm(&c).unwrap();
+        let r = compare_f32(&want, &got, T1).unwrap();
+        assert!(r.is_match(), "{}x{}x{}", c.m, c.k, c.n);
+    }
+}
+
+/// `lane_order_gemm` の和の順が 3 ケースとも `gemm_scalar` と別のビットを作る（下の 2 本の見分けの前提）。
+#[test]
+fn lane_order_differs_from_scalar() {
+    for c in gemm_cases() {
+        let scalar = DefaultCpuOps.scalar_gemm(&c).unwrap();
+        assert_ne!(
+            bits(&lane_order_gemm(&c)),
+            bits(&scalar),
+            "{}x{}x{}",
+            c.m,
+            c.k,
+            c.n
+        );
+    }
+}
+
+/// aarch64 で `neon` が有効なビルドの `gemm_simd` は `gemm_scalar` と別のビットを書く。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[test]
+fn gemm_simd_differs_from_scalar_on_neon() {
+    for c in gemm_cases() {
+        let got = DefaultCpuOps.simd_gemm(&c).unwrap();
+        assert_ne!(
+            bits(&got),
+            bits(&DefaultCpuOps.scalar_gemm(&c).unwrap()),
+            "{}x{}x{}",
+            c.m,
+            c.k,
+            c.n
+        );
+    }
+}
+
+/// aarch64 で `neon` が有効なビルドの `gemm_simd` が 4 レーンの和の順のビットを書く。
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[test]
+fn gemm_simd_follows_lane_order_on_neon() {
+    for c in gemm_cases() {
+        let got = DefaultCpuOps.simd_gemm(&c).unwrap();
+        assert_eq!(
+            bits(&got),
+            bits(&lane_order_gemm(&c)),
+            "{}x{}x{}",
+            c.m,
+            c.k,
+            c.n
+        );
+    }
+}
+
+/// SIMD の版が無いビルドの `gemm_simd` が `gemm_scalar` と同じビットを書く。
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+#[test]
+fn gemm_simd_equals_scalar_without_lanes() {
+    for c in gemm_cases() {
+        let got = DefaultCpuOps.simd_gemm(&c).unwrap();
+        assert_eq!(
+            bits(&got),
+            bits(&DefaultCpuOps.scalar_gemm(&c).unwrap()),
+            "{}x{}x{}",
+            c.m,
+            c.k,
+            c.n
+        );
+    }
+}
+
+/// k の端数の位置を変えても、小さな整数の GEMM の `gemm_simd` が `gemm_scalar` と同じ値を書く。
+#[test]
+fn gemm_simd_exact_on_small_integers_for_each_k() {
+    for k in 1..=9_usize {
+        let (m, n) = (2_usize, 3_usize);
+        let a: Vec<f32> = (0..m * k).map(|i| (i % 5) as f32 - 2.0).collect();
+        let b: Vec<f32> = (0..k * n).map(|i| (i % 7) as f32 - 3.0).collect();
+        let c = GemmCase { m, k, n, a, b };
+        assert_eq!(
+            bits(&DefaultCpuOps.simd_gemm(&c).unwrap()),
+            bits(&DefaultCpuOps.scalar_gemm(&c).unwrap()),
+            "k={k}"
+        );
     }
 }
