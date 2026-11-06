@@ -2,7 +2,7 @@
 //! 部分 Top-k の入力と参照の試験は spec TASK-996 のポインタ。
 //! 要素ごと演算の入力と参照の試験は spec TASK-997 のポインタ。
 //! -0.0 を含む部分 Top-k の入力と参照の試験は spec TASK-2451 のポインタ。
-//! 特殊値の GEMM の入力と 2 つの参照の試験は spec TASK-999 のポインタ。
+//! 特殊値の GEMM・要素ごと演算の入力と 2 つの参照、`topk-e-3` の入力と参照の試験は spec TASK-999 のポインタ。
 //! 期待の値は生成器と `DefaultCpuOps` の呼び出しで作り、値を手で写さない。
 //! ただし -0.0 の節の入力の出どころの名前と、IEEE の並びとの記録の差の件数は、独立の照合のため字句で置く。
 
@@ -125,6 +125,8 @@ fn manifest_hashes_match_files() {
             + ELEMENTWISE_CASES.len()
             + SIGNED_ZERO_CASES.len()
             + GEMM_SPECIAL_CASES.len()
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
     );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
@@ -454,6 +456,8 @@ fn topk_manifest_entries_match_files() {
             + ELEMENTWISE_CASES.len()
             + SIGNED_ZERO_CASES.len()
             + GEMM_SPECIAL_CASES.len()
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
     );
     let mut want = [
         "name",
@@ -647,6 +651,8 @@ fn elementwise_manifest_entries_match_files() {
             + ELEMENTWISE_CASES.len()
             + SIGNED_ZERO_CASES.len()
             + GEMM_SPECIAL_CASES.len()
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
     );
     let mut want = [
         "name",
@@ -857,7 +863,11 @@ fn signed_zero_manifest_entries_match_files() {
     let before = GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len();
     assert_eq!(
         keys.len(),
-        before + SIGNED_ZERO_CASES.len() + GEMM_SPECIAL_CASES.len()
+        before
+            + SIGNED_ZERO_CASES.len()
+            + GEMM_SPECIAL_CASES.len()
+            + ELEMENTWISE_SPECIAL_CASES.len()
+            + TOPK_E3_CASES.len()
     );
     let mut want = [
         "name",
@@ -1109,7 +1119,10 @@ fn gemm_special_manifest_entries_match_files() {
     let keys = manifest_entry_keys(&text);
     let before =
         GEMM_CASES.len() + TOPK_CASES.len() + ELEMENTWISE_CASES.len() + SIGNED_ZERO_CASES.len();
-    assert_eq!(keys.len(), before + GEMM_SPECIAL_CASES.len());
+    assert_eq!(
+        keys.len(),
+        before + GEMM_SPECIAL_CASES.len() + ELEMENTWISE_SPECIAL_CASES.len() + TOPK_E3_CASES.len()
+    );
     let mut want = [
         "name",
         "kind",
@@ -1212,4 +1225,364 @@ fn gemm_special_cpu_reference_rejects_non_f32_output() {
         gemm_special_cpu_reference(&spec).err(),
         Some(GenError::CpuReferenceFailed)
     );
+}
+// ---- 特殊値の要素ごと演算と `topk-e-3`（spec TASK-999 のポインタ） ----
+
+use fandhe_silicon_contract::cpu_ops::UnaryElementwiseOp;
+use wasm_parity_host::{
+    ELEMENTWISE_SPECIAL_CASES, ElementwiseSpecialCaseSpec, TOPK_E3_CASES, TopkE3CaseSpec,
+    build_elementwise_special_case, build_elementwise_special_cases, build_topk_e3_case,
+    build_topk_e3_cases, elementwise_special_cpu_reference,
+};
+
+/// core の `CaseId::E2` の入力の列。
+fn core_e2_input() -> Vec<f32> {
+    match CaseId::E2.input().unwrap() {
+        CaseInput::Relu(v) => v,
+        _ => panic!("not a relu input"),
+    }
+}
+
+fn es_file(name: &str, suffix: &str, dir: &Path) -> Vec<f32> {
+    read_f32(&dir.join(format!("{name}.{suffix}.bin")))
+}
+
+fn es_spec(op_code: u32) -> &'static ElementwiseSpecialCaseSpec {
+    ELEMENTWISE_SPECIAL_CASES
+        .iter()
+        .find(|s| s.op_code == op_code)
+        .unwrap()
+}
+
+#[test]
+fn elementwise_special_cases_hold_core_input() {
+    let dir = TempDir::new("es-inputs");
+    generate(dir.path()).unwrap();
+    let core = core_e2_input();
+    assert_eq!(ELEMENTWISE_SPECIAL_CASES.len(), 2);
+    let mut raw = Vec::new();
+    for spec in &ELEMENTWISE_SPECIAL_CASES {
+        assert_eq!(spec.id, CaseId::E2);
+        assert_eq!(
+            bits(&es_file(spec.name, "input", dir.path())),
+            bits(&core),
+            "{}",
+            spec.name
+        );
+        raw.push(fs::read(dir.path().join(format!("{}.input.bin", spec.name))).unwrap());
+    }
+    assert_eq!(raw[0], raw[1]);
+    for case in build_elementwise_special_cases().unwrap() {
+        assert_eq!(bits(&case.input), bits(&core), "{}", case.name);
+    }
+}
+
+#[test]
+fn elementwise_special_input_holds_special_values() {
+    let dir = TempDir::new("es-special");
+    generate(dir.path()).unwrap();
+    let from_core = special_counts(&core_e2_input());
+    assert!(from_core.iter().all(|c| *c > 0), "{from_core:?}");
+    for spec in &ELEMENTWISE_SPECIAL_CASES {
+        let from_file = special_counts(&es_file(spec.name, "input", dir.path()));
+        assert_eq!(from_file, from_core, "{}", spec.name);
+    }
+}
+
+#[test]
+fn elementwise_special_native_matches_default_cpu_ops() {
+    let dir = TempDir::new("es-native");
+    generate(dir.path()).unwrap();
+    for (spec, case) in ELEMENTWISE_SPECIAL_CASES
+        .iter()
+        .zip(build_elementwise_special_cases().unwrap())
+    {
+        let mut expected = vec![0.0f32; case.input.len()];
+        DefaultCpuOps
+            .elementwise_scalar(case.op, &case.input, &mut expected)
+            .unwrap();
+        let actual = es_file(spec.name, "native-scalar", dir.path());
+        assert_eq!(bits(&actual), bits(&expected), "{}", spec.name);
+    }
+}
+
+#[test]
+fn elementwise_special_relu_cpu_reference_matches_core() {
+    let dir = TempDir::new("es-relu-ref");
+    generate(dir.path()).unwrap();
+    let spec = es_spec(0);
+    let output = CaseId::E2.reference().unwrap();
+    let expected = output.as_f32().unwrap();
+    let actual = es_file(spec.name, "cpu-reference", dir.path());
+    assert_eq!(bits(&actual), bits(expected));
+    assert_eq!(
+        bits(&elementwise_special_cpu_reference(spec, &core_e2_input()).unwrap()),
+        bits(expected)
+    );
+}
+
+#[test]
+fn elementwise_special_add_scalar_cpu_reference_matches_expression() {
+    let dir = TempDir::new("es-add-ref");
+    generate(dir.path()).unwrap();
+    let spec = es_spec(1);
+    let expected: Vec<f32> = core_e2_input().iter().map(|x| x + 0.5).collect();
+    let actual = es_file(spec.name, "cpu-reference", dir.path());
+    assert_eq!(bits(&actual), bits(&expected));
+}
+
+#[test]
+fn elementwise_special_relu_maps_nan_to_zero() {
+    let dir = TempDir::new("es-relu-nan");
+    generate(dir.path()).unwrap();
+    let spec = es_spec(0);
+    let input = core_e2_input();
+    let native = es_file(spec.name, "native-scalar", dir.path());
+    let reference = es_file(spec.name, "cpu-reference", dir.path());
+    let nan_positions: Vec<usize> = (0..input.len()).filter(|i| input[*i].is_nan()).collect();
+    assert!(!nan_positions.is_empty());
+    for i in nan_positions {
+        assert_eq!(native[i], 0.0, "native {i}");
+        assert_eq!(reference[i], 0.0, "reference {i}");
+    }
+    assert!(native.iter().all(|x| !x.is_nan()));
+    assert!(reference.iter().all(|x| !x.is_nan()));
+}
+
+#[test]
+fn elementwise_special_native_agrees_with_cpu_reference_by_rule() {
+    let dir = TempDir::new("es-rule");
+    generate(dir.path()).unwrap();
+    for spec in &ELEMENTWISE_SPECIAL_CASES {
+        let native = es_file(spec.name, "native-scalar", dir.path());
+        let reference = es_file(spec.name, "cpu-reference", dir.path());
+        let cmp = compare_f32_with_special_values(&reference, &native, T1).unwrap();
+        assert!(cmp.is_match(), "{}", spec.name);
+    }
+}
+
+#[test]
+fn elementwise_special_manifest_entries_match_files() {
+    let dir = TempDir::new("es-manifest");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let keys = manifest_entry_keys(&text);
+    let ew = ELEMENTWISE_CASES.len();
+    let gs = GEMM_SPECIAL_CASES.len();
+    let all_before = GEMM_CASES.len() + TOPK_CASES.len() + ew + SIGNED_ZERO_CASES.len() + gs;
+    assert_eq!(
+        keys.len(),
+        all_before + ELEMENTWISE_SPECIAL_CASES.len() + TOPK_E3_CASES.len()
+    );
+    let mut want = [
+        "name",
+        "kind",
+        "n",
+        "op_code",
+        "c_bits",
+        "input_file",
+        "native_scalar_file",
+        "cpu_reference_file",
+        "input_sha256",
+        "native_scalar_sha256",
+        "cpu_reference_sha256",
+    ];
+    assert_eq!(want.len(), 11);
+    want.sort_unstable();
+    for (j, case) in build_elementwise_special_cases()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        // `manifest_values` は鍵を持つ要素だけの列。鍵ごとに特殊値の要素の位置が違う。
+        let i = all_before + j;
+        let input_index = ew + j;
+        let ref_index = gs + j;
+        let mut got: Vec<&str> = keys[i].iter().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, want);
+        assert_eq!(manifest_values(&text, "name")[i], case.name);
+        assert_eq!(manifest_values(&text, "kind")[i], "elementwise-special");
+        assert_eq!(manifest_values(&text, "n")[i], case.input.len().to_string());
+        assert_eq!(
+            manifest_values(&text, "op_code")[input_index],
+            case.op_code.to_string()
+        );
+        assert_eq!(
+            manifest_values(&text, "c_bits")[input_index],
+            format!("{:08x}", case.c_bits)
+        );
+        for (file_key, hash_key, index) in [
+            ("input_file", "input_sha256", input_index),
+            ("native_scalar_file", "native_scalar_sha256", i),
+            ("cpu_reference_file", "cpu_reference_sha256", ref_index),
+        ] {
+            let file = &manifest_values(&text, file_key)[index];
+            assert!(
+                file.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'.'
+                    || b == b'-'),
+                "{file}"
+            );
+            let bytes = fs::read(dir.path().join(file)).unwrap();
+            assert_eq!(bytes.len(), case.input.len() * 4, "{file}");
+            assert_eq!(
+                manifest_values(&text, hash_key)[index],
+                hex(&sha256_bytes(&bytes)),
+                "{file}"
+            );
+        }
+    }
+}
+
+#[test]
+fn gen_refuses_existing_elementwise_special_file() {
+    let dir = TempDir::new("es-refuse");
+    let path = dir.path().join("special-elementwise-relu-e-2.input.bin");
+    fs::write(&path, b"keep").unwrap();
+    assert_eq!(generate(dir.path()), Err(GenError::FileExists));
+    assert_eq!(fs::read(&path).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn elementwise_special_case_rejects_non_relu_input() {
+    let spec = ElementwiseSpecialCaseSpec {
+        name: "special-elementwise-relu-e-3",
+        id: CaseId::E3,
+        op: UnaryElementwiseOp::Relu,
+        op_code: 0,
+        c_bits: 0,
+    };
+    assert_eq!(
+        build_elementwise_special_case(&spec).err(),
+        Some(GenError::InputFailed)
+    );
+}
+
+#[test]
+fn elementwise_special_cpu_reference_rejects_non_f32_output() {
+    let spec = ElementwiseSpecialCaseSpec {
+        name: "special-elementwise-relu-e-3",
+        id: CaseId::E3,
+        op: UnaryElementwiseOp::Relu,
+        op_code: 0,
+        c_bits: 0,
+    };
+    assert_eq!(
+        elementwise_special_cpu_reference(&spec, &[]).err(),
+        Some(GenError::CpuReferenceFailed)
+    );
+}
+
+fn core_e3_input() -> (Vec<f32>, usize) {
+    match CaseId::E3.input().unwrap() {
+        CaseInput::TopK { scores, k } => (scores, k),
+        _ => panic!("not a top-k input"),
+    }
+}
+
+#[test]
+fn topk_e3_case_holds_core_input() {
+    let dir = TempDir::new("e3-inputs");
+    generate(dir.path()).unwrap();
+    let (scores, k) = core_e3_input();
+    assert_eq!(TOPK_E3_CASES.len(), 1);
+    let spec = &TOPK_E3_CASES[0];
+    assert_eq!(spec.name, "topk-e-3");
+    assert_eq!(spec.id, CaseId::E3);
+    let cases = build_topk_e3_cases().unwrap();
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0].k, k);
+    assert_eq!(bits(&cases[0].scores), bits(&scores));
+    let actual = read_f32(&dir.path().join("topk-e-3.scores.bin"));
+    assert_eq!(bits(&actual), bits(&scores));
+}
+
+#[test]
+fn topk_e3_native_matches_core() {
+    let dir = TempDir::new("e3-native");
+    generate(dir.path()).unwrap();
+    let (_, k) = core_e3_input();
+    let records = read_records(&dir.path().join("topk-e-3.native-scalar.bin"));
+    let output = CaseId::E3.reference().unwrap();
+    let expected = output.as_topk().unwrap().to_vec();
+    let cmp = compare_topk(&expected, &entries(&records)).unwrap();
+    assert!(cmp.is_match());
+    assert_eq!(cmp.compared(), k);
+}
+
+#[test]
+fn topk_e3_manifest_entry_matches_files() {
+    let dir = TempDir::new("e3-manifest");
+    generate(dir.path()).unwrap();
+    let text = fs::read_to_string(dir.path().join("manifest.json")).unwrap();
+    let keys = manifest_entry_keys(&text);
+    let (scores, k) = core_e3_input();
+    let all_before = GEMM_CASES.len()
+        + TOPK_CASES.len()
+        + ELEMENTWISE_CASES.len()
+        + SIGNED_ZERO_CASES.len()
+        + GEMM_SPECIAL_CASES.len()
+        + ELEMENTWISE_SPECIAL_CASES.len();
+    assert_eq!(keys.len(), all_before + TOPK_E3_CASES.len());
+    let mut want = [
+        "name",
+        "kind",
+        "n",
+        "k",
+        "scores_file",
+        "native_scalar_file",
+        "scores_sha256",
+        "native_scalar_sha256",
+    ];
+    assert_eq!(want.len(), 8);
+    want.sort_unstable();
+    let mut got: Vec<&str> = keys[all_before].iter().map(String::as_str).collect();
+    got.sort_unstable();
+    assert_eq!(got, want);
+    // `manifest_values` は鍵を持つ要素だけの列。鍵ごとに `topk-e-3` の位置が違う。
+    let k_index =
+        GEMM_CASES.len() + TOPK_CASES.len() + SIGNED_ZERO_CASES.len() + GEMM_SPECIAL_CASES.len();
+    let scores_index = TOPK_CASES.len() + SIGNED_ZERO_CASES.len();
+    assert_eq!(manifest_values(&text, "name")[all_before], "topk-e-3");
+    assert_eq!(manifest_values(&text, "kind")[all_before], "topk");
+    assert_eq!(
+        manifest_values(&text, "n")[all_before],
+        scores.len().to_string()
+    );
+    assert_eq!(manifest_values(&text, "k")[k_index], k.to_string());
+    for (file_key, hash_key, index, len) in [
+        (
+            "scores_file",
+            "scores_sha256",
+            scores_index,
+            scores.len() * 4,
+        ),
+        (
+            "native_scalar_file",
+            "native_scalar_sha256",
+            all_before,
+            k * 8,
+        ),
+    ] {
+        let file = &manifest_values(&text, file_key)[index];
+        let bytes = fs::read(dir.path().join(file)).unwrap();
+        assert_eq!(bytes.len(), len, "{file}");
+        assert_eq!(
+            manifest_values(&text, hash_key)[index],
+            hex(&sha256_bytes(&bytes)),
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn topk_e3_case_rejects_non_topk_input() {
+    let spec = TopkE3CaseSpec {
+        name: "topk-e-2",
+        id: CaseId::E2,
+    };
+    assert_eq!(build_topk_e3_case(&spec).err(), Some(GenError::InputFailed));
 }

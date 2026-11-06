@@ -1759,9 +1759,91 @@ $ grep -c '"name"' "$d/manifest.json"
 grep -n 'GEMM_SPECIAL_CASES\|fn gemm_special_case_output\|CpuReferenceFailed' wasm/crates/parity-host/src/lib.rs
 ```
 
+### 要素ごと演算と部分 Top-k のケース（3/6）
+
+`wasm-parity-host gen <dir>` が、既存のケースに続けて特殊値の要素ごと演算の 2 ケース（2 つの参照つき）と部分 Top-k の `topk-e-3` の 1 ケースを書く。`wasm/node/cases.json` は変わらず、行は足さない。
+
+#### ケース
+
+定数 `ELEMENTWISE_SPECIAL_CASES` と `TOPK_E3_CASES`（どちらも `wasm/crates/parity-host/src/lib.rs`）が持つ。入力は core の `CaseId::input()` をそのまま使う。
+
+| 名前 | `CaseId` | 演算 | `op_code` | `c_bits` | `n`（`k`） |
+| ---- | -------- | ---- | --------- | -------- | ---------- |
+| `special-elementwise-relu-e-2` | `CaseId::E2` | `Relu` | 0 | `00000000` | 37 |
+| `special-elementwise-add-scalar-e-2` | `CaseId::E2` | `AddScalar(0.5)` | 1 | `0.5_f32.to_bits()` | 37 |
+| `topk-e-3` | `CaseId::E3` | 部分 Top-k（`kind` は `topk`） | | | 37（`k` は 5） |
+
+特殊値の要素ごと演算の参照は 2 つで、`native_elementwise` が同じ入力を `DefaultCpuOps.elementwise_scalar` に渡した出力、`elementwise_special_cpu_reference` が返す CPU 参照。`Relu` は `CaseId::reference()` の `as_f32()`、`AddScalar(c)` は入力の各要素に `c` を足した列。CPU 参照が `Err` か f32 でない出力のときは `CpuReferenceFailed`。`topk-e-3` は既存の `topk_case_output` で書き、記録は `DefaultCpuOps.topk_partial_scalar` の出力。
+
+#### 書くファイル
+
+| ファイル | 中身 |
+| -------- | ---- |
+| `<ケース>.input.bin` | 入力の f32 を添字の順にリトルエンディアンで並べたもの（特殊値の要素ごと演算。2 ケースで同じバイト列） |
+| `<ケース>.native-scalar.bin` | `DefaultCpuOps.elementwise_scalar` の出力の f32 を同じ形で並べたもの |
+| `<ケース>.cpu-reference.bin` | CPU 参照の f32 を同じ形で並べたもの |
+| `topk-e-3.scores.bin`・`topk-e-3.native-scalar.bin` | 既存の部分 Top-k と同じ形（スコアの f32、1 件 8 バイトの記録） |
+| `manifest.json` の `elementwise-special` の要素 | `name`・`kind`（`"elementwise-special"`）・`n`・`op_code`・`c_bits`・`input_file`・`native_scalar_file`・`cpu_reference_file`・`input_sha256`・`native_scalar_sha256`・`cpu_reference_sha256` の 11 鍵を 1 欄 1 行で持つ |
+| `manifest.json` の `topk-e-3` の要素 | 既存の `topk` の要素と同じ 8 鍵 |
+
+今の値として、`manifest.json` の `cases` は 2/6 までの 27 要素の後に 3 要素を並べた 30 要素で、書く名前は 94 個（`.bin` が 93 個と `manifest.json`）。
+
+#### 試験
+
+`wasm/crates/parity-host/tests/gen.rs` の末尾の節。期待は core の呼び出しと式で作り、値を手で写さない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `elementwise_special_cases_hold_core_input` | 2 ケースの `.input.bin` が `CaseId::E2` の入力とビット列で同じで、2 ファイルのバイト列が等しい |
+| `elementwise_special_input_holds_special_values` | 入力の NaN・`+Inf`・`-Inf`・`+0`・`-0` の件数がどれも 0 より大きく、core の入力から数えた件数と同じ |
+| `elementwise_special_native_matches_default_cpu_ops` | `.native-scalar.bin` が `DefaultCpuOps.elementwise_scalar` の出力とビット列で同じ |
+| `elementwise_special_relu_cpu_reference_matches_core` | `Relu` の `.cpu-reference.bin` が `CaseId::reference()` の出力とビット列で同じ |
+| `elementwise_special_add_scalar_cpu_reference_matches_expression` | `AddScalar` の `.cpu-reference.bin` が入力の `x + 0.5` の列とビット列で同じ |
+| `elementwise_special_relu_maps_nan_to_zero` | `Relu` で入力が NaN の位置の 2 つの参照が `0.0` で、参照に NaN が無い |
+| `elementwise_special_native_agrees_with_cpu_reference_by_rule` | 2 ケースとも 2 つの参照が `compare_f32_with_special_values`（`T1`）で一致 |
+| `elementwise_special_manifest_entries_match_files` | 鍵がちょうど 11 個。`kind`・`n`・`op_code`・`c_bits`・ファイル名の文字種・ファイルの長さ・sha256 が合う |
+| `gen_refuses_existing_elementwise_special_file` | `special-elementwise-relu-e-2.input.bin` が先にあると `FileExists`。ディレクトリの中身はそのファイルだけで、中身も変わらない |
+| `elementwise_special_case_rejects_non_relu_input` | `Relu` の入力でない `CaseId`（`E3`）の行が `InputFailed` |
+| `elementwise_special_cpu_reference_rejects_non_f32_output` | f32 でない出力の `CaseId`（`E3`）の `Relu` の行が `CpuReferenceFailed` |
+| `topk_e3_case_holds_core_input` | `.scores.bin` と `k` が `CaseId::E3` の入力と同じ |
+| `topk_e3_native_matches_core` | 記録が `CaseId::reference()` の出力と `compare_topk` で一致し、比べた件数が `k` |
+| `topk_e3_manifest_entry_matches_files` | `kind` が `topk`、鍵がちょうど 8 個。`n`・`k`・ファイルの長さ・sha256 が合う |
+| `topk_e3_case_rejects_non_topk_input` | 部分 Top-k の入力でない `CaseId`（`E2`）の行が `InputFailed` |
+
+既存の `manifest_hashes_match_files`・`topk_manifest_entries_match_files`・`elementwise_manifest_entries_match_files`・`signed_zero_manifest_entries_match_files`・`gemm_special_manifest_entries_match_files` の件数の期待は、特殊値の要素ごと演算のケースの数と `topk-e-3` のケースの数を足した和。
+
+#### 確かめ方
+
+時点のコミット: `469e592`（この変更の土台）。
+
+```console
+$ cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 | grep '^test result:'
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.60s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+一時のディレクトリ（`d` は `mktemp -d`）に当てた出力。
+
+```console
+$ cargo run -q --manifest-path wasm/Cargo.toml -p wasm-parity-host --locked -- gen "$d"
+$ ls "$d" | wc -l
+94
+$ grep -c '"name"' "$d/manifest.json"
+30
+```
+
+```bash
+grep -n 'ELEMENTWISE_SPECIAL_CASES\|TOPK_E3_CASES\|fn elementwise_special_case_output\|fn elementwise_special_cpu_reference' wasm/crates/parity-host/src/lib.rs
+```
+
 ### 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/6 | Node での照合に特殊値の入力の種類と CPU 参照の比べを足す | #6291 |
 | 2/6 | GEMM の 14 ケースの入力と 2 つの参照を host 側の道具に足す | #6292 |
+| 3/6 | 要素ごと演算の 2 ケースと部分 Top-k の 1 ケースを host 側の道具に足す | #6293 |
