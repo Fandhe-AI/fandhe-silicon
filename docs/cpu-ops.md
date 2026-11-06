@@ -444,3 +444,128 @@ cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --fe
 ```
 
 観測した件数（Linux x86_64）: `cpu_ops_reference` 13 passed、`cpu_ops_build_selection` 13 passed、`cpu_ops_neon_unsafe_count` 1 passed、`common_unsafe_count_samples` 16 passed。aarch64 の型検査と lint は `--target aarch64-unknown-linux-gnu` の clippy までで、aarch64 上の実行は CI の `verify-macos` ジョブが流す。
+
+## 完了の条件の確かめ（12/12）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-1351。親 Issue は #930、この節（12/12）は #8061。
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-1351）。
+
+時点のコミット: `ff59ff0`（11/12 のマージ）。(1)〜(7) は、このコミットの main への push で流れた CI の run `42225735225` から取る（event `push`・conclusion `success`・headSha は `ff59ff090d24dd0246c4a80b9b40bd2aea91d4a3`）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | `verify-macos` の `cpu_ops_reference` | `gh run view 42225735225 --job 127918630606 --log` の `make verify` の段 | ジョブ `make verify + build-profiles (macos-latest)` は `success`。`running 14 tests`・6 本の `ok`・`test result:` の行（下のコードブロック） |
+| (2) | `verify` の `cpu_ops_reference` | `gh run view 42225735225 --job 127918630824 --log` の `make verify` の段 | ジョブ `make verify (fmt + clippy + test)` は `success`。`running 13 tests`・4 本の `ok`・`test result:` の行（下のコードブロック） |
+| (3) | `verify-macos` の `cpu_ops_elementwise_special`・`cpu_ops_elementwise_written` | (1) と同じログ | `running`・`test result:` の行 2 組（下のコードブロック） |
+| (4) | `verify`・`verify-macos` の `cpu_ops_build_selection`・`cpu_ops_neon_unsafe_count` | (1)(2) と同じログ | `running`・`test result:` の行 4 組（下のコードブロック） |
+| (5) | wasm32 の 2 版 | `verify` の build-profiles の段、`deny`・`wasm-macos` の `make wasm-verify` の段 | `wasm-abi` の 2 行と `cfg: sites=` の 2 行（下のコードブロック） |
+| (6) | `make wasm-node-check` | `gh run view 42225735225 --job 127918630838 --log` の `make wasm-node-check` の段 | ジョブ `wasm32 build + size + node (macos-latest)` は `success`。`node:`・`wasm-bindgen:`・`summary:` の行（下のコードブロック） |
+| (7) | `verify-macos` の環境の行 | `gh run view 42225735225 --job 127918630606 --log` の `Set up job` の段 | `Operating System`・`Runner Image` の group の行（下のコードブロック） |
+| (8) | 外部の依存の追加 0 | `git diff --stat`（下のコードブロック） | stat は空 |
+
+ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、下のコマンドは段の名前で絞って時刻までを落とす。
+
+(1) の出力。`make verify` の段のうち、`gemm_simd_differs_from_scalar_on_neon` を含む `running` の行から `test result:` までの塊。
+
+```console
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;b="";k=0} /^test (gemm_simd_matches_cpu_reference|gemm_simd_matches_scalar_by_t1|gemm_simd_differs_from_scalar_on_neon|gemm_simd_follows_lane_order_on_neon|tail_order_changes_bits|elementwise_simd_matches_scalar_bits) \.\.\. /{b=b $0 "\n"} /^test gemm_simd_differs_from_scalar_on_neon \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s%s\n",r,b,$0;exit}}'
+running 14 tests
+test elementwise_simd_matches_scalar_bits ... ok
+test gemm_simd_differs_from_scalar_on_neon ... ok
+test gemm_simd_matches_scalar_by_t1 ... ok
+test gemm_simd_matches_cpu_reference ... ok
+test gemm_simd_follows_lane_order_on_neon ... ok
+test tail_order_changes_bits ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+```
+
+(2) の出力。`gemm_simd_equals_scalar_without_lanes` を含む塊。
+
+```console
+$ gh run view 42225735225 --job 127918630824 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;b="";k=0} /^test (gemm_simd_matches_scalar_by_t1|tail_order_changes_bits|gemm_simd_equals_scalar_without_lanes|elementwise_simd_matches_scalar_bits) \.\.\. /{b=b $0 "\n"} /^test gemm_simd_equals_scalar_without_lanes \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s%s\n",r,b,$0;exit}}'
+running 13 tests
+test elementwise_simd_matches_scalar_bits ... ok
+test gemm_simd_equals_scalar_without_lanes ... ok
+test tail_order_changes_bits ... ok
+test gemm_simd_matches_scalar_by_t1 ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+```
+
+(3) の出力。試験の名前を含む塊の `running` の行と `test result:` の行。上が `cpu_ops_elementwise_special`、下が `cpu_ops_elementwise_written`。
+
+```console
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test relu_scalar_maps_nan_to_positive_zero \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test relu_writes_every_element \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+```
+
+(4) の出力。`cpu_ops_build_selection`・`cpu_ops_neon_unsafe_count` の順に、`verify`・`verify-macos` の `make verify` の段から。
+
+```console
+$ gh run view 42225735225 --job 127918630824 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test selection_is_by_build_cfg_only \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+$ gh run view 42225735225 --job 127918630824 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test cpu_ops_neon_unsafe_count_matches_expected \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test selection_is_by_build_cfg_only \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="make verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | awk '/^running [0-9]+ tests?$/{r=$0;k=0} /^test cpu_ops_neon_unsafe_count_matches_expected \.\.\. /{k=1} /^test result:/{if(k){printf "%s\n%s\n",r,$0;exit}}'
+running 13 tests
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 13 tests
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(5) の出力。`verify` の build-profiles の段の `wasm-abi` の行、`deny`・`wasm-macos` の `make wasm-verify` の段の `cfg:` の行。
+
+```console
+$ gh run view 42225735225 --job 127918630824 --log | awk -F'\t' '$2=="make build-profiles (feature 組ごとの build / clippy / test + wasm32 check + wasm-abi の 2 版の release ビルド)"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^\[build-profiles.sh\] wasm-abi '
+$ gh run view 42225735225 --job 127918630942 --log | awk -F'\t' '$2=="make wasm-verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^cfg: sites='
+$ gh run view 42225735225 --job 127918630838 --log | awk -F'\t' '$2=="make wasm-verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^cfg: sites='
+[build-profiles.sh] wasm-abi scalar: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir /home/runner/work/fandhe-silicon/fandhe-silicon/target
+[build-profiles.sh] wasm-abi simd128: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir /home/runner/work/fandhe-silicon/fandhe-silicon/target/wasm32-simd128
+cfg: sites=6 label=match
+cfg: sites=6 label=match
+```
+
+(6) の出力。
+
+```console
+$ gh run view 42225735225 --job 127918630838 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(node|wasm-bindgen|summary):'
+node: v24.13.0
+wasm-bindgen: 0.2.128
+summary: rows=135 match=135 mismatch=0 not-run=0
+```
+
+(7) の出力。
+
+```console
+$ gh run view 42225735225 --job 127918630606 --log | awk -F'\t' '$2=="Set up job"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | sed -n '/##\[group\]Operating System/,/##\[endgroup\]/p;/##\[group\]Runner Image$/,/##\[endgroup\]/p'
+##[group]Operating System
+macOS
+26.6.2
+25G83
+##[endgroup]
+##[group]Runner Image
+Image: macos-26-arm64
+Version: 20261026.0455.2
+Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261026.0455/images/macos/macos-26-arm64-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261026.0455
+##[endgroup]
+```
+
+(8) の出力。`ff59ff0` の親は `fbbd70d`。
+
+```console
+$ git diff --stat fbbd70d..ff59ff0 -- deps-approved.toml wasm/deps-approved.toml Cargo.toml Cargo.lock wasm/Cargo.toml wasm/Cargo.lock rust-toolchain.toml
+```
+
+9/9 の節の表は 9/9 の時点の記録で、書き換えていない。
+
+### 再実行の契機
+
+`crates/contract/src/cpu_ops.rs`・`crates/contract/src/cpu_ops/*.rs`・`crates/contract/tests/cpu_ops_*.rs` を変えたときに、表を取り直す。
