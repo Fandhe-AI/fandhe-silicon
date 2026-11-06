@@ -1,0 +1,24 @@
+# cpu-ops-arm: CPU の演算（契約の crate の `DefaultCpuOps`）の時間を腕ごとに測り、run ごとの記録を書く測定の bin（TASK-2960 のポインタ）。
+# 製品の crate（契約・共通）に path で依存する。向きは測定 → 製品の一方向だけにする。
+# 契約の crate は `test-support`・`fault-injection` を有効にしない（`scripts/upper-layer-check.sh` が検査する）。
+[package]
+name = "measure-cpu-ops-arm"
+version = "0.0.0"
+description = "CPU の演算の scalar 版・simd 版の時間を腕ごとに測り、run ごとの記録を書く測定の bin"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "cpu-ops-arm"
+path = "src/main.rs"
+
+[dependencies]
+fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["cpu-ops"] }
+# 入力の生成器（parity::gemm_inputs）は test-support の裏にある。
+fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
+measure-perf = { path = "../perf" }
+
+[lints]
+workspace = true
