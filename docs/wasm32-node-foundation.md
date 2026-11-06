@@ -317,3 +317,13 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | 「入力」の行（`:306`）の `wasm/node/cases.json` | 14 行 → 32 行（`roundtrip_f32` 3・`detect_isa_bits` 2・`gemm_scalar` 6・`gemm_simd` 3・`topk_scalar` 5・`topk_simd` 5・`elementwise_scalar` 4・`elementwise_simd` 4） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
 | 「入力に無い export」の行（`:307`） | 入力に無い glue の export は 4 つ → 0（glue の 8 つの `pub fn` は全部が入力の行に現れる） | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、上の `jq` |
 | 回帰テストの最終行（`:308`） | `passed: 342, failed: 0` → `passed: 505, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base e416527）
+
+記録時点の表と既存の節は書き換えない。以下は base `e416527` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「Node での照合の土台」の冒頭の文（`:193`）と「判定」の行（`:202`）の比べ方 | 比べるのはビット列の完全一致だけ → `gemm` の `gemm_simd`・`simd128` の行は閾値で語ごとに比べる（`t1:` の行も出す）。ほかの行はビットの完全一致のまま。所在は [wasm32-native-parity](wasm32-native-parity.md) の「Node での照合の閾値の比べ（1/4）」 | `grep -n 't1\|T1' scripts/wasm-node-check.sh` |
+| 「入力」の行の `wasm/node/cases.json`（`:317` の今の値の行） | 32 行 → 55 行（`gemm_scalar` 6・`gemm_simd` 6・`topk_scalar` 15・`topk_simd` 15・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 4・`elementwise_simd` 4） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| 回帰テストの最終行（`:319` の今の値の行） | `passed: 505, failed: 0` → `passed: 544, failed: 0` | `make test-wasm-node-check` |

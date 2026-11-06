@@ -138,3 +138,11 @@ CI の結果（`verify`・`deny` ジョブ）は PR の checks で確かめる�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base e416527）
+
+記録時点の表と既存の節は書き換えない。以下は base `e416527` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「別 crate からの利用」の行（`:32`） | `contract` の `test_support_*` の試験から読み込める → 利用の先に `crates/contract/tests/cpu_ops_topk_reference.rs`（`parity::topk` の `compare_topk`・`reference_topk_f32` と `parity::topk_inputs` の `SIGNED_ZERO_INPUTS`）と `wasm/crates/parity-host/src/lib.rs`（`parity::case_inputs` の `additional_topk_inputs`）が加わる | `grep -n -E 'compare_topk\|reference_topk_f32\|SIGNED_ZERO_INPUTS' crates/contract/tests/cpu_ops_topk_reference.rs`、`grep -n 'additional_topk_inputs' wasm/crates/parity-host/src/lib.rs` |

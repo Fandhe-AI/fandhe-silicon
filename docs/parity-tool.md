@@ -118,3 +118,11 @@ worktree のルートで実行する。
 ## 関連
 
 [pixel-parity-tool](pixel-parity-tool.md)・[parity-non-finite](parity-non-finite.md)・[parity-signed-zero-topk](parity-signed-zero-topk.md)・[test-frame](test-frame.md)・[gemm-test-inputs](gemm-test-inputs.md)・[parity-case-inputs](parity-case-inputs.md)・[parity-fallback-compare](parity-fallback-compare.md)・[parity-fallback-inputs](parity-fallback-inputs.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[perf-gate-rule](perf-gate-rule.md)
+
+## 今の値の補い（base e416527）
+
+記録時点の表と既存の節は書き換えない。以下は base `e416527` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「閾値の設定と当てる範囲の扱い」の「閾値の置き場」の行（`:94`） | 値の定義は `T1` の 1 か所 → `T1` に加えて、`scripts/wasm-node-check.sh` の目印 `# BEGIN t1-thresholds`〜`# END t1-thresholds` の間にも同じ値の写し（`T1_RELATIVE`・`T1_ABSOLUTE`）がある。写しと `T1` の getter の一致は `wasm/crates/parity-host/tests/t1_compare.rs` の試験 `script_thresholds_match_core` が照らす（ビット一致。目印が 1 組でないときは落ちる）。所在は [wasm32-native-parity.md](wasm32-native-parity.md) の「閾値の比べと共通の道具の突き合わせ（2/4）」 | `grep -n 't1-thresholds' scripts/wasm-node-check.sh`、`cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test t1_compare --locked` |

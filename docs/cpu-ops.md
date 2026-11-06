@@ -375,3 +375,13 @@ make verify
 | -- | ----------------- | -------------- |
 | 「simd128 の構成は型検査と lint までで、wasm32 上の実行は流していない」の文（`:190`） | wasm32 上の実行は流していない → `wasm/crates/glue` の export（`topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd` を含む）を通して、`make wasm-node-check` が Node 上で `cpu_ops` の演算を流す（CI の `wasm-macos` ジョブ）。`crates/wasm-abi` の export を通した実行は無く、`crates/contract` の試験そのものを wasm32 で流してはいない | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs`、`jq -r '.rows[].export' wasm/node/cases.json \| sort -u` |
 | 回帰テスト `make test-wasm-node-check` の最終行 | `passed: 505, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base e416527）
+
+記録時点の表と既存の節は書き換えない。以下は base `e416527` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「今の値の補い（base 25d8dc2）」の `cpu_ops_topk_reference` の本数（`:357`） | 12 本 → 18 本（`18 passed; 0 failed; 0 ignored`）。足された 6 本は -0.0 を含む入力を扱う試験で、所在は [cpu-ops-topk-signed-zero.md](cpu-ops-topk-signed-zero.md) | `cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_topk_reference` |
+| 「今の値の補い（base 42731d8）」の `make test-wasm-node-check` の最終行（`:377`） | `passed: 505, failed: 0` → `passed: 544, failed: 0` | `make test-wasm-node-check` |
+| 「今の値の補い（base 42731d8）」の `wasm/crates/glue` の export を通した実行（`:190` の文の今の値） | `make wasm-node-check` が Node 上で流す行は、ビットの完全一致で比べるものに加えて、`gemm_simd`・`simd128` の行を閾値で語ごとに比べるもの（`t1:` の行を出す）がある。所在は [wasm32-native-parity.md](wasm32-native-parity.md) の「Node での照合の閾値の比べ（1/4）」 | `grep -n 't1\|T1' scripts/wasm-node-check.sh` |

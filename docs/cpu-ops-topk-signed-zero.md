@@ -39,7 +39,7 @@ cargo test -p fandhe-silicon-contract --features test-support --test cpu_ops_top
 
 ## -0.0 を含む 5 ケースの入力とネイティブの参照（2/4）
 
-private spec 側の記録に従う（ポインタのみ）。この節（2/4）は #6949。
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2451。親 Issue は #1070、この節（2/4）は #6949。
 
 ### 所在
 
