@@ -121,6 +121,10 @@ name = "cpu_ops_elementwise_special"
 required-features = ["cpu-ops", "test-support"]
 
 [[test]]
+name = "cpu_ops_add_scalar_nonfinite"
+required-features = ["cpu-ops"]
+
+[[test]]
 name = "cpu_ops_topk_reference"
 required-features = ["cpu-ops", "test-support"]
 
