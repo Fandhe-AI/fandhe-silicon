@@ -30,7 +30,7 @@
 # （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd・elementwise_scalar・elementwise_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
 # ネイティブの参照で、ケースの種類ごとの単位〔gemm・elementwise は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
 # 種類の表は KINDS。行の export の種類と case の種類が違えば終了コード 2。TASK-996）。
-# KINDS の t1 の組（今は gemm の gemm_simd・simd128）は完全一致でなく T-1 の閾値で語ごとに比べ、`t1: <行> max-abs=… max-rel=… abs-over=… rel-over=…`
+# KINDS の t1 の組（今は gemm の gemm_simd・simd128）は完全一致でなく T1 の閾値で語ごとに比べ、`t1: <行> max-abs=… max-rel=… abs-over=… rel-over=…`
 # の行を出す（TASK-995。出すだけで判定には関わらない）。
 # topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
 # 出すだけで判定と終了コードには関わらない）。
@@ -85,7 +85,7 @@ import sys
 HEX = re.compile(r"[0-9a-f]{8}\Z")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
-# T-1 の閾値（TASK-995）。要素ごとに、相対が T1_RELATIVE 未満か絶対が T1_ABSOLUTE 未満なら一致（厳密な `<`・誤差は f64）。
+# T1 の閾値（TASK-995）。要素ごとに、相対が T1_RELATIVE 未満か絶対が T1_ABSOLUTE 未満なら一致（厳密な `<`・誤差は f64）。
 # 共通の道具の `T1` と同じ値で、閾値で比べる行（KINDS の t1 の欄）の判定と `t1:` の行だけが読む。引数・環境変数・入力では変えない。
 # BEGIN t1-thresholds
 T1_RELATIVE = 1e-3
@@ -97,7 +97,7 @@ T1_ABSOLUTE = 1e-5
 # nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）/
 # fields: 種類に固有の欄の照らし（(鍵, 判定の関数) の組の列。無ければ ()。TASK-997）/
 # special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）/
-# t1: 完全一致でなく T-1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）。
+# t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）。
 KINDS = {
     "gemm": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
@@ -192,7 +192,7 @@ def kind_of_export(export):
 
 
 def uses_t1(kind, export, build):
-    # (export, build) の行が T-1 の閾値で比べる組か（TASK-995）。比べの種類は表だけで決め、入力・保存の形の欄では変えない。
+    # (export, build) の行が T1 の閾値で比べる組か（TASK-995）。比べの種類は表だけで決め、入力・保存の形の欄では変えない。
     return (export, build) in KINDS[kind]["t1"]
 
 
@@ -566,7 +566,7 @@ def input_special_lines(manifest_cases, cases, used_cases):
 
 
 def t1_count(want, data):
-    # 参照 want と実測 data（どちらも 4 バイトの語の列で長さは揃っている）を T-1 の閾値で語ごとに比べる（TASK-995）。
+    # 参照 want と実測 data（どちらも 4 バイトの語の列で長さは揃っている）を T1 の閾値で語ごとに比べる（TASK-995）。
     # 判定の順は共通の道具の特殊値つきの要素ごとの判定と同じ。戻りは不一致の語の数と `t1:` の行の本文（id の後ろ）。
     # 集計に入れるのはどちらも有限の語だけ。行は出すだけで、判定と終了コードには関わらない。
     n = len(want) // 4

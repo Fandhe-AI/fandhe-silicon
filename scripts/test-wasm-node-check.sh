@@ -2394,6 +2394,10 @@ rm -rf "${fix}/outs"
 # 91. 2 つの最大値が別の語（絶対の最大と相対の最大）。不一致は 0 で終了コード 0
 t1_case "91 the absolute and relative maxima are at different words" 0 "1=44800800 2=35c00000" "count: t-simd mismatches=0 n=8" "t1: t-simd max-abs=0.25 max-abs-at=1 max-rel=0.5 max-rel-at=2 abs-over=1 rel-over=1" "row: t-simd match"
 
+# 91b. 最大が同値の語が 2 つあるときは最初の語の添字を出す（絶対: 語 0 と語 1 が誤差 0.5。相対: 語 1 と語 4 が 2^-11）
+t1_case "91 equal absolute maxima report the first word" 0 "0=447a2000 1=44801000" "t1: t-simd max-abs=0.5 max-abs-at=0 " "abs-over=2 rel-over=0"
+t1_case "91 equal relative maxima report the first word" 0 "1=44801000 4=3f801000" "t1: t-simd max-abs=0.5 max-abs-at=1 max-rel=0.00048828125 max-rel-at=1 "
+
 # 92. 相対の境界（語 0・参照 1000.0）: 比がちょうど上限は不一致、下回れば一致
 t1_case "92 relative error exactly at the limit (above)" 1 "0=447a4000" "row: t-simd mismatch (mismatches 1/8)" "mismatches=1 n=8" "abs-over=1 rel-over=1"
 t1_case "92 relative error exactly at the limit (below)" 1 "0=4479c000" "row: t-simd mismatch (mismatches 1/8)" "abs-over=1 rel-over=1"
