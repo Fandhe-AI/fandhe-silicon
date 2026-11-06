@@ -1594,3 +1594,22 @@ $ grep -rn unsafe wasm/crates/parity-host
 | 2/4 | 閾値の比べを共通の道具の口と突き合わせる試験を足す | #6278 |
 | 3/4 | simd128 のビルドの `gemm_simd` の 3 行を照合の入力に足す | #6279 |
 | 4/4 | 完了の条件の確かめ | #6280 |
+
+## 今の値の補い（base e416527）
+
+記録時点の表と既存の節は書き換えない。以下は base `e416527` で観測した今の値（実行環境は GPU なしの Linux。node・wasm-bindgen の CLI は入れていないので `make wasm-node-check` の実物の実行は流していない。`summary:`・`recount-summary:` の行の数は `cases.json` の行数から数える）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「判定と出力の行」の表（`:177`〜`:181`）と「今の値の補い（base 42731d8）」の同じ行（`:1266`）の語ごとの比べ | ビットの完全一致の比べ（`gemm`・`elementwise` は 4 バイト、`topk` は 8 バイト）だけ → `gemm` の `gemm_simd`・`simd128` の行は閾値で語ごとに比べ、`t1: <行の id> max-abs=… max-rel=… abs-over=… rel-over=…` の行も出す。ほかの行はビットの完全一致のまま | `grep -n 't1\|T1' scripts/wasm-node-check.sh`、上の「Node での照合の閾値の比べ（1/4）」 |
+| 確かめ方の `grep -c '"case"' wasm/node/cases.json`（`:231`〜`:232`・`:1267`） | `9`・`27` → `50` | `grep -c '"case"' wasm/node/cases.json` |
+| `cases-reference-unavailable.json` の `native-neon` の行（`:709`〜`:710`・`:1089`〜`:1094`） | `3`・`5` → `8` | `grep -c '"reference_source": "native-neon"' wasm/node/cases-reference-unavailable.json` |
+| `make test-wasm-node-check` の最終行（`:1269`・`:1270`・`:1362`・`:1415`・`:1569`） | `passed: 505, failed: 0`・`passed: 542, failed: 0` → `passed: 544, failed: 0` | `make test-wasm-node-check 2>&1 \| tail -n 1` |
+| `wasm/node/cases.json` の行数（`:1271`） | 32 行・35 行 → 55 行 | `jq '.rows \| length' wasm/node/cases.json` |
+| `manifest.json` の `cases` と書く名前（`:982`・`:1272`） | 8 要素（GEMM 3・部分 Top-k 3・要素ごと演算 2）・書く名前は 20 個 → 13 要素（GEMM 3・部分 Top-k 8・要素ごと演算 2）・書く名前は 30 個（`.bin` が 29 個と `manifest.json`） | `d=$(mktemp -d); (cd wasm && cargo run -q -p wasm-parity-host -- gen "$d"); ls "$d" \| wc -l; jq -r '.cases[].kind' "$d/manifest.json" \| sort \| uniq -c` |
+| `sha256sum *` の `manifest.json`（`:668`・`:1273`） | `3bd0b6d3537a65b67f3653b9b27ddcc13ad215b7dd388ccbac7a608411734c3d` → `fae32ffa06473452882cfb5c5991c0ac2ed0af3807b09beee867b50ba5c3f987` | 上の `gen` を流し、`(cd "$d" && sha256sum manifest.json)` |
+| 回帰テストの項目 `22 bundled topk rows are exactly the ten (case, export, build) pairs`（`:855`） | `the ten` → `the thirty` | `grep -n 'bundled topk rows' scripts/test-wasm-node-check.sh` |
+| `wasm-parity-host` の `tests/gen.rs` の `test result:`（`:1011`・`:1132`・`:1447`） | `28 passed` → `36 passed` | `cargo test --manifest-path wasm/Cargo.toml --workspace --locked 2>&1 \| grep '^test result:'` |
+| `summary:` の行（`:1466`） | `rows=35 match=35 mismatch=0 not-run=0` → `cases.json` が 55 行なので行の数は `rows=55` | `jq '.rows \| length' wasm/node/cases.json` |
+| `recount-summary:` の行（`:1483`） | `rows=30 zero=30 nonzero=0 uncompared=0` → 保存の形のある行の数は `cases.json` の 55 行から `detect_isa_bits` 2 行・`roundtrip_f32` 3 行を除いた `rows=50` | `jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
+| 「Node での照合の閾値の比べ（1/4）」の綴り（`:1291`） | 文中の `T-1` → `T1`（スクリプトの目印の間のコメントの綴りに揃った） | `sed -n 86,93p scripts/wasm-node-check.sh` |
