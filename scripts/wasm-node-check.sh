@@ -30,11 +30,14 @@
 # （export は gemm_scalar・gemm_simd・topk_scalar・topk_simd・elementwise_scalar・elementwise_simd。値は host 側の道具 `wasm-parity-host gen` が作る入力と
 # ネイティブの参照で、ケースの種類ごとの単位〔gemm・elementwise は 4 バイトの語・topk は 8 バイトの 1 件〕で完全一致に比べて件数を出す。
 # 種類の表は KINDS。行の export の種類と case の種類が違えば終了コード 2。TASK-996）。
-# KINDS の t1 の組（今は gemm の gemm_simd・simd128）は完全一致でなく T1 の閾値で語ごとに比べ、`t1: <行> max-abs=… max-rel=… abs-over=… rel-over=…`
+# KINDS の t1 の組（gemm の gemm_simd・simd128 と、特殊値の入力の 2 種類の 4 組）は完全一致でなく T1 の閾値で語ごとに比べ、`t1: <行> max-abs=… max-rel=… abs-over=… rel-over=…`
 # の行を出す（TASK-995。出すだけで判定には関わらない）。
+# KINDS の cpu の欄（CPU 参照のファイルの鍵）を持つ種類は、wasm の出力を CPU 参照とも T1 の閾値で比べ、不一致があれば行は mismatch
+# （`row:` の detail は `cpu-reference mismatches <件数>/<n>`）。`cpu-count: <行> mismatches=… n=…` と、数え直しの
+# `recount-cpu:` の行を出す（TASK-999）。
 # topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
 # 出すだけで判定と終了コードには関わらない）。
-# elementwise のケースがあるときは `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行を出す（入力の語の
+# elementwise・elementwise-special のケースがあるときは `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行を出す（入力の語の
 # NaN・Inf・±0 の数。TASK-997。出すだけで判定には関わらない）。行の build（scalar・simd128）でどちらの glue を呼ぶかを選ぶ。
 # 行の参照の出どころは必須の欄 reference_source（fixed＝固定値 / native-neon＝ネイティブの NEON /
 # native-scalar＝ネイティブの scalar 版）で、
@@ -91,13 +94,14 @@ FIXED_EXPORTS = ("roundtrip_f32", "detect_isa_bits")
 T1_RELATIVE = 1e-3
 T1_ABSOLUTE = 1e-5
 # END t1-thresholds
-# ケースの種類ごとの性質の表（TASK-994・TASK-996）。種類を足すときはこの表に 1 項と run-glue.cjs の許可表に 1 項を足す。
+# ケースの種類ごとの性質の表（TASK-994・TASK-996）。種類を足すときはこの表に 1 項を足し、新しい export を持つ種類は run-glue.cjs の許可表にも足す。
 # keys: manifest のケースの鍵の完全一致 / dims: 正の整数の寸法の鍵 / files: (ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) /
 # unit: 比べの単位のバイト数 / exports: この種類を呼ぶ生成の行の export /
 # nonfinite: `nonfinite:` の行の数え方（入力の指定, 出力の指定。指定は (ファイルの鍵, 1 件の幅, 語のオフセット)。無ければ None）/
 # fields: 種類に固有の欄の照らし（(鍵, 判定の関数) の組の列。無ければ ()。TASK-997）/
 # special: `input-special:` の行の数える先のファイルの鍵（無ければ None。TASK-997）/
-# t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）。
+# t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）/
+# cpu: CPU 参照のファイルの鍵（無ければ None。TASK-999）。
 KINDS = {
     "gemm": {
         "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "a_sha256", "b_sha256", "native_scalar_sha256"),
@@ -113,6 +117,7 @@ KINDS = {
         "fields": (),
         "special": None,
         "t1": (("gemm_simd", "simd128"),),
+        "cpu": None,
     },
     "topk": {
         "keys": ("name", "kind", "n", "k", "scores_file", "native_scalar_file", "scores_sha256", "native_scalar_sha256"),
@@ -127,6 +132,7 @@ KINDS = {
         "fields": (),
         "special": None,
         "t1": (),
+        "cpu": None,
     },
     "elementwise": {
         "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "input_sha256", "native_scalar_sha256"),
@@ -144,10 +150,47 @@ KINDS = {
         "nonfinite": None,
         "special": "input_file",
         "t1": (),
+        "cpu": None,
+    },
+    "gemm-special": {
+        "keys": ("name", "kind", "m", "k", "n", "a_file", "b_file", "native_scalar_file", "cpu_reference_file", "a_sha256", "b_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
+        "dims": ("m", "k", "n"),
+        "files": (
+            ("a_file", "a_sha256", lambda d: d["m"] * d["k"] * 4, "a"),
+            ("b_file", "b_sha256", lambda d: d["k"] * d["n"] * 4, "b"),
+            ("native_scalar_file", "native_scalar_sha256", lambda d: d["m"] * d["n"] * 4, "native-scalar"),
+            ("cpu_reference_file", "cpu_reference_sha256", lambda d: d["m"] * d["n"] * 4, "cpu-reference"),
+        ),
+        "unit": 4,
+        "exports": ("gemm_scalar", "gemm_simd"),
+        "nonfinite": None,
+        "fields": (),
+        "special": None,
+        "t1": (("gemm_scalar", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "scalar"), ("gemm_simd", "simd128")),
+        "cpu": "cpu_reference_file",
+    },
+    "elementwise-special": {
+        "keys": ("name", "kind", "n", "op_code", "c_bits", "input_file", "native_scalar_file", "cpu_reference_file", "input_sha256", "native_scalar_sha256", "cpu_reference_sha256"),
+        "dims": ("n",),
+        "fields": (
+            ("op_code", lambda v: type(v) is int and v in (0, 1)),
+            ("c_bits", lambda v: isinstance(v, str) and HEX.match(v) is not None),
+        ),
+        "files": (
+            ("input_file", "input_sha256", lambda d: d["n"] * 4, "input"),
+            ("native_scalar_file", "native_scalar_sha256", lambda d: d["n"] * 4, "native-scalar"),
+            ("cpu_reference_file", "cpu_reference_sha256", lambda d: d["n"] * 4, "cpu-reference"),
+        ),
+        "unit": 4,
+        "exports": ("elementwise_scalar", "elementwise_simd"),
+        "nonfinite": None,
+        "special": "input_file",
+        "t1": (("elementwise_scalar", "scalar"), ("elementwise_scalar", "simd128"), ("elementwise_simd", "scalar"), ("elementwise_simd", "simd128")),
+        "cpu": "cpu_reference_file",
     },
 }
 # 生成の行の export（TASK-994）。値は host 側の道具の入力とネイティブの参照。表から作る。
-GEN_EXPORTS = tuple(e for spec in KINDS.values() for e in spec["exports"])
+GEN_EXPORTS = tuple(dict.fromkeys(e for spec in KINDS.values() for e in spec["exports"]))
 BUILDS = ("scalar", "simd128")
 # 参照の出どころ（綴りは crates/core/src/rerun/reference.rs の ReferenceSource::name に揃える）。
 SOURCES = ("fixed", "native-neon", "native-scalar")
@@ -181,14 +224,6 @@ COMBINATIONS = (
 # 部品の固定の欄。ビヘイビア項目の ID はこの葉の範囲のもの 1 件だけ。
 BEHAVIOR_IDS = ["BUILD-41"]
 BODY_KIND = "contract-test"
-
-
-def kind_of_export(export):
-    # 生成の行の export が呼ぶケースの種類（GEN_EXPORTS の export だけを渡す）。
-    for kind, spec in KINDS.items():
-        if export in spec["exports"]:
-            return kind
-    return None
 
 
 def uses_t1(kind, export, build):
@@ -461,7 +496,7 @@ def load_manifest(dirpath, rows):
         if r["gen"]:
             if r["case"] not in cases:
                 die("unknown case in row: " + r["id"])
-            if kind_of_export(r["export"]) != cases[r["case"]]["kind"]:
+            if r["export"] not in KINDS[cases[r["case"]]["kind"]]["exports"]:
                 die("row export does not match the case kind: " + r["id"])
     return m["cases"], cases
 
@@ -602,6 +637,17 @@ def t1_count(want, data):
     return diff, body
 
 
+def cpu_count(case, data):
+    # CPU 参照のファイルを持つ種類のとき、実測 data を参照と T1 の閾値で語ごとに比べた不一致の語の数を返す（持たない種類は None。TASK-999）。
+    # manifest の照らし（sha256・長さ）と呼び出し側の長さの照らしの後に呼ぶ。語の規則は t1_count と同じ。
+    key = KINDS[case["kind"]]["cpu"]
+    if key is None:
+        return None
+    with open(case["files"][key][0], "rb") as f:
+        want = f.read()
+    return t1_count(want, data)[0]
+
+
 def recount_form(d):
     # 保存の形のディレクトリだけから件数を数え直す（TASK-994）。ディレクトリの中身を信用せず、形・名前・sha256 を
     # 照らす。読めない・形の不正・sha256 の違いは終了コード 2。想定外の例外も 2 に寄せる（1 と区別するため）。
@@ -677,8 +723,11 @@ def recount_form_inner(d):
             diff, t1 = t1_count(want, data)
         else:
             diff = sum(1 for i in range(0, len(want), unit) if data[i:i + unit] != want[i:i + unit])
-        compared[rid] = (diff, len(want) // unit)
+        cpu = cpu_count(cases[r["case"]], data)
+        compared[rid] = (diff, len(want) // unit, cpu)
         rec_lines.append("recount: %s mismatches=%d n=%d" % (rid, diff, len(want) // unit))
+        if cpu is not None:
+            rec_lines.append("recount-cpu: %s mismatches=%d n=%d" % (rid, cpu, len(want) // unit))
         sha_lines.append("sha256: %s %s" % (rid, r["sha"]))
         if t1 is not None:
             sha_lines.append("t1: %s %s" % (rid, t1))
@@ -686,7 +735,7 @@ def recount_form_inner(d):
     sha_lines += case_sha_lines(manifest_cases, used)
     sha_lines += nonfinite_lines(manifest_cases, cases, used)
     sha_lines += input_special_lines(manifest_cases, cases, used)
-    zero = sum(1 for v in compared.values() if v[0] == 0)
+    zero = sum(1 for v in compared.values() if v[0] == 0 and not v[2])
     summary = "recount-summary: rows=%d zero=%d nonzero=%d uncompared=%d" % (len(rows), zero, len(compared) - zero, len(uncompared))
     return {"compared": compared, "uncompared": uncompared, "rec_lines": rec_lines, "sha_lines": sha_lines, "summary": summary}
 
@@ -730,7 +779,7 @@ def main():
         res = recount_form(check_dir(sys.argv[2], "saved dir"))
         for ln in res["rec_lines"] + res["sha_lines"] + [res["summary"]]:
             print(ln)
-        return 0 if not any(v[0] for v in res["compared"].values()) and not res["uncompared"] else 1
+        return 0 if not any(v[0] or v[2] for v in res["compared"].values()) and not res["uncompared"] else 1
     rows = load_cases(sys.argv[2])
     if mode == "validate":
         # 書き出しを選んだときだけ組み合わせと書き出し先を検査する。要るビルドと生成の入力の有無を語で返す。
@@ -808,15 +857,20 @@ def main():
                     diff, t1 = t1_count(want, val)
                 else:
                     diff = sum(1 for i in range(0, len(want), unit) if want[i:i + unit] != val[i:i + unit])
-                state = "match" if diff == 0 else "mismatch"
+                cpu = cpu_count(cases[r["case"]], val)
+                state = "match" if diff == 0 and not cpu else "mismatch"
                 if diff:
                     detail = "mismatches %d/%d" % (diff, nwords)
+                elif cpu:
+                    detail = "cpu-reference mismatches %d/%d" % (cpu, nwords)
                 cmp_lines.append("count: %s mismatches=%d n=%d" % (rid, diff, nwords))
+                if cpu is not None:
+                    cmp_lines.append("cpu-count: %s mismatches=%d n=%d" % (rid, cpu, nwords))
                 cmp_lines.append("sha256: %s %s" % (rid, hashlib.sha256(val).hexdigest()))
                 if t1 is not None:
                     cmp_lines.append("t1: %s %s" % (rid, t1))
                 if src == "native-scalar":
-                    j_compared[rid] = (diff, nwords)
+                    j_compared[rid] = (diff, nwords, cpu)
                     j_uncompared.discard(rid)
         elif val == ref:
             state = "match"
