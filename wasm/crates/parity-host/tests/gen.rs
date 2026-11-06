@@ -3,6 +3,7 @@
 //! 要素ごと演算の入力と参照の試験は spec TASK-997 のポインタ。
 //! -0.0 を含む部分 Top-k の入力と参照の試験は spec TASK-2451 のポインタ。
 //! 期待の値は生成器と `DefaultCpuOps` の呼び出しで作り、値を手で写さない。
+//! ただし -0.0 の節の入力の出どころの名前と、IEEE の並びとの記録の差の件数は、独立の照合のため字句で置く。
 
 use std::ffi::OsString;
 use std::fs;
@@ -695,6 +696,7 @@ fn gen_refuses_existing_elementwise_file() {
     assert_eq!(fs::read(&path).unwrap(), b"keep");
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
+
 // ---- -0.0 を含む部分 Top-k（spec TASK-2451 のポインタ） ----
 
 use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_topk_inputs};
