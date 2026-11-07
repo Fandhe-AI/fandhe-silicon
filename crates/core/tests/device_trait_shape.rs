@@ -4,6 +4,7 @@
 //! 確かめるもの: `Box<dyn Device>` を作れること（オブジェクト安全）、`request` の戻り値の型、
 //! 診断の値の読み取りと `Clone`・`PartialEq`、`Device` 越しに `Capabilities` の method と `memory()` を呼べること、既定の `compute()` が `None` であること。
 //! 既定の `textures()` が `None` であること（TASK-150 の 3/4。DEV-153 のポインタ）。
+//! 背後実装向けの `__backend_next_device_id` が、スレッドをまたいでも重ならず 0 を返さないこと（スレッドを作るので native だけで流す）。
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
@@ -337,4 +338,28 @@ fn default_textures_is_none_through_dyn_device() {
     ))
     .expect("device");
     assert!(device.textures().is_none());
+}
+
+// wasm32 ではスレッドを作れないので、native だけで流す。
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn backend_device_ids_are_unique_and_never_zero_across_threads() {
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            std::thread::spawn(|| {
+                (0..100)
+                    .map(|_| fandhe_silicon_core::device::__backend_next_device_id().expect("id"))
+                    .collect::<Vec<u64>>()
+            })
+        })
+        .collect();
+    let mut all = Vec::new();
+    for handle in handles {
+        all.extend(handle.join().expect("thread"));
+    }
+    assert!(all.iter().all(|id| *id >= 1));
+    let total = all.len();
+    all.sort_unstable();
+    all.dedup();
+    assert_eq!(all.len(), total);
 }
