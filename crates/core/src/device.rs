@@ -206,3 +206,28 @@ pub trait DeviceProvider {
     /// エラーに添える文字列の文言は契約にしない。試験は値の種類（`ContractError` の variant）で照らす。
     fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError>;
 }
+
+/// device の識別子の源。背後実装をまたいで、プロセス全体で通し番号にする。0 は払い出さない。
+static NEXT_DEVICE_ID: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+
+/// 背後実装向けの口。device の識別子を 1 つ払い出す。
+///
+/// プロセスの中で背後実装・device をまたいで重ならず、1 から増え、0 は返さない。尽きたら `None`（源は動かさない）。
+/// 世代は背後実装ごとの源のままで、この口は払い出さない。
+#[doc(hidden)]
+pub fn __backend_next_device_id() -> Option<u64> {
+    use core::sync::atomic::Ordering;
+    let mut current = NEXT_DEVICE_ID.load(Ordering::Relaxed);
+    loop {
+        let next = current.checked_add(1)?;
+        match NEXT_DEVICE_ID.compare_exchange_weak(
+            current,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Some(current),
+            Err(actual) => current = actual,
+        }
+    }
+}
