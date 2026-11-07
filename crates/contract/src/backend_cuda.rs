@@ -264,6 +264,11 @@ impl CudaDevice {
         if handle.__backend_device_id() != self.id {
             return Err(ContractError::DeviceMismatch);
         }
+        if handle.__backend_generation() != self.generation {
+            return Err(ContractError::DeviceLost {
+                generation: handle.__backend_generation(),
+            });
+        }
         let slice = table
             .get(&handle.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
@@ -416,7 +421,9 @@ impl MemoryOps for CudaDevice {
     }
 
     fn free(&self, buffer: BufferHandle) {
-        if buffer.__backend_device_id() != self.id {
+        if buffer.__backend_device_id() != self.id
+            || buffer.__backend_generation() != self.generation
+        {
             return;
         }
         self.lock().map.remove(&buffer.__backend_id());
