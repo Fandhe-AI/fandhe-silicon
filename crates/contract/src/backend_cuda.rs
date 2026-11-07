@@ -173,6 +173,7 @@ fn driver_library_present() -> bool {
     // SAFETY: `is_culib_present` は CUDA の共有ライブラリの名前の候補を順に読み込み、1 つでも読めれば
     // その場で閉じて `true` を返す。ポインタを受けず、呼び出しの前に満たす不変条件は無い。
     // 読み込みが走らせる初期化子は、以後の `CudaContext::new` が読み込むものと同じライブラリのものだけ。
+    // 読み込み先は OS の検索規則で決まるので、検索パスの内容をプロセスの環境が信頼している前提に立つ。
     unsafe { cudarc::driver::sys::is_culib_present() }
 }
 
@@ -238,12 +239,12 @@ impl DeviceProvider for CudaDeviceProvider {
     }
 }
 
-/// `alloc_zeros` の失敗を写す。メモリ不足は `AllocationFailed`、それ以外は `BackendFailure`。
-fn allocation_failure(requested_bytes: u64, e: DriverError) -> ContractError {
+/// `allocate` の中のドライバ呼び出しの失敗を写す。メモリ不足は `AllocationFailed`、それ以外は `BackendFailure`。
+fn allocation_failure(op: &'static str, requested_bytes: u64, e: DriverError) -> ContractError {
     if e.0 == cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY {
         ContractError::AllocationFailed { requested_bytes }
     } else {
-        backend_failure("alloc_zeros", e)
+        backend_failure(op, e)
     }
 }
 
@@ -254,6 +255,21 @@ fn backend_failure(op: &'static str, e: impl std::fmt::Debug) -> ContractError {
         backend: BACKEND,
         detail: format!("{e:?}"),
     }
+}
+
+/// メモリ操作のドライバを呼ぶ閉包の panic を `BackendFailure` に変える。panic の payload は載せない。
+/// unwind するビルドで効く（`panic=abort` のビルドでは panic はそのまま abort になる）。
+fn guard_memory_panic<T>(
+    op: &'static str,
+    f: impl FnOnce() -> Result<T, ContractError>,
+) -> Result<T, ContractError> {
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        Err(ContractError::BackendFailure {
+            op,
+            backend: BACKEND,
+            detail: "driver call panicked".into(),
+        })
+    })
 }
 
 /// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
@@ -330,10 +346,17 @@ impl CudaDevice {
             .map
             .get(&src.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
-        self.stream
-            .memcpy_dtoh(&slice.slice(start..end), out.as_mut_slice())
-            .and_then(|()| self.stream.synchronize())
-            .map_err(|e| backend_failure("memcpy_dtoh", e))?;
+        let copied = guard_memory_panic("memcpy_dtoh", || {
+            self.stream
+                .memcpy_dtoh(&slice.slice(start..end), out.as_mut_slice())
+                .and_then(|()| self.stream.synchronize())
+                .map_err(|e| backend_failure("memcpy_dtoh", e))
+        });
+        if let Err(e) = copied {
+            // 転送が終わったと確かめられないので、書き込み先を解放しない。
+            std::mem::forget(out);
+            return Err(e);
+        }
         Ok(out)
     }
 }
@@ -390,20 +413,29 @@ impl MemoryOps for CudaDevice {
         validate_allocation_size(byte_len, self.limits.max_buffer_bytes)?;
         let len = usize::try_from(byte_len)
             .map_err(|_| ContractError::InvalidArgument("length exceeds usize".into()))?;
-        let slice = self
-            .stream
-            .alloc_zeros::<u8>(len)
-            .map_err(|e| allocation_failure(byte_len, e))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| allocation_failure(byte_len, e))?;
-        let mut buffers = self.lock();
-        buffers.next_id = buffers
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| ContractError::InvalidArgument("buffer ids exhausted".into()))?;
-        let id = buffers.next_id;
-        buffers.map.insert(id, slice);
+        // id は確保の前に払い出す。尽きたときに device のメモリを確保しない。
+        let id = {
+            let mut buffers = self.lock();
+            buffers.next_id =
+                buffers
+                    .next_id
+                    .checked_add(1)
+                    .ok_or(ContractError::AllocationFailed {
+                        requested_bytes: byte_len,
+                    })?;
+            buffers.next_id
+        };
+        let slice = guard_memory_panic("alloc_zeros", || {
+            let slice = self
+                .stream
+                .alloc_zeros::<u8>(len)
+                .map_err(|e| allocation_failure("alloc_zeros", byte_len, e))?;
+            self.stream
+                .synchronize()
+                .map_err(|e| allocation_failure("synchronize", byte_len, e))?;
+            Ok(slice)
+        })?;
+        self.lock().map.insert(id, slice);
         Ok(BufferHandle::__backend_new(
             self.generation,
             id,
@@ -428,10 +460,12 @@ impl MemoryOps for CudaDevice {
             .map
             .get_mut(&dst.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
-        self.stream
-            .memcpy_htod(bytes, &mut slice.slice_mut(start..end))
-            .and_then(|()| self.stream.synchronize())
-            .map_err(|e| backend_failure("memcpy_htod", e))
+        guard_memory_panic("memcpy_htod", || {
+            self.stream
+                .memcpy_htod(bytes, &mut slice.slice_mut(start..end))
+                .and_then(|()| self.stream.synchronize())
+                .map_err(|e| backend_failure("memcpy_htod", e))
+        })
     }
 
     #[cfg(feature = "native-blocking-wait")]
@@ -461,7 +495,9 @@ impl MemoryOps for CudaDevice {
         {
             return;
         }
-        self.lock().map.remove(&buffer.__backend_id());
+        let removed = self.lock().map.remove(&buffer.__backend_id());
+        // ドライバへの解放はロックの外で呼ぶ。`free` は値を返さないので panic も外へ出さない。
+        let _ = catch_unwind(AssertUnwindSafe(move || drop(removed)));
     }
 }
 
@@ -551,6 +587,18 @@ mod tests {
     fn a_panic_in_the_guard_is_device_unavailable() {
         let r: Result<(), _> = guard_driver_panic("call", || panic!("boom"));
         assert!(matches!(r, Err(ContractError::DeviceUnavailable(_))));
+    }
+
+    #[test]
+    fn a_panic_in_the_memory_guard_is_backend_failure() {
+        let r: Result<(), _> = guard_memory_panic("op", || panic!("boom"));
+        match r {
+            Err(ContractError::BackendFailure { op, backend, .. }) => {
+                assert_eq!(op, "op");
+                assert_eq!(backend, BACKEND);
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
     }
 
     #[test]
