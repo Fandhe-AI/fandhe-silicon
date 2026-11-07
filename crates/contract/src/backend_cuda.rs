@@ -20,7 +20,8 @@ use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
 };
 use fandhe_silicon_core::device::{
-    Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
+    __backend_next_device_id, Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider,
+    DeviceRequest, Profile,
 };
 use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
@@ -38,9 +39,6 @@ const BACKEND: BackendKind = BackendKind::Cuda;
 
 /// `DeviceDiagnostics::backend_name` に載せる名前。
 const BACKEND_NAME: &str = "cuda";
-
-/// device の識別子の採番。`take_next` で 1 から単調増加に取る。
-static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// device の世代の採番。背後実装の中で 1 から単調増加に取る。
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -207,7 +205,7 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
         })?;
         let exhausted =
             || ContractError::DeviceUnavailable("device counter space is exhausted".into());
-        let id = take_next(&NEXT_DEVICE_ID).ok_or_else(exhausted)?;
+        let id = __backend_next_device_id().ok_or_else(exhausted)?;
         let generation = take_next(&NEXT_GENERATION).ok_or_else(exhausted)?;
         Ok(Box::new(CudaDevice {
             id,

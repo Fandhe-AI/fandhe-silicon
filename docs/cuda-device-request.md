@@ -45,6 +45,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 - 読み取りに成功したときの `adapter_name` は `<名前> (cuda compute_capability=<major>.<minor>)` の形
 - `limits().max_dispatch_dims` は、読み取った各軸の上限の値
+- device の識別子は共通の crate の `__backend_next_device_id` から取る（源は [contract-device-types](./contract-device-types.md) の「背後実装をまたぐ device の識別子の源」）。世代はこの背後実装の中の源から取る
 - 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
 
 ## 段
