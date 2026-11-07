@@ -49,6 +49,10 @@ fault-injection = ["fandhe-silicon-core/fault-injection"]
 artifact-inspection = ["backend-metal"]
 
 [[test]]
+name = "backend_cuda_request"
+required-features = ["backend-cuda"]
+
+[[test]]
 name = "backend_metal_device"
 required-features = ["backend-metal", "native-blocking-wait"]
 
