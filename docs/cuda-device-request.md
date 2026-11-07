@@ -40,8 +40,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ドライバの共有ライブラリが読み込めない | panic せず `DeviceUnavailable` | `absent_library_is_device_unavailable_without_panicking`（ライブラリがある環境では device に触らず戻る） |
 | ドライバを呼ぶ閉包の中の panic | `DeviceUnavailable`（panic の内容は載せない） | `a_panic_in_the_guard_is_device_unavailable` |
 | GPU の名前・compute capability・メモリの大きさの読み取りの失敗 | `DeviceUnavailable` | `attribute_failures_are_device_unavailable` |
+| grid の各軸の上限の読み取りの失敗・負の値 | `DeviceUnavailable` | `grid_dims_come_from_attributes_and_reject_failures` |
 
 - 読み取りに成功したときの `adapter_name` は `<名前> (cuda compute_capability=<major>.<minor>)` の形
+- `limits().max_dispatch_dims` は、読み取った各軸の上限の値
 - 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
 
 ## 段

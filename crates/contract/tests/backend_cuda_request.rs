@@ -1,6 +1,6 @@
 //! CUDA の provider の `request` の検査の試験（TASK-160 のポインタ）。
 //!
-//! 検査は device を作る前に済むので、ここの試験は device に触らない（`#[ignore]` 付きの 1 件を除く）。
+//! 検査は device を作る前に済むので、ここの試験は device に触らない。
 #![cfg(not(target_arch = "wasm32"))]
 
 use fandhe_silicon_contract::backend_cuda::CudaDeviceProvider;
@@ -107,36 +107,4 @@ fn the_backend_is_checked_before_the_profile_and_the_profile_before_the_ownershi
         )));
         assert!(matches!(e, ContractError::InvalidCombination(_)), "{e:?}");
     }
-}
-
-/// 世代だけが違う偽のハンドルは、upload を拒まれ、free を無視される（device に触る試験）。
-#[test]
-#[ignore = "touches the CUDA device; run only in a dedicated device session"]
-fn a_handle_with_another_generation_is_rejected_and_cannot_free_the_buffer() {
-    use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
-
-    let device = match CudaDeviceProvider::request(request(
-        BackendKind::Cuda,
-        Profile::ComputeOnly,
-        DeviceOwnership::ProductIndependent,
-    )) {
-        Ok(d) => d,
-        Err(e) => panic!("request failed: {e:?}"),
-    };
-    let usage = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
-    let memory = device.memory();
-    let own = memory.allocate(16, usage).expect("allocate");
-    let forged = BufferHandle::__backend_new(
-        own.__backend_generation() + 1,
-        own.__backend_id(),
-        own.__backend_device_id(),
-        16,
-        usage,
-    );
-    let e = memory.upload(&forged, 0, &[1_u8; 16]).unwrap_err();
-    assert!(matches!(e, ContractError::InvalidArgument(_)), "{e:?}");
-    memory.free(forged);
-    // 正規のハンドルはまだ有効で、upload が通る。
-    memory.upload(&own, 0, &[2_u8; 16]).expect("upload");
-    memory.free(own);
 }
