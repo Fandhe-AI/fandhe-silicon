@@ -142,3 +142,11 @@
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 完了の条件の確かめと 3 構成の結果の記録（4/4）の B1 | `NATIVE_SETS` の `backend-vulkan,backend-cuda,graphics,ext-interop` を含む行は 33 行目、単独の行は 43 行目、Vulkan のみは 44 行目、CUDA のみは 45 行目（4 行）→ その行は 36 行目、単独の行は 47 行目、Vulkan のみは 48 行目、CUDA のみは 49 行目、Metal のみ（`backend-metal,ext-interop`）が 50 行目で、5 行が出る。`WASM_SETS` には出ない | `grep -n 'ext-interop' scripts/build-profiles.sh` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

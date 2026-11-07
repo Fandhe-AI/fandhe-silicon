@@ -265,3 +265,12 @@ PoC-4 の Node での再現（BUILD-41 のポインタ）を流し直しの枠�
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 「今の値の補い（base e416527）」の `make test-wasm-node-check`（`:259`） | `passed: 544, failed: 0` → `passed: 642, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「deps-approved.toml の件数」の行 | ルートは `crates/contract` の macOS 向けの 4 件（`core` を `used_by` に持つ記録は 0 件）・`measure/` 0 件 → ルートは `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）・`core` を `used_by` に持つ記録は 0 件のまま・`measure/` 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml`（ルート 5、`measure/` 0）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

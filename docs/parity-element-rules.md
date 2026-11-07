@@ -141,3 +141,11 @@ TASK-975 の確かめを進めるにあたり、記録の所在と本リポの�
 - `core` の外部依存は 0 のまま（`cargo tree -p fandhe-silicon-core -e normal --depth 1` が自身だけを出す）
 - `grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml` は 0 が返る（`core` を `used_by` に持つ記録は無い）
 - `grep -c '^\[\[approval\]\]' deps-approved.toml` は 4 が返る。4 件は `crates/contract` を `used_by` に持つ macOS 向けの記録（`objc2` 系）
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

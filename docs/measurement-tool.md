@@ -345,3 +345,13 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 測定の道具に関わる件数は、`grep -c '^used_by = .*measure-perf' deps-approved.toml` が 0 を返す（ルートに `measure-perf` を `used_by` に持つ記録は無い）。
 
 今の `measure/Cargo.lock` の `[[package]]` は `fandhe-silicon-contract`・`fandhe-silicon-core`・`measure-cpu-ops-arm`・`measure-detect`・`measure-perf` の 5 件である（`grep -c '^\[\[package\]\]' measure/Cargo.lock` が 5 を返す）。
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「製品の workspace」の行 | 外部依存の承認の記録は 4 件（契約の crate の macOS 向け optional 依存）→ 5 件（macOS 向けの optional 依存 4 件と、wasm32 以外向けの optional 依存 `cudarc` 1 件。どれも `crates/contract`）。`members` は 4 crate のまま | `grep -c '^\[\[' deps-approved.toml`（5 が返る） |
+| 冒頭の表の「外部依存」の行 | 製品の workspace の承認の記録は `crates/contract` の macOS 向けの 4 件 → `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`measure-perf` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*measure-perf' deps-approved.toml`（0 が返る） |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`）。`measure/Cargo.lock` に `cudarc`・`objc2` の package は載らない | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml`、`grep -c 'name = "cudarc"' measure/Cargo.lock`（0 が返る） |

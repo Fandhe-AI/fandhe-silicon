@@ -134,3 +134,13 @@ A4 の 0 件は、3 つの SDK がどの crate にも宣言されていないこ
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「依存グラフの記録（2/2）」の `deps:` の下の 1 つ目の文（`cudarc` の宣言） | `objc2-metal`・`ash`・`cudarc` はどの crate にも宣言されていない → `cudarc` は契約の crate に wasm32 以外の optional 依存として宣言されている（`crates/contract/Cargo.toml` の 27 行目、feature `backend-cuda` の裏）。`objc2-metal` は macOS 向けの optional 依存として宣言されている | `grep -n 'cudarc' crates/contract/Cargo.toml`、`grep -n 'objc2-metal' crates/contract/Cargo.toml` |
+| 「依存グラフの記録（2/2）」の `deps:` の表（全 9 行が `native_n=0`） | 全 9 行が `wasm32_n=0`・`native_n=0` → 全 9 行が `wasm32_n=0`・`result=match`。`native_n` は `backend-metal` の `objc2-metal` と `backend-cuda` の `cudarc` が 1、ほかの 7 行は 0 | `make wasm-backend-check \| grep '^deps:'` |
+| 同じ節の `record:` の行 | `sdk_wasm32_total=0 sdk_native_total=0` → `sdk_wasm32_total=0 sdk_native_total=2`（`configs=3 check=3/3 module=3/3` のまま） | `make wasm-backend-check \| grep '^record:'` |

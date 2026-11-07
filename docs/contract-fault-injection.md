@@ -295,3 +295,12 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 | 全ての差し込みとの組 | `crates/core/tests/fault_parts_matrix.rs` の `scripts()`（`:101`）に `CapabilityOverride` の行がある（`:115`）。期待は `:261` | `cargo test -p fandhe-silicon-core --features fault-injection --test fault_parts_matrix` |
 
 `fault_decorator_capability_override` は 3 passed、`fault_parts_matrix` は 6 passed（0 failed; 0 ignored）。
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「依存の承認」の行 | 記録は `crates/contract` の macOS 向けの 4 件だけ → 記録は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`fandhe-silicon-core` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |
