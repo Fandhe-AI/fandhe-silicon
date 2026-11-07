@@ -205,3 +205,10 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 本リポの現状の「`contract` の公開面」 | 公開モジュールは feature の裏の `backend_*` と `doc(hidden)` の `cfg_gate_doctest` だけ → `crates/contract/src/lib.rs` の `pub mod` は 7 行で、`cfg_gate_doctest`（16 行目）、`memory_free_doctest`（21 行目）、`callback_send_doctest`（26 行目）、`backend_metal`（32 行目）、`backend_vulkan`（37 行目）、`backend_cuda`（41 行目）、`cpu_ops`（45 行目）。`cpu_ops` は `#[cfg(feature = "cpu-ops")]`（44 行目）の裏にあり、`cpu-ops` は `default` に入っている。`cpu_ops` は `CpuOps`・`DefaultCpuOps`・`ReferenceCpuOps`・`UnaryElementwiseOp` を公開する（[cpu-ops](cpu-ops.md)） | `grep -n 'pub mod' crates/contract/src/lib.rs`、`sed -n 44,45p crates/contract/src/lib.rs`、`sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml` |
+
+## 背後実装をまたぐ device の識別子の源
+
+| 項目 | 事実 | 試験 |
+| ---- | ---- | ---- |
+| 識別子の源 | 背後実装向けの隠した口 `fandhe_silicon_core::device::__backend_next_device_id() -> Option<u64>`（1 から、背後実装・device・スレッドをまたいで重ならず、0 を返さず、尽きたら `None`） | `crates/core/tests/device_trait_shape.rs`（`backend_device_ids_are_unique_and_never_zero_across_threads`。スレッドを作るので native だけで流す） |
+| 使う背後実装 | Metal の `request` がこの口から device の識別子を取る。世代は背後実装ごとの源のまま | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --all-features -- -D warnings` |

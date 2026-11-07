@@ -1194,7 +1194,8 @@ mod imp {
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
     };
     use fandhe_silicon_core::device::{
-        Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
+        __backend_next_device_id, Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider,
+        DeviceRequest, Profile,
     };
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::device_lost::{DeviceLostNotify, LostCallback};
@@ -1233,9 +1234,6 @@ mod imp {
 
     /// Metal が扱うテクスチャの 1 辺の上限として `LimitsTable` に載せる値。
     const MAX_TEXTURE_SIZE: u32 = 16384;
-
-    /// プロセスの中で device ごとに別の値を払い出す識別子の源。0 は払い出さない。
-    static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
     /// この背後実装のプロセスの中で、device を作るごとに 1 つ増える世代の源。1 から始まる。
     static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -1338,7 +1336,7 @@ mod imp {
 
         let exhausted =
             || ContractError::DeviceUnavailable("device counter space is exhausted".into());
-        let id = take_next(&NEXT_DEVICE_ID).ok_or_else(exhausted)?;
+        let id = __backend_next_device_id().ok_or_else(exhausted)?;
         let generation = take_next(&NEXT_GENERATION).ok_or_else(exhausted)?;
 
         let limits = LimitsTable {
@@ -2524,7 +2522,7 @@ mod imp {
             let device = MTLCreateSystemDefaultDevice().expect("default device");
             let queue = device.newCommandQueue().expect("queue");
             MetalDevice::new(
-                take_next(&NEXT_DEVICE_ID).expect("id"),
+                __backend_next_device_id().expect("id"),
                 take_next(&NEXT_GENERATION).expect("generation"),
                 String::new(),
                 LimitsTable {
