@@ -346,15 +346,27 @@ impl CudaDevice {
             .map
             .get(&src.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
+        // 転送が終わったか、転送が始まらなかったと分かったときだけ `true` にする。
+        let mut settled = false;
         let copied = guard_memory_panic("memcpy_dtoh", || {
-            self.stream
+            if let Err(e) = self
+                .stream
                 .memcpy_dtoh(&slice.slice(start..end), out.as_mut_slice())
-                .and_then(|()| self.stream.synchronize())
-                .map_err(|e| backend_failure("memcpy_dtoh", e))
+            {
+                settled = true;
+                return Err(backend_failure("memcpy_dtoh", e));
+            }
+            self.stream
+                .synchronize()
+                .map_err(|e| backend_failure("synchronize", e))?;
+            settled = true;
+            Ok(())
         });
         if let Err(e) = copied {
-            // 転送が終わったと確かめられないので、書き込み先を解放しない。
-            std::mem::forget(out);
+            if !settled {
+                // 転送が終わったと確かめられないので、書き込み先を解放しない。
+                std::mem::forget(out);
+            }
             return Err(e);
         }
         Ok(out)
