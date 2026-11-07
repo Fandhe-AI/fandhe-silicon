@@ -210,5 +210,5 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 
 | 項目 | 事実 | 試験 |
 | ---- | ---- | ---- |
-| 識別子の源 | 背後実装向けの隠した口 `fandhe_silicon_core::device::__backend_next_device_id() -> Option<u64>`（1 から、背後実装・device・スレッドをまたいで重ならず、0 を返さず、尽きたら `None`） | `crates/core/tests/device_trait_shape.rs`（`backend_device_ids_are_unique_and_never_zero_across_threads`） |
+| 識別子の源 | 背後実装向けの隠した口 `fandhe_silicon_core::device::__backend_next_device_id() -> Option<u64>`（1 から、背後実装・device・スレッドをまたいで重ならず、0 を返さず、尽きたら `None`） | `crates/core/tests/device_trait_shape.rs`（`backend_device_ids_are_unique_and_never_zero_across_threads`。スレッドを作るので native だけで流す） |
 | 使う背後実装 | Metal の `request` がこの口から device の識別子を取る。世代は背後実装ごとの源のまま | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --all-features -- -D warnings` |

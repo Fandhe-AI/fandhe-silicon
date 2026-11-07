@@ -4,7 +4,7 @@
 //! 確かめるもの: `Box<dyn Device>` を作れること（オブジェクト安全）、`request` の戻り値の型、
 //! 診断の値の読み取りと `Clone`・`PartialEq`、`Device` 越しに `Capabilities` の method と `memory()` を呼べること、既定の `compute()` が `None` であること。
 //! 既定の `textures()` が `None` であること（TASK-150 の 3/4。DEV-153 のポインタ）。
-//! 背後実装向けの `__backend_next_device_id` が、スレッドをまたいでも重ならず 0 を返さないこと。
+//! 背後実装向けの `__backend_next_device_id` が、スレッドをまたいでも重ならず 0 を返さないこと（スレッドを作るので native だけで流す）。
 
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
@@ -340,6 +340,8 @@ fn default_textures_is_none_through_dyn_device() {
     assert!(device.textures().is_none());
 }
 
+// wasm32 ではスレッドを作れないので、native だけで流す。
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn backend_device_ids_are_unique_and_never_zero_across_threads() {
     let handles: Vec<_> = (0..4)
