@@ -237,6 +237,64 @@ impl DeviceProvider for CudaDeviceProvider {
     }
 }
 
+/// 差し込みの失敗の文字列に載せる印。
+#[cfg(feature = "fault-injection")]
+const INJECTED: &str = "injected";
+
+/// 指定した属性の読み取りだけを失敗させ、`read_attributes` の写し方を通した値を返す。
+#[cfg(feature = "fault-injection")]
+fn injected_attribute_failure(
+    name_ok: bool,
+    capability_ok: bool,
+    total_mem_ok: bool,
+) -> ContractError {
+    let attributes = read_attributes(
+        || name_ok.then(|| "GPU".to_string()).ok_or(INJECTED),
+        || capability_ok.then_some((0, 0)).ok_or(INJECTED),
+        || total_mem_ok.then_some(0_usize).ok_or(INJECTED),
+    );
+    match attributes {
+        Err(e) => e,
+        Ok(_) => ContractError::DeviceUnavailable(INJECTED.into()),
+    }
+}
+
+// 初期化の失敗を差し込む provider を作る。各 `request` は検査の後に差し込みの失敗を返し、
+// 実の `request` の経路（`CudaDeviceProvider`）には触れない。
+macro_rules! injected_provider {
+    ($($(#[$doc:meta])* $name:ident => $failure:expr;)*) => {$(
+        $(#[$doc])*
+        #[cfg(feature = "fault-injection")]
+        #[derive(Debug, Clone, Copy, Default)]
+        pub struct $name;
+
+        #[cfg(feature = "fault-injection")]
+        impl DeviceProvider for $name {
+            fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+                check_request(&req)?;
+                Err($failure)
+            }
+        }
+    )*};
+}
+
+injected_provider! {
+    /// ドライバのライブラリが読めない失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    CudaDriverMissingProvider => ContractError::DeviceUnavailable(
+        "CudaContext::new(0): CUDA driver library is not loadable (injected)".into(),
+    );
+    /// context の作成の失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    CudaContextNewFailsProvider => ContractError::DeviceUnavailable(
+        "CudaContext::new(0): injected".into(),
+    );
+    /// GPU の名前の読み取りの失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    CudaNameFailsProvider => injected_attribute_failure(false, true, true);
+    /// compute capability の読み取りの失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    CudaComputeCapabilityFailsProvider => injected_attribute_failure(true, false, true);
+    /// メモリの大きさの読み取りの失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    CudaTotalMemFailsProvider => injected_attribute_failure(true, true, false);
+}
+
 /// `allocate` の中のドライバ呼び出しの失敗を写す。メモリ不足は `AllocationFailed`、それ以外は `BackendFailure`。
 fn allocation_failure(op: &'static str, requested_bytes: u64, e: DriverError) -> ContractError {
     if e.0 == cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY {
