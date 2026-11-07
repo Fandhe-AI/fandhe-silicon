@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics` の裏に試験・故障の差し込み・描画の module を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics` の裏に試験・故障の差し込み・描画の module を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -23,7 +23,7 @@ fandhe-silicon/
 ├── public-name-check.conf    # public-name-check の語の一覧（`--config` で渡す）
 ├── public-api-webgpu-check.conf  # public-api-webgpu-check の語の一覧と、関数の名前の節 `[submit-token-ops]`（`--config` で渡す）
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止。baseline-wgpu/deny.toml は禁止を外した別 workspace 用）
-├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。今は 4 件）
+├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。今は 5 件）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）（編集方針: .claude/rules/makefile.md）
 ├── lefthook.yml              # pre-commit / commit-msg（方針: .claude/rules/git-hooks.md）
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
@@ -172,7 +172,7 @@ fandhe-silicon/
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
 ├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）（TASK-1082）
 ├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験（TASK-317）
-├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）
+├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）

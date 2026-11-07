@@ -29,8 +29,28 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 背後実装と profile の拒否は、所有形態の拒否より先に見る
 - `Graphics` は contract の feature `graphics` の有無によらず拒む
 
+## device の取得・診断・確保（2/5）
+
+依存の記録の所在は `deps-approved.toml` の `cudarc`。
+
+`request` は検査（上の表）を通った後に device を作る。device に触らない試験が示す動き:
+
+| 入力 | 返す値 | 試験 |
+| ---- | ------ | ---- |
+| ドライバの共有ライブラリが読み込めない | panic せず `DeviceUnavailable` | `absent_library_is_device_unavailable_without_panicking`（ライブラリがある環境では device に触らず戻る） |
+| ドライバを呼ぶ閉包の中の panic | `DeviceUnavailable`（panic の内容は載せない） | `a_panic_in_the_guard_is_device_unavailable` |
+| メモリ操作でドライバを呼ぶ閉包の中の panic | `BackendFailure`（panic の内容は載せない） | `a_panic_in_the_memory_guard_is_backend_failure` |
+| GPU の名前・compute capability・メモリの大きさの読み取りの失敗 | `DeviceUnavailable` | `attribute_failures_are_device_unavailable` |
+| grid の各軸の上限の読み取りの失敗・負の値 | `DeviceUnavailable` | `grid_dims_come_from_attributes_and_reject_failures` |
+
+- 読み取りに成功したときの `adapter_name` は `<名前> (cuda compute_capability=<major>.<minor>)` の形
+- `limits().max_dispatch_dims` は、読み取った各軸の上限の値
+- device の識別子は共通の crate の `__backend_next_device_id` から取る（源は [contract-device-types](./contract-device-types.md) の「背後実装をまたぐ device の識別子の源」）。世代はこの背後実装の中の源から取る
+- 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | request の検査と provider の入口 | #3718 |
+| 2/5 | device の取得・診断・確保 | #3719 |
