@@ -68,6 +68,29 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 「所在」の表の公開の型の行と試験の行は 1/5 の時点の値である。今は feature `fault-injection` の裏に上の 5 つの provider があり、試験に `crates/contract/tests/backend_cuda_fault.rs` が加わっている。
 
+## device の要る試験（4/5）
+
+置き場は `crates/contract/tests/backend_cuda_device.rs`。feature `backend-cuda` と `native-blocking-wait` の両方を付けたビルドにだけある。どの試験も `#[ignore = "requires a CUDA device"]` を付けていて、`--ignored` を付けたときだけ走る。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `request_returns_a_cuda_device_that_answers_queries_and_round_trips_bytes` | `request` の成功、`backend()` が `Cuda`、`query` が `Unsupported`、`query_ex` が `UnknownFeature`、`max_buffer_bytes` が 0 より大きいこと、64 バイトの `allocate`・`upload`・`download_blocking` の往復 |
+| `diagnostics_report_the_cuda_backend_name` | `backend_name` が `"cuda"`、`adapter_name` が空でない |
+| `adapter_name_carries_the_compute_capability` | `adapter_name` が ` (cuda compute_capability=` を含む。得た値を `adapter_name=<値>` の 1 行で標準出力に出す |
+| `two_devices_do_not_accept_each_others_buffers` | 2 つ目の `generation` が大きい。別の device のハンドルでの `upload`・`download_blocking` は `DeviceMismatch` で、自分のバッファは変わらない |
+| `download_async_calls_back_once_with_the_same_bytes` | コールバックが 1 回呼ばれ、`upload` した内容を受ける |
+| `upload_to_a_freed_handle_is_rejected_as_invalid_argument` | `free` の後の `upload`・`download_blocking` は `InvalidArgument` |
+| `freeing_another_devices_handle_keeps_the_buffer_with_the_same_id` | 別の device のハンドルの `free` は無視され、同じ識別子のバッファが残る |
+| `a_handle_that_differs_only_in_generation_is_rejected_and_ignored_by_free` | 世代だけが違う偽のハンドルの `upload` は `InvalidArgument`、`free` は無視され、正規のハンドルが使える |
+| `allocate_of_zero_bytes_is_invalid_argument` | `allocate(0)` は `InvalidArgument` |
+| `allocate_past_the_buffer_limit_is_invalid_argument` | `max_buffer_bytes` を超える `allocate` は `InvalidArgument` |
+| `out_of_range_upload_fails_and_leaves_the_contents_unchanged` | 範囲外の `upload` は `InvalidArgument` で、内容が変わらない |
+| `out_of_range_download_blocking_fails_and_leaves_the_contents_unchanged` | 範囲外の `download_blocking` は `InvalidArgument` で、内容が変わらない |
+
+- 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --test backend_cuda_device` が `test result: ok. 0 passed; 0 failed; 12 ignored` の形で通る
+
+「所在」の表の試験の行は 1/5 の時点の値である。今は `crates/contract/tests/backend_cuda_device.rs` も加わっている。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -75,3 +98,4 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 1/5 | request の検査と provider の入口 | #3718 |
 | 2/5 | device の取得・診断・確保 | #3719 |
 | 3/5 | 初期化の失敗の差し込み | #3720 |
+| 4/5 | device の要る試験 | #3721 |
