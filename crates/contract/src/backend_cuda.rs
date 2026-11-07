@@ -316,7 +316,13 @@ impl CudaDevice {
     fn read(&self, src: &BufferHandle, offset: u64, len: u64) -> Result<Vec<u8>, ContractError> {
         let buffers = self.lock();
         let (start, end) = self.range(&buffers.map, src, offset, len)?;
-        let mut out = vec![0_u8; end - start];
+        // 確保できなければ abort せず `AllocationFailed` で返す。
+        let mut out: Vec<u8> = Vec::new();
+        out.try_reserve_exact(end - start)
+            .map_err(|_| ContractError::AllocationFailed {
+                requested_bytes: len,
+            })?;
+        out.resize(end - start, 0);
         if out.is_empty() {
             return Ok(out);
         }
