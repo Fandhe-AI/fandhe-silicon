@@ -366,6 +366,7 @@ expect "real-all-match" 0 "check: feature=backend-metal target=wasm32-unknown-un
   "deps: feature=backend-metal name=objc2-metal wasm32_n=0 native_n=1 result=match" \
   "deps: feature=backend-vulkan name=objc2-metal wasm32_n=0 native_n=0 result=match" \
   "deps: feature=backend-cuda name=objc2-metal wasm32_n=0 native_n=0 result=match" \
+  "deps: feature=backend-cuda name=cudarc wasm32_n=0 native_n=1 result=match" \
   "record: commit=" "check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=2" "ok:" "!violation:"
 # ホストの絶対パスが出力に出ない。
 if cat "${OUT_F}" "${ERR_F}" | grep -q -F -e "${work}"; then
