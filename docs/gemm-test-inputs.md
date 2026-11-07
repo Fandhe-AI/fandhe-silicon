@@ -171,3 +171,11 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 ## 関連
 
 [parity-tool](parity-tool.md)・[metal-run-procedure](metal-run-procedure.md)・[test-frame](test-frame.md)・[rerun-frame](rerun-frame.md)
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「依存・unsafe」の行 | 記録は `crates/contract` の macOS 向けの 4 件だけ → 記録は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`fandhe-silicon-core` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |

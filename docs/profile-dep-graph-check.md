@@ -422,3 +422,13 @@ TASK-229（ポインタ: `docs/spec/05-tasks.md`。対象 BUILD-3〜BUILD-5）�
 - 比較基準（`--all-features`）は `baseline:` が `crates_total=9`・`sdk_total=1`、`baseline-count:` は `objc2-metal` が `n=1`、`ash`・`cudarc` が `n=0`。`diff:` の `sdk_baseline` は 4 行すべて 1
 - `compute-only-metal` の crate の `count:` は 6 行（すべて `n=0`）、feature の `count:` は judged=yes が 5 行・judged=no が 3 行（すべて `n=0`）
 - 実物の `objc2-metal` で per-header feature の判定が働くことの確かめ: 実物の `cargo tree`（`-e normal,build,dev` と、`-e normal,build,dev,features -i objc2-metal@<版>`）の出力を `--tree-text` と `--features-text` で渡すと、有効な feature の行を読み、`header_crate_n=1`・`features_judged_total=0` と出る。同じ入力に判定の feature の行（`MTLTexture`）を 1 行足すと、`violation: ... feature=MTLTexture` と `FAILED: 1 judged feature(s) found` で落ち、`features_judged_total=1` になる
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「現状の事実」の表の「外部依存」の行（`:176`） | `deps-approved.toml` の記録は 0 件（記録時点の値。今は `crates/contract` の macOS 向けの 4 件）／記録時点は 0。今は 4 → 今は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）／今は 5 | `grep -c '^\[\[' deps-approved.toml`（5 が返る）、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |
+| 「振る舞い」の表の「比較基準の判定」の行（`:79`） | 今の製品の crate が載せる SDK は `objc2-metal` の 1 件（`sdk_total=1`）、`ash`・`cudarc` は 0 件 → `objc2-metal` と `cudarc` の 2 件（`sdk_total=2`）、`ash` は 0 件 | `make profile-dep-graph-check \| grep -E '^(baseline\|baseline-count):'` |
+| 「完了の条件の確かめと件数・差の記録（6/6）」の比較基準の行（`:422`） | `crates_total=9`・`sdk_total=1`、`cudarc` が `n=0`、`diff:` の `sdk_baseline` は 4 行すべて 1 → `crates_total=13`・`sdk_total=2`、`objc2-metal` が `n=1`・`ash` が `n=0`・`cudarc` が `n=1`、`diff:` の `sdk_baseline` は 4 行すべて 2（`diff=` は `cpu-only`・`graphics-vulkan` が 2、`compute-only-metal`・`graphics-interop` が 1） | `make profile-dep-graph-check \| grep -E '^(baseline\|baseline-count\|diff):'` |

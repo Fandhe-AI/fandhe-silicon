@@ -179,3 +179,11 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | 完了の条件の確かめ（4/4）の A5 と完了の条件の確かめ（7/7）の (2c) の有効側の試験 | `feature_gate_enabled` は 2 件 → 3 件（`3 passed; 0 failed; 0 ignored`。`cpu_ops_gate_is_visible` が加わった） | `cargo test -p fandhe-silicon-contract --all-features --test feature_gate_enabled` |
 | 同じ行の `--all-features --doc` | doctest はすべて通常の成功 → `cfg_gate_doctest.rs` の doctest 11 件はすべて通り、10 件が `ok`、`CpuOpsNonExhaustiveGate (line 131)` だけが `compile fail ... ok`（`compile_fail,E0004`） | `cargo test -p fandhe-silicon-contract --all-features --doc` |
 | 完了の条件の確かめ（7/7）の (5) | `feature_gate_scope` は絞りなしで 6 件 → 今も 6 件（`6 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-contract --test feature_gate_scope` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

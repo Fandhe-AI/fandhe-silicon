@@ -224,3 +224,12 @@ TASK-308 の作業を進めるにあたり、記録の所在と本リポの現�
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 本リポの現状の「`contract` の公開面」 | 公開モジュールは feature の裏の `backend_*` と `doc(hidden)` の `cfg_gate_doctest` だけ → `crates/contract/src/lib.rs` の `pub mod` は 7 行で、`cfg_gate_doctest`（16 行目）、`memory_free_doctest`（21 行目）、`callback_send_doctest`（26 行目）、`backend_metal`（32 行目）、`backend_vulkan`（37 行目）、`backend_cuda`（41 行目）、`cpu_ops`（45 行目）。`cpu_ops` は `#[cfg(feature = "cpu-ops")]`（44 行目）の裏にあり、`cpu-ops` は `default` に入っている。`cpu_ops` は `CpuOps`・`DefaultCpuOps`・`ReferenceCpuOps`・`UnaryElementwiseOp` を公開する（[cpu-ops](cpu-ops.md)） | `grep -n 'pub mod' crates/contract/src/lib.rs`、`sed -n 44,45p crates/contract/src/lib.rs`、`sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「依存の承認」の行 | 記録は `crates/contract` の macOS 向けの 4 件だけ → 記録は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`fandhe-silicon-core` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

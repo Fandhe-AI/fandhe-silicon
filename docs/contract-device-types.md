@@ -212,3 +212,12 @@ TASK-136 の作業を進めるにあたり、記録の所在と本リポの現�
 | ---- | ---- | ---- |
 | 識別子の源 | 背後実装向けの隠した口 `fandhe_silicon_core::device::__backend_next_device_id() -> Option<u64>`（1 から、背後実装・device・スレッドをまたいで重ならず、0 を返さず、尽きたら `None`） | `crates/core/tests/device_trait_shape.rs`（`backend_device_ids_are_unique_and_never_zero_across_threads`。スレッドを作るので native だけで流す） |
 | 使う背後実装 | Metal の `request` がこの口から device の識別子を取る。世代は背後実装ごとの源のまま | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --all-features -- -D warnings` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「依存の承認」の行 | 記録は `crates/contract` の macOS 向けの 4 件だけ → 記録は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`fandhe-silicon-core` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
+| 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |

@@ -347,3 +347,11 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | 「判定」の行と対応の表（`:202`・`:217`） | `native-neon` の全行が `not-run (reference-unavailable)` → 固定の行の `native-neon` と、manifest のケースに `native_neon_file` が無い生成の行の `native-neon` が `not-run (reference-unavailable)`。鍵があるケースの生成の行は比べる（[wasm32-native-parity](wasm32-native-parity.md) の 2 つの 5/5 の節） | `grep -n 'native_neon_file' scripts/wasm-node-check.sh` |
 | `wasm/node/cases.json`（`:338`） | 123 行 → 141 行（`gemm_scalar` 34・`gemm_simd` 37・`topk_scalar` 21・`topk_simd` 21・`roundtrip_f32` 3・`detect_isa_bits` 2・`elementwise_scalar` 10・`elementwise_simd` 13） | `jq '.rows \| length' wasm/node/cases.json`、`jq -r '.rows[].export' wasm/node/cases.json \| sort \| uniq -c` |
 | 回帰テストの最終行（`:339`） | `passed: 642, failed: 0` → `passed: 702, failed: 0` | `make test-wasm-node-check` |
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「deps-approved.toml の件数」の行（`:34`） | ルート 4 件（`crates/contract` の macOS 向け）→ ルート 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件。どれも `crates/contract`）。`wasm/` の crate を `used_by` に持つ記録は無いまま・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml`（5・0・1・1）、`grep -c '^used_by = .*wasm' deps-approved.toml`（0 が返る） |

@@ -391,3 +391,13 @@ base `760233c` の作業ツリーで流した。
 ## 今の値の補い（base 6b35dd9）
 
 上の表の `make build-profiles` を呼ぶ行（`verify` ジョブの 181 行目と `verify-macos` ジョブの 468 行目）は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `verify` ジョブが 181 行目、`verify-macos` ジョブが 508 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
+
+## 今の値の補い（base 3e32680）
+
+記録時点の表と既存の節は書き換えない。以下は base `3e32680` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 本リポの現状の事実の「背後実装のモジュール」の行 | `backend_metal.rs`・`backend_cuda.rs` に `pub` の項目は無い → `backend_cuda.rs` に `pub struct CudaDeviceProvider;`（232 行目）の 1 件がある（`backend_cuda.rs` の `pub` の行はこの 1 行だけ）。`backend_vulkan.rs` は `pub mod spirv_operands;`（12 行目）のまま | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_cuda.rs crates/contract/src/backend_vulkan.rs` |
+| 「確かめ」の表の F4 の行（背後実装のモジュールの公開の項目） | `backend_vulkan.rs` の `pub mod spirv_operands` だけ（4/6 の記録と同じ）→ `backend_vulkan.rs` の `pub mod spirv_operands` に加えて、`backend_cuda.rs` の `pub struct CudaDeviceProvider;` | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_cuda.rs crates/contract/src/backend_vulkan.rs` |
+| 末尾近くの「`backend_cuda.rs` に `pub` の項目は無い」の文 | `backend_cuda.rs` に `pub` の項目は無い → `backend_cuda.rs` に `pub struct CudaDeviceProvider;` が 1 件ある（[cuda-device-request](cuda-device-request.md)） | `git grep -nE '^\s*pub ' -- crates/contract/src/backend_cuda.rs` |
