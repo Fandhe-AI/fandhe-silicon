@@ -134,6 +134,27 @@ fn read_attributes<E: std::fmt::Debug>(
     })
 }
 
+/// grid の各軸の上限を属性の閉包で順に読み、1 つでも失敗か負の値なら `DeviceUnavailable` にする。
+/// 値は `u32` に収まる範囲で返す。
+fn read_grid_dims<E: std::fmt::Debug>(
+    mut attr: impl FnMut(usize) -> Result<i32, E>,
+) -> Result<[u32; 3], ContractError> {
+    let mut dims = [0_u32; 3];
+    for (axis, slot) in dims.iter_mut().enumerate() {
+        let v = attr(axis).map_err(|e| {
+            ContractError::DeviceUnavailable(format!(
+                "CudaContext::attribute(MAX_GRID_DIM[{axis}]): {e:?}"
+            ))
+        })?;
+        *slot = u32::try_from(v).map_err(|_| {
+            ContractError::DeviceUnavailable(format!(
+                "CudaContext::attribute(MAX_GRID_DIM[{axis}]): invalid value {v}"
+            ))
+        })?;
+    }
+    Ok(dims)
+}
+
 /// ドライバを呼ぶ閉包の panic を `DeviceUnavailable` に変える。panic の payload は載せない。
 /// unwind するビルドで効く（`panic=abort` のビルドでは panic はそのまま abort になる）。
 fn guard_driver_panic<T>(
@@ -172,6 +193,14 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
             || ctx.compute_capability(),
             || ctx.total_mem(),
         )?;
+        use cudarc::driver::sys::CUdevice_attribute as Attr;
+        let grid_dims = read_grid_dims(|axis| {
+            ctx.attribute(match axis {
+                0 => Attr::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X,
+                1 => Attr::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y,
+                _ => Attr::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z,
+            })
+        })?;
         let stream = ctx.new_stream().map_err(|e| {
             ContractError::DeviceUnavailable(format!("CudaContext::new_stream: {e:?}"))
         })?;
@@ -186,7 +215,7 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
             adapter_name: attributes.adapter_name,
             limits: LimitsTable {
                 max_buffer_bytes: attributes.total_mem,
-                max_dispatch_dims: [u32::MAX, 65_535, 65_535],
+                max_dispatch_dims: grid_dims,
                 max_texture_size: 0,
             },
             stream,
@@ -265,9 +294,9 @@ impl CudaDevice {
             return Err(ContractError::DeviceMismatch);
         }
         if handle.__backend_generation() != self.generation {
-            return Err(ContractError::DeviceLost {
-                generation: handle.__backend_generation(),
-            });
+            return Err(ContractError::InvalidArgument(
+                "buffer handle generation does not match the device".into(),
+            ));
         }
         let slice = table
             .get(&handle.__backend_id())
@@ -516,6 +545,20 @@ mod tests {
     fn a_panic_in_the_guard_is_device_unavailable() {
         let r: Result<(), _> = guard_driver_panic("call", || panic!("boom"));
         assert!(matches!(r, Err(ContractError::DeviceUnavailable(_))));
+    }
+
+    #[test]
+    fn grid_dims_come_from_attributes_and_reject_failures() {
+        let ok = read_grid_dims(|a| Ok::<_, &str>([2_147_483_647, 65_535, 65_534][a]));
+        assert_eq!(ok.ok(), Some([2_147_483_647, 65_535, 65_534]));
+        assert!(matches!(
+            read_grid_dims(|a| if a == 1 { Err("x") } else { Ok(1) }),
+            Err(ContractError::DeviceUnavailable(_))
+        ));
+        assert!(matches!(
+            read_grid_dims(|_| Ok::<_, &str>(-1)),
+            Err(ContractError::DeviceUnavailable(_))
+        ));
     }
 
     #[test]

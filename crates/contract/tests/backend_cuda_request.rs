@@ -134,7 +134,7 @@ fn a_handle_with_another_generation_is_rejected_and_cannot_free_the_buffer() {
         usage,
     );
     let e = memory.upload(&forged, 0, &[1_u8; 16]).unwrap_err();
-    assert!(matches!(e, ContractError::DeviceLost { .. }), "{e:?}");
+    assert!(matches!(e, ContractError::InvalidArgument(_)), "{e:?}");
     memory.free(forged);
     // 正規のハンドルはまだ有効で、upload が通る。
     memory.upload(&own, 0, &[2_u8; 16]).expect("upload");
