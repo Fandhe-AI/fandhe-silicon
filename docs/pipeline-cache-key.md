@@ -23,8 +23,27 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 試験 `default_pipeline_cache_key_is_none` は、`Msl` と `Wgsl` の 2 入力・`bounds_checked` の 2 値で `None` になることと、`create_pipeline` が呼ばれないことを確かめる。
 - 確かめ方: `cargo test -p fandhe-silicon-core --test compute_ops_shape`・`cargo test -p fandhe-silicon-core --doc execution::compute`
 
+## Metal のキャッシュキー（2/4）
+
+`crates/contract/src/backend_metal.rs` の `MetalDevice` が `pipeline_cache_key` を上書きする。MSL の 4 つの入力で `Some` を返し、ほかの入力と、知らない値を含む入力では `None` を返す。パイプラインは作らない。欄は、device に触らない非公開の関数 `metal_cache_key` が組み立てる。
+
+| 入力 | `options_hash` の材料 | `specialization_hash` の材料 |
+| ---- | -------------------- | --------------------------- |
+| `Msl` | `fast-math(default)` | `entry=<入口名>` |
+| `MslSpecialized` | `fast-math(default)` | `entry=<入口名>` に定数ごとの `;idx=<番号>:U32(<値>)`／`;idx=<番号>:Bool(<値>)` |
+| `MslWithOptions` | `math_mode=<Safe\|Fast>` | `entry=<入口名>` |
+| `MslSpecializedWithOptions` | `math_mode=<Safe\|Fast>;float_functions=<Fast\|Precise>` | `MslSpecialized` と同じ |
+
+- 材料の文字列の `sha256_u64` が各欄に入る。
+- 4 つの入力に共通の欄: `source_hash` はソースの `sha256_u64`、`compiler_id` は `"metal"`、`target` は `"metal-msl"`、`bounds_checked` は引数の値。
+- `compiler_version` と `driver_version`（`Some`）は、OS の版の文字列と device 名を NUL でつないだ文字列の `sha256_u64` で、2 欄とも同じ値。呼ぶたびに `NSProcessInfo` の `operatingSystemVersionString` と `MTLDevice::name` を読む。
+- `crates/contract/Cargo.toml` の `objc2-foundation` の features に `NSProcessInfo` を足した（版は変えていない）。
+- 試験: `precheck_tests` の `cache_key_is_the_same_for_the_same_input`・`changing_one_input_changes_only_its_field`・`cache_key_fields_for_each_msl_input`・`specialized_with_options_keys_do_not_mix_with_other_inputs`・`non_msl_inputs_have_no_cache_key`・`cache_key_version_joins_os_version_and_device_name_with_nul`。macOS でだけコンパイルされる `imp::tests` の `os_version_string_for_the_cache_key_is_not_empty_and_stable`。
+- 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::precheck_tests`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | `ComputeOps` に `pipeline_cache_key` の口を足す | #4957 |
+| 2/4 | Metal の `pipeline_cache_key` を実装する | #4958 |

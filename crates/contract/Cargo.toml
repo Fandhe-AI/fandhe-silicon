@@ -17,7 +17,7 @@ fandhe-silicon-core = { path = "../core" }
 # block2・dispatch2 を引き込まないよう default-features = false とし、使う header・型の feature だけを列挙する。
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "=0.6.5", optional = true }
-objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSString"] }
+objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
 objc2-metal = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandQueue", "MTLComputePipeline", "MTLDataType", "MTLDevice", "MTLFunctionConstantValues", "MTLLibrary", "MTLResource", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false }
 
