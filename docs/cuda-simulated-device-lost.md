@@ -89,9 +89,22 @@ device の世代は `AtomicU64` で持ち、`current_generation()` で読む。1
 
 確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda`
 
+## device の要る試験（3/4）
+
+試験は `backend_cuda.rs` の `mod device_tests` の子 `mod lost` にある。feature `backend-cuda` と `fault-injection` の両方を付けたビルドでだけコンパイルされ、どれも `#[ignore = "requires a CUDA device"]` 付き。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `each_reason_reaches_the_callback_once_and_the_generation_moves_once` | 理由ごとにコールバックは 1 回で世代は 1 回進み、2 回目は何も変えない |
+| `a_handle_from_before_the_loss_can_still_be_freed_once` | ロストの前のハンドルは `upload` が `Err` で、`free` で表から 1 回外れ、写しの `free` は何も変えない |
+| `a_token_from_before_the_loss_polls_and_completes_as_lost` | ロストの前の印の `poll` は `Lost`、その印の `on_complete` は `Lost` を 1 回渡す |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda` の `ignored` が 3/4 の前より 3 本多い（12 から 15）。`passed` は変わらない。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 世代の読み方と `free` の照合 | #4228 |
 | 2/4 | 模擬のロスト | #4229 |
+| 3/4 | device の要る試験 | #4230 |
