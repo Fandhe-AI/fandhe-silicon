@@ -16,6 +16,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | cfg | feature `backend-cuda` かつ `not(target_arch = "wasm32")` | `crates/contract/src/lib.rs` |
 | 試験 | 同じファイルの `tests` module。device に触らない | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
 
+device に触る試験は `crates/contract/tests/backend_cuda_capability.rs`（feature `backend-cuda`・`test-support`、`#[ignore]` 付き。下の 3/4 の節）。
+
 ## 能力の表と問合せ（1/4）
 
 device を作る時点（`request`）で、compute capability とホストメモリのマップの可否の属性（`CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY`）を 1 回だけ捕捉する。
@@ -69,6 +71,18 @@ device に触らない試験で、同じファイルの `tests` module にある
 `table_passes_the_common_checks` は feature `test-support` を付けたときだけコンパイル・実行される。付けないときは 2 本が走る。
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --lib backend_cuda`
+
+## device の要る試験（3/4）
+
+`crates/contract/tests/backend_cuda_capability.rs` に置く。`required-features` は `backend-cuda` と `test-support`。
+どの試験も `#[ignore = "requires a CUDA device"]` 付きで、既定では流れない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `rows_follow_the_compute_capability_and_the_attribute` | 閾値の 5 鍵が、`adapter_name` から読んだ compute capability が 7.5 以上なら `S2`、未満なら `Unsupported`。根拠はどれも `RuntimeApi`。`FEATURE_MAPPABLE_PRIMARY_BUFFERS` は「`S2`・理由なし」か「`Unsupported`・`NotSupported`」のどちらかで、根拠は `RuntimeApi` |
+| `every_key_passes_the_common_rules_without_s0` | 鍵の一覧のすべての鍵で `check_query_ex` が通り、`query` と `query_ex` の level が等しく、level が `S0` でない。鍵ごとに 1 行を標準出力に出す |
+
+確かめ方（device を使わない）: `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --test backend_cuda_capability` が `0 passed; 0 failed; 2 ignored` で終わること。
 
 ## 段
 
