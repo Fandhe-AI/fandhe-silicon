@@ -66,3 +66,12 @@ make public-api-check && make public-name-check && make public-api-webgpu-check 
 ## 今の値
 
 「公開に足した名前」の `ComputeOps` の行の「本リポに実装は無い」は記録時点の値で、書き換えない。今は Metal の device（`crates/contract/src/backend_metal.rs`）と試験用の device（`crates/core/src/stub_device.rs` の非公開の型）が実装する。`Device` から届く読み出しは `Device::compute()`（[device-compute](device-compute.md)）。
+
+## 今の値の補い（base dd1a116）
+
+記録時点の表と既存の節は書き換えない。以下は base `dd1a116` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「公開に足した名前」の `ComputeOps` の行（既定の本体を持つメソッドは無い） | 既定の本体を持つメソッドは無い → `ComputeOps::pipeline_cache_key` が既定の本体（`None`）を持つ。必須のメソッドは `create_pipeline` のまま | `grep -n 'fn pipeline_cache_key' -A8 crates/core/src/execution/compute.rs`、`cargo test -p fandhe-silicon-core --test compute_ops_shape default_pipeline_cache_key_is_none` |
+| 「今の値」の節の実装の一覧（Metal の device と試験用の device） | Metal の device と試験用の device が実装する → `crates/contract/src/backend_cuda.rs` の `CudaDevice` も `ComputeOps` を実装する | `grep -n 'impl ComputeOps for' crates/contract/src/backend_cuda.rs crates/contract/src/backend_metal.rs crates/core/src/stub_device.rs` |

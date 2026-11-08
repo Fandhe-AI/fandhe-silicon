@@ -109,3 +109,11 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `create_pipeline` の入力の分類（TASK-774 のポインタ）: `Msl`・`MslSpecialized` に加えて `MslWithOptions`・`MslSpecializedWithOptions` も受け付ける。`MslWithOptions`・`MslSpecializedWithOptions` を `Unsupported` とする記述は今は当たらない。`Wgsl` は `Unsupported`（`classify_marks_wgsl_unsupported`）、`SpirV`・`CudaC`・`Ptx`・`Dxil` は `ArtifactRejected { kind: "unsupported-input" }` のまま。その理由の文は `pipeline input <variant> is not accepted by the Metal backend; accepted inputs are Msl, MslSpecialized, MslWithOptions and MslSpecializedWithOptions` の形になった。確かめ方: `grep -n 'accepted inputs are' crates/contract/src/backend_metal.rs`
 - オプション付きの入力の生成の所在と試験は [metal-compile-options](metal-compile-options.md) に置く。
 - 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 52。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
+
+## 今の値の補い（base dd1a116）
+
+記録時点の表と既存の節は書き換えない。以下は base `dd1a116` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base d533488）」の行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 52 → 53 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
