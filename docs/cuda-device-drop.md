@@ -113,6 +113,34 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib backend_cuda
 ```
 
+## device の要る試験（4/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装の置き場 | `crates/contract/src/backend_cuda.rs` の `mod teardown_device_tests` と `crates/contract/tests/backend_cuda_destroy.rs` |
+| cfg | module は `backend-cuda`。`lost_notify` の 3 本は加えて `fault-injection`。統合試験は `[[test]]` の `required-features = ["backend-cuda"]` |
+
+準備は、長さ 4097 のバッファを 3 本確保して書き込み、1 本を `free` し、空の記録先を投入する。
+どの試験も `#[ignore = "requires a CUDA device"]` 付きで、既定では流れない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `dropping_right_after_submit_records_no_driver_error` | 投入の直後に落としても、context にドライバのエラーが残らない |
+| `dropping_right_after_on_complete_calls_it_once` | 完了の callback を登録した直後に落とすと、`Complete` で 1 回だけ呼ばれる |
+| `destroying_right_after_submit_records_no_driver_error` | 投入の直後に `destroy` しても、ドライバのエラーが残らない |
+| `destroying_right_after_on_complete_calls_it_once` | callback を登録した直後に `destroy` すると、`Pending` でない値で 1 回だけ呼ばれる |
+| `destroy_notifies_destroyed_once` | `destroy` はロストの通知を `Destroyed` で 1 回呼ぶ |
+| `destroy_after_a_simulated_loss_does_not_notify_again` | 先にロストしていれば、`destroy` は通知を重ねない |
+| `drop_does_not_notify` | `Drop` はロストの通知を呼ばない |
+| `a_requested_device_can_be_destroyed` | `request` で得た device で確保・投入の後に `destroy` が戻る |
+
+確かめ方:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::teardown_device_tests -- --ignored
+cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy -- --ignored
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -120,3 +148,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 | 1/5 | device の明示の破棄の口 | #3854 |
 | 2/5 | `Drop` の同期と解放 | #3855 |
 | 3/5 | 明示の破棄 | #3856 |
+| 4/5 | device の要る試験 | #3857 |

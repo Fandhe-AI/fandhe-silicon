@@ -58,6 +58,10 @@ name = "backend_cuda_capability"
 required-features = ["backend-cuda", "test-support"]
 
 [[test]]
+name = "backend_cuda_destroy"
+required-features = ["backend-cuda"]
+
+[[test]]
 name = "backend_cuda_device"
 required-features = ["backend-cuda", "native-blocking-wait"]
 
