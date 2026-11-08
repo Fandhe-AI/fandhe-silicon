@@ -218,3 +218,12 @@ $ grep -c '^\[\[approval\]\]' deps-approved.toml
 | 3/5 | 初期化の失敗の差し込み | #3720 |
 | 4/5 | device の要る試験 | #3721 |
 | 5/5 | 完了の条件の確かめ | #3722 |
+
+## 今の値の補い（base 1417dc5）
+
+記録時点の表と既存の節は書き換えない。以下は base `1417dc5` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（5/5）」の (3) の行（`--features backend-cuda --lib backend_cuda`）と、1/5〜2/5 の確かめ方の同じコマンド | `5 passed`（出力は `5 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out`）→ `50 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out`（`running 61 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| (2) の行（`backend_cuda_fault`）と出力 | `3 passed; 0 failed; 0 ignored` → `3 passed; 0 failed; 1 ignored`（`running 4 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_fault` |

@@ -172,3 +172,16 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 2/4 | 模擬のロスト | #4229 |
 | 3/4 | device の要る試験 | #4230 |
 | 4/4 | 完了の条件の確かめ | #4231 |
+
+## 今の値の補い（base 1417dc5）
+
+記録時点の表と既存の節は書き換えない。以下は base `1417dc5` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「所在」の表の試験の行 | `backend_cuda.rs` の `mod tests` → `mod tests`（2032 行目）に加えて、`mod device_tests`（3273 行目。`#[cfg(test)]`）、その子の `mod lost`（3519 行目。feature `fault-injection` の裏）、`mod lost_state_tests`（3745 行目。`#[cfg(all(test, feature = "fault-injection"))]`）、`mod pool_device_tests`（3602 行目。`native-blocking-wait` の裏）がある | `grep -nE '^\s*mod (tests|device_tests|lost|lost_state_tests|pool_device_tests)\b' crates/contract/src/backend_cuda.rs` |
+| 「device の要る試験（3/4）」の表（3 行）と「`mod device_tests` の子 `mod lost` にある」の文 | 3 本 → 表の 3 本のほかに、`device_tests` の直下に `a_panicking_lost_callback_still_delivers_lost_to_completion_callbacks`（feature `fault-injection` の裏、`#[ignore = "requires a CUDA device"]` 付き）がある。`--features backend-cuda,fault-injection --lib backend_cuda::device_tests` は `0 passed; 0 failed; 15 ignored`（`fault-injection` 無しの `backend-cuda` は 11 ignored、15 は 11 に直下の 1 本と `lost` の 3 本が加わった値） | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib backend_cuda::device_tests`、`cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests`、`grep -n 'a_panicking_lost_callback' crates/contract/src/backend_cuda.rs`（3307 行目） |
+| 「世代の読み方と `free` の照合（1/4）」の確かめ方・(1) の行と出力（`--no-default-features --features backend-cuda --lib backend_cuda`） | `49 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out` → `50 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out`（`running 61 tests`） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda --lib backend_cuda` |
+| 「模擬のロスト（2/4）」の確かめ方と「3/4」の `ignored` の文（`--no-default-features --features backend-cuda,fault-injection --lib backend_cuda`） | `ignored` は 12 から 15、`passed` は変わらない → 15 ignored のまま。`passed` は `62 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out`（`running 77 tests`） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda` |
+| (2) の出力（`lost_state_tests`・`take_stale`） | `12 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out` → `65 filtered out`。`1 passed; 75 filtered out` → `76 filtered out`（passed の数は同じ） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::lost_state_tests`、同じ組で `--lib backend_cuda::tests::take_stale` |
+| (3) の出力（`device_tests::lost`） | `0 passed; 0 failed; 3 ignored; 0 measured; 73 filtered out` → `74 filtered out`（ignored の数は同じ） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::device_tests::lost` |

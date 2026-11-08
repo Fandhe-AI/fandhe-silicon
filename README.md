@@ -128,7 +128,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/validation-intake.md` | 検証レイヤーの不正の受け口と失敗の種類の入口（TASK-554）の所在と、本リポの現状の事実・現状の形・段の表・確かめ方 |
 | `docs/device-lost-notify.md` | ロストの通知先の関数の型を native と wasm32 で確かめる試験（TASK-138）の所在と、本リポの現状の事実・確かめ方 |
 | `docs/contract-limits-table.md` | 能力の問合せの上限の表（TASK-157）の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ・今の値の補い（base 48025c6） |
-| `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 48025c6）・今の値の補い（base 3e32680） |
+| `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 48025c6）・今の値の補い（base 3e32680）・今の値の補い（base 1417dc5） |
 | `docs/capability-webgpu-ports.md` | WebGPU の口に当たる能力の問合せの行（TASK-155）の所在と現状の事実 |
 | `docs/texture-format-types.md` | テクスチャの形式の型（TASK-1312）の所在と、本リポの現状の事実・現状の形（2/6）・CI への組み込み（3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6）・既存の 2 型からの変換（7/8）・完了の条件の確かめ（8/8）・今の値の補い（base 2f36d3d） |
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
@@ -208,13 +208,13 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
-| `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5） |
-| `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/cuda-capability-query.md` | CUDA の背後実装の能力の問合せ（TASK-175）の所在と、本リポの現状の事実・能力の表と問合せ（1/4）・能力の表の共通の規則の検査（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
+| `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5） |
+| `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5） |
+| `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
+| `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
+| `docs/cuda-capability-query.md` | CUDA の背後実装の能力の問合せ（TASK-175）の所在と、本リポの現状の事実・能力の表と問合せ（1/4）・能力の表の共通の規則の検査（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
+| `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
+| `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
 | `docs/cuda-profile-returns.md` | CUDA の背後実装の `CpuOnly`・`Graphics` の要求と鍵の一覧の外の機能 ID の返し（TASK-169）の所在と、本リポの現状の事実・プロファイルと所有形態の組の拒否と一覧の外の機能 ID（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
