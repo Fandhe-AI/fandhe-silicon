@@ -151,6 +151,7 @@ fandhe-silicon/
 ├── docs/cpu-ops-surface-check.md  # 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）・今の値の補い（base 0f8b01c）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）（TASK-2457）
 ├── docs/cpu-ops-elementwise-check.md  # 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）（TASK-2455）
 ├── docs/cpu-ops-elementwise-special.md  # 要素ごとの演算の NaN・±Inf・±0 の確かめの所在・NaN・±Inf・±0 の入力を当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base fbbd70d）・今の値の補い（base 2f35b9e）（TASK-2456）
+├── docs/cpu-ops-gemm-scalar-rules.md  # 行列積の scalar 版の積和の順と特殊値の確かめの所在・積和の順と特殊値の入力の試験（1/2）（TASK-2445）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23）
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 3e32680）（TASK-29）
 ├── docs/route-evidence.md   # 経路の突き合わせの道具の所在と、本リポの現状の事実・値の型と 1 回の呼び出しの照合（1/4）・呼び出しの数え上げと試験の枠への受け渡し（2/4）・下-2 の経路の報告と模擬の呼び出しの突き合わせ（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 2373576）（TASK-922）
