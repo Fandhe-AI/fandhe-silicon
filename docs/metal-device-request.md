@@ -109,3 +109,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `create_pipeline` の入力の分類（TASK-774 のポインタ）: `Msl`・`MslSpecialized` に加えて `MslWithOptions`・`MslSpecializedWithOptions` も受け付ける。`MslWithOptions`・`MslSpecializedWithOptions` を `Unsupported` とする記述は今は当たらない。`Wgsl` は `Unsupported`（`classify_marks_wgsl_unsupported`）、`SpirV`・`CudaC`・`Ptx`・`Dxil` は `ArtifactRejected { kind: "unsupported-input" }` のまま。その理由の文は `pipeline input <variant> is not accepted by the Metal backend; accepted inputs are Msl, MslSpecialized, MslWithOptions and MslSpecializedWithOptions` の形になった。確かめ方: `grep -n 'accepted inputs are' crates/contract/src/backend_metal.rs`
 - オプション付きの入力の生成の所在と試験は [metal-compile-options](metal-compile-options.md) に置く。
 - 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 52。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
+
+## 今の値の補い（base dd1a116）
+
+上の `submit_many` の検査の順（空の列、`wait`、`after` の各印の照合、全記録先の所属）と、`precheck_tests` の行の「`submit_many` の検査の順（空の列、`wait`、`after`）」は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `submit_many` の device に触る前の検査（`precheck_submit_many`）の順は、`after` の各印の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）。CUDA の背後実装の同名の検査と同じ順で、複数の不正が重なるときはこの順で最初のものが返る。そのあとに全記録先の所属（`InvalidArgument`）を検査する流れは変わらない。
+- 重なる不正の順は `precheck_tests` の `submit_many_checks_after_then_empty_then_wait`（他 device の印と空の列と空でない `wait` の組を含む）で確かめる。どの OS でも流れる。確かめ方: `grep -n 'fn precheck_submit_many' crates/contract/src/backend_metal.rs`
