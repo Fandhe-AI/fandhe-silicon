@@ -47,6 +47,8 @@ feature `ext-interop` のビルドでは、`Device::external_interop()` が実�
 
 feature `fault-injection` のビルドでは、`Device::fault_hooks()` が `Some` を返す。`FaultHooks` のどの操作も上書きしていない。
 
+対応する試験は `crates/contract/tests/backend_cuda_ext_interop.rs`（device を作るので `#[ignore = "requires a CUDA device"]`。必須 4 操作の `Unsupported`、拡張の timeline 2 操作の既定の本体、`fault_hooks()` が `Some` で `arm_gate` が既定の本体を返すこと）。
+
 門の無いビルドにこれらの口が無いことは、`crates/contract/src/cfg_gate_doctest.rs` の既存の門の doctest（`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）が確かめる。
 
 ## 段
