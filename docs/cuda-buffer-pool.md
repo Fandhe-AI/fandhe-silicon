@@ -78,6 +78,63 @@ device に触る試験は、同じファイルの `pool_device_tests` module に
 
 device のある環境での流し方: `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda::pool_device_tests -- --ignored`
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-340。ポインタのみ）。
+
+時点のコミット: `6ec43df`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 部品と境界の試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` | 39 passed; 0 failed; 11 ignored、終了コード 0 |
+| 2 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` | 39 passed; 0 failed; 17 ignored、終了コード 0 |
+| 3 | 既存の device の要る試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --test backend_cuda_device` | 0 passed; 0 failed; 12 ignored、終了コード 0 |
+| 4 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 1 passed、終了コード 0 |
+| 5 | 公開 API | `make public-api-sdk-check` | `sdk_type_refs_total=0`、終了コード 0 |
+| 6 | 依存の検査 | `make deps-check`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | 終了コード 0、件数 5 |
+| 7 | CI | `gh run view 42484964651 --json conclusion,headSha,jobs`（main の push の run） | conclusion success、headSha `6ec43df8046efae3e65048d4abeb85f6c3e42058`、`make verify (fmt + clippy + test)` success、`make verify + build-profiles (macos-latest)` success、`make deny (cargo-deny)` success |
+
+(1) の出力。
+
+```text
+running 50 tests
+test result: ok. 39 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```text
+running 56 tests
+test result: ok. 39 passed; 0 failed; 17 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 12 tests
+test result: ok. 0 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(5) の出力。
+
+```text
+record: commit=6ec43df8046efae3e65048d4abeb85f6c3e42058 documents=10 public_items_total=13838 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+```
+
+(6) の出力。
+
+```text
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+5
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -85,3 +142,4 @@ device のある環境での流し方: `cargo test -p fandhe-silicon-contract --
 | 1/4 | 再利用の一覧とゼロ化 | #4429 |
 | 2/4 | 境界の入力の試験 | #4430 |
 | 3/4 | device の要る試験 | #4431 |
+| 4/4 | 完了の条件の確かめ | #4432 |
