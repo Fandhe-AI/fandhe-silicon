@@ -56,6 +56,20 @@ device を作る時点（`request`）で、compute capability とホストメモ
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
 
+## 能力の表の共通の規則の検査（2/4）
+
+device に触らない試験で、同じファイルの `tests` module にある。
+
+| 試験 | 入力 | 確かめること |
+| ---- | ---- | ------------ |
+| `no_key_returns_s3_or_above` | 鍵の一覧のすべての鍵 × compute capability 1.0・5.3・7.4・7.5・9.0・99.9 × 属性（不明・偽・真） | level が `S0`・`S2`・`Unsupported` のどれか |
+| `keys_without_a_row_are_unlisted` | 表に行の無い鍵 | `UNLISTED_FEATURE_QUERY` と等しい |
+| `table_passes_the_common_checks` | 表と鍵の一覧。5.3・7.4・7.5・9.0 × 属性 3 つ | 表の鍵が一覧にあり重ならない（`check_table_keys`）。一覧のすべての鍵の値が共通の規則を通る（`check_table_queries`） |
+
+`table_passes_the_common_checks` は feature `test-support` を付けたときだけコンパイル・実行される。付けないときは 2 本が走る。
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --lib backend_cuda`
+
 ## 段
 
 | 段 | 内容 | Issue |
