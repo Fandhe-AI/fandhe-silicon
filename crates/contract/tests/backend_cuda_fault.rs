@@ -1,6 +1,7 @@
 //! CUDA の `request` の初期化の失敗を差し込みで確かめる試験（TASK-160 のポインタ）。
 //!
 //! 差し込みの provider と、検査で弾かれる入力だけを呼ぶので、device には触らない。
+//! 末尾の `#[ignore]` の 1 本だけは device を作り、`--ignored` を付けたときだけ走る。
 #![cfg(not(target_arch = "wasm32"))]
 
 use fandhe_silicon_contract::backend_cuda::{
@@ -164,4 +165,16 @@ fn an_injected_failure_is_distinct_from_the_other_kinds() {
         FailureClass::Initialization => {}
         _ => panic!("{e:?}"),
     }
+}
+
+/// device の `fault_hooks()` は `Some` を返す。
+// DEV-80
+#[test]
+#[ignore = "requires a CUDA device"]
+fn cuda_device_has_fault_hooks() {
+    let device = match CudaDeviceProvider::request(compute_only()) {
+        Ok(d) => d,
+        Err(e) => panic!("request failed: {e:?}"),
+    };
+    assert!(device.fault_hooks().is_some());
 }
