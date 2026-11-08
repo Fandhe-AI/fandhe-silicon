@@ -1279,22 +1279,83 @@ struct CudaDevice {
 }
 
 impl Drop for CudaDevice {
-    /// 終端を待つ登録済みの callback を、`Lost` でちょうど 1 回ずつ呼んでから破棄する。
+    /// stream を同期してから、登録済みの完了の callback を呼び、再利用の一覧・確保済みのバッファ・
+    /// パイプライン・投入の表を解放する。同期を確かめられないときは、それらと stream を解放しない。
+    /// ロストの通知は呼ばない。`Drop` から panic は外へ出さない。
     fn drop(&mut self) {
-        let callbacks = self
-            .submissions
-            .get_mut()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take_all_callbacks();
-        // 1 つが panic しても残りを呼び切る。巻き戻し中の二重 panic を避けるため、panic は外へ伝えず捨てる。
-        let ready = callbacks
-            .into_iter()
-            .map(|callback| (callback, CompletionState::Lost))
-            .collect();
+        let synced = sync_confirmed(|| self.stream.synchronize());
+        let generation = self.current_generation();
+        // `get_mut` は錠を取らない。callback は表から外した後に呼ぶ。
+        let ready = teardown_ready(
+            self.submissions
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            synced,
+            generation,
+            event_state,
+        );
         if let Some(payload) = run_callbacks(ready) {
             discard_panic(payload);
         }
+        let buffers = std::mem::take(
+            self.buffers
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        let pipelines = std::mem::take(
+            self.pipelines
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        let submissions = std::mem::replace(
+            self.submissions
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            Submissions::new(),
+        );
+        if !synced {
+            std::mem::forget(Arc::clone(&self.stream));
+        }
+        release_if(synced, (buffers, pipelines, submissions));
     }
+}
+
+/// `sync` が `Ok` を返したときだけ `true`。`Err` と panic は `false`。
+fn sync_confirmed<E>(sync: impl FnOnce() -> Result<(), E>) -> bool {
+    matches!(catch_unwind(AssertUnwindSafe(sync)), Ok(Ok(())))
+}
+
+/// `synced` が真なら `held` を落とし、偽なら落とさずに手放す。落とす途中の panic は外へ出さない。
+fn release_if<T>(synced: bool, held: T) {
+    if synced {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(move || drop(held))) {
+            discard_panic(payload);
+        }
+    } else {
+        std::mem::forget(held);
+    }
+}
+
+/// 破棄で呼ぶ登録済みの callback と値。同期を確かめたら回収して `take_ready` と同じ判定、
+/// 判定が `Pending` のまま残ったものと、同期を確かめられないときは `Lost`。
+/// どの callback も 1 回だけ返し、表は空になる。
+fn teardown_ready<G>(
+    subs: &mut Submissions<G>,
+    synced: bool,
+    generation: u64,
+    classify: impl Fn(&G) -> GroupState,
+) -> Vec<(CompletionCallback, CompletionState)> {
+    let mut ready = Vec::new();
+    if synced {
+        subs.reclaim(&classify);
+        ready = subs.take_ready(generation, &classify);
+    }
+    ready.extend(
+        subs.take_all_callbacks()
+            .into_iter()
+            .map(|callback| (callback, CompletionState::Lost)),
+    );
+    ready
 }
 
 /// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
@@ -4003,5 +4064,91 @@ mod lost_state_tests {
             .lose(DeviceLostReason::Unknown, &generation, &source)
             .unwrap();
         assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+}
+/// 破棄の部品の試験（device に触らない。TASK-191 のポインタ）。
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// 落とされた回数を数える値。
+    struct Counted(Arc<AtomicUsize>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// 落とすと panic する値。
+    struct PanicOnDrop;
+
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            panic!("drop panics");
+        }
+    }
+
+    /// 同期を確かめられたときだけ落とす。失敗と panic では落とさず、panic は外へ出ない。
+    #[test]
+    fn release_if_drops_only_after_a_confirmed_sync() {
+        let count = Arc::new(AtomicUsize::new(0));
+        release_if(
+            sync_confirmed(|| Ok::<(), ()>(())),
+            Counted(Arc::clone(&count)),
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        release_if(
+            sync_confirmed(|| Err::<(), ()>(())),
+            Counted(Arc::clone(&count)),
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        release_if(
+            sync_confirmed(|| -> Result<(), ()> { panic!("sync panics") }),
+            Counted(Arc::clone(&count)),
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    /// 落とす途中の panic は外へ出ない。
+    #[test]
+    fn release_if_does_not_unwind_when_a_drop_panics() {
+        release_if(true, PanicOnDrop);
+    }
+
+    /// 同期を確かめたら `take_ready` と同じ判定で値を決め、表は空になる。
+    #[test]
+    fn teardown_ready_judges_like_poll_after_a_confirmed_sync() {
+        let mut t = Submissions::<GroupState>::new();
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        let _ = t.issue(|| Ok(GroupState::Failed));
+        let _ = t.issue(|| Ok(GroupState::Pending));
+        for sequence in 1..=3 {
+            t.callbacks.push((sequence, 1, Box::new(|_| {})));
+        }
+        let ready = teardown_ready(&mut t, true, 1, |g| *g);
+        let states: Vec<CompletionState> = ready.iter().map(|(_, s)| *s).collect();
+        assert_eq!(
+            states,
+            [
+                CompletionState::Complete,
+                CompletionState::Lost,
+                CompletionState::Lost
+            ]
+        );
+        assert!(t.callbacks.is_empty());
+    }
+
+    /// 同期を確かめられなければ、完了していた投入の callback にも `Lost` を渡す。
+    #[test]
+    fn teardown_ready_delivers_lost_without_a_confirmed_sync() {
+        let mut t = Submissions::<GroupState>::new();
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        let ready = teardown_ready(&mut t, false, 1, |g| *g);
+        let states: Vec<CompletionState> = ready.iter().map(|(_, s)| *s).collect();
+        assert_eq!(states, [CompletionState::Lost]);
+        assert!(t.callbacks.is_empty());
     }
 }

@@ -216,7 +216,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
 | `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5） |
 | `docs/cuda-profile-returns.md` | CUDA の背後実装の `CpuOnly`・`Graphics` の要求と鍵の一覧の外の機能 ID の返し（TASK-169）の所在と、本リポの現状の事実・プロファイルと所有形態の組の拒否と一覧の外の機能 ID（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-device-drop.md` | CUDA の背後実装の device の破棄（TASK-191）の所在と、本リポの現状の事実・device の明示の破棄の口（1/5） |
+| `docs/cuda-device-drop.md` | CUDA の背後実装の device の破棄（TASK-191）の所在と、本リポの現状の事実・device の明示の破棄の口（1/5）・`Drop` の同期と解放（2/5） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
