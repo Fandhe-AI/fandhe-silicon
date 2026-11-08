@@ -169,7 +169,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）・今の値の補い（base 0f8b01c）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）（TASK-2457） |
 | `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）（TASK-2455） |
 | `docs/cpu-ops-elementwise-special.md` | 要素ごとの演算の NaN・±Inf・±0 の確かめの所在・NaN・±Inf・±0 の入力を当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base fbbd70d）・今の値の補い（base 2f35b9e）（TASK-2456） |
-| `docs/cpu-ops-gemm-scalar-rules.md` | 行列積の scalar 版の積和の順と特殊値の確かめの所在・積和の順と特殊値の入力の試験（1/2）（TASK-2445） |
+| `docs/cpu-ops-gemm-scalar-rules.md` | 行列積の scalar 版の積和の順と特殊値の確かめの所在・積和の順と特殊値の入力の試験（1/2）・完了の条件の確かめ（2/2）（TASK-2445） |
 | `docs/wasm32-backend-check.md` | 背後実装の feature を付けた wasm32 の検査（TASK-238 の 1/2）の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方・依存グラフの記録と完了の条件の確かめ（2/2）・今の値の補い（base 3e32680） |
 | `docs/wasm32-compile-probe-check.md` | wasm32 のコンパイル試験の検査（TASK-239）の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553） |
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23） |
