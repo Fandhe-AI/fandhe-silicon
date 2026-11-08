@@ -100,3 +100,12 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - device に触る試験（専用の実機の回だけ）: 同じ組に `-- --ignored` を付ける。手順は [metal-run-procedure](metal-run-procedure.md)
 - `request_returns_a_device_that_reports_diagnostics_and_round_trips_bytes` は、得た `adapter_name` を `adapter_name=<値>` の 1 行で標準出力に出す（`-- --ignored --show-output` で見える）。この出力は照合に使わない
 - 他の OS で壊れていないこと: `cargo clippy --workspace --all-targets --all-features --target x86_64-unknown-linux-gnu -- -D warnings`、`make wasm-backend-check`
+
+## 今の値の補い（base d533488）
+
+冒頭の「記録の所在」の依存の承認の件数と、`create_pipeline` の入力の分類の行は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- 依存の承認: `deps-approved.toml` の `[[approval]]` は 5 件（上の 4 件と `cudarc`）。数えたコマンド: `grep -c '^\[\[approval\]\]' deps-approved.toml`
+- `create_pipeline` の入力の分類（TASK-774 のポインタ）: `Msl`・`MslSpecialized` に加えて `MslWithOptions`・`MslSpecializedWithOptions` も受け付ける。`MslWithOptions`・`MslSpecializedWithOptions` を `Unsupported` とする記述は今は当たらない。`Wgsl` は `Unsupported`（`classify_marks_wgsl_unsupported`）、`SpirV`・`CudaC`・`Ptx`・`Dxil` は `ArtifactRejected { kind: "unsupported-input" }` のまま。その理由の文は `pipeline input <variant> is not accepted by the Metal backend; accepted inputs are Msl, MslSpecialized, MslWithOptions and MslSpecializedWithOptions` の形になった。確かめ方: `grep -n 'accepted inputs are' crates/contract/src/backend_metal.rs`
+- オプション付きの入力の生成の所在と試験は [metal-compile-options](metal-compile-options.md) に置く。
+- 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 52。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
