@@ -112,3 +112,21 @@ fn binding_layout_clone_and_eq() {
     assert_eq!(a, b);
     assert_ne!(a, BindingLayout::new(vec![1, 0]));
 }
+
+/// 上書きしない実装は、どの入力・どの `bounds_checked` でも `None` を返し、パイプラインを作らない（TASK-501）。
+#[test]
+fn default_pipeline_cache_key_is_none() {
+    let r = Recording::new(Some((1, 1)));
+    let d: &dyn ComputeOps = &r;
+    let msl = PipelineInput::Msl {
+        source: "kernel void k() {}",
+        entry_point: "k",
+    };
+    let wg = wgsl();
+    for input in [&msl, &wg] {
+        for bounds_checked in [false, true] {
+            assert!(d.pipeline_cache_key(input, bounds_checked).is_none());
+        }
+    }
+    assert!(r.calls.lock().unwrap().is_empty());
+}
