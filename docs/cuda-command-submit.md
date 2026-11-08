@@ -60,8 +60,40 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 失敗した列は `poll` で `Lost`、`poll_ex` で `RuntimeError`。払い出していない番号（0 を含む）は `poll` で `Lost`、`poll_ex` で `Unknown`
 - `on_complete` は終端ならその場で、未完了なら登録して `submit`・`poll`・`poll_ex`・`on_complete` の中で終端と分かった時に、錠の外で 1 回呼ぶ
 
+## 投入の完了の問い合わせ（2/5）
+
+`CommandQueue::poll` は投入済みの表から 3 値で答える。待たない。
+
+| 状況 | `poll` の値 |
+| ---- | ----------- |
+| 自分の印で未完了 | `Pending` |
+| 自分の印で完了 | `Complete` |
+| 回収済み | `Complete` |
+| event の問い合わせの失敗 | `Lost` |
+| 別 device の印・世代違いの印 | `Lost` |
+| 払い出していない番号（0 を含む） | `Lost` |
+
+- `poll_ex` はこの背後実装で上書きせず、共通の crate の既定の本体が `poll` の 3 値を写す
+- 投入済みの表の回収は `submit`・`poll`・`on_complete` の中で行う
+- `poll` は錠を放してから、終端になった登録済みの callback を呼ぶ
+- 印の持ち主の照合は `check_token_owner` で行い、別 device は `DeviceMismatch`、世代違いは `DeviceLost`（印の世代）を返す
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `states_cover_pending_complete_failed_reclaimed_and_unissued` | 未完了・完了・失敗・回収済み・払い出していない番号の値 |
+| `the_owner_check_rejects_foreign_and_stale_tokens` | 別 device と世代違いの印の照合の結果 |
+| `a_stalled_head_stays_pending_even_if_the_group_reads_complete_afterwards` | 止まった先頭が `Pending` のままであること |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
+
+今の値の補い:
+
+- 1/5 の節の `poll_ex` の行（失敗した列は `RuntimeError`、払い出していない番号は `Unknown`）は、この段のあとは `poll` と同じく `Lost`
+- 1/5 の節の試験の表の `state_ex_distinguishes_pending_complete_failed_and_unissued` は、この段で `states_cover_pending_complete_failed_reclaimed_and_unissued` に替わった
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | 記録先の集合と submit | #5184 |
+| 2/5 | 投入の完了の問い合わせ | #5185 |
