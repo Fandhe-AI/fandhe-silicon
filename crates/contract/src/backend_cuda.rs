@@ -18,7 +18,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
+use cudarc::driver::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::{CompileError, CompileOptions, Ptx};
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
@@ -527,7 +527,16 @@ struct Buffers {
 #[derive(Default)]
 struct Pipelines {
     next_id: u64,
-    map: BTreeMap<u64, (CudaFunction, BindingLayout)>,
+    map: BTreeMap<u64, PipelineEntry>,
+}
+
+/// パイプラインの表の 1 件。`CudaFunction` はモジュールを保持しないので、モジュールを同じ値に持たせて
+/// 関数より長く生かす（`CudaModule` の drop が `cuModuleUnload` を呼ぶ）。
+/// フィールドは宣言順に drop されるので、関数、配置、モジュールの順で解放される。
+struct PipelineEntry {
+    _function: CudaFunction,
+    _layout: BindingLayout,
+    _module: Arc<CudaModule>,
 }
 
 /// `request_device` が返す device。`Device`・`Capabilities`・`MemoryOps`・`ComputeOps`・`CommandQueue` を実装する。
@@ -781,7 +790,7 @@ impl ComputeOps for CudaDevice {
         check_no_nul(source, entry_point)?;
         let ptx = compile_cuda_c(source, self.compute_capability)?;
         let ctx = self.stream.context();
-        let function = guard_pipeline_panic(|| {
+        let (module, function) = guard_pipeline_panic(|| {
             ctx.bind_to_thread()
                 .map_err(|e| backend_failure("bind_to_thread", e))?;
             let module = ctx.load_module(ptx).map_err(|e| {
@@ -792,14 +801,15 @@ impl ComputeOps for CudaDevice {
                     e,
                 )
             })?;
-            module.load_function(entry_point).map_err(|e| {
+            let function = module.load_function(entry_point).map_err(|e| {
                 artifact_failure(
                     "function",
                     "cuModuleGetFunction",
                     driver_error_is_artifact_cause(&e),
                     e,
                 )
-            })
+            })?;
+            Ok((module, function))
         })?;
         let mut pipelines = self
             .pipelines
@@ -814,7 +824,14 @@ impl ComputeOps for CudaDevice {
                 detail: "pipeline id space is exhausted".into(),
             })?;
         pipelines.next_id = id;
-        pipelines.map.insert(id, (function, layout.clone()));
+        pipelines.map.insert(
+            id,
+            PipelineEntry {
+                _function: function,
+                _layout: layout.clone(),
+                _module: module,
+            },
+        );
         Ok(PipelineHandle::__backend_new(id, self.id))
     }
 }
