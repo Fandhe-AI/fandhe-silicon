@@ -1778,6 +1778,59 @@ mod tests {
         assert_eq!(can_map_host_memory_of(|| Ok::<_, &str>(2)), None);
     }
 
+    /// どの鍵・compute capability・属性の組でも、`S3` 以上は返らない（DEV-89）。
+    #[test]
+    fn no_key_returns_s3_or_above() {
+        for &key in fandhe_silicon_core::feature_key::FEATURE_QUERY_KEYS {
+            for cc in [(1, 0), (5, 3), (7, 4), (7, 5), (9, 0), (99, 9)] {
+                for map in [None, Some(false), Some(true)] {
+                    let q = cuda_capability_of(&snapshot(cc, map), key);
+                    assert!(matches!(
+                        q.level,
+                        CapabilityLevel::S0 | CapabilityLevel::S2 | CapabilityLevel::Unsupported
+                    ));
+                }
+            }
+        }
+    }
+
+    /// 表に行の無い鍵は、core の `UNLISTED_FEATURE_QUERY` と等しい値を返す。
+    #[test]
+    fn keys_without_a_row_are_unlisted() {
+        for &key in fandhe_silicon_core::feature_key::FEATURE_QUERY_KEYS {
+            if fandhe_silicon_core::capability_table::find_row(&CUDA_FEATURE_TABLE, key).is_none() {
+                assert_eq!(
+                    cuda_capability_of(&snapshot((9, 0), Some(true)), key),
+                    fandhe_silicon_core::capability_table::UNLISTED_FEATURE_QUERY
+                );
+            }
+        }
+    }
+
+    /// 表は core の共通の規則の検査（鍵の一覧との突き合わせと、問合せの値）を通る（DEV-87）。
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn table_passes_the_common_checks() {
+        use fandhe_silicon_core::capability_table_check::{check_table_keys, check_table_queries};
+        use fandhe_silicon_core::feature_key::FEATURE_QUERY_KEYS;
+
+        assert_eq!(
+            check_table_keys(&CUDA_FEATURE_TABLE, FEATURE_QUERY_KEYS),
+            Ok(())
+        );
+        for cc in [(5, 3), (7, 4), (7, 5), (9, 0)] {
+            for map in [None, Some(false), Some(true)] {
+                let s = snapshot(cc, map);
+                assert_eq!(
+                    check_table_queries(&CUDA_FEATURE_TABLE, FEATURE_QUERY_KEYS, |rule| {
+                        evaluate(rule, &s)
+                    }),
+                    Ok(())
+                );
+            }
+        }
+    }
+
     /// 完了を確かめられたものだけが、鍵の一致する確保に取り出される。
     #[test]
     fn pool_takes_only_settled_buffers_with_the_same_key() {
