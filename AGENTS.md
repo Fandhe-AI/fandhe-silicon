@@ -42,6 +42,7 @@ P0 と P1 はいずれも codex ジョブを失敗させる（マージ前に解
   ポインタ・長さ・ハンドルの検証省略、サイズ・オフセット計算の未検査オーバーフローを含む
 - **unsafe の配置と根拠（P0/P1）**: `unsafe` は `crates/contract` の backend モジュール
   （FFI 境界）と、`cpu_ops` の aarch64 の NEON の module（組み込み関数を呼ぶ橋）と、`baseline-wgpu/crates/`・`measure/crates/` の比較の腕の crate（下位の API を呼ぶ橋。TASK-1008〜1011 のポインタ）に限る。`core`・`exec`・`upper` の `#![forbid(unsafe_code)]` の除去・緩和は P0。
+  腕の crate がある `baseline-wgpu/`・`measure/` は製品の workspace の外の別 workspace（ルート `Cargo.toml` の `exclude`）で、腕の crate は `publish = false`。製品の crate は腕の crate に依存せず（向きは測定・比較 → 製品の一方向）、製品の守りは変わらない。
   `// SAFETY:`（`unsafe fn` は `/// # Safety`）の欠落・根拠不十分、workspace lints
   （`undocumented_unsafe_blocks`・`missing_safety_doc`・`unsafe_op_in_unsafe_fn`）の緩和は P1
 - **依存とサプライチェーン（P0/P1）**: wgpu・wgpu-core・wgpu-hal・wgpu-types・naga の

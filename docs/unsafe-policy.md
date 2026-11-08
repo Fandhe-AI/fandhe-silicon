@@ -26,6 +26,7 @@
     - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend と `cpu_ops/neon.rs` の外のファイルの `unsafe` を検出する
     - `cpu_ops/neon.rs` は上の 2 つの守りの対象で、個数の期待値の表を `tests/cpu_ops_neon_unsafe_count.rs` に持つ。`#[allow(unsafe_code)]` は `cpu_ops.rs` の `mod neon;` の宣言だけに付ける。この module の変更は小節「承認」の PR ごとの承認を要する
 - 比較の腕の crate（`baseline-wgpu/crates/`・`measure/crates/` の下で、下位の API〔Metal・MPS・wgpu の実験的な機能〕を呼ぶ橋。TASK-1008〜1011 のポインタ）にも置ける。製品の workspace（`crates/`）の範囲は変えない
+    - `baseline-wgpu/`・`measure/` は製品の workspace の外の別 workspace（ルート `Cargo.toml` の `exclude`）で、腕の crate は `publish = false`。製品の crate（`crates/`）は腕の crate に依存しない（向きは測定・比較 → 製品の一方向。[poc-carry-over](../.claude/rules/poc-carry-over.md)）。したがって製品の crate の `#![forbid(unsafe_code)]`・置き場の制限・公開 API の safe の約束は変わらず、上位ライブラリの依存グラフに腕の crate の `unsafe` は入らない
     - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints.rust]`・`[lints.clippy]` で `unsafe_code = "deny"` とし、`unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` の deny と、その workspace のほかの lints も明記して保つ。`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける
     - すべての `unsafe` に `// SAFETY:` を書く（`unsafe fn` は `/// # Safety`）。公開 API は safe なラッパーにする
     - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う
