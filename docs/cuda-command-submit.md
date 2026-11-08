@@ -142,6 +142,56 @@ lib の `device_tests` に足した 2 本（`#[cfg(test)]` の数の口 `test_su
 - `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_submit` が `0 passed; 0 failed; 7 ignored` で通る
 - `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` が `11 ignored` で通る
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-604。ポインタのみ）。
+
+時点のコミット: `371a82d`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 単体 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` | 28 passed; 0 failed; 11 ignored、終了コード 0 |
+| 2 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_submit` | 0 passed; 0 failed; 7 ignored、終了コード 0 |
+| 3 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 1 passed、終了コード 0 |
+| 4 | 公開 API | `make public-api-sdk-check` | `sdk_type_refs_total=0`、終了コード 0 |
+| 5 | 依存の検査 | `make deps-check`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | 終了コード 0、件数 5 |
+| 6 | feature の組の clippy | `cargo clippy -p fandhe-silicon-contract --all-targets --features <組> -- -D warnings`（`backend-cuda`、`backend-cuda,native-blocking-wait`、`backend-cuda,fault-injection`） | 3 組とも終了コード 0 |
+| 7 | CI | `gh run view 42475946787 --json conclusion,headSha,jobs`（main の push の run） | conclusion success、headSha `371a82d97296979a98969bbc84e0838b81bd7b9c`、`make verify (fmt + clippy + test)` success、`make verify + build-profiles (macos-latest)` success、`make deny (cargo-deny)` success |
+
+(1) の出力。
+
+```text
+running 39 tests
+test result: ok. 28 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out; finished in 0.01s
+```
+
+(2) の出力。
+
+```text
+running 7 tests
+test result: ok. 0 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(4) の出力。
+
+```text
+record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_items_total=13838 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+```
+
+(5) の出力。
+
+```text
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+5
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -150,3 +200,4 @@ lib の `device_tests` に足した 2 本（`#[cfg(test)]` の数の口 `test_su
 | 2/5 | 投入の完了の問い合わせ | #5185 |
 | 3/5 | 複数の記録先の一括投入 | #5186 |
 | 4/5 | 投入の device の要る試験 | #5187 |
+| 5/5 | 完了の条件の確かめ | #5188 |
