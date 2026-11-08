@@ -137,8 +137,8 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 確かめ方:
 
 ```bash
-cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::teardown_device_tests
-cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::teardown_device_tests -- --ignored
+cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy -- --ignored
 ```
 
 ## 段
