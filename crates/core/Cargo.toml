@@ -365,6 +365,10 @@ name = "stub_device_samplers"
 required-features = ["test-support"]
 
 [[test]]
+name = "stub_device_create_keys"
+required-features = ["test-support"]
+
+[[test]]
 name = "graphics_pass_types"
 required-features = ["graphics"]
 

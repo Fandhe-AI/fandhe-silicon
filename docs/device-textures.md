@@ -160,3 +160,42 @@ cargo test -p fandhe-silicon-core --features test-support --test stub_device_sam
 ## 今の値の補い（base 6b35dd9）
 
 上の表の項目 7 の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が 177・505 行目、`make wasm-verify` が 276・466 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
+
+## 作る操作の行の能力の問合せ（1/2）
+
+テクスチャを作る操作・サンプラーを作る操作の行の能力の問合せの鍵と、試験用の device の答えの所在（TASK-150）。鍵の文字列は定数の定義を正とし、この頁には写さない。
+
+| 項目 | 所在 |
+| ---- | ---- |
+| 鍵の定数 | `crates/core/src/capability.rs`（`fandhe_silicon_core::capability::API_DEVICE_CREATE_TEXTURE`・`API_DEVICE_CREATE_SAMPLER`。feature の条件なし） |
+| 試験用の device の答え | `crates/core/src/stub_device.rs`（`query_ex` の分岐と、`query` が `query_ex` の段階を返す形） |
+| 外の crate からの試験 | `crates/core/tests/stub_device_create_keys.rs`（feature `test-support`） |
+| core の中の試験 | `crates/core/src/stub_device.rs` の `mod tests` の 2 本 |
+
+### 試験用の device の答え
+
+| 鍵 | プロファイル | `query` | `query_ex` |
+| -- | ------------ | ------- | ---------- |
+| `API_DEVICE_CREATE_TEXTURE` | どのプロファイルでも | `S2` | `S2`・理由なし・根拠なし |
+| `API_DEVICE_CREATE_SAMPLER` | どのプロファイルでも | `S2` | `S2`・理由なし・根拠なし |
+
+答えは所有形態と `backend` にもよらない。試験用の device の `query` は `query_ex` と同じ段階を返す。WebGPU の口の 2 鍵・形式の問合せの鍵・表に無い鍵の答えは変わらず、`query` は `Unsupported` を返す。
+
+### 試験
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `{cpu_only,compute_only,graphics}_{product_independent,shared,imported}_answers_s2_for_create_keys`（9 本） | 3 つのプロファイル × 3 つの所有形態 | 2 つの鍵で `query` が `S2`、`query_ex` が `S2`・理由なし・根拠なし、`check_query_ex` が `Ok`。`CpuOnly` は `textures()` が `None`、ほかは `Some` で `create_texture`・`create_sampler` が `Ok` |
+| `answers_do_not_depend_on_backend` | 4 つの `BackendKind` × `ComputeOnly`・`Shared`/`ProductIndependent` | 2 つの鍵の `query_ex` が同じ値 |
+| `create_key_strings_are_fixed` | 2 つの定数 | 定義の文字列と等しい |
+| `create_keys_are_outside_other_key_lists` | 2 つの定数 | 互いに違い、形式・機能・上限・downlevel の鍵の一覧と WebGPU の口の 2 鍵のどれとも違う |
+| `other_keys_keep_their_answers` | `ComputeOnly`・`Shared` | `check_webgpu_ports` が `Ok`、表に無い鍵は `UNLISTED_FEATURE_QUERY`、`query` は `Unsupported` |
+| `create_operation_keys_answer_s2_for_every_profile`（core の中） | 3 つのプロファイル | 2 つの鍵で `query` が `S2`、`query_ex` が `S2`・理由なし・根拠なし |
+| `create_operation_keys_are_not_format_or_webgpu_keys`（core の中） | 2 つの定数 | 形式の鍵の一覧と WebGPU の口の 2 鍵に無く、互いに違う |
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_create_keys
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+```

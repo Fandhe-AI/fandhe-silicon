@@ -1071,9 +1071,9 @@ impl GraphicsOps for StubGraphics {
 /// GPU も背後実装も使わない試験用の device。
 ///
 /// 要求の `backend` と所有形態をそのまま持つ。
-/// 能力問合せは `query` がどの機能も `Unsupported` を返し、`query_ex` は鍵で返す値が変わる。
+/// 能力問合せは `query` が `query_ex` と同じ段階を返し、`query_ex` は鍵で返す値が変わる。
 /// WebGPU の口の 2 鍵には `WEBGPU_PORT_UNSUPPORTED`、形式の問合せの鍵には `Unsupported`・理由 `NotSupported`・根拠なし、
-/// それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
+/// それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。テクスチャとサンプラーを作る操作の行の 2 つの鍵（`API_DEVICE_CREATE_TEXTURE`・`API_DEVICE_CREATE_SAMPLER`）には、プロファイルによらず段階 `S2`・理由なし・根拠なしを返す。
 /// メモリはホストの `Vec<u8>`、投入は即時に完了済みとして扱う。
 /// `compute()` は要求の `profile` で変わり、`CpuOnly` は `None`、`ComputeOnly`・`Graphics` は `Some` を返す。
 /// `Some` の `create_pipeline` は `Ok(PipelineHandle)` を返し、印の device の識別子は `generation()` と等しい。
@@ -1125,17 +1125,29 @@ impl StubDevice {
     }
 }
 
+/// テクスチャとサンプラーを作る操作の行の鍵に `query_ex` が返す値（段階 `S2`・理由なし・根拠なし）。
+const CREATE_OPERATION_QUERY: CapabilityQuery = CapabilityQuery {
+    level: CapabilityLevel::S2,
+    unsupported_reason: None,
+    evidence: None,
+};
+
 impl Capabilities for StubDevice {
-    fn query(&self, _feature: FeatureId) -> CapabilityLevel {
-        CapabilityLevel::Unsupported
+    fn query(&self, feature: FeatureId) -> CapabilityLevel {
+        self.query_ex(feature).level
     }
 
     /// WebGPU の口の 2 つの鍵には背後実装と同じ値（`WEBGPU_PORT_UNSUPPORTED`）を返し、
     /// 共通の検査 `check_webgpu_ports` を通す。形式の問合せの鍵（`TEXTURE_FORMAT_QUERY_KEYS`）には
-    /// `Unsupported`・理由 `NotSupported`・根拠なしを返す。それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。
+    /// `Unsupported`・理由 `NotSupported`・根拠なしを返す。それ以外の鍵には `UNLISTED_FEATURE_QUERY` を返す。テクスチャとサンプラーを作る操作の行の 2 つの鍵にはプロファイルによらず段階 `S2`・理由なし・根拠なしを返す。
     fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
         if feature == WEBGPU_DEVICE_PORT || feature == WEBGPU_HANDLE_PORT {
             return WEBGPU_PORT_UNSUPPORTED;
+        }
+        if feature == crate::capability::API_DEVICE_CREATE_TEXTURE
+            || feature == crate::capability::API_DEVICE_CREATE_SAMPLER
+        {
+            return CREATE_OPERATION_QUERY;
         }
         query_from_table(&TEXTURE_FORMAT_QUERY_TABLE, feature, |q| *q)
     }
@@ -1210,6 +1222,7 @@ impl DeviceProvider for StubDeviceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::{API_DEVICE_CREATE_SAMPLER, API_DEVICE_CREATE_TEXTURE};
     use crate::texture::{TextureDimension, TextureExtent, TextureUsage};
     use crate::texture_format::TextureFormat;
 
@@ -1300,6 +1313,39 @@ mod tests {
         for key in [WEBGPU_DEVICE_PORT, WEBGPU_HANDLE_PORT] {
             assert!(!TEXTURE_FORMAT_QUERY_KEYS.contains(&key));
             assert_eq!(device.query_ex(key), WEBGPU_PORT_UNSUPPORTED);
+        }
+    }
+
+    // DEV-153
+    // DEV-154
+    #[test]
+    fn create_operation_keys_answer_s2_for_every_profile() {
+        let expected = CapabilityQuery {
+            level: CapabilityLevel::S2,
+            unsupported_reason: None,
+            evidence: None,
+        };
+        for profile in [Profile::CpuOnly, Profile::ComputeOnly, Profile::Graphics] {
+            let device = StubDevice::new(DeviceRequest {
+                profile,
+                ..request()
+            });
+            for key in [API_DEVICE_CREATE_TEXTURE, API_DEVICE_CREATE_SAMPLER] {
+                assert_eq!(device.query_ex(key), expected);
+                assert_eq!(device.query(key), CapabilityLevel::S2);
+            }
+        }
+    }
+
+    // DEV-153
+    // DEV-154
+    #[test]
+    fn create_operation_keys_are_not_format_or_webgpu_keys() {
+        assert_ne!(API_DEVICE_CREATE_TEXTURE, API_DEVICE_CREATE_SAMPLER);
+        for key in [API_DEVICE_CREATE_TEXTURE, API_DEVICE_CREATE_SAMPLER] {
+            assert!(!TEXTURE_FORMAT_QUERY_KEYS.contains(&key));
+            assert_ne!(key, WEBGPU_DEVICE_PORT);
+            assert_ne!(key, WEBGPU_HANDLE_PORT);
         }
     }
 
