@@ -12,13 +12,17 @@
 //!
 //! `CudaDevice` は `ComputeOps` を実装し、パイプラインの生成の口 `create_pipeline` を持つ
 //! （TASK-803 のポインタ）。
+//!
+//! `CommandQueue` の実装は投入の窓口で、記録先の開いている集合と投入済みの表を持つ（TASK-604 のポインタ）。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cudarc::driver::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DriverError};
+use cudarc::driver::{
+    CudaContext, CudaEvent, CudaFunction, CudaModule, CudaSlice, CudaStream, DriverError,
+};
 use cudarc::nvrtc::{CompileError, CompileOptions, Ptx};
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
@@ -31,9 +35,9 @@ use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
 use fandhe_silicon_core::execution::{
-    __backend_next_encoder_id, Binding, BindingLayout, CommandEncoder, CommandQueue, ComputeOps,
-    ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken,
-    ThreadgroupMemory,
+    __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
+    CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
+    PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
 };
 use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
@@ -233,6 +237,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             stream,
             buffers: Mutex::new(Buffers::default()),
             pipelines: Mutex::new(Pipelines::default()),
+            open: Arc::new(OpenEncoders::default()),
+            submissions: Mutex::new(Submissions::new()),
         })
     })
 }
@@ -521,6 +527,216 @@ fn compile_cuda_c(source: &str, capability: (i32, i32)) -> Result<Ptx, ContractE
     })
 }
 
+/// 投入済みの表の 1 件の状態。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GroupState {
+    Pending,
+    Completed,
+    Failed,
+}
+
+/// event の完了を待たずに問い合わせる。問合せの失敗と panic は `Failed`。
+fn event_state(event: &CudaEvent) -> GroupState {
+    match catch_unwind(AssertUnwindSafe(|| event.try_is_complete())) {
+        Ok(Ok(true)) => GroupState::Completed,
+        Ok(Ok(false)) => GroupState::Pending,
+        Ok(Err(_)) | Err(_) => GroupState::Failed,
+    }
+}
+
+/// 投入済みの表。投入の通し番号は device ごとに 1 から払い出す。
+///
+/// `G` は 1 回の投入の完了を表す値で、本物では投入の最後に記録した `CudaEvent`、試験では偽の状態。
+/// 回収されるまで保持する。
+struct Submissions<G> {
+    /// 次に払い出す通し番号。
+    next_sequence: u64,
+    /// この番号以下は回収済み（失敗の集合にあるものを除き完了）。
+    watermark: u64,
+    /// 通し番号から完了の値への表。
+    pending: BTreeMap<u64, G>,
+    /// 失敗として回収した通し番号。
+    failed: BTreeSet<u64>,
+    /// 終端を待つ登録済みの callback。通し番号と組で持つ。
+    callbacks: Vec<(u64, CompletionCallback)>,
+    /// 直近の `reclaim` で未完了のまま止まった先頭の番号。同じ錠の間はその判定を使い、再び問い合わせない。
+    stalled: Option<u64>,
+}
+
+/// `on_complete` に渡された callback。
+type CompletionCallback = Box<dyn FnOnce(CompletionState) + Send>;
+
+impl<G> Submissions<G> {
+    /// 何も投入していない表。
+    fn new() -> Self {
+        Self {
+            next_sequence: 1,
+            watermark: 0,
+            pending: BTreeMap::new(),
+            failed: BTreeSet::new(),
+            callbacks: Vec::new(),
+            stalled: None,
+        }
+    }
+
+    /// 通し番号の拡張した完了状態。呼ぶ前に `reclaim` しておく。
+    ///
+    /// `reclaim` が未完了で止まった先頭は、再び問い合わせずに `Pending` とする
+    /// （問合せの再読みで表に残ったまま完了と判定されるのを防ぐ）。
+    ///
+    /// 表にあれば列の状態、失敗の集合にあれば `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`、
+    /// 回収済みの他は `Complete`。
+    fn state_ex_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionStateEx {
+        if let Some(group) = self.pending.get(&sequence) {
+            if self.stalled == Some(sequence) {
+                return CompletionStateEx::Pending;
+            }
+            return match classify(group) {
+                GroupState::Pending => CompletionStateEx::Pending,
+                GroupState::Completed => CompletionStateEx::Complete,
+                GroupState::Failed => CompletionStateEx::RuntimeError,
+            };
+        }
+        if self.failed.contains(&sequence) {
+            CompletionStateEx::RuntimeError
+        } else if sequence == 0 || sequence >= self.next_sequence {
+            CompletionStateEx::Unknown
+        } else {
+            CompletionStateEx::Complete
+        }
+    }
+
+    /// 終端になった登録済みの callback を表から外して返す。呼ぶのは錠を放してから。
+    fn take_ready(
+        &mut self,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> Vec<(CompletionCallback, CompletionState)> {
+        let mut ready = Vec::new();
+        for (sequence, callback) in std::mem::take(&mut self.callbacks) {
+            match self.state_ex_of(sequence, &classify) {
+                CompletionStateEx::Pending => self.callbacks.push((sequence, callback)),
+                CompletionStateEx::Complete => ready.push((callback, CompletionState::Complete)),
+                _ => ready.push((callback, CompletionState::Lost)),
+            }
+        }
+        ready
+    }
+
+    /// 登録済みの callback を全て外して返す。device の破棄で `Lost` を通知するのに使う。
+    fn take_all_callbacks(&mut self) -> Vec<CompletionCallback> {
+        std::mem::take(&mut self.callbacks)
+            .into_iter()
+            .map(|(_, callback)| callback)
+            .collect()
+    }
+
+    /// `make` が成功したときだけ通し番号を払い出して表に入れる。
+    ///
+    /// 番号が尽きていれば `make` を呼ばずに `BackendFailure`。`make` の失敗は番号を消費しない。
+    fn issue(
+        &mut self,
+        make: impl FnOnce() -> Result<G, ContractError>,
+    ) -> Result<u64, ContractError> {
+        let sequence = self.next_sequence;
+        let next = sequence
+            .checked_add(1)
+            .ok_or_else(|| ContractError::BackendFailure {
+                op: "submit",
+                backend: BACKEND,
+                detail: "submission sequence space is exhausted".into(),
+            })?;
+        let group = make()?;
+        self.pending.insert(sequence, group);
+        self.next_sequence = next;
+        Ok(sequence)
+    }
+
+    /// 通し番号の昇順に、決着した先頭から表を外して watermark を進め、止まった先頭の番号を返す。
+    ///
+    /// 先頭が未完了なら後ろが完了していても回収しない。失敗は失敗の集合に移す。
+    fn reclaim(&mut self, classify: impl Fn(&G) -> GroupState) -> Option<u64> {
+        self.stalled = None;
+        while let Some(entry) = self.pending.first_entry() {
+            let sequence = *entry.key();
+            match classify(entry.get()) {
+                GroupState::Pending => {
+                    self.stalled = Some(sequence);
+                    return Some(sequence);
+                }
+                GroupState::Completed => {
+                    entry.remove();
+                }
+                GroupState::Failed => {
+                    entry.remove();
+                    self.failed.insert(sequence);
+                }
+            }
+            self.watermark = sequence;
+        }
+        None
+    }
+}
+
+/// 開いている記録先の識別子の集合。`CommandEncoder` の破棄の hook を兼ねる。
+#[derive(Default)]
+struct OpenEncoders {
+    ids: Mutex<BTreeSet<u64>>,
+}
+
+impl OpenEncoders {
+    /// 集合の錠を取る。poison されていても中身を使う。
+    fn lock(&self) -> MutexGuard<'_, BTreeSet<u64>> {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 識別子を集合に入れる。0 は入れない。
+    fn open(&self, id: u64) {
+        if id != 0 {
+            self.lock().insert(id);
+        }
+    }
+
+    /// 渡された識別子が全部開いていれば集合から外す。
+    ///
+    /// 1 つでも無い（0 を含む）・重複していれば `InvalidArgument` で、集合は変えない。
+    fn claim(&self, ids: &[u64]) -> Result<(), ContractError> {
+        let mut open = self.lock();
+        let mut seen = BTreeSet::new();
+        for id in ids {
+            if !open.contains(id) || !seen.insert(*id) {
+                return Err(ContractError::InvalidArgument(
+                    "encoder is not open on this device".into(),
+                ));
+            }
+        }
+        for id in ids {
+            open.remove(id);
+        }
+        Ok(())
+    }
+}
+
+impl __BackendSharedEncoderCloser for OpenEncoders {
+    /// 投入されずに破棄された記録先を集合から外す。無ければ何もしない。
+    fn close(&self, id: u64) {
+        self.lock().remove(&id);
+    }
+}
+
+/// 空でない `wait` を、何も投入せずに `Unsupported` で拒む。
+fn reject_wait(op: &'static str, wait: &[ImportedSemaphoreHandle]) -> Result<(), ContractError> {
+    if wait.is_empty() {
+        Ok(())
+    } else {
+        Err(ContractError::Unsupported {
+            op,
+            backend: BACKEND,
+        })
+    }
+}
+
 /// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
 #[derive(Default)]
 struct Buffers {
@@ -555,9 +771,107 @@ struct CudaDevice {
     stream: Arc<CudaStream>,
     buffers: Mutex<Buffers>,
     pipelines: Mutex<Pipelines>,
+    open: Arc<OpenEncoders>,
+    submissions: Mutex<Submissions<CudaEvent>>,
+}
+
+impl Drop for CudaDevice {
+    /// 終端を待つ登録済みの callback を、`Lost` でちょうど 1 回ずつ呼んでから破棄する。
+    fn drop(&mut self) {
+        let callbacks = self
+            .submissions
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_all_callbacks();
+        // 1 つが panic しても残りを呼び切る。巻き戻し中の二重 panic を避けるため、panic は外へ伝えず捨てる。
+        let ready = callbacks
+            .into_iter()
+            .map(|callback| (callback, CompletionState::Lost))
+            .collect();
+        if let Some(payload) = run_callbacks(ready) {
+            discard_panic(payload);
+        }
+    }
+}
+
+/// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
+fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(inner) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(inner);
+    }
+}
+
+/// 表から外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
+///
+/// 各 callback は呼ぶ前に表から外れているので、取りこぼしと二重呼び出しは起きない。錠を放してから呼ぶこと。
+/// 呼ぶ側が通常経路では返った中身を `resume_unwind` で再送出し、`Drop` では捨てる。
+/// 2 個目以降の panic の中身は `discard_panic` で捨てる。
+fn run_callbacks<C: FnOnce(CompletionState)>(
+    ready: Vec<(C, CompletionState)>,
+) -> Option<Box<dyn std::any::Any + Send>> {
+    let mut first_panic = None;
+    for (callback, state) in ready {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| callback(state))) {
+            if first_panic.is_none() {
+                first_panic = Some(payload);
+            } else {
+                discard_panic(payload);
+            }
+        }
+    }
+    first_panic
 }
 
 impl CudaDevice {
+    /// 投入済みの表の錠を取る。poison されていても中身を使う。
+    fn lock_submissions(&self) -> MutexGuard<'_, Submissions<CudaEvent>> {
+        self.submissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
+    ///
+    /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
+    fn issue_event(&self, subs: &mut Submissions<CudaEvent>) -> Result<SubmitToken, ContractError> {
+        let sequence = subs.issue(|| {
+            guard_memory_panic("record_event", || {
+                self.stream
+                    .record_event(None)
+                    .map_err(|e| backend_failure("record_event", e))
+            })
+        })?;
+        Ok(SubmitToken::__backend_new(
+            self.generation,
+            sequence,
+            self.id,
+        ))
+    }
+
+    /// 印がこの device・この世代のものか。違えば完了の問合せは `Lost` で答える。
+    fn owns(&self, token: &SubmitToken) -> bool {
+        token.__backend_device_id() == self.id && token.generation == self.generation
+    }
+
+    /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
+    ///
+    /// callback が panic しても残りを呼び切り、最初の panic は呼び切った後に再送出する。
+    fn drive_callbacks(&self) {
+        if let Some(payload) = self.drive_callbacks_catching() {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    /// `drive_callbacks` の本体。最初の panic の中身を再送出せずに返す。
+    fn drive_callbacks_catching(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        let ready = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            subs.take_ready(event_state)
+        };
+        run_callbacks(ready)
+    }
+
     /// バッファの表のロックを取る。poison されていても中身を使う。
     fn lock(&self) -> MutexGuard<'_, Buffers> {
         self.buffers
@@ -842,18 +1156,40 @@ impl ComputeOps for CudaDevice {
 }
 
 impl CommandQueue for CudaDevice {
+    /// 記録先の識別子を払い出し、この device の開いている集合に入れる。何も投入しない。
     fn create_encoder(&self) -> CommandEncoder {
-        CommandEncoder::__backend_new(__backend_next_encoder_id().unwrap_or(0), None)
+        let closer: Arc<dyn __BackendSharedEncoderCloser> = self.open.clone();
+        match __backend_next_encoder_id() {
+            Some(id) => {
+                self.open.open(id);
+                CommandEncoder::__backend_new_shared(id, closer)
+            }
+            // 識別子が尽きたときの 0 は集合に入れない。投入は `InvalidArgument` で拒まれる。
+            None => CommandEncoder::__backend_new_shared(0, closer),
+        }
     }
+
+    /// 記録先を投入し、完了を待たずに印を返す。
+    ///
+    /// 最初に投入済みの表を回収する。空でない `wait` は `Unsupported`、記録先がこの device の
+    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。通れば stream に event を 1 つ記録する。
     fn submit(
         &self,
-        _commands: CommandEncoder,
-        _wait: &[ImportedSemaphoreHandle],
+        mut commands: CommandEncoder,
+        wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
-        Err(ContractError::Unsupported {
-            op: "submit",
-            backend: BACKEND,
-        })
+        let result = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            reject_wait("submit(wait)", wait)
+                .and_then(|()| self.open.claim(&[commands.__backend_id()]))
+                .and_then(|()| {
+                    commands.__backend_disarm_closer();
+                    self.issue_event(&mut subs)
+                })
+        };
+        self.drive_callbacks();
+        result
     }
     fn submit_many(
         &self,
@@ -866,14 +1202,62 @@ impl CommandQueue for CudaDevice {
             backend: BACKEND,
         })
     }
-    fn poll(&self, _token: SubmitToken) -> CompletionState {
-        CompletionState::Lost
+    /// 完了の問合せ。別 device・世代違いの印、失敗した列、払い出していない番号は `Lost`。
+    fn poll(&self, token: SubmitToken) -> CompletionState {
+        match self.poll_ex(token) {
+            CompletionStateEx::Pending => CompletionState::Pending,
+            CompletionStateEx::Complete => CompletionState::Complete,
+            _ => CompletionState::Lost,
+        }
     }
-    fn poll_ex(&self, _token: SubmitToken) -> CompletionStateEx {
-        CompletionStateEx::Unknown
+    /// `poll` の詳しい版。失敗した列は `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`。
+    ///
+    /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
+    fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
+        if !self.owns(&token) {
+            return CompletionStateEx::Lost;
+        }
+        let state = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            subs.state_ex_of(token.sequence, event_state)
+        };
+        self.drive_callbacks();
+        state
     }
-    fn on_complete(&self, _token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
-        callback(CompletionState::Lost);
+    /// 終端の状態で `callback` をちょうど 1 回呼ぶ。待たない。
+    ///
+    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`poll`・`poll_ex`・`on_complete` の
+    /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
+        if !self.owns(&token) {
+            callback(CompletionState::Lost);
+            return;
+        }
+        let terminal = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            match subs.state_ex_of(token.sequence, event_state) {
+                CompletionStateEx::Pending => {
+                    subs.callbacks.push((token.sequence, callback));
+                    None
+                }
+                CompletionStateEx::Complete => Some((callback, CompletionState::Complete)),
+                _ => Some((callback, CompletionState::Lost)),
+            }
+        };
+        let own_panic =
+            terminal.and_then(|(callback, state)| run_callbacks(vec![(callback, state)]));
+        let drive_panic = self.drive_callbacks_catching();
+        if let Some(payload) = own_panic {
+            if let Some(extra) = drive_panic {
+                discard_panic(extra);
+            }
+            std::panic::resume_unwind(payload);
+        }
+        if let Some(payload) = drive_panic {
+            std::panic::resume_unwind(payload);
+        }
     }
     #[cfg(feature = "native-blocking-wait")]
     fn wait_blocking(
@@ -906,6 +1290,186 @@ impl CommandQueue for CudaDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 最初の通し番号は 1 で、失敗した払い出しは番号を消費しない（CMD-87）。
+    #[test]
+    fn the_first_sequence_is_one_and_a_failed_issue_does_not_consume_a_number() {
+        let mut t = Submissions::<GroupState>::new();
+        assert!(
+            t.issue(|| Err(ContractError::InvalidArgument("x".into())))
+                .is_err()
+        );
+        assert_eq!(t.issue(|| Ok(GroupState::Pending)).ok(), Some(1));
+        assert_eq!(t.issue(|| Ok(GroupState::Pending)).ok(), Some(2));
+    }
+
+    #[test]
+    fn an_exhausted_sequence_does_not_call_make() {
+        let mut t = Submissions::<GroupState>::new();
+        t.next_sequence = u64::MAX;
+        let mut called = false;
+        let r = t.issue(|| {
+            called = true;
+            Ok(GroupState::Pending)
+        });
+        assert!(matches!(r, Err(ContractError::BackendFailure { .. })));
+        assert!(!called);
+    }
+
+    #[test]
+    fn reclaim_stops_at_a_pending_head_and_moves_failures_aside() {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [
+            GroupState::Completed,
+            GroupState::Failed,
+            GroupState::Pending,
+            GroupState::Completed,
+        ] {
+            let _ = t.issue(|| Ok(g));
+        }
+        assert_eq!(t.reclaim(|g| *g), Some(3));
+        assert_eq!(t.watermark, 2);
+        assert!(t.failed.contains(&2));
+        assert_eq!(t.pending.len(), 2);
+    }
+
+    #[test]
+    fn state_ex_distinguishes_pending_complete_failed_and_unissued() {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [
+            GroupState::Completed,
+            GroupState::Failed,
+            GroupState::Pending,
+        ] {
+            let _ = t.issue(|| Ok(g));
+        }
+        t.reclaim(|g| *g);
+        let ex = |t: &Submissions<GroupState>, n| t.state_ex_of(n, |g| *g);
+        assert_eq!(ex(&t, 1), CompletionStateEx::Complete);
+        assert_eq!(ex(&t, 2), CompletionStateEx::RuntimeError);
+        assert_eq!(ex(&t, 3), CompletionStateEx::Pending);
+        assert_eq!(ex(&t, 0), CompletionStateEx::Unknown);
+        assert_eq!(ex(&t, 4), CompletionStateEx::Unknown);
+    }
+
+    #[test]
+    fn run_callbacks_calls_every_callback_once_despite_a_panic_and_returns_the_first() {
+        use std::sync::atomic::AtomicUsize;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut ready: Vec<(CompletionCallback, CompletionState)> = Vec::new();
+        for i in 0..4 {
+            let calls = Arc::clone(&calls);
+            ready.push((
+                Box::new(move |_| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    if i == 1 || i == 2 {
+                        std::panic::panic_any(i);
+                    }
+                }),
+                CompletionState::Complete,
+            ));
+        }
+        let first = run_callbacks(ready).expect("panic is returned");
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        assert_eq!(*first.downcast::<i32>().unwrap(), 1);
+    }
+
+    #[test]
+    fn discard_panic_does_not_unwind_even_if_the_payload_drop_panics() {
+        struct PanicOnDrop;
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                std::panic::panic_any(0_u8);
+            }
+        }
+        discard_panic(Box::new(PanicOnDrop));
+    }
+
+    #[test]
+    fn take_ready_keeps_pending_callbacks_and_releases_terminal_ones() {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [GroupState::Completed, GroupState::Pending] {
+            let _ = t.issue(|| Ok(g));
+        }
+        t.callbacks.push((1, Box::new(|_| {})));
+        t.callbacks.push((2, Box::new(|_| {})));
+        let ready = t.take_ready(|g| *g);
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].1, CompletionState::Complete);
+        assert_eq!(t.callbacks.len(), 1);
+    }
+
+    #[test]
+    fn a_stalled_head_stays_pending_even_if_the_group_reads_complete_afterwards() {
+        let mut t = Submissions::<GroupState>::new();
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        t.callbacks.push((2, Box::new(|_| {})));
+        // 回収の時点では 1 件目が未完了だったと見なす。
+        let calls = std::cell::Cell::new(0);
+        let first = t.reclaim(|_| {
+            calls.set(calls.get() + 1);
+            GroupState::Pending
+        });
+        assert_eq!(first, Some(1));
+        // 再読みでは完了と答えるが、止まった先頭は Pending のまま配信もされない。
+        assert_eq!(t.state_ex_of(1, |g| *g), CompletionStateEx::Pending);
+        t.callbacks.push((1, Box::new(|_| {})));
+        let ready = t.take_ready(|g| *g);
+        assert_eq!(ready.len(), 1);
+        assert_eq!(t.callbacks.len(), 1);
+        assert_eq!(t.callbacks[0].0, 1);
+        assert!(t.pending.contains_key(&1));
+    }
+
+    #[test]
+    fn take_all_callbacks_returns_every_registered_callback_once() {
+        let mut t = Submissions::<GroupState>::new();
+        t.callbacks.push((1, Box::new(|_| {})));
+        t.callbacks.push((2, Box::new(|_| {})));
+        assert_eq!(t.take_all_callbacks().len(), 2);
+        assert!(t.callbacks.is_empty());
+        assert!(t.take_all_callbacks().is_empty());
+    }
+
+    #[test]
+    fn claim_rejects_unknown_zero_and_duplicate_ids_without_changing_the_set() {
+        let open = OpenEncoders::default();
+        open.open(0);
+        open.open(5);
+        open.open(6);
+        for ids in [&[0_u64][..], &[7], &[5, 5], &[5, 7]] {
+            assert!(matches!(
+                open.claim(ids),
+                Err(ContractError::InvalidArgument(_))
+            ));
+            assert_eq!(open.lock().len(), 2);
+        }
+        assert!(open.claim(&[5, 6]).is_ok());
+        assert!(open.lock().is_empty());
+    }
+
+    #[test]
+    fn close_removes_an_open_id_and_ignores_unknown_ones() {
+        let open = OpenEncoders::default();
+        open.open(9);
+        open.close(1);
+        assert_eq!(open.lock().len(), 1);
+        open.close(9);
+        assert!(open.lock().is_empty());
+    }
+
+    #[test]
+    fn a_nonempty_wait_is_unsupported() {
+        assert!(reject_wait("submit(wait)", &[]).is_ok());
+        assert!(matches!(
+            reject_wait("submit(wait)", &[ImportedSemaphoreHandle::__backend_new(1)]),
+            Err(ContractError::Unsupported {
+                op: "submit(wait)",
+                ..
+            })
+        ));
+    }
 
     /// ドライバのライブラリが読めない環境では、`request` は panic せず `DeviceUnavailable` を返す
     /// （DEV-213）。読める環境では device に触らず戻る。
