@@ -31,6 +31,7 @@
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
 //! `layout` の写しと一緒に置く。コンパイルのオプション付きの 2 つの入力も受け付ける（TASK-774 のポインタ）。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
+//! キャッシュキーの口（`pipeline_cache_key`。TASK-501 のポインタ）は MSL の 4 つの入力でキーを返し、パイプラインを作らない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
@@ -46,9 +47,10 @@ use fandhe_silicon_core::device_lost::LostCallback;
 use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
-    __BackendSharedEncoderCloser, FunctionConstant, FunctionConstantValue, GpuTiming,
+    __BackendSharedEncoderCloser, CacheKey, FunctionConstant, FunctionConstantValue, GpuTiming,
     ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, PipelineInput, SubmitToken,
 };
+use fandhe_silicon_core::hash::sha256_u64;
 use fandhe_silicon_core::memory::validate_buffer_range;
 
 /// 部分範囲 `[offset, offset + len)` を確保長 `allocation_len` に照らし、ホストの `usize` の組にして返す。
@@ -188,6 +190,121 @@ fn compile_plan(input: &PipelineInput<'_>) -> Result<CompilePlan, ContractError>
         }),
         _ => Ok(CompilePlan::default()),
     }
+}
+
+/// `pipeline_cache_key` の `compiler_version`・`driver_version` に入れる値。
+///
+/// OS の版の文字列と device 名を NUL（`\0`）でつないだ文字列の `sha256_u64`。device にも Metal の API にも触らない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn cache_key_version(os_version: &str, device_name: &str) -> u64 {
+    sha256_u64(format!("{os_version}\0{device_name}").as_bytes())
+}
+
+/// 数学モードの語。知らない値（`#[non_exhaustive]`）は `None`。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn math_mode_word(mode: MslMathMode) -> Option<&'static str> {
+    match mode {
+        MslMathMode::Safe => Some("Safe"),
+        MslMathMode::Fast => Some("Fast"),
+        _ => None,
+    }
+}
+
+/// 浮動小数点の関数の精度の語。知らない値（`#[non_exhaustive]`）は `None`。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn float_functions_word(functions: MslFloatFunctions) -> Option<&'static str> {
+    match functions {
+        MslFloatFunctions::Fast => Some("Fast"),
+        MslFloatFunctions::Precise => Some("Precise"),
+        _ => None,
+    }
+}
+
+/// `entry=<入口名>` に、function constant ごとに `;idx=<番号>:U32(<値>)` か `;idx=<番号>:Bool(<値>)` を
+/// 渡された順に続けた文字列。知らない値の型（`#[non_exhaustive]`）を含むと `None`。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn specialization_tag(entry_point: &str, constants: &[FunctionConstant]) -> Option<String> {
+    let mut tag = format!("entry={entry_point}");
+    for c in constants {
+        let value = match c.value {
+            FunctionConstantValue::U32(v) => format!("U32({v})"),
+            FunctionConstantValue::Bool(b) => format!("Bool({b})"),
+            _ => return None,
+        };
+        tag.push_str(&format!(";idx={}:{value}", c.index));
+    }
+    Some(tag)
+}
+
+/// `pipeline_cache_key` のキーを組み立てる。device にも Metal の API にも触らない。
+///
+/// MSL の 4 つの入力（`Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions`）で `Some` を返し、
+/// ほかの入力と、知らない数学モード・関数の精度・定数の値の型を含む入力は `None` を返す。
+/// `compiler_id` は `"metal"`、`target` は `"metal-msl"`、`source_hash` はソースの `sha256_u64`。
+/// `options_hash` は、`Msl`・`MslSpecialized` が `fast-math(default)`、`MslWithOptions` が `math_mode=<語>`、
+/// `MslSpecializedWithOptions` が `math_mode=<語>;float_functions=<語>` の `sha256_u64`。
+/// `specialization_hash` は `specialization_tag` の `sha256_u64`。`compiler_version` と `driver_version` は
+/// どちらも `version`（`cache_key_version` の値）。`bounds_checked` は引数の値。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn metal_cache_key(
+    input: &PipelineInput<'_>,
+    bounds_checked: bool,
+    version: u64,
+) -> Option<CacheKey> {
+    let (source, options, specialization) = match input {
+        PipelineInput::Msl {
+            source,
+            entry_point,
+        } => (
+            *source,
+            "fast-math(default)".to_string(),
+            specialization_tag(entry_point, &[])?,
+        ),
+        PipelineInput::MslSpecialized {
+            source,
+            entry_point,
+            function_constants,
+        } => (
+            *source,
+            "fast-math(default)".to_string(),
+            specialization_tag(entry_point, function_constants)?,
+        ),
+        PipelineInput::MslWithOptions {
+            source,
+            entry_point,
+            math_mode,
+        } => (
+            *source,
+            format!("math_mode={}", math_mode_word(*math_mode)?),
+            specialization_tag(entry_point, &[])?,
+        ),
+        PipelineInput::MslSpecializedWithOptions {
+            source,
+            entry_point,
+            function_constants,
+            math_mode,
+            float_functions,
+        } => (
+            *source,
+            format!(
+                "math_mode={};float_functions={}",
+                math_mode_word(*math_mode)?,
+                float_functions_word(*float_functions)?
+            ),
+            specialization_tag(entry_point, function_constants)?,
+        ),
+        _ => return None,
+    };
+    Some(CacheKey {
+        source_hash: sha256_u64(source.as_bytes()),
+        compiler_id: "metal",
+        compiler_version: version,
+        target: "metal-msl",
+        options_hash: sha256_u64(options.as_bytes()),
+        bounds_checked,
+        specialization_hash: sha256_u64(specialization.as_bytes()),
+        driver_version: Some(version),
+    })
 }
 
 /// `layout.slots` に同じ番号が 2 つ以上あれば `InvalidArgument`（重複した最初の番号を載せる）。
@@ -1248,7 +1365,7 @@ mod imp {
         missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
         register_table, remove_issued, retire, take_next,
     };
-    use super::{MAX_FUNCTION_CONSTANT_INDEX, host_range};
+    use super::{MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range, metal_cache_key};
 
     use fandhe_silicon_core::capability::{
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
@@ -1265,9 +1382,9 @@ mod imp {
         CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
     };
     use fandhe_silicon_core::execution::{
-        __BackendSharedEncoderCloser, __backend_next_encoder_id, BindingLayout, CommandEncoder,
-        CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle, PipelineHandle,
-        PipelineInput, SubmitToken,
+        __BackendSharedEncoderCloser, __backend_next_encoder_id, BindingLayout, CacheKey,
+        CommandEncoder, CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle,
+        PipelineHandle, PipelineInput, SubmitToken,
     };
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::fault::FaultHooks;
@@ -1280,7 +1397,7 @@ mod imp {
     // コマンドラインのプログラムで `MTLCreateSystemDefaultDevice` が既定の device を返すには、
     // Core Graphics がリンクされている必要がある。参照を置いてリンクを確実にする（シンボルは使わない）。
     use objc2_core_graphics as _;
-    use objc2_foundation::NSString;
+    use objc2_foundation::{NSProcessInfo, NSString};
     use objc2_metal::{
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue, MTLCompileOptions,
         MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
@@ -2437,6 +2554,26 @@ mod imp {
             pipelines.map.insert(id, (state, layout.clone()));
             Ok(PipelineHandle::__backend_new(id, self.id))
         }
+
+        /// MSL の 4 つの入力のキャッシュキーを返す（TASK-501 のポインタ）。パイプラインは作らない。
+        ///
+        /// 欄の作り方は `metal_cache_key`。`compiler_version`・`driver_version` は、OS の版の文字列
+        /// （`NSProcessInfo` の `operatingSystemVersionString`）と device 名（`MTLDevice::name`）から作る。
+        fn pipeline_cache_key(
+            &self,
+            input: &PipelineInput<'_>,
+            bounds_checked: bool,
+        ) -> Option<CacheKey> {
+            let os_version = NSProcessInfo::processInfo()
+                .operatingSystemVersionString()
+                .to_string();
+            let device_name = self.device.name().to_string();
+            metal_cache_key(
+                input,
+                bounds_checked,
+                cache_key_version(&os_version, &device_name),
+            )
+        }
     }
 
     impl MemoryOps for MetalDevice {
@@ -2666,6 +2803,19 @@ mod imp {
         fn one_past_the_limit_is_invalid_argument() {
             let r = validate_allocation_request(LIMIT + 1, LIMIT);
             assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        }
+
+        /// キーの版の欄に使う OS の版の文字列は空でなく、2 回読んで同じ。device には触らない。
+        #[test]
+        fn os_version_string_for_the_cache_key_is_not_empty_and_stable() {
+            let read = || {
+                NSProcessInfo::processInfo()
+                    .operatingSystemVersionString()
+                    .to_string()
+            };
+            let a = read();
+            assert!(!a.is_empty());
+            assert_eq!(a, read());
         }
     }
 
@@ -5374,6 +5524,239 @@ mod precheck_tests {
         assert_eq!((prepared[0].0, prepared[0].1), (9, ConstantKind::Bool));
         assert_eq!((prepared[1].0, prepared[1].1), (0, ConstantKind::UInt));
         assert!(prepare_constants(&[]).unwrap().is_empty());
+    }
+    const KEY_VERSION: u64 = 0x1234_5678_9abc_def0;
+
+    fn key(input: &PipelineInput<'_>, bounds_checked: bool) -> CacheKey {
+        metal_cache_key(input, bounds_checked, KEY_VERSION).expect("an MSL input has a key")
+    }
+
+    fn with_options(source: &'static str, math_mode: MslMathMode) -> PipelineInput<'static> {
+        PipelineInput::MslWithOptions {
+            source,
+            entry_point: "k",
+            math_mode,
+        }
+    }
+
+    /// 同じ入力で 2 回組み立てたキーが一致する（TASK-501 のポインタ）。
+    #[test]
+    fn cache_key_is_the_same_for_the_same_input() {
+        let input = with_options("kernel void k() {}", MslMathMode::Safe);
+        assert_eq!(key(&input, true), key(&input, true));
+        assert_eq!(key(&input, false), key(&input, false));
+    }
+
+    /// 数学モード・ソース・`bounds_checked` を 1 つだけ変えると、対応する欄だけが変わる。
+    #[test]
+    fn changing_one_input_changes_only_its_field() {
+        let base = key(
+            &with_options("kernel void k() {}", MslMathMode::Safe),
+            false,
+        );
+        let fast = key(
+            &with_options("kernel void k() {}", MslMathMode::Fast),
+            false,
+        );
+        assert_ne!(base.options_hash, fast.options_hash);
+        assert_eq!(
+            CacheKey {
+                options_hash: base.options_hash,
+                ..fast
+            },
+            base
+        );
+        let other = key(
+            &with_options("kernel void k() { }", MslMathMode::Safe),
+            false,
+        );
+        assert_ne!(base.source_hash, other.source_hash);
+        assert_eq!(
+            CacheKey {
+                source_hash: base.source_hash,
+                ..other
+            },
+            base
+        );
+        let checked = key(&with_options("kernel void k() {}", MslMathMode::Safe), true);
+        assert!(checked.bounds_checked && !base.bounds_checked);
+        assert_eq!(
+            CacheKey {
+                bounds_checked: false,
+                ..checked
+            },
+            base
+        );
+    }
+
+    /// 4 つの入力の欄の値（ART-83 のポインタ）。
+    #[test]
+    fn cache_key_fields_for_each_msl_input() {
+        const SRC: &str = "kernel void k() {}";
+        let constants = [
+            FunctionConstant {
+                index: 0,
+                value: FunctionConstantValue::U32(7),
+            },
+            FunctionConstant {
+                index: 3,
+                value: FunctionConstantValue::Bool(true),
+            },
+        ];
+        let cases: [(PipelineInput<'_>, &str, &str); 5] = [
+            (
+                PipelineInput::Msl {
+                    source: SRC,
+                    entry_point: "k",
+                },
+                "fast-math(default)",
+                "entry=k",
+            ),
+            (
+                PipelineInput::MslSpecialized {
+                    source: SRC,
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                "fast-math(default)",
+                "entry=k;idx=0:U32(7);idx=3:Bool(true)",
+            ),
+            (
+                with_options(SRC, MslMathMode::Safe),
+                "math_mode=Safe",
+                "entry=k",
+            ),
+            (
+                PipelineInput::MslSpecializedWithOptions {
+                    source: SRC,
+                    entry_point: "k",
+                    function_constants: &constants,
+                    math_mode: MslMathMode::Safe,
+                    float_functions: MslFloatFunctions::Precise,
+                },
+                "math_mode=Safe;float_functions=Precise",
+                "entry=k;idx=0:U32(7);idx=3:Bool(true)",
+            ),
+            (
+                PipelineInput::MslSpecializedWithOptions {
+                    source: SRC,
+                    entry_point: "k",
+                    function_constants: &constants,
+                    math_mode: MslMathMode::Fast,
+                    float_functions: MslFloatFunctions::Fast,
+                },
+                "math_mode=Fast;float_functions=Fast",
+                "entry=k;idx=0:U32(7);idx=3:Bool(true)",
+            ),
+        ];
+        for (input, options, specialization) in &cases {
+            let k = key(input, false);
+            assert_eq!(k.compiler_id, "metal", "{input:?}");
+            assert_eq!(k.target, "metal-msl", "{input:?}");
+            assert_eq!(k.source_hash, sha256_u64(SRC.as_bytes()), "{input:?}");
+            assert_eq!(k.options_hash, sha256_u64(options.as_bytes()), "{input:?}");
+            assert_eq!(
+                k.specialization_hash,
+                sha256_u64(specialization.as_bytes()),
+                "{input:?}"
+            );
+            assert_eq!(k.compiler_version, KEY_VERSION, "{input:?}");
+            assert_eq!(k.driver_version, Some(KEY_VERSION), "{input:?}");
+        }
+    }
+
+    /// `MslSpecializedWithOptions` のキーは、ほかの 3 つの入力のキーと別で、関数の精度だけを変えても別になる。
+    #[test]
+    fn specialized_with_options_keys_do_not_mix_with_other_inputs() {
+        const SRC: &str = "kernel void k() {}";
+        let swo = |math_mode, float_functions| {
+            key(
+                &PipelineInput::MslSpecializedWithOptions {
+                    source: SRC,
+                    entry_point: "k",
+                    function_constants: &[],
+                    math_mode,
+                    float_functions,
+                },
+                false,
+            )
+        };
+        let others = [
+            key(
+                &PipelineInput::Msl {
+                    source: SRC,
+                    entry_point: "k",
+                },
+                false,
+            ),
+            key(
+                &PipelineInput::MslSpecialized {
+                    source: SRC,
+                    entry_point: "k",
+                    function_constants: &[],
+                },
+                false,
+            ),
+            key(&with_options(SRC, MslMathMode::Safe), false),
+            key(&with_options(SRC, MslMathMode::Fast), false),
+        ];
+        for mode in [MslMathMode::Safe, MslMathMode::Fast] {
+            let precise = swo(mode, MslFloatFunctions::Precise);
+            let fast = swo(mode, MslFloatFunctions::Fast);
+            assert_ne!(precise, fast, "{mode:?}");
+            for other in &others {
+                assert_ne!(&precise, other, "{mode:?}");
+                assert_ne!(&fast, other, "{mode:?}");
+            }
+        }
+    }
+
+    /// MSL でない入力にはキーが無い。
+    #[test]
+    fn non_msl_inputs_have_no_cache_key() {
+        let inputs = [
+            PipelineInput::SpirV {
+                words: &[],
+                entry_point: "k",
+            },
+            PipelineInput::CudaC {
+                source: "",
+                entry_point: "k",
+            },
+            PipelineInput::Ptx {
+                source: "",
+                entry_point: "k",
+            },
+            PipelineInput::Dxil {
+                bytes: &[],
+                entry_point: "k",
+            },
+            PipelineInput::Wgsl {
+                source: "",
+                entry_point: "k",
+            },
+        ];
+        for input in &inputs {
+            assert!(
+                metal_cache_key(input, false, KEY_VERSION).is_none(),
+                "{input:?}"
+            );
+        }
+    }
+
+    /// 版の欄の値は、OS の版の文字列と device 名を NUL でつないだ文字列の `sha256_u64`。
+    #[test]
+    fn cache_key_version_joins_os_version_and_device_name_with_nul() {
+        assert_eq!(cache_key_version("os", "gpu"), sha256_u64(b"os\0gpu"));
+        assert_ne!(
+            cache_key_version("os", "gpu"),
+            cache_key_version("os2", "gpu")
+        );
+        assert_ne!(
+            cache_key_version("os", "gpu"),
+            cache_key_version("os", "gpu2")
+        );
+        assert_ne!(cache_key_version("a", "bc"), cache_key_version("ab", "c"));
     }
 }
 
