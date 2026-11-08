@@ -3487,6 +3487,88 @@ mod device_tests {
         assert_eq!(d.test_open_encoder_count(), 0);
         assert_eq!(other.test_open_encoder_count(), 0);
     }
+
+    /// 模擬のロストを device で起こす試験（TASK-2934）。
+    #[cfg(feature = "fault-injection")]
+    mod lost {
+        use super::*;
+        use fandhe_silicon_core::fault::{HookFault, inject};
+
+        /// 理由ごとに、コールバックは 1 回だけ呼ばれ、世代は 1 回だけ進む。2 回目のロストは何も変えない。
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn each_reason_reaches_the_callback_once_and_the_generation_moves_once() {
+            for reason in [
+                DeviceLostReason::Destroyed,
+                DeviceLostReason::Unknown,
+                DeviceLostReason::ValidationError("v".into()),
+            ] {
+                let d = device();
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&seen);
+                d.set_lost_callback(Box::new(move |r| sink.lock().unwrap().push(r)));
+                let before = d.generation();
+                inject(d.fault_hooks(), HookFault::DeviceLost(reason.clone())).expect("first loss");
+                let after = d.generation();
+                assert!(after > before);
+                assert!(d.lost.is_lost());
+                assert_eq!(*seen.lock().unwrap(), vec![reason]);
+
+                inject(
+                    d.fault_hooks(),
+                    HookFault::DeviceLost(DeviceLostReason::Unknown),
+                )
+                .expect("second loss");
+                assert_eq!(d.generation(), after);
+                assert_eq!(seen.lock().unwrap().len(), 1);
+            }
+        }
+
+        /// ロストの前のハンドルは使えないが、`free` で表から 1 回だけ外れ、写しの `free` は何も変えない。
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn a_handle_from_before_the_loss_can_still_be_freed_once() {
+            let d = device();
+            let h = d.allocate(64, BufferUsage::empty()).expect("allocate");
+            inject(
+                d.fault_hooks(),
+                HookFault::DeviceLost(DeviceLostReason::Unknown),
+            )
+            .expect("loss");
+            assert!(d.upload(&h, 0, &[1]).is_err());
+            assert_eq!(d.lock().map.len(), 1);
+
+            let again = BufferHandle::__backend_new(
+                h.__backend_generation(),
+                h.__backend_id(),
+                h.__backend_device_id(),
+                64,
+                BufferUsage::empty(),
+            );
+            d.free(h);
+            assert_eq!(d.lock().map.len(), 0);
+            d.free(again);
+            assert_eq!(d.lock().map.len(), 0);
+        }
+
+        /// ロストの前の印は、`poll` で `Lost` になり、`on_complete` は `Lost` を 1 回渡す。
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn a_token_from_before_the_loss_polls_and_completes_as_lost() {
+            let d = device();
+            let token = d.submit(d.create_encoder(), &[]).expect("submit");
+            inject(
+                d.fault_hooks(),
+                HookFault::DeviceLost(DeviceLostReason::Unknown),
+            )
+            .expect("loss");
+            assert_eq!(d.poll(token), CompletionState::Lost);
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            d.on_complete(token, Box::new(move |s| sink.lock().unwrap().push(s)));
+            assert_eq!(*seen.lock().unwrap(), vec![CompletionState::Lost]);
+        }
+    }
 }
 
 /// CUDA の device に触る、バッファの再利用とゼロ化の試験。device の無い環境では流さない。
