@@ -122,3 +122,12 @@ TASK-2956 の 3/3（#7589）として、本リポで観測できる事実だけ�
 ## 今の値の補い（base 6b35dd9）
 
 上の表の項目 4 の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が `:177`・`:505`、`make build-profiles` が `:181`・`:508` である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
+
+## 今の値の補い（base d533488）
+
+上の表の項目 3 と「Metal の上書き（2/3）」の表の行頭の `#[ignore` の件数、完了の条件の確かめの項目 7 の `[[approval]]` の件数は記録時点の値で、書き換えない。今の値は次のとおり。
+
+| 場所 | 記録時点 | 今 | 数えたコマンド |
+| ---- | -------- | -- | -------------- |
+| 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 51 | 52 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
+| `deps-approved.toml` の `[[approval]]` | 4 | 5（`cudarc` を含む） | `grep -c '^\[\[approval\]\]' deps-approved.toml` |
