@@ -9,8 +9,11 @@
 //!
 //! `CudaDeviceProvider` は CUDA の `DeviceProvider` の入口で、device を作る前に要求を検査し、
 //! 通れば device を作る（TASK-160 のポインタ）。
+//!
+//! `CudaDevice` は `ComputeOps` を実装し、パイプラインの生成の口 `create_pipeline` を持つ
+//! （TASK-803 のポインタ）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -27,8 +30,9 @@ use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
 use fandhe_silicon_core::execution::{
-    __backend_next_encoder_id, Binding, CommandEncoder, CommandQueue, ConstantBinding,
-    ImportedSemaphoreHandle, PipelineHandle, SubmitToken, ThreadgroupMemory,
+    __backend_next_encoder_id, Binding, BindingLayout, CommandEncoder, CommandQueue, ComputeOps,
+    ConstantBinding, ImportedSemaphoreHandle, PipelineHandle, PipelineInput, SubmitToken,
+    ThreadgroupMemory,
 };
 use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
@@ -328,6 +332,77 @@ fn guard_memory_panic<T>(
     })
 }
 
+/// `create_pipeline` の入力を分類し、受け付ける CUDA C のソースと入口名を返す。
+/// device にも下位の API にも触らない。`ComputeOps::create_pipeline` から最初に呼ばれる。
+fn classify_pipeline_input<'a>(
+    input: &PipelineInput<'a>,
+) -> Result<(&'a str, &'a str), ContractError> {
+    let variant = match input {
+        PipelineInput::CudaC {
+            source,
+            entry_point,
+        } => return Ok((source, entry_point)),
+        PipelineInput::Ptx { .. } | PipelineInput::Wgsl { .. } => {
+            return Err(ContractError::Unsupported {
+                op: "create_pipeline",
+                backend: BACKEND,
+            });
+        }
+        PipelineInput::Msl { .. } => "Msl",
+        PipelineInput::SpirV { .. } => "SpirV",
+        PipelineInput::Dxil { .. } => "Dxil",
+        PipelineInput::MslSpecialized { .. } => "MslSpecialized",
+        PipelineInput::MslWithOptions { .. } => "MslWithOptions",
+        PipelineInput::MslSpecializedWithOptions { .. } => {
+            "MslSpecializedWithOptions (accepted only by the Metal backend)"
+        }
+        _ => {
+            return Err(ContractError::Unsupported {
+                op: "create_pipeline",
+                backend: BACKEND,
+            });
+        }
+    };
+    Err(ContractError::ArtifactRejected {
+        kind: "unsupported-input",
+        reason: format!(
+            "pipeline input {variant} is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
+        ),
+    })
+}
+
+/// `layout.slots` に重複した番号が無いことを照らす。最初に重複した番号で `InvalidArgument`。
+/// `create_pipeline` が入力の分類の次に呼ぶ。
+fn check_unique_slots(slots: &[u32]) -> Result<(), ContractError> {
+    let mut seen = HashSet::new();
+    for &slot in slots {
+        if !seen.insert(slot) {
+            return Err(ContractError::InvalidArgument(format!(
+                "duplicate slot in binding layout: {slot}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// ソースと入口名に NUL のバイトが無いことを照らす。下位の API へ文字列を渡す前の検査で、
+/// `create_pipeline` が最後に呼ぶ。ソースを先に見る。
+fn check_no_nul(source: &str, entry_point: &str) -> Result<(), ContractError> {
+    if source.contains('\0') {
+        return Err(ContractError::ArtifactRejected {
+            kind: "cuda-c",
+            reason: "CUDA C source contains a NUL byte".to_string(),
+        });
+    }
+    if entry_point.contains('\0') {
+        return Err(ContractError::ArtifactRejected {
+            kind: "function",
+            reason: "entry point contains a NUL byte".to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
 #[derive(Default)]
 struct Buffers {
@@ -569,6 +644,24 @@ impl MemoryOps for CudaDevice {
     }
 }
 
+impl ComputeOps for CudaDevice {
+    /// 入力の分類、`slots` の重複、NUL のバイトの順に照らし、最初に当たったものを返す。
+    /// 検査を通った入力には `Unsupported` を返す。
+    fn create_pipeline(
+        &self,
+        input: PipelineInput<'_>,
+        layout: &BindingLayout,
+    ) -> Result<PipelineHandle, ContractError> {
+        let (source, entry_point) = classify_pipeline_input(&input)?;
+        check_unique_slots(&layout.slots)?;
+        check_no_nul(source, entry_point)?;
+        Err(ContractError::Unsupported {
+            op: "create_pipeline",
+            backend: BACKEND,
+        })
+    }
+}
+
 impl CommandQueue for CudaDevice {
     fn create_encoder(&self) -> CommandEncoder {
         CommandEncoder::__backend_new(__backend_next_encoder_id().unwrap_or(0), None)
@@ -701,6 +794,101 @@ mod tests {
         assert!(matches!(
             read_attributes(ok_name, ok_cap, || Err("x")),
             Err(ContractError::DeviceUnavailable(_))
+        ));
+    }
+
+    /// 入力の分類: `CudaC` だけが通り、ほかは `Unsupported` か `ArtifactRejected` になる。
+    #[test]
+    fn only_cuda_c_is_accepted_and_other_inputs_are_classified() {
+        use fandhe_silicon_core::execution::{MslFloatFunctions, MslMathMode};
+        let ok = classify_pipeline_input(&PipelineInput::CudaC {
+            source: "s",
+            entry_point: "e",
+        });
+        assert!(matches!(ok, Ok(("s", "e"))));
+        for input in [
+            PipelineInput::Ptx {
+                source: "p",
+                entry_point: "e",
+            },
+            PipelineInput::Wgsl {
+                source: "w",
+                entry_point: "e",
+            },
+        ] {
+            assert!(matches!(
+                classify_pipeline_input(&input),
+                Err(ContractError::Unsupported {
+                    op: "create_pipeline",
+                    backend: BackendKind::Cuda
+                })
+            ));
+        }
+        for input in [
+            PipelineInput::Msl {
+                source: "m",
+                entry_point: "e",
+            },
+            PipelineInput::SpirV {
+                words: &[],
+                entry_point: "e",
+            },
+            PipelineInput::Dxil {
+                bytes: &[],
+                entry_point: "e",
+            },
+            PipelineInput::MslSpecialized {
+                source: "m",
+                entry_point: "e",
+                function_constants: &[],
+            },
+            PipelineInput::MslWithOptions {
+                source: "m",
+                entry_point: "e",
+                math_mode: MslMathMode::Fast,
+            },
+            PipelineInput::MslSpecializedWithOptions {
+                source: "m",
+                entry_point: "e",
+                function_constants: &[],
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Precise,
+            },
+        ] {
+            assert!(matches!(
+                classify_pipeline_input(&input),
+                Err(ContractError::ArtifactRejected {
+                    kind: "unsupported-input",
+                    ..
+                })
+            ));
+        }
+    }
+
+    /// `slots` の重複は `InvalidArgument`（BIND-3）。
+    #[test]
+    fn duplicate_slots_are_invalid_argument() {
+        assert!(check_unique_slots(&[]).is_ok());
+        assert!(check_unique_slots(&[0, 1, 4]).is_ok());
+        assert!(matches!(
+            check_unique_slots(&[0, 1, 0]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn nul_bytes_are_rejected_before_compilation() {
+        assert!(check_no_nul("a", "b").is_ok());
+        assert!(matches!(
+            check_no_nul("a\0", "b"),
+            Err(ContractError::ArtifactRejected { kind: "cuda-c", .. })
+        ));
+        assert!(matches!(
+            check_no_nul("a", "b\0"),
+            Err(ContractError::ArtifactRejected {
+                kind: "function",
+                ..
+            })
         ));
     }
 }
