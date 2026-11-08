@@ -872,6 +872,18 @@ impl CudaDevice {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// 試験専用。投入に成功した回数の通算。
+    #[cfg(test)]
+    fn test_submitted_count(&self) -> u64 {
+        self.lock_submissions().next_sequence - 1
+    }
+
+    /// 試験専用。開いている記録先の数。
+    #[cfg(test)]
+    fn test_open_encoder_count(&self) -> usize {
+        self.open.lock().len()
+    }
+
     /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
     ///
     /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
@@ -2071,5 +2083,39 @@ mod device_tests {
             "compute_capability={}.{}",
             d.compute_capability.0, d.compute_capability.1
         );
+    }
+
+    /// 記録先を作って捨てても、開いている数は戻り、投入は 0 回のまま。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dropping_an_encoder_closes_it_and_submits_nothing() {
+        let d = device();
+        let encoder = d.create_encoder();
+        assert_eq!(d.test_open_encoder_count(), 1);
+        drop(encoder);
+        assert_eq!(d.test_open_encoder_count(), 0);
+        assert_eq!(d.test_submitted_count(), 0);
+    }
+
+    /// 拒まれた投入は、投入の回数も開いている記録先の数も変えない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn rejected_submissions_do_not_change_the_submitted_count() {
+        let d = device();
+        let other = device();
+        assert!(matches!(
+            d.submit(other.create_encoder(), &[]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            d.submit(
+                d.create_encoder(),
+                &[ImportedSemaphoreHandle::__backend_new(1)]
+            ),
+            Err(ContractError::Unsupported { .. })
+        ));
+        assert_eq!(d.test_submitted_count(), 0);
+        assert_eq!(d.test_open_encoder_count(), 0);
+        assert_eq!(other.test_open_encoder_count(), 0);
     }
 }
