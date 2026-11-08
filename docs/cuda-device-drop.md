@@ -73,9 +73,50 @@ make doctest-error-code-check
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 ```
 
+## 明示の破棄（3/5）
+
+| 項目 | 内容 |
+| ---- | ---- |
+| 実装 | `crates/contract/src/backend_cuda.rs` の `impl Device for CudaDevice` の `destroy` と、順を受け持つ私的な関数 `destroy_in_order` |
+| cfg | `backend-cuda` かつ `not(target_arch = "wasm32")` |
+| 試験 | 同ファイルの `mod teardown_tests` |
+
+`destroy` の順は次のとおり。
+
+| 順 | 動き |
+| -- | ---- |
+| 1 | 登録済みの完了の callback を待たずに `Lost` で呼び切る |
+| 2 | stream を同期する |
+| 3 | ロストの通知。`fault-injection` のビルドだけで、`Destroyed` で 1 回。先にロストしていれば呼ばない |
+| 4 | 解放（2/5 の `Drop` の流れ） |
+
+panic は最初の 1 つ（完了の callback のもの。無ければ通知のもの）を、解放の後に再送出する。
+
+`Drop` との違いは次のとおり。
+
+| 項目 | `Drop` | `destroy` |
+| ---- | ------ | --------- |
+| ロストの通知 | 呼ばない | `fault-injection` のビルドで 1 回 |
+| callback の値 | 同期の結果に応じた値 | `Lost` |
+| panic | 外へ出さない | 最初の 1 つを再送出する |
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `destroy_steps_run_in_order` | 4 つの段が `flush`・`sync`・`notify`・`release` の順に 1 回ずつ呼ばれる |
+| `destroy_steps_return_the_first_panic_after_release` | 2 つの段が panic の中身を返すと、解放の後に最初の段のものを返す |
+| `destroy_steps_return_the_notify_panic_when_flush_has_none` | 最初の段に panic が無ければ、通知の段のものを返す |
+
+確かめ方:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib backend_cuda
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | device の明示の破棄の口 | #3854 |
 | 2/5 | `Drop` の同期と解放 | #3855 |
+| 3/5 | 明示の破棄 | #3856 |
