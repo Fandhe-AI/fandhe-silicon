@@ -71,6 +71,12 @@ fn rows_follow_the_compute_capability_and_the_attribute() {
                 unsupported_reason: Some(UnsupportedReason::NotSupported),
                 evidence: Some(CapabilityEvidence::RuntimeApi),
             },
+        || m == CapabilityQuery {
+            // 属性の読み取りに失敗した device では、この機能だけ `S0`（理由・根拠なし）になる。
+            level: CapabilityLevel::S0,
+            unsupported_reason: None,
+            evidence: None,
+        },
         "{m:?}"
     );
 }
@@ -83,7 +89,10 @@ fn every_key_passes_the_common_rules_without_s0() {
     for &key in FEATURE_QUERY_KEYS {
         let q = check_query_ex(device.as_ref(), key).expect("common rules");
         assert_eq!(device.query(key), q.level, "{key:?}");
-        assert_ne!(q.level, CapabilityLevel::S0, "{key:?}");
+        // ホストメモリのマップの属性の読み取りに失敗した device では、その機能だけ `S0` が正規の値。
+        if key != FEATURE_MAPPABLE_PRIMARY_BUFFERS {
+            assert_ne!(q.level, CapabilityLevel::S0, "{key:?}");
+        }
         println!(
             "query: feature={} level={:?} reason={:?} evidence={:?}",
             key.0, q.level, q.unsupported_reason, q.evidence
