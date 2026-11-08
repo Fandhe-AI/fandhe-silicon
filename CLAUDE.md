@@ -68,7 +68,7 @@ fandhe-silicon/
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-769）
 ├── docs/compute-encoder-lifetime-check.md  # compute の記録先の借用の寿命と定数の渡し方の試験の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d）（TASK-772）
-├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）（TASK-2956）
+├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488）（TASK-2956）
 ├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）（TASK-150）
 ├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い・今の値の補い（base 2f36d3d）（TASK-837）
@@ -172,7 +172,7 @@ fandhe-silicon/
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
 ├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）（TASK-1082）
-├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験（TASK-317）
+├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）（TASK-317）
 ├── docs/metal-compile-options.md  # Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）
 ├── docs/cuda-command-submit.md  # CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）
