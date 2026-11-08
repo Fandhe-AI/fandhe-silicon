@@ -84,6 +84,68 @@ device に触らない試験で、同じファイルの `tests` module にある
 
 確かめ方（device を使わない）: `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --test backend_cuda_capability` が `0 passed; 0 failed; 2 ignored` で終わること。
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-175。ポインタのみ）。
+
+時点のコミット: `49185a2`
+`docs/spec` の gitlink: `f50c86bf8919b4ee68e62948491886fb25c9ae12`（`git ls-tree origin/main docs/spec`）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `query`・`query_ex` が捕捉した値と表から答える | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`（`threshold_rows_follow_the_compute_capability`・`a_rule_below_its_threshold_is_not_supported`・`mappable_follows_the_attribute_and_is_s0_when_unread` を含む） | 44 passed; 0 failed; 11 ignored、終了コード 0 |
+| 2 | 属性の読み取りの失敗で `S0`、真で `S2`・偽で `Unsupported` | 同じコマンドの `backend_cuda::tests::mappable_follows_the_attribute_and_is_s0_when_unread` | `ok` |
+| 3 | `S3` 以上を返さない | 同じコマンドの `backend_cuda::tests::no_key_returns_s3_or_above`、`grep -c 'CapabilityLevel::S[3-6]' crates/contract/src/backend_cuda.rs` | `ok`、grep の件数 0 |
+| 4 | 共通の規則の検査を表が通る | `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --lib backend_cuda`（`table_passes_the_common_checks` を含む） | 45 passed; 0 failed; 11 ignored、終了コード 0 |
+| 5 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --test backend_cuda_capability` | 0 passed; 0 failed; 2 ignored、終了コード 0 |
+| 6 | unsafe・依存 | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count`、`git diff 8e32db0 origin/main --stat -- Cargo.toml crates/contract/Cargo.toml Cargo.lock deps-approved.toml`、`make deps-check`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | 1 passed、差分は `crates/contract/Cargo.toml` の 4 行（`[[test]]` の 1 ブロック）だけ、`deps-check` は終了コード 0、件数 5 |
+| 7 | 公開 API | `make public-api-check`、`make public-api-sdk-check`、`make public-name-check` | 3 つとも終了コード 0。`wgpu_type_refs_total=0`、`sdk_type_refs_total=0`、`name_hits_total=0` |
+| 8 | CI で流れる場所 | `grep -n 'all-features' scripts/verify.sh`、`grep -n 'backend-cuda' scripts/build-profiles.sh`、`gh run view 42495199336 --json conclusion,headSha,jobs`（main の push の run） | `verify.sh` が `cargo test --workspace --all-features` を流す。`build-profiles.sh` に `backend-cuda`・`backend-cuda,test-support` の組がある。conclusion success、headSha `49185a2513f3ac9e2299c3ad9eaa3463b84ba558`、`make verify (fmt + clippy + test)` success、`make verify + build-profiles (macos-latest)` success、`make deny (cargo-deny)` success |
+
+(1)・(2)・(3) の出力。
+
+```text
+running 55 tests
+test backend_cuda::tests::a_rule_below_its_threshold_is_not_supported ... ok
+test backend_cuda::tests::no_key_returns_s3_or_above ... ok
+test backend_cuda::tests::mappable_follows_the_attribute_and_is_s0_when_unread ... ok
+test backend_cuda::tests::threshold_rows_follow_the_compute_capability ... ok
+test result: ok. 44 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+running 56 tests
+test backend_cuda::tests::no_key_returns_s3_or_above ... ok
+test backend_cuda::tests::table_passes_the_common_checks ... ok
+test result: ok. 45 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(5) の出力。
+
+```text
+running 2 tests
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(6) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+5
+```
+
+(7) の出力。
+
+```text
+record: commit=49185a2513f3ac9e2299c3ad9eaa3463b84ba558 documents=10 public_items_total=16071 wgpu_type_refs_total=0 wgpu_other_refs_total=0
+record: commit=49185a2513f3ac9e2299c3ad9eaa3463b84ba558 documents=10 public_items_total=13838 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+record: commit=49185a2513f3ac9e2299c3ad9eaa3463b84ba558 documents=10 public_items_total=13838 name_hits_total=0 sources=1 source_hits_total=0 field_specs=1 field_hits_total=0
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
