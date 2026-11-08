@@ -2674,7 +2674,9 @@ mod imp {
     mod device_tests {
         use super::*;
         use crate::backend_metal::POOL_MAX_ENTRIES;
-        use fandhe_silicon_core::execution::{FunctionConstant, FunctionConstantValue};
+        use fandhe_silicon_core::execution::{
+            FunctionConstant, FunctionConstantValue, MslFloatFunctions, MslMathMode,
+        };
 
         fn new_device() -> MetalDevice {
             // 具体型で数の口を読むため、`request_with` を通さず同じ手順で作る。
@@ -3272,6 +3274,198 @@ mod imp {
                 matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
                 "{r:?}"
             );
+        }
+
+        /// 8×8×8 の f32 の GEMM（1 スレッドが出力の 1 要素を k の昇順の `fma` で求める）。
+        const GEMM_8X8X8: &str = "#include <metal_stdlib>\n\
+            using namespace metal;\n\
+            kernel void gemm8(device const float* a [[buffer(0)]],\n\
+                            device const float* b [[buffer(1)]],\n\
+                            device float* c [[buffer(2)]],\n\
+                            uint2 gid [[thread_position_in_grid]]) {\n\
+                if (gid.x >= 8 || gid.y >= 8) { return; }\n\
+                float acc = 0.0f;\n\
+                for (uint k = 0; k < 8; ++k) { acc = fma(a[gid.y * 8 + k], b[k * 8 + gid.x], acc); }\n\
+                c[gid.y * 8 + gid.x] = acc;\n\
+            }\n";
+
+        fn msl_with_options(source: &str, mode: MslMathMode) -> PipelineInput<'_> {
+            PipelineInput::MslWithOptions {
+                source,
+                entry_point: "gemm8",
+                math_mode: mode,
+            }
+        }
+
+        /// TASK-774 のポインタ（COMP-99）。同じ GEMM のソースが `Safe` と `Fast` の `MslWithOptions` で
+        /// それぞれ `Ok(PipelineHandle)` になり、別の識別子で表に入る。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn msl_with_options_safe_and_fast_are_created() {
+            let device = new_device();
+            let layout = BindingLayout::new(vec![0, 1, 2]);
+            let safe = device
+                .create_pipeline(msl_with_options(GEMM_8X8X8, MslMathMode::Safe), &layout)
+                .expect("safe");
+            let fast = device
+                .create_pipeline(msl_with_options(GEMM_8X8X8, MslMathMode::Fast), &layout)
+                .expect("fast");
+            assert_eq!(safe.__backend_device_id(), device.id);
+            assert_eq!(fast.__backend_device_id(), device.id);
+            assert_ne!(safe.__backend_id(), fast.__backend_id());
+            assert_eq!(device.lock_pipelines().map.len(), 2);
+        }
+
+        /// TASK-774 のポインタ（COMP-20）。function constant・数学モード・関数の精度を同時に指定した
+        /// `MslSpecializedWithOptions` が、数学モード 2 値 × 関数の精度 2 値のすべてで `Ok` になる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn msl_specialized_with_options_is_created_for_every_mode_and_function_choice() {
+            let device = new_device();
+            let constants = [
+                FunctionConstant {
+                    index: 0,
+                    value: FunctionConstantValue::U32(7),
+                },
+                FunctionConstant {
+                    index: 1,
+                    value: FunctionConstantValue::Bool(false),
+                },
+            ];
+            for mode in [MslMathMode::Safe, MslMathMode::Fast] {
+                for functions in [MslFloatFunctions::Fast, MslFloatFunctions::Precise] {
+                    let r = device.create_pipeline(
+                        PipelineInput::MslSpecializedWithOptions {
+                            source: SPECIALIZED_KERNEL,
+                            entry_point: "k",
+                            function_constants: &constants,
+                            math_mode: mode,
+                            float_functions: functions,
+                        },
+                        &BindingLayout::new(vec![0]),
+                    );
+                    assert!(r.is_ok(), "{mode:?} {functions:?}: {r:?}");
+                }
+            }
+            assert_eq!(device.lock_pipelines().map.len(), 4);
+        }
+
+        /// オプション付きの入力でも、文法の誤りと存在しない入口名は `ArtifactRejected { kind: "msl" }`。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn invalid_msl_with_options_is_artifact_rejected() {
+            let device = new_device();
+            for mode in [MslMathMode::Safe, MslMathMode::Fast] {
+                let r = device.create_pipeline(
+                    msl_with_options("kernel void gemm8( {", mode),
+                    &BindingLayout::new(vec![]),
+                );
+                assert!(
+                    matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                    "{r:?}"
+                );
+                let r = device.create_pipeline(
+                    PipelineInput::MslWithOptions {
+                        source: GEMM_8X8X8,
+                        entry_point: "no_such_entry",
+                        math_mode: mode,
+                    },
+                    &BindingLayout::new(vec![]),
+                );
+                assert!(
+                    matches!(r, Err(ContractError::ArtifactRejected { kind: "msl", .. })),
+                    "{r:?}"
+                );
+            }
+            assert!(device.lock_pipelines().map.is_empty());
+        }
+
+        /// 必須の定数を持つカーネルは、定数が空の `MslSpecializedWithOptions` でも `MslWithOptions` でも拒まれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn option_inputs_without_a_required_constant_are_artifact_rejected() {
+            let device = new_device();
+            let specialized = device.create_pipeline(
+                PipelineInput::MslSpecializedWithOptions {
+                    source: SPECIALIZED_KERNEL,
+                    entry_point: "k",
+                    function_constants: &[],
+                    math_mode: MslMathMode::Safe,
+                    float_functions: MslFloatFunctions::Precise,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(
+                matches!(
+                    specialized,
+                    Err(ContractError::ArtifactRejected { kind: "msl", .. })
+                ),
+                "{specialized:?}"
+            );
+            let plain = device.create_pipeline(
+                PipelineInput::MslWithOptions {
+                    source: SPECIALIZED_KERNEL,
+                    entry_point: "k",
+                    math_mode: MslMathMode::Safe,
+                },
+                &BindingLayout::new(vec![0]),
+            );
+            assert!(
+                matches!(
+                    plain,
+                    Err(ContractError::ArtifactRejected { kind: "msl", .. })
+                ),
+                "{plain:?}"
+            );
+        }
+
+        /// オプション付きの入力でも、重複した slot・重複した定数・範囲外の定数の番号は、Metal を呼ぶ前に
+        /// `InvalidArgument` で拒まれ、表に何も入らない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn option_inputs_reject_duplicate_slots_and_bad_constants_before_compiling() {
+            let device = new_device();
+            let r = device.create_pipeline(
+                msl_with_options(GEMM_8X8X8, MslMathMode::Safe),
+                &BindingLayout::new(vec![0, 1, 0]),
+            );
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            let bad = [
+                [
+                    FunctionConstant {
+                        index: 0,
+                        value: FunctionConstantValue::U32(1),
+                    },
+                    FunctionConstant {
+                        index: 0,
+                        value: FunctionConstantValue::U32(2),
+                    },
+                ],
+                [
+                    FunctionConstant {
+                        index: 65536,
+                        value: FunctionConstantValue::U32(1),
+                    },
+                    FunctionConstant {
+                        index: 1,
+                        value: FunctionConstantValue::Bool(true),
+                    },
+                ],
+            ];
+            for constants in &bad {
+                let r = device.create_pipeline(
+                    PipelineInput::MslSpecializedWithOptions {
+                        source: SPECIALIZED_KERNEL,
+                        entry_point: "k",
+                        function_constants: constants,
+                        math_mode: MslMathMode::Safe,
+                        float_functions: MslFloatFunctions::Precise,
+                    },
+                    &BindingLayout::new(vec![0]),
+                );
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            }
+            assert!(device.lock_pipelines().map.is_empty());
         }
 
         /// 重複した slot は Metal を呼ぶ前に `InvalidArgument` で拒まれ、表に何も入らない。

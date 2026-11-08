@@ -45,8 +45,29 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | `classify_marks_wgsl_unsupported`・`classify_rejects_other_languages_and_names_the_variant` | `Wgsl` の `Unsupported` と理由の文 | 同上 |
 | `compile_options_tests`（2 本） | 計画がオプションに書かれ、言語版が変わらないこと。device に触らない。macOS だけ | macOS で `cargo test -p fandhe-silicon-contract --features backend-metal --lib compile_options_tests` |
 
+## device の要る生成の試験（2/3）
+
+`create_pipeline` にオプション付きの入力を渡す試験を、device に触る試験として `#[ignore]` 付きで足している。通常の `cargo test` では流れない。dispatch・投入・出力の読み出しは行わず、生成の成否と表の件数だけを見る。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `msl_with_options_safe_and_fast_are_created` | 同じソースの `MslWithOptions`（`Safe`・`Fast`） | どちらも `Ok`。device の識別子が入り、`__backend_id()` が違い、表に 2 件 |
+| `msl_specialized_with_options_is_created_for_every_mode_and_function_choice` | `MslSpecializedWithOptions`（数学モード 2 値 × 関数の精度 2 値、定数 2 個） | 4 つとも `Ok`、表に 4 件 |
+| `invalid_msl_with_options_is_artifact_rejected` | 文法の誤りと存在しない入口名（`Safe`・`Fast`） | `ArtifactRejected { kind: "msl" }`、表は空 |
+| `option_inputs_without_a_required_constant_are_artifact_rejected` | 必須の定数を持つソースに、定数が空の `MslSpecializedWithOptions` と `MslWithOptions` | `ArtifactRejected { kind: "msl" }` |
+| `option_inputs_reject_duplicate_slots_and_bad_constants_before_compiling` | 重複した slot、重複した定数の番号、範囲外（65536）の番号 | `InvalidArgument`、表は空 |
+| `option_inputs_reach_create_pipeline_through_the_public_device`（`tests/backend_metal_device.rs`） | 公開の `Device` の `compute()` から `MslWithOptions`（`Safe`・`Fast`）と `MslSpecializedWithOptions`（`Safe`・`Precise`、定数 1 個） | すべて `Ok` |
+
+device の試験の枠で流すときのコマンドの形:
+
+```text
+cargo test -p fandhe-silicon-contract --features backend-metal --lib -- --ignored <試験の名前>
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device -- --ignored option_inputs_reach_create_pipeline_through_the_public_device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | オプション付きの入力の生成 | #5627 |
+| 2/3 | device の要る生成の試験 | #5628 |
