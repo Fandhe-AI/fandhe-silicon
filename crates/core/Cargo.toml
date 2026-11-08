@@ -395,3 +395,7 @@ required-features = ["test-support"]
 [[test]]
 name = "ptx_search"
 required-features = ["test-support"]
+
+[[example]]
+name = "ptx_search_lines"
+required-features = ["test-support"]

@@ -188,6 +188,56 @@ impl SearchReport {
     }
 }
 
+/// [`SearchReport`] を `key=value` の 1 行ずつの文字列の列にする。example `ptx_search_lines` が標準出力へ出す。
+///
+/// 並びは次のとおり。
+/// 1. 関数ごと（`units` の順）に `unit=<entry|func>:<name> instructions=<n>` を 1 行、続けてその関数の
+///    パターンごと（`counts` の順）に `unit=<entry|func>:<name> pattern=<id> count=<n> opcodes=<opcode>:<n>,…`
+///    を 1 行。当たった opcode が無ければ `opcodes=-`。
+/// 2. パターンごと（先頭の関数の `counts` の順）に `total pattern=<id> count=<n>`。和が無いかあふれたときは `count=-`。
+///    関数が無ければこの行は出さない。
+/// 3. 本文の無い関数ごと（`declarations` の順）に `declaration=<name>`。
+pub fn report_lines(report: &SearchReport) -> Vec<String> {
+    let mut lines = Vec::new();
+    for u in &report.units {
+        let kind = match u.kind {
+            UnitKind::Entry => "entry",
+            UnitKind::Func => "func",
+        };
+        lines.push(format!(
+            "unit={kind}:{} instructions={}",
+            u.name, u.instructions
+        ));
+        for c in &u.counts {
+            let opcodes = if c.opcodes.is_empty() {
+                "-".to_string()
+            } else {
+                c.opcodes
+                    .iter()
+                    .map(|(op, n)| format!("{op}:{n}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            lines.push(format!(
+                "unit={kind}:{} pattern={} count={} opcodes={opcodes}",
+                u.name, c.id, c.count
+            ));
+        }
+    }
+    if let Some(first) = report.units.first() {
+        for c in &first.counts {
+            let total = report
+                .total(c.id)
+                .map_or_else(|| "-".to_string(), |n| n.to_string());
+            lines.push(format!("total pattern={} count={total}", c.id));
+        }
+    }
+    for d in &report.declarations {
+        lines.push(format!("declaration={d}"));
+    }
+    lines
+}
+
 /// [`search`] が `Err` で返す入力の種類。
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -650,6 +700,54 @@ mod tests {
             declarations: vec![],
         };
         assert_eq!(o.total("a"), None);
+    }
+
+    #[test]
+    fn report_lines_shape() {
+        let ptx = format!(
+            "{HEAD}.extern .func ext(.param .b32 a);\n.func (.param .b32 r) helper(.param .b32 a)\n{{\nfma.rn.f16 %h1, %h2, %h3, %h4;\nret;\n}}\n.visible .entry k(.param .u64 p)\n{{\nshfl.sync.bfly.b32 %r1, %r2, 1, 31, -1;\nadd.s32 %r3, %r1, %r2;\nret;\n}}\n"
+        );
+        let r = search(&ptx, &BUILTIN_PATTERNS).unwrap();
+        let expected = [
+            "unit=func:helper instructions=2",
+            "unit=func:helper pattern=f16 count=1 opcodes=fma.rn.f16:1",
+            "unit=func:helper pattern=subgroup count=0 opcodes=-",
+            "unit=func:helper pattern=f32-atomic-add count=0 opcodes=-",
+            "unit=func:helper pattern=matrix-mma count=0 opcodes=-",
+            "unit=entry:k instructions=3",
+            "unit=entry:k pattern=f16 count=0 opcodes=-",
+            "unit=entry:k pattern=subgroup count=1 opcodes=shfl.sync.bfly.b32:1",
+            "unit=entry:k pattern=f32-atomic-add count=0 opcodes=-",
+            "unit=entry:k pattern=matrix-mma count=0 opcodes=-",
+            "total pattern=f16 count=1",
+            "total pattern=subgroup count=1",
+            "total pattern=f32-atomic-add count=0",
+            "total pattern=matrix-mma count=0",
+            "declaration=ext",
+        ];
+        assert_eq!(report_lines(&r), expected);
+    }
+
+    #[test]
+    fn report_lines_total_overflow() {
+        let r = SearchReport {
+            units: vec![unit("a", u64::MAX), unit("a", 1)],
+            declarations: vec![],
+        };
+        let lines = report_lines(&r);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("total pattern=a count=-")
+        );
+    }
+
+    #[test]
+    fn report_lines_empty_units() {
+        let r = SearchReport {
+            units: vec![],
+            declarations: vec![],
+        };
+        assert!(report_lines(&r).is_empty());
     }
 
     #[test]
