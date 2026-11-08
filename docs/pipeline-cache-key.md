@@ -41,9 +41,28 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 試験: `precheck_tests` の `cache_key_is_the_same_for_the_same_input`・`changing_one_input_changes_only_its_field`・`cache_key_fields_for_each_msl_input`・`specialized_with_options_keys_do_not_mix_with_other_inputs`・`non_msl_inputs_have_no_cache_key`・`cache_key_version_joins_os_version_and_device_name_with_nul`。macOS でだけコンパイルされる `imp::tests` の `os_version_string_for_the_cache_key_is_not_empty_and_stable`。
 - 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::precheck_tests`
 
+## device の要る試験（3/4）
+
+device の上でキーを確かめる試験で、すべて `#[ignore]` 付き（通常の `cargo test` では流れない）。パイプラインは作らない。
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `imp::device_tests::pipeline_cache_key_of_safe_msl_with_options_is_stable` | `MslWithOptions`（`Safe`）・`bounds_checked = true` を 2 回 | どちらも `Some` で等しい。`compiler_version` は device の OS の版の文字列と device 名から決まる値、`driver_version` は同じ値の `Some`。パイプラインの表は空 |
+| `imp::device_tests::pipeline_cache_key_changes_only_the_changed_field` | 基準に対し、数学モード（`Safe`→`Fast`）・ソース・`bounds_checked` を 1 つずつ変える | 変えた欄だけが変わる |
+| `imp::device_tests::pipeline_cache_key_of_each_msl_input_matches_the_pure_key` | MSL の 4 入力 × `bounds_checked` の 2 値。`Wgsl` | 4 入力は `metal_cache_key` の値と等しい。`Wgsl` は `None`。パイプラインの表は空 |
+| `tests/backend_metal_device.rs` の `pipeline_cache_key_reaches_through_the_public_device` | 公開の `Device` の `compute()` から `MslWithOptions`（`Safe`）を 2 回 | `Some` で等しい。`compiler_id` は `"metal"`、`target` は `"metal-msl"` |
+
+device の上で流すときのコマンド:
+
+```text
+cargo test -p fandhe-silicon-contract --features backend-metal --lib -- --ignored pipeline_cache_key_
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device -- --ignored pipeline_cache_key_reaches_through_the_public_device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | `ComputeOps` に `pipeline_cache_key` の口を足す | #4957 |
 | 2/4 | Metal の `pipeline_cache_key` を実装する | #4958 |
+| 3/4 | キャッシュキーの device の試験を ignore 付きで足す | #4959 |

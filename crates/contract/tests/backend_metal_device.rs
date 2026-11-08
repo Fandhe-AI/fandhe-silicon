@@ -1312,3 +1312,30 @@ fn option_inputs_reach_create_pipeline_through_the_public_device() {
     );
     assert!(r.is_ok(), "{r:?}");
 }
+
+/// 公開の `Device` の `compute()` から `pipeline_cache_key` に届き、同じ入力で同じ `Some` のキーを返す
+/// （TASK-501 のポインタ）。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn pipeline_cache_key_reaches_through_the_public_device() {
+    const KERNEL: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        kernel void k(device float* out [[buffer(0)]], uint tid [[thread_position_in_grid]]) {\n\
+            out[tid] = 1.0;\n\
+        }\n";
+    let device = new_device();
+    let compute = device
+        .compute()
+        .expect("a Metal device must expose compute()");
+    let input = PipelineInput::MslWithOptions {
+        source: KERNEL,
+        entry_point: "k",
+        math_mode: MslMathMode::Safe,
+    };
+    let a = compute.pipeline_cache_key(&input, false);
+    let b = compute.pipeline_cache_key(&input, false);
+    assert!(a.is_some(), "an MSL input must have a key");
+    assert_eq!(a, b);
+    let key = a.unwrap();
+    assert_eq!((key.compiler_id, key.target), ("metal", "metal-msl"));
+}
