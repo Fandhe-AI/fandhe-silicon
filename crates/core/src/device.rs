@@ -191,6 +191,20 @@ pub trait Device: Capabilities {
     fn textures(&self) -> Option<&dyn crate::texture::TextureOps> {
         None
     }
+
+    /// device を明示に破棄する。値を消費する。
+    ///
+    /// 既定の本体は値を落とす（`Drop` と同じ）。背後実装が上書きする。対応する項目のポインタ: DEV-151。
+    ///
+    /// ```compile_fail,E0382
+    /// fn twice(d: Box<dyn fandhe_silicon_core::device::Device>) {
+    ///     d.destroy();
+    ///     d.destroy();
+    /// }
+    /// ```
+    fn destroy(self: Box<Self>) {
+        drop(self);
+    }
 }
 
 /// `DeviceRequest` から device を作る入口。背後実装が実装する。
