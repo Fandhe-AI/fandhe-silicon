@@ -4266,3 +4266,133 @@ mod teardown_tests {
         assert_eq!(payload.downcast_ref::<&str>(), Some(&"notify"));
     }
 }
+
+/// CUDA の device に触る、破棄の試験（TASK-191 のポインタ）。device の無い環境では流さない。
+#[cfg(test)]
+mod teardown_device_tests {
+    use super::*;
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 3 本を確保して書き込み、1 本を `free` し、空の記録先を投入した device と印を返す。
+    fn prepared() -> (CudaDevice, SubmitToken) {
+        let d = device();
+        let handles: Vec<BufferHandle> = (0..3)
+            .map(|_| {
+                let h = d.allocate(4097, BufferUsage::STORAGE).expect("allocate");
+                d.upload(&h, 0, &[7u8; 4097]).expect("upload");
+                h
+            })
+            .collect();
+        let mut handles = handles.into_iter();
+        if let Some(h) = handles.next() {
+            d.free(h);
+        }
+        let token = d.submit(d.create_encoder(), &[]).expect("submit");
+        (d, token)
+    }
+
+    // DEV-150
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dropping_right_after_submit_records_no_driver_error() {
+        let (d, _token) = prepared();
+        let ctx = Arc::clone(d.stream.context());
+        drop(d);
+        assert!(ctx.check_err().is_ok());
+    }
+
+    // DEV-150
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dropping_right_after_on_complete_calls_it_once() {
+        let (d, token) = prepared();
+        let ctx = Arc::clone(d.stream.context());
+        let seen: Arc<Mutex<Vec<CompletionState>>> = Arc::default();
+        let sink = Arc::clone(&seen);
+        d.on_complete(token, Box::new(move |s| sink.lock().unwrap().push(s)));
+        drop(d);
+        assert_eq!(*seen.lock().unwrap(), vec![CompletionState::Complete]);
+        assert!(ctx.check_err().is_ok());
+    }
+
+    // DEV-151
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn destroying_right_after_submit_records_no_driver_error() {
+        let (d, _token) = prepared();
+        let ctx = Arc::clone(d.stream.context());
+        (Box::new(d) as Box<dyn Device>).destroy();
+        assert!(ctx.check_err().is_ok());
+    }
+
+    // DEV-151
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn destroying_right_after_on_complete_calls_it_once() {
+        let (d, token) = prepared();
+        let ctx = Arc::clone(d.stream.context());
+        let seen: Arc<Mutex<Vec<CompletionState>>> = Arc::default();
+        let sink = Arc::clone(&seen);
+        d.on_complete(token, Box::new(move |s| sink.lock().unwrap().push(s)));
+        (Box::new(d) as Box<dyn Device>).destroy();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(!matches!(seen[0], CompletionState::Pending));
+        assert!(ctx.check_err().is_ok());
+    }
+
+    #[cfg(feature = "fault-injection")]
+    mod lost_notify {
+        use super::*;
+        use fandhe_silicon_core::fault::{HookFault, inject};
+
+        type Seen = Arc<Mutex<Vec<DeviceLostReason>>>;
+
+        fn register(d: &CudaDevice) -> Seen {
+            let seen = Seen::default();
+            let sink = Arc::clone(&seen);
+            d.set_lost_callback(Box::new(move |r| sink.lock().unwrap().push(r)));
+            seen
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn destroy_notifies_destroyed_once() {
+            let d = device();
+            let seen = register(&d);
+            (Box::new(d) as Box<dyn Device>).destroy();
+            assert_eq!(*seen.lock().unwrap(), vec![DeviceLostReason::Destroyed]);
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn destroy_after_a_simulated_loss_does_not_notify_again() {
+            let d = device();
+            let seen = register(&d);
+            inject(
+                d.fault_hooks(),
+                HookFault::DeviceLost(DeviceLostReason::Unknown),
+            )
+            .expect("loss");
+            (Box::new(d) as Box<dyn Device>).destroy();
+            assert_eq!(*seen.lock().unwrap(), vec![DeviceLostReason::Unknown]);
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device"]
+        fn drop_does_not_notify() {
+            let d = device();
+            let seen = register(&d);
+            drop(d);
+            assert!(seen.lock().unwrap().is_empty());
+        }
+    }
+}
