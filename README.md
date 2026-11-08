@@ -173,7 +173,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/test-frame.md` | 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23） |
 | `docs/rerun-frame.md` | 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 3e32680）（TASK-29） |
 | `docs/route-evidence.md` | 経路の突き合わせの道具の所在と、本リポの現状の事実・値の型と 1 回の呼び出しの照合（1/4）・呼び出しの数え上げと試験の枠への受け渡し（2/4）・下-2 の経路の報告と模擬の呼び出しの突き合わせ（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 2373576）（TASK-922） |
-| `docs/ptx-instruction-search.md` | PTX の命令の検索の道具の所在と、本リポの現状の事実・検索の関数（1/4）（TASK-100） |
+| `docs/ptx-instruction-search.md` | PTX の命令の検索の道具の所在と、本リポの現状の事実・検索の関数（1/4）・手で書いた入力の試験（2/4）（TASK-100） |
 | `docs/public-name-check.md` | 公開 API の名前の検査の決定の記録の所在と、本リポの現状（スクリプト・設定・公開面）の事実・決定表の語彙の検査（TASK-142）・本リポでの反映の方針（TASK-14・TASK-113） |
 | `docs/doctest-error-code-check.md` | doctest の `compile_fail,E…` のエラーコードの照合の所在・振る舞い・回帰テスト・確かめ方・今の値の補い（base 801a89d） |
 | `docs/core-deps-check.md` | 共通の crate の外部依存の一覧の完全一致と feature の転送の検査の所在・照合の規則・対応するテスト・TASK-13 の検査との突き合わせ・確かめ方（TASK-258） |
