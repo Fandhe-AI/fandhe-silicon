@@ -9,7 +9,7 @@
 //! 対応づけ: TASK-769、TASK-415、COMP-25、COMP-26・COMP-27・COMP-30・COMP-34、BIND-1・BIND-2・BIND-3（ポインタのみ）。
 
 use crate::error::ContractError;
-use crate::execution::PipelineInput;
+use crate::execution::{CacheKey, PipelineInput};
 use crate::memory::BufferHandle;
 
 /// 生成済みの compute パイプラインを指す印。
@@ -196,7 +196,8 @@ impl BindingLayout {
 /// compute パイプラインの生成の口。
 ///
 /// 上（`fandhe-silicon-upper`）・下-2（`fandhe-silicon-exec`）が成果物と `BindingLayout` を渡して呼び、
-/// 下-1 の背後実装が実装する。既定の本体を持つメソッドは無く、`create_pipeline` は必ず実装する。
+/// 下-1 の背後実装が実装する。`create_pipeline` は必ず実装する。既定の本体を持つメソッドは
+/// `pipeline_cache_key` だけで、既定は `None` を返す（TASK-501）。
 ///
 /// `create_pipeline` を持たない実装は拒まれる。
 ///
@@ -229,4 +230,34 @@ pub trait ComputeOps {
         input: PipelineInput<'_>,
         layout: &BindingLayout,
     ) -> Result<PipelineHandle, ContractError>;
+
+    /// 成果物のキャッシュキーを返す。
+    ///
+    /// 既定の本体は入力を読まずに `None` を返す。背後実装は、キーを返す入力で上書きする。
+    /// パイプラインは作らず、背後実装の表にも何も足さない。
+    /// `bounds_checked` はキーの `bounds_checked` に入る値。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::error::ContractError;
+    /// use fandhe_silicon_core::execution::{BindingLayout, ComputeOps, PipelineHandle, PipelineInput};
+    /// struct C;
+    /// impl ComputeOps for C {
+    ///     fn create_pipeline(
+    ///         &self,
+    ///         _input: PipelineInput<'_>,
+    ///         _layout: &BindingLayout,
+    ///     ) -> Result<PipelineHandle, ContractError> {
+    ///         Ok(PipelineHandle::__backend_new(1, 1))
+    ///     }
+    /// }
+    /// let input = PipelineInput::Msl { source: "", entry_point: "main" };
+    /// assert!(C.pipeline_cache_key(&input, true).is_none());
+    /// ```
+    fn pipeline_cache_key(
+        &self,
+        _input: &PipelineInput<'_>,
+        _bounds_checked: bool,
+    ) -> Option<CacheKey> {
+        None
+    }
 }
