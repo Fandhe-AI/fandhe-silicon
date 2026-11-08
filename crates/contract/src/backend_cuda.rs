@@ -24,6 +24,8 @@
 //!
 //! `query`・`query_ex` は、`request` の時点で捕捉した compute capability とホストメモリのマップの可否の属性と、
 //! 能力の表から答える（TASK-175）。
+//!
+//! `ext-interop` のビルドでは device の作成で UUID を 1 回読み、`physical_gpu_id` が返す（TASK-197）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -53,6 +55,8 @@ use fandhe_silicon_core::feature_key::{
     FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX, FEATURE_MAPPABLE_PRIMARY_BUFFERS, FEATURE_SHADER_F16,
     FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER,
 };
+#[cfg(feature = "ext-interop")]
+use fandhe_silicon_core::interop::PhysicalGpuId;
 use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
 };
@@ -178,6 +182,26 @@ fn read_grid_dims<E: std::fmt::Debug>(
     Ok(dims)
 }
 
+/// 16 個の `c_char` をビットを変えずに 16 バイトに写す（`c_char` の符号の有無に依らない）。
+#[cfg(feature = "ext-interop")]
+fn uuid_bytes(raw: [std::ffi::c_char; 16]) -> [u8; 16] {
+    raw.map(|b| b.to_ne_bytes()[0])
+}
+
+/// 閉包で UUID を読み、`driver_uuid` を持たない識別子にする。読めなければ `DeviceUnavailable`。
+/// 閉包で受けるので、単体試験から device に触らず呼べる。
+#[cfg(feature = "ext-interop")]
+fn read_physical_gpu_id<E: std::fmt::Debug>(
+    uuid: impl FnOnce() -> Result<[std::ffi::c_char; 16], E>,
+) -> Result<PhysicalGpuId, ContractError> {
+    let raw = uuid()
+        .map_err(|e| ContractError::DeviceUnavailable(format!("CudaContext::uuid: {e:?}")))?;
+    Ok(PhysicalGpuId {
+        device_uuid: uuid_bytes(raw),
+        driver_uuid: None,
+    })
+}
+
 /// ドライバを呼ぶ閉包の panic を `DeviceUnavailable` に変える。panic の payload は載せない。
 /// unwind するビルドで効く（`panic=abort` のビルドでは panic はそのまま abort になる）。
 fn guard_driver_panic<T>(
@@ -233,6 +257,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
         // 読み取りの失敗は device の作成を失敗させず、その機能の値だけを `S0` にする。
         let can_map_host_memory =
             can_map_host_memory_of(|| ctx.attribute(Attr::CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY));
+        #[cfg(feature = "ext-interop")]
+        let physical_gpu_id = read_physical_gpu_id(|| ctx.uuid().map(|u| u.bytes))?;
         let stream = ctx.new_stream().map_err(|e| {
             ContractError::DeviceUnavailable(format!("CudaContext::new_stream: {e:?}"))
         })?;
@@ -250,6 +276,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
                 max_dispatch_dims: grid_dims,
                 max_texture_size: 0,
             },
+            #[cfg(feature = "ext-interop")]
+            physical_gpu_id,
             compute_capability: attributes.compute_capability,
             capabilities: CapabilitySnapshot {
                 compute_capability: attributes.compute_capability,
@@ -1084,6 +1112,9 @@ struct CudaDevice {
     ownership: DeviceOwnership,
     adapter_name: String,
     limits: LimitsTable,
+    /// device の作成で 1 回読んだ物理 GPU の識別子。`physical_gpu_id` が返す。
+    #[cfg(feature = "ext-interop")]
+    physical_gpu_id: PhysicalGpuId,
     compute_capability: (i32, i32),
     /// `query`・`query_ex` が読む能力の判定の材料。`open_device` で 1 回だけ捕捉する。
     capabilities: CapabilitySnapshot,
@@ -1357,6 +1388,11 @@ impl Device for CudaDevice {
             adapter_name: self.adapter_name.clone(),
             backend_name: BACKEND_NAME,
         }
+    }
+    /// device の作成で 1 回読んだ識別子を返す。`driver_uuid` は `None`。
+    #[cfg(feature = "ext-interop")]
+    fn physical_gpu_id(&self) -> Option<PhysicalGpuId> {
+        Some(self.physical_gpu_id)
     }
 }
 
@@ -2809,6 +2845,29 @@ mod tests {
                 kind: "function",
                 ..
             })
+        ));
+    }
+
+    #[cfg(feature = "ext-interop")]
+    #[test]
+    fn uuid_bytes_keep_every_bit() {
+        let bytes: [u8; 16] =
+            std::array::from_fn(|i| (i as u8).wrapping_mul(17).wrapping_add(0x80));
+        let raw = bytes.map(|b| std::ffi::c_char::from_ne_bytes([b]));
+        assert_eq!(uuid_bytes(raw), bytes);
+    }
+
+    #[cfg(feature = "ext-interop")]
+    #[test]
+    fn uuid_read_maps_to_an_id_without_driver_uuid_or_to_device_unavailable() {
+        let ok =
+            read_physical_gpu_id(|| Ok::<_, &str>([std::ffi::c_char::from_ne_bytes([0xff]); 16]))
+                .expect("uuid read succeeds");
+        assert_eq!(ok.device_uuid, [0xff; 16]);
+        assert!(ok.driver_uuid.is_none());
+        assert!(matches!(
+            read_physical_gpu_id(|| Err::<[std::ffi::c_char; 16], _>("injected")),
+            Err(ContractError::DeviceUnavailable(_))
         ));
     }
 }
