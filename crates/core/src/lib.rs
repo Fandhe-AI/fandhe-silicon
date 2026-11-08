@@ -91,6 +91,9 @@ pub mod dispatch_inputs;
 #[cfg(feature = "test-support")]
 pub mod route_evidence;
 
+#[cfg(feature = "test-support")]
+pub mod ptx_search;
+
 #[cfg(feature = "fault-injection")]
 pub mod fault;
 
