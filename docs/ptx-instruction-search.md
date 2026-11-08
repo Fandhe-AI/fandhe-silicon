@@ -85,9 +85,57 @@ cargo test -p fandhe-silicon-core --features test-support --lib ptx_search
 cargo test -p fandhe-silicon-core --features test-support --test ptx_search
 ```
 
+## 結果を 1 行ずつ出す例（3/4）
+
+関数 `report_lines`（`crates/core/src/ptx_search.rs`）は `SearchReport` を `key=value` の文字列の列にする。example `crates/core/examples/ptx_search_lines.rs`（`[[example]]` の `required-features = ["test-support"]`）は引数のファイルを順に読み、`BUILTIN_PATTERNS` で検索して、その行を標準出力に出す。ファイルの番号は 1 始まりで、パスは出力に出さない。
+
+```text
+cargo run -q -p fandhe-silicon-core --features test-support --example ptx_search_lines -- <file>...
+```
+
+### 行の形
+
+| 出力先 | 行 | 内容 |
+| ------ | -- | ---- |
+| 標準出力 | `file=<n> sha256=<hex>` | 読めたファイルの内容の SHA-256（64 桁の小文字の 16 進） |
+| 標準出力 | `file=<n> unit=<entry\|func>:<name> instructions=<n>` | 本文のある関数ごとの命令の数 |
+| 標準出力 | `file=<n> unit=<entry\|func>:<name> pattern=<id> count=<n> opcodes=<opcode>:<n>,…` | 関数ごと・パターンごとの件数。当たりが無いときは `opcodes=-` |
+| 標準出力 | `file=<n> total pattern=<id> count=<n>` | パターンごとの全関数の和。和が無いかあふれたときは `count=-`。関数が無ければ出さない |
+| 標準出力 | `file=<n> declaration=<name>` | 本文の無い関数 |
+| 標準エラー | `file=<n> error=<理由>` | 検索が `Err`・読めない・UTF-8 でない |
+
+### 終了コード
+
+| 終了コード | 入力 |
+| ---------- | ---- |
+| 0 | すべてのファイルの検索が `Ok` |
+| 1 | 検索が `Err` のファイルがある（続くファイルも処理する） |
+| 2 | 引数が 0 個、`-` で始まる引数がある（どのファイルも読まない）、読めないファイル、UTF-8 でないファイル、標準出力の書き出しの失敗 |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features test-support --lib ptx_search
+```
+
+手で書いた最小の PTX を一時ファイルにして example に渡すと、上の行が出る。
+
+```text
+.version 8.0
+.target sm_80
+.address_size 64
+.extern .func ext(.param .b32 a);
+.visible .entry k(.param .u64 p)
+{
+shfl.sync.bfly.b32 %r1, %r2, 1, 31, -1;
+ret;
+}
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 検索の関数 | #3542 |
 | 2/4 | 手で書いた入力の試験 | #3543 |
+| 3/4 | 結果を 1 行ずつ出す例 | #3544 |
