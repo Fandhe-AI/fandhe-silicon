@@ -559,6 +559,8 @@ struct Submissions<G> {
     failed: BTreeSet<u64>,
     /// 終端を待つ登録済みの callback。通し番号と組で持つ。
     callbacks: Vec<(u64, CompletionCallback)>,
+    /// 直近の `reclaim` で未完了のまま止まった先頭の番号。同じ錠の間はその判定を使い、再び問い合わせない。
+    stalled: Option<u64>,
 }
 
 /// `on_complete` に渡された callback。
@@ -573,15 +575,22 @@ impl<G> Submissions<G> {
             pending: BTreeMap::new(),
             failed: BTreeSet::new(),
             callbacks: Vec::new(),
+            stalled: None,
         }
     }
 
     /// 通し番号の拡張した完了状態。呼ぶ前に `reclaim` しておく。
     ///
+    /// `reclaim` が未完了で止まった先頭は、再び問い合わせずに `Pending` とする
+    /// （問合せの再読みで表に残ったまま完了と判定されるのを防ぐ）。
+    ///
     /// 表にあれば列の状態、失敗の集合にあれば `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`、
     /// 回収済みの他は `Complete`。
     fn state_ex_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionStateEx {
         if let Some(group) = self.pending.get(&sequence) {
+            if self.stalled == Some(sequence) {
+                return CompletionStateEx::Pending;
+            }
             return match classify(group) {
                 GroupState::Pending => CompletionStateEx::Pending,
                 GroupState::Completed => CompletionStateEx::Complete,
@@ -613,6 +622,14 @@ impl<G> Submissions<G> {
         ready
     }
 
+    /// 登録済みの callback を全て外して返す。device の破棄で `Lost` を通知するのに使う。
+    fn take_all_callbacks(&mut self) -> Vec<CompletionCallback> {
+        std::mem::take(&mut self.callbacks)
+            .into_iter()
+            .map(|(_, callback)| callback)
+            .collect()
+    }
+
     /// `make` が成功したときだけ通し番号を払い出して表に入れる。
     ///
     /// 番号が尽きていれば `make` を呼ばずに `BackendFailure`。`make` の失敗は番号を消費しない。
@@ -638,10 +655,14 @@ impl<G> Submissions<G> {
     ///
     /// 先頭が未完了なら後ろが完了していても回収しない。失敗は失敗の集合に移す。
     fn reclaim(&mut self, classify: impl Fn(&G) -> GroupState) -> Option<u64> {
+        self.stalled = None;
         while let Some(entry) = self.pending.first_entry() {
             let sequence = *entry.key();
             match classify(entry.get()) {
-                GroupState::Pending => return Some(sequence),
+                GroupState::Pending => {
+                    self.stalled = Some(sequence);
+                    return Some(sequence);
+                }
                 GroupState::Completed => {
                     entry.remove();
                 }
@@ -752,6 +773,20 @@ struct CudaDevice {
     pipelines: Mutex<Pipelines>,
     open: Arc<OpenEncoders>,
     submissions: Mutex<Submissions<CudaEvent>>,
+}
+
+impl Drop for CudaDevice {
+    /// 終端を待つ登録済みの callback を、`Lost` でちょうど 1 回ずつ呼んでから破棄する。
+    fn drop(&mut self) {
+        let callbacks = self
+            .submissions
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_all_callbacks();
+        for callback in callbacks {
+            callback(CompletionState::Lost);
+        }
+    }
 }
 
 impl CudaDevice {
@@ -1281,6 +1316,39 @@ mod tests {
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].1, CompletionState::Complete);
         assert_eq!(t.callbacks.len(), 1);
+    }
+
+    #[test]
+    fn a_stalled_head_stays_pending_even_if_the_group_reads_complete_afterwards() {
+        let mut t = Submissions::<GroupState>::new();
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        let _ = t.issue(|| Ok(GroupState::Completed));
+        t.callbacks.push((2, Box::new(|_| {})));
+        // 回収の時点では 1 件目が未完了だったと見なす。
+        let calls = std::cell::Cell::new(0);
+        let first = t.reclaim(|_| {
+            calls.set(calls.get() + 1);
+            GroupState::Pending
+        });
+        assert_eq!(first, Some(1));
+        // 再読みでは完了と答えるが、止まった先頭は Pending のまま配信もされない。
+        assert_eq!(t.state_ex_of(1, |g| *g), CompletionStateEx::Pending);
+        t.callbacks.push((1, Box::new(|_| {})));
+        let ready = t.take_ready(|g| *g);
+        assert_eq!(ready.len(), 1);
+        assert_eq!(t.callbacks.len(), 1);
+        assert_eq!(t.callbacks[0].0, 1);
+        assert!(t.pending.contains_key(&1));
+    }
+
+    #[test]
+    fn take_all_callbacks_returns_every_registered_callback_once() {
+        let mut t = Submissions::<GroupState>::new();
+        t.callbacks.push((1, Box::new(|_| {})));
+        t.callbacks.push((2, Box::new(|_| {})));
+        assert_eq!(t.take_all_callbacks().len(), 2);
+        assert!(t.callbacks.is_empty());
+        assert!(t.take_all_callbacks().is_empty());
     }
 
     #[test]
