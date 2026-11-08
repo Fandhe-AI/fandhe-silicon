@@ -51,9 +51,27 @@ feature `fault-injection` のビルドでは、`Device::fault_hooks()` が `Some
 
 門の無いビルドにこれらの口が無いことは、`crates/contract/src/cfg_gate_doctest.rs` の既存の門の doctest（`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）が確かめる。
 
+## device の要る試験（3/4）
+
+試験は `crates/contract/tests/backend_cuda_ext_interop.rs` と `crates/contract/tests/backend_cuda_fault.rs` にもある。どれも device を作るので `#[ignore = "requires a CUDA device"]` を付け、`--ignored` を付けたときだけ走る。
+
+| ファイル | 試験 | 確かめること |
+| -------- | ---- | ------------ |
+| `backend_cuda_ext_interop.rs` | `physical_gpu_id_has_a_device_uuid_and_no_driver_uuid` | `physical_gpu_id()` が `Some` で、`driver_uuid` が `None` |
+| `backend_cuda_ext_interop.rs` | `two_devices_report_the_same_physical_gpu` | 2 つの device の識別子が等しく、`check_same_physical_gpu` が `Ok` |
+| `backend_cuda_ext_interop.rs` | `external_interop_is_some_through_dyn_device` | `Box<dyn Device>` 越しの `external_interop()` が `Some` |
+| `backend_cuda_fault.rs` | `cuda_device_has_fault_hooks` | `ext-interop` なしの構成で `fault_hooks()` が `Some` |
+
+確かめ方（ignore の宣言の数え上げ。`--ignored` は付けない）:
+
+- `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop --test backend_cuda_ext_interop`: `0 passed; 5 ignored`
+- `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop,fault-injection --test backend_cuda_ext_interop`: `0 passed; 6 ignored`
+- `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --test backend_cuda_fault`: `3 passed; 1 ignored`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 物理 GPU の識別子を device の作成で読んで返す | #3884 |
 | 2/4 | 相互運用と故障の差し込みの口を device から返す | #3885 |
+| 3/4 | device の要る拡張アクセサの試験を ignore 付きで足す | #3886 |
