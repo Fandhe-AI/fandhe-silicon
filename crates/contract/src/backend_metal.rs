@@ -30,7 +30,7 @@
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
-//! `layout` の写しと一緒に置く。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
+//! `layout` の写しと一緒に置く。コンパイルのオプション付きの 2 つの入力も受け付ける（TASK-774 のポインタ）。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
@@ -47,7 +47,7 @@ use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, FunctionConstant, FunctionConstantValue, GpuTiming,
-    ImportedSemaphoreHandle, PipelineInput, SubmitToken,
+    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, PipelineInput, SubmitToken,
 };
 use fandhe_silicon_core::memory::validate_buffer_range;
 
@@ -89,9 +89,10 @@ type AcceptedPipelineInput<'a> = (&'a str, &'a str, &'a [FunctionConstant], bool
 
 /// `create_pipeline` の入力を分類する。device にも Metal の API にも触らない。
 ///
-/// `Msl`・`MslSpecialized` は取り出して返す（`Msl` の function constant は空の並びで、末尾は `false`。
-/// `MslSpecialized` は並びが空でも末尾が `true`）。
-/// コンパイル選択つきの MSL と WGSL は、この背後実装が提供しない操作として `Unsupported` にする。
+/// `Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions` は取り出して返す
+/// （`Msl`・`MslWithOptions` の function constant は空の並びで、末尾は `false`。
+/// `MslSpecialized`・`MslSpecializedWithOptions` は並びが空でも末尾が `true`）。
+/// WGSL は、この背後実装が提供しない操作として `Unsupported` にする。
 /// ほかの言語の成果物は `ArtifactRejected { kind: "unsupported-input", .. }` にし、理由に受け取った
 /// variant 名と受け付ける variant を英語で載せる。`PipelineInput` は `#[non_exhaustive]` なので、
 /// 知らない variant も `Unsupported` にする（fail-closed）。
@@ -106,7 +107,7 @@ fn classify_pipeline_input<'a>(
     let rejected = |variant: &str| ContractError::ArtifactRejected {
         kind: "unsupported-input",
         reason: format!(
-            "pipeline input {variant} is not accepted by the Metal backend; accepted inputs are Msl and MslSpecialized"
+            "pipeline input {variant} is not accepted by the Metal backend; accepted inputs are Msl, MslSpecialized, MslWithOptions and MslSpecializedWithOptions"
         ),
     };
     match input {
@@ -119,14 +120,73 @@ fn classify_pipeline_input<'a>(
             entry_point,
             function_constants,
         } => Ok((source, entry_point, function_constants, true)),
-        PipelineInput::MslWithOptions { .. }
-        | PipelineInput::MslSpecializedWithOptions { .. }
-        | PipelineInput::Wgsl { .. } => Err(unsupported()),
+        PipelineInput::MslWithOptions {
+            source,
+            entry_point,
+            ..
+        } => Ok((source, entry_point, &[], false)),
+        PipelineInput::MslSpecializedWithOptions {
+            source,
+            entry_point,
+            function_constants,
+            ..
+        } => Ok((source, entry_point, function_constants, true)),
+        PipelineInput::Wgsl { .. } => Err(unsupported()),
         PipelineInput::SpirV { .. } => Err(rejected("SpirV")),
         PipelineInput::CudaC { .. } => Err(rejected("CudaC")),
         PipelineInput::Ptx { .. } => Err(rejected("Ptx")),
         PipelineInput::Dxil { .. } => Err(rejected("Dxil")),
         _ => Err(unsupported()),
+    }
+}
+
+/// `create_pipeline` の入力から読んだ、ライブラリのコンパイルのオプションに設定するもの。
+///
+/// 既定値（どちらも `false`）は「オプションを設定せず既定のオプションでコンパイルする」を表す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct CompilePlan {
+    /// 数学モードを `Safe` に設定する。
+    safe_math: bool,
+    /// 関数の精度を `Precise` に設定する。
+    precise_functions: bool,
+}
+
+/// 入力から [`CompilePlan`] を読む。device にも Metal の API にも触らない。
+///
+/// `MslWithOptions` は数学モードだけ、`MslSpecializedWithOptions` は数学モードと関数の精度を読む。
+/// ほかの入力は既定値を返す。`MslMathMode`・`MslFloatFunctions` の知らない値は `Unsupported`
+/// （fail-closed。外の crate から知らない値は作れないので試験では通らない）。
+/// `create_pipeline` から、入力の分類の次に呼ばれる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn compile_plan(input: &PipelineInput<'_>) -> Result<CompilePlan, ContractError> {
+    let unsupported = || ContractError::Unsupported {
+        op: "create_pipeline",
+        backend: BackendKind::Metal,
+    };
+    let safe = |mode: &MslMathMode| match mode {
+        MslMathMode::Safe => Ok(true),
+        MslMathMode::Fast => Ok(false),
+        _ => Err(unsupported()),
+    };
+    match input {
+        PipelineInput::MslWithOptions { math_mode, .. } => Ok(CompilePlan {
+            safe_math: safe(math_mode)?,
+            precise_functions: false,
+        }),
+        PipelineInput::MslSpecializedWithOptions {
+            math_mode,
+            float_functions,
+            ..
+        } => Ok(CompilePlan {
+            safe_math: safe(math_mode)?,
+            precise_functions: match float_functions {
+                MslFloatFunctions::Precise => true,
+                MslFloatFunctions::Fast => false,
+                _ => return Err(unsupported()),
+            },
+        }),
+        _ => Ok(CompilePlan::default()),
     }
 }
 
@@ -1182,9 +1242,9 @@ mod imp {
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
     use super::{
-        BufState, Callback, ConstantKind, GroupState, OpenEncoders, SizePool, Submissions,
-        check_token_owner, check_unique_slots, classify_pipeline_input, drive_table,
-        driven_generation, finish_table, group_state_of, missing_required_constants,
+        BufState, Callback, CompilePlan, ConstantKind, GroupState, OpenEncoders, SizePool,
+        Submissions, check_token_owner, check_unique_slots, classify_pipeline_input, compile_plan,
+        drive_table, driven_generation, finish_table, group_state_of, missing_required_constants,
         missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
         register_table, remove_issued, retire, take_next,
     };
@@ -1215,16 +1275,49 @@ mod imp {
         BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
     };
     use objc2::rc::Retained;
-    use objc2::runtime::ProtocolObject;
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2::sel;
     // コマンドラインのプログラムで `MTLCreateSystemDefaultDevice` が既定の device を返すには、
     // Core Graphics がリンクされている必要がある。参照を置いてリンクを確実にする（シンボルは使わない）。
     use objc2_core_graphics as _;
     use objc2_foundation::NSString;
     use objc2_metal::{
-        MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue,
+        MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue, MTLCompileOptions,
         MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
-        MTLFunctionConstantValues, MTLLibrary, MTLResourceOptions,
+        MTLFunctionConstantValues, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
+        MTLResourceOptions,
     };
+
+    /// 計画をライブラリのコンパイルのオプションにする。`create_pipeline` から呼ばれる。
+    ///
+    /// 既定の計画は `None`（既定のオプション）を返す。そうでなければ新しいオプションに、計画が求める
+    /// 数学モード・関数の精度だけを設定する（言語版などほかの設定は呼ばない）。設定の関数を持たない
+    /// 環境では、Metal の設定の API を呼ぶ前に `Unsupported` を返し、既定のオプションで黙って作らない。
+    fn compile_options(
+        plan: CompilePlan,
+    ) -> Result<Option<Retained<MTLCompileOptions>>, ContractError> {
+        if plan == CompilePlan::default() {
+            return Ok(None);
+        }
+        let unsupported = || ContractError::Unsupported {
+            op: "create_pipeline",
+            backend: BACKEND,
+        };
+        let options = MTLCompileOptions::new();
+        if plan.safe_math {
+            if !options.respondsToSelector(sel!(setMathMode:)) {
+                return Err(unsupported());
+            }
+            options.setMathMode(MTLMathMode::Safe);
+        }
+        if plan.precise_functions {
+            if !options.respondsToSelector(sel!(setMathFloatingPointFunctions:)) {
+                return Err(unsupported());
+            }
+            options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+        }
+        Ok(Some(options))
+    }
 
     /// この背後実装の種類。エラーの `backend` と `Device::backend` の値。
     const BACKEND: BackendKind = BackendKind::Metal;
@@ -2261,7 +2354,11 @@ mod imp {
     impl ComputeOps for MetalDevice {
         /// MSL のソースから compute パイプラインを作り、表に登録して返す。
         ///
-        /// 受け付けるのは `Msl` と `MslSpecialized`。入力の分類・`layout.slots` と function constant の
+        /// 受け付けるのは `Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions`。
+        /// オプション付きの入力は、`Safe` なら数学モードを設定し、`Fast` と `MslFloatFunctions::Fast` は
+        /// 何も設定せず、`Precise` なら関数の精度を設定する。言語版は設定しない。設定の関数を持たない
+        /// 環境では `Unsupported`。`Msl`・`MslSpecialized` は既定のオプションでコンパイルする。
+        /// 入力の分類・`layout.slots` と function constant の
         /// 重複の検査は Metal の API を呼ぶ前に行う。ライブラリのコンパイルと、特殊化しない関数からの
         /// function constant の宣言の読み出しの後、特殊化の前に、必須の定数（`is_function_constant_defined` で
         /// 守られていないもの）がすべて渡されているかを確かめ、足りなければ `ArtifactRejected { kind: "msl" }`
@@ -2275,8 +2372,10 @@ mod imp {
             layout: &BindingLayout,
         ) -> Result<PipelineHandle, ContractError> {
             let (source, entry_point, constants, specialized) = classify_pipeline_input(&input)?;
+            let plan = compile_plan(&input)?;
             check_unique_slots(&layout.slots)?;
             let prepared = prepare_constants(constants)?;
+            let options = compile_options(plan)?;
 
             let rejected = |kind: &'static str, what: &str, error: &objc2_foundation::NSError| {
                 ContractError::ArtifactRejected {
@@ -2286,7 +2385,7 @@ mod imp {
             };
             let library = self
                 .device
-                .newLibraryWithSource_options_error(&NSString::from_str(source), None)
+                .newLibraryWithSource_options_error(&NSString::from_str(source), options.as_deref())
                 .map_err(|e| rejected("msl", "MSL compilation failed", &e))?;
             let name = NSString::from_str(entry_point);
             // 特殊化しない関数から function constant の宣言を読み、必須の定数が渡されているかを
@@ -2475,6 +2574,66 @@ mod imp {
             );
             // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
             drop(rejected);
+        }
+    }
+
+    /// `compile_options` が計画をオプションに書くことの確認。device には触らない。
+    #[cfg(test)]
+    mod compile_options_tests {
+        use super::{
+            CompilePlan, MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode,
+            compile_options,
+        };
+        use objc2::runtime::NSObjectProtocol;
+        use objc2::sel;
+
+        #[test]
+        fn default_plan_gives_no_options() {
+            assert!(matches!(compile_options(CompilePlan::default()), Ok(None)));
+        }
+
+        #[test]
+        fn plan_is_written_to_the_options_and_language_version_is_left_alone() {
+            let baseline = MTLCompileOptions::new();
+            for selector in [
+                sel!(mathMode),
+                sel!(mathFloatingPointFunctions),
+                sel!(languageVersion),
+                sel!(setMathMode:),
+                sel!(setMathFloatingPointFunctions:),
+            ] {
+                assert!(
+                    baseline.respondsToSelector(selector),
+                    "MTLCompileOptions does not respond to {selector:?}"
+                );
+            }
+            let plans = [(true, false), (false, true), (true, true)];
+            for (safe_math, precise_functions) in plans {
+                let plan = CompilePlan {
+                    safe_math,
+                    precise_functions,
+                };
+                let options = compile_options(plan)
+                    .expect("options")
+                    .expect("non-default plan gives options");
+                let expected_math = if safe_math {
+                    MTLMathMode::Safe
+                } else {
+                    baseline.mathMode()
+                };
+                let expected_functions = if precise_functions {
+                    MTLMathFloatingPointFunctions::Precise
+                } else {
+                    baseline.mathFloatingPointFunctions()
+                };
+                assert_eq!(options.mathMode(), expected_math, "{plan:?}");
+                assert_eq!(
+                    options.mathFloatingPointFunctions(),
+                    expected_functions,
+                    "{plan:?}"
+                );
+                assert_eq!(options.languageVersion(), baseline.languageVersion());
+            }
         }
     }
 
@@ -4678,8 +4837,6 @@ mod precheck_tests {
 
     // ---- create_pipeline の純粋な部分（TASK-773 のポインタ。device に触らない） ----
 
-    use fandhe_silicon_core::execution::{MslFloatFunctions, MslMathMode};
-
     fn constant(index: u32, value: FunctionConstantValue) -> FunctionConstant {
         FunctionConstant { index, value }
     }
@@ -4733,25 +4890,11 @@ mod precheck_tests {
     }
 
     #[test]
-    fn classify_marks_option_variants_and_wgsl_unsupported() {
-        let inputs = [
-            PipelineInput::MslWithOptions {
-                source: "s",
-                entry_point: "k",
-                math_mode: MslMathMode::Safe,
-            },
-            PipelineInput::MslSpecializedWithOptions {
-                source: "s",
-                entry_point: "k",
-                function_constants: &[],
-                math_mode: MslMathMode::Fast,
-                float_functions: MslFloatFunctions::Precise,
-            },
-            PipelineInput::Wgsl {
-                source: "s",
-                entry_point: "k",
-            },
-        ];
+    fn classify_marks_wgsl_unsupported() {
+        let inputs = [PipelineInput::Wgsl {
+            source: "s",
+            entry_point: "k",
+        }];
         for input in &inputs {
             let r = classify_pipeline_input(input);
             assert!(
@@ -4764,6 +4907,97 @@ mod precheck_tests {
                 ),
                 "{input:?}: {r:?}"
             );
+        }
+    }
+
+    #[test]
+    fn classify_accepts_option_variants_like_their_plain_forms() {
+        let constants = [constant(0, FunctionConstantValue::U32(7))];
+        let (source, entry, found, specialized) =
+            classify_pipeline_input(&PipelineInput::MslWithOptions {
+                source: "src-a",
+                entry_point: "ka",
+                math_mode: MslMathMode::Safe,
+            })
+            .expect("MslWithOptions");
+        assert_eq!(
+            (source, entry, found.len(), specialized),
+            ("src-a", "ka", 0, false)
+        );
+        let (source, entry, found, specialized) =
+            classify_pipeline_input(&PipelineInput::MslSpecializedWithOptions {
+                source: "src-b",
+                entry_point: "kb",
+                function_constants: &constants,
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Precise,
+            })
+            .expect("MslSpecializedWithOptions");
+        assert_eq!(
+            (source, entry, found.len(), specialized),
+            ("src-b", "kb", 1, true)
+        );
+        let (_, _, found, specialized) =
+            classify_pipeline_input(&PipelineInput::MslSpecializedWithOptions {
+                source: "s",
+                entry_point: "k",
+                function_constants: &[],
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Fast,
+            })
+            .expect("empty constants");
+        assert!(found.is_empty() && specialized);
+    }
+
+    #[test]
+    fn compile_plan_sets_only_safe_math_and_precise_functions() {
+        // COMP-99
+        let plan = |input: PipelineInput<'_>| compile_plan(&input).expect("plan");
+        assert_eq!(
+            plan(PipelineInput::Msl {
+                source: "s",
+                entry_point: "k"
+            }),
+            CompilePlan::default()
+        );
+        assert_eq!(
+            plan(PipelineInput::MslSpecialized {
+                source: "s",
+                entry_point: "k",
+                function_constants: &[]
+            }),
+            CompilePlan::default()
+        );
+        for (mode, safe_math) in [(MslMathMode::Safe, true), (MslMathMode::Fast, false)] {
+            assert_eq!(
+                plan(PipelineInput::MslWithOptions {
+                    source: "s",
+                    entry_point: "k",
+                    math_mode: mode,
+                }),
+                CompilePlan {
+                    safe_math,
+                    precise_functions: false
+                }
+            );
+            for (functions, precise_functions) in [
+                (MslFloatFunctions::Precise, true),
+                (MslFloatFunctions::Fast, false),
+            ] {
+                assert_eq!(
+                    plan(PipelineInput::MslSpecializedWithOptions {
+                        source: "s",
+                        entry_point: "k",
+                        function_constants: &[],
+                        math_mode: mode,
+                        float_functions: functions,
+                    }),
+                    CompilePlan {
+                        safe_math,
+                        precise_functions
+                    }
+                );
+            }
         }
     }
 
@@ -4808,7 +5042,7 @@ mod precheck_tests {
                     assert_eq!(
                         reason,
                         format!(
-                            "pipeline input {name} is not accepted by the Metal backend; accepted inputs are Msl and MslSpecialized"
+                            "pipeline input {name} is not accepted by the Metal backend; accepted inputs are Msl, MslSpecialized, MslWithOptions and MslSpecializedWithOptions"
                         )
                     );
                 }
