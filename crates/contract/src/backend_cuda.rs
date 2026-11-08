@@ -26,6 +26,9 @@
 //! 能力の表から答える（TASK-175）。
 //!
 //! `ext-interop` のビルドでは device の作成で UUID を 1 回読み、`physical_gpu_id` が返す（TASK-197）。
+//!
+//! device の世代は書き換えられる値で、照合と払い出しは今の値を読む。`free` は表の項目を払い出したときの世代で照らし、
+//! 完了の callback の登録は登録した印の世代を持つ（TASK-2934）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -272,7 +275,7 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
         let generation = take_next(&NEXT_GENERATION).ok_or_else(exhausted)?;
         Ok(CudaDevice {
             id,
-            generation,
+            generation: AtomicU64::new(generation),
             ownership: DeviceOwnership::ProductIndependent,
             adapter_name: attributes.adapter_name,
             limits: LimitsTable {
@@ -721,8 +724,8 @@ struct Submissions<G> {
     pending: BTreeMap<u64, G>,
     /// 失敗として回収した通し番号。
     failed: BTreeSet<u64>,
-    /// 終端を待つ登録済みの callback。通し番号と組で持つ。
-    callbacks: Vec<(u64, CompletionCallback)>,
+    /// 終端を待つ登録済みの callback。通し番号と、登録した印の世代と組で持つ。
+    callbacks: Vec<(u64, u64, CompletionCallback)>,
     /// 直近の `reclaim` で未完了のまま止まった先頭の番号。同じ錠の間はその判定を使い、再び問い合わせない。
     stalled: Option<u64>,
 }
@@ -779,14 +782,22 @@ impl<G> Submissions<G> {
     }
 
     /// 終端になった登録済みの callback を表から外して返す。呼ぶのは錠を放してから。
+    ///
+    /// 登録の世代が `current_generation` より小さいものは列の状態に関わらず `Lost`、大きいものは `Pending` で残す。
     fn take_ready(
         &mut self,
+        current_generation: u64,
         classify: impl Fn(&G) -> GroupState,
     ) -> Vec<(CompletionCallback, CompletionState)> {
         let mut ready = Vec::new();
-        for (sequence, callback) in std::mem::take(&mut self.callbacks) {
-            match self.state_of(sequence, &classify) {
-                CompletionState::Pending => self.callbacks.push((sequence, callback)),
+        for (sequence, generation, callback) in std::mem::take(&mut self.callbacks) {
+            let state = match generation.cmp(&current_generation) {
+                std::cmp::Ordering::Less => CompletionState::Lost,
+                std::cmp::Ordering::Greater => CompletionState::Pending,
+                std::cmp::Ordering::Equal => self.state_of(sequence, &classify),
+            };
+            match state {
+                CompletionState::Pending => self.callbacks.push((sequence, generation, callback)),
                 CompletionState::Complete => ready.push((callback, CompletionState::Complete)),
                 CompletionState::Lost => ready.push((callback, CompletionState::Lost)),
             }
@@ -798,7 +809,7 @@ impl<G> Submissions<G> {
     fn take_all_callbacks(&mut self) -> Vec<CompletionCallback> {
         std::mem::take(&mut self.callbacks)
             .into_iter()
-            .map(|(_, callback)| callback)
+            .map(|(_, _, callback)| callback)
             .collect()
     }
 
@@ -1082,6 +1093,23 @@ struct BufferEntry {
     slice: CudaSlice<u8>,
     slot: u64,
     usage: BufferUsage,
+    /// 払い出したときの device の世代。
+    generation: u64,
+}
+
+/// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
+///
+/// 世代が違う・表に無い識別子は何も外さず `None`。
+fn remove_issued<T>(
+    map: &mut BTreeMap<u64, T>,
+    id: u64,
+    generation: u64,
+    issued_generation: impl Fn(&T) -> u64,
+) -> Option<T> {
+    match map.get(&id) {
+        Some(entry) if issued_generation(entry) == generation => map.remove(&id),
+        _ => None,
+    }
 }
 
 /// device が持つバッファの表と再利用の一覧。ハンドルの id から `BufferEntry` を引く。
@@ -1112,7 +1140,7 @@ struct PipelineEntry {
 /// `request_device` が返す device。`Device`・`Capabilities`・`MemoryOps`・`ComputeOps`・`CommandQueue` を実装する。
 struct CudaDevice {
     id: u64,
-    generation: u64,
+    generation: AtomicU64,
     ownership: DeviceOwnership,
     adapter_name: String,
     limits: LimitsTable,
@@ -1155,6 +1183,15 @@ fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
     }
 }
 
+/// 駆動が `judged` の世代で決めた値を、呼ぶ直前の世代 `current` で直す。世代が進んでいれば `Lost`、そうでなければ決めた値。
+fn delivered_state(decided: CompletionState, judged: u64, current: u64) -> CompletionState {
+    if current > judged {
+        CompletionState::Lost
+    } else {
+        decided
+    }
+}
+
 /// 表から外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
 ///
 /// 各 callback は呼ぶ前に表から外れているので、取りこぼしと二重呼び出しは起きない。錠を放してから呼ぶこと。
@@ -1177,6 +1214,11 @@ fn run_callbacks<C: FnOnce(CompletionState)>(
 }
 
 impl CudaDevice {
+    /// 今の世代。
+    fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
     /// 投入済みの表の錠を取る。poison されていても中身を使う。
     fn lock_submissions(&self) -> MutexGuard<'_, Submissions<CudaEvent>> {
         self.submissions
@@ -1226,7 +1268,11 @@ impl CudaDevice {
     /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
     ///
     /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
-    fn issue_event(&self, subs: &mut Submissions<CudaEvent>) -> Result<SubmitToken, ContractError> {
+    fn issue_event(
+        &self,
+        subs: &mut Submissions<CudaEvent>,
+        generation: u64,
+    ) -> Result<SubmitToken, ContractError> {
         let sequence = subs.issue(|| {
             guard_memory_panic("record_event", || {
                 self.stream
@@ -1234,11 +1280,7 @@ impl CudaDevice {
                     .map_err(|e| backend_failure("record_event", e))
             })
         })?;
-        Ok(SubmitToken::__backend_new(
-            self.generation,
-            sequence,
-            self.id,
-        ))
+        Ok(SubmitToken::__backend_new(generation, sequence, self.id))
     }
 
     /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
@@ -1252,11 +1294,22 @@ impl CudaDevice {
 
     /// `drive_callbacks` の本体。最初の panic の中身を再送出せずに返す。
     fn drive_callbacks_catching(&self) -> Option<Box<dyn std::any::Any + Send>> {
-        let ready = {
+        let (judged, ready) = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
-            subs.take_ready(event_state)
+            let judged = self.current_generation();
+            (judged, subs.take_ready(judged, event_state))
         };
+        // 呼ぶ直前に世代を読み直す。
+        let ready = ready
+            .into_iter()
+            .map(|(callback, state)| {
+                let deliver = move |decided| {
+                    callback(delivered_state(decided, judged, self.current_generation()));
+                };
+                (deliver, state)
+            })
+            .collect();
         run_callbacks(ready)
     }
 
@@ -1292,7 +1345,7 @@ impl CudaDevice {
         if handle.__backend_device_id() != self.id {
             return Err(ContractError::DeviceMismatch);
         }
-        if handle.__backend_generation() != self.generation {
+        if handle.__backend_generation() != self.current_generation() {
             return Err(ContractError::InvalidArgument(
                 "buffer handle generation does not match the device".into(),
             ));
@@ -1379,7 +1432,7 @@ impl Device for CudaDevice {
         &self.ownership
     }
     fn generation(&self) -> u64 {
-        self.generation
+        self.current_generation()
     }
     fn memory(&self) -> &dyn MemoryOps {
         self
@@ -1502,15 +1555,18 @@ impl MemoryOps for CudaDevice {
                     (slice, buffers.next_slot)
                 }
             };
-        self.lock()
-            .map
-            .insert(id, BufferEntry { slice, slot, usage });
-        Ok(BufferHandle::__backend_new(
-            self.generation,
+        let generation = self.current_generation();
+        self.lock().map.insert(
             id,
-            self.id,
-            byte_len,
-            usage,
+            BufferEntry {
+                slice,
+                slot,
+                usage,
+                generation,
+            },
+        );
+        Ok(BufferHandle::__backend_new(
+            generation, id, self.id, byte_len, usage,
         ))
     }
 
@@ -1560,16 +1616,22 @@ impl MemoryOps for CudaDevice {
     }
 
     fn free(&self, buffer: BufferHandle) {
-        if buffer.__backend_device_id() != self.id
-            || buffer.__backend_generation() != self.generation
-        {
+        if buffer.__backend_device_id() != self.id {
             return;
         }
-        let Some(entry) = self.lock().map.remove(&buffer.__backend_id()) else {
+        let removed = remove_issued(
+            &mut self.lock().map,
+            buffer.__backend_id(),
+            buffer.__backend_generation(),
+            |entry| entry.generation,
+        );
+        let Some(entry) = removed else {
             return;
         };
         // 鍵は表の項目から決める。ゼロ化は stream に積むだけで host は待たない。
-        let BufferEntry { slice, slot, usage } = entry;
+        let BufferEntry {
+            slice, slot, usage, ..
+        } = entry;
         let byte_len = slice.len() as u64;
         let key = (byte_len, usage.bits());
         // ドライバへの解放はロックの外で呼ぶ。`free` は値を返さないので panic も外へ出さない。
@@ -1678,11 +1740,12 @@ impl CommandQueue for CudaDevice {
         let result = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
+            let generation = self.current_generation();
             reject_wait("submit(wait)", wait)
                 .and_then(|()| self.open.claim(&[commands.__backend_id()]))
                 .and_then(|()| {
                     commands.__backend_disarm_closer();
-                    self.issue_event(&mut subs)
+                    self.issue_event(&mut subs, generation)
                 })
         };
         self.drive_callbacks();
@@ -1703,7 +1766,8 @@ impl CommandQueue for CudaDevice {
         let result = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
-            precheck_submit_many(commands.len(), after, wait, self.id, self.generation)
+            let generation = self.current_generation();
+            precheck_submit_many(commands.len(), after, wait, self.id, generation)
                 .and_then(|()| {
                     let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
                     self.open.claim(&ids)
@@ -1712,7 +1776,7 @@ impl CommandQueue for CudaDevice {
                     for command in &mut commands {
                         command.__backend_disarm_closer();
                     }
-                    self.issue_event(&mut subs)
+                    self.issue_event(&mut subs, generation)
                 })
         };
         self.drive_callbacks();
@@ -1723,7 +1787,7 @@ impl CommandQueue for CudaDevice {
     /// 別 device・世代違いの印、払い出していない番号、失敗した列は `Lost`。
     /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
     fn poll(&self, token: SubmitToken) -> CompletionState {
-        if check_token_owner(&token, self.id, self.generation).is_err() {
+        if check_token_owner(&token, self.id, self.current_generation()).is_err() {
             return CompletionState::Lost;
         }
         let state = {
@@ -1738,19 +1802,25 @@ impl CommandQueue for CudaDevice {
     /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`submit_many`・`poll`・`poll_ex`・`on_complete` の
     /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
     fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
-        if check_token_owner(&token, self.id, self.generation).is_err() {
+        if check_token_owner(&token, self.id, self.current_generation()).is_err() {
             callback(CompletionState::Lost);
             return;
         }
         let terminal = {
             let mut subs = self.lock_submissions();
-            match subs.reclaim_and_state_of(token.sequence, event_state) {
-                CompletionState::Pending => {
-                    subs.callbacks.push((token.sequence, callback));
-                    None
+            // 世代は表の錠の中で読み直す。
+            if token.generation != self.current_generation() {
+                Some((callback, CompletionState::Lost))
+            } else {
+                match subs.reclaim_and_state_of(token.sequence, event_state) {
+                    CompletionState::Pending => {
+                        subs.callbacks
+                            .push((token.sequence, token.generation, callback));
+                        None
+                    }
+                    CompletionState::Complete => Some((callback, CompletionState::Complete)),
+                    CompletionState::Lost => Some((callback, CompletionState::Lost)),
                 }
-                CompletionState::Complete => Some((callback, CompletionState::Complete)),
-                CompletionState::Lost => Some((callback, CompletionState::Lost)),
             }
         };
         let own_panic =
@@ -2471,9 +2541,9 @@ mod tests {
         for g in [GroupState::Completed, GroupState::Pending] {
             let _ = t.issue(|| Ok(g));
         }
-        t.callbacks.push((1, Box::new(|_| {})));
-        t.callbacks.push((2, Box::new(|_| {})));
-        let ready = t.take_ready(|g| *g);
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        t.callbacks.push((2, 1, Box::new(|_| {})));
+        let ready = t.take_ready(1, |g| *g);
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].1, CompletionState::Complete);
         assert_eq!(t.callbacks.len(), 1);
@@ -2484,7 +2554,7 @@ mod tests {
         let mut t = Submissions::<GroupState>::new();
         let _ = t.issue(|| Ok(GroupState::Completed));
         let _ = t.issue(|| Ok(GroupState::Completed));
-        t.callbacks.push((2, Box::new(|_| {})));
+        t.callbacks.push((2, 1, Box::new(|_| {})));
         // 回収の時点では 1 件目が未完了だったと見なす。
         let calls = std::cell::Cell::new(0);
         let first = t.reclaim(|_| {
@@ -2494,8 +2564,8 @@ mod tests {
         assert_eq!(first, Some(1));
         // 再読みでは完了と答えるが、止まった先頭は Pending のまま配信もされない。
         assert_eq!(t.state_of(1, |g| *g), CompletionState::Pending);
-        t.callbacks.push((1, Box::new(|_| {})));
-        let ready = t.take_ready(|g| *g);
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        let ready = t.take_ready(1, |g| *g);
         assert_eq!(ready.len(), 1);
         assert_eq!(t.callbacks.len(), 1);
         assert_eq!(t.callbacks[0].0, 1);
@@ -2505,11 +2575,74 @@ mod tests {
     #[test]
     fn take_all_callbacks_returns_every_registered_callback_once() {
         let mut t = Submissions::<GroupState>::new();
-        t.callbacks.push((1, Box::new(|_| {})));
-        t.callbacks.push((2, Box::new(|_| {})));
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        t.callbacks.push((2, 1, Box::new(|_| {})));
         assert_eq!(t.take_all_callbacks().len(), 2);
         assert!(t.callbacks.is_empty());
         assert!(t.take_all_callbacks().is_empty());
+    }
+
+    /// 払い出しの世代が違う項目と表に無い識別子は外さず、一致した項目だけを 1 回外す。
+    #[test]
+    fn remove_issued_matches_the_issue_generation_not_the_current_one() {
+        let mut map: BTreeMap<u64, (u64, &str)> = BTreeMap::new();
+        map.insert(1, (1, "a"));
+        map.insert(2, (2, "b"));
+        assert!(remove_issued(&mut map, 1, 2, |e| e.0).is_none());
+        assert!(remove_issued(&mut map, 3, 1, |e| e.0).is_none());
+        assert_eq!(map.len(), 2);
+        assert_eq!(remove_issued(&mut map, 1, 1, |e| e.0), Some((1, "a")));
+        assert!(remove_issued(&mut map, 1, 1, |e| e.0).is_none());
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&2));
+    }
+
+    /// 空の表と偽の識別子は何も外さず、別の項目を巻き込まない。
+    #[test]
+    fn remove_issued_ignores_forged_ids_and_an_empty_table() {
+        let mut map: BTreeMap<u64, (u64, &str)> = BTreeMap::new();
+        assert!(remove_issued(&mut map, 0, 0, |e| e.0).is_none());
+        assert!(remove_issued(&mut map, u64::MAX, u64::MAX, |e| e.0).is_none());
+        map.insert(1, (1, "a"));
+        assert!(remove_issued(&mut map, u64::MAX, 1, |e| e.0).is_none());
+        assert!(remove_issued(&mut map, u64::MAX, u64::MAX, |e| e.0).is_none());
+        assert_eq!(map.len(), 1);
+    }
+
+    /// 登録の世代が小さければ列の状態に関わらず `Lost`、大きければ表に残す。
+    #[test]
+    fn take_ready_answers_lost_for_an_older_generation_and_keeps_a_newer_one() {
+        let mut t = Submissions::<GroupState>::new();
+        for _ in 0..3 {
+            let _ = t.issue(|| Ok(GroupState::Completed));
+        }
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        t.callbacks.push((2, 2, Box::new(|_| {})));
+        t.callbacks.push((3, 3, Box::new(|_| {})));
+        let ready = t.take_ready(2, |g| *g);
+        assert_eq!(ready.len(), 2);
+        assert_eq!(ready[0].1, CompletionState::Lost);
+        assert_eq!(ready[1].1, CompletionState::Complete);
+        assert_eq!(t.callbacks.len(), 1);
+        assert_eq!(t.callbacks[0].0, 3);
+        assert_eq!(t.callbacks[0].1, 3);
+    }
+
+    /// 駆動が決めた後に世代が進んでいれば、呼ぶ値は `Lost` になる。
+    #[test]
+    fn a_complete_judged_before_the_generation_moved_is_delivered_as_lost() {
+        assert_eq!(
+            delivered_state(CompletionState::Complete, 1, 1),
+            CompletionState::Complete
+        );
+        assert_eq!(
+            delivered_state(CompletionState::Complete, 1, 2),
+            CompletionState::Lost
+        );
+        assert_eq!(
+            delivered_state(CompletionState::Lost, 1, 1),
+            CompletionState::Lost
+        );
     }
 
     #[test]
@@ -3246,7 +3379,7 @@ mod pool_device_tests {
         let d = device();
         let h = d.allocate(64, BufferUsage::STORAGE).expect("allocate");
         let stale = BufferHandle::__backend_new(
-            d.generation,
+            d.current_generation(),
             h.__backend_id(),
             d.id,
             64,
