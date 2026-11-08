@@ -132,6 +132,26 @@ ret;
 }
 ```
 
+## 完了の条件の確かめ（4/4）
+
+4/4（#3545）で、PTX の命令の検索の道具について本リポで観測できる事実だけを記録する。件数は実測で、コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 検索の関数が feature `test-support` の裏にあり、既定の feature で消える | `grep -n -B1 'pub mod ptx_search' crates/core/src/lib.rs`、`cargo clippy -p fandhe-silicon-core --all-targets -- -D warnings`、同じ clippy に `--features test-support` を付けたもの | grep は 94 行目 `#[cfg(feature = "test-support")]`・95 行目 `pub mod ptx_search;`。clippy は 2 つとも終了コード 0 |
+| (2) | crate の中の試験 | `cargo test -p fandhe-silicon-core --features test-support --lib ptx_search` | 11 passed; 0 failed; 0 ignored（242 filtered out） |
+| (3) | 手で書いた入力の試験 | `cargo test -p fandhe-silicon-core --features test-support --test ptx_search` | 8 passed; 0 failed; 0 ignored（0 filtered out） |
+| (4) | 例のビルドと終了コード | 手で書いた PTX（3/4 の節の例）を一時ファイルにして `cargo run -q -p fandhe-silicon-core --features test-support --example ptx_search_lines -- <file>`、続けて引数 0 個で同じコマンド | 前者は終了コード 0・標準出力 11 行。後者は終了コード 2 |
+| (5) | 依存・unsafe・依存の差分 | `cargo metadata --no-deps --format-version 1` の `fandhe-silicon-core` の `dependencies`、`grep -n forbid crates/core/src/lib.rs`、`grep -c unsafe` を `crates/core/src/ptx_search.rs`・`crates/core/examples/ptx_search_lines.rs`・`crates/core/tests/ptx_search.rs` に、`make core-deps-check`、`make deps-check`、`git diff --stat a2c63a0 HEAD -- Cargo.lock deps-approved.toml` | 依存は 0 件（出力 `[]`）。`forbid` は 39 行目 `#![forbid(unsafe_code)]`。`unsafe` の数は 3 ファイルとも 0。`core-deps-check`・`deps-check` は終了コード 0。`git diff --stat` の出力は空 |
+| (6) | wasm32 | `make wasm-verify` | 終了コード 0 |
+| (7) | CI で流れる場所 | `make verify`（`cargo test --workspace --all-features`） | 終了コード 0。`Running tests/ptx_search.rs` は 8 tests。core の lib の試験のうち `ptx_search::tests::` の ok の行は 11 |
+
+補い: (7) の lib の試験は core の lib の試験のバイナリにまとまって流れる。
+
+確かめた時点は、main のコミット `cace353` と、`docs/spec` の gitlink `f50c86bf8919b4ee68e62948491886fb25c9ae12`。
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-100）。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -139,3 +159,4 @@ ret;
 | 1/4 | 検索の関数 | #3542 |
 | 2/4 | 手で書いた入力の試験 | #3543 |
 | 3/4 | 結果を 1 行ずつ出す例 | #3544 |
+| 4/4 | 完了の条件の確かめ | #3545 |
