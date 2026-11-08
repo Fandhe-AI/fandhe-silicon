@@ -114,6 +114,34 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
 
+## device の要る試験（4/5）
+
+device に触る試験を、すべて `#[ignore = "requires a CUDA device"]` 付きで足した。`--ignored` を付けたときだけ走る。
+
+統合試験 `crates/contract/tests/backend_cuda_submit.rs`（feature `backend-cuda`）:
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `submit_returns_a_token_of_the_device_generation_without_waiting` | 印の世代が device の世代で、直後の `poll` が `Pending` か `Complete`、最後は `Complete` |
+| `creating_and_dropping_encoders_submits_nothing` | 記録先を作って捨てたあとの最初の投入の番号が 1 |
+| `submit_ex_with_an_empty_wait_returns_a_token_that_completes` | 空の `wait` の `submit_ex` が印を返し `Complete` になる |
+| `foreign_encoders_and_a_nonempty_wait_are_rejected_without_consuming_a_sequence` | 別 device の記録先は `InvalidArgument`、空でない `wait` は `Unsupported`、番号を消費しない |
+| `submit_many_returns_one_token_for_the_whole_list` | 3 つの記録先の一括投入が印を 1 つ返し、番号が 1 つ進んで `Complete` になる |
+| `submit_many_rejects_bad_lists_without_consuming_a_sequence` | 空の列・別 device の `after`・別 device の記録先を含む列を拒み、番号を消費しない |
+| `poll_of_a_foreign_or_unissued_token_is_lost` | 別 device の印と払い出していない番号の `poll` が `Lost` |
+
+lib の `device_tests` に足した 2 本（`#[cfg(test)]` の数の口 `test_submitted_count`・`test_open_encoder_count` を使う）:
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `dropping_an_encoder_closes_it_and_submits_nothing` | 記録先を捨てると開いている数が戻り、投入は 0 回 |
+| `rejected_submissions_do_not_change_the_submitted_count` | 拒まれた投入が投入の回数と開いている数を変えない |
+
+確かめ方:
+
+- `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_submit` が `0 passed; 0 failed; 7 ignored` で通る
+- `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` が `11 ignored` で通る
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -121,3 +149,4 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 1/5 | 記録先の集合と submit | #5184 |
 | 2/5 | 投入の完了の問い合わせ | #5185 |
 | 3/5 | 複数の記録先の一括投入 | #5186 |
+| 4/5 | 投入の device の要る試験 | #5187 |
