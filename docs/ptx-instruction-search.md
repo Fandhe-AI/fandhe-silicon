@@ -64,8 +64,30 @@ PTX のテキストを関数ごとに分け、命令の opcode に名前つき�
 cargo test -p fandhe-silicon-core --features test-support --lib ptx_search
 ```
 
+## 手で書いた入力の試験（2/4）
+
+外の crate からの試験 `crates/core/tests/ptx_search.rs`（`[[test]]` の `required-features = ["test-support"]`）。公開のパス `fandhe_silicon_core::ptx_search` だけを使い、入力は試験の中に組んだ最小の PTX のテキスト（`.target sm_80`）。パターンは `BUILTIN_PATTERNS`。
+
+| 試験 | 入力の形 | 期待 |
+| ---- | -------- | ---- |
+| `counts_each_pattern_per_entry` | `.visible .entry` が 2 つ。片方は 4 つのパターンに当たる命令、もう片方は `add.s32`・`ld.global.u32`・`st.global.u32`・`ret` だけ | 前者は `instructions` 7・`f16` 3（`mma.sync…f32.f16.f16.f32` は `matrix-mma` と `f16` の両方に当たる）・`subgroup` 1・`f32-atomic-add` 2・`matrix-mma` 1 と `opcodes` の字句ごとの件数。後者は `instructions` 4 で全パターン 0 |
+| `directives_comments_and_strings_are_not_counted` | `.file` の文字列の中の `.entry`・`//`、`.reg .f16`・`.shared`・`.pragma`・`.loc`、行コメントとブロックコメントの中の命令 | 関数は 1 つ（名前 `k`）で `instructions` 2、全パターン 0 |
+| `labels_predicates_and_scopes` | ラベル・述語 `@%p1`・`@!%p1`・入れ子の範囲 `{ … }` の中の命令 | `instructions` 4。`shfl.sync.bfly.b32`・`cvt.rn.f16.f32` が 1 件ずつ |
+| `vector_operand_braces_are_part_of_the_instruction` | オペランドに `{…}` を持つ `wmma.mma…` の 1 行、`wmma.load…f16` の 1 行 | 前者は `instructions` が 1 増えるだけで `matrix-mma` 1。後者は `matrix-mma` 0・`f16` 1 |
+| `func_bodies_and_declarations` | `.extern .func … ;` の宣言、戻りつきの本文のある `.func`、`.entry` | `declarations` は `ext`。`units` は `Func` の `helper`・`Entry` の `k` の順。`total` は 2 つの関数の和 |
+| `top_level_initializers_are_skipped` | 関数の外の `.global … = {…};` の後の `.entry` | 関数は 1 つで `instructions` 2・`f16` 1、宣言なし |
+| `malformed_inputs_are_errors` | 空・`.version` などだけ・閉じない `{`・余分な `}`・閉じない `/*`・閉じない `"`・名前の無い `.entry`・同じ名前の `.entry` 2 つ・空のパターンの列・id の重複 | それぞれ `NoEntry`・`NoEntry`・`UnbalancedBraces`・`UnbalancedBraces`・`UnterminatedBlockComment`・`UnterminatedString`・`MissingFunctionName`・`DuplicateFunctionName`・`EmptyPatterns`・`DuplicatePatternId`（variant だけを照らす） |
+| `builtin_patterns_are_the_four` | `BUILTIN_PATTERNS` | id が `f16`・`subgroup`・`f32-atomic-add`・`matrix-mma` の順で重複なし |
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-core --features test-support --test ptx_search
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 検索の関数 | #3542 |
+| 2/4 | 手で書いた入力の試験 | #3543 |
