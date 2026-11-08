@@ -148,26 +148,43 @@ impl LostState {
     ///
     /// 世代は `source` から 1 つ取って `generation` へ書く。`source` が尽きていたら、理由も世代も
     /// コールバックも変えずに `Err` を返す。コールバックの中から同じ状態を呼んでも詰まらない。
+    #[cfg(test)]
     fn lose(
         &self,
         reason: DeviceLostReason,
         generation: &AtomicU64,
         source: &AtomicU64,
     ) -> Result<bool, GenerationExhausted> {
+        let (first, panic) = self.lose_catching(reason, generation, source)?;
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
+        }
+        Ok(first)
+    }
+
+    /// `lose` と同じ手順だが、通知先のコールバックが panic したら再送出せず、その中身を返す。
+    ///
+    /// 理由と世代は panic の前に記録済みなので、呼ぶ側は返った中身を、後続の処理（古い世代の完了の
+    /// callback の通知など）を終えてから再送出すること。
+    fn lose_catching(
+        &self,
+        reason: DeviceLostReason,
+        generation: &AtomicU64,
+        source: &AtomicU64,
+    ) -> Result<(bool, Option<Box<dyn std::any::Any + Send>>), GenerationExhausted> {
         let callback = {
             let mut inner = self.lock();
             if inner.reason.is_some() {
-                return Ok(false);
+                return Ok((false, None));
             }
             let next = take_next(source).ok_or(GenerationExhausted)?;
             generation.store(next, Ordering::Release);
             inner.reason = Some(reason.clone());
             inner.callback.take()
         };
-        if let Some(callback) = callback {
-            callback(reason);
-        }
-        Ok(true)
+        let panic =
+            callback.and_then(|callback| catch_unwind(AssertUnwindSafe(|| callback(reason))).err());
+        Ok((true, panic))
     }
 }
 
@@ -1617,9 +1634,9 @@ impl FaultHooks for CudaDevice {
     /// 完了の callback を表から外して `Lost` で 1 回ずつ呼ぶ。2 回目以降は何もせず `Ok`。
     /// 世代の源が尽きていたら、状態を変えずに `BackendFailure` を返す。
     fn simulate_device_lost(&self, reason: DeviceLostReason) -> Result<(), ContractError> {
-        let first = self
+        let (first, lost_panic) = self
             .lost
-            .lose(reason, &self.generation, &NEXT_GENERATION)
+            .lose_catching(reason, &self.generation, &NEXT_GENERATION)
             .map_err(|_| ContractError::BackendFailure {
                 op: "simulate_device_lost",
                 backend: BACKEND,
@@ -1627,10 +1644,18 @@ impl FaultHooks for CudaDevice {
             })?;
         if first {
             // 投入済みの表の錠はこの文の終わりで放してから、利用者の callback を呼ぶ。
+            // ロスト通知が panic していても、古い世代の完了の callback は先に `Lost` で呼び切る。
             let stale = self
                 .lock_submissions()
                 .take_stale(self.current_generation());
-            if let Some(payload) = run_callbacks(stale) {
+            let stale_panic = run_callbacks(stale);
+            if let Some(payload) = lost_panic {
+                if let Some(extra) = stale_panic {
+                    discard_panic(extra);
+                }
+                std::panic::resume_unwind(payload);
+            }
+            if let Some(payload) = stale_panic {
                 std::panic::resume_unwind(payload);
             }
         }
@@ -3249,6 +3274,38 @@ mod device_tests {
             .len()
     }
 
+    /// ロスト通知が panic しても、登録済みの完了 callback は全部 `Lost` で呼ばれ、panic は呼び出し側へ届く。
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_panicking_lost_callback_still_delivers_lost_to_completion_callbacks() {
+        let d = device();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let generation = d.current_generation();
+        {
+            let mut table = d.lock_submissions();
+            for sequence in 1..=2_u64 {
+                let seen = Arc::clone(&seen);
+                table.callbacks.push((
+                    sequence,
+                    generation,
+                    Box::new(move |state| seen.lock().unwrap().push(state)),
+                ));
+            }
+        }
+        d.set_lost_callback(Box::new(|_| panic!("lost callback panic")));
+
+        let caught = catch_unwind(AssertUnwindSafe(|| {
+            d.simulate_device_lost(DeviceLostReason::Unknown)
+        }));
+        assert!(caught.is_err());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![CompletionState::Lost, CompletionState::Lost]
+        );
+        assert!(d.simulate_device_lost(DeviceLostReason::Destroyed).is_ok());
+    }
+
     /// CUDA C のカーネルから、この device のパイプラインが作られる。
     #[test]
     #[ignore = "requires a CUDA device"]
@@ -3683,6 +3740,27 @@ mod lost_state_tests {
             .unwrap();
         assert!(seen.lock().unwrap().is_empty());
         assert!(state.lock().callback.is_some());
+    }
+
+    /// 通知先が panic しても、理由と世代は記録済みで、`lose_catching` は中身を返し、2 回目は何もしない。
+    #[test]
+    fn a_panicking_callback_is_returned_after_the_loss_is_recorded() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(5));
+        state.set_callback(Box::new(|_| panic!("lost callback panic")));
+
+        let (first, panic) = state
+            .lose_catching(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert!(first);
+        assert!(panic.is_some());
+        assert!(state.is_lost());
+        assert_eq!(generation.load(Ordering::Acquire), 5);
+        let (again, panic) = state
+            .lose_catching(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(!again);
+        assert!(panic.is_none());
     }
 
     #[test]
