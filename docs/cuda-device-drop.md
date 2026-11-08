@@ -141,6 +141,70 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wa
 cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy -- --ignored
 ```
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-191。ポインタのみ）。
+
+時点のコミット: `bb4bd29`。`docs/spec` の gitlink は `f50c86bf8919b4ee68e62948491886fb25c9ae12`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 共通の crate の口 | `cargo test -p fandhe-silicon-core --test device_destroy`、`make doctest-error-code-check` | 2 passed; 0 failed、`doctest error codes ok`、終了コード 0 |
+| 2 | `Drop` の同期と値と解放の部品 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` | 57 passed; 0 failed; 15 ignored、終了コード 0 |
+| 3 | 明示の破棄の順の部品 | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib backend_cuda` | 69 passed; 0 failed; 22 ignored、終了コード 0 |
+| 4 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda`、`cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy` | lib は 69 passed; 0 failed; 28 ignored、`backend_cuda_destroy` は 0 passed; 0 failed; 1 ignored、終了コード 0 |
+| 5 | 依存 0・unsafe 0 | `git diff --stat c7dbe27..HEAD -- Cargo.lock deps-approved.toml crates/core/Cargo.toml crates/contract/src/lib.rs crates/contract/tests/backend_cuda_unsafe_count.rs`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count`、`make deps-check` | diff は出力なし、1 passed; 0 failed、`make deps-check` は終了コード 0 |
+| 6 | 公開の型の検査 | `make public-api-sdk-check`、`make public-api-webgpu-check` | `sdk_type_refs_total=0`、`ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok`、終了コード 0 |
+| 7 | CI | `gh run view 42534064147 --json conclusion,headSha,jobs`（`bb4bd29` の main の push の run） | conclusion `success`、headSha `bb4bd29716ec9b3938628f555560b4db769d1049`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(5) の `c7dbe27` は、1/5 の 1 つ前のコミット。
+
+(1) の出力。
+
+```text
+running 2 tests
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+[doctest-error-code-check.sh] doctest error codes ok
+```
+
+(2) の出力。
+
+```text
+running 72 tests
+test result: ok. 57 passed; 0 failed; 15 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 91 tests
+test result: ok. 69 passed; 0 failed; 22 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+running 97 tests
+test result: ok. 69 passed; 0 failed; 28 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+running 1 test
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(5) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(6) の出力。
+
+```text
+record: commit=bb4bd29716ec9b3938628f555560b4db769d1049 documents=10 public_items_total=13840 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -149,3 +213,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cud
 | 2/5 | `Drop` の同期と解放 | #3855 |
 | 3/5 | 明示の破棄 | #3856 |
 | 4/5 | device の要る試験 | #3857 |
+| 5/5 | 完了の条件の確かめ | #3858 |
