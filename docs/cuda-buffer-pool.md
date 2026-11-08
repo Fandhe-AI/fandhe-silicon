@@ -44,8 +44,25 @@ device に触らない試験:
 | `pool_counts_zeroing_entries_toward_the_limits` | 待つ側の分も件数と合計に数え、上限を超える入れ方は引数を返す |
 | `retire_flow_skips_zeroing_when_rejected_and_keeps_failed_buffers_out` | 入れられないときはゼロ化を積まず、ゼロ化の失敗では一覧に入れず、バッファを返す |
 
+## 境界の入力の試験（2/4）
+
+device に触らない試験で、同じファイルの `tests` module にある。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `pool_entry_limit_is_exact_on_the_zeroing_side_the_ready_side_and_both` | 件数 16 が待つ側だけ・使える側だけ・混在のどれでもちょうどで効き、17 件目は引数を返して一覧が変わらない。1 件外れる・取り出すと 1 件入る |
+| `pool_byte_limit_is_exact_and_an_overflowing_sum_leaves_the_pool_unchanged` | 合計がちょうど上限まで入り、1 バイト多いと拒む。長さ `u64::MAX` と件数の `usize` のあふれでも一覧が変わらない |
+| `pool_take_matches_only_when_both_length_and_usage_bits_are_equal` | 長さだけ・用途のビットだけ・両方違う鍵は `None` で何も変わらず、両方同じ鍵だけ取れる |
+| `pool_settle_keeps_pending_moves_them_later_and_subtracts_only_failed_entries` | 未完了は残り、完了で使える側へ移り、失敗だけが件数と合計から引かれる。使える側のものは問い合わせず、空の一覧では問い合わせない |
+| `pool_counts_a_slot_match_only_for_the_most_recently_put_slot` | 後に入れたものから取り、一致は直前に入れた slot のときだけ数える。拒まれた入れ方は直前の slot を動かさない |
+| `pool_take_on_an_empty_pool_or_another_key_returns_none_without_counting` | 空の一覧・別の鍵・待つ側にしか無い鍵の取り出しは `None` で、何も数えない。最後の 1 件を取ると鍵が消える |
+| `retire_flow_calls_zero_and_put_only_when_allowed_and_returns_what_put_returns` | 呼ぶ順と引数。受け入れないと `zero`・`put` を呼ばず、`zero` の失敗では `put` を呼ばない。本物の一覧と組んだ満杯の場合 |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 再利用の一覧とゼロ化 | #4429 |
+| 2/4 | 境界の入力の試験 | #4430 |

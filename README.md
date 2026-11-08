@@ -211,7 +211,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4） |
+| `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |

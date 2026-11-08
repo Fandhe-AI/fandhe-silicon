@@ -1649,6 +1649,335 @@ mod tests {
         assert_eq!(refused, Some(4));
     }
 
+    /// 一覧の観測できる状態。件数・合計・待つ側の数・使える側の鍵ごとの slot の並び・直前の slot・2 つの回数。
+    type PoolState = (
+        usize,
+        u64,
+        usize,
+        Vec<(PoolKey, Vec<u64>)>,
+        Option<u64>,
+        u64,
+        u64,
+    );
+
+    fn pool_state<B, E>(pool: &ReusePool<B, E>) -> PoolState {
+        (
+            pool.entries,
+            pool.bytes,
+            pool.zeroing.len(),
+            pool.ready
+                .iter()
+                .map(|(key, list)| (*key, list.iter().map(|(slot, _)| *slot).collect()))
+                .collect(),
+            pool.last_put_slot,
+            pool.reuse_count,
+            pool.slot_match_count,
+        )
+    }
+
+    /// 件数の上限は待つ側だけ・使える側だけ・両方の混在のどれでもちょうどで効く。
+    #[test]
+    fn pool_entry_limit_is_exact_on_the_zeroing_side_the_ready_side_and_both() {
+        let max = POOL_MAX_ENTRIES as u64;
+        // 待つ側だけ。
+        let mut pool = ReusePool::<u8, ()>::default();
+        for i in 0..max - 1 {
+            assert!(pool.retire((1, 0), i, 0, ()).is_none());
+        }
+        assert!(pool.would_accept(1));
+        assert!(pool.retire((1, 0), max - 1, 0, ()).is_none());
+        assert!(!pool.would_accept(1));
+        let before = pool_state(&pool);
+        assert_eq!(pool.retire((1, 0), 99, 7, ()), Some((7, ())));
+        assert_eq!(pool_state(&pool), before);
+
+        // 使える側だけ。
+        let mut pool = ReusePool::<u8, ()>::default();
+        for i in 0..max {
+            assert!(pool.retire((1, 0), i, 0, ()).is_none());
+        }
+        assert!(pool.settle(|_| Ok::<bool, ()>(true)).is_empty());
+        assert_eq!((pool.zeroing.len(), pool.entries), (0, POOL_MAX_ENTRIES));
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 99, 7, ()), Some((7, ())));
+        assert_eq!(pool_state(&pool), before);
+        assert!(pool.take((1, 0)).is_some());
+        assert!(pool.retire((1, 0), 100, 0, ()).is_none());
+        assert_eq!(pool.retire((1, 0), 101, 8, ()), Some((8, ())));
+
+        // 混在。
+        let mut pool = ReusePool::<u8, u8>::default();
+        for i in 0..max / 2 {
+            assert!(pool.retire((1, 0), i, 0, 1).is_none());
+        }
+        assert!(pool.settle(|_| Ok::<bool, ()>(true)).is_empty());
+        for i in max / 2..max - 1 {
+            assert!(pool.retire((1, 0), i, 0, 2).is_none());
+        }
+        assert!(pool.retire((1, 0), max - 1, 5, 3).is_none());
+        assert_eq!((pool.zeroing.len(), pool.ready.len()), (8, 1));
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 99, 7, 4), Some((7, 4)));
+        assert_eq!(pool_state(&pool), before);
+        let dropped = pool.settle(|done| if *done == 3 { Err(()) } else { Ok(false) });
+        assert_eq!(dropped, vec![5]);
+        assert!(pool.retire((1, 0), 100, 0, 4).is_none());
+        assert_eq!(pool.retire((1, 0), 101, 9, 4), Some((9, 4)));
+    }
+
+    /// 大きさの合計の上限は合計がちょうどのときまで入り、あふれる足し算は一覧を変えずに拒む。
+    #[test]
+    fn pool_byte_limit_is_exact_and_an_overflowing_sum_leaves_the_pool_unchanged() {
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.retire((POOL_MAX_BYTES - 1, 0), 1, 0, ()).is_none());
+        assert!(pool.would_accept(1));
+        assert!(pool.retire((1, 0), 2, 0, ()).is_none());
+        assert_eq!((pool.entries, pool.bytes), (2, POOL_MAX_BYTES));
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 3, 5, ()), Some((5, ())));
+        assert_eq!(pool_state(&pool), before);
+
+        let half = POOL_MAX_BYTES / 2;
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.retire((half, 0), 1, 0, ()).is_none());
+        pool.settle(|_| Ok::<bool, ()>(true));
+        assert!(pool.retire((half, 1), 2, 0, ()).is_none());
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 3, 6, ()), Some((6, ())));
+        assert_eq!(pool_state(&pool), before);
+
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.retire((1, 0), 1, 0, ()).is_none());
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(u64::MAX));
+        assert_eq!(pool.retire((u64::MAX, 0), 2, 4, ()), Some((4, ())));
+        assert_eq!(pool_state(&pool), before);
+
+        pool.entries = usize::MAX;
+        let before = pool_state(&pool);
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 3, 3, ()), Some((3, ())));
+        assert_eq!(pool_state(&pool), before);
+    }
+
+    /// 取り出しは長さと用途のビットの両方が一致するときだけ。外れた問い合わせは何も変えない。
+    #[test]
+    fn pool_take_matches_only_when_both_length_and_usage_bits_are_equal() {
+        let bits = BufferUsage::STORAGE.bits();
+        let other = (BufferUsage::STORAGE | BufferUsage::UPLOAD).bits();
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.retire((8, bits), 1, 3, ()).is_none());
+        pool.settle(|_| Ok::<bool, ()>(true));
+        let before = pool_state(&pool);
+        assert!(pool.take((16, bits)).is_none());
+        assert!(pool.take((8, other)).is_none());
+        assert!(pool.take((16, other)).is_none());
+        assert_eq!(pool_state(&pool), before);
+        assert_eq!(pool.take((8, bits)), Some((1, 3)));
+        assert_eq!((pool.entries, pool.bytes, pool.reuse_count), (0, 0, 1));
+    }
+
+    /// 完了の問い合わせの 3 値の扱い。未完了は残り、使える側のものは再び問い合わせない。
+    #[test]
+    fn pool_settle_keeps_pending_moves_them_later_and_subtracts_only_failed_entries() {
+        let calls = std::cell::Cell::new(0u32);
+        let mut pool = ReusePool::<u32, u8>::default();
+        for (slot, len) in [(1, 4u8), (2, 8), (3, 16)] {
+            assert!(
+                pool.retire((u64::from(len), 0), slot, u32::from(len), len)
+                    .is_none()
+            );
+        }
+        let dropped = pool.settle(|done| {
+            calls.set(calls.get() + 1);
+            if *done == 8 { Err(()) } else { Ok(false) }
+        });
+        assert_eq!((dropped, calls.get()), (vec![8], 3));
+        assert_eq!((pool.entries, pool.bytes, pool.zeroing.len()), (2, 20, 2));
+        assert!(pool.ready.is_empty());
+        assert!(pool.take((4, 0)).is_none());
+
+        let before = pool_state(&pool);
+        assert!(pool.settle(|_| Ok::<bool, ()>(false)).is_empty());
+        assert_eq!(pool_state(&pool), before);
+
+        assert!(pool.settle(|_| Ok::<bool, ()>(true)).is_empty());
+        assert_eq!((pool.entries, pool.bytes, pool.zeroing.len()), (2, 20, 0));
+
+        // 使える側のものは閉包に渡らない。
+        assert!(pool.retire((32, 0), 4, 32, 32).is_none());
+        calls.set(0);
+        assert!(
+            pool.settle(|_| {
+                calls.set(calls.get() + 1);
+                Ok::<bool, ()>(false)
+            })
+            .is_empty()
+        );
+        assert_eq!((calls.get(), pool.entries, pool.bytes), (1, 3, 52));
+        assert_eq!(pool.take((4, 0)).map(|(_, b)| b), Some(4));
+        assert_eq!(pool.take((16, 0)).map(|(_, b)| b), Some(16));
+        assert_eq!((pool.entries, pool.bytes), (1, 32));
+
+        let mut empty = ReusePool::<u8, u8>::default();
+        assert!(
+            empty
+                .settle(|_| -> Result<bool, ()> { panic!("no item to ask") })
+                .is_empty()
+        );
+    }
+
+    /// slot の一致は、直前に入れた slot を取り出したときだけ数える。拒まれた入れ方は直前の slot を動かさない。
+    #[test]
+    fn pool_counts_a_slot_match_only_for_the_most_recently_put_slot() {
+        let key = (8, 0);
+        let mut pool = ReusePool::<u8, ()>::default();
+        for slot in 1..=3 {
+            assert!(pool.retire(key, slot, 0, ()).is_none());
+        }
+        pool.settle(|_| Ok::<bool, ()>(true));
+        let slots: Vec<u64> = (0..3)
+            .filter_map(|_| pool.take(key).map(|(s, _)| s))
+            .collect();
+        assert_eq!(slots, vec![3, 2, 1]);
+        assert_eq!((pool.reuse_count, pool.slot_match_count), (3, 1));
+
+        let mut pool = ReusePool::<u8, u8>::default();
+        assert!(pool.retire(key, 1, 0, 1).is_none());
+        pool.settle(|_| Ok::<bool, ()>(true));
+        assert!(pool.retire(key, 2, 0, 2).is_none());
+        assert_eq!(pool.take(key).map(|(s, _)| s), Some(1));
+        assert_eq!((pool.reuse_count, pool.slot_match_count), (1, 0));
+
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.retire((8, 0), 1, 0, ()).is_none());
+        assert!(pool.retire((16, 0), 2, 0, ()).is_none());
+        pool.settle(|_| Ok::<bool, ()>(true));
+        assert_eq!(pool.take((8, 0)).map(|(s, _)| s), Some(1));
+        assert_eq!(pool.slot_match_count, 0);
+        assert_eq!(pool.take((16, 0)).map(|(s, _)| s), Some(2));
+        assert_eq!(pool.slot_match_count, 1);
+
+        let mut pool = ReusePool::<u8, ()>::default();
+        for slot in 0..POOL_MAX_ENTRIES as u64 {
+            assert!(pool.retire((1, 0), slot, 0, ()).is_none());
+        }
+        assert_eq!(pool.retire((1, 0), 99, 1, ()), Some((1, ())));
+        assert_eq!(pool.last_put_slot, Some(POOL_MAX_ENTRIES as u64 - 1));
+        pool.settle(|_| Ok::<bool, ()>(true));
+        assert_eq!(
+            pool.take((1, 0)).map(|(s, _)| s),
+            Some(POOL_MAX_ENTRIES as u64 - 1)
+        );
+        assert_eq!((pool.reuse_count, pool.slot_match_count), (1, 1));
+    }
+
+    /// 空の一覧・別の鍵・待つ側にしか無い鍵の取り出しは `None` で、何も数えず何も作らない。
+    #[test]
+    fn pool_take_on_an_empty_pool_or_another_key_returns_none_without_counting() {
+        let mut pool = ReusePool::<u8, ()>::default();
+        let empty = pool_state(&pool);
+        assert!(pool.take((8, 0)).is_none());
+        assert_eq!(pool_state(&pool), empty);
+
+        assert!(pool.retire((8, 0), 1, 0, ()).is_none());
+        let waiting = pool_state(&pool);
+        assert!(pool.take((8, 0)).is_none());
+        assert_eq!(pool_state(&pool), waiting);
+
+        pool.settle(|_| Ok::<bool, ()>(true));
+        let ready = pool_state(&pool);
+        assert!(pool.take((16, 0)).is_none());
+        assert_eq!(pool_state(&pool), ready);
+
+        assert!(pool.take((8, 0)).is_some());
+        assert!(pool.ready.is_empty());
+        assert!(pool.take((8, 0)).is_none());
+        assert_eq!((pool.reuse_count, pool.entries, pool.bytes), (1, 0, 0));
+    }
+
+    /// 流れの関数の呼び分け。受け入れないと `zero`・`put` を呼ばず、`zero` の失敗では `put` を呼ばない。
+    #[test]
+    fn retire_flow_calls_zero_and_put_only_when_allowed_and_returns_what_put_returns() {
+        use std::cell::RefCell;
+        let log = RefCell::new(Vec::<String>::new());
+        let rejected = retire_flow(
+            12,
+            vec![1u8],
+            |n| {
+                log.borrow_mut().push(format!("accepts {n}"));
+                false
+            },
+            |_| -> Result<u8, &str> { panic!("zero must not run") },
+            |_, _| panic!("put must not run"),
+        );
+        assert_eq!(rejected, Some(vec![1]));
+        assert_eq!(*log.borrow(), vec!["accepts 12".to_string()]);
+
+        log.borrow_mut().clear();
+        let failed = retire_flow(
+            5,
+            vec![1u8],
+            |n| {
+                log.borrow_mut().push(format!("accepts {n}"));
+                true
+            },
+            |b| {
+                b.push(2);
+                log.borrow_mut().push("zero".into());
+                Err::<u8, _>("zero failed")
+            },
+            |_, _| panic!("put must not run"),
+        );
+        assert_eq!(failed, Some(vec![1, 2]));
+        assert_eq!(*log.borrow(), vec!["accepts 5".to_string(), "zero".into()]);
+
+        log.borrow_mut().clear();
+        let returned = retire_flow(
+            5,
+            vec![1u8],
+            |_| true,
+            |b| {
+                b.push(2);
+                Ok::<u8, &str>(7)
+            },
+            |b, e| {
+                log.borrow_mut().push(format!("put {b:?} {e}"));
+                Some((b, e))
+            },
+        );
+        assert_eq!(returned, Some(vec![1, 2]));
+        assert_eq!(*log.borrow(), vec!["put [1, 2] 7".to_string()]);
+        let kept = retire_flow(5, vec![1u8], |_| true, |_| Ok::<u8, &str>(7), |_, _| None);
+        assert_eq!(kept, None);
+
+        let pool = RefCell::new(ReusePool::<Vec<u8>, u8>::default());
+        for _ in 0..POOL_MAX_ENTRIES {
+            let r = retire_flow(
+                1,
+                vec![0u8],
+                |n| pool.borrow().would_accept(n),
+                |_| Ok::<u8, &str>(0),
+                |b, e| pool.borrow_mut().retire((1, 0), 1, b, e),
+            );
+            assert_eq!(r, None);
+        }
+        let before = pool_state(&pool.borrow());
+        let full = retire_flow(
+            1,
+            vec![9u8],
+            |n| pool.borrow().would_accept(n),
+            |_| -> Result<u8, &str> { panic!("zero must not run") },
+            |b, e| pool.borrow_mut().retire((1, 0), 2, b, e),
+        );
+        assert_eq!(full, Some(vec![9]));
+        assert_eq!(pool_state(&pool.borrow()), before);
+    }
+
     /// 最初の通し番号は 1 で、失敗した払い出しは番号を消費しない（CMD-87）。
     #[test]
     fn the_first_sequence_is_one_and_a_failed_issue_does_not_consume_a_number() {
