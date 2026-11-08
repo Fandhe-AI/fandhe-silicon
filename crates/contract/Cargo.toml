@@ -24,7 +24,7 @@ objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = 
 # CUDA の背後実装の依存。ドライバは実行時に動的に読み込む（`nvcc` はビルドに要らない）。
 # wasm32 の依存グラフには入らない。承認の記録は deps-approved.toml（approval_ref #423）。
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-cudarc = { version = "=0.19.10", optional = true, default-features = false, features = ["driver", "fallback-dynamic-loading", "cuda-12060"] }
+cudarc = { version = "=0.19.10", optional = true, default-features = false, features = ["driver", "nvrtc", "fallback-dynamic-loading", "cuda-12060"] }
 
 # feature 名は spec BUILD-47 / BUILD-8 / BUILD-65 に合わせる。
 # backend-* は src/backend_*.rs のモジュールを有効にする（Vulkan・CUDA は wasm32 で外す。spec TASK-5）。

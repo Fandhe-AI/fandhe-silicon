@@ -18,7 +18,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DriverError};
+use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
+use cudarc::nvrtc::{CompileError, CompileOptions, Ptx};
 use fandhe_silicon_core::capability::{
     BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
 };
@@ -111,6 +112,7 @@ fn adapter_name_of(name: &str, capability: (i32, i32)) -> String {
 /// context から読み取った device の属性。
 struct Attributes {
     adapter_name: String,
+    compute_capability: (i32, i32),
     total_mem: u64,
 }
 
@@ -132,6 +134,7 @@ fn read_attributes<E: std::fmt::Debug>(
     })?;
     Ok(Attributes {
         adapter_name: adapter_name_of(&name, capability),
+        compute_capability: capability,
         total_mem,
     })
 }
@@ -221,8 +224,10 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
                 max_dispatch_dims: grid_dims,
                 max_texture_size: 0,
             },
+            compute_capability: attributes.compute_capability,
             stream,
             buffers: Mutex::new(Buffers::default()),
+            pipelines: Mutex::new(Pipelines::default()),
         }) as Box<dyn Device>)
     })
 }
@@ -401,6 +406,96 @@ fn check_no_nul(source: &str, entry_point: &str) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// NVRTC に渡すオプションを compute capability から組み立てる。`compile_cuda_c` から呼ばれる。
+/// 渡すのは `--gpu-architecture` の 1 つだけ。負の値は `BackendFailure`。
+fn compile_options(capability: (i32, i32)) -> Result<CompileOptions, ContractError> {
+    let (major, minor) = capability;
+    if major < 0 || minor < 0 {
+        return Err(ContractError::BackendFailure {
+            op: "create_pipeline",
+            backend: BACKEND,
+            detail: format!("invalid compute capability {major}.{minor}"),
+        });
+    }
+    Ok(CompileOptions {
+        options: vec![format!("--gpu-architecture=compute_{major}{minor}")],
+        ..CompileOptions::default()
+    })
+}
+
+/// NVRTC の共有ライブラリが読み込めるかを返す。`compile_cuda_c` がコンパイルの前に呼ぶ。
+fn nvrtc_library_present() -> bool {
+    // SAFETY: `is_culib_present` は NVRTC の共有ライブラリの名前の候補を順に読み込み、1 つでも読めれば
+    // その場で閉じて `true` を返す。ポインタを受けず、呼び出しの前に満たす不変条件は無い。
+    // 読み込みが走らせる初期化子は、以後のコンパイルが読み込むものと同じライブラリのものだけ。
+    // 読み込み先は OS の検索規則で決まるので、検索パスの内容をプロセスの環境が信頼している前提に立つ。
+    unsafe { cudarc::nvrtc::sys::is_culib_present() }
+}
+
+/// 成果物の読み込み系の失敗を写す。メモリ不足は `BackendFailure`、それ以外は `ArtifactRejected`。
+fn artifact_failure(
+    kind: &'static str,
+    call: &'static str,
+    out_of_memory: bool,
+    detail: impl std::fmt::Debug,
+) -> ContractError {
+    if out_of_memory {
+        backend_failure(call, detail)
+    } else {
+        ContractError::ArtifactRejected {
+            kind,
+            reason: format!("{call}: {detail:?}"),
+        }
+    }
+}
+
+/// NVRTC の失敗を、失敗した呼び出しの名前を付けて写す。`compile_cuda_c` から呼ばれる。
+fn nvrtc_failure(e: CompileError) -> ContractError {
+    use cudarc::nvrtc::sys::nvrtcResult;
+    let (call, code) = match &e {
+        CompileError::CreationError(n) => ("nvrtcCreateProgram", n.0),
+        CompileError::CompileError { nvrtc, .. } => ("nvrtcCompileProgram", nvrtc.0),
+        CompileError::GetLogError(n) => ("nvrtcGetProgramLog", n.0),
+        CompileError::GetPtxError(n) => ("nvrtcGetPTX", n.0),
+        CompileError::DestroyError(n) => ("nvrtcDestroyProgram", n.0),
+    };
+    artifact_failure(
+        "cuda-c",
+        call,
+        code == nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY,
+        e,
+    )
+}
+
+/// パイプラインの生成でドライバや NVRTC を呼ぶ閉包の panic を `BackendFailure` に変える。
+/// panic の payload は載せない。unwind するビルドで効く（`panic=abort` のビルドでは abort になる）。
+fn guard_pipeline_panic<T>(
+    f: impl FnOnce() -> Result<T, ContractError>,
+) -> Result<T, ContractError> {
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        Err(ContractError::BackendFailure {
+            op: "create_pipeline",
+            backend: BACKEND,
+            detail: "driver call panicked".into(),
+        })
+    })
+}
+
+/// CUDA C のソースを NVRTC で PTX にする。NVRTC を呼ぶのはこの関数だけ。
+/// ライブラリが無ければ `Unsupported`。`ComputeOps::create_pipeline` から呼ばれる。
+fn compile_cuda_c(source: &str, capability: (i32, i32)) -> Result<Ptx, ContractError> {
+    let options = compile_options(capability)?;
+    if !nvrtc_library_present() {
+        return Err(ContractError::Unsupported {
+            op: "create_pipeline",
+            backend: BACKEND,
+        });
+    }
+    guard_pipeline_panic(|| {
+        cudarc::nvrtc::compile_ptx_with_opts(source, options).map_err(nvrtc_failure)
+    })
+}
+
 /// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
 #[derive(Default)]
 struct Buffers {
@@ -408,15 +503,24 @@ struct Buffers {
     map: BTreeMap<u64, CudaSlice<u8>>,
 }
 
-/// `request_device` が返す device。`Device`・`Capabilities`・`MemoryOps`・`CommandQueue` を実装する。
+/// device が持つパイプラインの表。識別子は device ごとに 1 から払い出し、関数と配置の写しを引く。
+#[derive(Default)]
+struct Pipelines {
+    next_id: u64,
+    map: BTreeMap<u64, (CudaFunction, BindingLayout)>,
+}
+
+/// `request_device` が返す device。`Device`・`Capabilities`・`MemoryOps`・`ComputeOps`・`CommandQueue` を実装する。
 struct CudaDevice {
     id: u64,
     generation: u64,
     ownership: DeviceOwnership,
     adapter_name: String,
     limits: LimitsTable,
+    compute_capability: (i32, i32),
     stream: Arc<CudaStream>,
     buffers: Mutex<Buffers>,
+    pipelines: Mutex<Pipelines>,
 }
 
 impl CudaDevice {
@@ -644,7 +748,9 @@ impl MemoryOps for CudaDevice {
 
 impl ComputeOps for CudaDevice {
     /// 入力の分類、`slots` の重複、NUL のバイトの順に照らし、最初に当たったものを返す。
-    /// 検査を通った入力には `Unsupported` を返す。
+    /// 通った `CudaC` は NVRTC で PTX にし、モジュールの読み込みと関数の取得を経て、
+    /// 関数と配置の写しを device のパイプラインの表に登録してハンドルを返す。
+    /// NVRTC のライブラリが無ければ `Unsupported`。
     fn create_pipeline(
         &self,
         input: PipelineInput<'_>,
@@ -653,10 +759,35 @@ impl ComputeOps for CudaDevice {
         let (source, entry_point) = classify_pipeline_input(&input)?;
         check_unique_slots(&layout.slots)?;
         check_no_nul(source, entry_point)?;
-        Err(ContractError::Unsupported {
-            op: "create_pipeline",
-            backend: BACKEND,
-        })
+        let ptx = compile_cuda_c(source, self.compute_capability)?;
+        let ctx = self.stream.context();
+        let function = guard_pipeline_panic(|| {
+            let oom =
+                |e: &DriverError| e.0 == cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY;
+            ctx.bind_to_thread()
+                .map_err(|e| backend_failure("bind_to_thread", e))?;
+            let module = ctx
+                .load_module(ptx)
+                .map_err(|e| artifact_failure("module", "cuModuleLoadData", oom(&e), e))?;
+            module
+                .load_function(entry_point)
+                .map_err(|e| artifact_failure("function", "cuModuleGetFunction", oom(&e), e))
+        })?;
+        let mut pipelines = self
+            .pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let id = pipelines
+            .next_id
+            .checked_add(1)
+            .ok_or_else(|| ContractError::BackendFailure {
+                op: "create_pipeline",
+                backend: BACKEND,
+                detail: "pipeline id space is exhausted".into(),
+            })?;
+        pipelines.next_id = id;
+        pipelines.map.insert(id, (function, layout.clone()));
+        Ok(PipelineHandle::__backend_new(id, self.id))
     }
 }
 
@@ -792,6 +923,105 @@ mod tests {
         assert!(matches!(
             read_attributes(ok_name, ok_cap, || Err("x")),
             Err(ContractError::DeviceUnavailable(_))
+        ));
+    }
+
+    /// compute capability は `read_attributes` が読んだ値のまま持つ。
+    #[test]
+    fn attributes_keep_the_compute_capability() {
+        let a = read_attributes(
+            || Ok::<_, &str>("GPU".to_string()),
+            || Ok((12, 1)),
+            || Ok(1024_usize),
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(a.compute_capability, (12, 1));
+    }
+
+    /// NVRTC に渡すオプションは `--gpu-architecture` の 1 つだけ（COMP-22）。
+    #[test]
+    fn compile_options_are_only_the_gpu_architecture() {
+        let o = compile_options((12, 1)).ok().unwrap();
+        assert_eq!(
+            o,
+            CompileOptions {
+                options: vec!["--gpu-architecture=compute_121".into()],
+                ..CompileOptions::default()
+            }
+        );
+        let o = compile_options((8, 6)).ok().unwrap();
+        assert_eq!(o.options, vec!["--gpu-architecture=compute_86".to_string()]);
+        assert!(matches!(
+            compile_options((-1, 0)),
+            Err(ContractError::BackendFailure {
+                op: "create_pipeline",
+                ..
+            })
+        ));
+    }
+
+    /// NVRTC のライブラリが読めない環境では、panic せず `Unsupported` を返す。
+    /// 読める環境では device に触らず戻る。
+    #[test]
+    fn absent_nvrtc_library_is_unsupported_without_panicking() {
+        if nvrtc_library_present() {
+            println!("not-run: NVRTC library is present");
+            return;
+        }
+        let r = compile_cuda_c("extern \"C\" __global__ void k() {}", (8, 6));
+        assert!(matches!(
+            r,
+            Err(ContractError::Unsupported {
+                op: "create_pipeline",
+                backend: BackendKind::Cuda
+            })
+        ));
+    }
+
+    #[test]
+    fn nvrtc_failures_map_to_artifact_rejected_or_backend_failure() {
+        use cudarc::nvrtc::result::NvrtcError;
+        use cudarc::nvrtc::sys::nvrtcResult;
+        let compile = CompileError::CompileError {
+            nvrtc: NvrtcError(nvrtcResult::NVRTC_ERROR_COMPILATION),
+            options: vec![],
+            log: std::ffi::CString::new("log").unwrap(),
+        };
+        assert!(matches!(
+            nvrtc_failure(compile),
+            ContractError::ArtifactRejected { kind: "cuda-c", .. }
+        ));
+        let oom = CompileError::CreationError(NvrtcError(nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY));
+        assert!(matches!(
+            nvrtc_failure(oom),
+            ContractError::BackendFailure {
+                op: "nvrtcCreateProgram",
+                ..
+            }
+        ));
+        assert!(matches!(
+            artifact_failure("module", "cuModuleLoadData", false, "x"),
+            ContractError::ArtifactRejected { kind: "module", .. }
+        ));
+        assert!(matches!(
+            artifact_failure("module", "cuModuleLoadData", true, "x"),
+            ContractError::BackendFailure {
+                op: "cuModuleLoadData",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_panic_in_the_pipeline_guard_is_backend_failure() {
+        let r: Result<(), _> = guard_pipeline_panic(|| panic!("boom"));
+        assert!(matches!(
+            r,
+            Err(ContractError::BackendFailure {
+                op: "create_pipeline",
+                ..
+            })
         ));
     }
 
