@@ -31,9 +31,7 @@ use fandhe_silicon_core::device::{
     __backend_next_device_id, Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider,
     DeviceRequest, Profile,
 };
-use fandhe_silicon_core::error::{
-    CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
-};
+use fandhe_silicon_core::error::{CompletionState, ContractError, UnsupportedReason};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
     CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
@@ -579,31 +577,39 @@ impl<G> Submissions<G> {
         }
     }
 
-    /// 通し番号の拡張した完了状態。呼ぶ前に `reclaim` しておく。
+    /// 通し番号の完了状態。呼ぶ前に `reclaim` しておく。
     ///
     /// `reclaim` が未完了で止まった先頭は、再び問い合わせずに `Pending` とする
     /// （問合せの再読みで表に残ったまま完了と判定されるのを防ぐ）。
     ///
-    /// 表にあれば列の状態、失敗の集合にあれば `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`、
+    /// 表にあれば列の状態、失敗の集合にある番号と払い出していない番号（0 を含む）は `Lost`、
     /// 回収済みの他は `Complete`。
-    fn state_ex_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionStateEx {
+    fn state_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionState {
         if let Some(group) = self.pending.get(&sequence) {
             if self.stalled == Some(sequence) {
-                return CompletionStateEx::Pending;
+                return CompletionState::Pending;
             }
             return match classify(group) {
-                GroupState::Pending => CompletionStateEx::Pending,
-                GroupState::Completed => CompletionStateEx::Complete,
-                GroupState::Failed => CompletionStateEx::RuntimeError,
+                GroupState::Pending => CompletionState::Pending,
+                GroupState::Completed => CompletionState::Complete,
+                GroupState::Failed => CompletionState::Lost,
             };
         }
-        if self.failed.contains(&sequence) {
-            CompletionStateEx::RuntimeError
-        } else if sequence == 0 || sequence >= self.next_sequence {
-            CompletionStateEx::Unknown
+        if self.failed.contains(&sequence) || sequence == 0 || sequence >= self.next_sequence {
+            CompletionState::Lost
         } else {
-            CompletionStateEx::Complete
+            CompletionState::Complete
         }
+    }
+
+    /// 回収してから通し番号の完了状態を返す。`poll` と `on_complete` から呼ぶ。
+    fn reclaim_and_state_of(
+        &mut self,
+        sequence: u64,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> CompletionState {
+        self.reclaim(&classify);
+        self.state_of(sequence, classify)
     }
 
     /// 終端になった登録済みの callback を表から外して返す。呼ぶのは錠を放してから。
@@ -613,10 +619,10 @@ impl<G> Submissions<G> {
     ) -> Vec<(CompletionCallback, CompletionState)> {
         let mut ready = Vec::new();
         for (sequence, callback) in std::mem::take(&mut self.callbacks) {
-            match self.state_ex_of(sequence, &classify) {
-                CompletionStateEx::Pending => self.callbacks.push((sequence, callback)),
-                CompletionStateEx::Complete => ready.push((callback, CompletionState::Complete)),
-                _ => ready.push((callback, CompletionState::Lost)),
+            match self.state_of(sequence, &classify) {
+                CompletionState::Pending => self.callbacks.push((sequence, callback)),
+                CompletionState::Complete => ready.push((callback, CompletionState::Complete)),
+                CompletionState::Lost => ready.push((callback, CompletionState::Lost)),
             }
         }
         ready
@@ -723,6 +729,23 @@ impl __BackendSharedEncoderCloser for OpenEncoders {
     fn close(&self, id: u64) {
         self.lock().remove(&id);
     }
+}
+
+/// 印の持ち主の照合。別 device の印は `DeviceMismatch`、世代違いの印は `DeviceLost`（印の世代）を返す。
+fn check_token_owner(
+    token: &SubmitToken,
+    device_id: u64,
+    generation: u64,
+) -> Result<(), ContractError> {
+    if token.__backend_device_id() != device_id {
+        return Err(ContractError::DeviceMismatch);
+    }
+    if token.generation != generation {
+        return Err(ContractError::DeviceLost {
+            generation: token.generation,
+        });
+    }
+    Ok(())
 }
 
 /// 空でない `wait` を、何も投入せずに `Unsupported` で拒む。
@@ -846,11 +869,6 @@ impl CudaDevice {
             sequence,
             self.id,
         ))
-    }
-
-    /// 印がこの device・この世代のものか。違えば完了の問合せは `Lost` で答える。
-    fn owns(&self, token: &SubmitToken) -> bool {
-        token.__backend_device_id() == self.id && token.generation == self.generation
     }
 
     /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
@@ -1202,25 +1220,17 @@ impl CommandQueue for CudaDevice {
             backend: BACKEND,
         })
     }
-    /// 完了の問合せ。別 device・世代違いの印、失敗した列、払い出していない番号は `Lost`。
-    fn poll(&self, token: SubmitToken) -> CompletionState {
-        match self.poll_ex(token) {
-            CompletionStateEx::Pending => CompletionState::Pending,
-            CompletionStateEx::Complete => CompletionState::Complete,
-            _ => CompletionState::Lost,
-        }
-    }
-    /// `poll` の詳しい版。失敗した列は `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`。
+    /// 完了の問合せ。待たない。
     ///
+    /// 別 device・世代違いの印、払い出していない番号、失敗した列は `Lost`。
     /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
-    fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
-        if !self.owns(&token) {
-            return CompletionStateEx::Lost;
+    fn poll(&self, token: SubmitToken) -> CompletionState {
+        if check_token_owner(&token, self.id, self.generation).is_err() {
+            return CompletionState::Lost;
         }
         let state = {
             let mut subs = self.lock_submissions();
-            subs.reclaim(event_state);
-            subs.state_ex_of(token.sequence, event_state)
+            subs.reclaim_and_state_of(token.sequence, event_state)
         };
         self.drive_callbacks();
         state
@@ -1230,20 +1240,19 @@ impl CommandQueue for CudaDevice {
     /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`poll`・`poll_ex`・`on_complete` の
     /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
     fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
-        if !self.owns(&token) {
+        if check_token_owner(&token, self.id, self.generation).is_err() {
             callback(CompletionState::Lost);
             return;
         }
         let terminal = {
             let mut subs = self.lock_submissions();
-            subs.reclaim(event_state);
-            match subs.state_ex_of(token.sequence, event_state) {
-                CompletionStateEx::Pending => {
+            match subs.reclaim_and_state_of(token.sequence, event_state) {
+                CompletionState::Pending => {
                     subs.callbacks.push((token.sequence, callback));
                     None
                 }
-                CompletionStateEx::Complete => Some((callback, CompletionState::Complete)),
-                _ => Some((callback, CompletionState::Lost)),
+                CompletionState::Complete => Some((callback, CompletionState::Complete)),
+                CompletionState::Lost => Some((callback, CompletionState::Lost)),
             }
         };
         let own_panic =
@@ -1334,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    fn state_ex_distinguishes_pending_complete_failed_and_unissued() {
+    fn states_cover_pending_complete_failed_reclaimed_and_unissued() {
         let mut t = Submissions::<GroupState>::new();
         for g in [
             GroupState::Completed,
@@ -1343,13 +1352,33 @@ mod tests {
         ] {
             let _ = t.issue(|| Ok(g));
         }
-        t.reclaim(|g| *g);
-        let ex = |t: &Submissions<GroupState>, n| t.state_ex_of(n, |g| *g);
-        assert_eq!(ex(&t, 1), CompletionStateEx::Complete);
-        assert_eq!(ex(&t, 2), CompletionStateEx::RuntimeError);
-        assert_eq!(ex(&t, 3), CompletionStateEx::Pending);
-        assert_eq!(ex(&t, 0), CompletionStateEx::Unknown);
-        assert_eq!(ex(&t, 4), CompletionStateEx::Unknown);
+        let state = |t: &mut Submissions<GroupState>, n| t.reclaim_and_state_of(n, |g| *g);
+        assert_eq!(state(&mut t, 1), CompletionState::Complete);
+        assert_eq!(state(&mut t, 2), CompletionState::Lost);
+        assert_eq!(state(&mut t, 3), CompletionState::Pending);
+        assert_eq!(state(&mut t, 0), CompletionState::Lost);
+        assert_eq!(state(&mut t, 4), CompletionState::Lost);
+        assert_eq!(
+            t.reclaim_and_state_of(3, |_| GroupState::Completed),
+            CompletionState::Complete
+        );
+        assert!(t.pending.is_empty());
+    }
+
+    #[test]
+    fn the_owner_check_rejects_foreign_and_stale_tokens() {
+        let foreign = SubmitToken::__backend_new(1, 1, 99);
+        let stale = SubmitToken::__backend_new(2, 1, 7);
+        let own = SubmitToken::__backend_new(1, 1, 7);
+        assert!(matches!(
+            check_token_owner(&foreign, 7, 1),
+            Err(ContractError::DeviceMismatch)
+        ));
+        assert!(matches!(
+            check_token_owner(&stale, 7, 1),
+            Err(ContractError::DeviceLost { generation: 2 })
+        ));
+        assert!(check_token_owner(&own, 7, 1).is_ok());
     }
 
     #[test]
@@ -1413,7 +1442,7 @@ mod tests {
         });
         assert_eq!(first, Some(1));
         // 再読みでは完了と答えるが、止まった先頭は Pending のまま配信もされない。
-        assert_eq!(t.state_ex_of(1, |g| *g), CompletionStateEx::Pending);
+        assert_eq!(t.state_of(1, |g| *g), CompletionState::Pending);
         t.callbacks.push((1, Box::new(|_| {})));
         let ready = t.take_ready(|g| *g);
         assert_eq!(ready.len(), 1);
