@@ -304,3 +304,11 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | #7541 | テスト |
 | #7542 | テスト |
 | #7543 | 確かめ |
+
+## 今の値の補い（base dd1a116）
+
+記録時点の表と既存の節は書き換えない。以下は base `dd1a116` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値」の節の `ComputeOps` の行 | 操作は `create_pipeline` だけを持つ → `create_pipeline` と、既定の本体（`None`）を持つ `pipeline_cache_key` の 2 つ | `grep -n '    fn ' crates/core/src/execution/compute.rs` |

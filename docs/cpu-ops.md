@@ -590,3 +590,11 @@ $ git diff --stat fbbd70d..ff59ff0 -- deps-approved.toml wasm/deps-approved.toml
 | 同じ節の `cpu_ops_build_selection` の本数（`:368`） | 7 本 → 17 本（走査の項目 (i) と陽性対照 4 本が増えた） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
 | 11/12 の試験の表と観測した件数（`:433`・`:446`） | `(e)〜(h) と陽性対照 6 本` → `(e)〜(i) と陽性対照 10 本`、`cpu_ops_build_selection` 13 passed → 17 passed | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
 | 完了の条件の確かめ（12/12）の `summary:` の行（`:541`） | `rows=135` → `summary: rows=141 match=141 mismatch=0 not-run=0` | CI のログの `summary:` の行 |
+
+## 今の値の補い（base dd1a116）
+
+記録時点の表と既存の節は書き換えない。以下は base `dd1a116` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base 0f8b01c）」の `crates/contract/Cargo.toml` の `[[test]]` の `cpu_ops_*` の項目 | 5 項目（`cpu_ops_elementwise_special` が加わった）→ 7 項目（`cpu_ops_gemm_scalar_rules`・`cpu_ops_add_scalar_nonfinite` が加わった。`cpu_ops_reference`・`cpu_ops_elementwise_written`・`cpu_ops_elementwise_special`・`cpu_ops_topk_reference`・`cpu_ops_public_surface` と合わせて 7） | `grep -c '^name = "cpu_ops_' crates/contract/Cargo.toml` |

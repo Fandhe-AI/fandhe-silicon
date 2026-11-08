@@ -131,3 +131,11 @@ TASK-2956 の 3/3（#7589）として、本リポで観測できる事実だけ�
 | ---- | -------- | -- | -------------- |
 | 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 51 | 52 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
 | `deps-approved.toml` の `[[approval]]` | 4 | 5（`cudarc` を含む） | `grep -c '^\[\[approval\]\]' deps-approved.toml` |
+
+## 今の値の補い（base dd1a116）
+
+記録時点の表と既存の節は書き換えない。以下は base `dd1a116` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base d533488）」の行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 52 → 53 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |

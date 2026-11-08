@@ -90,7 +90,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/parity-element-rules.md` | T-1 の要素ごとの規則の確かめ（TASK-975）の所在と、本リポの現状の事実・完了の条件の確かめ（6/6）・今の値の補い（base 3e32680） |
 | `docs/parity-fallback-compare.md` | 代わりの実行の結果の比べ方の所在・振る舞い・対応するテスト・本リポの現状の事実・完了の条件の確かめ（8/8）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）・今の値の補い（base 3e32680）（TASK-928） |
 | `docs/gemm-test-inputs.md` | GEMM の試験の入力と参照・母数の表・累積の順の対照・門の run の枠・完了の条件の確かめ（6/6）（TASK-1005）の所在・振る舞い・対応するテスト・本リポの現状の事実・今の値の補い（base 3e32680） |
-| `docs/parity-case-inputs.md` | 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 3e32680）（TASK-977） |
+| `docs/parity-case-inputs.md` | 結果の一致の試験の共通の入力の所在・17 ケースの入力と参照の出力・追加の入力の振る舞い・対応するテスト・本リポの現状の事実・別 crate からの確かめ・完了の条件の確かめ（4/4）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 3e32680）・今の値の補い（base dd1a116）（TASK-977） |
 | `docs/parity-fallback-inputs.md` | 代わりの実行の試験の入力と CPU の参照の所在・`f16-fma`・`subgroup-sum`・`atomic-add` の入力と CPU の参照の振る舞い・出力の形の規則の試験・対応するテスト・本リポの現状の事実・完了の条件の確かめ（6/6）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）・今の値の補い（base 3e32680）（TASK-929） |
 | `docs/exec-skeleton-types.md` | 下-2 の公開の型の所在と、本リポの現状の事実・opt-in の印と経路・操作・理由の型（1/7）・経路の報告と結果の値の型（2/7）・列の渡し方の型（3/7）・下-2 の値と 7 つの入口（4/7）・opt-in の既定と呼び出しごとの上書きの試験（5/7）・理由の値の区別と f32 の非正規化数の項の試験（6/7）・完了の条件の確かめ（7/7）・今の値の補い（base c79863d）・今の値の補い（base 2f36d3d）・今の値の補い（base 48025c6）・今の値の補い（base c956c96）・今の値の補い（base 2373576）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-919） |
 | `docs/exec-route-choice.md` | 下-2 の経路の選び方の所在と、本リポの現状の事実・判定を受ける経路の選び方（1/5）・経路の報告を返す `query_route`（2/5）・能力の値・印・判定の全組み合わせの試験（3/5）・模擬の能力の値での `query_route` と入口の一致の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 48025c6）・今の値の補い（base 2373576）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-920） |
@@ -106,7 +106,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-device-types.md` | 契約の公開の型（TASK-136）の所在と、本リポの現状の事実・現状の形（2/6〜4/6）・確かめ（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2）・背後実装をまたぐ device の識別子の源・今の値の補い（base 3e32680） |
 | `docs/contract-device-stub-check.md` | スタブの実装の契約テストの所在と、本リポの現状の事実・形の設計（2/6）・実装（3/6）・テスト（4/6）・CI への組み込み（5/6）・確かめ（6/6）・契約テストの実装（7/8）・完了の条件の確かめ（8/8）・compute の口の契約テスト（9/9）・描画の口の契約テスト（10/10）・今の値の補い（base 6b35dd9）・今の値の補い（base 3e32680）（TASK-137） |
 | `docs/stub-device.md` | 試験用の device（TASK-156）の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9）・今の値の補い（base 25d8dc2）・今の値の補い（base 2f36d3d） |
-| `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488） |
+| `docs/device-compute.md` | device から compute の口へ届く読み出し（TASK-2956）の所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488）・今の値の補い（base dd1a116） |
 | `docs/device-textures.md` | device からテクスチャを作る操作へ届く口（TASK-150）の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）（TASK-150） |
 | `docs/render-target-handle.md` | 描画先の handle の型と照合の関数（TASK-375）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9） |
 | `docs/graphics-types.md` | 描画の公開の型と操作の trait（TASK-837）の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い・今の値の補い（base 2f36d3d） |
@@ -118,7 +118,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/surface-types.md` | 表示先の設定の大きさの検査と取得の結果の型（TASK-654）の所在・設定の大きさの検査（1/4）・取得の結果の型（2/4）・境界の入力と対応の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d）・今の値の補い（base 801a89d） |
 | `docs/contract-memory-types.md` | バッファ・メモリ操作の公開の型（TASK-308）の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680） |
 | `docs/contract-binding-types.md` | 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型（TASK-419）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
-| `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
+| `docs/contract-compute-types.md` | compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体（TASK-769）の所在と、本リポの現状の事実・対応するテスト・確かめ方・今の値の補い（base dd1a116） |
 | `docs/compute-encoder-lifetime-check.md` | compute の記録先の借用の寿命と定数の渡し方の試験（TASK-772）の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d） |
 | `docs/contract-submit-types.md` | 投入まわりの公開の型と `CommandQueue`（TASK-588）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
 | `docs/contract-interop-types.md` | 相互運用の公開の型と `ExternalInterop`（TASK-717）の所在と、本リポの現状の事実・対応するテスト・確かめ方 |
@@ -141,7 +141,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/limit-downlevel-keys.md` | 上限と downlevel の問合せの鍵の定数と一覧の所在と、本リポの現状の事実・現状の形（1/5）・値の鍵（2/5）・鍵の一覧と表の枠の試験（3/5）・機能一覧との突き合わせの検査（4/5）・完了の条件の確かめ（5/5）（TASK-1362） |
 | `docs/texture-format-query-contract.md` | テクスチャの形式の問合せの契約テストの所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の形式の鍵の行（2/4）・契約テスト（3/4）・完了の条件の確かめ（4/4）（TASK-1314） |
 | `docs/texture-format-features.md` | 形式ごとの能力の値の型と問合せの所在と、本リポの現状の事実・型と組み立ての規則（1/4）・能力の問合せの口の操作（2/4）・形式の鍵ごとの値と非対応の device の試験（3/4）・公開 API の検査の走査と完了の条件の確かめ（4/4）（TASK-2566） |
-| `docs/indirect-args-types.md` | 間接実行の引数の型（TASK-1878）の所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6） |
+| `docs/indirect-args-types.md` | 間接実行の引数の型（TASK-1878）の所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6）・今の値の補い（base dd1a116） |
 | `docs/query-check.md` | 問合せの結果の配置と問合せの組・解決先の検査（TASK-1877）の所在と、本リポの現状の事実・現状の形（1/5）・現状の形（2/5）・対応するテスト・確かめ方・結果の配置と個数の上限の試験（3/5）・解決先の整列・範囲・長さの試験（4/5）・完了の条件の確かめ（5/5）・段の表 |
 | `docs/artifact-cache-check.md` | 成果物キャッシュの照合（TASK-483）の所在と、本リポの現状の事実・現状の形（2/8〜4/8）・試験（5/8・6/8）・確かめ（7/8）・完了の条件の確かめ（8/8）・今の値の補い（base 3e32680） |
 | `docs/pipeline-cache-key.md` | 成果物のキャッシュキーの口（TASK-501）の所在と、本リポの現状の事実・キャッシュキーの口の既定（1/4）・Metal のキャッシュキー（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
@@ -165,7 +165,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/wasm32-glue-exports.md` | wasm32 の glue の export の所在と、本リポの現状の事実・行列積と ISA のビット（1/4）・要素ごとの演算（2/4）・部分 Top-k（3/4）・完了の条件の確かめ（4/4）（TASK-2957） |
 | `docs/wasm32-native-parity.md` | wasm32 とネイティブの出力の比べの所在と、本リポの現状の事実・入力とネイティブの参照を書き出す道具（1/5）・生成の入力の行と 2 つのビルド（2/5）・GEMM の 9 行（3/5）・出力の保存と数え直し（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 5ea11ff）（TASK-994）・Node での照合の部分 Top-k の種類（1/4）・部分 Top-k の入力とネイティブの参照（2/4）・部分 Top-k の 10 行（3/4）・完了の条件の確かめ（4/4）（TASK-996）・Node での照合の要素ごと演算の種類（1/4）・要素ごと演算の入力とネイティブの参照（2/4）・要素ごと演算の 8 行（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 42731d8）・要素ごと演算のネイティブの NEON の比べ（5/5）（TASK-997）・Node での照合の閾値の比べ（1/4）・閾値の比べと共通の道具の突き合わせ（2/4）・simd128 のビルドの `gemm_simd` の 3 行（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base e416527）・ネイティブの NEON の参照と `gemm_simd` の 3 行（5/5）（TASK-995）・Node での照合の特殊値の入力の種類（1/6）・GEMM の 14 ケースの入力と 2 つの参照（2/6）・要素ごと演算と部分 Top-k のケース（3/6）・特殊値の入力の比べと共通の道具の突き合わせ（4/6）・特殊値の入力の 68 行（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 0f8b01c）・今の値の補い（base fbbd70d）・今の値の補い（base 2f35b9e）（TASK-999） |
 | `docs/wasm32-build.md` | wasm32 向けの cdylib（`crates/wasm-abi`）の所在と scalar 版・simd128 版のビルド・2 版の判別と型・cfg の確かめ・現状の事実・CI への組み込み（TASK-237 の 1/4〜4/4）・simd128 の cfg の検査の CI での実行・完了の条件の確かめ（2/2）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）（TASK-2954） |
-| `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）・aarch64 の NEON 版（11/12）・完了の条件の確かめ（12/12）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）（TASK-1352） |
+| `docs/cpu-ops.md` | 契約の crate の CPU の演算（`cpu_ops`）の所在と、型と scalar 版（1/5）・wasm32 の simd128 版（2/5）・CPU 参照と比べる試験（3/5）・版の選択の試験（4/5）・完了の条件の確かめ（5/5）・simd128 でないビルドの版（7/9）・simd128 の構成の試験の型検査と lint（8/9）・完了の条件の確かめ（9/9）・aarch64 の NEON 版（11/12）・完了の条件の確かめ（12/12）（TASK-1351）・部分 Top-k の 2 メソッドと番兵（1/3）・部分 Top-k を CPU 参照と比べる試験（2/3）・部分 Top-k の完了の条件の確かめ（3/3）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）・今の値の補い（base dd1a116）（TASK-1352） |
 | `docs/cpu-ops-surface-check.md` | 契約の crate の `cpu_ops` の公開の型と feature の有無の確かめの所在・feature `cpu-ops` を外した構成のコンパイル失敗の試験（1/4）・`contract-core` だけの組（2/4）・公開の型と trait の形の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）・今の値の補い（base 0f8b01c）・今の値の補い（base ed82c18）・今の値の補い（base 2f35b9e）（TASK-2457） |
 | `docs/cpu-ops-elementwise-check.md` | 要素ごとの演算の出力の全要素が書かれることの試験の所在・出力の全要素が書かれることの試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base 25d8dc2）・今の値の補い（base 42731d8）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）（TASK-2455） |
 | `docs/cpu-ops-elementwise-special.md` | 要素ごとの演算の NaN・±Inf・±0 の確かめの所在・NaN・±Inf・±0 の入力を当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base fbbd70d）・今の値の補い（base 2f35b9e）（TASK-2456） |
@@ -206,10 +206,10 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
 | `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1082） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
-| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）（TASK-317）・今の値の補い（base dd1a116） |
+| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
-| `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5） |
+| `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5） |
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
