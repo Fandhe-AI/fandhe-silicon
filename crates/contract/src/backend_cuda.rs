@@ -14,6 +14,13 @@
 //! （TASK-803 のポインタ）。
 //!
 //! `CommandQueue` の実装は投入の窓口で、記録先の開いている集合と投入済みの表を持つ（TASK-604 のポインタ）。
+//!
+//! `free` したバッファは stream にゼロ化を積んでから再利用の一覧の待つ側に入り、`allocate` の入口で
+//! 完了を確かめたものだけが、同じ長さ・同じ用途の確保に再利用される（TASK-340 のポインタ）。
+//! 一覧の上限は件数と大きさの合計で、入れられないバッファは解放する。新規の確保は全バイトを 0 にし終えてから返す。
+//! 記録先に命令を記録する口（`dispatch_ex`）は `Unsupported` を返し、投入（`submit`・`submit_many`）は
+//! stream に event を記録するだけでバッファを参照しないので、`free` したバッファを参照する未完了の投入は無い。
+//! バッファを参照する記録を足す変更では、`free` から一覧への回し方を見直すこと。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -779,11 +786,152 @@ fn precheck_submit_many(
     reject_wait("submit_many(wait)", wait)
 }
 
-/// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
+/// 再利用の一覧に入れられるバッファの件数の上限（ゼロ化を待つ側と使える側の合計）。
+const POOL_MAX_ENTRIES: usize = 16;
+
+/// 再利用の一覧に入れられるバッファの大きさの合計の上限（バイト。待つ側と使える側の合計）。
+const POOL_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 再利用の鍵。バッファの長さと、確保のときに受けた `BufferUsage::bits()`。
+type PoolKey = (u64, u32);
+
+/// ゼロ化を積み終えて完了を待っているバッファ 1 件。`ReusePool::retire` が作り、`settle` が見る。
+struct Zeroing<B, E> {
+    key: PoolKey,
+    slot: u64,
+    buffer: B,
+    done: E,
+}
+
+/// 再利用の一覧。`CudaDevice::free` が入れ、`allocate` の入口（`settle_pool`）が完了を確かめて
+/// 使える側へ移し、`allocate` が `take` で取り出す。
+///
+/// `B` はバッファ、`E` は完了の印。本物では `CudaSlice<u8>` と `CudaEvent`、試験では素の値。
+struct ReusePool<B, E> {
+    zeroing: Vec<Zeroing<B, E>>,
+    ready: BTreeMap<PoolKey, Vec<(u64, B)>>,
+    entries: usize,
+    bytes: u64,
+    last_put_slot: Option<u64>,
+    reuse_count: u64,
+    slot_match_count: u64,
+}
+
+impl<B, E> Default for ReusePool<B, E> {
+    fn default() -> Self {
+        Self {
+            zeroing: Vec::new(),
+            ready: BTreeMap::new(),
+            entries: 0,
+            bytes: 0,
+            last_put_slot: None,
+            reuse_count: 0,
+            slot_match_count: 0,
+        }
+    }
+}
+
+impl<B, E> ReusePool<B, E> {
+    /// 1 件足したときの件数と合計。あふれるか上限を超えるなら `None`。
+    fn next_totals(&self, byte_len: u64) -> Option<(usize, u64)> {
+        let entries = self.entries.checked_add(1)?;
+        let bytes = self.bytes.checked_add(byte_len)?;
+        (entries <= POOL_MAX_ENTRIES && bytes <= POOL_MAX_BYTES).then_some((entries, bytes))
+    }
+
+    /// 長さ `byte_len` のバッファを一覧に入れられるか。`free` がゼロ化を積む前に呼ぶ。
+    fn would_accept(&self, byte_len: u64) -> bool {
+        self.next_totals(byte_len).is_some()
+    }
+
+    /// ゼロ化を積んだバッファを待つ側に入れる。入れられなければ引数をそのまま返す。
+    fn retire(&mut self, key: PoolKey, slot: u64, buffer: B, done: E) -> Option<(B, E)> {
+        let Some((entries, bytes)) = self.next_totals(key.0) else {
+            return Some((buffer, done));
+        };
+        self.entries = entries;
+        self.bytes = bytes;
+        self.last_put_slot = Some(slot);
+        self.zeroing.push(Zeroing {
+            key,
+            slot,
+            buffer,
+            done,
+        });
+        None
+    }
+
+    /// 待つ側の完了を確かめる。`Ok(true)` は使える側へ移し、`Ok(false)` は待つ側に残す。
+    /// `Err` は一覧から外し、そのバッファを返す（呼び出し側がロックの外で解放する）。
+    fn settle<X>(&mut self, mut is_done: impl FnMut(&E) -> Result<bool, X>) -> Vec<B> {
+        let mut dropped = Vec::new();
+        for item in std::mem::take(&mut self.zeroing) {
+            match is_done(&item.done) {
+                Ok(true) => self
+                    .ready
+                    .entry(item.key)
+                    .or_default()
+                    .push((item.slot, item.buffer)),
+                Ok(false) => self.zeroing.push(item),
+                Err(_) => {
+                    self.entries = self.entries.saturating_sub(1);
+                    self.bytes = self.bytes.saturating_sub(item.key.0);
+                    dropped.push(item.buffer);
+                }
+            }
+        }
+        dropped
+    }
+
+    /// 使える側から鍵の一致するバッファを後に入れたものから 1 件取り出す。
+    fn take(&mut self, key: PoolKey) -> Option<(u64, B)> {
+        let list = self.ready.get_mut(&key)?;
+        let (slot, buffer) = list.pop()?;
+        if list.is_empty() {
+            self.ready.remove(&key);
+        }
+        self.entries = self.entries.saturating_sub(1);
+        self.bytes = self.bytes.saturating_sub(key.0);
+        self.reuse_count = self.reuse_count.saturating_add(1);
+        if self.last_put_slot == Some(slot) {
+            self.slot_match_count = self.slot_match_count.saturating_add(1);
+        }
+        Some((slot, buffer))
+    }
+}
+
+/// `free` の流れ。入れられない（`accepts` が偽）ならゼロ化を積まずに、ゼロ化が積めなければ
+/// 一覧に入れずに、バッファを返す（呼び出し側が解放する）。入れたら `None`。
+fn retire_flow<B, E, X>(
+    byte_len: u64,
+    mut buffer: B,
+    accepts: impl FnOnce(u64) -> bool,
+    zero: impl FnOnce(&mut B) -> Result<E, X>,
+    put: impl FnOnce(B, E) -> Option<(B, E)>,
+) -> Option<B> {
+    if !accepts(byte_len) {
+        return Some(buffer);
+    }
+    let Ok(done) = zero(&mut buffer) else {
+        return Some(buffer);
+    };
+    put(buffer, done).map(|(buffer, _)| buffer)
+}
+
+/// バッファの表の 1 件。`slot` は device の中で確保ごとに払い出す番号、`usage` は確保のときの用途。
+struct BufferEntry {
+    slice: CudaSlice<u8>,
+    slot: u64,
+    usage: BufferUsage,
+}
+
+/// device が持つバッファの表と再利用の一覧。ハンドルの id から `BufferEntry` を引く。
 #[derive(Default)]
 struct Buffers {
     next_id: u64,
-    map: BTreeMap<u64, CudaSlice<u8>>,
+    next_slot: u64,
+    map: BTreeMap<u64, BufferEntry>,
+    pool: ReusePool<CudaSlice<u8>, CudaEvent>,
 }
 
 /// device が持つパイプラインの表。識別子は device ごとに 1 から払い出し、関数と配置の写しを引く。
@@ -928,10 +1076,24 @@ impl CudaDevice {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// 再利用の一覧の待つ側の完了を確かめ、確かめられないバッファを解放する。`allocate` の入口から呼ばれる。
+    fn settle_pool(&self) {
+        let dropped = catch_unwind(AssertUnwindSafe(|| {
+            self.lock().pool.settle(|event| match event_state(event) {
+                GroupState::Completed => Ok(true),
+                GroupState::Pending => Ok(false),
+                GroupState::Failed => Err(()),
+            })
+        }))
+        .unwrap_or_default();
+        // ドライバへの解放はロックの外で呼ぶ。
+        let _ = catch_unwind(AssertUnwindSafe(move || drop(dropped)));
+    }
+
     /// ハンドルの所属と範囲を検査して `[start, end)` を返す。`cudarc` の境界の panic に届く前に拒む。
     fn range(
         &self,
-        table: &BTreeMap<u64, CudaSlice<u8>>,
+        table: &BTreeMap<u64, BufferEntry>,
         handle: &BufferHandle,
         offset: u64,
         len: u64,
@@ -944,10 +1106,10 @@ impl CudaDevice {
                 "buffer handle generation does not match the device".into(),
             ));
         }
-        let slice = table
+        let entry = table
             .get(&handle.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
-        validate_buffer_range(offset, len, slice.len() as u64)?;
+        validate_buffer_range(offset, len, entry.slice.len() as u64)?;
         let start = usize::try_from(offset)
             .map_err(|_| ContractError::InvalidArgument("offset exceeds usize".into()))?;
         let len = usize::try_from(len)
@@ -972,10 +1134,11 @@ impl CudaDevice {
         if out.is_empty() {
             return Ok(out);
         }
-        let slice = buffers
+        let slice = &buffers
             .map
             .get(&src.__backend_id())
-            .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
+            .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?
+            .slice;
         // 転送が終わったか、転送が始まらなかったと分かったときだけ `true` にする。
         let mut settled = false;
         let copied = guard_memory_panic("memcpy_dtoh", || {
@@ -1055,8 +1218,11 @@ impl MemoryOps for CudaDevice {
         validate_allocation_size(byte_len, self.limits.max_buffer_bytes)?;
         let len = usize::try_from(byte_len)
             .map_err(|_| ContractError::InvalidArgument("length exceeds usize".into()))?;
+        self.settle_pool();
         // id は確保の前に払い出す。尽きたときに device のメモリを確保しない。
-        let id = {
+        // 一覧からの取り出しは id の払い出しの後に行い、id が尽きたときに一覧のバッファを減らさない。
+        let key = (byte_len, usage.bits());
+        let (id, reused) = {
             let mut buffers = self.lock();
             buffers.next_id =
                 buffers
@@ -1065,19 +1231,34 @@ impl MemoryOps for CudaDevice {
                     .ok_or(ContractError::AllocationFailed {
                         requested_bytes: byte_len,
                     })?;
-            buffers.next_id
+            (buffers.next_id, buffers.pool.take(key))
         };
-        let slice = guard_memory_panic("alloc_zeros", || {
-            let slice = self
-                .stream
-                .alloc_zeros::<u8>(len)
-                .map_err(|e| allocation_failure("alloc_zeros", byte_len, e))?;
-            self.stream
-                .synchronize()
-                .map_err(|e| allocation_failure("synchronize", byte_len, e))?;
-            Ok(slice)
-        })?;
-        self.lock().map.insert(id, slice);
+        let (slice, slot) =
+            match reused {
+                Some((slot, slice)) => (slice, slot),
+                None => {
+                    let slice = guard_memory_panic("alloc_zeros", || {
+                        let slice = self
+                            .stream
+                            .alloc_zeros::<u8>(len)
+                            .map_err(|e| allocation_failure("alloc_zeros", byte_len, e))?;
+                        self.stream
+                            .synchronize()
+                            .map_err(|e| allocation_failure("synchronize", byte_len, e))?;
+                        Ok(slice)
+                    })?;
+                    let mut buffers = self.lock();
+                    buffers.next_slot = buffers.next_slot.checked_add(1).ok_or(
+                        ContractError::AllocationFailed {
+                            requested_bytes: byte_len,
+                        },
+                    )?;
+                    (slice, buffers.next_slot)
+                }
+            };
+        self.lock()
+            .map
+            .insert(id, BufferEntry { slice, slot, usage });
         Ok(BufferHandle::__backend_new(
             self.generation,
             id,
@@ -1098,10 +1279,11 @@ impl MemoryOps for CudaDevice {
         if bytes.is_empty() {
             return Ok(());
         }
-        let slice = buffers
+        let slice = &mut buffers
             .map
             .get_mut(&dst.__backend_id())
-            .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
+            .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?
+            .slice;
         guard_memory_panic("memcpy_htod", || {
             self.stream
                 .memcpy_htod(bytes, &mut slice.slice_mut(start..end))
@@ -1137,9 +1319,29 @@ impl MemoryOps for CudaDevice {
         {
             return;
         }
-        let removed = self.lock().map.remove(&buffer.__backend_id());
+        let Some(entry) = self.lock().map.remove(&buffer.__backend_id()) else {
+            return;
+        };
+        // 鍵は表の項目から決める。ゼロ化は stream に積むだけで host は待たない。
+        let BufferEntry { slice, slot, usage } = entry;
+        let byte_len = slice.len() as u64;
+        let key = (byte_len, usage.bits());
         // ドライバへの解放はロックの外で呼ぶ。`free` は値を返さないので panic も外へ出さない。
-        let _ = catch_unwind(AssertUnwindSafe(move || drop(removed)));
+        let rejected = catch_unwind(AssertUnwindSafe(|| {
+            retire_flow(
+                byte_len,
+                slice,
+                |len| self.lock().pool.would_accept(len),
+                |slice| {
+                    self.stream.memset_zeros(slice)?;
+                    self.stream.record_event(None)
+                },
+                |slice, done| self.lock().pool.retire(key, slot, slice, done),
+            )
+        }));
+        if let Ok(Some(slice)) = rejected {
+            let _ = catch_unwind(AssertUnwindSafe(move || drop(slice)));
+        }
     }
 }
 
@@ -1349,6 +1551,103 @@ impl CommandQueue for CudaDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 完了を確かめられたものだけが、鍵の一致する確保に取り出される。
+    #[test]
+    fn pool_takes_only_settled_buffers_with_the_same_key() {
+        let mut pool = ReusePool::<Vec<u8>, bool>::default();
+        assert!(pool.retire((8, 3), 1, vec![0; 8], true).is_none());
+        assert!(pool.take((8, 3)).is_none());
+        assert!(pool.settle(|done| Ok::<bool, ()>(*done)).is_empty());
+        assert!(pool.take((8, 4)).is_none());
+        assert!(pool.take((16, 3)).is_none());
+        assert_eq!(pool.reuse_count, 0);
+        let (slot, buffer) = pool.take((8, 3)).expect("settled buffer");
+        assert_eq!((slot, buffer.len()), (1, 8));
+        assert_eq!((pool.reuse_count, pool.slot_match_count), (1, 1));
+        assert_eq!((pool.entries, pool.bytes), (0, 0));
+        assert!(pool.take((8, 3)).is_none());
+        // 直前に入れた slot でないものは slot の一致に数えない。
+        assert!(pool.retire((8, 3), 2, vec![0; 8], true).is_none());
+        assert!(pool.retire((8, 3), 3, vec![0; 8], true).is_none());
+        pool.settle(|done| Ok::<bool, ()>(*done));
+        assert_eq!(pool.take((8, 3)).map(|(slot, _)| slot), Some(3));
+        assert_eq!(pool.take((8, 3)).map(|(slot, _)| slot), Some(2));
+        assert_eq!((pool.reuse_count, pool.slot_match_count), (3, 2));
+    }
+
+    /// 完了を確かめられないバッファは一覧から外れて返り、件数と合計から引かれる。
+    #[test]
+    fn pool_drops_buffers_whose_zeroing_cannot_be_confirmed() {
+        let mut pool = ReusePool::<u8, u8>::default();
+        assert!(pool.retire((4, 1), 1, 10, 0).is_none());
+        assert!(pool.retire((4, 1), 2, 11, 1).is_none());
+        assert!(pool.retire((4, 1), 3, 12, 2).is_none());
+        let dropped = pool.settle(|done| match *done {
+            0 => Err("lost"),
+            1 => Ok(false),
+            _ => Ok(true),
+        });
+        assert_eq!(dropped, vec![10]);
+        assert_eq!((pool.entries, pool.bytes), (2, 8));
+        assert_eq!(pool.take((4, 1)).map(|(_, buffer)| buffer), Some(12));
+        assert!(pool.take((4, 1)).is_none());
+        let dropped = pool.settle(|done| {
+            if *done == 1 {
+                Ok::<bool, ()>(true)
+            } else {
+                Ok(false)
+            }
+        });
+        assert!(dropped.is_empty());
+        assert_eq!(pool.take((4, 1)).map(|(_, buffer)| buffer), Some(11));
+    }
+
+    /// 待つ側の分も件数と合計に数え、上限を超えるものは入れずに返す。
+    #[test]
+    fn pool_counts_zeroing_entries_toward_the_limits() {
+        let mut pool = ReusePool::<u8, ()>::default();
+        for i in 0..POOL_MAX_ENTRIES as u64 {
+            assert!(pool.would_accept(1));
+            assert!(pool.retire((1, 0), i, 0, ()).is_none());
+        }
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 99, 7, ()), Some((7, ())));
+        assert_eq!(pool.entries, POOL_MAX_ENTRIES);
+
+        let mut pool = ReusePool::<u8, ()>::default();
+        assert!(pool.would_accept(POOL_MAX_BYTES));
+        assert!(!pool.would_accept(POOL_MAX_BYTES + 1));
+        assert!(!pool.would_accept(u64::MAX));
+        assert!(pool.retire((POOL_MAX_BYTES, 0), 1, 0, ()).is_none());
+        assert!(!pool.would_accept(1));
+        assert_eq!(pool.retire((1, 0), 2, 5, ()), Some((5, ())));
+    }
+
+    /// 入れられないときはゼロ化を積まず、ゼロ化の失敗では一覧に入れず、バッファを返す。
+    #[test]
+    fn retire_flow_skips_zeroing_when_rejected_and_keeps_failed_buffers_out() {
+        let rejected = retire_flow(
+            4,
+            1u8,
+            |_| false,
+            |_| -> Result<u8, ()> { panic!("zero must not run") },
+            |_, _| panic!("put must not run"),
+        );
+        assert_eq!(rejected, Some(1));
+        let failed = retire_flow(
+            4,
+            2u8,
+            |_| true,
+            |_| Err::<u8, _>("zero failed"),
+            |_, _| panic!("put must not run"),
+        );
+        assert_eq!(failed, Some(2));
+        let accepted = retire_flow(4, 3u8, |_| true, |_| Ok::<u8, ()>(9), |_, _| None);
+        assert_eq!(accepted, None);
+        let refused = retire_flow(4, 4u8, |_| true, |_| Ok::<u8, ()>(9), |b, e| Some((b, e)));
+        assert_eq!(refused, Some(4));
+    }
 
     /// 最初の通し番号は 1 で、失敗した払い出しは番号を消費しない（CMD-87）。
     #[test]
