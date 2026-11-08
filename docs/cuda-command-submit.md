@@ -201,3 +201,12 @@ record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_item
 | 3/5 | 複数の記録先の一括投入 | #5186 |
 | 4/5 | 投入の device の要る試験 | #5187 |
 | 5/5 | 完了の条件の確かめ | #5188 |
+
+## 今の値の補い（base 788d89a）
+
+記録時点の表と既存の節は書き換えない。以下は base `788d89a` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 完了の callback を呼ぶ呼び出しの列 | `submit`・`poll`・`poll_ex`・`on_complete` → feature `fault-injection` のビルドでは `FaultHooks::simulate_device_lost` の 1 回目も、登録の世代が古い callback を `Lost` で呼ぶ | `grep -n 'take_stale' crates/contract/src/backend_cuda.rs` |
+| 登録の callback の値 | 列の状態 → 登録の世代が駆動の読んだ世代より小さければ列の状態に関わらず `Lost` | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda --lib backend_cuda::tests::take_ready` |
