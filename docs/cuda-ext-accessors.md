@@ -143,3 +143,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 2/4 | 相互運用と故障の差し込みの口を device から返す | #3885 |
 | 3/4 | device の要る拡張アクセサの試験を ignore 付きで足す | #3886 |
 | 4/4 | 完了の条件の確かめ | #3887 |
+
+## 今の値の補い（base 788d89a）
+
+記録時点の表と既存の節は書き換えない。以下は base `788d89a` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 相互運用と故障の差し込みの口（2/4）の `FaultHooks` の文 | どの操作も上書きしていない → `simulate_device_lost` だけを上書きし、ほかの 4 操作は既定の本体のまま | `grep -n 'fn simulate_device_lost' crates/contract/src/backend_cuda.rs` |

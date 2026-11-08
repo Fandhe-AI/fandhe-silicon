@@ -56,8 +56,42 @@ device の世代は `AtomicU64` で持ち、`current_generation()` で読む。1
 
 確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda --lib backend_cuda`
 
+## 模擬のロスト（2/4）
+
+部品は feature `backend-cuda` と `fault-injection` の両方を付けたビルドにある（`Submissions::take_stale` は試験のビルドにもある）。
+`FaultHooks::simulate_device_lost(reason)` の動きは次のとおり。
+
+| 呼び出し | 動き |
+| -------- | ---- |
+| 1 回目 | 理由を記録し、`generation()` を前より大きい値に取り直す。登録済みのコールバックを錠の外で 1 回呼び、その後に登録の世代が古い完了の callback を表から外して `Lost` で 1 回ずつ呼ぶ |
+| 2 回目以降 | 何もせず `Ok`。世代もコールバックの呼び出しの数も変わらない |
+| 世代の源が尽きている | 状態を変えず `BackendFailure` |
+
+- 理由は `Destroyed`・`Unknown`・`ValidationError`・`Unrecoverable` の 4 値ともそのまま渡す
+- ロストの通知先は `DeviceLostNotify::set_lost_callback` で登録する。登録済みなら上書きし、ロストの後の登録は保持するだけで呼ばない。`Box<dyn Device>` からは届かないので、crate の内側の試験から登録する
+- `Drop` ではロストのコールバックを呼ばない
+- `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま（`UnsupportedExtensionDefault`）。ロストの後の操作の拒否はこの段では持たない
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `take_stale_returns_older_registrations_as_lost_once` | 登録の世代が古いものだけを `Lost` で外し、2 回目は空 |
+| `the_callback_runs_once_and_a_second_lose_is_ignored` | コールバックは 1 回で、2 回目は無視する |
+| `every_reason_is_passed_through_unchanged` | 4 値の理由をそのまま渡す |
+| `the_generation_is_taken_once` | 世代は 1 回だけ取る |
+| `an_exhausted_source_leaves_the_state_unchanged` | 源が尽きたら状態を変えない |
+| `a_callback_registered_after_the_loss_is_kept_but_not_called` | ロストの後の登録は呼ばない |
+| `a_loss_without_a_callback_then_a_registration_never_calls_it` | コールバック無しのロストの後の登録も呼ばない |
+| `dropping_an_overwritten_callback_may_reenter_without_deadlock` | 上書きで捨てる値の `Drop` が再入しても詰まらない |
+| `concurrent_loses_call_the_callback_once_and_advance_the_source_once` | 並行のロストでも 1 回だけ |
+| `a_later_registration_replaces_the_earlier_one` | 後の登録が前の登録を置き換える |
+| `the_callback_runs_outside_the_lock` | コールバックは錠の外で呼ぶ |
+| `a_poisoned_lock_does_not_panic` | 毒化した錠でも panic しない |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 世代の読み方と `free` の照合 | #4228 |
+| 2/4 | 模擬のロスト | #4229 |

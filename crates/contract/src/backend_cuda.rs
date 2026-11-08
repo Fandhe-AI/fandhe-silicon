@@ -29,6 +29,9 @@
 //!
 //! device の世代は書き換えられる値で、照合と払い出しは今の値を読む。`free` は表の項目を払い出したときの世代で照らし、
 //! 完了の callback の登録は登録した印の世代を持つ（TASK-2934）。
+//!
+//! feature `fault-injection` のビルドでは `FaultHooks::simulate_device_lost` が模擬のロストを起こし、`DeviceLostNotify` で
+//! 登録したコールバックを 1 回呼び、その後に登録の世代が古い完了の callback を `Lost` で 1 回ずつ呼ぶ（TASK-2934）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -48,6 +51,10 @@ use fandhe_silicon_core::device::{
     __backend_next_device_id, Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider,
     DeviceRequest, Profile,
 };
+#[cfg(feature = "fault-injection")]
+use fandhe_silicon_core::device_lost::{DeviceLostNotify, LostCallback};
+#[cfg(feature = "fault-injection")]
+use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, ContractError, UnsupportedReason};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
@@ -86,6 +93,98 @@ fn take_next(counter: &AtomicU64) -> Option<u64> {
             Ok(_) => return Some(current),
             Err(seen) => current = seen,
         }
+    }
+}
+
+/// 世代の源が尽きて、ロストの世代を取り直せなかったことを表す。状態は変わっていない。
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GenerationExhausted;
+
+/// 模擬のロストの状態。最初のロストの理由と、登録されたコールバック 1 つを錠の中に持つ。
+///
+/// device に触らない純粋な型で、CUDA の device の型 `CudaDevice` が 1 つ持つ（TASK-2934）。
+/// 世代の格納先と取り直しの源は呼び出し側が渡すので、device が無い環境でも単体で確かめられる。
+/// `Drop` ではコールバックを呼ばない。
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct LostState {
+    inner: Mutex<LostInner>,
+}
+
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct LostInner {
+    /// 最初のロストの理由。`Some` になったら 2 回目以降のロストは無視する。
+    reason: Option<DeviceLostReason>,
+    /// 登録されたコールバック。ロストで `take` されるので、ロストの後に登録したものは呼ばれない。
+    callback: Option<LostCallback>,
+}
+
+#[cfg(feature = "fault-injection")]
+impl LostState {
+    /// 毒化していても中身を取り出す。panic しない。
+    fn lock(&self) -> MutexGuard<'_, LostInner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// コールバックを登録する。登録済みなら上書きし、ロスト済みなら保持するだけで呼ばない。
+    fn set_callback(&self, callback: LostCallback) {
+        // 上書きされた古いコールバックの `Drop` が再入しても詰まらないよう、錠を放してから捨てる。
+        let old = self.lock().callback.replace(callback);
+        drop(old);
+    }
+
+    /// 模擬のロストが起きたか。単体の試験だけが読む。
+    #[cfg(test)]
+    fn is_lost(&self) -> bool {
+        self.lock().reason.is_some()
+    }
+
+    /// 1 回目だけ、理由の記録・世代の取り直し・コールバックの取り出しを錠の中で行い、錠を放してから
+    /// 指定の理由でコールバックを 1 回呼ぶ。1 回目なら `Ok(true)`、2 回目以降は何もせず `Ok(false)`。
+    ///
+    /// 世代は原子の値として読まれる。理由とコールバックは錠の中だけで読む。
+    ///
+    /// 世代は `source` から 1 つ取って `generation` へ書く。`source` が尽きていたら、理由も世代も
+    /// コールバックも変えずに `Err` を返す。コールバックの中から同じ状態を呼んでも詰まらない。
+    #[cfg(test)]
+    fn lose(
+        &self,
+        reason: DeviceLostReason,
+        generation: &AtomicU64,
+        source: &AtomicU64,
+    ) -> Result<bool, GenerationExhausted> {
+        let (first, panic) = self.lose_catching(reason, generation, source)?;
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
+        }
+        Ok(first)
+    }
+
+    /// `lose` と同じ手順だが、通知先のコールバックが panic したら再送出せず、その中身を返す。
+    ///
+    /// 理由と世代は panic の前に記録済みなので、呼ぶ側は返った中身を、後続の処理（古い世代の完了の
+    /// callback の通知など）を終えてから再送出すること。
+    fn lose_catching(
+        &self,
+        reason: DeviceLostReason,
+        generation: &AtomicU64,
+        source: &AtomicU64,
+    ) -> Result<(bool, Option<Box<dyn std::any::Any + Send>>), GenerationExhausted> {
+        let callback = {
+            let mut inner = self.lock();
+            if inner.reason.is_some() {
+                return Ok((false, None));
+            }
+            let next = take_next(source).ok_or(GenerationExhausted)?;
+            generation.store(next, Ordering::Release);
+            inner.reason = Some(reason.clone());
+            inner.callback.take()
+        };
+        let panic =
+            callback.and_then(|callback| catch_unwind(AssertUnwindSafe(|| callback(reason))).err());
+        Ok((true, panic))
     }
 }
 
@@ -276,6 +375,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
         Ok(CudaDevice {
             id,
             generation: AtomicU64::new(generation),
+            #[cfg(feature = "fault-injection")]
+            lost: LostState::default(),
             ownership: DeviceOwnership::ProductIndependent,
             adapter_name: attributes.adapter_name,
             limits: LimitsTable {
@@ -813,6 +914,23 @@ impl<G> Submissions<G> {
             .collect()
     }
 
+    /// 登録の世代が `current_generation` より小さい callback を全部外し、`Lost` を付けて返す。呼ぶのは錠を放してから。
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn take_stale(
+        &mut self,
+        current_generation: u64,
+    ) -> Vec<(CompletionCallback, CompletionState)> {
+        let mut stale = Vec::new();
+        for (sequence, generation, callback) in std::mem::take(&mut self.callbacks) {
+            if generation < current_generation {
+                stale.push((callback, CompletionState::Lost));
+            } else {
+                self.callbacks.push((sequence, generation, callback));
+            }
+        }
+        stale
+    }
+
     /// `make` が成功したときだけ通し番号を払い出して表に入れる。
     ///
     /// 番号が尽きていれば `make` を呼ばずに `BackendFailure`。`make` の失敗は番号を消費しない。
@@ -1141,6 +1259,9 @@ struct PipelineEntry {
 struct CudaDevice {
     id: u64,
     generation: AtomicU64,
+    /// 模擬のロストの状態。
+    #[cfg(feature = "fault-injection")]
+    lost: LostState,
     ownership: DeviceOwnership,
     adapter_name: String,
     limits: LimitsTable,
@@ -1503,9 +1624,52 @@ impl ExternalInterop for CudaDevice {
     }
 }
 
-/// 故障の差し込みの口。どの操作も trait の既定の本体のまま（`UnsupportedExtensionDefault`）。実際の故障ではない。
+/// 模擬のロストだけを持つ故障の差し込みの口。実際の故障ではない。
+///
+/// `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
+/// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否はここでは持たない。
 #[cfg(feature = "fault-injection")]
-impl FaultHooks for CudaDevice {}
+impl FaultHooks for CudaDevice {
+    /// 1 回目は理由を記録し、世代を取り直し、登録されたコールバックを錠の外で 1 回呼び、その後に登録の世代が古い
+    /// 完了の callback を表から外して `Lost` で 1 回ずつ呼ぶ。2 回目以降は何もせず `Ok`。
+    /// 世代の源が尽きていたら、状態を変えずに `BackendFailure` を返す。
+    fn simulate_device_lost(&self, reason: DeviceLostReason) -> Result<(), ContractError> {
+        let (first, lost_panic) = self
+            .lost
+            .lose_catching(reason, &self.generation, &NEXT_GENERATION)
+            .map_err(|_| ContractError::BackendFailure {
+                op: "simulate_device_lost",
+                backend: BACKEND,
+                detail: "device generation space is exhausted".into(),
+            })?;
+        if first {
+            // 投入済みの表の錠はこの文の終わりで放してから、利用者の callback を呼ぶ。
+            // ロスト通知が panic していても、古い世代の完了の callback は先に `Lost` で呼び切る。
+            let stale = self
+                .lock_submissions()
+                .take_stale(self.current_generation());
+            let stale_panic = run_callbacks(stale);
+            if let Some(payload) = lost_panic {
+                if let Some(extra) = stale_panic {
+                    discard_panic(extra);
+                }
+                std::panic::resume_unwind(payload);
+            }
+            if let Some(payload) = stale_panic {
+                std::panic::resume_unwind(payload);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// ロストの通知先の登録。登録済みなら上書きし、ロストの後の登録は保持するだけで呼ばない。
+#[cfg(feature = "fault-injection")]
+impl DeviceLostNotify for CudaDevice {
+    fn set_lost_callback(&self, callback: LostCallback) {
+        self.lost.set_callback(callback);
+    }
+}
 
 impl MemoryOps for CudaDevice {
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
@@ -2645,6 +2809,22 @@ mod tests {
         );
     }
 
+    /// 登録の世代が古いものだけを `Lost` で外し、新しいものは表に残す。
+    #[test]
+    fn take_stale_returns_older_registrations_as_lost_once() {
+        let mut t = Submissions::<GroupState>::new();
+        let _ = t.issue(|| Ok(GroupState::Pending));
+        t.callbacks.push((1, 1, Box::new(|_| {})));
+        t.callbacks.push((1, 2, Box::new(|_| {})));
+        let stale = t.take_stale(2);
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].1, CompletionState::Lost);
+        assert_eq!(t.callbacks.len(), 1);
+        assert_eq!(t.callbacks[0].1, 2);
+        assert!(t.take_stale(2).is_empty());
+        assert_eq!(t.callbacks.len(), 1);
+    }
+
     #[test]
     fn claim_rejects_unknown_zero_and_duplicate_ids_without_changing_the_set() {
         let open = OpenEncoders::default();
@@ -3094,6 +3274,38 @@ mod device_tests {
             .len()
     }
 
+    /// ロスト通知が panic しても、登録済みの完了 callback は全部 `Lost` で呼ばれ、panic は呼び出し側へ届く。
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_panicking_lost_callback_still_delivers_lost_to_completion_callbacks() {
+        let d = device();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let generation = d.current_generation();
+        {
+            let mut table = d.lock_submissions();
+            for sequence in 1..=2_u64 {
+                let seen = Arc::clone(&seen);
+                table.callbacks.push((
+                    sequence,
+                    generation,
+                    Box::new(move |state| seen.lock().unwrap().push(state)),
+                ));
+            }
+        }
+        d.set_lost_callback(Box::new(|_| panic!("lost callback panic")));
+
+        let caught = catch_unwind(AssertUnwindSafe(|| {
+            d.simulate_device_lost(DeviceLostReason::Unknown)
+        }));
+        assert!(caught.is_err());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![CompletionState::Lost, CompletionState::Lost]
+        );
+        assert!(d.simulate_device_lost(DeviceLostReason::Destroyed).is_ok());
+    }
+
     /// CUDA C のカーネルから、この device のパイプラインが作られる。
     #[test]
     #[ignore = "requires a CUDA device"]
@@ -3418,5 +3630,270 @@ mod pool_device_tests {
         assert_eq!(d.test_pool_reuse_count(), 0);
         assert_eq!(d.test_pool_len(), POOL_MAX_ENTRIES);
         d.free(other);
+    }
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+mod lost_state_tests {
+    //! 模擬のロストの状態 `LostState` の固定（device に触らない。TASK-2934）。
+    use super::*;
+
+    type Seen = Arc<Mutex<Vec<DeviceLostReason>>>;
+
+    fn recorder(seen: &Seen) -> LostCallback {
+        let seen = Arc::clone(seen);
+        Box::new(move |reason| seen.lock().unwrap().push(reason))
+    }
+
+    fn all_reasons() -> [DeviceLostReason; 4] {
+        [
+            DeviceLostReason::Destroyed,
+            DeviceLostReason::Unknown,
+            DeviceLostReason::ValidationError("v".into()),
+            DeviceLostReason::Unrecoverable("u".into()),
+        ]
+    }
+
+    #[test]
+    fn the_callback_runs_once_and_a_second_lose_is_ignored() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(5));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        assert!(!state.is_lost());
+
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Ok(true)
+        );
+        assert_eq!(
+            state.lose(DeviceLostReason::Destroyed, &generation, &source),
+            Ok(false)
+        );
+        assert!(state.is_lost());
+        assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Unknown]);
+    }
+
+    #[test]
+    fn every_reason_is_passed_through_unchanged() {
+        for reason in all_reasons() {
+            let state = LostState::default();
+            let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+            let seen = Seen::default();
+            state.set_callback(recorder(&seen));
+            state.lose(reason.clone(), &generation, &source).unwrap();
+            assert_eq!(*seen.lock().unwrap(), [reason]);
+        }
+    }
+
+    #[test]
+    fn the_generation_is_taken_once() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(7));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert_eq!(generation.load(Ordering::Relaxed), 7);
+        assert_eq!(source.load(Ordering::Relaxed), 8);
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(generation.load(Ordering::Relaxed), 7);
+        assert_eq!(source.load(Ordering::Relaxed), 8);
+    }
+
+    #[test]
+    fn an_exhausted_source_leaves_the_state_unchanged() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(u64::MAX));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Err(GenerationExhausted)
+        );
+        assert!(!state.is_lost());
+        assert_eq!(generation.load(Ordering::Relaxed), 1);
+        assert_eq!(source.load(Ordering::Relaxed), u64::MAX);
+        assert!(seen.lock().unwrap().is_empty());
+
+        // 源が戻れば、保持されたままのコールバックでロストできる。
+        source.store(3, Ordering::Relaxed);
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Destroyed]);
+        assert_eq!(generation.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn a_callback_registered_after_the_loss_is_kept_but_not_called() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(seen.lock().unwrap().is_empty());
+        assert!(state.lock().callback.is_some());
+    }
+
+    /// 通知先が panic しても、理由と世代は記録済みで、`lose_catching` は中身を返し、2 回目は何もしない。
+    #[test]
+    fn a_panicking_callback_is_returned_after_the_loss_is_recorded() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(5));
+        state.set_callback(Box::new(|_| panic!("lost callback panic")));
+
+        let (first, panic) = state
+            .lose_catching(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert!(first);
+        assert!(panic.is_some());
+        assert!(state.is_lost());
+        assert_eq!(generation.load(Ordering::Acquire), 5);
+        let (again, panic) = state
+            .lose_catching(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(!again);
+        assert!(panic.is_none());
+    }
+
+    #[test]
+    fn a_loss_without_a_callback_then_a_registration_never_calls_it() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    /// 捨てられるときに、同じ状態の `set_callback` と `lose` を呼ぶ値。
+    struct ReentrantDrop {
+        state: Arc<LostState>,
+        generation: Arc<AtomicU64>,
+        source: Arc<AtomicU64>,
+        done: Arc<Mutex<bool>>,
+    }
+
+    impl Drop for ReentrantDrop {
+        fn drop(&mut self) {
+            self.state.set_callback(Box::new(|_| {}));
+            let _ = self
+                .state
+                .lose(DeviceLostReason::Unknown, &self.generation, &self.source);
+            *self.done.lock().unwrap() = true;
+        }
+    }
+
+    #[test]
+    fn dropping_an_overwritten_callback_may_reenter_without_deadlock() {
+        let state = Arc::new(LostState::default());
+        let generation = Arc::new(AtomicU64::new(1));
+        let source = Arc::new(AtomicU64::new(2));
+        let done = Arc::new(Mutex::new(false));
+        let guard = ReentrantDrop {
+            state: Arc::clone(&state),
+            generation: Arc::clone(&generation),
+            source: Arc::clone(&source),
+            done: Arc::clone(&done),
+        };
+        state.set_callback(Box::new(move |_| {
+            let _keep = &guard;
+        }));
+        // 上書きで古いコールバックが捨てられ、その `Drop` が再入する。錠を握ったままなら詰まる。
+        state.set_callback(Box::new(|_| {}));
+        assert!(*done.lock().unwrap());
+        assert!(state.is_lost());
+    }
+
+    #[test]
+    fn concurrent_loses_call_the_callback_once_and_advance_the_source_once() {
+        const THREADS: usize = 8;
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(10));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        let barrier = std::sync::Barrier::new(THREADS);
+        std::thread::scope(|scope| {
+            for _ in 0..THREADS {
+                scope.spawn(|| {
+                    barrier.wait();
+                    state
+                        .lose(DeviceLostReason::Unknown, &generation, &source)
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert_eq!(source.load(Ordering::Relaxed), 11);
+        assert_eq!(generation.load(Ordering::Relaxed), 10);
+    }
+
+    #[test]
+    fn a_later_registration_replaces_the_earlier_one() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        let (first, second) = (Seen::default(), Seen::default());
+        state.set_callback(recorder(&first));
+        state.set_callback(recorder(&second));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert!(first.lock().unwrap().is_empty());
+        assert_eq!(second.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_callback_runs_outside_the_lock() {
+        let state = Arc::new(LostState::default());
+        let (generation, source) = (Arc::new(AtomicU64::new(1)), Arc::new(AtomicU64::new(2)));
+        let reentered = Arc::new(Mutex::new(None));
+        {
+            let (state2, generation2, source2, reentered) = (
+                Arc::clone(&state),
+                Arc::clone(&generation),
+                Arc::clone(&source),
+                Arc::clone(&reentered),
+            );
+            state.set_callback(Box::new(move |_| {
+                // 錠を持ったまま呼ばれていれば、ここで詰まる。
+                state2.set_callback(Box::new(|_| {}));
+                let again = state2.lose(DeviceLostReason::Unknown, &generation2, &source2);
+                *reentered.lock().unwrap() = Some((state2.is_lost(), again));
+            }));
+        }
+        state
+            .lose(DeviceLostReason::Destroyed, &generation, &source)
+            .unwrap();
+        assert_eq!(*reentered.lock().unwrap(), Some((true, Ok(false))));
+    }
+
+    #[test]
+    fn a_poisoned_lock_does_not_panic() {
+        let state = Arc::new(LostState::default());
+        let poisoner = Arc::clone(&state);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.inner.lock().unwrap();
+            panic!("poison the lock");
+        })
+        .join();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(2));
+        let seen = Seen::default();
+        state.set_callback(recorder(&seen));
+        state
+            .lose(DeviceLostReason::Unknown, &generation, &source)
+            .unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1);
     }
 }
