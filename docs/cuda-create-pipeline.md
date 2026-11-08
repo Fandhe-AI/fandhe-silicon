@@ -173,3 +173,12 @@ make deny (cargo-deny): success
 | 2/4 | NVRTC のコンパイルとパイプラインの表 | #5714 |
 | 3/4 | device の要る試験 | #5715 |
 | 4/4 | 完了の条件の確かめ | #5716 |
+
+## 今の値の補い（base 1417dc5）
+
+記録時点の表と既存の節は書き換えない。以下は base `1417dc5` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（4/4）」の (1) の行と出力（`backend_cuda::tests`） | `14 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out` → `50 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out`（`running 50 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::tests` |
+| (2) の行と出力（`backend_cuda::device_tests`） | `0 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out`（`running 9 tests`）→ `0 passed; 0 failed; 11 ignored; 0 measured; 63 filtered out`（`running 11 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests` |

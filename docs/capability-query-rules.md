@@ -238,3 +238,12 @@ device の取得の口は、今は `crates/core/src/device.rs` の `DeviceProvid
 | ------ | --------------- | -------------- |
 | 冒頭の表の「依存の承認」の行 | 記録は `crates/contract` の macOS 向けの 4 件だけ → 記録は `crates/contract` の 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件）。`fandhe-silicon-core` を `used_by` に持つ記録は 0 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml`（5 が返る）、`grep -c '^used_by = .*fandhe-silicon-core' deps-approved.toml`（0 が返る） |
 | 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |
+
+## 今の値の補い（base 1417dc5）
+
+記録時点の表と既存の節は書き換えない。以下は base `1417dc5` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 冒頭の表の「背後実装の実装」の行の「`crates/contract`・`exec`・`upper`・`wasm/` には 0 件」と、「完了の条件の確かめ」の C3 の行の「`contract`・`exec`・`upper`・`wasm/` は 0 件」 | `contract`・`exec`・`upper`・`wasm/` は 0 件 → `crates/contract/src/backend_cuda.rs`（1534 行目 `impl Capabilities for CudaDevice`）と `crates/contract/src/backend_metal.rs`（2042 行目 `impl Capabilities for MetalDevice`）に 1 件ずつの計 2 件。`crates/exec` は `src/denormal_tests.rs`・`tests/common/mod.rs` の 2 件、`crates/upper` は `tests/common/mod.rs` の 1 件。`wasm/` は 0 件のまま | `git grep -n -E 'impl.* Capabilities for' -- crates wasm`（`crates/core/tests/` 以外の行） |
+| C3 の行の「`core` の `src/` に 2 件」 | 2 件（`CapabilityTable`・`FaultInjecting<D>`）→ `crates/core/src/` の行は 9 行。`capability_rule.rs`・`fault/decorator.rs` のほかに、`stub_device.rs`（1128 行目）、`texture_format_features.rs`（463 行目）、`texture_format_query_check.rs`（295・355・444 行目の 3 件に、86 行目の `///` の例の行）、`capability.rs`（158 行目の `///` の例の行）がある | `git grep -n -E 'impl.* Capabilities for' -- crates/core/src` |
