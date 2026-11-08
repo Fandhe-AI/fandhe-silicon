@@ -1977,6 +1977,7 @@ mod tests {
         assert_eq!(full, Some(vec![9]));
         assert_eq!(pool_state(&pool.borrow()), before);
     }
+
     /// 最初の通し番号は 1 で、失敗した払い出しは番号を消費しない（CMD-87）。
     #[test]
     fn the_first_sequence_is_one_and_a_failed_issue_does_not_consume_a_number() {
