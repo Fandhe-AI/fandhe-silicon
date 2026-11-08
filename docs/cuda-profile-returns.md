@@ -37,6 +37,17 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test ba
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib ids_outside_the_key_list_are_unlisted
 ```
 
+## device の要る試験（2/3）
+
+試験は `crates/contract/tests/backend_cuda_profiles.rs` の末尾にあり、どちらも `#[ignore = "requires a CUDA device"]` 付き。このファイルは device に触らない 2 本に加えて、この 2 本を持つ。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `rejected_profiles_are_invalid_combinations_where_compute_only_opens_a_device` | `ComputeOnly`・`ProductIndependent` の `request` が device を返して `backend()` が `Cuda`、同じ環境で `CpuOnly`・`Graphics` と 3 つの所有形態の 6 組がどれも `InvalidCombination` |
+| `unlisted_ids_are_unknown_features_on_a_cuda_device` | 上の 5 つの ID が `FEATURE_QUERY_KEYS` に無く、`query_ex` が `UNLISTED_FEATURE_QUERY` と等しく、`query` が `Unsupported`。1 つの ID につき 1 行 `query: feature=… level=… reason=… evidence=…` を標準出力に出す |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_profiles` が `2 passed; 0 failed; 2 ignored`（`--features backend-cuda,graphics` も同じ）。
+
 ## 段
 
 | 段 | 内容 | Issue |
