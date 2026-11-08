@@ -2135,6 +2135,32 @@ mod tests {
         }
     }
 
+    /// 鍵の一覧の外の ID は、どの能力の値でも core の `UNLISTED_FEATURE_QUERY` と等しい値を返す。
+    #[test]
+    fn ids_outside_the_key_list_are_unlisted() {
+        for id in [
+            FeatureId("feature:shader_f16"),
+            FeatureId("feature:SHADER_F16 "),
+            FeatureId("feature:SUBGRUOP"),
+            FeatureId("feature:not-a-feature"),
+            FeatureId(""),
+        ] {
+            assert!(
+                !fandhe_silicon_core::feature_key::FEATURE_QUERY_KEYS.contains(&id),
+                "{id:?}"
+            );
+            for cc in [(5, 3), (7, 4), (7, 5), (9, 0)] {
+                for map in [None, Some(false), Some(true)] {
+                    assert_eq!(
+                        cuda_capability_of(&snapshot(cc, map), id),
+                        fandhe_silicon_core::capability_table::UNLISTED_FEATURE_QUERY,
+                        "{id:?}"
+                    );
+                }
+            }
+        }
+    }
+
     /// 表は core の共通の規則の検査（鍵の一覧との突き合わせと、問合せの値）を通る（DEV-87）。
     #[cfg(feature = "test-support")]
     #[test]
