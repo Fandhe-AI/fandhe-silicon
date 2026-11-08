@@ -66,9 +66,34 @@ NVRTC に渡すオプションは `--gpu-architecture=compute_<major><minor>` �
 
 表に入るものは、取得した関数と `layout` の写し。`layout` は `slots` の重複の検査と写しのほかには読まない。識別子は device ごとに 1 から払い出し、尽きたときは `BackendFailure { op: "create_pipeline" }` を返す。device は読み取った compute capability を持つ（試験は `attributes_keep_the_compute_capability`）。
 
+## device の要る試験（3/4）
+
+device に触る試験は `crates/contract/src/backend_cuda.rs` の `device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。`open_device` が `request_device` の本体で、試験はこれで具体の型 `CudaDevice` を受け取る。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `cuda_c_kernel_creates_a_pipeline_of_this_device` | CUDA C のカーネルからパイプラインが作られ、その device の識別子を持つ |
+| `two_pipelines_on_one_device_get_distinct_ids` | 同じ device で 2 回作ると識別子が異なる |
+| `slots_that_differ_from_the_kernel_arguments_still_create_a_pipeline` | 空の `slots` も、引数より多い `slots` も作られる |
+| `the_pipeline_table_keeps_a_copy_of_the_layout` | 表が渡した `layout` の写しを持つ |
+| `duplicate_slots_are_invalid_argument_and_add_no_pipeline` | 重複した `slots` は `InvalidArgument` で、表の件数が増えない |
+| `uncompilable_source_is_artifact_rejected_cuda_c` | コンパイルできないソースは `ArtifactRejected { kind: "cuda-c" }` |
+| `missing_entry_point_is_artifact_rejected_function` | 無い入口名は `ArtifactRejected { kind: "function" }` |
+| `ptx_is_unsupported_and_msl_is_unsupported_input` | PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }` |
+| `compute_capability_is_read_from_the_device` | device が読み取った compute capability が `(0, 0)` でない |
+
+確かめ:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests
+```
+
+`0 passed; 0 failed; 9 ignored` の形で通る。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 入力の分類と配置の検査 | #5713 |
 | 2/4 | NVRTC のコンパイルとパイプラインの表 | #5714 |
+| 3/4 | device の要る試験 | #5715 |

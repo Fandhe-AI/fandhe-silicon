@@ -185,6 +185,11 @@ fn driver_library_present() -> bool {
 /// 要求を検査し、ドライバが読めれば device 0 の context と stream を作って `CudaDevice` を返す。
 /// 作るまでの失敗はすべて `DeviceUnavailable`。`CudaDeviceProvider::request` から呼ばれる。
 fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+    open_device(req).map(|d| Box::new(d) as Box<dyn Device>)
+}
+
+/// `request_device` の本体。具体の型 `CudaDevice` を返し、device の要る試験がこれを呼ぶ。
+fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
     check_request(&req)?;
     if !driver_library_present() {
         return Err(ContractError::DeviceUnavailable(
@@ -214,7 +219,7 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
             || ContractError::DeviceUnavailable("device counter space is exhausted".into());
         let id = __backend_next_device_id().ok_or_else(exhausted)?;
         let generation = take_next(&NEXT_GENERATION).ok_or_else(exhausted)?;
-        Ok(Box::new(CudaDevice {
+        Ok(CudaDevice {
             id,
             generation,
             ownership: DeviceOwnership::ProductIndependent,
@@ -228,7 +233,7 @@ fn request_device(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> 
             stream,
             buffers: Mutex::new(Buffers::default()),
             pipelines: Mutex::new(Pipelines::default()),
-        }) as Box<dyn Device>)
+        })
     })
 }
 
@@ -1229,5 +1234,185 @@ mod tests {
                 ..
             })
         ));
+    }
+}
+/// CUDA の device に触る試験。device の無い環境では流さない。
+#[cfg(test)]
+mod device_tests {
+    use super::*;
+
+    /// 要素に 1 を足す小さなカーネル。
+    const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn add_one(entry_point: &str) -> PipelineInput<'_> {
+        PipelineInput::CudaC {
+            source: ADD_ONE,
+            entry_point,
+        }
+    }
+
+    fn table_len(d: &CudaDevice) -> usize {
+        d.pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .len()
+    }
+
+    /// CUDA C のカーネルから、この device のパイプラインが作られる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn cuda_c_kernel_creates_a_pipeline_of_this_device() {
+        let d = device();
+        let p = d
+            .create_pipeline(add_one("add_one"), &BindingLayout::new(vec![0, 1, 2]))
+            .expect("pipeline");
+        assert_eq!(p.__backend_device_id(), d.id);
+    }
+
+    /// 同じ device で 2 回作ると、識別子が異なる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn two_pipelines_on_one_device_get_distinct_ids() {
+        let d = device();
+        let layout = BindingLayout::new(vec![0, 1, 2]);
+        let a = d.create_pipeline(add_one("add_one"), &layout).expect("a");
+        let b = d.create_pipeline(add_one("add_one"), &layout).expect("b");
+        assert_ne!(a.__backend_id(), b.__backend_id());
+    }
+
+    /// `slots` がカーネルの引数と合わなくても作られる（COMP-25）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn slots_that_differ_from_the_kernel_arguments_still_create_a_pipeline() {
+        let d = device();
+        assert!(
+            d.create_pipeline(add_one("add_one"), &BindingLayout::new(vec![]))
+                .is_ok()
+        );
+        assert!(
+            d.create_pipeline(add_one("add_one"), &BindingLayout::new(vec![0, 1, 2, 3, 9]))
+                .is_ok()
+        );
+    }
+
+    /// 表は渡した `layout` の写しを持つ。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_pipeline_table_keeps_a_copy_of_the_layout() {
+        let d = device();
+        let h = d
+            .create_pipeline(add_one("add_one"), &BindingLayout::new(vec![4, 5]))
+            .expect("pipeline");
+        let pipelines = d
+            .pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = pipelines.map.get(&h.__backend_id()).expect("entry");
+        assert_eq!(entry._layout, BindingLayout::new(vec![4, 5]));
+    }
+
+    /// 重複した `slots` は `InvalidArgument` で、表の件数は増えない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn duplicate_slots_are_invalid_argument_and_add_no_pipeline() {
+        let d = device();
+        d.create_pipeline(add_one("add_one"), &BindingLayout::new(vec![0]))
+            .expect("pipeline");
+        let before = table_len(&d);
+        let r = d.create_pipeline(add_one("add_one"), &BindingLayout::new(vec![0, 0]));
+        assert!(matches!(r, Err(ContractError::InvalidArgument(_))));
+        assert_eq!(table_len(&d), before);
+    }
+
+    /// コンパイルできないソースは `ArtifactRejected { kind: "cuda-c" }`。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn uncompilable_source_is_artifact_rejected_cuda_c() {
+        let d = device();
+        let r = d.create_pipeline(
+            PipelineInput::CudaC {
+                source: "this is not CUDA C",
+                entry_point: "k",
+            },
+            &BindingLayout::new(vec![0]),
+        );
+        assert!(matches!(
+            r,
+            Err(ContractError::ArtifactRejected { kind: "cuda-c", .. })
+        ));
+    }
+
+    /// 無い入口名は `ArtifactRejected { kind: "function" }`。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn missing_entry_point_is_artifact_rejected_function() {
+        let d = device();
+        let r = d.create_pipeline(add_one("absent"), &BindingLayout::new(vec![0]));
+        assert!(matches!(
+            r,
+            Err(ContractError::ArtifactRejected {
+                kind: "function",
+                ..
+            })
+        ));
+    }
+
+    /// PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn ptx_is_unsupported_and_msl_is_unsupported_input() {
+        let d = device();
+        let layout = BindingLayout::new(vec![0]);
+        let ptx = d.create_pipeline(
+            PipelineInput::Ptx {
+                source: ".version 7.0",
+                entry_point: "k",
+            },
+            &layout,
+        );
+        assert!(matches!(
+            ptx,
+            Err(ContractError::Unsupported {
+                op: "create_pipeline",
+                backend: BackendKind::Cuda,
+                ..
+            })
+        ));
+        let msl = d.create_pipeline(
+            PipelineInput::Msl {
+                source: "kernel void k() {}",
+                entry_point: "k",
+            },
+            &layout,
+        );
+        assert!(matches!(
+            msl,
+            Err(ContractError::ArtifactRejected {
+                kind: "unsupported-input",
+                ..
+            })
+        ));
+    }
+
+    /// device は読み取った compute capability を持つ。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn compute_capability_is_read_from_the_device() {
+        let d = device();
+        assert_ne!(d.compute_capability, (0, 0));
+        println!(
+            "compute_capability={}.{}",
+            d.compute_capability.0, d.compute_capability.1
+        );
     }
 }
