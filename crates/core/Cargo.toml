@@ -391,3 +391,7 @@ required-features = ["graphics"]
 [[test]]
 name = "route_evidence_check"
 required-features = ["test-support"]
+
+[[test]]
+name = "ptx_search"
+required-features = ["test-support"]
