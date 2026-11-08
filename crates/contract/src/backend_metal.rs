@@ -3767,6 +3767,128 @@ mod imp {
                 }
             }
         }
+
+        /// この device の上で `pipeline_cache_key` の版の欄に入るはずの値。
+        fn device_key_version(device: &MetalDevice) -> u64 {
+            let os_version = NSProcessInfo::processInfo()
+                .operatingSystemVersionString()
+                .to_string();
+            cache_key_version(&os_version, &device.device.name().to_string())
+        }
+
+        /// `MslWithOptions`（`Safe`）を同じ入力で 2 回呼ぶと、同じ `Some` のキーになる（ART-37 のポインタ）。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn pipeline_cache_key_of_safe_msl_with_options_is_stable() {
+            let device = new_device();
+            let input = PipelineInput::MslWithOptions {
+                source: KERNEL,
+                entry_point: "k",
+                math_mode: MslMathMode::Safe,
+            };
+            let a = device.pipeline_cache_key(&input, true).expect("a");
+            let b = device.pipeline_cache_key(&input, true).expect("b");
+            assert_eq!(a, b);
+            assert_eq!(a.compiler_version, device_key_version(&device));
+            assert_eq!(a.driver_version, Some(a.compiler_version));
+            assert!(device.lock_pipelines().map.is_empty());
+        }
+
+        /// 数学モード・ソース・`bounds_checked` を 1 つだけ変えると、対応する欄だけが変わる（ART-38 のポインタ）。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn pipeline_cache_key_changes_only_the_changed_field() {
+            const OTHER: &str = "kernel void k(device float* out [[buffer(0)]]) { out[0] = 2.0; }";
+            let device = new_device();
+            let input = |source, math_mode| PipelineInput::MslWithOptions {
+                source,
+                entry_point: "k",
+                math_mode,
+            };
+            let base = device
+                .pipeline_cache_key(&input(KERNEL, MslMathMode::Safe), false)
+                .expect("base");
+            let fast = device
+                .pipeline_cache_key(&input(KERNEL, MslMathMode::Fast), false)
+                .expect("fast");
+            assert_ne!(base.options_hash, fast.options_hash);
+            assert_eq!(
+                CacheKey {
+                    options_hash: base.options_hash,
+                    ..fast
+                },
+                base
+            );
+            let other = device
+                .pipeline_cache_key(&input(OTHER, MslMathMode::Safe), false)
+                .expect("other");
+            assert_ne!(base.source_hash, other.source_hash);
+            assert_eq!(
+                CacheKey {
+                    source_hash: base.source_hash,
+                    ..other
+                },
+                base
+            );
+            let checked = device
+                .pipeline_cache_key(&input(KERNEL, MslMathMode::Safe), true)
+                .expect("checked");
+            assert_eq!(
+                CacheKey {
+                    bounds_checked: false,
+                    ..checked
+                },
+                base
+            );
+        }
+
+        /// 4 つの MSL の入力のキーが、組み立ての関数とこの device の版の値から決まる値と同じで、
+        /// MSL でない入力は `None`（TASK-501 のポインタ）。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn pipeline_cache_key_of_each_msl_input_matches_the_pure_key() {
+            let device = new_device();
+            let version = device_key_version(&device);
+            let constants = [FunctionConstant {
+                index: 0,
+                value: FunctionConstantValue::U32(4),
+            }];
+            let inputs = [
+                msl("k"),
+                PipelineInput::MslSpecialized {
+                    source: KERNEL,
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                PipelineInput::MslWithOptions {
+                    source: KERNEL,
+                    entry_point: "k",
+                    math_mode: MslMathMode::Fast,
+                },
+                PipelineInput::MslSpecializedWithOptions {
+                    source: KERNEL,
+                    entry_point: "k",
+                    function_constants: &constants,
+                    math_mode: MslMathMode::Safe,
+                    float_functions: MslFloatFunctions::Precise,
+                },
+            ];
+            for input in &inputs {
+                for bounds_checked in [false, true] {
+                    assert_eq!(
+                        device.pipeline_cache_key(input, bounds_checked),
+                        metal_cache_key(input, bounds_checked, version),
+                        "{input:?}"
+                    );
+                }
+            }
+            let wgsl = PipelineInput::Wgsl {
+                source: "",
+                entry_point: "k",
+            };
+            assert!(device.pipeline_cache_key(&wgsl, false).is_none());
+            assert!(device.lock_pipelines().map.is_empty());
+        }
     }
 }
 
