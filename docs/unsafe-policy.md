@@ -19,12 +19,17 @@
 
 ## `unsafe` を置ける場所
 
-- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
+- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）と、後述の比較の腕の crate だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
 - `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する
 - `contract` の中の守り
     - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言と `cpu_ops.rs` の `mod neon;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend と `cpu_ops/neon.rs` の外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
     - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend と `cpu_ops/neon.rs` の外のファイルの `unsafe` を検出する
     - `cpu_ops/neon.rs` は上の 2 つの守りの対象で、個数の期待値の表を `tests/cpu_ops_neon_unsafe_count.rs` に持つ。`#[allow(unsafe_code)]` は `cpu_ops.rs` の `mod neon;` の宣言だけに付ける。この module の変更は小節「承認」の PR ごとの承認を要する
+- 比較の腕の crate（`baseline-wgpu/crates/`・`measure/crates/` の下で、下位の API〔Metal・MPS・wgpu の実験的な機能〕を呼ぶ橋。TASK-1008〜1011 のポインタ）にも置ける。製品の workspace（`crates/`）の範囲は変えない
+    - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints]` で `unsafe_code = "deny"` とする。`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける
+    - すべての `unsafe` に `// SAFETY:` を書く（clippy の `undocumented_unsafe_blocks` を deny）。公開 API は safe なラッパーにする
+    - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う
+    - 数える道具の変更と、腕の crate の外への置き場の変更は、これまでどおり小節「承認」の PR ごとの承認を要する。腕の crate の `unsafe` を増やす PR のマージは、小節「承認」の既存の仕組み（PR ごとの承認、または包括の承認）に従う
 
 ## 不変条件の書式
 
@@ -141,7 +146,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 ### してはいけないこと
 
 - 期待値だけを先に、または後から変える PR を出す
-- `#[allow(unsafe_code)]` を backend と `cpu_ops` の NEON の module 以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
+- `#[allow(unsafe_code)]` を backend・`cpu_ops` の NEON の module・比較の腕の crate の下位の API を呼ぶ module（または関数）以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
 - 個数テストを `#[ignore]` や cfg で外す、検査を弱める
 - `git commit --no-verify` を使う
 - 文書・README・コメントに個数の値や変化の履歴を持つ

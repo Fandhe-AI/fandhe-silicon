@@ -39,7 +39,7 @@ MIT OR Apache-2.0 のデュアルライセンスです（[LICENSE-MIT](./LICENSE
 | `crates/upper/` | `fandhe-silicon-upper` | 上: wgpu 風の層。`#![forbid(unsafe_code)]`。公開の型: device・queue・記録先・投入前の値・投入の印・compute のパス・バッファ |
 
 依存の向きは `contract → core` / `exec → core` / `upper → core, exec` です。
-`unsafe` と FFI は `contract` の backend モジュールと `cpu_ops` の NEON の module に閉じ込め、それ以外の crate は `#![forbid(unsafe_code)]` です。形は [docs/unsafe-policy.md](docs/unsafe-policy.md) にあります。
+`unsafe` と FFI は `contract` の backend モジュール・`cpu_ops` の NEON の module・別 workspace（`baseline-wgpu/`・`measure/`）の比較の腕の crate に閉じ込め、製品のそれ以外の crate は `#![forbid(unsafe_code)]` です。形は [docs/unsafe-policy.md](docs/unsafe-policy.md) にあります。
 
 `fandhe-silicon-contract` の feature:
 

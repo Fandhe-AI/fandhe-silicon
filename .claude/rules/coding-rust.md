@@ -20,7 +20,7 @@
 
 ## unsafe と FFI
 
-- `unsafe` は `contract` の backend モジュール（FFI 境界）と、`cpu_ops` の aarch64 の NEON の module（組み込み関数を呼ぶ橋）に閉じ込め、公開 API は safe なラッパーとして提供する。`core`・`exec`・`upper`・`wasm-abi` は `#![forbid(unsafe_code)]`
+- `unsafe` は `contract` の backend モジュール（FFI 境界）と、`cpu_ops` の aarch64 の NEON の module（組み込み関数を呼ぶ橋）に閉じ込め、公開 API は safe なラッパーとして提供する。別 workspace の `baseline-wgpu/crates/`・`measure/crates/` の比較の腕の crate（TASK-1008〜1011 のポインタ）は、下位の API（Metal・MPS・wgpu の実験的な機能）を呼ぶ橋に限って `unsafe` を持てる。その crate は workspace の `forbid(unsafe_code)` を継がず、自前の `[lints]` で `unsafe_code = "deny"` とし、`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける。`core`・`exec`・`upper`・`wasm-abi` は `#![forbid(unsafe_code)]`
 - すべての `unsafe` ブロック・`unsafe fn` に `// SAFETY:`（`unsafe fn` は `/// # Safety`）で、成立させている不変条件と根拠を書く（clippy `undocumented_unsafe_blocks` / `missing_safety_doc` を deny で強制）
 - FFI から受け取るポインタ・長さ・ハンドルは null / 範囲 / 生存期間を検証してから使う
 - GPU リソース（バッファ・コマンドキュー・イベント等）の所有権と解放責務を型で表現し、二重解放・解放後使用を作らない
