@@ -68,6 +68,73 @@ feature `fault-injection` のビルドでは、`Device::fault_hooks()` が `Some
 - `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop,fault-injection --test backend_cuda_ext_interop`: `0 passed; 6 ignored`
 - `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --test backend_cuda_fault`: `3 passed; 1 ignored`
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-197。ポインタのみ）。
+
+時点のコミット: `819811c`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 単体の試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda,ext-interop --lib backend_cuda` | `46 passed; 0 failed; 11 ignored`、終了コード 0 |
+| 2 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda,ext-interop --test backend_cuda_ext_interop` | `0 passed; 0 failed; 5 ignored`、終了コード 0 |
+| 3 | 故障の差し込みの試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_fault` | `3 passed; 0 failed; 1 ignored`、終了コード 0 |
+| 4 | 門ごとの型と未使用 | `cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --features <組> -- -D warnings`（`<組>` は `backend-cuda`・`backend-cuda,ext-interop`・`backend-cuda,fault-injection`・`backend-cuda,ext-interop,fault-injection,native-blocking-wait`） | 4 組とも終了コード 0 |
+| 5 | 組のビルド | `make build-profiles` | 終了コード 0。`[build-profiles.sh] cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop` の行が出る |
+| 6 | 公開 API | `make public-api-sdk-check`、`make public-api-webgpu-check` | どちらも終了コード 0。`sdk_type_refs_total=0` を含む `record:` の行と `ok:` の行が出る |
+| 7 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count`、`git diff --stat 4970298 HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs` | `1 passed; 0 failed`、終了コード 0。diff は空 |
+| 8 | 依存 | `make deps-check`、`git diff --stat 4970298 HEAD -- Cargo.lock deps-approved.toml` | 終了コード 0。`[deps-check.sh] ok: ...` の行が出る。diff は空 |
+| 9 | CI | `gh run view 42504030757 --json status,conclusion,headSha,jobs`（`819811c` の main の push の run） | conclusion は `success`。headSha は `819811cb9f82ec42daf3767502427bf2e6c3fa04`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion は `success` |
+
+(1) の出力（該当の行）。
+
+```text
+running 57 tests
+test backend_cuda::tests::uuid_bytes_keep_every_bit ... ok
+test backend_cuda::tests::uuid_read_maps_to_an_id_without_driver_uuid_or_to_device_unavailable ... ok
+test result: ok. 46 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```text
+running 5 tests
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 4 tests
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(5) の出力（該当の行）。
+
+```text
+[build-profiles.sh] cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop
+```
+
+(6) の出力（`ok:` の行）。
+
+```text
+ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok
+```
+
+(7) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(8) の出力。
+
+```text
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -75,3 +142,4 @@ feature `fault-injection` のビルドでは、`Device::fault_hooks()` が `Some
 | 1/4 | 物理 GPU の識別子を device の作成で読んで返す | #3884 |
 | 2/4 | 相互運用と故障の差し込みの口を device から返す | #3885 |
 | 3/4 | device の要る拡張アクセサの試験を ignore 付きで足す | #3886 |
+| 4/4 | 完了の条件の確かめ | #3887 |
