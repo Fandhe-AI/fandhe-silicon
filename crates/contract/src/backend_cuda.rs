@@ -51,12 +51,16 @@ use fandhe_silicon_core::execution::{
     CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
     PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
 };
+#[cfg(feature = "fault-injection")]
+use fandhe_silicon_core::fault::FaultHooks;
 use fandhe_silicon_core::feature_key::{
     FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX, FEATURE_MAPPABLE_PRIMARY_BUFFERS, FEATURE_SHADER_F16,
     FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER,
 };
 #[cfg(feature = "ext-interop")]
-use fandhe_silicon_core::interop::PhysicalGpuId;
+use fandhe_silicon_core::interop::{
+    ExternalInterop, ExternalMemoryHandle, ExternalSemaphoreHandle, PhysicalGpuId,
+};
 use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
 };
@@ -1389,12 +1393,66 @@ impl Device for CudaDevice {
             backend_name: BACKEND_NAME,
         }
     }
+    /// 実行時の判定なしに、この device の相互運用の操作を返す。
+    #[cfg(feature = "ext-interop")]
+    fn external_interop(&self) -> Option<&dyn ExternalInterop> {
+        Some(self)
+    }
     /// device の作成で 1 回読んだ識別子を返す。`driver_uuid` は `None`。
     #[cfg(feature = "ext-interop")]
     fn physical_gpu_id(&self) -> Option<PhysicalGpuId> {
         Some(self.physical_gpu_id)
     }
+    /// 実行時の判定なしに、この device の故障の差し込みの口を返す。
+    #[cfg(feature = "fault-injection")]
+    fn fault_hooks(&self) -> Option<&dyn FaultHooks> {
+        Some(self)
+    }
 }
+
+/// 相互運用の操作。必須の 4 操作は `Unsupported { op, backend: Cuda }`（`op` は呼んだ操作の名前）を返す。
+#[cfg(feature = "ext-interop")]
+impl ExternalInterop for CudaDevice {
+    fn export_memory(&self, _buffer: &BufferHandle) -> Result<ExternalMemoryHandle, ContractError> {
+        Err(ContractError::Unsupported {
+            op: "export_memory",
+            backend: BACKEND,
+        })
+    }
+    fn import_memory(
+        &self,
+        _external: ExternalMemoryHandle,
+        _byte_len: u64,
+        _usage: BufferUsage,
+    ) -> Result<BufferHandle, ContractError> {
+        Err(ContractError::Unsupported {
+            op: "import_memory",
+            backend: BACKEND,
+        })
+    }
+    fn export_semaphore(
+        &self,
+        _token: SubmitToken,
+    ) -> Result<ExternalSemaphoreHandle, ContractError> {
+        Err(ContractError::Unsupported {
+            op: "export_semaphore",
+            backend: BACKEND,
+        })
+    }
+    fn import_semaphore(
+        &self,
+        _external: ExternalSemaphoreHandle,
+    ) -> Result<ImportedSemaphoreHandle, ContractError> {
+        Err(ContractError::Unsupported {
+            op: "import_semaphore",
+            backend: BACKEND,
+        })
+    }
+}
+
+/// 故障の差し込みの口。どの操作も trait の既定の本体のまま（`UnsupportedExtensionDefault`）。実際の故障ではない。
+#[cfg(feature = "fault-injection")]
+impl FaultHooks for CudaDevice {}
 
 impl MemoryOps for CudaDevice {
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {

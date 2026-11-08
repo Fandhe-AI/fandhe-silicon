@@ -150,3 +150,15 @@
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |
+
+## 今の値の補い（base 59234bd）
+
+記録時点の表と既存の節は書き換えない。以下は base `59234bd` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「現状と前提の確認（1/4）」の表の「背後実装の中の `ext-interop`」の行 | 0 件 → `backend_cuda.rs` に 11 件（`backend_metal.rs`・`backend_vulkan.rs` は 0 件） | `grep -c 'feature = "ext-interop"' crates/contract/src/backend_*.rs` |
+| 「実装（2/4）」の「0 件のまま」の文 | 0 件 → `backend_cuda.rs` に 11 件 | 同上 |
+| 「完了の条件の確かめと 3 構成の結果の記録（4/4）」の B2 の行 | 0 件 → 12 行（`backend_cuda.rs` の行だけが出る） | `grep -rn 'ext-interop\|ext_interop' crates/contract/src/backend_vulkan.rs crates/contract/src/backend_vulkan crates/contract/src/backend_cuda.rs 2>/dev/null \| wc -l` |
+
+`cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,ext-interop` の終了コードは 0。

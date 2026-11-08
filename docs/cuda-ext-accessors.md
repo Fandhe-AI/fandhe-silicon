@@ -31,8 +31,27 @@ feature `ext-interop` のビルドでは、`request`（device の作成）の中
 - `uuid_bytes_keep_every_bit`: 高い位のビットを含む 16 バイトが変わらずに写る
 - `uuid_read_maps_to_an_id_without_driver_uuid_or_to_device_unavailable`: 読めた値が `driver_uuid` なしの識別子になり、読めない閉包が `DeviceUnavailable` になる
 
+## 相互運用と故障の差し込みの口（2/4）
+
+feature `ext-interop` のビルドでは、`Device::external_interop()` が実行時の判定なしに `Some` を返す。
+必須の 4 操作の返す値は次のとおり。
+
+| 操作 | 返す値 |
+| ---- | ------ |
+| `export_memory` | `Err(Unsupported { op: "export_memory", backend: Cuda })` |
+| `import_memory` | `Err(Unsupported { op: "import_memory", backend: Cuda })` |
+| `export_semaphore` | `Err(Unsupported { op: "export_semaphore", backend: Cuda })` |
+| `import_semaphore` | `Err(Unsupported { op: "import_semaphore", backend: Cuda })` |
+
+拡張の 4 操作（`export_image`・`import_image`・`export_semaphore_timeline`・`import_semaphore_timeline`）は上書きしておらず、trait の既定の本体のままである。
+
+feature `fault-injection` のビルドでは、`Device::fault_hooks()` が `Some` を返す。`FaultHooks` のどの操作も上書きしていない。
+
+門の無いビルドにこれらの口が無いことは、`crates/contract/src/cfg_gate_doctest.rs` の既存の門の doctest（`ExternalInteropGate`・`FaultInjectionGate`・`DeviceFaultHooksGate`）が確かめる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 物理 GPU の識別子を device の作成で読んで返す | #3884 |
+| 2/4 | 相互運用と故障の差し込みの口を device から返す | #3885 |
