@@ -15,7 +15,8 @@ use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
 use fandhe_silicon_core::execution::{
-    BindingLayout, GpuTiming, ImportedSemaphoreHandle, PipelineInput, SubmitToken,
+    BindingLayout, FunctionConstant, FunctionConstantValue, GpuTiming, ImportedSemaphoreHandle,
+    MslFloatFunctions, MslMathMode, PipelineInput, SubmitToken,
 };
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1261,4 +1262,53 @@ fn compute_reaches_create_pipeline_through_the_public_device() {
         &BindingLayout::new(vec![0]),
     );
     assert!(r.is_ok(), "create_pipeline failed: {r:?}");
+}
+
+/// 公開の `Device` の `compute()` から、`MslWithOptions`（`Safe`・`Fast`）と
+/// `MslSpecializedWithOptions`（`Safe`・`Precise`）の `create_pipeline` に届く（TASK-774 のポインタ）。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn option_inputs_reach_create_pipeline_through_the_public_device() {
+    const KERNEL: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        kernel void k(device float* out [[buffer(0)]], uint tid [[thread_position_in_grid]]) {\n\
+            out[tid] = 1.0;\n\
+        }\n";
+    const SPECIALIZED: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        constant uint N [[function_constant(0)]];\n\
+        kernel void s(device uint* out [[buffer(0)]]) {\n\
+            out[0] = N;\n\
+        }\n";
+    let device = new_device();
+    let compute = device
+        .compute()
+        .expect("a Metal device must expose compute()");
+    let layout = BindingLayout::new(vec![0]);
+    for mode in [MslMathMode::Safe, MslMathMode::Fast] {
+        let r = compute.create_pipeline(
+            PipelineInput::MslWithOptions {
+                source: KERNEL,
+                entry_point: "k",
+                math_mode: mode,
+            },
+            &layout,
+        );
+        assert!(r.is_ok(), "{mode:?}: {r:?}");
+    }
+    let constants = [FunctionConstant {
+        index: 0,
+        value: FunctionConstantValue::U32(3),
+    }];
+    let r = compute.create_pipeline(
+        PipelineInput::MslSpecializedWithOptions {
+            source: SPECIALIZED,
+            entry_point: "s",
+            function_constants: &constants,
+            math_mode: MslMathMode::Safe,
+            float_functions: MslFloatFunctions::Precise,
+        },
+        &layout,
+    );
+    assert!(r.is_ok(), "{r:?}");
 }
