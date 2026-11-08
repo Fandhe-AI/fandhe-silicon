@@ -48,6 +48,69 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib ids_outside_
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_profiles` が `2 passed; 0 failed; 2 ignored`（`--features backend-cuda,graphics` も同じ）。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-169。ポインタのみ）。
+
+時点のコミット: `c36eecd`（`docs/spec` の gitlink は `f50c86bf8919b4ee68e62948491886fb25c9ae12`）
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 組の拒否 | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_profiles` | `running 4 tests`、`2 passed; 0 failed; 2 ignored` |
+| 2 | `graphics` を付けたビルド | `cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test backend_cuda_profiles` | (1) と同じ |
+| 3 | 一覧の外の ID | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib ids_outside_the_key_list_are_unlisted` | `1 passed; 0 failed; 0 ignored` |
+| 4 | 既存の検査の順の試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_request`、`cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_fault` | `4 passed; 0 failed; 0 ignored`、`3 passed; 0 failed; 1 ignored` |
+| 5 | device の要る試験の宣言 | (1) の `ignored` の件数、`grep -c '^#\[ignore' crates/contract/tests/backend_cuda_profiles.rs` | どちらも 2 |
+| 6 | 組のビルド | `make build-profiles` | 終了コード 0 |
+| 7 | 公開 API | `make public-api-sdk-check`、`make public-api-check` | `sdk_type_refs_total=0` を含む `record:` の行と `ok:` の行が出る。`make public-api-check` は終了コード 0 |
+| 8 | unsafe・依存 | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count`、`make deps-check`、`git diff --stat 3b80ea1 HEAD -- Cargo.lock deps-approved.toml crates/contract/tests/backend_cuda_unsafe_count.rs` | `1 passed; 0 failed`。`[deps-check.sh] ok: ...` の行が出る。diff は空 |
+| 9 | CI | `gh run view 42520721682 --json status,conclusion,headSha,jobs`（`c36eecd` の main の push の run） | conclusion は `success`。headSha は `c36eecd5e98e519d9cf5a5924344c02f26f5eb69`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion は `success` |
+
+(1) の出力（該当の行）。
+
+```text
+running 4 tests
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力（該当の行）。
+
+```text
+running 4 tests
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力（該当の行）。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 73 filtered out; finished in 0.00s
+```
+
+(4) の出力（該当の行）。
+
+```text
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 4 tests
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(7) の出力（該当の行）。
+
+```text
+record: commit=c36eecd5e98e519d9cf5a5924344c02f26f5eb69 documents=10 public_items_total=13838 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+```
+
+(8) の出力（該当の行）。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
