@@ -783,10 +783,43 @@ impl Drop for CudaDevice {
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take_all_callbacks();
-        for callback in callbacks {
-            callback(CompletionState::Lost);
+        // 1 つが panic しても残りを呼び切る。巻き戻し中の二重 panic を避けるため、panic は外へ伝えず捨てる。
+        let ready = callbacks
+            .into_iter()
+            .map(|callback| (callback, CompletionState::Lost))
+            .collect();
+        if let Some(payload) = run_callbacks(ready) {
+            discard_panic(payload);
         }
     }
+}
+
+/// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
+fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(inner) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(inner);
+    }
+}
+
+/// 表から外した callback を全部呼ぶ。1 つが panic しても残りを呼び切り、最初の panic の中身を返す。
+///
+/// 各 callback は呼ぶ前に表から外れているので、取りこぼしと二重呼び出しは起きない。錠を放してから呼ぶこと。
+/// 呼ぶ側が通常経路では返った中身を `resume_unwind` で再送出し、`Drop` では捨てる。
+/// 2 個目以降の panic の中身は `discard_panic` で捨てる。
+fn run_callbacks<C: FnOnce(CompletionState)>(
+    ready: Vec<(C, CompletionState)>,
+) -> Option<Box<dyn std::any::Any + Send>> {
+    let mut first_panic = None;
+    for (callback, state) in ready {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| callback(state))) {
+            if first_panic.is_none() {
+                first_panic = Some(payload);
+            } else {
+                discard_panic(payload);
+            }
+        }
+    }
+    first_panic
 }
 
 impl CudaDevice {
@@ -821,15 +854,22 @@ impl CudaDevice {
     }
 
     /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
+    ///
+    /// callback が panic しても残りを呼び切り、最初の panic は呼び切った後に再送出する。
     fn drive_callbacks(&self) {
+        if let Some(payload) = self.drive_callbacks_catching() {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    /// `drive_callbacks` の本体。最初の panic の中身を再送出せずに返す。
+    fn drive_callbacks_catching(&self) -> Option<Box<dyn std::any::Any + Send>> {
         let ready = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
             subs.take_ready(event_state)
         };
-        for (callback, state) in ready {
-            callback(state);
-        }
+        run_callbacks(ready)
     }
 
     /// バッファの表のロックを取る。poison されていても中身を使う。
@@ -1206,10 +1246,18 @@ impl CommandQueue for CudaDevice {
                 _ => Some((callback, CompletionState::Lost)),
             }
         };
-        if let Some((callback, state)) = terminal {
-            callback(state);
+        let own_panic =
+            terminal.and_then(|(callback, state)| run_callbacks(vec![(callback, state)]));
+        let drive_panic = self.drive_callbacks_catching();
+        if let Some(payload) = own_panic {
+            if let Some(extra) = drive_panic {
+                discard_panic(extra);
+            }
+            std::panic::resume_unwind(payload);
         }
-        self.drive_callbacks();
+        if let Some(payload) = drive_panic {
+            std::panic::resume_unwind(payload);
+        }
     }
     #[cfg(feature = "native-blocking-wait")]
     fn wait_blocking(
@@ -1302,6 +1350,39 @@ mod tests {
         assert_eq!(ex(&t, 3), CompletionStateEx::Pending);
         assert_eq!(ex(&t, 0), CompletionStateEx::Unknown);
         assert_eq!(ex(&t, 4), CompletionStateEx::Unknown);
+    }
+
+    #[test]
+    fn run_callbacks_calls_every_callback_once_despite_a_panic_and_returns_the_first() {
+        use std::sync::atomic::AtomicUsize;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut ready: Vec<(CompletionCallback, CompletionState)> = Vec::new();
+        for i in 0..4 {
+            let calls = Arc::clone(&calls);
+            ready.push((
+                Box::new(move |_| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    if i == 1 || i == 2 {
+                        std::panic::panic_any(i);
+                    }
+                }),
+                CompletionState::Complete,
+            ));
+        }
+        let first = run_callbacks(ready).expect("panic is returned");
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        assert_eq!(*first.downcast::<i32>().unwrap(), 1);
+    }
+
+    #[test]
+    fn discard_panic_does_not_unwind_even_if_the_payload_drop_panics() {
+        struct PanicOnDrop;
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                std::panic::panic_any(0_u8);
+            }
+        }
+        discard_panic(Box::new(PanicOnDrop));
     }
 
     #[test]
