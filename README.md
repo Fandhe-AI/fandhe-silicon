@@ -206,7 +206,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
 | `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1082） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
-| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317） |
+| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5） |

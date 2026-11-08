@@ -1211,7 +1211,7 @@ fn precheck_submit(wait: &[ImportedSemaphoreHandle]) -> Result<(), ContractError
     reject_wait("submit(wait)", wait)
 }
 
-/// `submit_many` が device に触る前に通す検査。順は、空の列、`wait`、`after` の各印の照合。
+/// `submit_many` が device に触る前に通す検査。順は、`after` の各印の照合、空の列、`wait`。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn precheck_submit_many(
     command_count: usize,
@@ -1220,16 +1220,15 @@ fn precheck_submit_many(
     device_id: u64,
     generation: u64,
 ) -> Result<(), ContractError> {
+    for token in after {
+        check_token_owner(token, device_id, generation)?;
+    }
     if command_count == 0 {
         return Err(ContractError::InvalidArgument(
             "submit_many requires at least one encoder".into(),
         ));
     }
-    reject_wait("submit_many(wait)", wait)?;
-    for token in after {
-        check_token_owner(token, device_id, generation)?;
-    }
-    Ok(())
+    reject_wait("submit_many(wait)", wait)
 }
 
 /// 再利用の一覧に溜めるバッファの件数の上限（全 `byte_len` の合計）。
@@ -2173,8 +2172,8 @@ mod imp {
 
         /// 複数の記録先を 1 回で投入し、1 つの印を返す。
         ///
-        /// 順は、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、`after` の照合
-        /// （別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、記録先の所属（`InvalidArgument`）。
+        /// 順は、`after` の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、
+        /// 空の列（`InvalidArgument`）、`wait`（`Unsupported`）、記録先の所属（`InvalidArgument`）。
         /// 検査に当たると何も投入しない。単一の列でコマンドバッファは投入順に完了するので、
         /// `after` は照合だけで追加の待ちは入れない。
         fn submit_many(
@@ -3962,10 +3961,28 @@ mod precheck_tests {
     }
 
     #[test]
-    fn submit_many_checks_wait_before_after() {
-        let foreign = token(GENERATION, DEVICE_ID + 1);
-        let r = precheck_submit_many(1, &[foreign], &[semaphore()], DEVICE_ID, GENERATION);
+    fn submit_many_checks_wait_after_the_list_is_non_empty() {
+        let r = precheck_submit_many(1, &[], &[semaphore()], DEVICE_ID, GENERATION);
         assert!(matches!(r, Err(ContractError::Unsupported { .. })), "{r:?}");
+    }
+
+    /// 複数の不正が重なるときの順は、`after` の各印、空の列、`wait`（CUDA の同名の検査と同じ）。
+    #[test]
+    fn submit_many_checks_after_then_empty_then_wait() {
+        let foreign = token(GENERATION, DEVICE_ID + 1);
+        let stale = token(GENERATION + 1, DEVICE_ID);
+        let wait = [semaphore()];
+        let r = precheck_submit_many(0, &[foreign], &wait, DEVICE_ID, GENERATION);
+        assert_eq!(r, Err(ContractError::DeviceMismatch));
+        let r = precheck_submit_many(0, &[stale], &wait, DEVICE_ID, GENERATION);
+        assert_eq!(
+            r,
+            Err(ContractError::DeviceLost {
+                generation: GENERATION + 1
+            })
+        );
+        let r = precheck_submit_many(1, &[foreign], &wait, DEVICE_ID, GENERATION);
+        assert_eq!(r, Err(ContractError::DeviceMismatch));
     }
 
     #[test]

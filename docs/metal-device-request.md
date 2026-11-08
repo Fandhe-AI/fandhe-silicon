@@ -117,3 +117,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「今の値の補い（base d533488）」の行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 52 → 53 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
+
+## 今の値の補い（base dd1a116、submit_many の検査の順）
+
+上の `submit_many` の検査の順（空の列、`wait`、`after` の各印の照合、全記録先の所属）と、`precheck_tests` の行の「`submit_many` の検査の順（空の列、`wait`、`after`）」は記録時点の値で、書き換えない。今の値は次のとおり。
+
+- `submit_many` の device に触る前の検査（`precheck_submit_many`）の順は、`after` の各印の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）。CUDA の背後実装の同名の検査と同じ順で、複数の不正が重なるときはこの順で最初のものが返る。そのあとに全記録先の所属（`InvalidArgument`）を検査する流れは変わらない。
+- 重なる不正の順は `precheck_tests` の `submit_many_checks_after_then_empty_then_wait`（他 device の印と空の列と空でない `wait` の組を含む）で確かめる。どの OS でも流れる。確かめ方: `grep -n 'fn precheck_submit_many' crates/contract/src/backend_metal.rs`
