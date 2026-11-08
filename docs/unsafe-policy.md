@@ -29,7 +29,7 @@
     - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints.rust]`・`[lints.clippy]` で `unsafe_code = "deny"` とし、`unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` の deny と、その workspace のほかの lints も明記して保つ。`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける
     - すべての `unsafe` に `// SAFETY:` を書く（`unsafe fn` は `/// # Safety`）。公開 API は safe なラッパーにする
     - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う
-    - 数える道具の変更と、腕の crate の外への置き場の変更は、これまでどおり小節「承認」の PR ごとの承認を要する。腕の crate の `unsafe` を増やす PR のマージは、小節「承認」の既存の仕組み（PR ごとの承認、または包括の承認）に従う
+    - 数える道具の変更、腕の crate の外への置き場の変更、腕の crate の中で `#[allow(unsafe_code)]` を付ける範囲の変更（新しい module や関数への追加を含む）は、これまでどおり小節「承認」の PR ごとの承認だけを要し、包括の承認の対象にしない。腕の crate の `unsafe` を増やす PR のマージは、小節「承認」の既存の仕組み（PR ごとの承認、または包括の承認）に従う
 
 ## 不変条件の書式
 
