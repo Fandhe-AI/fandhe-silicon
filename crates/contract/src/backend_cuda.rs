@@ -557,7 +557,12 @@ struct Submissions<G> {
     pending: BTreeMap<u64, G>,
     /// 失敗として回収した通し番号。
     failed: BTreeSet<u64>,
+    /// 終端を待つ登録済みの callback。通し番号と組で持つ。
+    callbacks: Vec<(u64, CompletionCallback)>,
 }
+
+/// `on_complete` に渡された callback。
+type CompletionCallback = Box<dyn FnOnce(CompletionState) + Send>;
 
 impl<G> Submissions<G> {
     /// 何も投入していない表。
@@ -567,7 +572,45 @@ impl<G> Submissions<G> {
             watermark: 0,
             pending: BTreeMap::new(),
             failed: BTreeSet::new(),
+            callbacks: Vec::new(),
         }
+    }
+
+    /// 通し番号の拡張した完了状態。呼ぶ前に `reclaim` しておく。
+    ///
+    /// 表にあれば列の状態、失敗の集合にあれば `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`、
+    /// 回収済みの他は `Complete`。
+    fn state_ex_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionStateEx {
+        if let Some(group) = self.pending.get(&sequence) {
+            return match classify(group) {
+                GroupState::Pending => CompletionStateEx::Pending,
+                GroupState::Completed => CompletionStateEx::Complete,
+                GroupState::Failed => CompletionStateEx::RuntimeError,
+            };
+        }
+        if self.failed.contains(&sequence) {
+            CompletionStateEx::RuntimeError
+        } else if sequence == 0 || sequence >= self.next_sequence {
+            CompletionStateEx::Unknown
+        } else {
+            CompletionStateEx::Complete
+        }
+    }
+
+    /// 終端になった登録済みの callback を表から外して返す。呼ぶのは錠を放してから。
+    fn take_ready(
+        &mut self,
+        classify: impl Fn(&G) -> GroupState,
+    ) -> Vec<(CompletionCallback, CompletionState)> {
+        let mut ready = Vec::new();
+        for (sequence, callback) in std::mem::take(&mut self.callbacks) {
+            match self.state_ex_of(sequence, &classify) {
+                CompletionStateEx::Pending => self.callbacks.push((sequence, callback)),
+                CompletionStateEx::Complete => ready.push((callback, CompletionState::Complete)),
+                _ => ready.push((callback, CompletionState::Lost)),
+            }
+        }
+        ready
     }
 
     /// `make` が成功したときだけ通し番号を払い出して表に入れる。
@@ -735,6 +778,23 @@ impl CudaDevice {
             sequence,
             self.id,
         ))
+    }
+
+    /// 印がこの device・この世代のものか。違えば完了の問合せは `Lost` で答える。
+    fn owns(&self, token: &SubmitToken) -> bool {
+        token.__backend_device_id() == self.id && token.generation == self.generation
+    }
+
+    /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
+    fn drive_callbacks(&self) {
+        let ready = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            subs.take_ready(event_state)
+        };
+        for (callback, state) in ready {
+            callback(state);
+        }
     }
 
     /// バッファの表のロックを取る。poison されていても中身を使う。
@@ -1043,12 +1103,18 @@ impl CommandQueue for CudaDevice {
         mut commands: CommandEncoder,
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
-        let mut subs = self.lock_submissions();
-        subs.reclaim(event_state);
-        reject_wait("submit(wait)", wait)?;
-        self.open.claim(&[commands.__backend_id()])?;
-        commands.__backend_disarm_closer();
-        self.issue_event(&mut subs)
+        let result = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            reject_wait("submit(wait)", wait)
+                .and_then(|()| self.open.claim(&[commands.__backend_id()]))
+                .and_then(|()| {
+                    commands.__backend_disarm_closer();
+                    self.issue_event(&mut subs)
+                })
+        };
+        self.drive_callbacks();
+        result
     }
     fn submit_many(
         &self,
@@ -1061,14 +1127,54 @@ impl CommandQueue for CudaDevice {
             backend: BACKEND,
         })
     }
-    fn poll(&self, _token: SubmitToken) -> CompletionState {
-        CompletionState::Lost
+    /// 完了の問合せ。別 device・世代違いの印、失敗した列、払い出していない番号は `Lost`。
+    fn poll(&self, token: SubmitToken) -> CompletionState {
+        match self.poll_ex(token) {
+            CompletionStateEx::Pending => CompletionState::Pending,
+            CompletionStateEx::Complete => CompletionState::Complete,
+            _ => CompletionState::Lost,
+        }
     }
-    fn poll_ex(&self, _token: SubmitToken) -> CompletionStateEx {
-        CompletionStateEx::Unknown
+    /// `poll` の詳しい版。失敗した列は `RuntimeError`、払い出していない番号（0 を含む）は `Unknown`。
+    ///
+    /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
+    fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
+        if !self.owns(&token) {
+            return CompletionStateEx::Lost;
+        }
+        let state = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            subs.state_ex_of(token.sequence, event_state)
+        };
+        self.drive_callbacks();
+        state
     }
-    fn on_complete(&self, _token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
-        callback(CompletionState::Lost);
+    /// 終端の状態で `callback` をちょうど 1 回呼ぶ。待たない。
+    ///
+    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`poll`・`poll_ex`・`on_complete` の
+    /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
+    fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
+        if !self.owns(&token) {
+            callback(CompletionState::Lost);
+            return;
+        }
+        let terminal = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            match subs.state_ex_of(token.sequence, event_state) {
+                CompletionStateEx::Pending => {
+                    subs.callbacks.push((token.sequence, callback));
+                    None
+                }
+                CompletionStateEx::Complete => Some((callback, CompletionState::Complete)),
+                _ => Some((callback, CompletionState::Lost)),
+            }
+        };
+        if let Some((callback, state)) = terminal {
+            callback(state);
+        }
+        self.drive_callbacks();
     }
     #[cfg(feature = "native-blocking-wait")]
     fn wait_blocking(
@@ -1142,6 +1248,39 @@ mod tests {
         assert_eq!(t.watermark, 2);
         assert!(t.failed.contains(&2));
         assert_eq!(t.pending.len(), 2);
+    }
+
+    #[test]
+    fn state_ex_distinguishes_pending_complete_failed_and_unissued() {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [
+            GroupState::Completed,
+            GroupState::Failed,
+            GroupState::Pending,
+        ] {
+            let _ = t.issue(|| Ok(g));
+        }
+        t.reclaim(|g| *g);
+        let ex = |t: &Submissions<GroupState>, n| t.state_ex_of(n, |g| *g);
+        assert_eq!(ex(&t, 1), CompletionStateEx::Complete);
+        assert_eq!(ex(&t, 2), CompletionStateEx::RuntimeError);
+        assert_eq!(ex(&t, 3), CompletionStateEx::Pending);
+        assert_eq!(ex(&t, 0), CompletionStateEx::Unknown);
+        assert_eq!(ex(&t, 4), CompletionStateEx::Unknown);
+    }
+
+    #[test]
+    fn take_ready_keeps_pending_callbacks_and_releases_terminal_ones() {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [GroupState::Completed, GroupState::Pending] {
+            let _ = t.issue(|| Ok(g));
+        }
+        t.callbacks.push((1, Box::new(|_| {})));
+        t.callbacks.push((2, Box::new(|_| {})));
+        let ready = t.take_ready(|g| *g);
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].1, CompletionState::Complete);
+        assert_eq!(t.callbacks.len(), 1);
     }
 
     #[test]

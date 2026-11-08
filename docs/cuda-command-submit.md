@@ -51,6 +51,14 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | `claim_rejects_unknown_zero_and_duplicate_ids_without_changing_the_set` | 開いていない・0・重複は `InvalidArgument` で集合を変えない |
 | `close_removes_an_open_id_and_ignores_unknown_ones` | 破棄で集合から外れ、無い id は何もしない |
 | `a_nonempty_wait_is_unsupported` | 空の `wait` は通り、空でなければ `Unsupported` |
+| `state_ex_distinguishes_pending_complete_failed_and_unissued` | 未完了・完了・失敗・払い出していない番号を区別する |
+| `take_ready_keeps_pending_callbacks_and_releases_terminal_ones` | 終端の callback だけを外へ出し、未完了は残す |
+
+### 完了の問合せ
+
+- `poll`・`poll_ex` は投入済みの表を回収して答える。別 device・世代違いの印は `Lost`
+- 失敗した列は `poll` で `Lost`、`poll_ex` で `RuntimeError`。払い出していない番号（0 を含む）は `poll` で `Lost`、`poll_ex` で `Unknown`
+- `on_complete` は終端ならその場で、未完了なら登録して `submit`・`poll`・`poll_ex`・`on_complete` の中で終端と分かった時に、錠の外で 1 回呼ぶ
 
 ## 段
 
