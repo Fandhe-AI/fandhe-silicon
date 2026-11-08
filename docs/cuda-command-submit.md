@@ -91,9 +91,33 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 1/5 の節の `poll_ex` の行（失敗した列は `RuntimeError`、払い出していない番号は `Unknown`）は、この段のあとは `poll` と同じく `Lost`
 - 1/5 の節の試験の表の `state_ex_distinguishes_pending_complete_failed_and_unissued` は、この段で `states_cover_pending_complete_failed_reclaimed_and_unissued` に替わった
 
+## 一括投入（3/5）
+
+`submit_many` は複数の記録先を 1 回で投入し、印を 1 つ返す。検査の順と返す値は次のとおり。どれも何も投入せず、番号を消費しない。
+
+| 順 | 入力 | 返す値 |
+| -- | ---- | ------ |
+| 1 | `after` の別 device の印 | `DeviceMismatch` |
+| 1 | `after` の世代違いの印 | `DeviceLost`（印の世代） |
+| 2 | 空の列 | `InvalidArgument` |
+| 3 | 空でない `wait` | `Unsupported` |
+| 4 | 開いていない記録先・重複を含む列 | `InvalidArgument`（開いている集合は変えない） |
+
+- 検査の前に投入済みの表を回収する（回収は `submit`・`submit_many`・`poll`・`on_complete` の中で行う）
+- 通れば全記録先を集合から外し、event を 1 つ記録して印を 1 つ返す。番号は 1 つだけ使う
+- `after` は照合だけで、待ちは足さない（1 つの stream に順に積む）
+- 通れば、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `submit_many_checks_after_then_empty_then_wait` | `after`、空の列、`wait` の検査の順と値 |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | 記録先の集合と submit | #5184 |
 | 2/5 | 投入の完了の問い合わせ | #5185 |
+| 3/5 | 複数の記録先の一括投入 | #5186 |

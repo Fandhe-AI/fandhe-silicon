@@ -760,6 +760,25 @@ fn reject_wait(op: &'static str, wait: &[ImportedSemaphoreHandle]) -> Result<(),
     }
 }
 
+/// `submit_many` が記録先と device に触る前に通す検査。順は、`after` の各印、空の列、`wait`。
+fn precheck_submit_many(
+    command_count: usize,
+    after: &[SubmitToken],
+    wait: &[ImportedSemaphoreHandle],
+    device_id: u64,
+    generation: u64,
+) -> Result<(), ContractError> {
+    for token in after {
+        check_token_owner(token, device_id, generation)?;
+    }
+    if command_count == 0 {
+        return Err(ContractError::InvalidArgument(
+            "submit_many requires at least one encoder".into(),
+        ));
+    }
+    reject_wait("submit_many(wait)", wait)
+}
+
 /// device が持つバッファの表。ハンドルの id から `CudaSlice` を引く。
 #[derive(Default)]
 struct Buffers {
@@ -1209,16 +1228,35 @@ impl CommandQueue for CudaDevice {
         self.drive_callbacks();
         result
     }
+    /// 複数の記録先を 1 回で投入し、印を 1 つ返す。
+    ///
+    /// 最初に投入済みの表を回収する。検査の順は、`after` の各印（別 device は `DeviceMismatch`、
+    /// 世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、全記録先の所属
+    /// （`InvalidArgument`）。検査に当たると何も投入しない。1 つの stream に順に積むので、`after` は照合だけで
+    /// 追加の待ちは入れない。通れば、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）。
     fn submit_many(
         &self,
-        _commands: Vec<CommandEncoder>,
-        _after: &[SubmitToken],
-        _wait: &[ImportedSemaphoreHandle],
+        mut commands: Vec<CommandEncoder>,
+        after: &[SubmitToken],
+        wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
-        Err(ContractError::Unsupported {
-            op: "submit_many",
-            backend: BACKEND,
-        })
+        let result = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            precheck_submit_many(commands.len(), after, wait, self.id, self.generation)
+                .and_then(|()| {
+                    let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
+                    self.open.claim(&ids)
+                })
+                .and_then(|()| {
+                    for command in &mut commands {
+                        command.__backend_disarm_closer();
+                    }
+                    self.issue_event(&mut subs)
+                })
+        };
+        self.drive_callbacks();
+        result
     }
     /// 完了の問合せ。待たない。
     ///
@@ -1237,7 +1275,7 @@ impl CommandQueue for CudaDevice {
     }
     /// 終端の状態で `callback` をちょうど 1 回呼ぶ。待たない。
     ///
-    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`poll`・`poll_ex`・`on_complete` の
+    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`submit_many`・`poll`・`poll_ex`・`on_complete` の
     /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
     fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
         if check_token_owner(&token, self.id, self.generation).is_err() {
@@ -1498,6 +1536,32 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// CMD-67。
+    #[test]
+    fn submit_many_checks_after_then_empty_then_wait() {
+        let foreign = SubmitToken::__backend_new(1, 1, 99);
+        let stale = SubmitToken::__backend_new(2, 1, 7);
+        let wait = [ImportedSemaphoreHandle::__backend_new(1)];
+        assert!(matches!(
+            precheck_submit_many(0, &[foreign], &wait, 7, 1),
+            Err(ContractError::DeviceMismatch)
+        ));
+        assert!(matches!(
+            precheck_submit_many(0, &[stale], &wait, 7, 1),
+            Err(ContractError::DeviceLost { generation: 2 })
+        ));
+        assert!(matches!(
+            precheck_submit_many(0, &[], &wait, 7, 1),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            precheck_submit_many(1, &[], &wait, 7, 1),
+            Err(ContractError::Unsupported { .. })
+        ));
+        let own = SubmitToken::__backend_new(1, 1, 7);
+        assert!(precheck_submit_many(1, &[own], &[], 7, 1).is_ok());
     }
 
     /// ドライバのライブラリが読めない環境では、`request` は panic せず `DeviceUnavailable` を返す
