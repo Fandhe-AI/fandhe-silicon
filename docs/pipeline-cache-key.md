@@ -59,6 +59,97 @@ cargo test -p fandhe-silicon-contract --features backend-metal --lib -- --ignore
 cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device -- --ignored pipeline_cache_key_reaches_through_the_public_device
 ```
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-501。ポインタのみ）。
+
+時点のコミット: `6a3bf94`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 口の既定 | `cargo test -p fandhe-silicon-core --test compute_ops_shape`、`cargo test -p fandhe-silicon-core --doc execution::compute`、`grep -n 'fn pipeline_cache_key' crates/core/src/execution/compute.rs crates/contract/src/backend_metal.rs` | 6 passed（`default_pipeline_cache_key_is_none` は `ok`）、doctest は 7 passed。`fn pipeline_cache_key` は `compute.rs:256` と `backend_metal.rs:2562` |
+| 2 | 組み立ての純粋な試験 | `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::precheck_tests` | 90 passed。`cache_key_is_the_same_for_the_same_input`・`changing_one_input_changes_only_its_field`・`cache_key_fields_for_each_msl_input`・`specialized_with_options_keys_do_not_mix_with_other_inputs`・`non_msl_inputs_have_no_cache_key`・`cache_key_version_joins_os_version_and_device_name_with_nul` の 6 本が `ok` |
+| 3 | 材料の字句 | `grep -n 'fast-math(default)\|math_mode=\|float_functions=\|entry=\|;idx=' crates/contract/src/backend_metal.rs` | 本体は `backend_metal.rs:223`〜`:290`。ほかは試験の行 |
+| 4 | macOS の試験 | `gh run view 42453808324 --log --job 128648430834 \| grep os_version_string_for_the_cache_key` | `imp::tests::os_version_string_for_the_cache_key_is_not_empty_and_stable ... ok`。一致した行は 7 |
+| 5 | device の要る試験の宣言 | `grep -n -A1 '#\[ignore = "touches the Metal device' crates/contract/src/backend_metal.rs \| grep -E 'fn pipeline_cache_key_'`、`crates/contract/tests/backend_metal_device.rs` に同じ形のコマンド | `backend_metal.rs` に 3 本、`backend_metal_device.rs` に 1 本 |
+| 6 | unsafe・依存 | `cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_unsafe_count`、`git diff --stat 00f3e89 HEAD -- Cargo.toml Cargo.lock deps-approved.toml crates/contract/tests/backend_metal_unsafe_count.rs`、`git show --stat --format= <sha> -- Cargo.toml Cargo.lock deps-approved.toml 'crates/*/Cargo.toml' crates/contract/tests/backend_metal_unsafe_count.rs`、`make deps-check` | 1 passed。`git diff --stat` は空。`a60b3d8`・`6a9d1df` は空、`0370696` は `crates/contract/Cargo.toml` の 1 行（`objc2-foundation` の features に `"NSProcessInfo"`、版 `=0.3.2` は同じ）。`make deps-check` は終了コード 0 |
+| 7 | CI | `gh run view 42453808324 --json conclusion,headSha,jobs`（main の push の run） | conclusion `success`、headSha `6a9d1df74ea7f62bdc315359f8c272930679b80a`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(1) の出力。
+
+```text
+running 6 tests
+test default_pipeline_cache_key_is_none ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 0.00s
+crates/core/src/execution/compute.rs:256:    fn pipeline_cache_key(
+crates/contract/src/backend_metal.rs:2562:        fn pipeline_cache_key(
+```
+
+(2) の出力。
+
+```text
+test backend_metal::precheck_tests::cache_key_fields_for_each_msl_input ... ok
+test backend_metal::precheck_tests::cache_key_is_the_same_for_the_same_input ... ok
+test backend_metal::precheck_tests::cache_key_version_joins_os_version_and_device_name_with_nul ... ok
+test backend_metal::precheck_tests::non_msl_inputs_have_no_cache_key ... ok
+test backend_metal::precheck_tests::changing_one_input_changes_only_its_field ... ok
+test backend_metal::precheck_tests::specialized_with_options_keys_do_not_mix_with_other_inputs ... ok
+running 90 tests
+test result: ok. 90 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+```
+
+(3) の出力（本体の行）。
+
+```text
+223:/// `entry=<入口名>` に、function constant ごとに `;idx=<番号>:U32(<値>)` か `;idx=<番号>:Bool(<値>)` を
+227:    let mut tag = format!("entry={entry_point}");
+234:        tag.push_str(&format!(";idx={}:{value}", c.index));
+244:/// `options_hash` は、`Msl`・`MslSpecialized` が `fast-math(default)`、`MslWithOptions` が `math_mode=<語>`、
+245:/// `MslSpecializedWithOptions` が `math_mode=<語>;float_functions=<語>` の `sha256_u64`。
+260:            "fast-math(default)".to_string(),
+269:            "fast-math(default)".to_string(),
+278:            format!("math_mode={}", math_mode_word(*math_mode)?),
+290:                "math_mode={};float_functions={}",
+```
+
+(4) の出力（`make verify` のステップの行）。
+
+```text
+test backend_metal::imp::tests::os_version_string_for_the_cache_key_is_not_empty_and_stable ... ok
+```
+
+(5) の出力。
+
+```text
+3782:        fn pipeline_cache_key_of_safe_msl_with_options_is_stable() {
+3800:        fn pipeline_cache_key_changes_only_the_changed_field() {
+3849:        fn pipeline_cache_key_of_each_msl_input_matches_the_pure_key() {
+---
+1320:fn pipeline_cache_key_reaches_through_the_public_device() {
+```
+
+(6) の出力。
+
+```text
+test backend_metal_unsafe_count_matches_expected ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+`0370696` の `crates/contract/Cargo.toml` の差分の行。
+
+```text
+-objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSString"] }
++objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+```
+
+(7) の出力。
+
+```text
+{"conclusion":"success","headSha":"6a9d1df74ea7f62bdc315359f8c272930679b80a","jobs":[{"conclusion":"success","name":"make deny (cargo-deny)"},{"conclusion":"success","name":"make verify + build-profiles (macos-latest)"},{"conclusion":"success","name":"make verify (fmt + clippy + test)"}]}
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -66,3 +157,4 @@ cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-w
 | 1/4 | `ComputeOps` に `pipeline_cache_key` の口を足す | #4957 |
 | 2/4 | Metal の `pipeline_cache_key` を実装する | #4958 |
 | 3/4 | キャッシュキーの device の試験を ignore 付きで足す | #4959 |
+| 4/4 | 完了の条件の確かめ | #4960 |
