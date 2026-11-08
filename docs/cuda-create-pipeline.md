@@ -90,6 +90,81 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 `0 passed; 0 failed; 9 ignored` の形で通る。
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-803。ポインタのみ）。
+
+時点のコミット: `a2c63a0`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 単体 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::tests` | 14 passed、終了コード 0 |
+| 2 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests` | 0 passed; 0 failed; 9 ignored、終了コード 0 |
+| 3 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 1 passed、終了コード 0 |
+| 4 | NVRTC のオプション | (1) の出力の `compile_options_are_only_the_gpu_architecture` の行 | `ok` |
+| 5 | 公開 API | `make public-api-sdk-check` | `sdk_type_refs_total=0`、終了コード 0 |
+| 6 | 依存 | `make deps-check` | 終了コード 0。`git diff --exit-code db7b704 HEAD -- Cargo.lock` は終了コード 0。`git diff db7b704 HEAD -- deps-approved.toml` の差分は cudarc の記録の `purpose` の 1 行だけ（`version`・`used_by`・`approval_ref` に差分なし） |
+| 7 | wasm32 | `make wasm-backend-check` | `feature=backend-cuda name=cudarc wasm32_n=0 native_n=1 result=match`、終了コード 0 |
+| 8 | CI | `gh run view 42443838545`（3/4 のマージの main の push の run） | conclusion `success`、headSha `909dd0b5e9ded439a3520b2ee17f87faaba14131`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(1) の出力。
+
+```text
+running 14 tests
+test backend_cuda::tests::a_panic_in_the_guard_is_device_unavailable ... ok
+test backend_cuda::tests::a_panic_in_the_memory_guard_is_backend_failure ... ok
+test backend_cuda::tests::a_panic_in_the_pipeline_guard_is_backend_failure ... ok
+test backend_cuda::tests::driver_codes_are_classified_by_artifact_cause ... ok
+test backend_cuda::tests::compile_options_are_only_the_gpu_architecture ... ok
+test backend_cuda::tests::absent_library_is_device_unavailable_without_panicking ... ok
+test backend_cuda::tests::nul_bytes_are_rejected_before_compilation ... ok
+test backend_cuda::tests::nvrtc_failures_map_to_artifact_rejected_or_backend_failure ... ok
+test backend_cuda::tests::duplicate_slots_are_invalid_argument ... ok
+test backend_cuda::tests::attribute_failures_are_device_unavailable ... ok
+test backend_cuda::tests::only_cuda_c_is_accepted_and_other_inputs_are_classified ... ok
+test backend_cuda::tests::attributes_keep_the_compute_capability ... ok
+test backend_cuda::tests::grid_dims_come_from_attributes_and_reject_failures ... ok
+test backend_cuda::tests::absent_nvrtc_library_is_unsupported_without_panicking ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```text
+running 9 tests
+test result: ok. 0 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 1 test
+test backend_cuda_unsafe_count_matches_expected ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(5) の出力。
+
+```text
+record: commit=a2c63a0ec9f9cd73e26baf9dfabeecf06ad21048 documents=10 public_items_total=13617 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+```
+
+(7) の出力。
+
+```text
+deps: feature=backend-cuda name=cudarc wasm32_n=0 native_n=1 result=match
+```
+
+(8) の出力。
+
+```text
+conclusion: success
+headSha: 909dd0b5e9ded439a3520b2ee17f87faaba14131
+make verify (fmt + clippy + test): success
+make verify + build-profiles (macos-latest): success
+make deny (cargo-deny): success
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -97,3 +172,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 | 1/4 | 入力の分類と配置の検査 | #5713 |
 | 2/4 | NVRTC のコンパイルとパイプラインの表 | #5714 |
 | 3/4 | device の要る試験 | #5715 |
+| 4/4 | 完了の条件の確かめ | #5716 |

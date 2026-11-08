@@ -175,7 +175,7 @@ fandhe-silicon/
 ├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験（TASK-317）
 ├── docs/metal-compile-options.md  # Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）
-├── docs/cuda-create-pipeline.md  # CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）
+├── docs/cuda-create-pipeline.md  # CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
