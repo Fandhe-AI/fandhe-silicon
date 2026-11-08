@@ -1032,6 +1032,33 @@ impl CudaDevice {
         self.open.lock().len()
     }
 
+    /// 試験専用。再利用の一覧から取り出された回数の通算。
+    #[cfg(all(test, feature = "native-blocking-wait"))]
+    fn test_pool_reuse_count(&self) -> u64 {
+        self.lock().pool.reuse_count
+    }
+
+    /// 試験専用。取り出した slot が直前に一覧へ入れた slot と一致した回数の通算。
+    #[cfg(all(test, feature = "native-blocking-wait"))]
+    fn test_pool_slot_match_count(&self) -> u64 {
+        self.lock().pool.slot_match_count
+    }
+
+    /// 試験専用。再利用の一覧の件数（待つ側と使える側の合計）。
+    #[cfg(all(test, feature = "native-blocking-wait"))]
+    fn test_pool_len(&self) -> usize {
+        self.lock().pool.entries
+    }
+
+    /// 試験専用。表にあるハンドルの slot。表に無いハンドルは `None`。
+    #[cfg(all(test, feature = "native-blocking-wait"))]
+    fn test_slot_of(&self, handle: &BufferHandle) -> Option<u64> {
+        self.lock()
+            .map
+            .get(&handle.__backend_id())
+            .map(|entry| entry.slot)
+    }
+
     /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
     ///
     /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
@@ -2745,5 +2772,149 @@ mod device_tests {
         assert_eq!(d.test_submitted_count(), 0);
         assert_eq!(d.test_open_encoder_count(), 0);
         assert_eq!(other.test_open_encoder_count(), 0);
+    }
+}
+
+/// CUDA の device に触る、バッファの再利用とゼロ化の試験。device の無い環境では流さない。
+#[cfg(all(test, feature = "native-blocking-wait"))]
+mod pool_device_tests {
+    use super::*;
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 全バイトを読み、0 以外のバイトの数を返す。
+    fn nonzero_bytes(d: &CudaDevice, h: &BufferHandle, len: u64) -> usize {
+        d.download_blocking(h, 0, len)
+            .expect("download")
+            .iter()
+            .filter(|b| **b != 0)
+            .count()
+    }
+
+    /// 新しい device の確保は、直後に全バイトが 0 で読める（MEM-2）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_fresh_allocation_reads_back_all_zero() {
+        let d = device();
+        for len in [1u64, 4096, 4097, 65_536, 1024 * 1024] {
+            let h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            assert_eq!(nonzero_bytes(&d, &h, len), 0, "len={len}");
+        }
+        assert_eq!(d.test_pool_reuse_count(), 0);
+    }
+
+    /// 確保・upload・download_blocking の往復で同じ列が読める（MEM-1）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn allocate_upload_and_download_blocking_round_trip() {
+        let d = device();
+        let max = d.limits().max_buffer_bytes;
+        for len in [1u64, 4097, 1024 * 1024, 16 * 1024 * 1024] {
+            if len > max {
+                println!("not-run: len={len} exceeds max_buffer_bytes={max}");
+                continue;
+            }
+            let h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            let src: Vec<u8> = (0..len)
+                .map(|i| u8::try_from(i % 251).unwrap_or(0) + 1)
+                .collect();
+            d.upload(&h, 0, &src).expect("upload");
+            assert_eq!(d.download_blocking(&h, 0, len).expect("download"), src);
+        }
+    }
+
+    /// 1,000 回の upload・free・allocate のくり返しで、確保した内容は毎回全バイト 0（MEM-17）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn reused_buffers_never_expose_previous_contents_over_1000_rounds() {
+        let d = device();
+        let len = 4097u64;
+        let mut h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        for round in 0..1000u32 {
+            let fill = u8::try_from(round % 255).unwrap_or(0) + 1;
+            d.upload(&h, 0, &vec![fill; 4097]).expect("upload");
+            d.free(h);
+            h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            assert_eq!(nonzero_bytes(&d, &h, len), 0, "round={round}");
+        }
+        let n = d.test_pool_reuse_count();
+        let m = d.test_pool_slot_match_count();
+        println!("pool_reuse_count={n} pool_slot_match_count={m}");
+        assert!(n >= 1);
+    }
+
+    /// 用途が違う確保は再利用せず、同じ用途の確保だけが同じ slot を取り出す。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_different_usage_is_not_reused() {
+        let d = device();
+        let len = 4096u64;
+        let a = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        let slot_a = d.test_slot_of(&a).expect("slot");
+        d.free(a);
+        d.stream.synchronize().expect("synchronize");
+        let reused_before = d.test_pool_reuse_count();
+        let b = d.allocate(len, BufferUsage::UPLOAD).expect("allocate");
+        assert_eq!(d.test_pool_reuse_count(), reused_before);
+        assert_eq!(b.usage(), BufferUsage::UPLOAD);
+        assert_eq!(nonzero_bytes(&d, &b, len), 0);
+        let again = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        assert_eq!(d.test_pool_reuse_count(), reused_before + 1);
+        assert_eq!(d.test_slot_of(&again), Some(slot_a));
+    }
+
+    /// 解放済みハンドルの写しは、再利用されたバッファに当たらない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_freed_handle_does_not_alias_the_reused_buffer() {
+        let d = device();
+        let h = d.allocate(64, BufferUsage::STORAGE).expect("allocate");
+        let stale = BufferHandle::__backend_new(
+            d.generation,
+            h.__backend_id(),
+            d.id,
+            64,
+            BufferUsage::STORAGE,
+        );
+        let slot = d.test_slot_of(&h).expect("slot");
+        d.free(h);
+        d.stream.synchronize().expect("synchronize");
+        let fresh = d.allocate(64, BufferUsage::STORAGE).expect("allocate");
+        assert_eq!(d.test_slot_of(&fresh), Some(slot));
+        assert_ne!(fresh.__backend_id(), stale.__backend_id());
+        assert_eq!(d.test_pool_reuse_count(), 1);
+        assert!(matches!(
+            d.upload(&stale, 0, &[1u8]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        let len_before = d.test_pool_len();
+        d.free(stale);
+        assert_eq!(d.test_pool_len(), len_before);
+        assert_eq!(d.test_pool_len(), 0);
+    }
+
+    /// 一覧の件数は上限までで、長さが違う確保は一覧から取り出さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_pool_is_bounded_and_matches_only_the_same_length() {
+        let d = device();
+        let handles: Vec<BufferHandle> = (0..POOL_MAX_ENTRIES + 4)
+            .map(|_| d.allocate(32, BufferUsage::STORAGE).expect("allocate"))
+            .collect();
+        for h in handles {
+            d.free(h);
+        }
+        assert_eq!(d.test_pool_len(), POOL_MAX_ENTRIES);
+        let other = d.allocate(33, BufferUsage::STORAGE).expect("allocate");
+        assert_eq!(d.test_pool_reuse_count(), 0);
+        assert_eq!(d.test_pool_len(), POOL_MAX_ENTRIES);
+        d.free(other);
     }
 }

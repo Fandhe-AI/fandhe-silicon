@@ -60,9 +60,28 @@ device に触らない試験で、同じファイルの `tests` module にある
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda`
 
+## device の要る試験（3/4）
+
+device に触る試験は、同じファイルの `pool_device_tests` module にある。feature `native-blocking-wait` の組でだけコンパイルされ、各試験は `#[ignore = "requires a CUDA device"]` 付きで、既定では流れない。
+再利用の回数・slot 一致の回数・一覧の件数・ハンドルの slot を読む試験専用の口 `test_pool_reuse_count`・`test_pool_slot_match_count`・`test_pool_len`・`test_slot_of` は、同じ feature の組でだけ存在する。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `a_fresh_allocation_reads_back_all_zero` | 長さ 1・4096・4097・65,536・1 MiB の確保の直後に、全バイトが 0 で読める。再利用の回数が 0 |
+| `allocate_upload_and_download_blocking_round_trip` | 長さ 1・4097・1 MiB・16 MiB（`max_buffer_bytes` 以下のものだけ。超える長さは `not-run:` の行を出して飛ばす）で、upload した内容が `download_blocking` で同じに読める |
+| `reused_buffers_never_expose_previous_contents_over_1000_rounds` | 長さ 4097 の upload・`free`・`allocate` を 1,000 回くり返し、確保のたびに全バイトが 0。最後に回数の 1 行を出し、再利用の回数が 1 以上であることを確かめる |
+| `a_different_usage_is_not_reused` | 用途を替えた確保は再利用の回数を増やさず、ハンドルの用途は要求のもので全バイトが 0。元の用途での確保は回数が 1 増え、最初の slot と同じ |
+| `a_freed_handle_does_not_alias_the_reused_buffer` | 同じ slot が再利用されても識別子は違い、解放済みハンドルの写しでの `upload` は `InvalidArgument`。写しでの `free` は一覧の件数を変えない |
+| `the_pool_is_bounded_and_matches_only_the_same_length` | 上限より 4 本多く確保して全部 `free` すると、一覧の件数が上限ちょうど。長さの違う確保は再利用の回数を増やさない |
+
+確かめ方（device を使わない）: `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` は `39 passed; 0 failed; 17 ignored` で通る。`--features backend-cuda` だけの組は `11 ignored` のまま。
+
+device のある環境での流し方: `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda::pool_device_tests -- --ignored`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 再利用の一覧とゼロ化 | #4429 |
 | 2/4 | 境界の入力の試験 | #4430 |
+| 3/4 | device の要る試験 | #4431 |
