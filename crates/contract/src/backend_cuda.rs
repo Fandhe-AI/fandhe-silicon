@@ -432,26 +432,51 @@ fn nvrtc_library_present() -> bool {
     unsafe { cudarc::nvrtc::sys::is_culib_present() }
 }
 
-/// 成果物の読み込み系の失敗を写す。メモリ不足は `BackendFailure`、それ以外は `ArtifactRejected`。
+/// 成果物の読み込み系の失敗を写す。入力の成果物に原因があるときだけ `ArtifactRejected`、
+/// それ以外（メモリ不足・device や context の異常・内部エラーなど）は `BackendFailure`。
 fn artifact_failure(
     kind: &'static str,
     call: &'static str,
-    out_of_memory: bool,
+    caused_by_artifact: bool,
     detail: impl std::fmt::Debug,
 ) -> ContractError {
-    if out_of_memory {
-        backend_failure(call, detail)
-    } else {
+    if caused_by_artifact {
         ContractError::ArtifactRejected {
             kind,
             reason: format!("{call}: {detail:?}"),
         }
+    } else {
+        backend_failure(call, detail)
     }
+}
+
+/// ドライバのコードが入力の成果物に原因のあるものかを返す。`load_module` / `load_function` の失敗の分類に使う。
+fn driver_error_is_artifact_cause(e: &DriverError) -> bool {
+    use cudarc::driver::sys::CUresult;
+    matches!(
+        e.0,
+        CUresult::CUDA_ERROR_INVALID_PTX
+            | CUresult::CUDA_ERROR_INVALID_IMAGE
+            | CUresult::CUDA_ERROR_NO_BINARY_FOR_GPU
+            | CUresult::CUDA_ERROR_UNSUPPORTED_PTX_VERSION
+            | CUresult::CUDA_ERROR_NOT_FOUND
+    )
+}
+
+/// NVRTC のコードが入力のソースやオプションに原因のあるものかを返す。`nvrtc_failure` の分類に使う。
+fn nvrtc_code_is_artifact_cause(code: cudarc::nvrtc::sys::nvrtcResult) -> bool {
+    use cudarc::nvrtc::sys::nvrtcResult;
+    matches!(
+        code,
+        nvrtcResult::NVRTC_ERROR_COMPILATION
+            | nvrtcResult::NVRTC_ERROR_INVALID_PROGRAM
+            | nvrtcResult::NVRTC_ERROR_INVALID_OPTION
+            | nvrtcResult::NVRTC_ERROR_INVALID_INPUT
+    )
 }
 
 /// NVRTC の失敗を、失敗した呼び出しの名前を付けて写す。`compile_cuda_c` から呼ばれる。
 fn nvrtc_failure(e: CompileError) -> ContractError {
-    use cudarc::nvrtc::sys::nvrtcResult;
     let (call, code) = match &e {
         CompileError::CreationError(n) => ("nvrtcCreateProgram", n.0),
         CompileError::CompileError { nvrtc, .. } => ("nvrtcCompileProgram", nvrtc.0),
@@ -459,12 +484,7 @@ fn nvrtc_failure(e: CompileError) -> ContractError {
         CompileError::GetPtxError(n) => ("nvrtcGetPTX", n.0),
         CompileError::DestroyError(n) => ("nvrtcDestroyProgram", n.0),
     };
-    artifact_failure(
-        "cuda-c",
-        call,
-        code == nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY,
-        e,
-    )
+    artifact_failure("cuda-c", call, nvrtc_code_is_artifact_cause(code), e)
 }
 
 /// パイプラインの生成でドライバや NVRTC を呼ぶ閉包の panic を `BackendFailure` に変える。
@@ -762,16 +782,24 @@ impl ComputeOps for CudaDevice {
         let ptx = compile_cuda_c(source, self.compute_capability)?;
         let ctx = self.stream.context();
         let function = guard_pipeline_panic(|| {
-            let oom =
-                |e: &DriverError| e.0 == cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY;
             ctx.bind_to_thread()
                 .map_err(|e| backend_failure("bind_to_thread", e))?;
-            let module = ctx
-                .load_module(ptx)
-                .map_err(|e| artifact_failure("module", "cuModuleLoadData", oom(&e), e))?;
-            module
-                .load_function(entry_point)
-                .map_err(|e| artifact_failure("function", "cuModuleGetFunction", oom(&e), e))
+            let module = ctx.load_module(ptx).map_err(|e| {
+                artifact_failure(
+                    "module",
+                    "cuModuleLoadData",
+                    driver_error_is_artifact_cause(&e),
+                    e,
+                )
+            })?;
+            module.load_function(entry_point).map_err(|e| {
+                artifact_failure(
+                    "function",
+                    "cuModuleGetFunction",
+                    driver_error_is_artifact_cause(&e),
+                    e,
+                )
+            })
         })?;
         let mut pipelines = self
             .pipelines
@@ -992,25 +1020,63 @@ mod tests {
             nvrtc_failure(compile),
             ContractError::ArtifactRejected { kind: "cuda-c", .. }
         ));
-        let oom = CompileError::CreationError(NvrtcError(nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY));
+        for code in [
+            nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY,
+            nvrtcResult::NVRTC_ERROR_INTERNAL_ERROR,
+            nvrtcResult::NVRTC_ERROR_PROGRAM_CREATION_FAILURE,
+        ] {
+            assert!(matches!(
+                nvrtc_failure(CompileError::CreationError(NvrtcError(code))),
+                ContractError::BackendFailure {
+                    op: "nvrtcCreateProgram",
+                    ..
+                }
+            ));
+        }
+        for code in [
+            nvrtcResult::NVRTC_ERROR_INVALID_PROGRAM,
+            nvrtcResult::NVRTC_ERROR_INVALID_OPTION,
+            nvrtcResult::NVRTC_ERROR_INVALID_INPUT,
+        ] {
+            assert!(matches!(
+                nvrtc_failure(CompileError::GetPtxError(NvrtcError(code))),
+                ContractError::ArtifactRejected { kind: "cuda-c", .. }
+            ));
+        }
         assert!(matches!(
-            nvrtc_failure(oom),
-            ContractError::BackendFailure {
-                op: "nvrtcCreateProgram",
-                ..
-            }
-        ));
-        assert!(matches!(
-            artifact_failure("module", "cuModuleLoadData", false, "x"),
+            artifact_failure("module", "cuModuleLoadData", true, "x"),
             ContractError::ArtifactRejected { kind: "module", .. }
         ));
         assert!(matches!(
-            artifact_failure("module", "cuModuleLoadData", true, "x"),
+            artifact_failure("module", "cuModuleLoadData", false, "x"),
             ContractError::BackendFailure {
                 op: "cuModuleLoadData",
                 ..
             }
         ));
+    }
+
+    /// ドライバのコードは、成果物が原因のものだけ `ArtifactRejected` の側に分類される。
+    #[test]
+    fn driver_codes_are_classified_by_artifact_cause() {
+        use cudarc::driver::sys::CUresult;
+        for code in [
+            CUresult::CUDA_ERROR_INVALID_PTX,
+            CUresult::CUDA_ERROR_INVALID_IMAGE,
+            CUresult::CUDA_ERROR_NO_BINARY_FOR_GPU,
+            CUresult::CUDA_ERROR_UNSUPPORTED_PTX_VERSION,
+            CUresult::CUDA_ERROR_NOT_FOUND,
+        ] {
+            assert!(driver_error_is_artifact_cause(&DriverError(code)));
+        }
+        for code in [
+            CUresult::CUDA_ERROR_OUT_OF_MEMORY,
+            CUresult::CUDA_ERROR_INVALID_CONTEXT,
+            CUresult::CUDA_ERROR_ILLEGAL_ADDRESS,
+            CUresult::CUDA_ERROR_LAUNCH_FAILED,
+        ] {
+            assert!(!driver_error_is_artifact_cause(&DriverError(code)));
+        }
     }
 
     #[test]

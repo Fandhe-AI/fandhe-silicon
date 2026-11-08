@@ -57,8 +57,11 @@ NVRTC に渡すオプションは `--gpu-architecture=compute_<major><minor>` �
 | ---- | ------ | ---- |
 | NVRTC のライブラリが無い | `Unsupported { op: "create_pipeline", backend: Cuda }` | `absent_nvrtc_library_is_unsupported_without_panicking` |
 | compute capability が負 | `BackendFailure { op: "create_pipeline" }` | `compile_options_are_only_the_gpu_architecture` |
-| NVRTC の失敗 | `ArtifactRejected { kind: "cuda-c" }`。`NVRTC_ERROR_OUT_OF_MEMORY` は `BackendFailure { op: <呼び出しの名前> }` | `nvrtc_failures_map_to_artifact_rejected_or_backend_failure` |
-| モジュールの読み込み・関数の取得の失敗 | `ArtifactRejected { kind: "module" }` / `{ kind: "function" }`。メモリ不足は `BackendFailure` | 同上 |
+| NVRTC の失敗（`COMPILATION`・`INVALID_PROGRAM`・`INVALID_OPTION`・`INVALID_INPUT`） | `ArtifactRejected { kind: "cuda-c" }` | `nvrtc_failures_map_to_artifact_rejected_or_backend_failure` |
+| NVRTC のそのほかの失敗（メモリ不足・内部エラーなど） | `BackendFailure { op: <呼び出しの名前> }` | 同上 |
+| モジュールの読み込みの失敗（`INVALID_PTX`・`INVALID_IMAGE`・`NO_BINARY_FOR_GPU`・`UNSUPPORTED_PTX_VERSION`・`NOT_FOUND`） | `ArtifactRejected { kind: "module" }` | `driver_codes_are_classified_by_artifact_cause` |
+| 関数の取得の失敗（上と同じコード） | `ArtifactRejected { kind: "function" }` | 同上 |
+| ドライバのそのほかの失敗（メモリ不足・context の無効化・不正なアドレスなど） | `BackendFailure { op: "cuModuleLoadData" / "cuModuleGetFunction" }` | 同上 |
 | ドライバや NVRTC を呼ぶ中の panic | `BackendFailure { op: "create_pipeline" }` | `a_panic_in_the_pipeline_guard_is_backend_failure` |
 
 表に入るものは、取得した関数と `layout` の写し。`layout` は `slots` の重複の検査と写しのほかには読まない。識別子は device ごとに 1 から払い出し、尽きたときは `BackendFailure { op: "create_pipeline" }` を返す。device は読み取った compute capability を持つ（試験は `attributes_keep_the_compute_capability`）。
