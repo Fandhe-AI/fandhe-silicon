@@ -65,9 +65,87 @@ cargo test -p fandhe-silicon-contract --features backend-metal --lib -- --ignore
 cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device -- --ignored option_inputs_reach_create_pipeline_through_the_public_device
 ```
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-774。ポインタのみ）。
+
+時点のコミット: `a9c5f47`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 分類と計画の純粋な試験 | `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::precheck_tests` | 84 passed; 0 failed、終了コード 0 |
+| 2 | 入力の分類が 4 つを受け付けること | `grep -n 'PipelineInput::MslWithOptions\|PipelineInput::MslSpecializedWithOptions\|PipelineInput::Wgsl' crates/contract/src/backend_metal.rs` | 本体の 5 行。下の (2) の出力 |
+| 3 | オプションの渡し方 | `grep -n 'newLibraryWithSource_options_error\|setMathMode\|setMathFloatingPointFunctions\|setLanguageVersion' crates/contract/src/backend_metal.rs` | `setLanguageVersion` は 0 件。ほかの行は下の (3) の出力 |
+| 4 | macOS の読み戻しの試験 | `gh run view 42442092097 --log --job 128613273404 \| grep compile_options_tests`（2/3 のマージの後の main の push の run の `make verify + build-profiles (macos-latest)`） | 2 本とも `ok` |
+| 5 | device の要る試験の宣言 | `#[ignore = "touches the Metal device` の次の行の `fn` を、試験の名前で絞る（`crates/contract/src/backend_metal.rs` と `crates/contract/tests/backend_metal_device.rs`） | lib 5 本・`backend_metal_device.rs` 1 本。`--ignored` は流していない |
+| 6 | unsafe・依存 | `cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_unsafe_count`、`git diff --stat b95bb5b 688d771 -- Cargo.toml Cargo.lock deps-approved.toml crates/contract/Cargo.toml crates/contract/tests/backend_metal_unsafe_count.rs`、`make deps-check` | 1 passed; 0 failed、差分は 0 行、終了コード 0 |
+| 7 | CI | `gh run view 42442092097 --json conclusion,headSha,jobs`（2/3 のマージの後の main の push の run） | conclusion `success`、headSha `688d771b56fa07301ef27d846c21ef0766bb6e21`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(1) の出力（`running` と `test result:` の行と、名前に `classify`・`compile_plan` を含む試験の行）。
+
+```text
+running 84 tests
+test backend_metal::precheck_tests::a_panicking_classify_does_not_lose_registrations ... ok
+test backend_metal::precheck_tests::classify_accepts_msl_and_msl_specialized ... ok
+test backend_metal::precheck_tests::classify_accepts_option_variants_like_their_plain_forms ... ok
+test backend_metal::precheck_tests::classify_distinguishes_empty_msl_specialized_from_msl ... ok
+test backend_metal::precheck_tests::classify_marks_wgsl_unsupported ... ok
+test backend_metal::precheck_tests::classify_rejects_other_languages_and_names_the_variant ... ok
+test backend_metal::precheck_tests::compile_plan_sets_only_safe_math_and_precise_functions ... ok
+test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+```
+
+(2) の出力（試験の行を除く）。
+
+```text
+123:        PipelineInput::MslWithOptions {
+128:        PipelineInput::MslSpecializedWithOptions {
+134:        PipelineInput::Wgsl { .. } => Err(unsupported()),
+173:        PipelineInput::MslWithOptions { math_mode, .. } => Ok(CompilePlan {
+177:        PipelineInput::MslSpecializedWithOptions {
+```
+
+(3) の出力。
+
+```text
+1308:            if !options.respondsToSelector(sel!(setMathMode:)) {
+1311:            options.setMathMode(MTLMathMode::Safe);
+1314:            if !options.respondsToSelector(sel!(setMathFloatingPointFunctions:)) {
+1317:            options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+2388:                .newLibraryWithSource_options_error(&NSString::from_str(source), options.as_deref())
+2602:                sel!(setMathMode:),
+2603:                sel!(setMathFloatingPointFunctions:),
+```
+
+(4) の出力（ログの接頭辞を除く）。
+
+```text
+test backend_metal::imp::compile_options_tests::default_plan_gives_no_options ... ok
+test backend_metal::imp::compile_options_tests::plan_is_written_to_the_options_and_language_version_is_left_alone ... ok
+```
+
+(5) の出力（`backend_metal.rs`、`backend_metal_device.rs` の順。行番号は `fn` の行）。
+
+```text
+3304-        fn msl_with_options_safe_and_fast_are_created() {
+3323-        fn msl_specialized_with_options_is_created_for_every_mode_and_function_choice() {
+3356-        fn invalid_msl_with_options_is_artifact_rejected() {
+3386-        fn option_inputs_without_a_required_constant_are_artifact_rejected() {
+3426-        fn option_inputs_reject_duplicate_slots_and_bad_constants_before_compiling() {
+--- crates/contract/tests/backend_metal_device.rs
+1271-fn option_inputs_reach_create_pipeline_through_the_public_device() {
+```
+
+(6) の出力。
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | オプション付きの入力の生成 | #5627 |
 | 2/3 | device の要る生成の試験 | #5628 |
+| 3/3 | 完了の条件の確かめ | #5629 |
