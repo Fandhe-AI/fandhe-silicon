@@ -32,6 +32,9 @@
 //!
 //! feature `fault-injection` のビルドでは `FaultHooks::simulate_device_lost` が模擬のロストを起こし、`DeviceLostNotify` で
 //! 登録したコールバックを 1 回呼び、その後に登録の世代が古い完了の callback を `Lost` で 1 回ずつ呼ぶ（TASK-2934）。
+//!
+//! `CudaDevice` は `Device::destroy` を上書きし、登録済みの完了の callback を `Lost` で呼び切ってから stream を同期し、
+//! `fault-injection` のビルドではロストの通知を `Destroyed` で 1 回呼んでから解放する（TASK-191）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -1358,6 +1361,30 @@ fn teardown_ready<G>(
     ready
 }
 
+/// 明示の破棄の順。`flush` → `sync` → `notify` → `release` を 1 回ずつ呼び、最初の panic の中身を返す。
+/// `flush` の中身を優先し、そのとき `notify` の中身は捨てる。
+fn destroy_in_order<D>(
+    device: D,
+    flush: impl FnOnce(&D) -> Option<Box<dyn std::any::Any + Send>>,
+    sync: impl FnOnce(&D),
+    notify: impl FnOnce(&D) -> Option<Box<dyn std::any::Any + Send>>,
+    release: impl FnOnce(D),
+) -> Option<Box<dyn std::any::Any + Send>> {
+    let first = flush(&device);
+    sync(&device);
+    let notified = notify(&device);
+    release(device);
+    match first {
+        Some(payload) => {
+            if let Some(extra) = notified {
+                discard_panic(extra);
+            }
+            Some(payload)
+        }
+        None => notified,
+    }
+}
+
 /// 使わない panic の中身を捨てる。中身の `Drop` が panic しても、そこから巻き戻らない。
 fn discard_panic(payload: Box<dyn std::any::Any + Send>) {
     if let Err(inner) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
@@ -1642,6 +1669,34 @@ impl Device for CudaDevice {
     #[cfg(feature = "fault-injection")]
     fn fault_hooks(&self) -> Option<&dyn FaultHooks> {
         Some(self)
+    }
+    /// 登録済みの完了の callback を待たずに `Lost` で呼び切り、stream を同期し、`fault-injection` のビルドでは
+    /// ロストの通知を `Destroyed` で 1 回呼んでから解放する。最初の panic は解放の後に再送出する。
+    fn destroy(self: Box<Self>) {
+        let flush = |d: &Self| {
+            let callbacks = d.lock_submissions().take_all_callbacks();
+            run_callbacks(
+                callbacks
+                    .into_iter()
+                    .map(|callback| (callback, CompletionState::Lost))
+                    .collect(),
+            )
+        };
+        let sync = |d: &Self| {
+            let _ = sync_confirmed(|| d.stream.synchronize());
+        };
+        #[cfg(feature = "fault-injection")]
+        let notify = |d: &Self| {
+            d.lost
+                .lose_catching(DeviceLostReason::Destroyed, &d.generation, &NEXT_GENERATION)
+                .ok()
+                .and_then(|(_, panic)| panic)
+        };
+        #[cfg(not(feature = "fault-injection"))]
+        let notify = |_: &Self| None;
+        if let Some(payload) = destroy_in_order(*self, flush, sync, notify, drop) {
+            std::panic::resume_unwind(payload);
+        }
     }
 }
 
@@ -4150,5 +4205,64 @@ mod teardown_tests {
         let states: Vec<CompletionState> = ready.iter().map(|(_, s)| *s).collect();
         assert_eq!(states, [CompletionState::Lost]);
         assert!(t.callbacks.is_empty());
+    }
+
+    /// 明示の破棄の 4 つの段は、この順で 1 回ずつ呼ばれる。
+    #[test]
+    fn destroy_steps_run_in_order() {
+        use std::cell::RefCell;
+        let log = RefCell::new(Vec::new());
+        let out = destroy_in_order(
+            (),
+            |_| {
+                log.borrow_mut().push("flush");
+                None
+            },
+            |_| log.borrow_mut().push("sync"),
+            |_| {
+                log.borrow_mut().push("notify");
+                None
+            },
+            |_| log.borrow_mut().push("release"),
+        );
+        assert!(out.is_none());
+        assert_eq!(*log.borrow(), ["flush", "sync", "notify", "release"]);
+    }
+
+    /// 2 つの段が panic の中身を返すと、解放まで終えてから最初の段のものを返す。
+    #[test]
+    fn destroy_steps_return_the_first_panic_after_release() {
+        use std::cell::RefCell;
+        let log = RefCell::new(Vec::new());
+        let out = destroy_in_order(
+            (),
+            |_| {
+                log.borrow_mut().push("flush");
+                Some(Box::new("flush") as Box<dyn std::any::Any + Send>)
+            },
+            |_| log.borrow_mut().push("sync"),
+            |_| {
+                log.borrow_mut().push("notify");
+                Some(Box::new("notify") as Box<dyn std::any::Any + Send>)
+            },
+            |_| log.borrow_mut().push("release"),
+        );
+        assert_eq!(log.borrow().last(), Some(&"release"));
+        let payload = out.expect("a panic payload");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"flush"));
+    }
+
+    /// 完了の callback の段に panic が無ければ、通知の段のものを返す。
+    #[test]
+    fn destroy_steps_return_the_notify_panic_when_flush_has_none() {
+        let out = destroy_in_order(
+            (),
+            |_| None,
+            |_| {},
+            |_| Some(Box::new("notify") as Box<dyn std::any::Any + Send>),
+            |_| {},
+        );
+        let payload = out.expect("a panic payload");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"notify"));
     }
 }
