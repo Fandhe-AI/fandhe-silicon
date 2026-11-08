@@ -70,13 +70,14 @@ fn rows_follow_the_compute_capability_and_the_attribute() {
                 level: CapabilityLevel::Unsupported,
                 unsupported_reason: Some(UnsupportedReason::NotSupported),
                 evidence: Some(CapabilityEvidence::RuntimeApi),
-            },
-        || m == CapabilityQuery {
+            }
             // 属性の読み取りに失敗した device では、この機能だけ `S0`（理由・根拠なし）になる。
-            level: CapabilityLevel::S0,
-            unsupported_reason: None,
-            evidence: None,
-        },
+            || m
+                == CapabilityQuery {
+                    level: CapabilityLevel::S0,
+                    unsupported_reason: None,
+                    evidence: None,
+                },
         "{m:?}"
     );
 }

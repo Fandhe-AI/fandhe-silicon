@@ -79,7 +79,7 @@ device に触らない試験で、同じファイルの `tests` module にある
 
 | 試験 | 確かめること |
 | ---- | ------------ |
-| `rows_follow_the_compute_capability_and_the_attribute` | 閾値の 5 鍵が、`adapter_name` から読んだ compute capability が 7.5 以上なら `S2`、未満なら `Unsupported`。根拠はどれも `RuntimeApi`。`FEATURE_MAPPABLE_PRIMARY_BUFFERS` は「`S2`・理由なし」か「`Unsupported`・`NotSupported`」のどちらかで、根拠は `RuntimeApi` |
+| `rows_follow_the_compute_capability_and_the_attribute` | 閾値の 5 鍵が、`adapter_name` から読んだ compute capability が 7.5 以上なら `S2`、未満なら `Unsupported`。根拠はどれも `RuntimeApi`。`FEATURE_MAPPABLE_PRIMARY_BUFFERS` は「`S2`・理由なし」か「`Unsupported`・`NotSupported`」のどちらかで、根拠は `RuntimeApi`。ホストメモリ属性の取得に失敗した device では、この鍵だけ `S0`（理由・根拠なし）も許容する |
 | `every_key_passes_the_common_rules_without_s0` | 鍵の一覧のすべての鍵で `check_query_ex` が通り、`query` と `query_ex` の level が等しく、level が `S0` でない。鍵ごとに 1 行を標準出力に出す |
 
 確かめ方（device を使わない）: `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --test backend_cuda_capability` が `0 passed; 0 failed; 2 ignored` で終わること。
