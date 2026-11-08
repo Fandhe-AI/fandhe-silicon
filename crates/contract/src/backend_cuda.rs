@@ -1268,7 +1268,11 @@ impl CudaDevice {
     /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
     ///
     /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
-    fn issue_event(&self, subs: &mut Submissions<CudaEvent>) -> Result<SubmitToken, ContractError> {
+    fn issue_event(
+        &self,
+        subs: &mut Submissions<CudaEvent>,
+        generation: u64,
+    ) -> Result<SubmitToken, ContractError> {
         let sequence = subs.issue(|| {
             guard_memory_panic("record_event", || {
                 self.stream
@@ -1276,11 +1280,7 @@ impl CudaDevice {
                     .map_err(|e| backend_failure("record_event", e))
             })
         })?;
-        Ok(SubmitToken::__backend_new(
-            self.current_generation(),
-            sequence,
-            self.id,
-        ))
+        Ok(SubmitToken::__backend_new(generation, sequence, self.id))
     }
 
     /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
@@ -1740,11 +1740,12 @@ impl CommandQueue for CudaDevice {
         let result = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
+            let generation = self.current_generation();
             reject_wait("submit(wait)", wait)
                 .and_then(|()| self.open.claim(&[commands.__backend_id()]))
                 .and_then(|()| {
                     commands.__backend_disarm_closer();
-                    self.issue_event(&mut subs)
+                    self.issue_event(&mut subs, generation)
                 })
         };
         self.drive_callbacks();
@@ -1765,23 +1766,18 @@ impl CommandQueue for CudaDevice {
         let result = {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
-            precheck_submit_many(
-                commands.len(),
-                after,
-                wait,
-                self.id,
-                self.current_generation(),
-            )
-            .and_then(|()| {
-                let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
-                self.open.claim(&ids)
-            })
-            .and_then(|()| {
-                for command in &mut commands {
-                    command.__backend_disarm_closer();
-                }
-                self.issue_event(&mut subs)
-            })
+            let generation = self.current_generation();
+            precheck_submit_many(commands.len(), after, wait, self.id, generation)
+                .and_then(|()| {
+                    let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
+                    self.open.claim(&ids)
+                })
+                .and_then(|()| {
+                    for command in &mut commands {
+                        command.__backend_disarm_closer();
+                    }
+                    self.issue_event(&mut subs, generation)
+                })
         };
         self.drive_callbacks();
         result
