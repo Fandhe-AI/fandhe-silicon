@@ -21,6 +21,9 @@
 //! 記録先に命令を記録する口（`dispatch_ex`）は `Unsupported` を返し、投入（`submit`・`submit_many`）は
 //! stream に event を記録するだけでバッファを参照しないので、`free` したバッファを参照する未完了の投入は無い。
 //! バッファを参照する記録を足す変更では、`free` から一覧への回し方を見直すこと。
+//!
+//! `query`・`query_ex` は、`request` の時点で捕捉した compute capability とホストメモリのマップの可否の属性と、
+//! 能力の表から答える（TASK-175）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -32,8 +35,10 @@ use cudarc::driver::{
 };
 use cudarc::nvrtc::{CompileError, CompileOptions, Ptx};
 use fandhe_silicon_core::capability::{
-    BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
+    BackendKind, Capabilities, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
+    LimitsTable,
 };
+use fandhe_silicon_core::capability_table::{FeatureRow, query_from_table};
 use fandhe_silicon_core::device::{
     __backend_next_device_id, Device, DeviceDiagnostics, DeviceOwnership, DeviceProvider,
     DeviceRequest, Profile,
@@ -43,6 +48,10 @@ use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, __backend_next_encoder_id, Binding, BindingLayout,
     CommandEncoder, CommandQueue, ComputeOps, ConstantBinding, ImportedSemaphoreHandle,
     PipelineHandle, PipelineInput, SubmitToken, ThreadgroupMemory,
+};
+use fandhe_silicon_core::feature_key::{
+    FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX, FEATURE_MAPPABLE_PRIMARY_BUFFERS, FEATURE_SHADER_F16,
+    FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER,
 };
 use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
@@ -221,6 +230,9 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
                 _ => Attr::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z,
             })
         })?;
+        // 読み取りの失敗は device の作成を失敗させず、その機能の値だけを `S0` にする。
+        let can_map_host_memory =
+            can_map_host_memory_of(|| ctx.attribute(Attr::CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY));
         let stream = ctx.new_stream().map_err(|e| {
             ContractError::DeviceUnavailable(format!("CudaContext::new_stream: {e:?}"))
         })?;
@@ -239,6 +251,10 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
                 max_texture_size: 0,
             },
             compute_capability: attributes.compute_capability,
+            capabilities: CapabilitySnapshot {
+                compute_capability: attributes.compute_capability,
+                can_map_host_memory,
+            },
             stream,
             buffers: Mutex::new(Buffers::default()),
             pipelines: Mutex::new(Pipelines::default()),
@@ -248,11 +264,122 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
     })
 }
 
+/// 能力の判定の材料。`open_device` が device を作るときに 1 回だけ読み、`query` は読み直さない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CapabilitySnapshot {
+    /// device の compute capability（major, minor）。
+    compute_capability: (i32, i32),
+    /// ホストメモリのマップの可否。読み取りに失敗したときは `None`。
+    can_map_host_memory: Option<bool>,
+}
+
+/// 能力の表の行の規則。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CudaRule {
+    /// compute capability がこの値以上なら `S2`、未満なら `Unsupported`（`NotSupported`）。
+    MinComputeCapability { major: i32, minor: i32 },
+    /// ホストメモリのマップの可否の属性で決める。読み取りに失敗していれば `S0`。
+    CanMapHostMemory,
+}
+
+/// compute capability がこれより低い device では、表のどの行も `Unsupported`（`NotSupported`）を返す。
+const MIN_COMPUTE_CAPABILITY: (i32, i32) = (7, 5);
+
+/// CUDA の能力の表。行の無い鍵は `UNLISTED_FEATURE_QUERY` になる。
+static CUDA_FEATURE_TABLE: [FeatureRow<CudaRule>; 6] = [
+    FeatureRow {
+        feature: FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX,
+        rule: CudaRule::MinComputeCapability { major: 7, minor: 0 },
+        source: "CUDA C++ Programming Guide: Warp Matrix Functions",
+    },
+    FeatureRow {
+        feature: FEATURE_SHADER_F16,
+        rule: CudaRule::MinComputeCapability { major: 5, minor: 3 },
+        source: "CUDA C++ Programming Guide: Feature Support per Compute Capability",
+    },
+    FeatureRow {
+        feature: FEATURE_SUBGROUP,
+        rule: CudaRule::MinComputeCapability { major: 5, minor: 0 },
+        source: "CUDA C++ Programming Guide: Warp Shuffle Functions",
+    },
+    FeatureRow {
+        feature: FEATURE_SUBGROUP_BARRIER,
+        rule: CudaRule::MinComputeCapability { major: 7, minor: 0 },
+        source: "CUDA C++ Programming Guide: Independent Thread Scheduling",
+    },
+    FeatureRow {
+        feature: FEATURE_SHADER_FLOAT32_ATOMIC,
+        rule: CudaRule::MinComputeCapability { major: 2, minor: 0 },
+        source: "CUDA C++ Programming Guide: atomicAdd()",
+    },
+    FeatureRow {
+        feature: FEATURE_MAPPABLE_PRIMARY_BUFFERS,
+        rule: CudaRule::CanMapHostMemory,
+        source: "CUDA Driver API: CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY",
+    },
+];
+
+/// ホストメモリのマップの可否の属性の値を写す。1 は `true`、0 は `false`、読み取りの失敗とほかの値は `None`。
+fn can_map_host_memory_of<E>(attr: impl FnOnce() -> Result<i32, E>) -> Option<bool> {
+    match attr() {
+        Ok(1) => Some(true),
+        Ok(0) => Some(false),
+        _ => None,
+    }
+}
+
+/// 根拠が実行時の問合せで、`S2` か `Unsupported`（`NotSupported`）の値。
+fn runtime_decided(supported: bool) -> CapabilityQuery {
+    if supported {
+        CapabilityQuery {
+            level: CapabilityLevel::S2,
+            unsupported_reason: None,
+            evidence: Some(CapabilityEvidence::RuntimeApi),
+        }
+    } else {
+        CapabilityQuery {
+            level: CapabilityLevel::Unsupported,
+            unsupported_reason: Some(UnsupportedReason::NotSupported),
+            evidence: Some(CapabilityEvidence::RuntimeApi),
+        }
+    }
+}
+
+/// 1 つの行の規則を捕捉した値に当てる。compute capability が `MIN_COMPUTE_CAPABILITY` より低ければ、
+/// 規則によらず `Unsupported`（`NotSupported`）を返す。
+fn evaluate(rule: &CudaRule, snapshot: &CapabilitySnapshot) -> CapabilityQuery {
+    if snapshot.compute_capability < MIN_COMPUTE_CAPABILITY {
+        return runtime_decided(false);
+    }
+    match *rule {
+        CudaRule::MinComputeCapability { major, minor } => {
+            runtime_decided(snapshot.compute_capability >= (major, minor))
+        }
+        CudaRule::CanMapHostMemory => match snapshot.can_map_host_memory {
+            Some(v) => runtime_decided(v),
+            None => CapabilityQuery {
+                level: CapabilityLevel::S0,
+                unsupported_reason: None,
+                evidence: None,
+            },
+        },
+    }
+}
+
+/// 捕捉した値と表から 1 つの機能の値を決める純粋な関数。下位の API を呼ばない。
+/// `CudaDevice` の `query`・`query_ex` から呼ばれる。
+fn cuda_capability_of(snapshot: &CapabilitySnapshot, feature: FeatureId) -> CapabilityQuery {
+    query_from_table(&CUDA_FEATURE_TABLE, feature, |rule| {
+        evaluate(rule, snapshot)
+    })
+}
+
 /// CUDA の背後実装の `DeviceProvider`。
 ///
 /// `request` は、背後実装が CUDA でない・`Graphics`・`CpuOnly` を `InvalidCombination` で、
 /// `Shared`・`Imported` を `Unsupported` で拒む。検査を通った後は device を作り、ドライバが
 /// 読めない・context や属性の取得に失敗したときは `DeviceUnavailable` を返す。
+/// ホストメモリのマップの可否の属性の読み取りの失敗は `request` を失敗させず、その機能の `query` を `S0` にする。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CudaDeviceProvider;
 
@@ -958,6 +1085,8 @@ struct CudaDevice {
     adapter_name: String,
     limits: LimitsTable,
     compute_capability: (i32, i32),
+    /// `query`・`query_ex` が読む能力の判定の材料。`open_device` で 1 回だけ捕捉する。
+    capabilities: CapabilitySnapshot,
     stream: Arc<CudaStream>,
     buffers: Mutex<Buffers>,
     pipelines: Mutex<Pipelines>,
@@ -1194,20 +1323,16 @@ impl CudaDevice {
 }
 
 impl Capabilities for CudaDevice {
-    fn query(&self, _feature: FeatureId) -> CapabilityLevel {
-        CapabilityLevel::Unsupported
+    fn query(&self, feature: FeatureId) -> CapabilityLevel {
+        cuda_capability_of(&self.capabilities, feature).level
     }
 
     fn limits(&self) -> &LimitsTable {
         &self.limits
     }
 
-    fn query_ex(&self, _feature: FeatureId) -> CapabilityQuery {
-        CapabilityQuery {
-            level: CapabilityLevel::Unsupported,
-            unsupported_reason: Some(UnsupportedReason::UnknownFeature),
-            evidence: None,
-        }
+    fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
+        cuda_capability_of(&self.capabilities, feature)
     }
 }
 
@@ -1578,6 +1703,80 @@ impl CommandQueue for CudaDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn snapshot(cc: (i32, i32), map: Option<bool>) -> CapabilitySnapshot {
+        CapabilitySnapshot {
+            compute_capability: cc,
+            can_map_host_memory: map,
+        }
+    }
+
+    const THRESHOLD_ROWS: [FeatureId; 5] = [
+        FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX,
+        FEATURE_SHADER_F16,
+        FEATURE_SUBGROUP,
+        FEATURE_SUBGROUP_BARRIER,
+        FEATURE_SHADER_FLOAT32_ATOMIC,
+    ];
+
+    /// 閾値の 5 行は、下限以上の compute capability で `S2`、未満で `Unsupported` になる（DEV-85）。
+    #[test]
+    fn threshold_rows_follow_the_compute_capability() {
+        for f in THRESHOLD_ROWS {
+            assert_eq!(
+                cuda_capability_of(&snapshot((7, 5), Some(true)), f),
+                runtime_decided(true)
+            );
+            assert_eq!(
+                cuda_capability_of(&snapshot((9, 0), Some(true)), f),
+                runtime_decided(true)
+            );
+            assert_eq!(
+                cuda_capability_of(&snapshot((7, 4), Some(true)), f),
+                runtime_decided(false)
+            );
+        }
+    }
+
+    /// 規則の下限を下回る compute capability では `Unsupported` になる。
+    #[test]
+    fn a_rule_below_its_threshold_is_not_supported() {
+        let rule = CudaRule::MinComputeCapability { major: 8, minor: 0 };
+        assert_eq!(
+            evaluate(&rule, &snapshot((7, 5), None)),
+            runtime_decided(false)
+        );
+        assert_eq!(
+            evaluate(&rule, &snapshot((8, 0), None)),
+            runtime_decided(true)
+        );
+    }
+
+    /// ホストメモリのマップの行は属性に従い、読み取りに失敗していれば `S0` になる（DEV-85）。
+    #[test]
+    fn mappable_follows_the_attribute_and_is_s0_when_unread() {
+        let f = FEATURE_MAPPABLE_PRIMARY_BUFFERS;
+        assert_eq!(
+            cuda_capability_of(&snapshot((9, 0), Some(true)), f),
+            runtime_decided(true)
+        );
+        assert_eq!(
+            cuda_capability_of(&snapshot((9, 0), Some(false)), f),
+            runtime_decided(false)
+        );
+        let failed = can_map_host_memory_of(|| Err::<i32, _>("injected"));
+        let q = cuda_capability_of(&snapshot((9, 0), failed), f);
+        assert_eq!(q.level, CapabilityLevel::S0);
+        assert_eq!(q.unsupported_reason, None);
+        assert_eq!(q.evidence, None);
+        assert_eq!(
+            cuda_capability_of(&snapshot((7, 4), None), f),
+            runtime_decided(false)
+        );
+        assert_eq!(can_map_host_memory_of(|| Ok::<_, &str>(1)), Some(true));
+        assert_eq!(can_map_host_memory_of(|| Ok::<_, &str>(0)), Some(false));
+        assert_eq!(can_map_host_memory_of(|| Ok::<_, &str>(2)), None);
+    }
 
     /// 完了を確かめられたものだけが、鍵の一致する確保に取り出される。
     #[test]
