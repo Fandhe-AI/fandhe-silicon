@@ -34,8 +34,48 @@ cargo test -p fandhe-silicon-core --doc device
 make doctest-error-code-check
 ```
 
+## `Drop` の同期と解放（2/5）
+
+| 項目 | 事実 |
+| ---- | ---- |
+| 実装 | `crates/contract/src/backend_cuda.rs` の `impl Drop for CudaDevice` |
+| cfg | feature `backend-cuda` かつ `not(target_arch = "wasm32")` |
+| 試験 | `backend_cuda.rs` の `mod teardown_tests`（device に触らない） |
+
+`Drop` の順:
+
+| 順 | 動き |
+| -- | ---- |
+| 1 | stream を同期する |
+| 2 | 登録済みの完了の callback を、同期の結果に応じた値で 1 回ずつ呼ぶ（錠を持たずに呼ぶ） |
+| 3 | 再利用の一覧を含むバッファの表・パイプラインの表・投入の表を解放する |
+
+同期の結果ごとの扱い:
+
+| 同期の結果 | callback の値 | 解放 |
+| ---------- | ------------- | ---- |
+| `Ok` | `poll` と同じ判定の値（`Complete` または `Lost`）。判定が `Pending` のままのものは `Lost` | 3 つの表を解放する |
+| `Err`・panic | `Lost` | 3 つの表と stream を解放しない |
+
+- ロストの通知は呼ばない
+- `Drop` から panic を外へ出さない
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `release_if_drops_only_after_a_confirmed_sync` | 同期が `Ok` のときだけ値を落とす。`Err`・panic では落とさない |
+| `release_if_does_not_unwind_when_a_drop_panics` | 落とす途中の panic が外へ出ない |
+| `teardown_ready_judges_like_poll_after_a_confirmed_sync` | 同期を確かめた後は `Complete`・`Lost`・`Lost` を返し、表の callback が空になる |
+| `teardown_ready_delivers_lost_without_a_confirmed_sync` | 同期を確かめられなければ `Lost` を返し、表の callback が空になる |
+
+確かめ方:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | device の明示の破棄の口 | #3854 |
+| 2/5 | `Drop` の同期と解放 | #3855 |
