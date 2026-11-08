@@ -353,9 +353,7 @@ fn classify_pipeline_input<'a>(
         PipelineInput::Dxil { .. } => "Dxil",
         PipelineInput::MslSpecialized { .. } => "MslSpecialized",
         PipelineInput::MslWithOptions { .. } => "MslWithOptions",
-        PipelineInput::MslSpecializedWithOptions { .. } => {
-            "MslSpecializedWithOptions (accepted only by the Metal backend)"
-        }
+        PipelineInput::MslSpecializedWithOptions { .. } => "MslSpecializedWithOptions",
         _ => {
             return Err(ContractError::Unsupported {
                 op: "create_pipeline",
@@ -366,7 +364,7 @@ fn classify_pipeline_input<'a>(
     Err(ContractError::ArtifactRejected {
         kind: "unsupported-input",
         reason: format!(
-            "pipeline input {variant} is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
+            "pipeline input {variant} is not accepted by the CUDA backend; accepted input is CudaC"
         ),
     })
 }
@@ -863,6 +861,34 @@ mod tests {
                 })
             ));
         }
+        // 理由文は variant 名と受け付ける入力だけを含む。
+        let Err(ContractError::ArtifactRejected { reason, .. }) =
+            classify_pipeline_input(&PipelineInput::Msl {
+                source: "m",
+                entry_point: "e",
+            })
+        else {
+            panic!("Msl must be rejected");
+        };
+        assert_eq!(
+            reason,
+            "pipeline input Msl is not accepted by the CUDA backend; accepted input is CudaC"
+        );
+        let Err(ContractError::ArtifactRejected { reason, .. }) =
+            classify_pipeline_input(&PipelineInput::MslSpecializedWithOptions {
+                source: "m",
+                entry_point: "e",
+                function_constants: &[],
+                math_mode: MslMathMode::Fast,
+                float_functions: MslFloatFunctions::Precise,
+            })
+        else {
+            panic!("MslSpecializedWithOptions must be rejected");
+        };
+        assert_eq!(
+            reason,
+            "pipeline input MslSpecializedWithOptions is not accepted by the CUDA backend; accepted input is CudaC"
+        );
     }
 
     /// `slots` の重複は `InvalidArgument`（BIND-3）。
