@@ -182,7 +182,7 @@ fandhe-silicon/
 ├── docs/cuda-buffer-pool.md  # CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/cuda-capability-query.md  # CUDA の背後実装の能力の問合せ（TASK-175）の所在と、本リポの現状の事実・能力の表と問合せ（1/4）・能力の表の共通の規則の検査（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/cuda-ext-accessors.md  # CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
-├── docs/cuda-simulated-device-lost.md  # CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）
+├── docs/cuda-simulated-device-lost.md  # CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）

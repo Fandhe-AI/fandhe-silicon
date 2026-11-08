@@ -101,6 +101,69 @@ device の世代は `AtomicU64` で持ち、`current_generation()` で読む。1
 
 確かめ方: `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda` の `ignored` が 3/4 の前より 3 本多い（12 から 15）。`passed` は変わらない。
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-2934。ポインタのみ）。
+
+時点のコミット: `81dc1f9`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 世代の読み方と `free` の照合・登録の世代 | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda --lib backend_cuda`、`grep -n 'self\.generation' crates/contract/src/backend_cuda.rs` | `49 passed; 0 failed; 11 ignored`、終了コード 0。grep は 3 行 |
+| 2 | 模擬のロストの部品 | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::lost_state_tests`、同じ組で `--lib backend_cuda::tests::take_stale` | `12 passed; 0 failed; 0 ignored`、`1 passed; 0 failed; 0 ignored`。どちらも終了コード 0 |
+| 3 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::device_tests::lost` | `0 passed; 0 failed; 3 ignored`、終了コード 0 |
+| 4 | 門ごとの型と未使用 | `cargo clippy -p fandhe-silicon-contract --all-targets --no-default-features --features <組> -- -D warnings`（`<組>` は `backend-cuda`・`backend-cuda,ext-interop`・`backend-cuda,fault-injection`・`backend-cuda,ext-interop,fault-injection,native-blocking-wait`） | 4 組とも終了コード 0 |
+| 5 | 公開 API | `make public-api-sdk-check`、`make public-api-webgpu-check` | どちらも終了コード 0。`sdk_type_refs_total=0` を含む `record:` の行と `ok:` の行が出る |
+| 6 | 個数テスト | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_unsafe_count`、`git diff --stat 6d98ade HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs` | `1 passed; 0 failed`、終了コード 0。diff は空 |
+| 7 | 依存 | `make deps-check`、`git diff --stat 6d98ade HEAD -- Cargo.lock deps-approved.toml crates/contract/Cargo.toml` | 終了コード 0。`[deps-check.sh] ok: ...` の行が出る。diff は空 |
+| 8 | CI | `gh run view 42514750106 --json status,conclusion,headSha,jobs`（`81dc1f9` の main の push の run） | conclusion は `success`。headSha は `81dc1f94da5e764cf65041d0fb28e668cdcd5647`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion は `success` |
+
+(1) の出力（該当の行）。
+
+```text
+test result: ok. 49 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 0.00s
+1340:        self.generation.load(Ordering::Acquire)
+1639:            .lose_catching(reason, &self.generation, &NEXT_GENERATION)
+3876:                .lose(DeviceLostReason::Unknown, &self.generation, &self.source);
+```
+
+(2) の出力（該当の行）。
+
+```text
+running 12 tests
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.00s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.00s
+```
+
+(3) の出力（該当の行）。
+
+```text
+running 3 tests
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 73 filtered out; finished in 0.00s
+```
+
+(5) の出力（該当の行）。
+
+```text
+record: commit=81dc1f94da5e764cf65041d0fb28e668cdcd5647 documents=10 public_items_total=13838 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok
+```
+
+(6) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(7) の出力。
+
+```text
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -108,3 +171,4 @@ device の世代は `AtomicU64` で持ち、`current_generation()` で読む。1
 | 1/4 | 世代の読み方と `free` の照合 | #4228 |
 | 2/4 | 模擬のロスト | #4229 |
 | 3/4 | device の要る試験 | #4230 |
+| 4/4 | 完了の条件の確かめ | #4231 |
