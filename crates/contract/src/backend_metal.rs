@@ -2172,8 +2172,8 @@ mod imp {
 
         /// 複数の記録先を 1 回で投入し、1 つの印を返す。
         ///
-        /// 順は、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、`after` の照合
-        /// （別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、記録先の所属（`InvalidArgument`）。
+        /// 順は、`after` の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、
+        /// 空の列（`InvalidArgument`）、`wait`（`Unsupported`）、記録先の所属（`InvalidArgument`）。
         /// 検査に当たると何も投入しない。単一の列でコマンドバッファは投入順に完了するので、
         /// `after` は照合だけで追加の待ちは入れない。
         fn submit_many(
