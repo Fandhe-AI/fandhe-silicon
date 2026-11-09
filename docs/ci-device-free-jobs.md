@@ -124,7 +124,6 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `profile-dep-graph-check` | `make deny` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `profile-dep-graph-positive-control` | `make deny` の中で検査の直後に同じスクリプトを呼ぶので、別ステップにしない（`scripts/deny.sh`） |
 | `test-profile-dep-graph-check`・`test-profile-dep-graph-positive-control` | 本体は `make deny` の中で流れる。回帰テストは CI のジョブからは呼ばず、手元で流す（`CLAUDE.md` の品質ゲートの記述。[profile-dep-graph-check](./profile-dep-graph-check.md)） |
-| `wasm-build-check` | 型の名前を渡す呼び出しと `crates/` の `simd128` の `cfg` の出現がまだ無く、`type:`・`cfg:` が not-run で終了コード 1 になる。合格に見せる口は持たない（[wasm32-build.md](./wasm32-build.md)） |
 | `wasm-compile-probe-check` | `make wasm-verify` の中で同じスクリプトを呼ぶので、別ステップにしない（`scripts/wasm-verify.sh`） |
 | `inventory-trace-check` | 入力が private 側にあり、本リポの CI には組み込まない（`ci.yml` の `deny` ジョブのコメント） |
 | `feature-key-check` | 入力が private 側にあり、本リポの CI には組み込まない（`scripts/feature-key-check.sh` の先頭コメント）。回帰テストの `test-feature-key-check` は `deny` ジョブが呼ぶ |
@@ -135,7 +134,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 
 今の値の補い（base 8c52335）: `make wasm-verify` は上の simd128 の構成の clippy の隣で、同じ feature の組（`--no-default-features --features contract-core,cpu-isa,cpu-ops,test-support`）の契約の crate の試験を simd128 なしの wasm32 でも clippy（`-D warnings`）にかける（`scripts/wasm-verify.sh`。`--target-dir` は `<target_directory>/wasm32-scalar`）。
 
-今の値の補い（base 09a69f3）: `deny` ジョブは `make wasm-verify` の後のステップで `make wasm-build-check`（全行。`Makefile` の入口が共通の crate の型の名前を `--require-type` で渡す）も呼ぶ。上の「CI が呼ばない make ターゲット」の表の `wasm-build-check` の行と、その後の段落の「`make wasm-build-check`（全行）は CI から呼ばない」は記録時点の書き方のまま。
+今の値の補い（base 09a69f3）: `deny` ジョブは `make wasm-verify` の後のステップで `make wasm-build-check`（全行。`Makefile` の入口が共通の crate の型の名前を `--require-type` で渡す）も呼ぶ。`wasm-build-check` は上の「CI が呼ばない make ターゲット」の表から外した。その後の段落の「`make wasm-build-check`（全行）は CI から呼ばない」と、続く段落の「上の表の `wasm-build-check` の行は記録時点の書き方のまま」は記録時点の書き方のまま。
 
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 

@@ -128,6 +128,8 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 `make wasm-build-check` の本体は CI から呼ばない。本リポの現状では `type:` に渡せる公開の型の名前が `crates/` に無く、`cfg:` の対象の `simd128` の出現も 0 件で、どちらも not-run になり終了コード 1 だから。
 ダミーの型や `cfg` を足す、not-run を許す口を足すといった合格に見せる変更はしない。
 
+今の値の補い（base 09a69f3）: 上の「`make wasm-build-check` の本体は CI から呼ばない」の段落と、確かめ方の表の最終行（`grep -n "run: make wasm-build-check" .github/workflows/ci.yml` が 0 件）は記録時点の書き方のまま。今は `deny` ジョブが本体を呼ぶ（後ろの「CI の deny ジョブでの本体の実行（2/3）」の節）。
+
 組み込みに要る条件は次の 3 つ。そろったら Makefile のターゲットに `--require-type` を渡したうえで `deny` ジョブへ足す。
 
 - `--require-type` に渡す公開の型が `crates/` にある
