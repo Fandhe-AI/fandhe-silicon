@@ -128,6 +128,8 @@ scripts/wasm-build-check.sh [--require-type <path>]... [--source-root <dir>]
 `make wasm-build-check` の本体は CI から呼ばない。本リポの現状では `type:` に渡せる公開の型の名前が `crates/` に無く、`cfg:` の対象の `simd128` の出現も 0 件で、どちらも not-run になり終了コード 1 だから。
 ダミーの型や `cfg` を足す、not-run を許す口を足すといった合格に見せる変更はしない。
 
+今の値の補い（base 09a69f3）: 上の「`make wasm-build-check` の本体は CI から呼ばない」の段落と、確かめ方の表の最終行（`grep -n "run: make wasm-build-check" .github/workflows/ci.yml` が 0 件）は記録時点の書き方のまま。今は `deny` ジョブが本体を呼ぶ（後ろの「CI の deny ジョブでの本体の実行（2/3）」の節）。
+
 組み込みに要る条件は次の 3 つ。そろったら Makefile のターゲットに `--require-type` を渡したうえで `deny` ジョブへ足す。
 
 - `--require-type` に渡す公開の型が `crates/` にある
@@ -369,6 +371,37 @@ ok: all rows match
 終了コードは 0。存在しない名前（`fandhe_silicon_core::capability::Nope`）や crate 名の無い `capability::Capabilities` は `label=mismatch`・`types=0/2` で、終了コードは 1。
 
 確かめ方: `make test-wasm-build-check` の最後の行が `test-wasm-build-check: 104 passed, 0 failed`。
+
+### CI の deny ジョブでの本体の実行（2/3）
+
+`make wasm-build-check` は CI の `deny` ジョブで、`make wasm-verify` の後のステップとして流れる。
+
+| ジョブ | ステップ | 流すもの |
+| ------ | -------- | -------- |
+| `deny` | `make wasm-build-check` | `scripts/wasm-build-check.sh` に `Makefile` が渡す 4 つの `--require-type`（`fandhe_silicon_core::capability::Capabilities`・`fandhe_silicon_core::capability::CapabilityLevel`・`fandhe_silicon_core::decision::DecisionInput`・`fandhe_silicon_core::decision::Decision`） |
+
+手元の出力（GPU なしの Linux x86_64）:
+
+```text
+$ make wasm-build-check
+artifact: kind=scalar label=match simd128=absent bytes=300 sha256=207eab239a9a837827ce9fc92a715af8bcdd48aa2c729b2315f85af95b43952a
+artifact: kind=simd128 label=match simd128=present bytes=309 sha256=5c97560c5151429e5b122307b90d64cd49140e5c5304abb95508e4eb5602dad9
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=scalar
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=simd128
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=scalar
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=simd128
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=scalar
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=simd128
+type: name=fandhe_silicon_core::decision::Decision label=match build=scalar
+type: name=fandhe_silicon_core::decision::Decision label=match build=simd128
+cfg: sites=6 label=match
+record: ... artifact=2/2 types=4/4 cfg_sites=6 not_run=0
+ok: all rows match
+```
+
+終了コードは 0。
+
+確かめ方: CI のワークフローの `deny` ジョブに `run: make wasm-build-check` のステップが 1 件あり、`make ci-frame-check` が `ok: ci workflow frame (8 jobs, rules F1-F6)`。
 
 ## 関連
 

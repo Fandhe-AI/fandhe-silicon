@@ -194,8 +194,8 @@ upper-source-check: ## 上の層（crates/upper）のソースに、グローバ
 test-upper-source-check: ## upper-source-check の回帰テスト（実物の crates/upper を写した変異体・陰性の対照・誤用（契約の呼び出しと失敗の構築を含む）と、実物のリポジトリの合格。python3・ネットワーク不要・リポジトリのファイルは変更しない・CI の deny ジョブも実行する）。直接: scripts/test-upper-source-check.sh
 	@scripts/test-upper-source-check.sh
 
-wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
-	@scripts/wasm-build-check.sh
+wasm-build-check: ## wasm32 の cdylib の 2 版の成果物の判別（target_features）・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI の deny ジョブも実行する）。直接: scripts/wasm-build-check.sh [--require-type <path>]...
+	@scripts/wasm-build-check.sh --require-type fandhe_silicon_core::capability::Capabilities --require-type fandhe_silicon_core::capability::CapabilityLevel --require-type fandhe_silicon_core::decision::DecisionInput --require-type fandhe_silicon_core::decision::Decision
 
 wasm-backend-check: ## 背後実装の feature を付けた wasm32 向けの契約の crate の cargo check・Vulkan と CUDA のモジュールが外れ Metal のモジュールが公開のアイテムを持たないこと・wasm32 の依存グラフのチップの SDK の件数を行ごとに出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch・2 誤用か前提の不足。CI の deny ジョブも実行する）
 	@scripts/wasm-backend-check.sh

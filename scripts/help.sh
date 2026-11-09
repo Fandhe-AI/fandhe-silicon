@@ -67,7 +67,7 @@ cat <<'EOF'
   test-wasm-size  scripts/test-wasm-size.sh      wasm-size 自体の回帰テスト（合成の入力と偽の cargo / wasm-bindgen だけ。bash + python3・CLI もネットワークも不要）
   wasm-backend-check scripts/wasm-backend-check.sh  背後実装の feature を付けた wasm32 の cargo check・Vulkan と CUDA のモジュールの除外と Metal のモジュールが空であること・wasm32 の依存グラフのチップの SDK の件数を行ごとに出す（bash + python3 + cargo + wasm32 の target。CI の deny ジョブも実行する）
   test-wasm-backend-check scripts/test-wasm-backend-check.sh  wasm-backend-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物の検査と陽性対照。CI の deny ジョブも実行する）
-  wasm-build-check scripts/wasm-build-check.sh   wasm32 の cdylib の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI からは呼ばない）
+  wasm-build-check scripts/wasm-build-check.sh   wasm32 の cdylib の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに match / mismatch / not-run で出す（bash + python3 + cargo + wasm32 の target。終了コード 0 全行 match・1 mismatch か not-run・2 誤用か前提の不足。CI の deny ジョブも実行する）
   test-wasm-build-check scripts/test-wasm-build-check.sh  wasm-build-check 自体の回帰テスト（合成の入力と偽の cargo、一時 workspace の実物のビルド。CI の deny ジョブも実行する）
   wasm-compile-probe-check scripts/wasm-compile-probe-check.sh  wasm32 の組で一時の crate を cargo check し、呼べない呼び出しが期待のエラーコードで落ち、呼べる呼び出しと feature を足した陽性対照が通ることを行ごとに出す（bash + cargo + wasm32 の target。make wasm-verify の中でも流れる〔CI の deny・wasm-macos ジョブ〕）
   test-wasm-compile-probe-check scripts/test-wasm-compile-probe-check.sh  wasm-compile-probe-check 自体の回帰テスト（合成の build-profiles.sh と偽の cargo。CI の deny ジョブも実行する）
