@@ -4402,3 +4402,113 @@ mod teardown_device_tests {
         }
     }
 }
+
+/// CUDA の device に触る、宣言を照らしてから作る口の試験（TASK-457 のポインタ）。device の無い環境では流さない。
+#[cfg(test)]
+mod checked_pipeline_device_tests {
+    use super::*;
+    use fandhe_silicon_core::execution::{DType, OperandSpec};
+
+    /// 要素に 1 を足す小さなカーネル。
+    const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn add_one() -> PipelineInput<'static> {
+        PipelineInput::CudaC {
+            source: ADD_ONE,
+            entry_point: "add_one",
+        }
+    }
+
+    fn table_len(d: &CudaDevice) -> usize {
+        d.pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .len()
+    }
+
+    fn spec<'a>(slot: u32, dtype: DType, shape: &'a [u64], stride: &'a [i64]) -> OperandSpec<'a> {
+        OperandSpec {
+            slot,
+            dtype,
+            shape,
+            stride,
+            alignment: 4,
+        }
+    }
+
+    // BIND-60
+    /// 件数が違う宣言は `C1` で返り、パイプラインの表に何も足さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn declared_count_mismatch_is_rejected_and_adds_no_pipeline() {
+        let d = device();
+        let before = table_len(&d);
+        let declared = [spec(0, DType::F32, &[4], &[1])];
+        let r = d.create_pipeline_checked(add_one(), &BindingLayout::new(vec![0, 1, 2]), &declared);
+        assert!(matches!(&r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C1")));
+        assert_eq!(table_len(&d), before);
+    }
+
+    // BIND-60
+    /// 次元数が違う宣言は `C3` で返り、パイプラインの表に何も足さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dimension_mismatch_is_rejected_and_adds_no_pipeline() {
+        let d = device();
+        let before = table_len(&d);
+        let declared = [
+            spec(0, DType::F32, &[4, 4], &[1]),
+            spec(1, DType::F32, &[4], &[1]),
+            spec(2, DType::U32, &[1], &[1]),
+        ];
+        let r = d.create_pipeline_checked(add_one(), &BindingLayout::new(vec![0, 1, 2]), &declared);
+        assert!(matches!(&r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C3")));
+        assert_eq!(table_len(&d), before);
+    }
+
+    // BIND-60
+    /// 照らしは入力の分類より先に走る。`Ptx` の入力でも先頭が `C1` で返る。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn rejection_comes_before_the_input_is_classified() {
+        let d = device();
+        let before = table_len(&d);
+        let declared = [spec(0, DType::F32, &[4], &[1])];
+        let input = PipelineInput::Ptx {
+            source: "",
+            entry_point: "k",
+        };
+        let r = d.create_pipeline_checked(input, &BindingLayout::new(vec![0, 1]), &declared);
+        assert!(matches!(&r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C1")));
+        assert_eq!(table_len(&d), before);
+    }
+
+    // BIND-15
+    /// 照らしを通る宣言は、この device のパイプラインを 1 つ作って表に足す。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn matching_declaration_creates_a_pipeline_of_this_device() {
+        let d = device();
+        let before = table_len(&d);
+        let declared = [
+            spec(0, DType::F32, &[4], &[1]),
+            spec(1, DType::F32, &[4], &[1]),
+            spec(2, DType::U32, &[1], &[1]),
+        ];
+        let h = d
+            .create_pipeline_checked(add_one(), &BindingLayout::new(vec![0, 1, 2]), &declared)
+            .expect("pipeline");
+        assert_eq!(h.__backend_device_id(), d.id);
+        assert_eq!(table_len(&d), before + 1);
+    }
+}
