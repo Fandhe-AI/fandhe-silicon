@@ -29,6 +29,10 @@ const MPS_DATA_TYPE_FLOAT32: u32 = 0x1000_0020;
 /// `MPSDataTypeFloat16`。
 const MPS_DATA_TYPE_FLOAT16: u32 = 0x1000_0010;
 
+// SAFETY: 宣言の型は MPS の C の関数 `BOOL MPSSupportsMTLDevice(id<MTLDevice>)` と合う（引数は Objective-C の
+// オブジェクト 1 つ＝ `&AnyObject`、戻り値は `BOOL` ＝ `objc2::runtime::Bool`）。シンボルは下の `#[link]` の
+// とおり macOS の MetalPerformanceShaders framework から解決される。呼び出しの前提（device が生きていること）は
+// この宣言では保証せず、呼び出し側の `run_inner` の `unsafe` ブロックの `// SAFETY:` が担う。
 #[link(name = "MetalPerformanceShaders", kind = "framework")]
 unsafe extern "C" {
     /// device が MPS に対応するか。
