@@ -215,3 +215,11 @@ GPU の実機なしで、末尾の base で実行した値。件数は実測。
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 完了の条件の確かめ（4/4）の 1 の行 | `members = ["crates/detect", "crates/perf"]` → `members = ["crates/cpu-ops-arm", "crates/detect", "crates/perf"]`、`measure_pkgs=2 measure_contract_pkgs=0` → `measure_pkgs=3 measure_contract_pkgs=1`（`measure_forbidden=0` のまま。`measure/crates/cpu-ops-arm` が契約の crate に path で依存するようになった） | `grep -n members measure/Cargo.toml`、`make upper-layer-check \| grep '^record:'` |
+
+## 今の値の補い（base 55fd9c1）
+
+記録時点の表と既存の節は書き換えない。以下は base `55fd9c1` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 完了の条件の確かめ（4/4）の 1 の行 | `members` は 3 crate → 4 crate（`members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`）、`measure_pkgs=3 measure_contract_pkgs=1` → `measure_pkgs=4 measure_contract_pkgs=1`（`measure_forbidden=0` のまま） | `grep -n members measure/Cargo.toml`、`make upper-layer-check \| grep '^record:'` |

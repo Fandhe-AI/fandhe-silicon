@@ -155,12 +155,12 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/buffer-size-usage-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実・今の値の補い（base 3e32680） |
 | `docs/buffer-slice.md` | バッファの部分範囲の型（TASK-311）の所在・部分範囲の型と作る口（1/5）・確かめ方・入れ子の絞りと解放の後の型検査（2/5）・境界の入力の試験（3/5）・入れ子と全体の範囲の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 801a89d） |
 | `docs/mapped-range.md` | 書き込み用のビューの型（TASK-312）の所在・書き込み用のビューの型と長さ・空の判定（1/4）・確かめ方・範囲の絞り（2/4）・境界の入力と絞りの試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い（TASK-9） |
+| `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い・今の値の補い（base 55fd9c1）（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・取り出す内容と対象・対象外の形と拒否する入力・振る舞いとテストの対応・確かめ方（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実・本リポでの反映の方針（TASK-236） |
-| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実・今の値の補い（base d082bc1）（TASK-18） |
+| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1）（TASK-18） |
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方・今の値の補い（base ed82c18）（TASK-112）・今の値の補い（base 80164f4） |
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）・今の値の補い（base 3e32680）・`make wasm-size` の export の確かめ（TASK-247 の 5/6）・量の測り直しの記録と完了の条件の確かめ（TASK-247 の 6/6）（TASK-22） |
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 801a89d）（TASK-248） |
@@ -197,16 +197,16 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/upper-layer-check.md` | 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15） |
 | `docs/upper-compute-path.md` | 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96） |
 | `docs/upper-source-check.md` | 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base f4b9d8f）（TASK-2387） |
-| `docs/upper-layer-crate-check.md` | 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）（TASK-262） |
+| `docs/upper-layer-crate-check.md` | 上の層の crate の実物に当てた検査の記録の所在と、本リポの現状・unsafe と直接依存の記録（1/3）・単独のビルドと feature の木の記録（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6a62700）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 55fd9c1）（TASK-262） |
 | `docs/cross-layer-types.md` | 層をまたぐ型の受け渡しの試験の所在・層をまたぐ受け渡しの試験（1/2）・完了の条件の確かめ（2/2）・段の表・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）（TASK-260） |
-| `docs/upper-exec-same-device.md` | 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-261） |
+| `docs/upper-exec-same-device.md` | 上の層と下-2 を 1 つの device で通す試験の所在・上の層と下-2 を 1 つの device で通す試験（1/3）・上の層の検査を新しい試験を含む構成に当てた記録（2/3）・完了の条件の確かめ（3/3）・段の表・今の値の補い（base c956c96）・今の値の補い（base f4b9d8f）・今の値の補い（base 904126a）・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）・今の値の補い（base 55fd9c1）（TASK-261） |
 | `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実・本リポでの反映の方針（TASK-28） |
-| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1） |
+| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1） |
 | `docs/perf-gate-rule.md` | 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026） |
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
-| `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1082） |
+| `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 55fd9c1）（TASK-1082） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
 | `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |

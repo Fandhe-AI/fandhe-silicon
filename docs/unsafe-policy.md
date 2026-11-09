@@ -186,3 +186,11 @@ worktree のルートで実行する。
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
 - [contract-shaping-escalation](../.claude/rules/contract-shaping-escalation.md)
 - [workspace-boundary](workspace-boundary.md)
+
+## 今の値の補い（base 55fd9c1）
+
+記録時点の表と既存の節は書き換えない。以下は base `55fd9c1` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 所在の表の「個数テスト」の行 | 製品の `crates/contract/tests/` の個数テストだけを挙げている → 別 workspace の比較の腕の crate にも個数テストがある。`measure/crates/metal-gemm-arm/tests/unsafe_count.rs`（`src/metal.rs` の 1 行だけを表に持ち、block 11・ほか 0。5 件のテスト）と `baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`（`src/bridge.rs` の 1 行だけを表に持ち、block 1・ほか 0。7 件のテスト）。どちらも数える道具をそのファイルの中に持ち、製品の crate のテストの道具には依存しない。`#[allow(unsafe_code)]` は腕の crate ごとに `src/lib.rs` の 1 箇所（`measure/crates/metal-gemm-arm/src/lib.rs` の 17 行目、`baseline-wgpu/crates/gemm-arm/src/lib.rs` の 10 行目） | `ls measure/crates/metal-gemm-arm/tests baseline-wgpu/crates/gemm-arm/tests`、`grep -n 'EXPECTED' -A2 measure/crates/metal-gemm-arm/tests/unsafe_count.rs baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed）、`cargo test --offline --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --test unsafe_count`（7 passed）、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src baseline-wgpu/crates/gemm-arm/src` |

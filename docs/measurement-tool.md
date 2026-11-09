@@ -365,3 +365,12 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 | 現状の形（9/11）の `baseline-wgpu/` の依存の承認の記録（226 行目） | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を `make deny` が呼ぶ → `make deny` は `scripts/deps-check.sh --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"` の形で呼ぶ（`crates/` 配下への path だけを免除する） | `scripts/deny.sh` の 115〜116 行目 |
 | 同 `ビルド`（228 行目） | `baseline-wgpu/` のビルド・実行は `make` にも CI にも入れない → `make baseline-verify`（`scripts/baseline-verify.sh`）が本 workspace の fmt --check / clippy / test を流し、CI の `deny` ジョブが呼ぶ。`make deny` 自体はビルドをしないまま。`baseline-wgpu/` の bin の実行は `make` にも CI にも入れていない | `.github/workflows/ci.yml` の 269〜271 行目、`scripts/baseline-verify.sh` |
 | 完了の条件の確かめの C2（197 行目） | `measure/deps-approved.toml` の `[[` の数 0 件 → 3 件（`objc2`・`objc2-metal`・`objc2-core-graphics`。`used_by` は `measure-metal-gemm-arm`、macOS 向けの依存）。`measure/Cargo.toml` の `members` は 4 crate（`cpu-ops-arm`・`detect`・`metal-gemm-arm`・`perf`） | `grep -c '^\[\[approval\]\]' measure/deps-approved.toml`（3 が返る）、`measure/crates/metal-gemm-arm/Cargo.toml` の `[target.'cfg(target_os = "macos")'.dependencies]`（28〜31 行目）、`measure/Cargo.toml` の `members`（10 行目） |
+
+## 今の値の補い（base 55fd9c1）
+
+記録時点の表と既存の節は書き換えない。以下は base `55fd9c1` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 「依存の承認の件数の現状」の節の `measure/Cargo.lock` の `[[package]]` の件数（347 行目） | 5 件 → 13 件。`fandhe-silicon-contract`・`fandhe-silicon-core`・`measure-cpu-ops-arm`・`measure-detect`・`measure-metal-gemm-arm`・`measure-perf` の 6 件に、`bitflags` と `objc2` 系 6 件（`objc2`・`objc2-core-foundation`・`objc2-core-graphics`・`objc2-encode`・`objc2-foundation`・`objc2-metal`）が加わった | `grep -c '^\[\[package\]\]' measure/Cargo.lock`（13 が返る）、`grep '^name = ' measure/Cargo.lock` |
+| 「今の値の補い（base 3e32680）」の `measure/Cargo.lock` の `cudarc`・`objc2` の package の行（357 行目の「`objc2` の package は載らない」） | `cudarc`・`objc2` の package は載らない → `objc2` 系 6 件の package が載る（`objc2-metal` などは `measure/crates/metal-gemm-arm` の macOS 向けの依存から入る。`measure/deps-approved.toml` の記録は 3 件で、残りは推移的依存）。`cudarc` の package は載らないまま | `grep -c 'name = "cudarc"' measure/Cargo.lock`（0 が返る）、`grep -c '^name = "objc2' measure/Cargo.lock`（6 が返る）、`grep -c '^\[\[approval\]\]' measure/deps-approved.toml`（3 が返る） |
