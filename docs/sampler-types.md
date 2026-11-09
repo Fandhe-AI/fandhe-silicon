@@ -172,3 +172,37 @@ RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc sampler
 ```sh
 cargo test -p fandhe-silicon-core --test sampler_types
 ```
+
+## 完了の条件の確かめ（7/7）
+
+本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-373）。Linux（x86_64）で実行し、件数は実測。コードと試験は変えていない。確かめた base は `83c21c22c552a2baa7d568f6a5ccb55fb3bd8513`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 比較関数の型が共通の crate に条件なしで公開されている | `grep -n 'pub enum CompareFunction' crates/core/src/sampler.rs`、`cargo check -p fandhe-silicon-core`（feature なし） | 134 行目に `pub enum CompareFunction`、終了コード 0 |
+| 2 | 8 値と外の crate の `match` の形 | `cargo test -p fandhe-silicon-core --test sampler_types` | `compare_values_are_distinct`・`compare_values_match_with_wildcard` が `ok`、`test result: ok. 15 passed; 0 failed` |
+| 3 | 記述子の欄の既定と保持 | 同じ試験、`cargo test -p fandhe-silicon-core --lib sampler` | `descriptor_compare_default_is_none`・`descriptor_compare_holds_each_value` が `ok`、`--lib sampler` は `test result: ok. 10 passed; 0 failed` |
+| 4 | `Default` を持たない形と網羅の `match` の拒否 | `RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc sampler`、`make doctest-error-code-check` | doctest は通常 6 件が `ok`・`compile fail` 6 件が `ok`（`CompareFunction` の `compile fail` は 2 件〔line 99・line 104〕、通常は line 120 が `ok`）、`make doctest-error-code-check` の終了コード 0 |
+| 5 | 変えていないファイル | `git diff --stat 0eb5ad4..HEAD -- crates/core/src/graphics.rs crates/core/src/stub_device.rs crates/core/src/device.rs crates/core/src/texture.rs crates/core/src/texture crates/contract Cargo.lock deps-approved.toml crates/core/Cargo.toml`、`grep -c unsafe crates/core/src/sampler.rs`、`grep -n forbid crates/core/src/lib.rs` | 差分の出力 0 行、`unsafe` 0 件、39 行目に `#![forbid(unsafe_code)]` |
+| 6 | 公開 API の検査 | `make public-api-check`・`make public-api-sdk-check`・`make public-name-check`・`make public-api-webgpu-check` | `wgpu_type_refs_total=0`、`sdk_type_refs_total=0`、`name_hits_total=0`、`webgpu_names_total=0`、4 つとも終了コード 0 |
+| 7 | CI で流れる場所と件数 | `make verify`（`.github/workflows/ci.yml` 177 行目・520 行目）、`make wasm-verify`（同 282 行目・481 行目）、`cargo test --workspace --all-features`、base の push の CI の run `42544286748`（`gh run view 42544286748 --json conclusion,headSha,jobs`） | `make verify` の終了コード 0、`make wasm-verify` の終了コード 0、`cargo test --workspace --all-features` は `passed` の合計 2582・`failed` 0・`ignored` 70、run の `conclusion` は `success`・`headSha` は `83c21c22c552a2baa7d568f6a5ccb55fb3bd8513`、`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` のジョブはいずれも `success` |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-373）。
+
+確かめ方:
+
+```text
+grep -n 'pub enum CompareFunction' crates/core/src/sampler.rs
+cargo check -p fandhe-silicon-core
+cargo test -p fandhe-silicon-core --test sampler_types
+cargo test -p fandhe-silicon-core --lib sampler
+RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc sampler
+make doctest-error-code-check
+make public-api-check
+make public-api-sdk-check
+make public-name-check
+make public-api-webgpu-check
+make verify
+make wasm-verify
+cargo test --workspace --all-features
+```
