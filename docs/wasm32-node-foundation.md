@@ -355,3 +355,17 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 冒頭の表の「deps-approved.toml の件数」の行（`:34`） | ルート 4 件（`crates/contract` の macOS 向け）→ ルート 5 件（macOS 向けの `objc2` 系 4 件と、wasm32 以外向けの `cudarc` 1 件。どれも `crates/contract`）。`wasm/` の crate を `used_by` に持つ記録は無いまま・`measure/` 0 件・`baseline-wgpu/` 1 件・`wasm/` 1 件のまま | `grep -c '^\[\[approval\]\]' deps-approved.toml measure/deps-approved.toml baseline-wgpu/deps-approved.toml wasm/deps-approved.toml`（5・0・1・1）、`grep -c '^used_by = .*wasm' deps-approved.toml`（0 が返る） |
+
+## `make wasm-size` の export の確かめ（TASK-247 の 5/6）
+
+親 Issue の 5/6（#8153）で `make wasm-size` の呼び方を変えた。ポインタ: `docs/spec/05-tasks.md` の TASK-247。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| recipe | `make wasm-size` は `scripts/wasm-size.sh --require-exports` を呼ぶ | `make -n wasm-size` |
+| 確かめる名前 | `REQUIRED_EXPORTS` の 7 名（宣言は 1 か所。引数・環境変数で変える口は無い） | `grep -n -A3 '^REQUIRED_EXPORTS' scripts/wasm-size.sh` |
+| 足りないときの動き | 期待の export が欠けた組は `not-run`（`missing-export`）、数えない余分の項目がある組は `not-run`（`unexpected-output`）で終了コード 1 | 回帰テストのケース `fake-require-exports-ok`・`fake-require-exports-missing`・`exports-one-missing`・`unexpected-output` |
+| 既定の経路 | `scripts/wasm-size.sh` を引数なしで直に呼ぶと export を見ない（判定・終了コードは従来どおり） | ケース `exports-ignored-by-default`・`fake-default-no-export-check` |
+| CI | `wasm-macos` ジョブの step `make wasm-size` がこの形で流れる。`ci.yml` は変えていない | `grep -n 'make wasm-size' .github/workflows/ci.yml` |
+
+「glue 込みの量の測定」の表の「export の確かめ」の行の「直接実行のみ・make ターゲットは無い」と、「記録の取り方」の手元で取る行の `scripts/wasm-size.sh --require-exports` は、今は `make wasm-size` がこの形で呼ぶ。
