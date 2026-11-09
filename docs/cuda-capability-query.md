@@ -163,3 +163,12 @@ record: commit=49185a2513f3ac9e2299c3ad9eaa3463b84ba558 documents=10 public_item
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（4/4）」の (1)〜(3) の出力（`--features backend-cuda --lib backend_cuda`） | `running 55 tests`・`44 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` → `running 61 tests`・`50 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
 | (4) の行と出力（`--features backend-cuda,test-support --lib backend_cuda`） | `running 56 tests`・`45 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` → `running 62 tests`・`51 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --lib backend_cuda` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（4/4）」の (1)〜(3) の出力（`--features backend-cuda --lib backend_cuda`） | `running 61 tests`・`50 passed; 0 failed; 11 ignored` → `running 76 tests`・`57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| (4) の行と出力（`--features backend-cuda,test-support --lib backend_cuda`） | `running 62 tests`・`51 passed; 0 failed; 11 ignored` → `running 77 tests`・`58 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda,test-support --lib backend_cuda` |

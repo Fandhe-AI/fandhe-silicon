@@ -159,3 +159,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（4/4）」の (1) の行と出力（`--features backend-cuda,ext-interop --lib backend_cuda`） | `46 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` → `52 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out`（`running 63 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,ext-interop --lib backend_cuda` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（4/4）」の (1) の行と出力（`--features backend-cuda,ext-interop --lib backend_cuda`） | `52 passed; 0 failed; 11 ignored`（`running 63 tests`）→ `59 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 78 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,ext-interop --lib backend_cuda` |

@@ -230,3 +230,12 @@ make verify
 make build-profiles
 make wasm-verify
 ```
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base 6b35dd9）」の `ci.yml` の行（`make verify` が 177・505、`make wasm-verify` が 276・466） | `make verify` は 177・520、`make wasm-verify` は 282・481 | `grep -nE 'run: make (verify\|wasm-verify)$' .github/workflows/ci.yml` |
+| 「現状の形（1/4）」の後の「今の値の補い:」の `TextureOps` のメソッドの 3 つ（`create_texture`・`destroy_texture`・`destroy_view`）と、続く「今の値の補い（base 1890c9a）」の 4 つ | 2 つの文は時点が違うだけで、今の値は 4 つ（`create_texture`・`destroy_texture`・`destroy_view`・`create_sampler`。どれも既定の本体は無い） | `grep -n '^    fn ' crates/core/src/texture/ops.rs` |
