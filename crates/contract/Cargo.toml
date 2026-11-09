@@ -78,6 +78,10 @@ name = "backend_cuda_profiles"
 required-features = ["backend-cuda"]
 
 [[test]]
+name = "backend_cuda_reach"
+required-features = ["backend-cuda"]
+
+[[test]]
 name = "backend_cuda_request"
 required-features = ["backend-cuda"]
 
