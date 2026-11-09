@@ -403,6 +403,92 @@ ok: all rows match
 
 確かめ方: CI のワークフローの `deny` ジョブに `run: make wasm-build-check` のステップが 1 件あり、`make ci-frame-check` が `ok: ci workflow frame (8 jobs, rules F1-F6)`。
 
+### 完了の条件の確かめ（3/3）
+
+2 版のビルド・本体の全行・CI・回帰テスト・`cfg` の入口・型の置き場・依存と枠を、手元の実行と main の push の CI の出力で確かめた。結果の欄は出力をそのまま写している。
+
+- 手元: `origin/main` の `41fbbfc` の上の作業ツリー（`docs/spec` の gitlink `050073a33856cff4559718a8e760289ec3d5a65e`）
+- CI: run `42576031074`（headSha `41fbbfc68eb2169bc2b808a85908aa60cb35cb3b`・conclusion `success`）。ジョブ `make deny (cargo-deny)`（job `129023832168`・conclusion `success`）
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 2 版のビルド | `make build-profiles` | 下の (1) のブロック |
+| 2 | 本体の全行 | `make wasm-build-check` | 下の (2) のブロック |
+| 3 | CI の `deny` ジョブで本体が流れる | ジョブのログを `artifact: kind=` / `type: name=` / `record: commit=` / `ok: all rows` で絞る | 下の (3) のブロック |
+| 4 | 回帰テスト | `make test-wasm-build-check` | `test-wasm-build-check: 104 passed, 0 failed` |
+| 5 | `cfg` の入口 | `scripts/wasm-build-check.sh --cfg-only` | 下の (5) のブロック |
+| 6 | 型の置き場と `crates/` | `git grep -n "pub trait Capabilities\|pub enum CapabilityLevel" -- crates/core/src/capability.rs`、`git diff --stat 7c5a8f4 HEAD -- crates` | 下の (6) のブロック |
+| 7 | 依存・枠 | `git diff --stat 7c5a8f4 HEAD -- Cargo.toml Cargo.lock deps-approved.toml rust-toolchain.toml`、`make deps-check`、`make ci-frame-check` | 下の (7) のブロック |
+
+(1)
+
+```text
+[build-profiles.sh] wasm-abi scalar: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir <repo>/target
+[build-profiles.sh] wasm-abi simd128: cargo build -p fandhe-silicon-wasm-abi --target wasm32-unknown-unknown --release --locked --target-dir <repo>/target/wasm32-simd128
+rc=0
+```
+
+(2)
+
+```text
+artifact: kind=scalar label=match simd128=absent bytes=300 sha256=207eab239a9a837827ce9fc92a715af8bcdd48aa2c729b2315f85af95b43952a
+artifact: kind=simd128 label=match simd128=present bytes=309 sha256=5c97560c5151429e5b122307b90d64cd49140e5c5304abb95508e4eb5602dad9
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=scalar
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=simd128
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=scalar
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=simd128
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=scalar
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=simd128
+type: name=fandhe_silicon_core::decision::Decision label=match build=scalar
+type: name=fandhe_silicon_core::decision::Decision label=match build=simd128
+cfg: sites=6 label=match
+record: commit=41fbbfc artifact=2/2 types=4/4 cfg_sites=6 not_run=0
+ok: all rows match
+rc=0
+```
+
+(3)
+
+```text
+2026-11-09T06:56:55.3527162Z artifact: kind=scalar label=match simd128=absent bytes=300 sha256=d2472cd38c42d7d8fc5602c0828c86997b91aef389ba24aa6021d39be53a4692
+2026-11-09T06:56:55.3527715Z artifact: kind=simd128 label=match simd128=present bytes=309 sha256=a72b8f08ad593936bfd0dea01e0ad35ab538d5f11f51b75e8d1debb5c7bdc1dd
+2026-11-09T06:56:55.3528155Z type: name=fandhe_silicon_core::capability::Capabilities label=match build=scalar
+2026-11-09T06:56:55.3528436Z type: name=fandhe_silicon_core::capability::Capabilities label=match build=simd128
+2026-11-09T06:56:55.3528716Z type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=scalar
+2026-11-09T06:56:55.3528992Z type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=simd128
+2026-11-09T06:56:55.3529263Z type: name=fandhe_silicon_core::decision::DecisionInput label=match build=scalar
+2026-11-09T06:56:55.3529531Z type: name=fandhe_silicon_core::decision::DecisionInput label=match build=simd128
+2026-11-09T06:56:55.3529798Z type: name=fandhe_silicon_core::decision::Decision label=match build=scalar
+2026-11-09T06:56:55.3530046Z type: name=fandhe_silicon_core::decision::Decision label=match build=simd128
+2026-11-09T06:56:55.3530434Z record: commit=41fbbfc artifact=2/2 types=4/4 cfg_sites=6 not_run=0
+2026-11-09T06:56:55.3530620Z ok: all rows match
+```
+
+(5)
+
+```text
+cfg: sites=6 label=match
+record: commit=41fbbfc mode=cfg-only cfg_sites=6 not_run=0
+ok: all rows match
+rc=0
+```
+
+(6)
+
+```text
+crates/core/src/capability.rs:54:pub enum CapabilityLevel {
+crates/core/src/capability.rs:118:pub trait Capabilities {
+git diff --stat 7c5a8f4 HEAD -- crates: 出力なし
+```
+
+(7)
+
+```text
+git diff --stat 7c5a8f4 HEAD -- Cargo.toml Cargo.lock deps-approved.toml rust-toolchain.toml: 出力なし
+make deps-check: rc=0
+make ci-frame-check: ok: ci workflow frame (8 jobs, rules F1-F6)
+```
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
