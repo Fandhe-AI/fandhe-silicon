@@ -69,7 +69,7 @@ fandhe-silicon/
 ├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方・今の値の補い（base dd1a116）（TASK-769）
 ├── docs/compute-encoder-lifetime-check.md  # compute の記録先の借用の寿命と定数の渡し方の試験の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d）（TASK-772）
 ├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-2956）
-├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）・作る操作の行の能力の問合せ（1/2）（TASK-150）
+├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）・作る操作の行の能力の問合せ（1/2）・作る操作の行の鍵の完了の条件の確かめ（2/2）（TASK-150）
 ├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い・今の値の補い（base 2f36d3d）（TASK-837）
 ├── docs/render-pass-types.md  # 描画パスの状態の値の型と範囲つきの描画の範囲の型と検査の所在と、記録の所在・描画パスの状態の値の型と範囲の型と検査（1/4）・描画パスの状態を設定する操作と試験用の device の返し（2/4）・外の crate からの試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2f36d3d）（TASK-838）
