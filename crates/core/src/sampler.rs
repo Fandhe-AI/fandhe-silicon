@@ -92,6 +92,64 @@ pub enum SamplerBorderColor {
     Zero,
 }
 
+/// サンプラーの比較関数の値。
+///
+/// `Default` を実装しない。外の crate の `match` には `_` の腕が要る。
+///
+/// ```compile_fail,E0599
+/// use fandhe_silicon_core::sampler::CompareFunction;
+/// let _ = CompareFunction::default();
+/// ```
+///
+/// ```compile_fail,E0004
+/// use fandhe_silicon_core::sampler::CompareFunction;
+/// fn name(c: CompareFunction) -> &'static str {
+///     match c {
+///         CompareFunction::Never => "never",
+///         CompareFunction::Less => "less",
+///         CompareFunction::Equal => "equal",
+///         CompareFunction::LessEqual => "less-equal",
+///         CompareFunction::Greater => "greater",
+///         CompareFunction::NotEqual => "not-equal",
+///         CompareFunction::GreaterEqual => "greater-equal",
+///         CompareFunction::Always => "always",
+///     }
+/// }
+/// ```
+///
+/// ```
+/// use fandhe_silicon_core::sampler::CompareFunction;
+/// fn name(c: CompareFunction) -> &'static str {
+///     match c {
+///         CompareFunction::Never => "never",
+///         CompareFunction::Always => "always",
+///         _ => "other",
+///     }
+/// }
+/// assert_eq!(name(CompareFunction::Never), "never");
+/// assert_eq!(name(CompareFunction::Less), "other");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CompareFunction {
+    /// 常に偽（TEX-96）。
+    Never,
+    /// より小さい（TEX-97）。
+    Less,
+    /// 等しい（TEX-98）。
+    Equal,
+    /// 以下（TEX-99）。
+    LessEqual,
+    /// より大きい（TEX-100）。
+    Greater,
+    /// 等しくない（TEX-101）。
+    NotEqual,
+    /// 以上（TEX-102）。
+    GreaterEqual,
+    /// 常に真（TEX-103）。
+    Always,
+}
+
 /// サンプラーを作るときに渡す指定の組（TEX-39 のポインタ）。
 ///
 /// 値は検査せず、どの欄もどの値でも保持する。`default()` の後に欄を書き換えて作る。
@@ -136,6 +194,8 @@ pub struct SamplerDescriptor<'a> {
     pub lod_min_clamp: f32,
     /// LOD の上限（TEX-94）。
     pub lod_max_clamp: f32,
+    /// 比較関数。
+    pub compare: Option<CompareFunction>,
     /// 異方性の上限（TEX-95）。
     pub anisotropy_clamp: u16,
     /// `ClampToBorder` の軸の境界色。
@@ -143,7 +203,7 @@ pub struct SamplerDescriptor<'a> {
 }
 
 impl Default for SamplerDescriptor<'_> {
-    /// 名前なし・3 軸 `ClampToEdge`・両フィルタ `Nearest`・mip `Nearest`・LOD 0.0〜32.0・異方性 1・境界色なし。
+    /// 名前なし・3 軸 `ClampToEdge`・両フィルタ `Nearest`・mip `Nearest`・LOD 0.0〜32.0・比較関数なし・異方性 1・境界色なし。
     fn default() -> Self {
         Self {
             label: None,
@@ -155,6 +215,7 @@ impl Default for SamplerDescriptor<'_> {
             mipmap_filter: MipmapFilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,
+            compare: None,
             anisotropy_clamp: 1,
             border_color: None,
         }
@@ -384,6 +445,65 @@ mod tests {
             for (j, b) in BORDER.iter().enumerate() {
                 assert_eq!(a == b, i == j);
             }
+        }
+    }
+
+    fn compare_index(c: CompareFunction) -> usize {
+        match c {
+            CompareFunction::Never => 0,
+            CompareFunction::Less => 1,
+            CompareFunction::Equal => 2,
+            CompareFunction::LessEqual => 3,
+            CompareFunction::Greater => 4,
+            CompareFunction::NotEqual => 5,
+            CompareFunction::GreaterEqual => 6,
+            CompareFunction::Always => 7,
+        }
+    }
+
+    const COMPARE: [CompareFunction; 8] = [
+        CompareFunction::Never,
+        CompareFunction::Less,
+        CompareFunction::Equal,
+        CompareFunction::LessEqual,
+        CompareFunction::Greater,
+        CompareFunction::NotEqual,
+        CompareFunction::GreaterEqual,
+        CompareFunction::Always,
+    ];
+
+    #[test]
+    fn compare_value_count_and_indices() {
+        assert_eq!(COMPARE.len(), 8);
+        for (i, v) in COMPARE.iter().enumerate() {
+            assert_eq!(compare_index(*v), i);
+        }
+    }
+
+    #[test]
+    fn compare_values_are_pairwise_distinct() {
+        for (i, a) in COMPARE.iter().enumerate() {
+            for (j, b) in COMPARE.iter().enumerate() {
+                assert_eq!(a == b, i == j);
+            }
+        }
+    }
+
+    #[test]
+    fn descriptor_default_compare_is_none() {
+        assert_eq!(SamplerDescriptor::default().compare, None);
+    }
+
+    #[test]
+    fn descriptor_compare_set_differs_from_default() {
+        let base = SamplerDescriptor::default();
+        for c in COMPARE {
+            let d = SamplerDescriptor {
+                compare: Some(c),
+                ..SamplerDescriptor::default()
+            };
+            assert_ne!(d, base);
+            assert_eq!(d.clone(), d);
         }
     }
 }
