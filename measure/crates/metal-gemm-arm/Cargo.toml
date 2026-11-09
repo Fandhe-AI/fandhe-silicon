@@ -13,8 +13,19 @@ publish.workspace = true
 name = "fetch-kernel-source"
 path = "src/bin/fetch-kernel-source.rs"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
 
 [dependencies]
 fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.5" }
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDataType", "MTLDevice", "MTLFunctionConstantValues", "MTLLibrary", "MTLResource", "MTLTypes"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false }

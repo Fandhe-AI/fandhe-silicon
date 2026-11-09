@@ -1,3 +1,27 @@
 # 別 workspace（measure/）の依存の承認の記録。書式と検査の仕組みはルートの deps-approved.toml の先頭と
 # scripts/deps-check.sh に従う。検査は `make measure-verify` が `scripts/deps-check.sh --allow-path-root crates measure/Cargo.toml` で行う。
-# 現在の記録は 0 件。
+# 現在の記録は 3 件。
+
+[[approval]]
+name = "objc2"
+version = "=0.6.5"
+used_by = ["measure-metal-gemm-arm"]
+approved_on = "2026-11-08"
+approval_ref = "#923"
+purpose = "Metal 直接の GEMM の腕の Objective-C の呼び出し（macOS 向けだけ）"
+
+[[approval]]
+name = "objc2-metal"
+version = "=0.3.2"
+used_by = ["measure-metal-gemm-arm"]
+approved_on = "2026-11-08"
+approval_ref = "#923"
+purpose = "Metal 直接の GEMM の腕の Metal の FFI（macOS 向けだけ）"
+
+[[approval]]
+name = "objc2-core-graphics"
+version = "=0.3.2"
+used_by = ["measure-metal-gemm-arm"]
+approved_on = "2026-11-08"
+approval_ref = "#923"
+purpose = "コマンドラインのプログラムで既定の Metal の device を得るための Core Graphics のリンク（macOS 向けだけ）"

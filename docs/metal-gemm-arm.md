@@ -51,8 +51,57 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm`
 
+## Metal 直接の GEMM の腕（3/5）
+
+macOS 向けにだけ、Metal を直接呼んで門の 1 セルを 1 回だけ投入する腕を持つ。起動の表・詰め物・切り出しはどの OS でもコンパイルされる。
+
+### 所在の補い
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 依存 | `crates/core` への path に加え、macOS 向けの外部依存 3 件（`objc2`・`objc2-metal`・`objc2-core-graphics`）。記録は `measure/deps-approved.toml` | `measure/crates/metal-gemm-arm/Cargo.toml`、`make deps-check` |
+| lints | 自前の表（`unsafe_code = "deny"`、`unsafe_op_in_unsafe_fn`・`undocumented_unsafe_blocks`・`missing_safety_doc` は deny、`missing_docs` は warn） | `[lints.rust]`・`[lints.clippy]` |
+| 起動の表 | `src/launch.rs` の `launch_for(cell)`。この腕の対象のセルだけが `Some` | `tests/launch.rs` |
+| 詰め物・切り出し | `src/launch.rs` の `pad8_dim`・`pad_matrix`・`crop_matrix`。あふれと長さの食い違いは `Err` | `tests/launch.rs` |
+| 型 | `src/lib.rs` の `ArmError`（固定の英語の文言）・`PipelineFacts` | `tests/launch.rs` |
+| 橋の module | `src/metal.rs`。macOS 向けだけ。`run_g6` を `src/lib.rs` から出す | `src/lib.rs` |
+
+### 腕の手順
+
+`run_g6(cell, inputs, source)` は次の順で動き、投入は 1 回だけ。
+
+1. 腕・dtype・入力の長さを照らす。食い違いは `Err`
+2. A・B を実効の次元に詰める
+3. 既定の device を得る。無ければ `Err`
+4. コンパイルのオプションに数学モード `Safe`・関数の精度 `Precise` を設定する。設定の関数が無ければ `Err`。言語版は設定しない
+5. ソースから library を作り、function constant を当てた入口の関数を作り、pipeline を作る
+6. スレッド数が pipeline の上限を超えれば `Err`
+7. 共有のバッファに A・B を書き、C を 0 で埋める
+8. pipeline・バッファ・`setBytes`・threadgroup のメモリ長を設定して dispatch し、完了を待つ
+9. 状態が完了でなければ `Err`。完了のときだけ C を読み、M×N に切り出して返す
+
+### unsafe の置き場
+
+- `unsafe` を書くのは `src/metal.rs` だけ。`#[allow(unsafe_code)]` は `src/lib.rs` の `mod metal;` の宣言にだけ付く
+- すべての `unsafe` に `// SAFETY:` がある
+- 個数は `tests/unsafe_count.rs` の表 `EXPECTED` が固定する。表に無いファイルは全種別 0 を期待する
+
+### 試験
+
+| ファイル | 内容 |
+| -------- | ---- |
+| `tests/launch.rs` | 起動の表の行の限界と式、function constant の index、dtype ごとの入口・割り当て、詰め物と切り出しの往復と失敗、`ArmError` の文言 |
+| `tests/unsafe_count.rs` | `src/` の `unsafe` の個数と表の突き合わせ、数える道具の見本 |
+| `src/metal.rs` の `tests` | `NSString` の往復、コンパイルのオプションの設定の読み戻し、function constant の設定（macOS でだけ流れる。device は作らない） |
+
+確かめ方:
+
+- `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm`
+- `cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 2/5 | カーネルのソースの取得と照合 | #6310 |
+| 3/5 | Metal 直接の GEMM の腕 | #6311 |
