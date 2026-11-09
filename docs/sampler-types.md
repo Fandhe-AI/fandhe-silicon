@@ -152,3 +152,23 @@ make wasm-verify
 cargo test -p fandhe-silicon-core --lib sampler
 RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc sampler
 ```
+
+## 比較関数の外の crate からの試験（6/7）
+
+置き場は `crates/core/tests/sampler_types.rs`。公開のパス `fandhe_silicon_core::sampler::…` だけを使い、feature なしで流れる。`Debug` の文字列の中身と判別子の数値は固定しない。
+
+| 試験の名前 | 入力 | 期待 |
+| -- | -- | -- |
+| `descriptor_compare_default_is_none` | `SamplerDescriptor::default()` | `compare` が `None` |
+| `descriptor_compare_holds_each_value` | 8 値を順に `compare` へ設定 | 読み戻しが同じ値・既定と異なる・clone と等しい |
+| `compare_values_are_distinct` | 8 値を `HashSet` へ入れる | 要素数 8 |
+| `compare_values_match_with_wildcard` | 8 値を `_` の腕つきの `match` で写す | 宣言の順の 8 つの名前 |
+| `compare_debug_is_not_empty` | `Debug` の整形 | 空でない |
+
+`tests/sampler_types.rs` の本数は 10 から 15 になった。
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --test sampler_types
+```

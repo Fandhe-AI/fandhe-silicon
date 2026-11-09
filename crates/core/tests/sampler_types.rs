@@ -5,7 +5,8 @@
 use std::collections::HashSet;
 
 use fandhe_silicon_core::sampler::{
-    AddressMode, FilterMode, MipmapFilterMode, SamplerBorderColor, SamplerDescriptor, SamplerHandle,
+    AddressMode, CompareFunction, FilterMode, MipmapFilterMode, SamplerBorderColor,
+    SamplerDescriptor, SamplerHandle,
 };
 
 fn address_name(m: AddressMode) -> &'static str {
@@ -244,4 +245,76 @@ fn descriptor_and_handle_debug_are_not_empty() {
     // TEX-39
     assert!(!format!("{:?}", SamplerDescriptor::default()).is_empty());
     assert!(!format!("{:?}", SamplerHandle::__backend_new(1, 2, 3)).is_empty());
+}
+
+const ALL_COMPARE: [CompareFunction; 8] = [
+    CompareFunction::Never,
+    CompareFunction::Less,
+    CompareFunction::Equal,
+    CompareFunction::LessEqual,
+    CompareFunction::Greater,
+    CompareFunction::NotEqual,
+    CompareFunction::GreaterEqual,
+    CompareFunction::Always,
+];
+
+fn compare_name(c: CompareFunction) -> &'static str {
+    match c {
+        CompareFunction::Never => "never",
+        CompareFunction::Less => "less",
+        CompareFunction::Equal => "equal",
+        CompareFunction::LessEqual => "less-equal",
+        CompareFunction::Greater => "greater",
+        CompareFunction::NotEqual => "not-equal",
+        CompareFunction::GreaterEqual => "greater-equal",
+        CompareFunction::Always => "always",
+        _ => "other",
+    }
+}
+
+#[test]
+fn descriptor_compare_default_is_none() {
+    // TEX-39
+    assert_eq!(SamplerDescriptor::default().compare, None);
+}
+
+#[test]
+fn descriptor_compare_holds_each_value() {
+    let base = SamplerDescriptor::default();
+    for c in ALL_COMPARE {
+        let mut d = SamplerDescriptor::default();
+        d.compare = Some(c);
+        assert_eq!(d.compare, Some(c));
+        assert_ne!(d, base);
+        assert_eq!(d.clone(), d);
+    }
+}
+
+#[test]
+fn compare_values_are_distinct() {
+    let set: HashSet<CompareFunction> = ALL_COMPARE.into_iter().collect();
+    assert_eq!(set.len(), 8);
+}
+
+#[test]
+fn compare_values_match_with_wildcard() {
+    let names = ALL_COMPARE.map(compare_name);
+    assert_eq!(
+        names,
+        [
+            "never",
+            "less",
+            "equal",
+            "less-equal",
+            "greater",
+            "not-equal",
+            "greater-equal",
+            "always"
+        ]
+    );
+}
+
+#[test]
+fn compare_debug_is_not_empty() {
+    assert!(!format!("{:?}", CompareFunction::Never).is_empty());
 }
