@@ -59,7 +59,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 |---|---|
 | `wasm/` | wasm32 向けの別 workspace（TASK-22）。cdylib `wasm-glue`（`wasm/crates/glue/`）が `crates/contract` に path で依存する。bin `wasm-parity-host`（`wasm/crates/parity-host/`。GEMM・部分 Top-k・要素ごと演算の入力とネイティブの参照と CPU 参照をファイルに書く）が `crates/contract` と `crates/core` に path で依存する（向きは wasm/ → 製品だけ）。製品の依存グラフに入らない（ルート `exclude`）。外部依存は wasm-bindgen の 1 件（wasm32 向けにだけ宣言）。`make wasm-verify` が検査し、CI の `deny` ジョブも呼ぶ |
 | `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs`・記録のパスを引数で受けてラベルを再現するコマンド `variation-replay` を置く。検出の結果を数える crate `measure-detect`（`measure/crates/detect/`: 変異体ごとの分類・検出率の下限・上限とセルのラベル・件数を引数で受けて下限・上限を出すコマンド `detect-bounds`）と、CPU の演算の時間を腕ごとに測って記録を書く crate `measure-cpu-ops-arm`（`measure/crates/cpu-ops-arm/`: bin `cpu-ops-arm`）も置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は 0 件（`measure-perf` の試験が `crates/core` を dev-dependency で使い、`measure-cpu-ops-arm` が `crates/contract` と `crates/core` に path で依存する）。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
-| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
+| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。`make baseline-verify` が fmt / clippy / test を流す。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin のみ |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
 | `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |
@@ -79,7 +79,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い）・今の値の補い（base 5ea11ff） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
-| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方 |
+| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4） |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方・今の値の補い（base e416527） |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |
@@ -288,6 +288,7 @@ direnv allow  # direnv を使う場合のみ。.envrc の読み込みを許可�
 | `make test-ci-frame-check` | `scripts/test-ci-frame-check.sh` | `ci-frame-check` 自体の回帰テスト（合成 fixture。bash + python3。ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make public-api-check` | `scripts/public-api-check.sh` | 4 crate の公開 API に wgpu 系の crate の型・経路が出ていないことの検査（rustdoc の JSON を数え、走査した公開アイテムの数を標準出力に出す。bash + python3 + cargo + git。専用の target ディレクトリに出力しソースは変更しない・ネットワーク不要。CI の `deny` ジョブも実行する） |
 | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
+| `make baseline-verify` | `scripts/baseline-verify.sh` | 比較基準の別 workspace（`baseline-wgpu/`）の fmt --check / clippy（-D warnings）/ test（cargo。ソースは変更しない・ネットワーク不要。CI の deny ジョブも実行する） |
 | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt --check / clippy（ホストと wasm32、-D warnings）/ test / wasm32 の build / `crates/core`・`crates/exec`・`crates/upper`・`crates/contract` の試験の wasm32 型検査（exec は `fault-injection` 付きも）/ `crates/contract` の試験の wasm32 の simd128 の構成の clippy（-D warnings）/ wasm32 のコンパイル試験の検査（`scripts/wasm-compile-probe-check.sh` を呼ぶ）/ `crates/` の simd128 の cfg の検査（`scripts/wasm-build-check.sh --cfg-only` を呼ぶ）/ 依存の検査（cargo + jq。ソースは変更しない・初回は依存の取得が要る。CI の deny・wasm-macos ジョブも実行する） |
 | `make wasm-size` | `scripts/wasm-size.sh` | wasm-bindgen の glue を含めた成果物の量（gzip 後）を、ビルド設定 4 つ × 出力先 2 つの 8 組で測って閾値と比べる（bash + python3 + cargo + wasm-bindgen の CLI 0.2.128。欠けた組は not-run で終了コード 1・前提の不足は 2。ネットワーク不要。CI は `wasm-macos` ジョブが呼び、`deny` ジョブは呼ばない）。`--require-exports` を付けて呼び、期待の export（7 名）が足りない組は not-run（missing-export）、数えない余分の項目がある組は not-run（unexpected-output）で終了コード 1。`scripts/wasm-size.sh --from-dir <dir>` なら生成済みの出力だけを測る |
 | `make public-api-webgpu-check` | `scripts/public-api-webgpu-check.sh` | feature `native-blocking-wait` を外した構成で、契約のコア（`crates/core`・`crates/contract`）の公開面にブロッキング待ちの名前の公開アイテムが 0 件であること（内容の (1)）と、パイプライン生成の入力の形（`PipelineInput` の定義・`Wgsl` の variant・生成の関数の入力。内容の (2)）と、拡張 trait の feature `ext-interop` への閉じ込めと submit 系の `wait` 引数の形（内容の (3)）と、WebGPU の語を名前に含む公開の操作・型が無いこと（内容の (4)）の検査（TASK-241 のポインタ。(4) は TASK-155。あわせて `SubmitToken` を受ける公開の口を許可の一覧と照らす検査〔内容の (5)。TASK-313〕。語・名前は `public-api-webgpu-check.conf`。rustdoc の JSON は `public-api-check.sh --emit-json` で 3 回作る〔`--without-feature` で外す feature ごとに 2 回と、(5) 用に `--without-feature` なしの all-features で 1 回〕。bash + python3 + cargo + git。CI の deny ジョブも実行する） |

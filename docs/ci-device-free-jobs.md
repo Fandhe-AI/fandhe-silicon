@@ -101,6 +101,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make test-public-api-webgpu-check` | `scripts/test-public-api-webgpu-check.sh` | 上の回帰テスト（合成 JSON と一時 workspace の実物の rustdoc の JSON） |
 | `deny` | `make baseline-positive-control` | `scripts/baseline-positive-control.sh` | 比較基準の別 workspace に依存グラフの検査と公開 API の検査を当てる陽性対照（`make deny` の後のステップ。検出の件数が `record:` の行としてログに残り、狭い定義・広い定義・公開 API のどれかが 0 件なら失敗） |
 | `deny` | `make test-baseline-positive-control` | `scripts/test-baseline-positive-control.sh` | 上の回帰テスト（偽の検査で定義ごとの判定を、一時 workspace の実物の出力でも確かめる） |
+| `deny` | `make baseline-verify` | `scripts/baseline-verify.sh` | 比較基準の別 workspace（`baseline-wgpu/`）の fmt / clippy / test（回帰テストは持たない） |
 | `deny` | `make upper-layer-check` | `scripts/upper-layer-check.sh` | 上の層（`crates/upper`）と測定の workspace に 4 つの検査（unsafe の不在・チップの crate の不在・直接依存の許可リスト・測定の feature）を当てる（`make deny` の後のステップ。数えた件数が `record:` の行としてログに残り、違反があれば失敗） |
 | `deny` | `make test-upper-layer-check` | `scripts/test-upper-layer-check.sh` | 上の検査の回帰テスト（合成の入力、一時 workspace の実物の cargo metadata、実物のリポジトリの合格） |
 | `deny` | `make upper-source-check` | `scripts/upper-source-check.sh` | 上の層（`crates/upper`）のソースの字句の走査（`make deny` の後のステップ。数えた件数が `record:` の行としてログに残り、違反があれば失敗） |

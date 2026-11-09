@@ -2,7 +2,7 @@
 #
 # ローカル（`make check`）・Git hooks（lefthook.yml）・CI が同じコマンド契約を共有する。
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
-# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make exec-surface-check` / `make test-exec-surface-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make upper-layer-check` / `make test-upper-layer-check` / `make upper-source-check` / `make test-upper-source-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make wasm-build-check` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
+# 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make exec-surface-check` / `make test-exec-surface-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make baseline-verify` / `make upper-layer-check` / `make test-upper-layer-check` / `make upper-source-check` / `make test-upper-source-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make wasm-build-check` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
 # macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（TASK-158・TASK-18 の記録のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
@@ -222,7 +222,7 @@ jobs:
   deny:
     name: "make deny (cargo-deny)"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -265,6 +265,10 @@ jobs:
       - name: make baseline-positive-control
         # 比較基準（baseline-wgpu/）に依存グラフの検査と公開 API の検査を当てる陽性対照。依存を取得する `make deny` の後に置く。検出が 0 件なら失敗する
         run: make baseline-positive-control
+
+      - name: make baseline-verify
+        # 比較基準の別 workspace（baseline-wgpu/）の fmt / clippy / test。ジョブを増やさず deny ジョブで流す
+        run: make baseline-verify
 
       - name: make upper-layer-check
         # 上の層（crates/upper）と測定の workspace に 4 つの検査を当てる。ソースは変更せず、ネットワークも使わない

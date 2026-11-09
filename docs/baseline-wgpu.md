@@ -59,6 +59,12 @@ worktree のルートで実行する。
 - `cargo run --locked --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-smoke`: 別 workspace の bin のビルドと実行（ネットワークと実行環境が要る）
 - `make verify`・`make check`・`make deps-check`: 製品側の品質ゲート
 
+## CI での検査（1/4）
+
+- `make baseline-verify`（`scripts/baseline-verify.sh`）が本 workspace に `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked` を順に流す。`--all-features` は付けない
+- CI の `deny` ジョブのステップで、`make baseline-positive-control` の後・`make upper-layer-check` の前に流れる。ジョブは足していない。`deny` ジョブの `timeout-minutes` は 30
+- 確かめ方: `make baseline-verify`（記録の所在: TASK-1010）
+
 ## 関連
 
 [workspace-boundary](workspace-boundary.md)・[wgpu-baseline-record](wgpu-baseline-record.md)・[measurement-record](measurement-record.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)
