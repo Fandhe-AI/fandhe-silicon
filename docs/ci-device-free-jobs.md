@@ -226,6 +226,14 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 | -- | ----------------- | -------------- |
 | `:134` の `cfg:` の行 | `sites=5 label=match`（`cfg_sites=5`）→ `sites=6 label=match`（`cfg_sites=6`） | `scripts/wasm-build-check.sh --cfg-only` |
 
+## 今の値の補い（base 80164f4）
+
+記録時点の表と既存の節は書き換えない。以下は base `80164f4` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| `base ed82c18` の補いの `:134` | `sites=5` を含む `cfg:` の行は `:134` ではなく `:133` | `grep -n "sites=5 label=match" docs/ci-device-free-jobs.md` |
+
 ## 関連
 
 - 関連: TASK-18（[ci-job-split](./ci-job-split.md)。`verify-macos` は TASK-18 の記録と TASK-158 のポインタ）、TASK-23（[test-frame](./test-frame.md)）
