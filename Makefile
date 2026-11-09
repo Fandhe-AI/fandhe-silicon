@@ -40,6 +40,7 @@ deny: ## cargo deny check（advisories / bans / licenses / sources）+ path 検�
 
 measure-verify: ## 測定専用の別 workspace（measure/）の fmt --check / clippy（-D warnings）/ test / 依存の検査（cargo + jq。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/measure-verify.sh
 	@scripts/measure-verify.sh
+
 baseline-verify: ## 比較基準の別 workspace（baseline-wgpu/）の fmt --check / clippy（-D warnings）/ test（cargo。ソースは変更しない・ネットワーク不要・CI の deny ジョブも実行する）。直接: scripts/baseline-verify.sh
 	@scripts/baseline-verify.sh
 
