@@ -119,9 +119,67 @@ worktree のルートで実行する。`--ignored` は付けない。
 - `cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-mps --all-targets --locked --target aarch64-apple-darwin -- -D warnings`
 - `make baseline-verify`
 
+## 完了の条件の確かめ（3/3）
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-1011。親 #926、この節 #6327）。時点のコミットは `d7584fa`。(6) の CI は push の run `42651966699`（event `push`、conclusion `success`、headSha `d7584faa3b2a635d721812c1cd584c2511da5bb5`）。貼った出力の `Running` の行は行頭の空白を除いている。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 純粋な部分の試験 | `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test plan` | `ok. 13 passed; 0 failed; 0 ignored` |
+| 2 | unsafe の個数の試験 | `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test unsafe_count` | `ok. 7 passed; 0 failed; 0 ignored` |
+| 3 | macOS 向けの型検査 | `cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-mps --all-targets --locked --target aarch64-apple-darwin -- -D warnings` | 終了コード 0 |
+| 4 | device の要る試験の宣言 | `grep -n -A1 '#\[ignore = "touches the Metal device' baseline-wgpu/crates/mps/tests/*.rs` | 出力は (4) |
+| 5 | 依存 | `git diff --stat 55fd9c1 HEAD -- Cargo.toml Cargo.lock deps-approved.toml`、`make deny`、`make baseline-positive-control`、`grep -c '^source = "registry' baseline-wgpu/Cargo.lock` | diff は空、`make deny` は終了コード 0、`make baseline-positive-control` は終了コード 0、registry の package は `55fd9c1` で 124・`HEAD` で 124 |
+| 6 | CI | `gh run view 42651966699 --json conclusion,headSha,jobs`、`deny` ジョブのログの `make baseline-verify` の段 | run `success`、`make deny (cargo-deny)` は `success`、`make verify (fmt + clippy + test)` は `success`、`make baseline-verify` の段は `success`、出力は (6) |
+
+(1) の出力。
+
+```console
+$ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test plan
+Running tests/plan.rs (baseline-wgpu/target/debug/deps/plan-3312a56b55171038)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```console
+$ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test unsafe_count
+Running tests/unsafe_count.rs (baseline-wgpu/target/debug/deps/unsafe_count-7880abf627b47c95)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```console
+$ grep -n -A1 '#\[ignore = "touches the Metal device' baseline-wgpu/crates/mps/tests/*.rs
+baseline-wgpu/crates/mps/tests/mps_gate.rs:29:#[ignore = "touches the Metal device; run only in a dedicated device session"]
+baseline-wgpu/crates/mps/tests/mps_gate.rs-30-fn mps_gate_cell_matches_t1() {
+baseline-wgpu/crates/mps/tests/mps_gate_f32_output.rs:28:#[ignore = "touches the Metal device; run only in a dedicated device session"]
+baseline-wgpu/crates/mps/tests/mps_gate_f32_output.rs-29-fn mps_gate_cell_f32_output_runs() {
+```
+
+(6) の出力。`deny` ジョブ（job `129280409401`）のログから `make baseline-verify` の段の行を抜き、`baseline_wgpu_mps` の最初の `Running` の行から `unsafe_count` の `test result:` の行までを貼る。
+
+```console
+$ gh run view 42651966699 --job 129280409401 --log | awk -F'\t' '$2=="make baseline-verify"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //'
+Running unittests src/lib.rs (baseline-wgpu/target/debug/deps/baseline_wgpu_mps-69541977f034b15a)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/mps_gate.rs (baseline-wgpu/target/debug/deps/mps_gate-bf52fa86b23e385d)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/mps_gate_f32_output.rs (baseline-wgpu/target/debug/deps/mps_gate_f32_output-da72d31f457927d9)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/plan.rs (baseline-wgpu/target/debug/deps/plan-0e9926fec5228046)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/unsafe_count.rs (baseline-wgpu/target/debug/deps/unsafe_count-c6b4a5b254b31f11)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1011）。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | crate とセルの計画・入力の詰め替え | #6325 |
 | 2/3 | MPS の呼び出しと device の要る試験 | #6326 |
+| 3/3 | 完了の条件の確かめ | #6327 |
