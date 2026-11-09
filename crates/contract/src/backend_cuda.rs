@@ -13,6 +13,8 @@
 //! `CudaDevice` は `ComputeOps` を実装し、パイプラインの生成の口 `create_pipeline` を持つ
 //! （TASK-803 のポインタ）。
 //!
+//! 公開の `Device` からは `compute()` でこの実装へ届く（TASK-166 のポインタ）。
+//!
 //! `CommandQueue` の実装は投入の窓口で、記録先の開いている集合と投入済みの表を持つ（TASK-604 のポインタ）。
 //!
 //! `free` したバッファは stream にゼロ化を積んでから再利用の一覧の待つ側に入り、`allocate` の入口で
@@ -1654,6 +1656,10 @@ impl Device for CudaDevice {
             adapter_name: self.adapter_name.clone(),
             backend_name: BACKEND_NAME,
         }
+    }
+    /// `create_pipeline` を持つ `ComputeOps` の実装（この型自身）を返す（TASK-166 のポインタ）。
+    fn compute(&self) -> Option<&dyn ComputeOps> {
+        Some(self)
     }
     /// 実行時の判定なしに、この device の相互運用の操作を返す。
     #[cfg(feature = "ext-interop")]
