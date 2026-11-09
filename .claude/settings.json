@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'fandhe-silicon: 日本語でやりとり / 作業は subagent へ委譲し main 消費を抑える (delegation.md, delegation-impl.md) / Conventional Commits 厳守 (--no-verify 禁止) / docs/spec (private) の本文を public 資産へ転記しない (spec-confidentiality.md) / 依存追加はユーザー承認 + =x.y.z 完全固定・wgpu 非依存 (dependency-policy.md) / unsafe は FFI 境界と cpu_ops の NEON の module に閉じ SAFETY 必須 (coding-rust.md) / implement-issue は計画承認後に実装'"
+            "command": "echo 'fandhe-silicon: 日本語でやりとり / 作業は subagent へ委譲し main 消費を抑える (delegation.md, delegation-impl.md) / Conventional Commits 厳守 (--no-verify 禁止) / docs/spec (private) の本文を public 資産へ転記しない (spec-confidentiality.md) / 依存追加はユーザー承認 + =x.y.z 完全固定・wgpu 非依存 (dependency-policy.md) / unsafe は FFI 境界・cpu_ops の NEON の module・比較の腕の crate に閉じ SAFETY 必須 (coding-rust.md) / implement-issue は計画承認後に実装'"
           }
         ]
       }

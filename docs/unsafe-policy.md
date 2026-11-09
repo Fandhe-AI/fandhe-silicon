@@ -19,12 +19,20 @@
 
 ## `unsafe` を置ける場所
 
-- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
+- 置けるのは `crates/contract/src/backend_<名前>.rs` と `crates/contract/src/backend_<名前>/` 配下と、`crates/contract/src/cpu_ops/neon.rs`（aarch64 の NEON の組み込み関数を呼ぶ橋）と、後述の比較の腕の crate だけ（[coding-rust](../.claude/rules/coding-rust.md)、AP-8 のポインタ）
 - `core`・`exec`・`upper` は `#![forbid(unsafe_code)]` でコンパイラが拒否する
 - `contract` の中の守り
     - 一次の守り: `crates/contract/src/lib.rs` の crate 直下に `#![deny(unsafe_code)]` を置き、`pub mod backend_<名前>;` の宣言と `cpu_ops.rs` の `mod neon;` の宣言にだけ `#[allow(unsafe_code)]` を付ける。backend と `cpu_ops/neon.rs` の外のファイルに `unsafe` を書くとビルドが失敗する（`forbid` は `allow` で外せないので `deny` を使う）
     - 二次の守り: 個数テストの枠（後述）が、`backend_<名前>/` 配下で期待値の表に無いファイルと、backend と `cpu_ops/neon.rs` の外のファイルの `unsafe` を検出する
     - `cpu_ops/neon.rs` は上の 2 つの守りの対象で、個数の期待値の表を `tests/cpu_ops_neon_unsafe_count.rs` に持つ。`#[allow(unsafe_code)]` は `cpu_ops.rs` の `mod neon;` の宣言だけに付ける。この module の変更は小節「承認」の PR ごとの承認を要する
+- 比較の腕の crate（`baseline-wgpu/crates/`・`measure/crates/` の下で、下位の API〔Metal・MPS・wgpu の実験的な機能〕を呼ぶ橋。TASK-1008〜1011 のポインタ）にも置ける。製品の workspace（`crates/`）の範囲は変えない
+    - `baseline-wgpu/`・`measure/` は製品の workspace の外の別 workspace（ルート `Cargo.toml` の `exclude`）で、腕の crate は `publish = false`。製品の crate（`crates/`）は腕の crate に依存しない（向きは測定・比較 → 製品の一方向。[poc-carry-over](../.claude/rules/poc-carry-over.md)）。したがって製品の crate の `#![forbid(unsafe_code)]`・置き場の制限・公開 API の safe の約束は変わらず、上位ライブラリの依存グラフに腕の crate の `unsafe` は入らない
+    - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints.rust]`・`[lints.clippy]` で `unsafe_code = "deny"` とし、`unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` の deny と、その workspace のほかの lints も明記して保つ。`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける
+    - すべての `unsafe` に `// SAFETY:` を書く（`unsafe fn` は `/// # Safety`）。公開 API は safe なラッパーにする
+    - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う
+    - 比較の腕の crate で `#[allow(unsafe_code)]` を付ける PR（橋の module を 1 つ置く最初の PR を含む）と、その範囲を変える PR は、小節「承認」の PR ごとの承認を要し、包括の承認の対象にしない。承認のコメントは、その PR か、その PR が閉じる子の Issue に置いてよい（実装の前に置ける）。コメントには対象の crate と module（または関数）と承認日を書き、PR 本文から承認のコメントへリンクする
+    - 腕の crate ごとに `allow` を付けるのは、下位の API を呼ぶ橋の module 1 つだけにする。2 つ目の module や橋の外の関数への `allow`、腕の crate の外への置き場の変更、数える道具の変更は、この制限を超える変更として同じ PR ごとの承認を要する
+    - 腕の crate の `unsafe` の個数だけが増える PR（`allow` の範囲が変わらないもの）のマージは、小節「承認」の既存の仕組み（PR ごとの承認、または包括の承認）に従う
 
 ## 不変条件の書式
 
@@ -141,7 +149,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 ### してはいけないこと
 
 - 期待値だけを先に、または後から変える PR を出す
-- `#[allow(unsafe_code)]` を backend と `cpu_ops` の NEON の module 以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
+- `#[allow(unsafe_code)]` を backend・`cpu_ops` の NEON の module・比較の腕の crate の下位の API を呼ぶ module（または関数）以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
 - 個数テストを `#[ignore]` や cfg で外す、検査を弱める
 - `git commit --no-verify` を使う
 - 文書・README・コメントに個数の値や変化の履歴を持つ
@@ -155,7 +163,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
     - 包括の承認の下でマージする PR は、手順 7 の security-auditor と reviewer のレビューに P0・P1 の指摘が無く、PR 本文に増減の表と包括の承認のコメントへのリンクがあること。どれかを欠く PR は、PR ごとの承認を待つ
     - 数える道具の変更と `#[allow(unsafe_code)]` の範囲の変更は、守りそのものを弱めうるため、包括の承認の対象にしない（PR ごとの承認だけ）
 - レビュー（手順 7）で足りる変更: 個数の減少、個数 0 の行の追加
-- 記録は PR 本文の増減の表と、PR 上の承認または包括の承認のコメントへのリンクに置く。数値を別のファイルに二重に持たない
+- 記録は PR 本文の増減の表と、PR 上の承認または包括の承認のコメントへのリンクに置く（PR ごとの承認は、その PR が閉じる子の Issue のコメントへのリンクでもよい）。数値を別のファイルに二重に持たない
 - 検査の限界: 個数テストは表と実物の一致だけを見る。承認が本物かは判定できない。期待値のテストファイルに所有者レビューを必須にする設定はリポジトリ設定で、本書では変えない
 - この規則を機械で守る仕組みは無い
 
