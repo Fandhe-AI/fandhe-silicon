@@ -297,6 +297,79 @@ rc=1
 | -- | ----------------- | -------------- |
 | 完了の条件の確かめの 6 の行（`:217`） | `7 passed` → `17 passed`（走査の項目 (i) と陽性対照 4 本が増えた） | `cargo test -p fandhe-silicon-contract --test cpu_ops_build_selection` |
 
+## 依存の crate の型の照合と本体の CI での実行（TASK-237）
+
+記録の正は private spec 側（`docs/spec/05-tasks.md` の TASK-237 のポインタ）。
+
+### 依存の crate の rustdoc JSON での型の照合（1/3）
+
+`scripts/wasm-build-check.sh` の `type:` の行は、`crates/wasm-abi` の依存の crate も含めて作った rustdoc JSON で型を照合する。
+
+`cargo doc` の呼び方（2 版で共通。`--no-deps` は付けない）:
+
+| 項目 | scalar 版 | simd128 版 |
+| ---- | --------- | ---------- |
+| コマンド | `cargo doc --release --locked -p fandhe-silicon-wasm-abi --no-default-features --features contract-core,cpu-isa,cpu-ops --target wasm32-unknown-unknown` | 同左 |
+| rustdoc の指定（`CARGO_ENCODED_RUSTDOCFLAGS`） | `-Zunstable-options --output-format json` | 左に `-C target-feature=+simd128` を足す |
+| rustc の指定（`CARGO_ENCODED_RUSTFLAGS`） | 渡さない | `-C target-feature=+simd128` |
+| 出力の置き場（`--target-dir`） | `<target_directory>/wasm-build-check/rustdoc-scalar` | `<target_directory>/wasm-build-check/rustdoc-simd128` |
+| JSON の置き場 | `<置き場>/wasm32-unknown-unknown/doc/<crate 名>.json` | 同左 |
+
+流す前に JSON の置き場の `*.json` を消す。`fandhe_silicon_wasm_abi.json` が無ければ `error: rustdoc JSON was not produced`（終了コード 2）、`cargo doc` の失敗は `error: cargo doc failed`（2）。
+
+path の照らし先の規則（先頭の `::` までの語だけで決まり、別の crate を探し直さない）:
+
+| 入力 | 照らす JSON | 例 |
+| ---- | ----------- | -- |
+| 先頭が wasm-abi 以外で、置き場に JSON のある crate 名 | その crate の公開パス（先頭の語を除いた残り） | `fandhe_silicon_core::capability::Capabilities` |
+| crate 名なし、または `fandhe_silicon_wasm_abi::` 付き | wasm-abi の公開パス | `dummy_mod::Alpha` |
+| 置き場に JSON の無い crate 名 | wasm-abi の公開パス（mismatch） | `other_crate::dummy_mod::Alpha` |
+| crate 名だけ | wasm-abi の公開パス（mismatch） | `dep_crate` |
+
+`--rustdoc-dir <dir>`（回帰テスト用）は、`<crate>.json` を並べたディレクトリを cargo を呼ばずに 2 版とも使う。
+
+| 入力 | 出す行 | 終了コード |
+| ---- | ------ | ---------- |
+| `fandhe_silicon_wasm_abi.json` の無いディレクトリ | `error: cannot read rustdoc JSON` | 2 |
+| 読めない JSON を含むディレクトリ | `error: cannot read rustdoc JSON` | 2 |
+| 存在しないディレクトリ | `error: cannot read rustdoc JSON` | 2 |
+| 値の無い `--rustdoc-dir` | `usage:` | 2 |
+| `--rustdoc-json` との併用 | `usage:` | 2 |
+| `--cfg-only` との併用 | `usage:` | 2 |
+
+回帰テスト（`scripts/test-wasm-build-check.sh`）との対応:
+
+| 観点 | 行 |
+| ---- | -- |
+| 依存の crate の型と wasm-abi の型を同じ呼び出しで照らす | `dir-dep-and-root` |
+| 依存の crate に無い名前・公開でない名前 | `dir-dep-missing`・`dir-dep-non-public` |
+| 置き場に JSON の無い crate 名・crate 名だけ | `dir-crate-not-in-graph`・`dir-crate-name-only` |
+| root の JSON の欠落・読めない依存の JSON・存在しないディレクトリ | `dir-without-root-json`・`dir-bad-dep-json`・`dir-missing` |
+| 偽の cargo への呼び方（`doc`・feature・`rustdoc` を呼ばない） | `fake-doc-features` |
+| 偽の cargo 経由の依存の型・`cargo doc` の失敗 | `fake-dep-type`・`fake-doc-fails` |
+| 引数の誤用 | `misuse-rustdoc-dir-no-value`・`misuse-rustdoc-json-and-dir`・`cfg-only-misuse-rustdoc-dir` |
+| 実物の一時 workspace の依存のダミー crate（一致・不一致・simd128 だけの型） | `real-dep-type`・`real-dep-type-missing`・`real-dep-cfg-split` |
+
+本リポの現状での実行結果（GPU なしの Linux x86_64）:
+
+```text
+$ scripts/wasm-build-check.sh --require-type fandhe_silicon_core::capability::Capabilities --require-type fandhe_silicon_core::capability::CapabilityLevel --require-type fandhe_silicon_core::decision::DecisionInput --require-type fandhe_silicon_core::decision::Decision
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=scalar
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=simd128
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=scalar
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=simd128
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=scalar
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=simd128
+type: name=fandhe_silicon_core::decision::Decision label=match build=scalar
+type: name=fandhe_silicon_core::decision::Decision label=match build=simd128
+record: ... artifact=2/2 types=4/4 cfg_sites=6 not_run=0
+ok: all rows match
+```
+
+終了コードは 0。存在しない名前（`fandhe_silicon_core::capability::Nope`）や crate 名の無い `capability::Capabilities` は `label=mismatch`・`types=0/2` で、終了コードは 1。
+
+確かめ方: `make test-wasm-build-check` の最後の行が `test-wasm-build-check: 104 passed, 0 failed`。
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)

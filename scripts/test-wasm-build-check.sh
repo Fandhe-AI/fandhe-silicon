@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wasm-build-check.sh の回帰テスト（spec TASK-237・BUILD-21・BUILD-25 のポインタ。親 Issue #462 の 3/4・4/4）。
 # 合成の wasm・合成の rustdoc JSON・合成のソース・PATH の先頭に置く偽の cargo で各行の判定を確かめ、
-# 最後に一時 workspace（本体と lib.sh を写したもの）で実物の cargo による 2 版のビルドと rustdoc を通す。
+# 最後に一時 workspace（本体と lib.sh を写したもの）で実物の cargo による 2 版のビルドと rustdoc を通す（依存のダミー crate の型も照らす）。
 # 型の名前はダミーだけを使い、リポジトリのファイルは変更しない・ネットワーク不要。
 # 呼び出し元: `make test-wasm-build-check`（直接実行も可。CI の `deny` ジョブも呼ぶ）。
 # 前提: python3・cargo・wasm32-unknown-unknown の target（無ければ失敗にし、skip しない）。
@@ -119,6 +119,13 @@ doc = {
 put("f/doc.json", json.dumps(doc), "w")
 put("f/baddoc.json", "{}", "w")
 put("f/notjson.json", "not json", "w")
+for d in ("docs", "docs-no-root", "docs-bad-dep"):
+    os.makedirs(os.path.join(out, "f", d))
+put("f/docs/fandhe_silicon_wasm_abi.json", json.dumps(doc), "w")
+put("f/docs/dep_crate.json", json.dumps(doc), "w")
+put("f/docs-no-root/dep_crate.json", json.dumps(doc), "w")
+put("f/docs-bad-dep/fandhe_silicon_wasm_abi.json", json.dumps(doc), "w")
+put("f/docs-bad-dep/dep_crate.json", "{}", "w")
 
 GOOD = 'cfg(all(target_arch = "wasm32", target_feature = "simd128"))'
 srcs = {
@@ -150,7 +157,7 @@ for name, text in srcs.items():
     put("src/%s/x.rs" % name, text, "w")
 PY
 
-# 偽の cargo。引数と rustflags 系の環境を FAKE_LOG へ残し、metadata / build / rustdoc を合成の出力で済ませる。
+# 偽の cargo。引数と rustflags 系の環境を FAKE_LOG へ残し、metadata / build / doc を合成の出力で済ませる。
 mkdir "${work}/bin" "${work}/td"
 cat >"${work}/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
@@ -172,9 +179,11 @@ case "$1" in
       */scalar) cp "${FAKE_SCALAR}" "${td}/wasm32-unknown-unknown/release/fandhe_silicon_wasm_abi.wasm" ;;
       *) cp "${FAKE_SIMD}" "${td}/wasm32-unknown-unknown/release/fandhe_silicon_wasm_abi.wasm" ;;
     esac ;;
-  rustdoc)
+  doc)
+    if [ -n "${FAKE_DOC_FAIL-}" ]; then exit 101; fi
     mkdir -p "${td}/wasm32-unknown-unknown/doc"
-    cp "${FAKE_JSON}" "${td}/wasm32-unknown-unknown/doc/fandhe_silicon_wasm_abi.json" ;;
+    cp "${FAKE_JSON}" "${td}/wasm32-unknown-unknown/doc/fandhe_silicon_wasm_abi.json"
+    cp "${FAKE_JSON}" "${td}/wasm32-unknown-unknown/doc/dep_crate.json" ;;
 esac
 EOF
 chmod +x "${work}/bin/cargo"
@@ -357,6 +366,32 @@ expect "type-not-json" 2 "error: cannot read rustdoc JSON"
 run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-json "${F}/missing.json" \
   --require-type dummy_mod::Alpha
 expect "type-json-missing" 2 "error: cannot read rustdoc JSON"
+# 依存の crate の rustdoc JSON（ディレクトリに `<crate>.json` を並べる）。
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs" \
+  --require-type dep_crate::dummy_mod::Alpha --require-type dummy_mod::Alpha
+expect "dir-dep-and-root" 0 "type: name=dep_crate::dummy_mod::Alpha label=match build=scalar" \
+  "type: name=dep_crate::dummy_mod::Alpha label=match build=simd128" "type: name=dummy_mod::Alpha label=match" "types=2/2" "ok:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs" \
+  --require-type dep_crate::dummy_mod::Missing
+expect "dir-dep-missing" 1 "type: name=dep_crate::dummy_mod::Missing label=mismatch build=scalar" "types=0/1" "FAILED:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs" \
+  --require-type dep_crate::dummy_mod::Hidden
+expect "dir-dep-non-public" 1 "type: name=dep_crate::dummy_mod::Hidden label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs" \
+  --require-type other_crate::dummy_mod::Alpha
+expect "dir-crate-not-in-graph" 1 "type: name=other_crate::dummy_mod::Alpha label=mismatch" "types=0/1"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs" \
+  --require-type dep_crate
+expect "dir-crate-name-only" 1 "type: name=dep_crate label=mismatch"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs-no-root" \
+  --require-type dep_crate::dummy_mod::Alpha
+expect "dir-without-root-json" 2 "error: cannot read rustdoc JSON" "!record:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/docs-bad-dep" \
+  --require-type dummy_mod::Alpha
+expect "dir-bad-dep-json" 2 "error: cannot read rustdoc JSON" "!record:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --source-root "${S}/good" --rustdoc-dir "${F}/missing-dir" \
+  --require-type dummy_mod::Alpha
+expect "dir-missing" 2 "error: cannot read rustdoc JSON" "!record:"
 
 # 3. cfg の確かめ（合成のソース）。型は成立させ、cfg の行だけが結果を変えるようにする。
 cfg_case() {
@@ -476,13 +511,23 @@ expect_log "fake-scalar-flags" "ENC=unset" "!ENC=-Cdebuginfo=2" "!RUSTFLAGS=-C" 
 expect_log "fake-simd-flags" "ENC=-C|target-feature=+simd128"
 expect_log "fake-target-dirs" "/wasm-build-check/scalar" "/wasm-build-check/simd128" "--locked" "--target wasm32-unknown-unknown" \
   "--no-default-features --features contract-core,cpu-isa,cpu-ops"
-expect_log "fake-no-rustdoc-without-types" "!rustdoc"
+expect_log "fake-no-rustdoc-without-types" "!rustdoc" "!ARGS doc"
 run_fake --source-root "${S}/good" --require-type dummy_mod::Alpha
 expect "fake-with-types" 0 "type: name=dummy_mod::Alpha label=match" "ok:"
-expect_log "fake-rustdoc-bootstrap" "ARGS rustdoc" "BOOT=1" "--output-format json" "--target wasm32-unknown-unknown" "/wasm-build-check/rustdoc-scalar" \
-  "/wasm-build-check/rustdoc-simd128"
-expect_log "fake-rustdoc-release" "ARGS rustdoc" "--release"
-expect_log "fake-rustdoc-simd-flags" "RDENC=-C|target-feature=+simd128"
+expect_log "fake-rustdoc-bootstrap" "ARGS doc" "BOOT=1" "RDENC=-Zunstable-options|--output-format|json" "--target wasm32-unknown-unknown" \
+  "/wasm-build-check/rustdoc-scalar" "/wasm-build-check/rustdoc-simd128"
+expect_log "fake-rustdoc-release" "ARGS doc --release"
+expect_log "fake-rustdoc-simd-flags" "RDENC=-Zunstable-options|--output-format|json|-C|target-feature=+simd128"
+expect_log "fake-doc-features" "ARGS doc --release --locked" "-p fandhe-silicon-wasm-abi --no-default-features --features contract-core,cpu-isa,cpu-ops" \
+  "!ARGS rustdoc"
+run_fake --source-root "${S}/good" --require-type dep_crate::dummy_mod::Alpha
+expect "fake-dep-type" 0 "type: name=dep_crate::dummy_mod::Alpha label=match build=scalar" \
+  "type: name=dep_crate::dummy_mod::Alpha label=match build=simd128" "types=1/1" "ok:"
+rc=0
+FAKE_DOC_FAIL=1 PATH="${work}/bin:${PATH}" FAKE_LOG="${work}/fake.log" FAKE_TD="${work}/td" FAKE_SCALAR="${work}/f/scalar.wasm" \
+  FAKE_SIMD="${work}/f/simd.wasm" FAKE_JSON="${work}/f/doc.json" "${TOOL}" --source-root "${S}/good" --require-type dummy_mod::Alpha \
+  >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "fake-doc-fails" 2 "error: cargo doc failed" "!record:"
 rc=0
 FAKE_FAIL=1 PATH="${work}/bin:${PATH}" FAKE_LOG="${work}/fake.log" FAKE_TD="${work}/td" "${TOOL}" --source-root "${S}/good" \
   >"${OUT_F}" 2>"${ERR_F}" || rc=$?
@@ -495,17 +540,23 @@ run_case --from-dir "${F}/scalar.wasm"
 expect "misuse-from-dir-missing-arg" 2 "usage:"
 run_case --require-type
 expect "misuse-require-type-no-value" 2 "usage:"
+run_case --rustdoc-dir
+expect "misuse-rustdoc-dir-no-value" 2 "usage:"
+run_case --from-dir "${F}/scalar.wasm" "${F}/simd.wasm" --rustdoc-json "${F}/doc.json" --rustdoc-dir "${F}/docs" --require-type dummy_mod::Alpha
+expect "misuse-rustdoc-json-and-dir" 2 "usage:" "!record:"
+run_case --cfg-only --rustdoc-dir "${F}/docs"
+expect "cfg-only-misuse-rustdoc-dir" 2 "usage:" "!record:"
 
 # 5. 実物の 1 組: 本体と lib.sh を一時 workspace へ写し、実物の cargo で 2 版のビルドと rustdoc を通す。
 ws="${work}/ws"
-mkdir -p "${ws}/scripts" "${ws}/crates/wasm-abi/src"
+mkdir -p "${ws}/scripts" "${ws}/crates/wasm-abi/src" "${ws}/dep/src"
 cp "${DIR}/wasm-build-check.sh" "${DIR}/lib.sh" "${ws}/scripts/"
 if [ -f "${DIR}/../rust-toolchain.toml" ]; then
   cp "${DIR}/../rust-toolchain.toml" "${ws}/rust-toolchain.toml"
 fi
 cat >"${ws}/Cargo.toml" <<'EOF'
 [workspace]
-members = ["crates/wasm-abi"]
+members = ["crates/wasm-abi", "dep"]
 resolver = "2"
 EOF
 cat >"${ws}/crates/wasm-abi/Cargo.toml" <<'EOF'
@@ -517,10 +568,30 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[dependencies]
+dep-crate = { path = "../../dep" }
+
 [features]
 contract-core = []
 cpu-isa = []
 cpu-ops = []
+EOF
+cat >"${ws}/dep/Cargo.toml" <<'EOF'
+[package]
+name = "dep-crate"
+version = "0.0.0"
+edition = "2021"
+EOF
+cat >"${ws}/dep/src/lib.rs" <<'EOF'
+//! 実物の確かめ用の依存のダミー crate（wasm-abi は再公開しない）。
+pub mod inner {
+    /// 依存の crate のダミーの公開型。
+    pub struct Beta;
+}
+
+/// simd128 版にだけ在る依存のダミーの型。
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+pub struct DepSimdOnly;
 EOF
 cat >"${ws}/crates/wasm-abi/src/lib.rs" <<'EOF'
 //! 実物の確かめ用のダミー crate。
@@ -564,6 +635,22 @@ rc=0
   >"${OUT_F}" 2>"${ERR_F}" || rc=$?
 expect "real-cfg-split-types" 1 "type: name=SimdOnly label=match build=simd128" "type: name=SimdOnly label=mismatch build=scalar" \
   "type: name=ScalarOnly label=match build=scalar" "type: name=ScalarOnly label=mismatch build=simd128" "types=0/2"
+
+rc=0
+(cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type dep_crate::inner::Beta \
+  --require-type dummy_mod::Alpha) >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "real-dep-type" 0 "type: name=dep_crate::inner::Beta label=match build=scalar" "type: name=dep_crate::inner::Beta label=match build=simd128" \
+  "types=2/2" "ok:"
+rc=0
+(cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type dep_crate::inner::Nope \
+  --require-type inner::Beta) >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "real-dep-type-missing" 1 "type: name=dep_crate::inner::Nope label=mismatch build=scalar" "type: name=inner::Beta label=mismatch build=scalar" \
+  "types=0/2" "FAILED:"
+rc=0
+(cd "${ws}" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS scripts/wasm-build-check.sh --require-type dep_crate::DepSimdOnly) \
+  >"${OUT_F}" 2>"${ERR_F}" || rc=$?
+expect "real-dep-cfg-split" 1 "type: name=dep_crate::DepSimdOnly label=match build=simd128" "type: name=dep_crate::DepSimdOnly label=mismatch build=scalar" \
+  "types=0/1"
 
 echo "test-wasm-build-check: ${passed} passed, ${failed} failed" >&2
 if [ "${failed}" -ne 0 ]; then
