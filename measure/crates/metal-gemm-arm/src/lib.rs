@@ -6,6 +6,7 @@
 //!
 //! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g6` を出す。
 //! `unsafe` を書くのは `src/metal.rs` だけで、個数は `tests/unsafe_count.rs` の表が固定する。
+//! 門の 1 セルを device で流す試験は `tests/gate.rs` にあり、`#[ignore]` 付き。
 
 use std::fmt;
 

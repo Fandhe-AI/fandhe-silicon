@@ -99,9 +99,34 @@ macOS 向けにだけ、Metal を直接呼んで門の 1 セルを 1 回だけ�
 - `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm`
 - `cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
 
+## 門の run の device の試験（4/5）
+
+門の 1 セルを腕で流す試験と、照合に合わないソースの拒否の試験を、macOS 向けに置く。どれも `#[ignore]` 付きで、device の要る専用の回でだけ `--ignored` で流す。既定の `cargo test` では流れない。
+
+| ファイル | 試験 | 期待 |
+| -------- | ---- | ---- |
+| `tests/gate.rs` | 選ばれた 1 セルを枠の `run_selected_from_env` に腕を渡して流す | 出力が参照とビットで一致し、比べに外れが無い。検証レイヤーの下で流れる。pipeline の 2 つの値を標準出力に出し、起動の表の値と照らす |
+| `tests/device.rs` | 照合に合わないソースの拒否 | `load_source` は `DigestMismatch`、`run_g6` は `SourceMismatch` を返す |
+
+- `tests/gate.rs` は 1 つのテストのバイナリにつき 1 回だけの枠の入口を使うので、試験は 1 本だけ
+- 照合済みのソースのパスは環境変数で渡す。値は表示にもエラーにも出さない。ソースは bin `fetch-kernel-source` で repo の外に書く
+- 選ばれていない・不正・2 回目は失敗にし、成功や skip にしない
+
+流すときの形:
+
+```text
+FANDHE_SILICON_G6_SOURCE=<repo の外のソースのパス> scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate -- --ignored
+```
+
+確かめ方:
+
+- `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm`（macOS では 2 つの試験のバイナリが ignored を数える。Linux では 0 本）
+- `cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 2/5 | カーネルのソースの取得と照合 | #6310 |
 | 3/5 | Metal 直接の GEMM の腕 | #6311 |
+| 4/5 | 門の run の device の試験 | #6312 |
