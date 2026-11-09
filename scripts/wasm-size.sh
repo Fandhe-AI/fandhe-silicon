@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # wasm-bindgen の glue を含めた成果物の量（gzip 後の合計）を、組ごとに測って閾値と比べる
-# （spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6。TASK-247・親 Issue #467 の 1/4 で内訳の出力と --require-exports を、2/4 で成果物の素性の出力を足した）。
-# 呼び出し元: `make wasm-size`（手元と、CI の `wasm-macos` ジョブ。CI の `deny` ジョブは wasm-bindgen の CLI が無いので呼ばない）。
+# （spec TASK-22・BUILD-42・T-12 のポインタ。親 Issue #368 の 3/6。TASK-247・親 Issue #467 の 1/4 で内訳の出力と --require-exports を、2/4 で成果物の素性の出力を足し、5/6 で `make wasm-size` が `--require-exports` を付けて呼ぶ形にした）。
+# 呼び出し元: `make wasm-size`（`--require-exports` 付き。手元と、CI の `wasm-macos` ジョブ。CI の `deny` ジョブは wasm-bindgen の CLI が無いので呼ばない）。
 # 回帰テストは `make test-wasm-size`（`scripts/test-wasm-size.sh`。合成の入力だけで流れ、CLI も Node もネットワークも要らない。CI の `deny` ジョブが呼ぶ）。
 #
 # 使い方:
 #   scripts/wasm-size.sh                  wasm/ をビルドし、wasm-bindgen の CLI で glue を生成して測る
 #   scripts/wasm-size.sh --from-dir <dir> 生成済みの出力だけを測る（cargo も CLI も呼ばない。回帰テストが使う）
 #     <dir>/<ビルド設定>/<出力先>/ に glue の出力が置かれている前提。置き方は下の「組」を参照。
-#   scripts/wasm-size.sh --require-exports [--from-dir <dir>]  直接実行のみ（make ターゲットは無い）。測る成果物が期待の export を持つことも確かめる（下の「export の確かめ」）。
+#   scripts/wasm-size.sh --require-exports [--from-dir <dir>]  `make wasm-size` はこの形で呼ぶ。測る成果物が期待の export を持つことも確かめる（下の「export の確かめ」）。
 # 終了コード: 0 全部の組が測れて閾値以下 / 1 閾値超え（ng）または未実施（not-run）の組が 1 つ以上 /
 #   2 誤用・前提の不足（CLI 無し・版違い・target 無し・依存未取得を含む）・読めない入力（成功扱いにしない）
 # 標準出力: 組ごとの `size:` の行（label は ok / ng / not-run。not-run には reason）、測り終えたとき（終了コード 0 と 1）だけ
