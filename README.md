@@ -218,7 +218,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-profile-returns.md` | CUDA の背後実装の `CpuOnly`・`Graphics` の要求と鍵の一覧の外の機能 ID の返し（TASK-169）の所在と、本リポの現状の事実・プロファイルと所有形態の組の拒否と一覧の外の機能 ID（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-device-drop.md` | CUDA の背後実装の device の破棄（TASK-191）の所在と、本リポの現状の事実・device の明示の破棄の口（1/5）・`Drop` の同期と解放（2/5）・明示の破棄（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/cuda-device-reach.md` | CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-create-pipeline-checked.md` | CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4） |
+| `docs/cuda-create-pipeline-checked.md` | CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |
