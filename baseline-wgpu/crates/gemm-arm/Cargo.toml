@@ -1,6 +1,7 @@
 # 比較基準の別 workspace の、cooperative matrix の WGSL で行列積を流す腕の lib crate。
 # 依存は wgpu（完全固定。承認の記録は baseline-wgpu/deps-approved.toml）と、製品の crates/core への path（試験用の feature）だけ。
 # 依存の向きは baseline-wgpu/ → 製品だけで、製品の crate はこの crate を参照しない。
+# lints は workspace の継承をやめて自前の表を持つ（unsafe を持てるのは src/bridge.rs の 1 module だけ。TASK-1010 のポインタ）。
 [package]
 name = "baseline-wgpu-gemm-arm"
 version = "0.0.0"
@@ -14,5 +15,15 @@ publish.workspace = true
 wgpu = "=30.0.1"
 fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
 
-[lints]
-workspace = true
+[[bin]]
+name = "baseline-wgpu-gemm-gate"
+path = "src/bin/gemm-gate.rs"
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

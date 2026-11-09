@@ -3,7 +3,13 @@
 //! 製品の crate からは使われない。門の run の枠は `fandhe_silicon_core::parity::gemm_gate` を使う。
 //! この crate が持つのは WGSL の 2 本（f32 の入力と binary16 の入力）と、詰め物・切り出し・
 //! 起動の引数を作る純粋関数（[`layout`]）。
+//! device の経路（[`device`]）は wgpu で g3 のセルを 1 つ流し、bin `baseline-wgpu-gemm-gate` が
+//! 門の run の枠から 1 プロセスにつき 1 セルを呼ぶ。
 
+/// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
+#[allow(unsafe_code)]
+mod bridge;
+pub mod device;
 pub mod layout;
 
 /// f32 の A・B を読み、f32 で累積する行列積の WGSL。

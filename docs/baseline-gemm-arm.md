@@ -13,7 +13,7 @@
 | ---- | ---- | -------- |
 | 置き場 | `baseline-wgpu/crates/gemm-arm`。package は `baseline-wgpu-gemm-arm`、lib は `baseline_wgpu_gemm_arm` | `baseline-wgpu/crates/gemm-arm/Cargo.toml` |
 | 依存 | `wgpu`（`=30.0.1`）と、製品の `crates/core`（feature `test-support`）への path の 2 つだけ。`[dev-dependencies]` は無い | `baseline-wgpu/crates/gemm-arm/Cargo.toml`、`make deny` |
-| lints | `baseline-wgpu/` の workspace の lints（`unsafe_code = "forbid"`・`missing_docs = "warn"`） | `baseline-wgpu/Cargo.toml` |
+| lints | crate の自前の表（下の節「unsafe の所在」） | `baseline-wgpu/crates/gemm-arm/Cargo.toml` |
 | 流れる場所 | `make baseline-verify`（fmt --check / clippy `-D warnings` / test）に含まれる。device は使わない | `scripts/baseline-verify.sh` |
 | 門の run の枠 | `fandhe_silicon_core::parity::gemm_gate`（TASK-1005 の所在は [gemm-test-inputs](gemm-test-inputs.md)） | 同左 |
 
@@ -61,3 +61,57 @@ worktree のルートで実行する。
 - `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm`
 - `make baseline-verify`
 - `make deny`
+
+## device の経路と門の run の bin（3/4）
+
+### 要る機能と無いときの返し
+
+| セル | 要る機能（アダプタ） | 無いときの返し |
+| ---- | -------------------- | -------------- |
+| f32 | `EXPERIMENTAL_COOPERATIVE_MATRIX` | device を要求する前に `ArmError::MissingFeatures` |
+| f16acc | `EXPERIMENTAL_COOPERATIVE_MATRIX \| SHADER_F16` | 同上 |
+
+アダプタが無いときは `ArmError::NoAdapter`。別の経路で計算しない。
+
+### device の経路（`src/device.rs` の `run_g3`）
+
+| 手順 | 内容 |
+| ---- | ---- |
+| 1 | セルが g3 でなければ `ArmError::WrongArm`、dtype と入力の種類が合わなければ `ArmError::InputMismatch`（どちらも device に触れない） |
+| 2 | `GemmLayout::for_row` と `pad_*` で入力を 8 の倍数へ詰める（失敗は `ArmError::Layout`） |
+| 3 | アダプタを選び、機能を確かめてから device を要求する（失敗は `ArmError::RequestDevice`） |
+| 4 | 作成と投入を error scope（OutOfMemory と Validation）で囲み、検査つきの `create_shader_module` と明示の配置で 1 回だけ `submit` する。拒否は `ArmError::Validation`（panic しない） |
+| 5 | C を読み戻し用の buffer へ写し、`map_async` と `poll(Wait)` で読み、`crop_c` で M x N にして `GateOutput::F32` で返す（失敗は `ArmError::Readback`） |
+
+`ArmError` は `#[non_exhaustive]` で、`Display` の文言は固定の英語（wgpu のエラーの中身・アダプタの名前・入力の値を含まない）。
+
+### bin `baseline-wgpu-gemm-gate`
+
+- 環境変数 `FANDHE_SILICON_GEMM_GATE_CELL` に g3 のセルの識別名を 1 つ入れ、引数なしで起動する。1 プロセスにつき 1 セル
+- 複数のセルは `scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell g3-<行>-<dtype> -- <bin>` をセルごとに呼ぶ
+
+| 終了コード | 意味 |
+| ---------- | ---- |
+| 0 | 結果の 1 行を標準出力へ出し、比べが一致した |
+| 1 | 結果の 1 行を標準出力へ出したが、一致しない |
+| 2 | 誤用または失敗。標準出力は空で、標準エラーに固定の英語の文言だけを出す（環境変数の値・エラーの中身は出さない） |
+
+### unsafe の所在
+
+- `unsafe` を持つのは `src/bridge.rs` の関数 `experimental_features` の 1 か所だけ（`wgpu::ExperimentalFeatures::enabled()` が `unsafe fn`）
+- `#[allow(unsafe_code)]` は `src/lib.rs` の `mod bridge;` の宣言だけに付ける
+- この crate は workspace の lints を継がず、自前の `[lints.rust]`（`unsafe_code = "deny"`・`unsafe_op_in_unsafe_fn = "deny"`・`missing_docs = "warn"`）と `[lints.clippy]`（`undocumented_unsafe_blocks`・`missing_safety_doc` の deny）を持つ
+- 個数の試験は `tests/unsafe_count.rs`。期待値の表 `EXPECTED` に載せる。形は [unsafe-policy](unsafe-policy.md)
+
+### 試験（3/4）
+
+| ファイル | 流れる場所 | 確かめる事項 |
+| -------- | ---------- | ------------ |
+| `tests/unsafe_count.rs` | 既定 | `src/` の `unsafe` の個数が表どおり。数え方の見本（コメント・文字列・識別子・種別） |
+| `tests/gate_bin.rs` | 既定 | bin がセルの選択なし・不正な値・g3 以外のセル・引数ありを終了コード 2 と空の標準出力で拒否する |
+| `tests/device_gate.rs` | `#[ignore]` | g3 の 2 行 x {f32, f16acc} の 4 本を device で流し、比べが一致しビット差が 0（PARITY-36 のポインタ） |
+
+### 確かめ方
+
+- `make baseline-verify`（`device_gate` は 4 件が ignored になる）
+- device の要る回でだけ: `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test device_gate -- --ignored`
