@@ -63,6 +63,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査（[wasm32-compile-probe-check](./wasm32-compile-probe-check.md)）/ 依存の検査（回帰テストは持たない） |
+| `deny` | `make wasm-build-check` | `scripts/wasm-build-check.sh` | wasm32 の cdylib（`crates/wasm-abi`）の 2 版の成果物の判別・公開の型の存在・simd128 がビルド時の cfg で決まることを行ごとに `match` / `mismatch` / `not-run` で出す（`make wasm-verify` の後のステップ。`mismatch` か `not-run` の行があれば失敗。[wasm32-build](./wasm32-build.md)） |
 | `wasm-macos` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace の fmt / clippy / test / build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査（[wasm32-compile-probe-check](./wasm32-compile-probe-check.md)）/ 依存の検査（依存の取得もここ。後の 2 つは `--offline`） |
 | `wasm-macos` | `make wasm-size` | `scripts/wasm-size.sh` | glue 込みの量（gzip 後）を 8 組で測って閾値と比べる実物の測定 |
 | `wasm-macos` | `make wasm-node-check` | `scripts/wasm-node-check.sh` | wasm32 の `.wasm` を glue 越しに Node で呼び参照と照合する実物の実行 |
