@@ -115,7 +115,7 @@ macOS 向けにだけ、Metal を直接呼んで門の 1 セルを 1 回だけ�
 流すときの形:
 
 ```text
-FANDHE_SILICON_G6_SOURCE=<repo の外のソースのパス> scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate -- --ignored
+FANDHE_SILICON_G6_SOURCE=<repo の外のソースのパス> scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate -- --ignored --nocapture
 ```
 
 確かめ方:
