@@ -73,7 +73,9 @@ struct SplitK {
 
 /// 門の `G6` のセルを 1 回だけ投入し、出力（M×N、行優先）と pipeline の事実を返す。
 ///
-/// `source` は [`crate::source::load_source`] が照合したカーネルのソース。腕・dtype・入力の長さが
+/// `source` は投入の前に [`crate::source::verify_source`] で固定のハッシュと照らし、
+/// 一致しないときは何もコンパイルせず `Err(ArmError::SourceMismatch)` を返す（バッファの束縛の
+/// SAFETY が前提とする入口の型・アクセス範囲を、呼び出し側の約束に頼らず保つため）。腕・dtype・入力の長さが
 /// セルと食い違うとき、設定の関数が無いとき、スレッド数が pipeline の上限を超えるとき、
 /// 完了の状態が完了でないときは、device に出力を読まず `Err` を返す。
 pub fn run_g6(
@@ -84,6 +86,8 @@ pub fn run_g6(
     if cell.arm() != GemmGateArm::G6 {
         return Err(ArmError::UnsupportedCell);
     }
+    let source =
+        crate::source::verify_source(source.as_bytes()).map_err(|_| ArmError::SourceMismatch)?;
     let launch = launch_for(cell).ok_or(ArmError::UnsupportedCell)?;
     let (m, n, k) = (cell.row().m(), cell.row().n(), cell.row().k());
     if pad8_dim(m)? != launch.eff_m || pad8_dim(n)? != launch.eff_n || pad8_dim(k)? != launch.eff_k

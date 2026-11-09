@@ -56,6 +56,8 @@ pub enum ArmError {
     SubmitFailed,
     /// 寸法の計算があふれた。
     Overflow,
+    /// カーネルのソースが固定のハッシュと一致しない。
+    SourceMismatch,
 }
 
 impl fmt::Display for ArmError {
@@ -72,6 +74,7 @@ impl fmt::Display for ArmError {
             ArmError::ThreadsExceeded => "thread count exceeds the pipeline limit",
             ArmError::AllocationFailed => "allocation failed",
             ArmError::SubmitFailed => "command buffer did not complete",
+            ArmError::SourceMismatch => "kernel source differs from the pinned digest",
             ArmError::Overflow => "size computation overflowed",
         };
         f.write_str(text)
