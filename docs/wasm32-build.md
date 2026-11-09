@@ -370,6 +370,37 @@ ok: all rows match
 
 確かめ方: `make test-wasm-build-check` の最後の行が `test-wasm-build-check: 104 passed, 0 failed`。
 
+### CI の deny ジョブでの本体の実行（2/3）
+
+`make wasm-build-check` は CI の `deny` ジョブで、`make wasm-verify` の後のステップとして流れる。
+
+| ジョブ | ステップ | 流すもの |
+| ------ | -------- | -------- |
+| `deny` | `make wasm-build-check` | `scripts/wasm-build-check.sh` に `Makefile` が渡す 4 つの `--require-type`（`fandhe_silicon_core::capability::Capabilities`・`fandhe_silicon_core::capability::CapabilityLevel`・`fandhe_silicon_core::decision::DecisionInput`・`fandhe_silicon_core::decision::Decision`） |
+
+手元の出力（GPU なしの Linux x86_64）:
+
+```text
+$ make wasm-build-check
+artifact: kind=scalar label=match simd128=absent bytes=300 sha256=207eab239a9a837827ce9fc92a715af8bcdd48aa2c729b2315f85af95b43952a
+artifact: kind=simd128 label=match simd128=present bytes=309 sha256=5c97560c5151429e5b122307b90d64cd49140e5c5304abb95508e4eb5602dad9
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=scalar
+type: name=fandhe_silicon_core::capability::Capabilities label=match build=simd128
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=scalar
+type: name=fandhe_silicon_core::capability::CapabilityLevel label=match build=simd128
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=scalar
+type: name=fandhe_silicon_core::decision::DecisionInput label=match build=simd128
+type: name=fandhe_silicon_core::decision::Decision label=match build=scalar
+type: name=fandhe_silicon_core::decision::Decision label=match build=simd128
+cfg: sites=6 label=match
+record: ... artifact=2/2 types=4/4 cfg_sites=6 not_run=0
+ok: all rows match
+```
+
+終了コードは 0。
+
+確かめ方: CI のワークフローの `deny` ジョブに `run: make wasm-build-check` のステップが 1 件あり、`make ci-frame-check` が `ok: ci workflow frame (8 jobs, rules F1-F6)`。
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)

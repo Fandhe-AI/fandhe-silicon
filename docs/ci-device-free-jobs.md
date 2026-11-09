@@ -135,6 +135,8 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 
 今の値の補い（base 8c52335）: `make wasm-verify` は上の simd128 の構成の clippy の隣で、同じ feature の組（`--no-default-features --features contract-core,cpu-isa,cpu-ops,test-support`）の契約の crate の試験を simd128 なしの wasm32 でも clippy（`-D warnings`）にかける（`scripts/wasm-verify.sh`。`--target-dir` は `<target_directory>/wasm32-scalar`）。
 
+今の値の補い（base 09a69f3）: `deny` ジョブは `make wasm-verify` の後のステップで `make wasm-build-check`（全行。`Makefile` の入口が共通の crate の型の名前を `--require-type` で渡す）も呼ぶ。上の「CI が呼ばない make ターゲット」の表の `wasm-build-check` の行と、その後の段落の「`make wasm-build-check`（全行）は CI から呼ばない」は記録時点の書き方のまま。
+
 `scripts/session-record-check.sh`・`scripts/metal-session.sh`・`scripts/record-summary.sh`・`scripts/public-api-diff.sh`・`scripts/rerun-compare.sh` の本体は引数が要るため make ターゲットを持たない（各スクリプトの先頭コメントと [makefile](../.claude/rules/makefile.md)）。
 
 ## `ci-frame-check`（`scripts/ci-frame-check.sh`）
