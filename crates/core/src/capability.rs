@@ -182,3 +182,11 @@ pub trait Capabilities {
         }
     }
 }
+
+/// テクスチャを作る操作の行の能力の問合せの鍵（DEV-153。ポインタ）。
+pub const API_DEVICE_CREATE_TEXTURE: FeatureId =
+    FeatureId("api:wgpu/src/api/device.rs:create_texture:294");
+
+/// サンプラーを作る操作の行の能力の問合せの鍵（DEV-154。ポインタ）。
+pub const API_DEVICE_CREATE_SAMPLER: FeatureId =
+    FeatureId("api:wgpu/src/api/device.rs:create_sampler:489");
