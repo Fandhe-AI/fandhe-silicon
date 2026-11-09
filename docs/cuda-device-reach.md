@@ -36,7 +36,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cud
 cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test backend_cuda_reach
 ```
 
-1 行目は `1`、2・3 行目は `0 passed; 0 failed; 2 ignored`。
+1 行目は `1`、2・3 行目は `0 passed; 0 failed; 4 ignored`（2/3 の試験を足した後の数。1/3 の時点では 2）。
 
 ## 確保と記録先の作成の device の要る試験（2/3）
 
