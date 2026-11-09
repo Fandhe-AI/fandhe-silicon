@@ -49,7 +49,7 @@ fandhe-silicon/
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）・今の値の補い（base 5ea11ff）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）（TASK-7・TASK-1010）
-├── docs/baseline-gemm-arm.md  # 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）（TASK-1010）
+├── docs/baseline-gemm-arm.md  # 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）（TASK-1010）
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
 ├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base f4b9d8f）（TASK-2387）
