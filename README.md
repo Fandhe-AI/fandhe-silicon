@@ -160,8 +160,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・取り出す内容と対象・対象外の形と拒否する入力・振る舞いとテストの対応・確かめ方（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実・本リポでの反映の方針（TASK-236） |
-| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1）（TASK-18） |
-| `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方・今の値の補い（base ed82c18）（TASK-112）・今の値の補い（base 80164f4） |
+| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1）・今の値の補い（base 5fa953d）（TASK-18） |
+| `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方・今の値の補い（base ed82c18）（TASK-112）・今の値の補い（base 80164f4）・今の値の補い（base 5fa953d） |
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）・今の値の補い（base 3e32680）・`make wasm-size` の export の確かめ（TASK-247 の 5/6）・量の測り直しの記録と完了の条件の確かめ（TASK-247 の 6/6）（TASK-22） |
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 801a89d）（TASK-248） |
 | `docs/wasm32-glue-exports.md` | wasm32 の glue の export の所在と、本リポの現状の事実・行列積と ISA のビット（1/4）・要素ごとの演算（2/4）・部分 Top-k（3/4）・完了の条件の確かめ（4/4）（TASK-2957） |

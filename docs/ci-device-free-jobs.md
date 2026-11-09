@@ -261,3 +261,11 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 - [unsafe-policy](./unsafe-policy.md)
 - [github-actions](../.claude/rules/github-actions.md)・[makefile](../.claude/rules/makefile.md)・[git-hooks](../.claude/rules/git-hooks.md)
 - [spec-confidentiality](../.claude/rules/spec-confidentiality.md)
+
+## 今の値の補い（base 5fa953d）
+
+記録時点の表と既存の節は書き換えない。以下は base `5fa953d` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 上の `verify-macos` の make ターゲットの対応表 | 行は `make verify`・`make build-profiles`・`make profile-test-count-check`・`make measure-verify` → `make measure-verify` の次のステップとして `make baseline-verify`（`scripts/baseline-verify.sh`。`deny` と同じ比較基準の別 workspace `baseline-wgpu/` の fmt / clippy / test を macOS で流す。macOS 向けの module をコンパイル・lint する。回帰テストは持たない）が加わる。条件・`continue-on-error` は無く、`timeout-minutes`・check 名・`ci-complete` の `needs` は変えていない | `grep -n "run: make baseline-verify" .github/workflows/ci.yml` |
