@@ -80,7 +80,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い）・今の値の補い（base 5ea11ff） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
 | `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4） |
-| `docs/baseline-gemm-arm.md` | 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）（TASK-1010） |
+| `docs/baseline-gemm-arm.md` | 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）（TASK-1010） |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方・今の値の補い（base e416527） |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
 | `docs/parity-non-finite.md` | 有限でない値の規則（TASK-25）の所在・振る舞い・対応するテスト・確かめ方 |

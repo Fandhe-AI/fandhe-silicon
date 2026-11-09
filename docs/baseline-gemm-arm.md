@@ -115,3 +115,22 @@ worktree のルートで実行する。
 
 - `make baseline-verify`（`device_gate` は 4 件が ignored になる）
 - device の要る回でだけ: `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test device_gate -- --ignored`
+
+## 完了の条件の確かめ（4/4）
+
+TASK-1010 の 4/4（#6322）として、ここまでの成果物を本リポで観測できる事実だけで確かめた記録。環境は GPU なしの Linux。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 腕の crate が `baseline-wgpu/` の member で、製品の workspace の外にある | `baseline-wgpu/Cargo.toml` の `members`、ルート `Cargo.toml` の `exclude`、`make deny` の製品の依存グラフの検査の行 | `members = ["crates/gemm-arm", "crates/public-api", "crates/smoke"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`ok: 17 crate(s) in the dependency graph checked, no wgpu-project crates (narrow=0 wide=0)`、`make deny` の終了コード 0 |
+| 2 | WGSL の検証の試験が通る | `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test wgsl_validate` | `ok. 5 passed; 0 failed; 0 ignored` |
+| 3 | 詰め物と切り出しの試験が通る | 同 `--test layout` | `ok. 8 passed; 0 failed; 0 ignored` |
+| 4 | bin の誤用の試験が通る | 同 `--test gate_bin` | `ok. 4 passed; 0 failed; 0 ignored` |
+| 5 | unsafe の個数の試験が通る | 同 `--test unsafe_count`、`grep -rn 'allow(unsafe_code)' baseline-wgpu/crates/*/src` | `ok. 7 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は 1 件（`baseline-wgpu/crates/gemm-arm/src/lib.rs` の `mod bridge;` の行） |
+| 6 | device の要る試験の本数 | 同 `--test device_gate`（`-- --ignored` は付けない） | `ok. 0 passed; 0 failed; 4 ignored` |
+| 7 | 依存の記録 | `grep -c '^\[\[approval\]\]' baseline-wgpu/deps-approved.toml`、`grep -n '^used_by' baseline-wgpu/deps-approved.toml`、`make deny` の `deps-check (baseline-wgpu/)` | 記録は 1 件、`used_by = ["baseline-wgpu-gemm-arm", "baseline-wgpu-public-api", "baseline-wgpu-smoke"]`、`ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml` |
+| 8 | CI の `deny` ジョブが呼ぶ `make baseline-verify` | `make baseline-verify` | 終了コード 0。gemm-arm の `device_gate` は `0 passed; 0 failed; 4 ignored`、`gate_bin` は 4 passed、`layout` は 8 passed、`unsafe_count` は 7 passed、`wgsl_validate` は 5 passed。ほかの target は `0 passed; 0 failed; 0 ignored` |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1010）。
+
+確かめた base は `cd916d512cef9cbcfffd5bcbc2103793e23fdd7a`、`docs/spec` の gitlink は `050073a33856cff4559718a8e760289ec3d5a65e`。
