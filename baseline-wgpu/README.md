@@ -17,6 +17,7 @@
 - `make baseline-verify`（CI の `deny` ジョブも呼ぶ）が本 workspace の fmt --check / clippy / test を流す
 - 版の記録は [docs/baseline-wgpu.md](../docs/baseline-wgpu.md) を参照
 - 本 workspace の承認の記録の検査: `make deny` が `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ（`make deps-check` はルートのみ）
+- lib crate（`crates/gemm-arm`、`baseline-wgpu-gemm-arm`）は、cooperative matrix の WGSL 2 本（f32・f16acc）と、詰め物・切り出し・起動の引数を作る純粋関数を持つ。試験用に製品の `crates/core`（feature `test-support`）へ path で依存する。device には触れない（所在は [docs/baseline-gemm-arm.md](../docs/baseline-gemm-arm.md)）
 
 ## 実行方法
 
