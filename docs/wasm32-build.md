@@ -489,6 +489,17 @@ make deps-check: rc=0
 make ci-frame-check: ok: ci workflow frame (8 jobs, rules F1-F6)
 ```
 
+## 今の値の補い（base 80164f4）
+
+記録時点の表と既存の節は書き換えない。以下は base `80164f4` で観測した今の値（実行環境は GPU なしの Linux x86_64）。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 冒頭（`:5`）の文書の範囲 | 1/4〜4/4 だけ → 今は TASK-2954 の節（1/2・2/2）と TASK-237 の節（1/3〜3/3）も含む | `grep -n "^## \|^### " docs/wasm32-build.md` |
+| 「2 版の判別・型の存在・cfg の確かめ」の `:60` の「検査の本体は手元で流す道具で CI からは呼ばない」 | 本体は CI から呼ばない → `ci.yml` の `deny` ジョブの `make wasm-build-check` のステップ（`:284`〜`:286`）が本体を呼ぶ。`base 09a69f3` の補い（`:131`）が指すのは `:128` の段落と `:146` の確かめ方の表の行だけで、`:60` は指していない | `grep -n "make wasm-build-check" .github/workflows/ci.yml`、`grep -n "本体は CI から呼ばない\|検査の本体は手元" docs/wasm32-build.md` |
+| 回帰テストの表の「偽の cargo」の行（`:89`）の「型が無ければ rustdoc を呼ばない」「rustdoc にだけ `RUSTC_BOOTSTRAP`」 | rustdoc を直接呼ぶ書き方 → 今は `cargo doc` で作る。型が無ければ `cargo doc` を呼ばない（`fake-no-rustdoc-without-types`。`!ARGS doc`）。`RUSTC_BOOTSTRAP=1` は `cargo doc` にだけ渡る（`fake-rustdoc-bootstrap`。ビルドの子には渡らず `fake-scalar-flags` が `!BOOT=1` を確かめる）。`rustdoc` を直接呼ばないことは `fake-doc-features` の `!ARGS rustdoc` | `grep -n "fake-no-rustdoc-without-types\|fake-rustdoc-bootstrap\|fake-scalar-flags\|fake-doc-features" scripts/test-wasm-build-check.sh`、`grep -n "cargo\", \"doc\"\|RUSTC_BOOTSTRAP" scripts/wasm-build-check.sh` |
+| `scripts/wasm-build-check.sh` の先頭コメント（`:3`） | 3/4・4/4 だけ → TASK-237 の 1/3〜3/3 も挙げる（コメントだけの変更） | `sed -n 3p scripts/wasm-build-check.sh` |
+
 ## 関連
 
 - [wasm32-compile-probe-check](wasm32-compile-probe-check.md)
