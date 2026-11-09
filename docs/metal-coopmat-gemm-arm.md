@@ -95,9 +95,32 @@ macOS 向けに `run_g7`（`src/metal.rs`）が、MSL を metallib にして読�
 
 確かめ方（macOS で）: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test coopmat_macos`・`--test unsafe_count`
 
+## 門の run の device の試験（3/4）
+
+macOS 向けに、門の 1 セルを枠の `run_selected_from_env` に `run_g7` を渡して流す試験を `#[ignore]` 付きで置く。device の要る専用の回でだけ `--ignored` で流し、既定の `cargo test` では流れない。
+
+| ファイル | 試験 | 期待 |
+| -------- | ---- | ---- |
+| `tests/gate_g7.rs` | 選ばれた 1 セルを `run_g7` で流す（腕が `G7` でないセルは `UnsupportedCell`） | セルの腕が `G7`、`bit_mismatches()` が 0、`max_abs_diff()` が 0.0、`comparison().is_match()`、`validation_layer()` が真、`max_total_threads_per_threadgroup` が 32 以上。標準出力に結果の行・`metallib_sha256=<64 桁の小文字の 16 進>`・`max_total_threads_per_threadgroup=<値>` を 1 行ずつ出す |
+
+- 試験は 1 本だけ（枠の入口が 1 つのテストのバイナリにつき 1 回のため）
+- 環境変数で成果物を渡さない（metallib は腕が作る）
+- 標準エラーには何も書かない
+- metallib の sha256 は出力するだけで、期待の値とは比べない
+- offline compiler は環境を引き継いで `/usr/bin/xcrun` で呼ぶので、`DEVELOPER_DIR` の Xcode のものが使われる
+
+流すときの形:
+
+```text
+scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g7 -- --ignored --nocapture
+```
+
+確かめ方: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g7`（macOS では `1 ignored`、Linux では 0 本）・`cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | MSL と起動の形 | #6315 |
 | 2/4 | metallib の作成と腕の手順 | #6316 |
+| 3/4 | 門の run の device の試験 | #6317 |
