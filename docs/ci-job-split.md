@@ -65,3 +65,11 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 表の行 | 前の値 → 今の値 | 確かめ方 |
 | ------ | --------------- | -------- |
 | 本リポの CI の現状の `verify-macos` ジョブの「呼んでいるもの」 | 列は `make verify`・`make build-profiles`・`make profile-test-count-check` → 続けて `make measure-verify`（`ci.yml` の 537〜539 行目。`profile-test-count-check` の次のステップ）。`deny` ジョブの `make measure-verify`（283 行目）も残っている | `grep -n 'run: make measure-verify' .github/workflows/ci.yml`（283・539 行目が返る） |
+
+## 今の値の補い（base 5fa953d）
+
+記録時点の表と既存の節は書き換えない。以下は base `5fa953d` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| `verify-macos` の「呼ぶ make」 | 列は `make verify`・`make build-profiles`・`make profile-test-count-check` → 続けて `make measure-verify` の次のステップに `make baseline-verify`（比較基準の別 workspace の fmt / clippy / test）がある。`deny` ジョブの同じステップも残っている | `grep -n 'run: make baseline-verify' .github/workflows/ci.yml`（`deny` ジョブと `verify-macos` ジョブの 2 件が返る） |

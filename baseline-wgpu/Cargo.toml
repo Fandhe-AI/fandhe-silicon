@@ -2,7 +2,7 @@
 #
 # 基盤の workspace（ルートの Cargo.toml）とは独立しており、ここの依存は基盤の依存グラフに入らない。
 # ルート側は exclude で切り離し、本 workspace は自身の [workspace] で上方探索を止める。
-# 外部依存は wgpu のみ（`=x.y.z` 完全固定。承認の記録は deps-approved.toml。.claude/rules/dependency-policy.md）。
+# 外部依存は wgpu と、crates/mps が macOS 向けだけで持つ objc2 系 3 件（どれも `=x.y.z` 完全固定。承認の記録は deps-approved.toml。.claude/rules/dependency-policy.md）。
 # 依存の追加・更新もユーザー承認が要る。`make deny`（scripts/deny.sh）は本 workspace に baseline-wgpu/deny.toml で
 # cargo-deny をかけ、deps-check.sh で承認の記録を検査する（ビルドはしない）。
 [workspace]
