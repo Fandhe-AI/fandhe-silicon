@@ -7,13 +7,14 @@
 #
 # 使い方:
 #   scripts/wasm-build-check.sh [--require-type <path>]... [--from-dir <scalar.wasm> <simd128.wasm>]
-#                               [--source-root <dir>] [--rustdoc-json <path>]
+#                               [--source-root <dir>] [--rustdoc-json <path>] [--rustdoc-dir <dir>]
 #   scripts/wasm-build-check.sh --cfg-only [--source-root <dir>]
 #     --require-type   公開アイテムに在るべき型の path（crate 名の有無はどちらでもよい。複数可。確かめる名前はこのスクリプトに持たせない）
 #     --from-dir       ビルドせず、渡した 2 つの wasm を判別する（回帰テスト用。順は scalar、simd128。名前に反してファイルを 2 つ取る）
 #     --source-root    cfg の走査の起点（既定は crates/）
 #     --rustdoc-json   cargo を呼ばずにこの rustdoc JSON で（2 版とも）型を確かめる（回帰テスト用）
-#     --cfg-only       `cfg:` の行だけを流す。ビルドしない・cargo を呼ばない。`--source-root` 以外との併用は誤用（終了コード 2）。
+#     --rustdoc-dir    cargo を呼ばずに、`<crate>.json` を並べたこのディレクトリで（2 版とも）型を確かめる（回帰テスト用。`--rustdoc-json` との併用は誤用）
+#     --cfg-only       `cfg:` の行だけを流す。ビルドしない・cargo を呼ばない。`--source-root` 以外との併用（`--rustdoc-dir` を含む）は誤用（終了コード 2）。
 #                      前提は python3 3.8 以上だけ。`record:` は `mode=cfg-only` を持つ。出現が 0 件なら not-run で終了コード 1。
 # 終了コード: 0 全行が match / 1 mismatch または not-run が 1 行以上 / 2 誤用・前提の不足・読めない入力。
 # 標準出力: 行ごとの `artifact:`・`type:`・`cfg:`（label は match / mismatch / not-run。理由は reason=）、
@@ -22,13 +23,13 @@
 # 各行:
 #   artifact  2 つの wasm の先頭が `\0asm` で、custom section `target_features` に `+simd128` が simd128 版にだけ在り、2 つが別のバイト列であること。
 #   type      --require-type の各 path が、2 版それぞれと同じ指定（simd128 版は +simd128）で作った wasm32 向けの rustdoc JSON の
-#             公開アイテムに型（struct / enum / union / type alias / trait）として在ること（crate のルートから公開の module と use〔再エクスポートの別名を含む〕をたどった公開パスで照合する）。行は build=scalar|simd128 ごと。0 個なら not-run（reason=no-required-types）。
+#             公開アイテムに型（struct / enum / union / type alias / trait）として在ること（crate のルートから公開の module と use〔再エクスポートの別名を含む〕をたどった公開パスで照合する）。行は build=scalar|simd128 ごと。wasm-abi の依存の crate の rustdoc JSON も、2 版と同じ指定の `cargo doc` で作り、path の先頭が依存の crate 名ならその crate の公開パスで照合する。0 個なら not-run（reason=no-required-types）。
 #   cfg       文字列・文字リテラルの外の `target_feature = "simd128"` の出現（コメントを除く）がすべて `cfg(all(target_arch = "wasm32", target_feature = "simd128"))`
 #             （または `cfg(not(all(...)))`。scalar 側の分岐用）の中に在り、実行時の検出（`_feature_detected!("simd128")`）が無いこと。出現が 0 件なら not-run（reason=no-simd128-sites）。
 # 既定の経路（ビルドする）の前提: python3 3.8 以上・cargo・wasm32-unknown-unknown の target。外れたら終了コード 2。
 #   feature の組は `contract-core,cpu-isa,cpu-ops`、--locked。成果物は cargo の target_directory 配下の専用ディレクトリ
 #   （wasm-build-check）に分け、製品のビルドと共有しない。RUSTFLAGS は子プロセスへ渡さず、命令の指定は
-#   CARGO_ENCODED_RUSTFLAGS だけで渡す。RUSTC_BOOTSTRAP は rustdoc の子プロセスにだけ渡す（public-api-check.sh と同じ扱い）。
+#   CARGO_ENCODED_RUSTFLAGS だけで渡す。RUSTC_BOOTSTRAP は `cargo doc` の子プロセスにだけ渡す（public-api-check.sh と同じ扱い）。
 # 検査しないもの: 実行時の振る舞い、型の中身、CI への組み込み。
 # 値の扱いはすべて Python の中で行い、シェルは入力の値に触れない。Python 3.8 以上の標準ライブラリだけ。
 set -euo pipefail
@@ -76,11 +77,11 @@ def fail2(msg):
 
 def usage():
     fail2("usage: wasm-build-check.sh [--require-type <path>]... [--from-dir <scalar.wasm> <simd128.wasm>] "
-          "[--source-root <dir>] [--rustdoc-json <path>] | --cfg-only [--source-root <dir>]")
+          "[--source-root <dir>] [--rustdoc-json <path>] [--rustdoc-dir <dir>] | --cfg-only [--source-root <dir>]")
 
 
 def parse_args(argv):
-    a = {"types": [], "from": None, "src": None, "json": None, "cfg_only": False}
+    a = {"types": [], "from": None, "src": None, "json": None, "dir": None, "cfg_only": False}
     i = 0
     n = len(argv)
     while i < n:
@@ -97,12 +98,17 @@ def parse_args(argv):
         elif t == "--rustdoc-json" and i + 1 < n:
             a["json"] = argv[i + 1]
             i += 2
+        elif t == "--rustdoc-dir" and i + 1 < n:
+            a["dir"] = argv[i + 1]
+            i += 2
         elif t == "--cfg-only":
             a["cfg_only"] = True
             i += 1
         else:
             usage()
-    if a["cfg_only"] and (a["types"] or a["from"] is not None or a["json"] is not None):
+    if a["cfg_only"] and (a["types"] or a["from"] is not None or a["json"] is not None or a["dir"] is not None):
+        usage()
+    if a["json"] is not None and a["dir"] is not None:
         usage()
     return a
 
@@ -149,24 +155,26 @@ def build_wasm(root, td, kind, flags):
     return os.path.join(out, TARGET, "release", LIB + ".wasm")
 
 
-def build_rustdoc_json(root, td, kind, flags):
+def build_rustdoc_dir(root, td, kind, flags):
+    """依存の crate を含めて、2 版のビルドと同じ target・feature・命令の指定で rustdoc JSON を作り、その置き場を返す。"""
     out = os.path.join(td, SUBDIR, "rustdoc-" + kind)
-    path = os.path.join(out, TARGET, "doc", LIB + ".json")
-    if os.path.exists(path):
-        os.remove(path)
-    cmd = ["cargo", "rustdoc", "--release", "--locked", "--target-dir", out, "-p", PACKAGE, "--no-default-features",
-          "--features", FEATURES, "--target", TARGET, "--lib", "--", "-Z", "unstable-options",
-          "--output-format", "json"]
-    extra = {"RUSTC_BOOTSTRAP": "1"}
+    doc = os.path.join(out, TARGET, "doc")
+    if os.path.isdir(doc):
+        for name in os.listdir(doc):
+            if name.endswith(".json"):
+                os.remove(os.path.join(doc, name))
+    cmd = ["cargo", "doc", "--release", "--locked", "--target-dir", out, "-p", PACKAGE, "--no-default-features",
+          "--features", FEATURES, "--target", TARGET]
+    # 依存の crate も同じ target・feature で JSON にし、simd128 版は rustc と rustdoc の両方に同じ命令の指定を渡す。
+    docflags = "-Zunstable-options\x1f--output-format\x1fjson"
+    extra = {"RUSTC_BOOTSTRAP": "1", "CARGO_ENCODED_RUSTDOCFLAGS": docflags + ("\x1f" + flags if flags else "")}
     if flags:
-        # 依存の rustc には RUSTFLAGS、rustdoc 本体の cfg には RUSTDOCFLAGS が効く。2 版のビルドと同じ指定を両方へ渡す。
         extra["CARGO_ENCODED_RUSTFLAGS"] = flags
-        extra["CARGO_ENCODED_RUSTDOCFLAGS"] = flags
     if run(cmd, root, clean_env(extra)).returncode != 0:
-        fail2("cargo rustdoc failed")
-    if not os.path.isfile(path):
+        fail2("cargo doc failed")
+    if not os.path.isfile(os.path.join(doc, LIB + ".json")):
         fail2("rustdoc JSON was not produced")
-    return path
+    return doc
 
 
 # ---- wasm の読み取り ----
@@ -318,17 +326,36 @@ def public_types(json_path):
     return public
 
 
-def type_rows(types, json_paths):
-    """json_paths は (build 名, rustdoc JSON のパス) の列。build ごとに要求された型を照合する。"""
+def crate_sets(source):
+    """source は rustdoc JSON のファイル（wasm-abi だけ）か、`<crate>.json` を並べたディレクトリ。crate 名 → 公開パスの集合。"""
+    if os.path.isdir(source):
+        names = sorted(n for n in os.listdir(source) if n.endswith(".json"))
+        if LIB + ".json" not in names:
+            raise Misuse("cannot read rustdoc JSON")
+        return {n[:-5]: public_types(os.path.join(source, n)) for n in names}
+    return {LIB: public_types(source)}
+
+
+def lookup(t, sets):
+    """先頭の区切りが依存の crate 名ならその crate の公開パス、そうでなければ wasm-abi の公開パス（crate 名は有っても無くてもよい）で照合する。"""
+    head, sep, rest = t.partition("::")
+    if sep and head != LIB and head in sets:
+        return rest in sets[head]
+    public = sets[LIB]
+    return t in public or (head == LIB and sep and rest in public)
+
+
+def type_rows(types, sources):
+    """sources は (build 名, rustdoc JSON のファイルかディレクトリ) の列。build ごとに要求された型を照合する。"""
     if not types:
         return [("type: label=not-run reason=no-required-types", "not-run")], 0
-    sets = [(kind, public_types(path)) for kind, path in json_paths]
+    sets = [(kind, crate_sets(src)) for kind, src in sources]
     rows = []
     both = 0
     for t in types:
         all_ok = True
-        for kind, public in sets:
-            ok = t in public or (t.startswith(LIB + "::") and t[len(LIB) + 2:] in public)
+        for kind, cs in sets:
+            ok = lookup(t, cs)
             all_ok = all_ok and ok
             lab = "match" if ok else "mismatch"
             rows.append(("type: name=%s label=%s build=%s" % (re.sub(r"[^A-Za-z0-9_:]", "?", t), lab, kind), lab))
@@ -551,7 +578,8 @@ def main():
         return main_cfg_only(root, a)
     try:
         td = None
-        if a["from"] is None or (a["types"] and a["json"] is None):
+        offline = a["json"] if a["json"] is not None else a["dir"]
+        if a["from"] is None or (a["types"] and offline is None):
             if shutil.which("cargo") is None:
                 fail2("required command not found on PATH: cargo")
             check_wasm_target(root)
@@ -560,12 +588,12 @@ def main():
             paths = (build_wasm(root, td, "scalar", ""), build_wasm(root, td, "simd128", SIMD_FLAGS))
         else:
             paths = a["from"]
-        if a["types"] and a["json"] is None:
-            scalar_doc = build_rustdoc_json(root, td, "scalar", "")
-            simd_doc = build_rustdoc_json(root, td, "simd128", SIMD_FLAGS)
+        if a["types"] and offline is None:
+            scalar_doc = build_rustdoc_dir(root, td, "scalar", "")
+            simd_doc = build_rustdoc_dir(root, td, "simd128", SIMD_FLAGS)
             jsons = (("scalar", scalar_doc), ("simd128", simd_doc))
         else:
-            jsons = (("scalar", a["json"]), ("simd128", a["json"]))
+            jsons = (("scalar", offline), ("simd128", offline))
         art = artifact_rows(paths)
         typ, tm = type_rows(a["types"], jsons)
         src = a["src"] or os.path.join(root, "crates")
