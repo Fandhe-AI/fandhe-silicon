@@ -79,8 +79,8 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い）・今の値の補い（base 5ea11ff） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
-| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4） |
-| `docs/baseline-gemm-arm.md` | 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）（TASK-1010） |
+| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）・今の値の補い（base d082bc1） |
+| `docs/baseline-gemm-arm.md` | 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base d082bc1）（TASK-1010） |
 | `docs/baseline-mps-arm.md` | 比較基準の MPS の腕の所在と、本リポの現状の事実・セルの計画と入力の詰め替え（1/3）（TASK-1011） |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方・今の値の補い（base e416527） |
 | `docs/pixel-parity-tool.md` | 画素の一致を確かめる共通の道具（TASK-26）の所在・振る舞い・対応するテスト・確かめ方 |
@@ -160,7 +160,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・取り出す内容と対象・対象外の形と拒否する入力・振る舞いとテストの対応・確かめ方（TASK-98） |
 | `docs/dx12-compute-check.md` | DX12 の compute に関する点検の記録の所在と、本リポの現状（feature・モジュール・公開面）の事実・本リポでの反映の方針（TASK-236） |
-| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実（TASK-18） |
+| `docs/ci-job-split.md` | CI の分け方の決定の記録の所在と、本リポの CI の現状（ジョブ・runner・呼ぶ make）の事実・今の値の補い（base d082bc1）（TASK-18） |
 | `docs/ci-device-free-jobs.md` | 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方・今の値の補い（base ed82c18）（TASK-112）・今の値の補い（base 80164f4） |
 | `docs/wasm32-node-foundation.md` | wasm32 のビルドと Node での照合の土台の所在と、本リポの現状の事実・別 workspace `wasm/` の所在と検査の入口・glue 込みの量の測定・量の測定の記録（TASK-247 の 3/4）・完了の条件の確かめ（TASK-247 の 4/4）・Node での照合の土台・macOS arm64 のジョブ・完了の条件の確かめ（6/6）・本リポでの反映の方針・今の値の補い（base 801a89d）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 2f35b9e）・今の値の補い（base 3e32680）・`make wasm-size` の export の確かめ（TASK-247 の 5/6）・量の測り直しの記録と完了の条件の確かめ（TASK-247 の 6/6）（TASK-22） |
 | `docs/wasm32-web-load-check.md` | web の出力を Node で読み込む検査の所在と、本リポの現状の事実・読み込みの枠と判定（1/4）・ビルドの経路（2/4）・make ターゲットと CI（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 801a89d）（TASK-248） |
@@ -203,7 +203,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/baseline-positive-control.md` | 比較基準への陽性対照の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-12） |
 | `docs/public-api-diff.md` | 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17） |
 | `docs/measurement-record.md` | 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状（コード・検査・既存の書式の文書）の事実・本リポでの反映の方針（TASK-28） |
-| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680） |
+| `docs/measurement-tool.md` | 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1） |
 | `docs/perf-gate-rule.md` | 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026） |
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
 | `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）（TASK-1082） |

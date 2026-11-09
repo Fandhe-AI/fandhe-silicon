@@ -25,3 +25,13 @@
 ```bash
 cargo run --locked --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-smoke
 ```
+
+## 今の値の補い（base d082bc1）
+
+上の節は書き換えていない。以下は base `d082bc1` で確かめた今の値。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 「役割」の「基盤の workspace（ルートの `crates/` の 4 crate）」 | 4 crate → 5 crate（`crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi`） | ルート `Cargo.toml` の `members`（14 行目） |
+| 「現状」の「本 workspace の承認の記録の検査: `scripts/deps-check.sh baseline-wgpu/Cargo.toml`」 | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ → `make deny` は `scripts/deps-check.sh --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"` の形で呼ぶ（`crates/` 配下への path だけを免除する）。`make deps-check` はルートのみのまま | `scripts/deny.sh` の 115〜116 行目 |
+| 「現状」の `crates/gemm-arm` の「device には触れない」 | device には触れない → `crates/gemm-arm` に device の経路（`src/device.rs`）と bin `baseline-wgpu-gemm-gate` がある。device の要る試験（`tests/device_gate.rs` の 4 本）は `#[ignore]` で、既定の `cargo test` と `make baseline-verify` では流れない。所在は [docs/baseline-gemm-arm.md](../docs/baseline-gemm-arm.md) | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の `[[bin]]`（18〜20 行目）、`grep -n 'ignore' baseline-wgpu/crates/gemm-arm/tests/device_gate.rs` |
