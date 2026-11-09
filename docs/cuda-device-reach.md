@@ -38,6 +38,25 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test ba
 
 1 行目は `1`、2・3 行目は `0 passed; 0 failed; 2 ignored`。
 
+## 確保と記録先の作成の device の要る試験（2/3）
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `allocate_through_memory_returns_a_buffer_handle` | `ComputeOnly`・`ProductIndependent` の device の `memory().allocate(16, STORAGE \| UPLOAD \| DOWNLOAD)` が `Ok(BufferHandle)` を返し、`size()` が 16、`usage()` が渡した値 |
+| `create_encoder_through_queue_returns_an_encoder` | `queue().create_encoder()` が `CommandEncoder` を返す |
+
+どちらも `#[ignore = "requires a CUDA device"]` を付ける。
+
+確かめ方:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_reach
+cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test backend_cuda_reach
+grep -c '^#\[ignore' crates/contract/tests/backend_cuda_reach.rs
+```
+
+cargo の 2 行は `0 passed; 0 failed; 4 ignored`、grep は `4`。
+
 ## 段
 
 | 段 | 内容 | Issue |
