@@ -4,9 +4,53 @@
 //! 門の run の枠は `fandhe_silicon_core::parity::gemm_gate` が持ち、この crate はそれを使う側にあたる
 //! （製品の crate からは参照されない）。長さ・バイト数の計算は `checked_*` で行い、あふれ・長さの不一致・
 //! 確保の失敗は `Err` で返す（panic しない）。
+//!
+//! macOS 向けだけの橋の module `mps` が MPS の行列積を 1 回投入し、外へ出すのは safe な `run_matmul` だけ。
+//! この crate で `unsafe` を持つのはその module だけで、失敗は固定の [`MpsError`] で返す。
 
 use fandhe_silicon_core::parity::gemm_inputs::GemmInputDtype;
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
+
+/// MPS の行列積の呼び出しの失敗。表示は固定の英語で、OS のメッセージ・アドレス・入力の値を含まない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MpsError {
+    /// 入力の種類が計画の入力の型と合わない（device には触れない）。
+    InputMismatch,
+    /// 既定の Metal の device が得られない。
+    NoDevice,
+    /// device・クラス・初期化のどれかが MPS の行列積に対応しない（別の経路には回さない）。
+    Unsupported,
+    /// 行の間隔の照らし・詰め替え・戻しが失敗した。
+    Plan(PlanError),
+    /// バッファ・コマンドキュー・コマンドバッファが作れない、またはバッファの長さが 0。
+    AllocationFailed,
+    /// 完了の状態が完了ではない、または出力のバッファが短い（出力は返さない）。
+    Execution,
+}
+
+impl std::fmt::Display for MpsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InputMismatch => f.write_str("inputs do not match the plan input type"),
+            Self::NoDevice => f.write_str("no default Metal device"),
+            Self::Unsupported => f.write_str("the device does not support this MPS operation"),
+            Self::Plan(e) => write!(f, "layout failed: {e}"),
+            Self::AllocationFailed => f.write_str("allocation failed"),
+            Self::Execution => f.write_str("command buffer did not complete"),
+        }
+    }
+}
+
+impl std::error::Error for MpsError {}
+
+/// MPS の行列積を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ（macOS 向けだけ）。
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod mps;
+
+#[cfg(target_os = "macos")]
+pub use mps::run_matmul;
 
 /// 出力の要素の型の選び方。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

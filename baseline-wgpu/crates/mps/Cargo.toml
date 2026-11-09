@@ -1,7 +1,8 @@
 # 比較基準の別 workspace の、MPS の行列積の腕の lib crate。
-# 依存は製品の crates/core への path（試験用の feature）だけで、外部依存は無い。
+# 依存は製品の crates/core への path（試験用の feature）と、macOS 向けだけの objc2 系 3 件（完全固定。承認の記録は baseline-wgpu/deps-approved.toml）。
 # 依存の向きは baseline-wgpu/ → 製品だけで、製品の crate はこの crate を参照しない。
 # 門の run の枠は fandhe-silicon-core の parity を使う（TASK-1011 のポインタ）。
+# lints は workspace の継承をやめて自前の表を持つ（unsafe を持てるのは src/mps.rs の 1 module だけ。TASK-1011 のポインタ）。
 [package]
 name = "baseline-wgpu-mps"
 version = "0.0.0"
@@ -14,5 +15,16 @@ publish.workspace = true
 [dependencies]
 fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
 
-[lints]
-workspace = true
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandQueue", "MTLDevice", "MTLResource"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false }
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
