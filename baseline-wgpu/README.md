@@ -35,3 +35,12 @@ cargo run --locked --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-smo
 | 「役割」の「基盤の workspace（ルートの `crates/` の 4 crate）」 | 4 crate → 5 crate（`crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi`） | ルート `Cargo.toml` の `members`（14 行目） |
 | 「現状」の「本 workspace の承認の記録の検査: `scripts/deps-check.sh baseline-wgpu/Cargo.toml`」 | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ → `make deny` は `scripts/deps-check.sh --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"` の形で呼ぶ（`crates/` 配下への path だけを免除する）。`make deps-check` はルートのみのまま | `scripts/deny.sh` の 115〜116 行目 |
 | 「現状」の `crates/gemm-arm` の「device には触れない」 | device には触れない → `crates/gemm-arm` に device の経路（`src/device.rs`）と bin `baseline-wgpu-gemm-gate` がある。device の要る試験（`tests/device_gate.rs` の 4 本）は `#[ignore]` で、既定の `cargo test` と `make baseline-verify` では流れない。所在は [docs/baseline-gemm-arm.md](../docs/baseline-gemm-arm.md) | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の `[[bin]]`（18〜20 行目）、`grep -n 'ignore' baseline-wgpu/crates/gemm-arm/tests/device_gate.rs` |
+
+## 今の値の補い（base 5fa953d）
+
+記録時点の表と既存の節は書き換えない。以下は base `5fa953d` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 「現状」の 1 つ目の項目（`:13`） | 外部依存は `wgpu`（`=30.0.1` の完全固定）のみ → registry の外部依存は `wgpu` に加えて、`crates/mps` が macOS 向けだけで持つ objc2 系 3 件（`objc2`・`objc2-metal`・`objc2-core-graphics`。完全固定）。承認の記録は本ディレクトリの `deps-approved.toml`（4 件） | `grep -c '^\[\[approval\]\]' baseline-wgpu/deps-approved.toml`（4 が返る）、`baseline-wgpu/crates/mps/Cargo.toml` |
+| 同 `crates/mps` の項目（`:21`） | セルの計画と行の間隔つきの詰め替えの純粋関数を持つ → これに加えて、macOS でだけコンパイルされる `run_matmul`（`#[cfg(target_os = "macos")]`。`src/mps.rs` が MPS の行列積を 1 回投入して出力を返す）と、macOS 向けの objc2 系の依存を持つ。device の要る試験は 2 本（`tests/mps_gate.rs`・`tests/mps_gate_f32_output.rs`。どちらも `#[ignore]`）。`unsafe` を持つのは `src/mps.rs` だけで、個数は `tests/unsafe_count.rs` が照合する | `grep -n 'run_matmul' baseline-wgpu/crates/mps/src/lib.rs`、`grep -n 'ignore' baseline-wgpu/crates/mps/tests/mps_gate*.rs` |

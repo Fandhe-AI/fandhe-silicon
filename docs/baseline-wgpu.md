@@ -94,3 +94,15 @@ worktree のルートで実行する。
 | 同 `検査の範囲` の「ビルド・実行は範囲外」 | `make deny` は本 workspace のビルドをしない → 今は `make baseline-verify`（`scripts/baseline-verify.sh`）が本 workspace の fmt --check / clippy / test を流し、CI の `deny` ジョブが `make baseline-positive-control` の次のステップで呼ぶ。`make deny` はビルドをしないままで、`make verify`・`make check` は範囲外のまま | `.github/workflows/ci.yml` の 269〜271 行目、`scripts/baseline-verify.sh` |
 | 同 `依存の承認の記録`、確かめ方の `scripts/deps-check.sh baseline-wgpu/Cargo.toml` | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ → `scripts/deps-check.sh --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"` の形で呼ぶ（`crates/` 配下への path だけを免除する）。手元で直接流すときは `scripts/deps-check.sh --allow-path-root crates baseline-wgpu/Cargo.toml` | `scripts/deny.sh` の 115〜116 行目 |
 | 版の記録の `wgpu_baseline.lockfile_sha256` | `2b42260a29815b8911273102b65a09b93d49e69d9af59b2add487dea2437f896` → `c251f283868061522fa30deebf6ddcc2fb6671eaf26c4a819c06b93ac1c719c2`。`version`（`30.0.1`）・`source`（`crates-io`）は変わらない | `sha256sum baseline-wgpu/Cargo.lock` |
+
+## 今の値の補い（base 5fa953d）
+
+記録時点の表と既存の節は書き換えない。以下は base `5fa953d` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 別 workspace の配置と骨格の `member`（`:26`）と、前の補いの「3 つ」 | 3 つ（`crates/gemm-arm`・`crates/public-api`・`crates/smoke`）→ 4 つ（`crates/gemm-arm`・`crates/mps`・`crates/public-api`・`crates/smoke`） | `baseline-wgpu/Cargo.toml` の `members`（10 行目） |
+| 同 `外部依存`（`:27`）と、前の補いの「registry の外部依存は `wgpu` のまま」 | registry の外部依存は `wgpu` のみ → `crates/mps` が macOS 向けだけ（`[target.'cfg(target_os = "macos")'.dependencies]`）で objc2 系 3 件（`objc2`・`objc2-metal`・`objc2-core-graphics`、どれも `=x.y.z` の完全固定）を持つ。承認の記録は `baseline-wgpu/deps-approved.toml` の 4 件（`wgpu` と上の 3 件。3 件の `used_by` は `baseline-wgpu-mps`）。`crates/mps` は製品の `crates/core`（feature `test-support`）への path 依存も持つ | `baseline-wgpu/crates/mps/Cargo.toml` の `[dependencies]` と macOS 向けの節、`grep -c '^\[\[approval\]\]' baseline-wgpu/deps-approved.toml`（4 が返る） |
+| 同 `lints` | `crates/mps` は `crates/gemm-arm` と同じく継承をやめて自前の `[lints]` を持つ（`unsafe_code = "deny"`・`unsafe_op_in_unsafe_fn = "deny"`・`missing_docs = "warn"`、clippy の `undocumented_unsafe_blocks`・`missing_safety_doc` は deny）。`#[allow(unsafe_code)]` は `src/lib.rs` の `mod mps;` の宣言（49 行目）にだけ付く | `baseline-wgpu/crates/mps/Cargo.toml` の `[lints.*]`、`grep -n 'allow(unsafe_code)' baseline-wgpu/crates/mps/src/lib.rs` |
+| 同 `macOS 向けの module` | `crates/mps` の `run_matmul`（`src/mps.rs`）は `#[cfg(target_os = "macos")]` の裏にあり、macOS でだけコンパイルされる。device の要る試験は `tests/mps_gate.rs` と `tests/mps_gate_f32_output.rs` の 2 本（どちらも `#[ignore]`） | `grep -n 'cfg(target_os' baseline-wgpu/crates/mps/src/lib.rs`、`grep -n 'ignore' baseline-wgpu/crates/mps/tests/mps_gate*.rs` |
+| 版の記録の `wgpu_baseline.lockfile_sha256`（`:45`・`:96`） | `2b42260a29815b8911273102b65a09b93d49e69d9af59b2add487dea2437f896`（`:45`）、`c251f283868061522fa30deebf6ddcc2fb6671eaf26c4a819c06b93ac1c719c2`（`:96`）→ `7d9e6f969a39f9754eeb667b19e05635bae6628621b00ead86f232ffa9c5312a`。`version`（`30.0.1`）・`source`（`crates-io`）は変わらない | `sha256sum baseline-wgpu/Cargo.lock` |
