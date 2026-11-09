@@ -60,6 +60,7 @@ CI で動かす、機材（実機・GPU）の要らない検査の枠につい�
 | `verify-macos` | `make verify` | `scripts/verify.sh` | `verify` と同じ fmt・clippy・workspace の試験を macOS で流す（`--all-features` に `backend-metal` が入る。`--ignored` は付けない） |
 | `verify-macos` | `make build-profiles` | `scripts/build-profiles.sh` | `verify` と同じ feature の組ごとの確かめを macOS で流す（`backend-metal` 単独の組と `--all-features` の組を含む。Linux では macOS 向けの依存がビルドされない） |
 | `verify-macos` | `make profile-test-count-check` | `scripts/profile-test-count-check.sh` | `verify` と同じ照合を macOS で流す（ComputeOnly の組が Metal の依存を実際にビルドする） |
+| `verify-macos` | `make measure-verify` | `scripts/measure-verify.sh` | `deny` と同じ測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査を macOS で流す（回帰テストは持たない） |
 | `deny` | `make deny` | `scripts/deny.sh` | 依存（ライセンス・ソース・禁止対象）と workspace の path の検査、製品の依存グラフの wgpu 系 crate の検査（`record:` の件数がログに残る）、契約の crate のプロファイルごとの依存グラフの検査と陽性対照（`record:`・`positive-control:` の行がログに残る） |
 | `deny` | `make measure-verify` | `scripts/measure-verify.sh` | 測定専用の別 workspace（`measure/`）の fmt / clippy / test / 依存の検査（回帰テストは持たない） |
 | `deny` | `make wasm-verify` | `scripts/wasm-verify.sh` | wasm32 向けの別 workspace（`wasm/`）の fmt / clippy（ホストと wasm32）/ test / wasm32 の build / `crates/core` と `crates/contract` の試験の wasm32 型検査 / wasm32 のコンパイル試験の検査（[wasm32-compile-probe-check](./wasm32-compile-probe-check.md)）/ 依存の検査（回帰テストは持たない） |
@@ -235,6 +236,24 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | `base ed82c18` の補いの `:134` | `sites=5` を含む `cfg:` の行は `:134` ではなく `:133` | `grep -n "sites=5 label=match" docs/ci-device-free-jobs.md` |
+
+## `verify-macos` の測定の別 workspace（TASK-1008）
+
+`ci.yml` の `verify-macos` に、`make profile-test-count-check` の後のステップとして `make measure-verify` を足している。条件・`continue-on-error` は無く、`timeout-minutes`・check 名・`ci-complete` の `needs` は変えていない。
+
+`scripts/measure-verify.sh` は 4 段を順に流す。`deny` ジョブの同じステップも残っている。
+
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+- `cargo test --workspace --all-features --locked`
+- `scripts/deps-check.sh --allow-path-root crates measure/Cargo.toml`
+
+| コマンド | 確かめること |
+| -------- | ------------ |
+| `make ci-frame-check` | 実物の `ci.yml` が F1〜F6 を満たす（終了コード 0） |
+| `make test-ci-frame-check` | 検査自体の回帰テスト（末尾に `passed: <件数>, failed: <件数>`） |
+| `grep -n "run: make " .github/workflows/ci.yml` | 上の対応表と `ci.yml` の突き合わせ |
+| PR の CI の `verify-macos` のログ | `[measure-verify.sh] cargo fmt --all --check (measure/)`・`[measure-verify.sh] cargo clippy (measure/) -D warnings`・`[measure-verify.sh] cargo test (measure/)`・`[measure-verify.sh] deps-check (measure/)` の 4 行が出る |
 
 ## 関連
 

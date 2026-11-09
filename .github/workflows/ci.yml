@@ -4,7 +4,7 @@
 # CI 側で独自のチェックを定義せず、scripts/ の実体を呼ぶ（make スキルの「入口は複数でも
 # 実処理の定義は一つ」）。Rust の品質ゲートも `make verify` / `make build-profiles` / `make profile-test-count-check` / `make test-profile-test-count-check` / `make deny` / `make deps-check` / `make test-deps-check` / `make test-inventory-trace-check` / `make test-texture-format-key-check` / `make test-feature-key-check` / `make test-session-record-check` / `make test-perf-record-check` / `make test-metal-session` / `make test-record-summary` / `make ci-frame-check` / `make test-ci-frame-check` / `make public-api-check` / `make test-public-api-check` / `make public-name-check` / `make test-public-name-check` / `make public-api-sdk-check` / `make test-public-api-sdk-check` / `make core-deps-check` / `make test-core-deps-check` / `make exec-deps-check` / `make test-exec-deps-check` / `make exec-surface-check` / `make test-exec-surface-check` / `make doctest-error-code-check` / `make test-doctest-error-code-check` / `make public-api-webgpu-check` / `make test-public-api-webgpu-check` / `make test-dep-graph-wgpu-check` / `make baseline-positive-control` / `make test-baseline-positive-control` / `make baseline-verify` / `make upper-layer-check` / `make test-upper-layer-check` / `make upper-source-check` / `make test-upper-source-check` / `make test-rerun-compare` / `make test-public-api-diff` / `make measure-verify` / `make wasm-verify` / `make wasm-build-check` / `make test-wasm-size` / `make test-wasm-build-check` / `make wasm-backend-check` / `make test-wasm-backend-check` / `make test-wasm-compile-probe-check` / `make test-wasm-node-check` / `make test-wasm-web-load-check` / `make test-hooks` を呼ぶ。
 # 実物の `make wasm-verify` / `make wasm-size` / `make wasm-node-check` は macOS arm64 の `wasm-macos` ジョブでも流す（TASK-22 のポインタ）。
-# macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（TASK-158・TASK-18 の記録のポインタ）。
+# macOS でだけ有効になる Metal の背後実装（feature `backend-metal`）のビルド・lint・device の要らない試験は `verify-macos` ジョブで流す（同じジョブで測定専用の別 workspace の `make measure-verify` も流す。TASK-158・TASK-18 の記録のポインタ）。
 # ジョブを追加したら必ず ci-complete の needs にも追加すること。
 #
 # runner: public リポジトリのため GitHub ホステッド（ubuntu-latest。test-hooks・wasm-macos・verify-macos のみ macos-latest も）を使う。
@@ -533,6 +533,10 @@ jobs:
 
       - name: make profile-test-count-check
         run: make profile-test-count-check
+
+      - name: make measure-verify
+        # 測定専用の別 workspace（measure/）の fmt / clippy / test / 依存の検査を macOS でも流す（TASK-1008 のポインタ）
+        run: make measure-verify
 
   # squash merge では PR タイトルがそのままコミット件名になるため、commit-msg フックと
   # 同じスクリプトで Conventional Commits 形式を検証する（フックの CI 側の対）。
