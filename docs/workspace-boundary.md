@@ -7,7 +7,7 @@
 
 - `members` は `crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi` の 5 つ（正はルート `Cargo.toml`）。`crates/wasm-abi` は wasm32 向けの cdylib で、別 workspace `wasm/` の glue とは別の物（TASK-6・TASK-237 のポインタ。[wasm32-build](wasm32-build.md)）
 - member の増減と、測定専用の crate・ハーネスの置き場は、private spec の TASK-1・TASK-6 の決定の記録に従う（`docs/spec/05-tasks.md`。本リポには内容を転記しない）
-- 測定専用の別 workspace `measure/` はルート `Cargo.toml` の `exclude` にあり、製品の member・依存グラフに入らない（TASK-6・TASK-27 のポインタ。所在と現状の事実は [measurement-tool](measurement-tool.md)）。同じ workspace に、変異体の検出の結果を数える道具の crate `measure-detect` もある（TASK-1082 のポインタ。所在は [detection-counting](detection-counting.md)）。
+- 測定専用の別 workspace `measure/` はルート `Cargo.toml` の `exclude` にあり、製品の member・依存グラフに入らない（TASK-6・TASK-27 のポインタ。所在と現状の事実は [measurement-tool](measurement-tool.md)）。同じ workspace に、変異体の検出の結果を数える道具の crate `measure-detect` もある（TASK-1082 のポインタ。所在は [detection-counting](detection-counting.md)）。同じ workspace に、Metal 直接の GEMM の腕の crate `measure-metal-gemm-arm` もある（TASK-1008 のポインタ。所在は [metal-gemm-arm](metal-gemm-arm.md)）。
 - wasm32 向けの別 workspace `wasm/` もルート `Cargo.toml` の `exclude` にあり、製品の member・依存グラフに入らない。依存の向きは `wasm/` → 製品（`crates/contract` と、試験用の `crates/core` への path）だけで、製品の crate が `wasm/` を参照すると `make deny` の path の検査が落ちる（TASK-22 のポインタ。所在と現状の事実は [wasm32-node-foundation](wasm32-node-foundation.md)）
 - これ以外の workspace のコードを、member や path 依存として加えない
 

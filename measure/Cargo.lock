@@ -27,6 +27,13 @@ name = "measure-detect"
 version = "0.0.0"
 
 [[package]]
+name = "measure-metal-gemm-arm"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-core",
+]
+
+[[package]]
 name = "measure-perf"
 version = "0.0.0"
 dependencies = [
