@@ -9,7 +9,7 @@
 //! 対応づけ: TASK-769、TASK-415、COMP-25、COMP-26・COMP-27・COMP-30・COMP-34、BIND-1・BIND-2・BIND-3（ポインタのみ）。
 
 use crate::error::ContractError;
-use crate::execution::{CacheKey, PipelineInput};
+use crate::execution::{CacheKey, OperandSpec, PipelineInput, validate_declared_operands};
 use crate::memory::BufferHandle;
 
 /// 生成済みの compute パイプラインを指す印。
@@ -197,7 +197,7 @@ impl BindingLayout {
 ///
 /// 上（`fandhe-silicon-upper`）・下-2（`fandhe-silicon-exec`）が成果物と `BindingLayout` を渡して呼び、
 /// 下-1 の背後実装が実装する。`create_pipeline` は必ず実装する。既定の本体を持つメソッドは
-/// `pipeline_cache_key` だけで、既定は `None` を返す（TASK-501）。
+/// `create_pipeline_checked`（TASK-457）と `pipeline_cache_key`（既定は `None`。TASK-501）。
 ///
 /// `create_pipeline` を持たない実装は拒まれる。
 ///
@@ -230,6 +230,44 @@ pub trait ComputeOps {
         input: PipelineInput<'_>,
         layout: &BindingLayout,
     ) -> Result<PipelineHandle, ContractError>;
+
+    /// 引数の宣言を `layout` と照らしてから、パイプラインを作る。
+    ///
+    /// 既定の本体は `validate_declared_operands(declared, layout)` を呼び、`Err` ならその値を返して
+    /// `create_pipeline` を呼ばない。通れば `create_pipeline(input, layout)` を 1 回呼び、結果を値のまま返す。
+    /// 件数が合わない宣言は、先頭が `C1` の `InvalidArgument` になる（BIND-60）。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::error::ContractError;
+    /// use fandhe_silicon_core::execution::{
+    ///     BindingLayout, ComputeOps, DType, OperandSpec, PipelineHandle, PipelineInput,
+    /// };
+    /// struct C;
+    /// impl ComputeOps for C {
+    ///     fn create_pipeline(
+    ///         &self,
+    ///         _input: PipelineInput<'_>,
+    ///         _layout: &BindingLayout,
+    ///     ) -> Result<PipelineHandle, ContractError> {
+    ///         Ok(PipelineHandle::__backend_new(1, 1))
+    ///     }
+    /// }
+    /// let input = || PipelineInput::Msl { source: "", entry_point: "main" };
+    /// let declared = [OperandSpec { slot: 0, dtype: DType::F32, shape: &[4], stride: &[1], alignment: 4 }];
+    /// let bad = C.create_pipeline_checked(input(), &BindingLayout::new(vec![0, 1]), &declared);
+    /// assert!(matches!(bad, Err(ContractError::InvalidArgument(m)) if m.starts_with("C1")));
+    /// let ok = C.create_pipeline_checked(input(), &BindingLayout::new(vec![0]), &declared);
+    /// assert!(ok.is_ok());
+    /// ```
+    fn create_pipeline_checked(
+        &self,
+        input: PipelineInput<'_>,
+        layout: &BindingLayout,
+        declared: &[OperandSpec<'_>],
+    ) -> Result<PipelineHandle, ContractError> {
+        validate_declared_operands(declared, layout)?;
+        self.create_pipeline(input, layout)
+    }
 
     /// 成果物のキャッシュキーを返す。
     ///
