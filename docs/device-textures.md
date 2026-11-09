@@ -199,3 +199,34 @@ cargo test -p fandhe-silicon-core --features test-support --test stub_device_sam
 cargo test -p fandhe-silicon-core --features test-support --test stub_device_create_keys
 cargo test -p fandhe-silicon-core --features test-support --lib stub_device
 ```
+
+## 作る操作の行の鍵の完了の条件の確かめ（2/2）
+
+2/2（#8134）で、本リポで観測できる事実だけを記録した（ポインタ: `docs/spec/05-tasks.md` の TASK-150）。GPU の実機なしの Linux で実行し、件数は実測。コードと試験は変えていない。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 2 つの鍵の定数が公開されている | `grep -n 'pub const API_DEVICE_CREATE' crates/core/src/capability.rs`、`cargo check -p fandhe-silicon-core` | `capability.rs:187` に `API_DEVICE_CREATE_TEXTURE`、`:191` に `API_DEVICE_CREATE_SAMPLER`。`cargo check` は feature なしで終了コード 0 |
+| 2 | 鍵の文字列が固定されている | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_create_keys` | `create_key_strings_are_fixed ... ok`。13 passed、0 failed |
+| 3 | 3 プロファイル × 3 所有形態で 2 つの鍵が `S2` を返し、`query`・`query_ex` が同じ段階 | 同上、`cargo test -p fandhe-silicon-core --features test-support --lib stub_device` | `{cpu_only,compute_only,graphics}_{product_independent,shared,imported}_answers_s2_for_create_keys` の 9 本が `ok`。`create_operation_keys_answer_s2_for_every_profile`・`create_operation_keys_are_not_format_or_webgpu_keys` が `ok`（`--lib stub_device` は 28 passed、0 failed） |
+| 4 | `textures()` が `Some` の device で作る操作が `Ok` | 同上 | `compute_only_*`・`graphics_*` の 6 本が `ok` |
+| 5 | ほかの鍵の答えが変わっていない | `other_keys_keep_their_answers`、`cargo test -p fandhe-silicon-core --features test-support --test stub_device_request` | `other_keys_keep_their_answers ... ok`。`stub_device_request` は 9 passed、0 failed |
+| 6 | 背後実装を変えていない | 範囲 `dcc458ad1ad39fdb1795370fb4a271fdb91ddfc4..3f50c27f875afb2d9219439c631a3cfca4eddaf7` の `crates/contract` の差分の統計 | 出力なし（差分 0 件） |
+| 7 | 依存 0・unsafe 0 | 同じ範囲の差分を `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` に当てる。`grep -n forbid crates/core/src/lib.rs` | `Cargo.lock`・`deps-approved.toml` の差分は 0 件。`crates/core/Cargo.toml` は 4 行の追加（`[[test]]` の 1 項目）だけ。`lib.rs:39` に `#![forbid(unsafe_code)]` |
+| 8 | CI で流れる場所 | `make verify`、`make build-profiles`、`make wasm-verify`。`grep -nE 'run: make (verify\|wasm-verify\|build-profiles)$' .github/workflows/ci.yml` | 3 つとも終了コード 0。`make verify` の `test result:` の合計は 2570 passed、0 failed、66 ignored。ci.yml は `make verify` が 177・520 行目、`make build-profiles` が 181・523 行目、`make wasm-verify` が 282・481 行目 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-150）。確かめた base は `3f50c27f875afb2d9219439c631a3cfca4eddaf7`。
+
+確かめ方:
+
+```text
+grep -n 'pub const API_DEVICE_CREATE' crates/core/src/capability.rs
+cargo check -p fandhe-silicon-core
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_create_keys
+cargo test -p fandhe-silicon-core --features test-support --lib stub_device
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_request
+grep -n forbid crates/core/src/lib.rs
+make verify
+make build-profiles
+make wasm-verify
+```
