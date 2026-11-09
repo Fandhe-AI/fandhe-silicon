@@ -194,3 +194,12 @@ worktree のルートで実行する。
 | 表の行 | 前の値 → 今の値 | 確かめ方 |
 | ------ | --------------- | -------- |
 | 所在の表の「個数テスト」の行 | 製品の `crates/contract/tests/` の個数テストだけを挙げている → 別 workspace の比較の腕の crate にも個数テストがある。`measure/crates/metal-gemm-arm/tests/unsafe_count.rs`（`src/metal.rs` の 1 行だけを表に持ち、block 11・ほか 0。5 件のテスト）と `baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`（`src/bridge.rs` の 1 行だけを表に持ち、block 1・ほか 0。7 件のテスト）。どちらも数える道具をそのファイルの中に持ち、製品の crate のテストの道具には依存しない。`#[allow(unsafe_code)]` は腕の crate ごとに `src/lib.rs` の 1 箇所（`measure/crates/metal-gemm-arm/src/lib.rs` の 17 行目、`baseline-wgpu/crates/gemm-arm/src/lib.rs` の 10 行目） | `ls measure/crates/metal-gemm-arm/tests baseline-wgpu/crates/gemm-arm/tests`、`grep -n 'EXPECTED' -A2 measure/crates/metal-gemm-arm/tests/unsafe_count.rs baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed）、`cargo test --offline --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --test unsafe_count`（7 passed）、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src baseline-wgpu/crates/gemm-arm/src` |
+
+## 今の値の補い（base 5fa953d）
+
+記録時点の表と既存の節は書き換えない。以下は base `5fa953d` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 前の補い（base 55fd9c1）の「個数テスト」の行（別 workspace の比較の腕の crate の個数テスト） | `measure/crates/metal-gemm-arm/tests/unsafe_count.rs` と `baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs` の 2 つ → 3 つ目として `baseline-wgpu/crates/mps/tests/unsafe_count.rs` がある。`src/mps.rs` の 1 行だけを表（`EXPECTED`）に持ち、block 8・extern block 1・ほか 0。テストは 7 件。数える道具はそのファイルの中に持ち、製品の crate のテストの道具には依存しない | `sed -n '/^const EXPECTED/,/^)\];/p' baseline-wgpu/crates/mps/tests/unsafe_count.rs`、`cargo test --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-mps --test unsafe_count`（7 件通過） |
+| 同「`#[allow(unsafe_code)]` の所在」 | 腕の crate ごとに下位の API を呼ぶ module の宣言にだけ付く → `baseline-wgpu/crates/mps` では `src/lib.rs` の `mod mps;` の宣言（49 行目。`#[cfg(target_os = "macos")]` の次の行）にだけ付く | `grep -n 'allow(unsafe_code)' baseline-wgpu/crates/mps/src/lib.rs` |

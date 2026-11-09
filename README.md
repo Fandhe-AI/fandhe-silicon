@@ -59,7 +59,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 |---|---|
 | `wasm/` | wasm32 向けの別 workspace（TASK-22）。cdylib `wasm-glue`（`wasm/crates/glue/`）が `crates/contract` に path で依存する。bin `wasm-parity-host`（`wasm/crates/parity-host/`。GEMM・部分 Top-k・要素ごと演算の入力とネイティブの参照と CPU 参照をファイルに書く）が `crates/contract` と `crates/core` に path で依存する（向きは wasm/ → 製品だけ）。製品の依存グラフに入らない（ルート `exclude`）。外部依存は wasm-bindgen の 1 件（wasm32 向けにだけ宣言）。`make wasm-verify` が検査し、CI の `deny` ジョブも呼ぶ |
 | `measure/` | 測定専用の別 workspace（TASK-6・TASK-27）。共有 crate `measure-perf`（`measure/crates/perf/`）に標本・run ごとの統計・run 間の集計・run ごとの記録の書き出し・記録を読んで run 間の集計を出すコマンド `across-runs`・記録のパスを引数で受けてラベルを再現するコマンド `variation-replay` を置く。検出の結果を数える crate `measure-detect`（`measure/crates/detect/`: 変異体ごとの分類・検出率の下限・上限とセルのラベル・件数を引数で受けて下限・上限を出すコマンド `detect-bounds`）と、CPU の演算の時間を腕ごとに測って記録を書く crate `measure-cpu-ops-arm`（`measure/crates/cpu-ops-arm/`: bin `cpu-ops-arm`）、Metal 直接の GEMM の腕の crate `measure-metal-gemm-arm`（`measure/crates/metal-gemm-arm/`: bin `fetch-kernel-source`・macOS 向けに Metal を直接呼んで GEMM の門の 1 セルを投入する腕。`unsafe` は `src/metal.rs` だけ。門の 1 セルを device で流す試験は `#[ignore]` 付き）も置く。製品の依存グラフに入らない（ルート `exclude`）。外部依存は `measure-metal-gemm-arm` が macOS 向けに宣言する `objc2` 系 3 件だけ（`measure-perf` の試験が `crates/core` を dev-dependency で使い、`measure-cpu-ops-arm` が `crates/contract` と `crates/core` に path で依存し、`measure-metal-gemm-arm` が `crates/core` に path で依存する）。`make measure-verify` が検査し、CI の `deny` ジョブも呼ぶ |
-| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。`make baseline-verify` が fmt / clippy / test を流す。外部依存は wgpu のみ（完全固定）で、アダプタ列挙の smoke bin と、cooperative matrix の WGSL の腕の lib crate（`crates/core` へ path で依存。device の経路と門の run の bin を持つ）と、MPS の腕の lib crate（`crates/core` へ path で依存） |
+| `baseline-wgpu/` | 比較基準の wgpu を置く別 workspace（TASK-7）。基盤の依存グラフに入らず、`make deny` が cargo-deny（`baseline-wgpu/deny.toml`）と依存の承認の記録を検査する（ビルドはしない）。`make baseline-verify` が fmt / clippy / test を流す。外部依存は wgpu（完全固定）と、MPS の腕の crate が macOS 向けだけで持つ objc2 系 3 件（完全固定）で、アダプタ列挙の smoke bin と、cooperative matrix の WGSL の腕の lib crate（`crates/core` へ path で依存。device の経路と門の run の bin を持つ）と、MPS の腕の lib crate（`crates/core` へ path で依存。macOS 向けの `run_matmul` と objc2 系の依存を持つ）。今の値の補い（base 5fa953d） |
 | `crates/` | Rust の crate（前述の「crate 構成」） |
 | `Cargo.toml`・`Cargo.lock` | workspace 定義（edition・ライセンス・lint を一元管理）とロックファイル |
 | `rust-toolchain.toml` | ツールチェーンの単一真実源（stable + rustfmt / clippy） |
@@ -79,7 +79,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract/` | 契約の明文のまとめ（置き場と書式は同ディレクトリの README）と、形を決める作業の手順書（`procedure.md`） |
 | `docs/workspace-boundary.md` | 製品 workspace の境界（members・依存から外すもの・外部 workspace からの持ち込みの扱い）・今の値の補い（base 5ea11ff） |
 | `docs/wgpu-baseline-record.md` | 比較用の run に残す wgpu の版の記録の書式 |
-| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）・今の値の補い（base d082bc1） |
+| `docs/baseline-wgpu.md` | 比較基準の wgpu の置き場（TASK-7）の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）・今の値の補い（base d082bc1）・今の値の補い（base 5fa953d） |
 | `docs/baseline-gemm-arm.md` | 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base d082bc1）（TASK-1010） |
 | `docs/baseline-mps-arm.md` | 比較基準の MPS の腕の所在と、本リポの現状の事実・セルの計画と入力の詰め替え（1/3）・MPS の呼び出しと device の要る試験（2/3）・完了の条件の確かめ（3/3）（TASK-1011） |
 | `docs/parity-tool.md` | 結果の一致を確かめる共通の道具（TASK-24）の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方・今の値の補い（base e416527） |
@@ -155,7 +155,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/buffer-size-usage-query.md` | バッファの大きさ・用途の問合せ（TASK-310）の所在と、本リポの現状の事実・今の値の補い（base 3e32680） |
 | `docs/buffer-slice.md` | バッファの部分範囲の型（TASK-311）の所在・部分範囲の型と作る口（1/5）・確かめ方・入れ子の絞りと解放の後の型検査（2/5）・境界の入力の試験（3/5）・入れ子と全体の範囲の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 801a89d） |
 | `docs/mapped-range.md` | 書き込み用のビューの型（TASK-312）の所在・書き込み用のビューの型と長さ・空の判定（1/4）・確かめ方・範囲の絞り（2/4）・境界の入力と絞りの試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い・今の値の補い（base 55fd9c1）（TASK-9） |
+| `docs/unsafe-policy.md` | `unsafe` の局所化・不変条件の書式・個数テストの枠の形・個数が変わるときの扱い・今の値の補い（base 55fd9c1）・今の値の補い（base 5fa953d）（TASK-9） |
 | `docs/inventory-trace-check.md` | 一覧と項目の対応を確かめる検査（TASK-16）の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-17） |
 | `docs/implementation-scope.md` | 実装に含める範囲の決定の記録の所在と、本リポの現状の事実（TASK-43） |
 | `docs/vulkan-operand-extraction.md` | Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・取り出す内容と対象・対象外の形と拒否する入力・振る舞いとテストの対応・確かめ方（TASK-98） |
