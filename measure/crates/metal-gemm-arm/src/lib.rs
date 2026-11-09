@@ -4,12 +4,15 @@
 //! 照らす [`source`] module と、門の 1 セルの起動の表と詰め物・切り出しを持つ [`launch`] module を置く。
 //! bin `fetch-kernel-source` が取得し、腕が [`source::load_source`] で読む。
 //!
+//! cooperative matrix の GEMM の MSL と起動の形・offline compiler のコマンドの引数は [`coopmat`] module に置く（TASK-1009 のポインタ）。
+//!
 //! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g6` を出す。
 //! `unsafe` を書くのは `src/metal.rs` だけで、個数は `tests/unsafe_count.rs` の表が固定する。
 //! 門の 1 セルを device で流す試験は `tests/gate.rs` にあり、`#[ignore]` 付き。
 
 use std::fmt;
 
+pub mod coopmat;
 pub mod launch;
 pub mod source;
 
@@ -59,6 +62,12 @@ pub enum ArmError {
     Overflow,
     /// カーネルのソースが固定のハッシュと一致しない。
     SourceMismatch,
+    /// offline compiler が失敗した。
+    ToolFailed,
+    /// 作業のディレクトリまたはファイルの操作に失敗した。
+    WorkDirFailed,
+    /// metallib の読み込みに失敗した。
+    LibraryLoadFailed,
 }
 
 impl fmt::Display for ArmError {
@@ -77,6 +86,9 @@ impl fmt::Display for ArmError {
             ArmError::SubmitFailed => "command buffer did not complete",
             ArmError::SourceMismatch => "kernel source differs from the pinned digest",
             ArmError::Overflow => "size computation overflowed",
+            ArmError::ToolFailed => "offline shader compiler failed",
+            ArmError::WorkDirFailed => "work directory operation failed",
+            ArmError::LibraryLoadFailed => "metallib loading failed",
         };
         f.write_str(text)
     }
