@@ -203,3 +203,12 @@ worktree のルートで実行する。
 | ------ | --------------- | -------- |
 | 前の補い（base 55fd9c1）の「個数テスト」の行（別 workspace の比較の腕の crate の個数テスト） | `measure/crates/metal-gemm-arm/tests/unsafe_count.rs` と `baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs` の 2 つ → 3 つ目として `baseline-wgpu/crates/mps/tests/unsafe_count.rs` がある。`src/mps.rs` の 1 行だけを表（`EXPECTED`）に持ち、block 8・extern block 1・ほか 0。テストは 7 件。数える道具はそのファイルの中に持ち、製品の crate のテストの道具には依存しない | `sed -n '/^const EXPECTED/,/^)\];/p' baseline-wgpu/crates/mps/tests/unsafe_count.rs`、`cargo test --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-mps --test unsafe_count`（7 件通過） |
 | 同「`#[allow(unsafe_code)]` の所在」 | 腕の crate ごとに下位の API を呼ぶ module の宣言にだけ付く → `baseline-wgpu/crates/mps` では `src/lib.rs` の `mod mps;` の宣言（49 行目。`#[cfg(target_os = "macos")]` の次の行）にだけ付く | `grep -n 'allow(unsafe_code)' baseline-wgpu/crates/mps/src/lib.rs` |
+
+## 今の値の補い（base ae152fb）
+
+記録時点の表と既存の節は書き換えない。以下は base `ae152fb` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 前の補い（base 55fd9c1）の「個数テスト」の行の `measure/crates/metal-gemm-arm` の分（表は `src/metal.rs` の 1 行だけで block 11・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 17 行目） | block 11 → block 15・ほか 0（表は今も `src/metal.rs` の 1 行だけ。`src/metallib.rs` は表に無く、全種別 0 を期待する）。`#[allow(unsafe_code)]` は 17 行目 → 21 行目（直後の 22 行目が `mod metal;`）。テストは今も 5 件 | `grep -n 'const EXPECTED' measure/crates/metal-gemm-arm/tests/unsafe_count.rs`、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed） |
+| 前の補い（base 5fa953d）の表の `measure/crates/metal-gemm-arm` の分 | 上の行のとおり（前の補い（base 5fa953d）は `measure/crates/metal-gemm-arm` の値を直していない） | 同上 |
