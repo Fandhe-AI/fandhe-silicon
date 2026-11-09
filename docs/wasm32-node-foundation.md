@@ -369,3 +369,47 @@ glue の 7 つの export は TASK-2957 の範囲（量の測定の再測定は T
 | CI | `wasm-macos` ジョブの step `make wasm-size` がこの形で流れる。`ci.yml` は変えていない | `grep -n 'make wasm-size' .github/workflows/ci.yml` |
 
 「glue 込みの量の測定」の表の「export の確かめ」の行の「直接実行のみ・make ターゲットは無い」と、「記録の取り方」の手元で取る行の `scripts/wasm-size.sh --require-exports` は、今は `make wasm-size` がこの形で呼ぶ。
+
+## 量の測り直しの記録と完了の条件の確かめ（TASK-247 の 6/6）
+
+親 Issue の 6/6（#8154）で、`make wasm-size` を `--require-exports` 付きで流した main の push の CI の実物の測定を記録した。ポインタ: `docs/spec/05-tasks.md` の TASK-247。
+
+### 記録
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 測った run | run `42567143990`（event push）。head は `3317209690b30bfa34bb78a1e837f566536d3d95`。ジョブ `wasm32 build + size + node (macos-latest)` は success、その step `make wasm-size` も success | `gh run view 42567143990 -R Fandhe-AI/fandhe-silicon --json headSha,jobs` |
+| 締めの行 | `record: combos=8 ok=8 ng=0 not_run=0 limit=60000` | ジョブのログを `grep 'record: combos='` |
+| 素性の行 | `tools:` の行 1 行、`file:` の行 20 行（`file:` の行はすべて `sha256=` を持つ）。値は本リポに置かない | ジョブのログを `grep -E '(tools: \|file: )'` して件数を数える |
+| 測った成果物 | `size:` の行 8 行。8 組とも `label=ok`・`exports=7/7` | ジョブのログを `grep 'size: combo='` |
+| glue の `pub fn` | `REQUIRED_EXPORTS` の 7 名（`gemm_scalar`・`gemm_simd`・`topk_scalar`・`topk_simd`・`elementwise_scalar`・`elementwise_simd`・`detect_isa_bits`）と `roundtrip_f32` の 8 本 | `grep -n 'pub fn' wasm/crates/glue/src/lib.rs` |
+| `docs/spec` の gitlink | `050073a33856cff4559718a8e760289ec3d5a65e` | `git ls-tree 3317209690b30bfa34bb78a1e837f566536d3d95 docs/spec` |
+
+### 8 組の `size:` の行
+
+| 組 | 出力先 | label | exports | files |
+| -- | ------ | ----- | ------- | ----- |
+| `release-scalar` | `web` | `ok` | `7/7` | 2 |
+| `release-scalar` | `bundler` | `ok` | `7/7` | 3 |
+| `release-simd128` | `web` | `ok` | `7/7` | 2 |
+| `release-simd128` | `bundler` | `ok` | `7/7` | 3 |
+| `wasm-size-scalar` | `web` | `ok` | `7/7` | 2 |
+| `wasm-size-scalar` | `bundler` | `ok` | `7/7` | 3 |
+| `wasm-size-simd128` | `web` | `ok` | `7/7` | 2 |
+| `wasm-size-simd128` | `bundler` | `ok` | `7/7` | 3 |
+
+組ごと・ファイルごとの値は本リポに置かない。記録の正は private spec 側の記録に従う（ポインタのみ）。
+
+### 確かめ
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| A1 | 量の測定の回帰テスト | `make test-wasm-size` | 終了コード 0。最終行 `test-wasm-size: 82 passed, 0 failed` |
+| A2 | `make wasm-size` の呼び方 | `make -n wasm-size` | `scripts/wasm-size.sh --require-exports`（1 行） |
+| A3 | 期待の export の宣言と glue | `grep -n -A3 '^REQUIRED_EXPORTS' scripts/wasm-size.sh`・`grep -n 'pub fn' wasm/crates/glue/src/lib.rs` | `REQUIRED_EXPORTS` は 7 名。glue の `pub fn` は 8 本（7 名と `roundtrip_f32`） |
+| A4 | main の CI の実物の測定 | run `42567143990` のジョブ `wasm32 build + size + node (macos-latest)` | step `make wasm-size` は success。`record: combos=8 ok=8 ng=0 not_run=0 limit=60000`。`exports=7/7` の `size:` の行 8 行。`tools:` の行 1 行・`file:` の行 20 行 |
+| A5 | 同じ run の `deny` のジョブ | `gh run view 42567143990 -R Fandhe-AI/fandhe-silicon --json jobs` | step `make test-wasm-size`・`make wasm-verify`・`make deps-check` はすべて success |
+| D | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles` | すべて終了コード 0 |
+
+時点のコミットは base `3317209`、`docs/spec` の gitlink は `050073a`。
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-247）。
