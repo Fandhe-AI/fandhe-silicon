@@ -57,3 +57,11 @@ spec の本文・決定の内容は転記しない（[spec-confidentiality](../.
 | 表の行 | 前の値 → 今の値 | 確かめ方 |
 | ------ | --------------- | -------- |
 | 本リポの CI の現状の `deny` ジョブの「呼んでいるもの」 | 列に `make baseline-verify`・`make wasm-build-check` が無い → `make baseline-positive-control` の次に `make baseline-verify`（269〜271 行目）、`make wasm-verify` の次に `make wasm-build-check`（289〜291 行目）が `deny` ジョブの `run:` にある | `grep -n 'run: make baseline-verify' .github/workflows/ci.yml`、`grep -n 'run: make wasm-build-check' .github/workflows/ci.yml` |
+
+## 今の値の補い（base 55fd9c1）
+
+記録時点の表と既存の節は書き換えない。以下は base `55fd9c1` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 本リポの CI の現状の `verify-macos` ジョブの「呼んでいるもの」 | 列は `make verify`・`make build-profiles`・`make profile-test-count-check` → 続けて `make measure-verify`（`ci.yml` の 537〜539 行目。`profile-test-count-check` の次のステップ）。`deny` ジョブの `make measure-verify`（283 行目）も残っている | `grep -n 'run: make measure-verify' .github/workflows/ci.yml`（283・539 行目が返る） |
