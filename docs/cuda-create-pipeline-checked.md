@@ -44,9 +44,23 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --test compute_create_pipeline_checked`
 
+## device の要る試験（3/4）
+
+試験は `crates/contract/src/backend_cuda.rs` の `checked_pipeline_device_tests` module にある。どれも `#[ignore = "requires a CUDA device"]` で既定では流れない。`CudaDevice` で `create_pipeline_checked` を呼ぶ。
+
+| 試験 | 入力 | 確かめること |
+| ---- | ---- | ------------ |
+| `declared_count_mismatch_is_rejected_and_adds_no_pipeline` | `slots` 3 件・宣言 1 件 | 先頭が `C1` の `InvalidArgument`。表の件数が増えない |
+| `dimension_mismatch_is_rejected_and_adds_no_pipeline` | `slots` 3 件・宣言 3 件で 1 件目の `shape` が 2 次元・`stride` が 1 次元 | 先頭が `C3` の `InvalidArgument`。表の件数が増えない |
+| `rejection_comes_before_the_input_is_classified` | `Ptx` の入力・`slots` 2 件・宣言 1 件 | 先頭が `C1` の `InvalidArgument`（`Unsupported` でない）。表の件数が増えない |
+| `matching_declaration_creates_a_pipeline_of_this_device` | CUDA C の入力・`slots` 3 件・宣言 3 件 | `Ok`。handle の device の識別子がこの device と同じ。表の件数が 1 増える |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::checked_pipeline_device_tests`（通常の実行では `0 passed; 0 failed; 4 ignored`）
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | ComputeOps に宣言を照らしてから作る口を足す | #4851 |
 | 2/4 | 次元数の照らしと作成の失敗の受け渡しの試験を足す | #4852 |
+| 3/4 | device の要る宣言の照らしの試験を ignore 付きで足す | #4853 |
