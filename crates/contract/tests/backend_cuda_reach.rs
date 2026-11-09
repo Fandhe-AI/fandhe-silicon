@@ -1,5 +1,7 @@
 //! CUDA の device から compute の口へ届くことを確かめる試験（TASK-166 のポインタ）。
 //!
+//! メモリ操作の確保と投入の窓口の記録先の作成へ届くことも、同じファイルで確かめる。
+//!
 //! どの試験も device に触るので `#[ignore]` を付け、`--ignored` を付けたときだけ走る。
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -9,7 +11,10 @@ use fandhe_silicon_core::device::{
     Device, DeviceOwnership, DeviceProvider, DeviceRequest, Profile,
 };
 use fandhe_silicon_core::error::ContractError;
-use fandhe_silicon_core::execution::{BindingLayout, PipelineHandle, PipelineInput};
+use fandhe_silicon_core::execution::{
+    BindingLayout, CommandEncoder, PipelineHandle, PipelineInput,
+};
+use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 
 /// 要素に 1 を足す小さなカーネル。
 const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
@@ -54,4 +59,32 @@ fn create_pipeline_through_compute_returns_a_handle() {
     if let Err(e) = r {
         panic!("create_pipeline failed: {e:?}");
     }
+}
+
+fn usage() -> BufferUsage {
+    BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+}
+
+// DEV-152
+#[test]
+#[ignore = "requires a CUDA device"]
+fn allocate_through_memory_returns_a_buffer_handle() {
+    let device = open_compute_only();
+    let memory = device.memory();
+    let r: Result<BufferHandle, ContractError> = memory.allocate(16, usage());
+    let handle = match r {
+        Ok(h) => h,
+        Err(e) => panic!("allocate failed: {e:?}"),
+    };
+    assert_eq!(handle.size(), 16);
+    assert_eq!(handle.usage(), usage());
+    memory.free(handle);
+}
+
+// DEV-157
+#[test]
+#[ignore = "requires a CUDA device"]
+fn create_encoder_through_queue_returns_an_encoder() {
+    let device = open_compute_only();
+    let _encoder: CommandEncoder = device.queue().create_encoder();
 }
