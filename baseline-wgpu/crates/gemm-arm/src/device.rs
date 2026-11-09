@@ -147,13 +147,19 @@ pub fn run_g3(cell: GemmGateCell, inputs: &GateInputs) -> Result<GateOutput, Arm
     };
     let readback = build_and_submit(&device, &queue, &layout, &a_bytes, &b_bytes, c_bytes, wgsl);
 
+    // 読み戻し（内部で device.poll(Wait) する）を先に済ませてからスコープを閉じ、
+    // 投入後・読み戻し中の GPU 側の失敗も取りこぼさない。pop の future は poll が進める。
+    let read = read_back(&device, &readback, c_bytes, c_len);
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: None,
+    });
     let validation = block_on(validation_scope.pop());
     let oom = block_on(oom_scope.pop());
     if validation.is_some() || oom.is_some() || uncaptured.load(Ordering::SeqCst) {
         return Err(ArmError::Validation);
     }
-
-    let c_padded = read_back(&device, &readback, c_bytes, c_len)?;
+    let c_padded = read?;
     Ok(GateOutput::F32(crop_c(&layout, &c_padded)?))
 }
 
