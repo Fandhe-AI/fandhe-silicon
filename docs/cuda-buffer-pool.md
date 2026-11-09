@@ -152,3 +152,12 @@ record: commit=6ec43df8046efae3e65048d4abeb85f6c3e42058 documents=10 public_item
 | ------ | --------------- | -------------- |
 | 「device を使わない」確かめ方と (2) の行と出力（`backend-cuda,native-blocking-wait --lib backend_cuda`） | `39 passed; 0 failed; 17 ignored; 0 measured; 13 filtered out` → `50 passed; 0 failed; 17 ignored; 0 measured; 13 filtered out`（`running 67 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` |
 | (1) の行と出力（`--features backend-cuda --lib backend_cuda`） | `39 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` → `50 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out`（`running 61 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「device を使わない」確かめ方と (2) の行と出力（`backend-cuda,native-blocking-wait --lib backend_cuda`） | `50 passed; 0 failed; 17 ignored`（`running 67 tests`）→ `57 passed; 0 failed; 25 ignored; 0 measured; 13 filtered out`（`running 82 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` |
+| (1) の行と出力（`--features backend-cuda --lib backend_cuda`） | `50 passed; 0 failed; 11 ignored`（`running 61 tests`）→ `57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 76 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |

@@ -214,3 +214,17 @@ ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok,
 | 3/5 | 明示の破棄 | #3856 |
 | 4/5 | device の要る試験 | #3857 |
 | 5/5 | 完了の条件の確かめ | #3858 |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+訂正: 「device の要る試験（4/5）」の確かめ方の 2 本のコマンド（`-- --ignored` を付けたもの）は、CUDA のドライバが読めない環境では失敗する。同じ節の「どの試験も `#[ignore = "requires a CUDA device"]` 付きで、既定では流れない」と「完了の条件の確かめ（5/5）」の (4)（`--ignored` を付けない宣言の確かめ）が、device の無い環境で合う形である。`--ignored` を付けたコマンドは device の要る環境でだけ流す。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「device の要る試験（4/5）」の確かめ方の 1 本目（`backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::teardown_device_tests -- --ignored`） | 結果の記載なし → device の無い環境では `running 7 tests`・`test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 107 filtered out`（panic の中身は `DeviceUnavailable("CudaContext::new(0): CUDA driver library is not loadable")`）。`--ignored` を外すと `0 passed; 0 failed; 7 ignored` | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::teardown_device_tests -- --ignored`、同じコマンドから `-- --ignored` を外したもの |
+| 同 2 本目（`backend-cuda --test backend_cuda_destroy -- --ignored`） | 結果の記載なし → device の無い環境では `running 1 test`・`test result: FAILED. 0 passed; 1 failed; 0 ignored`。`--ignored` を外すと `0 passed; 0 failed; 1 ignored` | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy -- --ignored`、同じコマンドから `-- --ignored` を外したもの |
+| 「完了の条件の確かめ（5/5）」の (2) の行と出力（`backend-cuda --lib backend_cuda`） | `running 72 tests`・`57 passed; 0 failed; 15 ignored` → `running 76 tests`・`57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| (3) の行と出力（`backend-cuda,fault-injection --lib backend_cuda`） | `running 91 tests`・`69 passed; 0 failed; 22 ignored` → `running 95 tests`・`69 passed; 0 failed; 26 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib backend_cuda` |
+| (4) の行と出力（`backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda`） | `running 97 tests`・`69 passed; 0 failed; 28 ignored` → `running 101 tests`・`69 passed; 0 failed; 32 ignored; 0 measured; 13 filtered out`。`backend_cuda_destroy` は同じ（`0 passed; 0 failed; 1 ignored`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda`、`cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_destroy` |

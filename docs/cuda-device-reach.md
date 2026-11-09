@@ -130,3 +130,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 1/3 | device から compute の口を返す | #3738 |
 | 2/3 | 確保と記録先の作成へ届く device の要る試験を ignore 付きで足す | #3739 |
 | 3/3 | 完了の条件の確かめ | #3740 |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ」の (5) の行と出力（`backend-cuda --lib backend_cuda`） | `running 72 tests`・`57 passed; 0 failed; 15 ignored` → `running 76 tests`・`57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out` | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| (1) の行の `fn compute(` の所在 | `1661:` → 同じ（`1661:`）。`backend_cuda_reach` の宣言（`running 4 tests`・`0 passed; 0 failed; 4 ignored`）も同じ | `grep -n 'fn compute(' crates/contract/src/backend_cuda.rs`、`cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_reach` |

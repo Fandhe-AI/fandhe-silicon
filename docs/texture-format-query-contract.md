@@ -153,3 +153,13 @@ cargo test -p fandhe-silicon-core --features test-support,fault-injection --test
 | 4/4 | #6720 | 確かめ |
 
 関連: 形式ごとの能力の値の形式の単位の一致の検査は [texture-format-features.md](texture-format-features.md)。
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+訂正: 「`query_ex` の返し」の表の後の「`query` は変わらずどの鍵にも `Unsupported` を返し」は、今は `API_DEVICE_CREATE_TEXTURE`・`API_DEVICE_CREATE_SAMPLER` の 2 鍵に当たらない。試験用の device は `query_ex` でこの 2 鍵に `CapabilityLevel::S2`・理由なし・根拠なしを返し、`query` は `query_ex` の段階（`CapabilityLevel::S2`）を返す。形式の問合せの鍵と WebGPU の口の 2 鍵の返しは表のとおりで、`limits` は変わらない。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「`query_ex` の返し」の表の後の文 | `query` はどの鍵にも `Unsupported` → 上の 2 鍵だけ `CapabilityLevel::S2`、ほかの鍵は表のとおり `Unsupported` | `grep -n 'CREATE_OPERATION_QUERY' crates/core/src/stub_device.rs`、`cargo test -p fandhe-silicon-core --features test-support --test stub_device_create_keys` |

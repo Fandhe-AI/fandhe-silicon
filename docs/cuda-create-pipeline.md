@@ -182,3 +182,16 @@ make deny (cargo-deny): success
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（4/4）」の (1) の行と出力（`backend_cuda::tests`） | `14 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out` → `50 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out`（`running 50 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::tests` |
 | (2) の行と出力（`backend_cuda::device_tests`） | `0 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out`（`running 9 tests`）→ `0 passed; 0 failed; 11 ignored; 0 measured; 63 filtered out`（`running 11 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+訂正: 「所在」の表の「口」の行の「`Device::compute()` は既定の `None` のまま」は、今は当たらない。`CudaDevice` は `Device::compute()` を上書きして `Some(self)` を返す（`crates/contract/tests/backend_cuda_reach.rs` の `compute_only_device_has_compute_and_no_graphics` が `device.compute().is_some()` を確かめる。device の要る試験）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「所在」の表の「口」の行 | `Device::compute()` は既定の `None` のまま → `Device::compute()` は `Some(self)`（所在は `backend_cuda.rs` の 1661 行目） | `grep -n 'fn compute(' -A2 crates/contract/src/backend_cuda.rs`、`grep -n 'compute().is_some()' crates/contract/tests/backend_cuda_reach.rs` |
+| 「今の値の補い（base 1417dc5）」の (1) の行と出力（`backend_cuda::tests`） | `50 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out` → `50 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out`（passed の数は同じ） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::tests` |
+| (2) の行と出力（`backend_cuda::device_tests`） | `0 passed; 0 failed; 11 ignored; 0 measured; 63 filtered out` → `78 filtered out`（ignored は同じ 11） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests` |
+| `--features backend-cuda --lib backend_cuda` | `57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 76 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |

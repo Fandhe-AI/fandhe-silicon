@@ -312,3 +312,12 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「今の値」の節の `ComputeOps` の行 | 操作は `create_pipeline` だけを持つ → `create_pipeline` と、既定の本体（`None`）を持つ `pipeline_cache_key` の 2 つ | `grep -n '    fn ' crates/core/src/execution/compute.rs` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「現状」の表の機能の ID の行（core にある機能の ID の定数は `WEBGPU_DEVICE_PORT`・`WEBGPU_HANDLE_PORT` の 2 つだけ） | 2 つ → `capability.rs` の `FeatureId` の定数は 4 つ（`WEBGPU_DEVICE_PORT`・`WEBGPU_HANDLE_PORT`・`API_DEVICE_CREATE_TEXTURE`・`API_DEVICE_CREATE_SAMPLER`） | `grep -n 'pub const [A-Z_]*: FeatureId' crates/core/src/capability.rs` |
+| 「今の値の補い（base dd1a116）」の `ComputeOps` の行（`create_pipeline` と `pipeline_cache_key` の 2 つ） | 2 つ → 3 つ（`create_pipeline`・`create_pipeline_checked`・`pipeline_cache_key`）。`create_pipeline_checked` と `pipeline_cache_key` は既定の本体を持つ | `grep -n '^    fn ' crates/core/src/execution/compute.rs` |

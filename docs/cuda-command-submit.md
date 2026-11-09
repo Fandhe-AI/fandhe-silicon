@@ -218,3 +218,12 @@ record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_item
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（5/5）」の (1) の行と出力 | `28 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out` → `50 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out`（`running 61 tests`）。11 ignored は変わらない | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（5/5）」の (1) の行と出力 | `50 passed; 0 failed; 11 ignored`（`running 61 tests`）→ `57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 76 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| 「投入の完了の問い合わせ（2/5）」の節の `on_complete` の行（終端と分かった時に呼ぶ場所の列挙: `submit`・`poll`・`poll_ex`・`on_complete`） | その 4 つ → 登録している完了の callback を呼ぶ場所は、`submit`・`submit_many`・`poll`・`on_complete`（どれも `drive_callbacks` か `on_complete` 自身が呼ぶ）に加えて（`poll_ex` は `CommandQueue` の既定の本体が `poll` を 1 回呼ぶので、`poll` の経路に含まれる）、`Drop`（同期を確かめたら `take_ready` と同じ判定で呼ぶ）と `destroy`（登録している全部を待たずに `Lost` で呼ぶ）の経路にもある。feature `fault-injection` のビルドでは `FaultHooks::simulate_device_lost` の 1 回目も、登録の世代が古い callback を `Lost` で呼ぶ | `grep -n 'run_callbacks(\|drive_callbacks()' crates/contract/src/backend_cuda.rs`（`Drop` は 1302 行目、`destroy` は 1684 行目付近、`simulate_device_lost` は 1773 行目付近） |

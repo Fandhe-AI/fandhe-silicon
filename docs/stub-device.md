@@ -412,3 +412,18 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | 上の # 12 | `stub_device.rs` の `backend-` は 0 件、4 本の試験の `#[ignore` は 0 → 同じ。`crates/core/tests/stub_device_*.rs` は今は 8 ファイル（`textures`・`samplers`・`graphics`・`unsubmitted` が加わった）で、`#[ignore` はどれも 0 | `git grep -n 'backend-' -- crates/core/src/stub_device.rs`、`grep -c '#\[ignore' crates/core/tests/stub_device_*.rs` |
 
 落ちたものは無い。`make wasm-verify`・`make deps-check` は終了コード 0。`make verify` も終了コード 0（`test result:` は 221 行、2234 passed・0 failed・7 ignored）。`make deny`・`make build-profiles` は流していない（CI の `deny`・`verify` ジョブで流れる）。
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+訂正: 「試験」の表の `query_is_unsupported_for_any_feature` の行の「どの `FeatureId` でも `query` は `Unsupported`」は、試験が回す `feature_ids()`（空の ID・`any-feature`・`feature:TEXTURE_COMPRESSION_BC`・WebGPU の口の 2 鍵の 5 件）についての記述である。`API_DEVICE_CREATE_TEXTURE`・`API_DEVICE_CREATE_SAMPLER` の 2 鍵には、`query` は `CapabilityLevel::S2`、`query_ex` は `CapabilityQuery { level: CapabilityLevel::S2, unsupported_reason: None, evidence: None }` を、バックエンドとプロファイルによらず返す（[device-textures.md](device-textures.md)）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「所在」の表の `Device` の行・`DeviceProvider` の行 | `device.rs:101`・`:151`（今は `:127`・`:192`）→ `Device` は `:127`、`DeviceProvider` は `:213` | `grep -n 'pub trait Device\b\|pub trait DeviceProvider' crates/core/src/device.rs` |
+| 同じ行の `Capabilities`・`BackendKind`・`LimitsTable`（`capability.rs:114`・`:32`・`:102`） | 今は `:118`・`:36`・`:106`（段落の「今は」と同じ） | `grep -nE 'pub trait Capabilities\|pub enum BackendKind\|pub struct LimitsTable' crates/core/src/capability.rs` |
+| 「補い（TASK-150 の後）」の `DeviceProvider` の `:199`、`Device` の既定の本体を持つ method の並び | `:199` → `:213`。`external_interop`・`physical_gpu_id`・`fault_hooks`・`compute`・`graphics`・`textures` に加えて `destroy`（`self: Box<Self>` を取る。既定の本体あり）がある。所在は `compute` `:149`・`graphics` `:157`・`external_interop` `:166`・`physical_gpu_id` `:175`・`fault_hooks` `:184`・`textures` `:191`・`destroy` `:205` | `grep -nE '^    fn (compute\|graphics\|external_interop\|physical_gpu_id\|fault_hooks\|textures\|destroy)' crates/core/src/device.rs` |
+| 「今の値の補い（base 25d8dc2）」の `Device`・`DeviceProvider` の行（今は `:127`・`:199`） | `DeviceProvider` は `:199` → `:213`（`Device` は `:127` のまま） | `grep -n 'pub trait DeviceProvider' crates/core/src/device.rs` |
+| 「今の値の補い（base 25d8dc2）」の `CommandQueue`（`:277`） | 同じ（`:277`） | `grep -n 'pub trait CommandQueue' crates/core/src/execution/submit.rs` |
+| 「今の値の補い（base 6b35dd9）」の `ci.yml` の行（`make verify` `:177`・`make build-profiles` `:181`・`make wasm-verify` `:276`） | `make verify` `:177`（同じ）・`make build-profiles` `:181`（同じ）・`make wasm-verify` `:276` → `:282` | `grep -nE 'run: make (verify\|build-profiles\|wasm-verify)$' .github/workflows/ci.yml`（`verify-macos` の `:520`・`:523` と `wasm-macos` の `:481` も出る） |

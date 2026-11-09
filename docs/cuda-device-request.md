@@ -227,3 +227,12 @@ $ grep -c '^\[\[approval\]\]' deps-approved.toml
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（5/5）」の (3) の行（`--features backend-cuda --lib backend_cuda`）と、1/5〜2/5 の確かめ方の同じコマンド | `5 passed`（出力は `5 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out`）→ `50 passed; 0 failed; 11 ignored; 0 measured; 13 filtered out`（`running 61 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
 | (2) の行（`backend_cuda_fault`）と出力 | `3 passed; 0 failed; 0 ignored` → `3 passed; 0 failed; 1 ignored`（`running 4 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_fault` |
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「完了の条件の確かめ（5/5）」の (3) の行（`--features backend-cuda --lib backend_cuda`）と、1/5〜2/5 の確かめ方の同じコマンド | `50 passed; 0 failed; 11 ignored`（`running 61 tests`）→ `57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 76 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+| (2) の行（`backend_cuda_fault`）と出力 | `3 passed; 0 failed; 1 ignored`（`running 4 tests`）→ 同じ | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_fault` |

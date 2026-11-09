@@ -206,3 +206,13 @@ make verify
 make wasm-verify
 cargo test --workspace --all-features
 ```
+
+## 今の値の補い（base 70ab958）
+
+記録時点の表と既存の節は書き換えない。以下は base `70ab958` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「現状」の表の公開のパス（`{AddressMode, FilterMode, MipmapFilterMode, SamplerBorderColor}`）と「今の補い」の文（`SamplerDescriptor`・`SamplerHandle`） | `CompareFunction` が表と補いに無い → `fandhe_silicon_core::sampler::CompareFunction` も公開される（`sampler.rs` の `:134`。feature の条件なし。比較関数の節は「比較関数の型と記述子の比較関数の欄（5/7）」）。`sampler.rs` の公開の型は 7 つ（`AddressMode`・`FilterMode`・`MipmapFilterMode`・`SamplerBorderColor`・`CompareFunction`・`SamplerDescriptor`・`SamplerHandle`） | `grep -n 'pub enum\|pub struct' crates/core/src/sampler.rs` |
+| 「今の補い」の `crates/core/tests/sampler_types.rs` の「10 本」 | 10 本 → 15 本（`running 15 tests`・`15 passed; 0 failed; 0 ignored`） | `cargo test -p fandhe-silicon-core --test sampler_types`、`grep -c '#\[test\]' crates/core/tests/sampler_types.rs` |
+| 「今の値の補い（base 6b35dd9）」の `ci.yml` の行（`make verify` が 177・505、`make wasm-verify` が 276・466） | `make verify` は 177・520、`make wasm-verify` は 282・481 | `grep -nE 'run: make (verify\|wasm-verify)$' .github/workflows/ci.yml` |
