@@ -71,14 +71,14 @@ jobs:
 
           # 取得元の一時的な 5xx で落ちないよう curl は再試行する（中身は直後の sha256 で照合する。下の取得も同じ）
           ec_archive="ec-linux-amd64.tar.gz"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${ec_archive}" \
+          curl -fsSL --retry 6 --retry-delay 20 --retry-all-errors -o "${ec_archive}" \
             "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/${ec_archive}"
           echo "${EDITORCONFIG_CHECKER_SHA256}  ${ec_archive}" | sha256sum -c -
           tar -xzf "${ec_archive}" bin/ec-linux-amd64
           install -m 0755 bin/ec-linux-amd64 "${bin_dir}/editorconfig-checker"
 
           sc_archive="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${sc_archive}" \
+          curl -fsSL --retry 6 --retry-delay 20 --retry-all-errors -o "${sc_archive}" \
             "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${sc_archive}"
           echo "${SHELLCHECK_SHA256}  ${sc_archive}" | sha256sum -c -
           tar -xJf "${sc_archive}" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
@@ -244,7 +244,7 @@ jobs:
           cd "${work_dir}"
 
           name="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${name}.tar.gz" \
+          curl -fsSL --retry 6 --retry-delay 20 --retry-all-errors -o "${name}.tar.gz" \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${name}.tar.gz"
           echo "${CARGO_DENY_SHA256}  ${name}.tar.gz" | sha256sum -c -
           tar -xzf "${name}.tar.gz" "${name}/cargo-deny"
@@ -454,14 +454,14 @@ jobs:
           cd "${work_dir}"
 
           node_name="node-v${NODE_VERSION}-darwin-arm64"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${node_name}.tar.gz" \
+          curl -fsSL --retry 6 --retry-delay 20 --retry-all-errors -o "${node_name}.tar.gz" \
             "https://nodejs.org/dist/v${NODE_VERSION}/${node_name}.tar.gz"
           echo "${NODE_SHA256}  ${node_name}.tar.gz" | shasum -a 256 -c -
           tar -xzf "${node_name}.tar.gz" "${node_name}/bin/node"
           install -m 0755 "${node_name}/bin/node" "${bin_dir}/node"
 
           wb_name="wasm-bindgen-${WASM_BINDGEN_CLI_VERSION}-aarch64-apple-darwin"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${wb_name}.tar.gz" \
+          curl -fsSL --retry 6 --retry-delay 20 --retry-all-errors -o "${wb_name}.tar.gz" \
             "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_CLI_VERSION}/${wb_name}.tar.gz"
           echo "${WASM_BINDGEN_CLI_SHA256}  ${wb_name}.tar.gz" | shasum -a 256 -c -
           tar -xzf "${wb_name}.tar.gz" "${wb_name}/wasm-bindgen"
