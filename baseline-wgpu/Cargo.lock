@@ -47,6 +47,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "baseline-wgpu-mps"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-core",
+]
+
+[[package]]
 name = "baseline-wgpu-public-api"
 version = "0.0.0"
 dependencies = [

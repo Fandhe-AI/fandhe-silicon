@@ -1,0 +1,18 @@
+# 比較基準の別 workspace の、MPS の行列積の腕の lib crate。
+# 依存は製品の crates/core への path（試験用の feature）だけで、外部依存は無い。
+# 依存の向きは baseline-wgpu/ → 製品だけで、製品の crate はこの crate を参照しない。
+# 門の run の枠は fandhe-silicon-core の parity を使う（TASK-1011 のポインタ）。
+[package]
+name = "baseline-wgpu-mps"
+version = "0.0.0"
+description = "MPS matrix multiplication arm for the baseline-wgpu workspace"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
+
+[lints]
+workspace = true

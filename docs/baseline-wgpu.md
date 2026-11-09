@@ -72,6 +72,11 @@ worktree のルートで実行する。
 - `make deny` は本 workspace の deps-check を `scripts/deps-check.sh --allow-path-root crates baseline-wgpu/Cargo.toml` の形で呼ぶ（`crates/` 配下への path だけを免除する）
 - 確かめ方: `make deny`、`make baseline-verify`（記録の所在: TASK-1010）
 
+## MPS の腕の crate（TASK-1011 の 1/3）
+
+- member は 4 つになった（`crates/mps` が増えた）。`crates/mps`（package `baseline-wgpu-mps`）は `crates/core`（feature `test-support`）へ path で依存する lib crate で、所在は [baseline-mps-arm](baseline-mps-arm.md)
+- 確かめ方: `make baseline-verify`（記録の所在: TASK-1011）
+
 ## 関連
 
 [workspace-boundary](workspace-boundary.md)・[wgpu-baseline-record](wgpu-baseline-record.md)・[measurement-record](measurement-record.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)
