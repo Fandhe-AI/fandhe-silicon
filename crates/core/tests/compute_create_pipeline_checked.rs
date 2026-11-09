@@ -100,3 +100,45 @@ fn create_pipeline_checked_signature_is_pinned() {
         &'d [OperandSpec<'d>],
     ) -> Result<PipelineHandle, ContractError> = <Recording as ComputeOps>::create_pipeline_checked;
 }
+
+/// 次元数が違う宣言は `create_pipeline` を呼ばずに `C3` で返り、合わせれば通る（BIND-60）。
+#[test]
+fn dimension_mismatch_does_not_call_create_pipeline() {
+    let ops = Recording::new(true);
+    let bad = [spec(0, &[2, 2], &[1])];
+    let r = ops.create_pipeline_checked(wgsl(), &BindingLayout::new(vec![0]), &bad);
+    assert!(starts(&r, "C3"));
+    assert!(ops.calls.lock().unwrap().is_empty());
+
+    let good = [spec(0, &[2, 2], &[2, 1])];
+    let r = ops.create_pipeline_checked(wgsl(), &BindingLayout::new(vec![0]), &good);
+    assert!(r.is_ok());
+    assert_eq!(ops.calls.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn create_pipeline_error_is_returned_as_is() {
+    let ops = Recording::new(false);
+    let declared = [spec(0, &[4], &[1])];
+    let r = ops.create_pipeline_checked(wgsl(), &BindingLayout::new(vec![0]), &declared);
+    assert!(matches!(&r, Err(ContractError::InvalidArgument(m)) if m == "inner"));
+    assert_eq!(ops.calls.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn rejection_comes_before_a_failing_create_pipeline() {
+    let ops = Recording::new(false);
+    let is_inner = |r: &Result<PipelineHandle, ContractError>| matches!(r, Err(ContractError::InvalidArgument(m)) if m == "inner");
+
+    let count = [spec(0, &[4], &[1])];
+    let r = ops.create_pipeline_checked(wgsl(), &BindingLayout::new(vec![0, 1]), &count);
+    assert!(starts(&r, "C1"));
+    assert!(!is_inner(&r));
+
+    let dims = [spec(0, &[2, 2], &[1])];
+    let r = ops.create_pipeline_checked(wgsl(), &BindingLayout::new(vec![0]), &dims);
+    assert!(starts(&r, "C3"));
+    assert!(!is_inner(&r));
+
+    assert!(ops.calls.lock().unwrap().is_empty());
+}

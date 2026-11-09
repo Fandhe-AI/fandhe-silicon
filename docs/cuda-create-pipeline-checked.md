@@ -34,8 +34,19 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test -p fandhe-silicon-core --test compute_create_pipeline_checked`
 
+## 次元数の照らしと作成の失敗の受け渡し（2/4）
+
+| 試験 | 入力 | 返す値 |
+| ---- | ---- | ------ |
+| `dimension_mismatch_does_not_call_create_pipeline` | `shape` 2 次元・`stride` 1 次元の宣言 1 件と `slots` 1 件 | 先頭が `C3` の `InvalidArgument`。`create_pipeline` を呼ばない。`stride` を 2 次元にすると `Ok`、`create_pipeline` を 1 回 |
+| `create_pipeline_error_is_returned_as_is` | 失敗する `create_pipeline`・照らしを通る宣言 | `create_pipeline` の `InvalidArgument("inner")` をそのまま返す。呼び出しは 1 回 |
+| `rejection_comes_before_a_failing_create_pipeline` | 失敗する `create_pipeline`・件数が違う宣言／次元数が違う宣言 | 先頭が `C1`／`C3`（`inner` でない）。`create_pipeline` を呼ばない |
+
+確かめ方: `cargo test -p fandhe-silicon-core --test compute_create_pipeline_checked`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | ComputeOps に宣言を照らしてから作る口を足す | #4851 |
+| 2/4 | 次元数の照らしと作成の失敗の受け渡しの試験を足す | #4852 |
