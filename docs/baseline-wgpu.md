@@ -65,6 +65,13 @@ worktree のルートで実行する。
 - CI の `deny` ジョブのステップで、`make baseline-positive-control` の後・`make upper-layer-check` の前に流れる。ジョブは足していない。`deny` ジョブの `timeout-minutes` は 30
 - 確かめ方: `make baseline-verify`（記録の所在: TASK-1010）
 
+## 腕の crate（2/4）
+
+- member は 3 つ（`crates/gemm-arm`・`crates/public-api`・`crates/smoke`）。`crates/gemm-arm`（package `baseline-wgpu-gemm-arm`）は cooperative matrix の WGSL を持つ lib crate で、所在と現状の事実は [baseline-gemm-arm](baseline-gemm-arm.md)
+- `crates/gemm-arm` は製品の `crates/core`（feature `test-support`）へ path で依存する。向きは `baseline-wgpu/` → 製品だけ
+- `make deny` は本 workspace の deps-check を `scripts/deps-check.sh --allow-path-root crates baseline-wgpu/Cargo.toml` の形で呼ぶ（`crates/` 配下への path だけを免除する）
+- 確かめ方: `make deny`、`make baseline-verify`（記録の所在: TASK-1010）
+
 ## 関連
 
 [workspace-boundary](workspace-boundary.md)・[wgpu-baseline-record](wgpu-baseline-record.md)・[measurement-record](measurement-record.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)

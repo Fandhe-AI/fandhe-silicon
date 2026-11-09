@@ -11,6 +11,7 @@
 # baseline-wgpu/ には wgpu 系の禁止だけを外した baseline-wgpu/deny.toml を --config で明示して当てる
 # （明示しないと cargo-deny は上の階層のルートの deny.toml を拾って bans で落ちる）。あわせて
 # baseline-wgpu/ の依存の承認の記録を deps-check.sh で検査する。別 workspace のビルドはしない。
+# baseline-wgpu/ の deps-check も、製品の crate（crates/）への path だけを免除する（--allow-path-root crates）。
 # measure/ の deps-check と build / test は `make measure-verify` 側にある。
 # wasm32 向けの別 workspace wasm/（ポインタ: TASK-22）にもルートの deny.toml をそのまま当て（wgpu 系・naga の禁止は残る）、
 # deps-check.sh を --allow-path-root crates で呼ぶ（製品の crate への path だけを免除する）。
@@ -112,7 +113,7 @@ cargo deny --manifest-path "${ROOT_DIR}/baseline-wgpu/Cargo.toml" --locked \
   --config "${BASELINE_DENY}" check advisories bans licenses sources
 
 log "deps-check (baseline-wgpu/)"
-"${DIR}/deps-check.sh" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"
+"${DIR}/deps-check.sh" --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"
 
 # wasm/ はルートの deny.toml をそのまま当てる（wgpu 系・naga の禁止を外さない）。
 # 注意: --config は check の前に置く（上と同じ理由）。

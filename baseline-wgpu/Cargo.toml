@@ -7,7 +7,7 @@
 # cargo-deny をかけ、deps-check.sh で承認の記録を検査する（ビルドはしない）。
 [workspace]
 resolver = "3"
-members = ["crates/smoke", "crates/public-api"]
+members = ["crates/gemm-arm", "crates/public-api", "crates/smoke"]
 
 [workspace.package]
 edition = "2024"
