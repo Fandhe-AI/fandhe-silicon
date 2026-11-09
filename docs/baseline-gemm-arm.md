@@ -134,3 +134,11 @@ TASK-1010 の 4/4（#6322）として、ここまでの成果物を本リポで�
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1010）。
 
 確かめた base は `cd916d512cef9cbcfffd5bcbc2103793e23fdd7a`、`docs/spec` の gitlink は `050073a33856cff4559718a8e760289ec3d5a65e`。
+
+## 今の値の補い（base d082bc1）
+
+記録時点の表と既存の節は書き換えない。以下は base `d082bc1` で確かめた今の値。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 本リポの現状の `流れる場所`（17 行目） | `make baseline-verify` に含まれる。device は使わない → `make baseline-verify` に含まれるが、device の経路（`src/device.rs`）と bin `baseline-wgpu-gemm-gate` が加わっている。device の要る試験は `tests/device_gate.rs` の 4 本で、すべて `#[ignore]`。既定の `cargo test` と `make baseline-verify` では `4 ignored` になり、device を使わない | `grep -n 'ignore' baseline-wgpu/crates/gemm-arm/tests/device_gate.rs`、`baseline-wgpu/crates/gemm-arm/Cargo.toml` の `[[bin]]`（18〜20 行目） |

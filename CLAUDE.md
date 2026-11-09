@@ -48,8 +48,8 @@ fandhe-silicon/
 ├── docs/contract/            # 契約の明文のまとめと、形を決める作業の手順書（書式・更新の順は README）
 ├── docs/workspace-boundary.md  # 製品 workspace の境界の案内（決定の記録の正は private spec）・今の値の補い（base 5ea11ff）
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
-├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）（TASK-7・TASK-1010）
-├── docs/baseline-gemm-arm.md  # 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）（TASK-1010）
+├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）・今の値の補い（base d082bc1）（TASK-7・TASK-1010）
+├── docs/baseline-gemm-arm.md  # 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base d082bc1）（TASK-1010）
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
 ├── docs/upper-source-check.md  # 上の層のソースの走査の所在と、本リポの現状の事実・環境変数・ファイルの読み取りとグローバルな状態の走査（1/4）・関数ごとの契約の呼び出しと失敗の構築の走査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base f4b9d8f）（TASK-2387）
@@ -139,7 +139,7 @@ fandhe-silicon/
 ├── docs/profile-switch-check.md  # プロファイルの切替の検査の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）・今の値の補い（base 0f8b01c）（TASK-227）
 ├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）・依存の承認の件数の現状・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680）（TASK-231）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実・本リポでの反映の方針（TASK-236）
-├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実（TASK-18）
+├── docs/ci-job-split.md      # CI の分け方の決定の記録の所在と、本リポの CI の現状の事実・今の値の補い（base d082bc1）（TASK-18）
 ├── docs/ci-device-free-jobs.md  # 機材の要らないジョブの枠の所在と、本リポの現状の事実・枠の対象・分類（どのジョブに足すか）・実行場所・失敗したときの扱い・`ci.yml` が呼ぶ検査と make ターゲットの対応・`ci-frame-check`・規則とテストの対応・検査を足すときの手順・確かめ方・今の値の補い（base ed82c18）（TASK-112）・今の値の補い（base 80164f4）
 ├── docs/wasm32-backend-check.md  # 背後実装の feature を付けた wasm32 の検査の所在・行の表・回帰テストとの対応・本リポの現状での実行結果・確かめ方（TASK-238 の 1/2）・依存グラフの記録と完了の条件の確かめ（2/2）・今の値の補い（base 3e32680）
 ├── docs/wasm32-compile-probe-check.md  # wasm32 のコンパイル試験の検査の所在と、本リポの現状の事実・wasm32 のコンパイル試験の検査と回帰テスト（1/4）・wasm-verify からの呼び出し（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）（TASK-239）・試験の行と回帰テスト（1/2）・完了の条件の確かめ（2/2）（TASK-553）
@@ -171,7 +171,7 @@ fandhe-silicon/
 ├── docs/profile-dep-graph-check.md  # 依存グラフのプロファイルごとの検査（CpuOnly・ComputeOnly の Metal の組と per-header feature）の所在・出力の読み方・数え方の定義の所在・陽性対照（一覧に 1 件足すと落ちることの確かめ）・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）・完了の条件の確かめと件数・差の記録（6/6）・今の値の補い（base 3e32680）（TASK-229）
 ├── docs/public-api-diff.md   # 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実・本リポでの反映の方針（TASK-28）
-├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・CPU の演算の時間を測る bin（TASK-2960）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）
+├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・CPU の演算の時間を測る bin（TASK-2960）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1）
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
 ├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）（TASK-1082）

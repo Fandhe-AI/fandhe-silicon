@@ -75,3 +75,17 @@ worktree のルートで実行する。
 ## 関連
 
 [workspace-boundary](workspace-boundary.md)・[wgpu-baseline-record](wgpu-baseline-record.md)・[measurement-record](measurement-record.md)・[poc-carry-over](../.claude/rules/poc-carry-over.md)・[dependency-policy](../.claude/rules/dependency-policy.md)
+
+## 今の値の補い（base d082bc1）
+
+記録時点の表と既存の節は書き換えない。以下は base `d082bc1` で確かめた今の値。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 製品 workspace を守る仕組み（`別 workspace の切り離し`・`製品の依存グラフ`） | 製品の workspace の member は `crates/` の 4 crate → member は 5 crate（`crates/core`・`crates/contract`・`crates/exec`・`crates/upper`・`crates/wasm-abi`）。`exclude` は `["baseline-wgpu", "measure", "wasm"]` のまま | ルート `Cargo.toml` の `members`（14 行目）・`exclude`（19 行目）、`cargo metadata --format-version 1 --no-deps` の `workspace_members` |
+| 別 workspace の配置と骨格の `member` | 2 つ（`crates/smoke`・`crates/public-api`）→ 3 つ（`crates/gemm-arm`・`crates/public-api`・`crates/smoke`）。`crates/gemm-arm` の所在は [baseline-gemm-arm](baseline-gemm-arm.md) | `baseline-wgpu/Cargo.toml` の `members`（10 行目） |
+| 同 `外部依存` | `wgpu = "=30.0.1"` のみ → `crates/gemm-arm` はこれに加えて製品の `crates/core`（feature `test-support`）への path 依存を持つ。registry の外部依存は `wgpu` のまま | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の `[dependencies]`（14〜16 行目） |
+| 同 `lints` | `unsafe_code = "forbid"`・`missing_docs = "warn"` → ワークスペースの表（`baseline-wgpu/Cargo.toml` の 18〜20 行目）はそのままで、`crates/gemm-arm` は継承をやめて自前の `[lints]` を持つ（`unsafe_code = "deny"`・`unsafe_op_in_unsafe_fn = "deny"`・`missing_docs = "warn"`、clippy の `undocumented_unsafe_blocks`・`missing_safety_doc` は deny）。`public-api`・`smoke` の表は上の `forbid` のまま | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の 22〜29 行目 |
+| 同 `検査の範囲` の「ビルド・実行は範囲外」 | `make deny` は本 workspace のビルドをしない → 今は `make baseline-verify`（`scripts/baseline-verify.sh`）が本 workspace の fmt --check / clippy / test を流し、CI の `deny` ジョブが `make baseline-positive-control` の次のステップで呼ぶ。`make deny` はビルドをしないままで、`make verify`・`make check` は範囲外のまま | `.github/workflows/ci.yml` の 269〜271 行目、`scripts/baseline-verify.sh` |
+| 同 `依存の承認の記録`、確かめ方の `scripts/deps-check.sh baseline-wgpu/Cargo.toml` | `scripts/deps-check.sh baseline-wgpu/Cargo.toml` を呼ぶ → `scripts/deps-check.sh --allow-path-root "${ROOT_DIR}/crates" "${ROOT_DIR}/baseline-wgpu/Cargo.toml"` の形で呼ぶ（`crates/` 配下への path だけを免除する）。手元で直接流すときは `scripts/deps-check.sh --allow-path-root crates baseline-wgpu/Cargo.toml` | `scripts/deny.sh` の 115〜116 行目 |
+| 版の記録の `wgpu_baseline.lockfile_sha256` | `2b42260a29815b8911273102b65a09b93d49e69d9af59b2add487dea2437f896` → `c251f283868061522fa30deebf6ddcc2fb6671eaf26c4a819c06b93ac1c719c2`。`version`（`30.0.1`）・`source`（`crates-io`）は変わらない | `sha256sum baseline-wgpu/Cargo.lock` |
