@@ -126,3 +126,29 @@ make wasm-verify
 ## 今の値の補い（base 6b35dd9）
 
 上の表の項目 8 の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が 177・505 行目、`make wasm-verify` が 276・466 行目である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
+
+## 比較関数の型と記述子の比較関数の欄（5/7）
+
+公開のパスは `fandhe_silicon_core::sampler::CompareFunction`。feature の条件なしで公開される。derive は `Debug`・`Clone`・`Copy`・`PartialEq`・`Eq`・`Hash` で、`#[non_exhaustive]`。既定の値なし（`Default` を持たない）。
+
+| 順 | 値 |
+| -- | -- |
+| 1 | `Never` |
+| 2 | `Less` |
+| 3 | `Equal` |
+| 4 | `LessEqual` |
+| 5 | `Greater` |
+| 6 | `NotEqual` |
+| 7 | `GreaterEqual` |
+| 8 | `Always` |
+
+記述子 `SamplerDescriptor` に欄 `compare: Option<CompareFunction>` が加わり、既定は `None`。欄の位置は `lod_max_clamp` の後・`anisotropy_clamp` の前で、記述子の欄は 12 個になった。
+
+型の doctest は 3 つ（`CompareFunction::default()` の `E0599`、8 腕だけの網羅の `match` の `E0004`、`_` の腕で通る例）。
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-core --lib sampler
+RUSTC_BOOTSTRAP=1 cargo test -p fandhe-silicon-core --doc sampler
+```
