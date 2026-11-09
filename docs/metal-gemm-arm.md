@@ -123,6 +123,24 @@ FANDHE_SILICON_G6_SOURCE=<repo の外のソースのパス> scripts/metal-sessio
 - `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm`（macOS では 2 つの試験のバイナリが ignored を数える。Linux では 0 本）
 - `cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
 
+## 完了の条件の確かめ（5/5）
+
+TASK-1008 の 5/5（#6313）として、ここまでの成果物を本リポで観測できる事実だけで確かめた記録。(1)〜(5) は GPU なしの Linux での手元の実行、(6)・(7) は 4/5 のマージの後の main の push の run（run id `42635014288`）の CI のログと conclusion。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 腕の crate が `measure/` の member で、製品の workspace の外にある | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`record:` の行は `measure_pkgs=4 measure_contract_pkgs=1 measure_forbidden=0`、終了コード 0 |
+| 2 | ソースの照合と取得の道具の試験が通る | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test source`、同 `--test fetch_cmd` | `source` は `ok. 10 passed; 0 failed; 0 ignored`、`fetch_cmd` は `ok. 3 passed; 0 failed; 0 ignored` |
+| 3 | 起動の表の試験が通る | 同 `--test launch` | `ok. 9 passed; 0 failed; 0 ignored` |
+| 4 | unsafe の個数 | 同 `--test unsafe_count`、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src` | `ok. 5 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は 1 件（`src/lib.rs:17`。直後の行が `mod metal;`） |
+| 5 | 依存 | `measure/crates/metal-gemm-arm/Cargo.toml` の依存の欄、`make measure-verify` の `deps-check (measure/)`、`grep -c objc2-foundation measure/crates/metal-gemm-arm/Cargo.toml` | `[dependencies]` は `fandhe-silicon-core`（path）、macOS 向けは `objc2 =0.6.5`・`objc2-metal =0.3.2`・`objc2-core-graphics =0.3.2`、`ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml`、`objc2-foundation` の件数は 0 |
+| 6 | macOS の腕の crate の試験 | `gh run view 42635014288 --log --job <verify-macos の job id>` の `make measure-verify` の `measure-metal-gemm-arm` の `Running` 行ごとの `test result:` | lib の unittests は `ok. 3 passed; 0 failed; 0 ignored`、`source` は 10 passed、`fetch_cmd` は 3 passed、`launch` は 9 passed、`unsafe_count` は 5 passed、`gate` は `0 passed; 0 failed; 1 ignored`、`device` は `0 passed; 0 failed; 2 ignored` |
+| 7 | CI | `gh run view 42635014288 --json headSha,jobs` | headSha は `d9a72c5bd2ca1f7b6a9bf3041518f9698e49f82c`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion はいずれも `success` |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1008）。
+
+確かめた base は `d9a72c5`、`docs/spec` の gitlink は `050073a33856cff4559718a8e760289ec3d5a65e`。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -130,3 +148,4 @@ FANDHE_SILICON_G6_SOURCE=<repo の外のソースのパス> scripts/metal-sessio
 | 2/5 | カーネルのソースの取得と照合 | #6310 |
 | 3/5 | Metal 直接の GEMM の腕 | #6311 |
 | 4/5 | 門の run の device の試験 | #6312 |
+| 5/5 | 完了の条件の確かめ | #6313 |
