@@ -2,11 +2,12 @@
 //!
 //! この crate で `unsafe` を書くのはこのファイルだけ（`src/lib.rs` の `mod metal;` の宣言にだけ lint の許可を付ける）。
 //! 呼び出し元は腕の試験（門の枠の `run_cell` に渡す腕）で、
-//! 外へ出すのは safe な [`run_g6`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
+//! 外へ出すのは safe な [`run_g6`] と [`run_g7`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
 //! 完了を待ってからだけ出力を読む。`objc2-foundation` は使わず、`NSString` と 2 つの生成の呼び出しは
 //! `msg_send!` で扱う。エラーの中身は読まず、固定の [`ArmError`] にする。
 
 use std::ffi::c_void;
+use std::path::Path;
 use std::ptr::{self, NonNull};
 
 use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput};
@@ -24,10 +25,11 @@ use objc2_metal::{
     MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode, MTLResourceOptions, MTLSize,
 };
 
+use crate::coopmat::{COOPMAT_ENTRY, COOPMAT_THREADS, coopmat_launch_for};
 use crate::launch::{
     BufferLayout, ConstantValue, Launch, OutputKind, crop_matrix, launch_for, pad_matrix, pad8_dim,
 };
-use crate::{ArmError, PipelineFacts};
+use crate::{ArmError, MetallibFacts, PipelineFacts};
 
 /// UTF-8 を表す `NSStringEncoding` の値。
 const UTF8_ENCODING: usize = 4;
@@ -71,6 +73,15 @@ struct SplitK {
     reserved1: u32,
 }
 
+/// `CoopmatDims`（cooperative matrix の kernel の buffer 3）。並びは m・k・n で、値は実効の M・K・N。
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CoopmatDims {
+    m: u32,
+    k: u32,
+    n: u32,
+}
+
 /// 門の `G6` のセルを 1 回だけ投入し、出力（M×N、行優先）と pipeline の事実を返す。
 ///
 /// `source` は投入の前に [`crate::source::verify_source`] で固定のハッシュと照らし、
@@ -105,6 +116,95 @@ pub fn run_g6(
         }
         _ => Err(ArmError::DtypeMismatch),
     }
+}
+
+/// 門の `G7` のセルを、MSL から作った metallib で 1 回だけ投入し、出力（M×N、行優先）と事実を返す。
+///
+/// 腕・起動の形・dtype・入力の長さの検査は offline compiler も device も呼ぶ前に済ませ、食い違うときは `Err` を返す。
+/// 成果物（パス・バイト列）は外から受けず、腕の中で作った metallib だけを読む。作業のディレクトリは
+/// 出力を読み終えるまで保持し、どの出口でも消える。
+pub fn run_g7(
+    cell: GemmGateCell,
+    inputs: &GateInputs,
+) -> Result<(GateOutput, MetallibFacts), ArmError> {
+    if cell.arm() != GemmGateArm::G7 {
+        return Err(ArmError::UnsupportedCell);
+    }
+    let launch = coopmat_launch_for(cell).ok_or(ArmError::UnsupportedCell)?;
+    let GateInputs::F32(i) = inputs else {
+        return Err(ArmError::DtypeMismatch);
+    };
+    let (m, n, k) = (cell.row().m(), cell.row().n(), cell.row().k());
+    let a_padded = pad_matrix(i.a(), m, k, launch.eff_m, launch.eff_k, 0.0_f32)?;
+    let b_padded = pad_matrix(i.b(), k, n, launch.eff_k, launch.eff_n, 0.0_f32)?;
+    let c_elems = launch
+        .eff_m
+        .checked_mul(launch.eff_n)
+        .ok_or(ArmError::Overflow)?;
+
+    // 作業のディレクトリは出力を読み終えるまで保持する。
+    let built = crate::metallib::build_metallib()?;
+
+    let device = MTLCreateSystemDefaultDevice().ok_or(ArmError::NoDevice)?;
+    let url = file_url(built.metallib())?;
+    let library = new_library_from_url(&device, &url)?;
+    let name_string = make_nsstring(COOPMAT_ENTRY)?;
+    let function = new_function_by_name(&library, &name_string)?;
+    let pipeline = device
+        .newComputePipelineStateWithFunction_error(&function)
+        .map_err(|_| ArmError::PipelineFailed)?;
+    let max_threads = pipeline.maxTotalThreadsPerThreadgroup();
+    if COOPMAT_THREADS > max_threads {
+        return Err(ArmError::ThreadsExceeded);
+    }
+
+    let a_buffer = new_shared_buffer(&device, a_padded.len(), size_of::<f32>())?;
+    let b_buffer = new_shared_buffer(&device, b_padded.len(), size_of::<f32>())?;
+    let c_buffer = new_shared_buffer(&device, c_elems, size_of::<f32>())?;
+    write_buffer(&a_buffer, &a_padded)?;
+    write_buffer(&b_buffer, &b_padded)?;
+    zero_buffer(&c_buffer)?;
+
+    let queue = device.newCommandQueue().ok_or(ArmError::AllocationFailed)?;
+    let command_buffer = queue.commandBuffer().ok_or(ArmError::SubmitFailed)?;
+    let encoder = command_buffer
+        .computeCommandEncoder()
+        .ok_or(ArmError::SubmitFailed)?;
+    encoder.setComputePipelineState(&pipeline);
+    bind_buffers(&encoder, &[&a_buffer, &b_buffer, &c_buffer]);
+    let dims = CoopmatDims {
+        m: to_u32(launch.eff_m)?,
+        k: to_u32(launch.eff_k)?,
+        n: to_u32(launch.eff_n)?,
+    };
+    set_bytes(&encoder, &dims, 3);
+    encoder.dispatchThreadgroups_threadsPerThreadgroup(
+        MTLSize {
+            width: launch.groups_width,
+            height: launch.groups_height,
+            depth: 1,
+        },
+        MTLSize {
+            width: COOPMAT_THREADS,
+            height: 1,
+            depth: 1,
+        },
+    );
+    encoder.endEncoding();
+    command_buffer.commit();
+    command_buffer.waitUntilCompleted();
+    if command_buffer.status() != MTLCommandBufferStatus::Completed {
+        return Err(ArmError::SubmitFailed);
+    }
+
+    let padded_out = read_buffer::<f32>(&c_buffer, c_elems)?;
+    let out = crop_matrix(&padded_out, launch.eff_m, launch.eff_n, m, n)?;
+    let facts = MetallibFacts {
+        max_total_threads_per_threadgroup: max_threads,
+        metallib_sha256: built.sha256(),
+    };
+    drop(built);
+    Ok((GateOutput::F32(out), facts))
 }
 
 /// 詰め物 → コンパイル → pipeline → バッファ → 投入 → 完了待ち → 切り出し、を 1 回だけ行う。
@@ -288,6 +388,48 @@ fn new_function(
     function.ok_or(ArmError::FunctionFailed)
 }
 
+/// ファイルのパスから `NSURL` を作る。
+fn file_url(path: &Path) -> Result<Retained<AnyObject>, ArmError> {
+    let text = path.to_str().ok_or(ArmError::WorkDirFailed)?;
+    let path_string = make_nsstring(text)?;
+    let class = AnyClass::get(c"NSURL").ok_or(ArmError::AllocationFailed)?;
+    // SAFETY: `class` は実行時から得た `NSURL` のクラスで、`fileURLWithPath:` はクラスメソッドとして
+    // `NSString` を 1 つ取る。`path_string` は `make_nsstring` が作った生きている `NSString` で、
+    // 呼び出しの間だけ参照される。戻りは自動解放のオブジェクトで、`Retained` が保持を取る。
+    // 失敗で nil になりうるので `Option` で受ける。
+    let url: Option<Retained<AnyObject>> =
+        unsafe { msg_send![class, fileURLWithPath: &*path_string] };
+    url.ok_or(ArmError::WorkDirFailed)
+}
+
+/// metallib のファイルの URL から library を作る。失敗の中身は読まず固定の `Err` にする。
+fn new_library_from_url(
+    device: &ProtocolObject<dyn MTLDevice>,
+    url: &AnyObject,
+) -> Result<Retained<ProtocolObject<dyn MTLLibrary>>, ArmError> {
+    let mut error: *mut AnyObject = ptr::null_mut();
+    // SAFETY: `device` は生きている Metal の device で、`newLibraryWithURL:error:` を受ける。
+    // `url` は `file_url` が作った生きている `NSURL` で、この呼び出しの間だけ参照される。
+    // 最後の引数は `NSError **` に当たる、局所の `*mut AnyObject` を指す書き込み先で、呼び出しの間だけ
+    // 生きる。戻りは `new` 系の所有で、失敗で nil になりうるので `Option` で受ける。
+    let library: Option<Retained<ProtocolObject<dyn MTLLibrary>>> =
+        unsafe { msg_send![device, newLibraryWithURL: url, error: &mut error] };
+    library.ok_or(ArmError::LibraryLoadFailed)
+}
+
+/// library から、名前で入口の関数を作る（function constant は使わない）。
+fn new_function_by_name(
+    library: &ProtocolObject<dyn MTLLibrary>,
+    name: &AnyObject,
+) -> Result<Retained<ProtocolObject<dyn MTLFunction>>, ArmError> {
+    // SAFETY: `library` は生きている library で、`newFunctionWithName:` を受ける。
+    // `name` は `make_nsstring` が作った生きている `NSString` で、この呼び出しの間だけ参照される。
+    // 戻りは `new` 系の所有で、見つからないと nil になるので `Option` で受ける。
+    let function: Option<Retained<ProtocolObject<dyn MTLFunction>>> =
+        unsafe { msg_send![library, newFunctionWithName: name] };
+    function.ok_or(ArmError::FunctionFailed)
+}
+
 /// function constant を 1 つ設定する。`value` の型は `data_type` の大きさと一致させる呼び出しだけがある
 /// （`UInt` は `u32`、`Bool` は `bool`）。
 fn set_constant<V>(
@@ -448,5 +590,23 @@ mod tests {
         let values = MTLFunctionConstantValues::new();
         set_constant(&values, &7_u32, MTLDataType::UInt, 0);
         set_constant(&values, &true, MTLDataType::Bool, 5);
+    }
+
+    /// 絶対パスから作った `NSURL` がファイルの URL で、パスのバイト長が一致する（device を作らない）。
+    #[test]
+    fn file_url_round_trips_path() {
+        let text = "/tmp/measure-metal-gemm-arm/abc.metallib";
+        let url = file_url(Path::new(text)).expect("url");
+        // SAFETY: `url` は `file_url` が作った生きている `NSURL` で、`path` は引数なしで `NSString` を返し、
+        // `isFileURL` は `BOOL` を返す。`lengthOfBytesUsingEncoding:` は `NSStringEncoding` を 1 つ取り
+        // `NSUInteger` を返す。取り出した `NSString` は自動解放で、この関数の間は生きている。
+        let (length, is_file): (usize, bool) = unsafe {
+            let path_string: Retained<AnyObject> = msg_send![&*url, path];
+            let length: usize = msg_send![&*path_string, lengthOfBytesUsingEncoding: UTF8_ENCODING];
+            let is_file: bool = msg_send![&*url, isFileURL];
+            (length, is_file)
+        };
+        assert_eq!(length, text.len());
+        assert!(is_file);
     }
 }

@@ -6,7 +6,8 @@
 //!
 //! cooperative matrix の GEMM の MSL と起動の形・offline compiler のコマンドの引数は [`coopmat`] module に置く（TASK-1009 のポインタ）。
 //!
-//! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g6` を出す。
+//! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g6` と `run_g7` を出す。
+//! `run_g7` は MSL を offline compiler で metallib にして読み、cooperative matrix の 1 セルを 1 回投入する（TASK-1009 のポインタ）。
 //! `unsafe` を書くのは `src/metal.rs` だけで、個数は `tests/unsafe_count.rs` の表が固定する。
 //! 門の 1 セルを device で流す試験は `tests/gate.rs` にあり、`#[ignore]` 付き。
 
@@ -19,9 +20,20 @@ pub mod source;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod metal;
+#[cfg(target_os = "macos")]
+mod metallib;
 
 #[cfg(target_os = "macos")]
-pub use metal::run_g6;
+pub use metal::{run_g6, run_g7};
+
+/// 投入した metallib の pipeline について読み出した事実。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetallibFacts {
+    /// pipeline が受け付ける threadgroup あたりのスレッド数の上限。
+    pub max_total_threads_per_threadgroup: usize,
+    /// 読み込んだ metallib のバイト列の sha256。
+    pub metallib_sha256: [u8; 32],
+}
 
 /// 投入した pipeline について読み出した事実。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

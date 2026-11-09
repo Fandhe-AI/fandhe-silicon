@@ -60,8 +60,44 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 確かめ方: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test coopmat`
 
+## metallib の作成と腕の手順（2/4）
+
+macOS 向けに `run_g7`（`src/metal.rs`）が、MSL を metallib にして読み、門の `G7` の f32 のセルを 1 回だけ投入する。成果物（パス・バイト列）は引数に取らない。
+
+### 腕の手順
+
+1. 腕が `G7` でなければ `UnsupportedCell`、起動の形が無ければ `UnsupportedCell`、入力が f32 でなければ `DtypeMismatch`
+2. 入力を実効の次元へ詰める（長さの食い違いは `LengthMismatch`、寸法のあふれは `Overflow`）。ここまで offline compiler も device も呼ばない
+3. 作業のディレクトリを作って metallib を作る（下記）。ディレクトリは出力を読み終えるまで保持する
+4. 既定の device（無ければ `NoDevice`）で metallib の URL から library を読み（`LibraryLoadFailed`）、入口の関数を名前で作り（`FunctionFailed`）、pipeline を作る（`PipelineFailed`）。function constant と `compile_options()` は使わない
+5. threadgroup のスレッド数が pipeline の上限を超えれば `ThreadsExceeded`
+6. A・B・C のバッファを確保して束縛（0〜2）し、実効の M・K・N をこの並びで buffer 3 に渡し、1 回だけ投入して完了を待つ。完了でなければ `SubmitFailed`
+7. 出力を読み、元の M×N に切り出す。事実として `MetallibFacts` の 2 つの値（pipeline のスレッド数の上限と metallib の sha256）を返す
+
+### 作業のディレクトリ
+
+- 一時のディレクトリの下に、一意の名前のディレクトリを非再帰で作る（既にあれば `WorkDirFailed`）
+- MSL は新規作成で書く。`/usr/bin/xcrun` を shell を介さず絶対パスで呼び、標準入力は null、出力は捨てる。失敗は `ToolFailed`
+- metallib は通常のファイル（シンボリックリンクでない）と確かめ、上限つきで読んで sha256 を取る
+- どの出口でも、作ったディレクトリだけを消す
+
+### `unsafe`
+
+`unsafe` を書くのは `src/metal.rs` だけで、`src/metallib.rs` は safe のみ。個数は `tests/unsafe_count.rs` の表が固定する。
+
+### 試験
+
+| ファイル | 内容 |
+| -------- | ---- |
+| `tests/coopmat_macos.rs` | `G6` のセルが `UnsupportedCell`、binary16 の入力が `DtypeMismatch`、別の行の入力が `LengthMismatch` になること（device にも offline compiler にも届く前に返る） |
+| `src/metal.rs`（inline） | 絶対パスから作った `NSURL` がファイルの URL で、パスのバイト長が一致すること |
+| `src/metallib.rs`（inline） | 作業のディレクトリが作られ drop で消えること、同じ名前の再作成が `WorkDirFailed` になること、上限を超えるファイルの読み出しが `WorkDirFailed` になること |
+
+確かめ方（macOS で）: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test coopmat_macos`・`--test unsafe_count`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | MSL と起動の形 | #6315 |
+| 2/4 | metallib の作成と腕の手順 | #6316 |
