@@ -117,6 +117,24 @@ scripts/metal-session.sh run --combination <名前> --validation-layer --gate-ce
 
 確かめ方: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g7`（macOS では `1 ignored`、Linux では 0 本）・`cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
 
+## 完了の条件の確かめ（4/4）
+
+TASK-1009 の 4/4（#6318）として、ここまでの成果物を本リポで観測できる事実だけで確かめた記録。(1)〜(5) は GPU なしの Linux での手元の実行、(6)・(7) は 3/4 のマージの後の main の push の run（run id `42670445568`）の CI のログと conclusion。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 腕の crate が `measure/` の member で、製品の workspace の外にある | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`record:` の行は `measure_pkgs=4 measure_contract_pkgs=1 measure_forbidden=0`、終了コード 0 |
+| 2 | MSL と起動の形の試験が通る | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test coopmat` | `ok. 6 passed; 0 failed; 0 ignored` |
+| 3 | unsafe | 同 `--test unsafe_count`、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src`、`grep -hv '^\s*//' measure/crates/metal-gemm-arm/src/coopmat.rs measure/crates/metal-gemm-arm/src/metallib.rs \| grep -c '\bunsafe\b'` | `ok. 5 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は 1 件（`src/lib.rs:21`。直後の行が `mod metal;`）、コメントの行を除いた `unsafe` の件数は 0 |
+| 4 | 依存 | `git diff d082bc1 -- measure/crates/metal-gemm-arm/Cargo.toml measure/Cargo.lock measure/deps-approved.toml`、`make measure-verify` の `deps-check (measure/)` | 差分は空、`ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml`、`make measure-verify` の終了コード 0 |
+| 5 | metallib を repo に置いていない | `git ls-files measure \| grep -c '\.metallib$\|\.air$'` | `0` |
+| 6 | macOS の腕の crate の試験 | `gh run view 42670445568 --log --job <verify-macos の job id>` の `measure-metal-gemm-arm` の `Running` 行ごとの `test result:` | lib の unittests は `ok. 7 passed; 0 failed; 0 ignored`、`coopmat` は 6 passed、`coopmat_macos` は 3 passed、`unsafe_count` は 5 passed、`gate_g7` は `0 passed; 0 failed; 1 ignored`、`source` は 10 passed、`fetch_cmd` は 3 passed、`launch` は 9 passed、`gate` は `0 passed; 0 failed; 1 ignored`、`device` は `0 passed; 0 failed; 2 ignored` |
+| 7 | CI | `gh run view 42670445568 --json headSha,jobs` | headSha は `807baccddf483037b232d359c83386510d95ec98`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion はいずれも `success` |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1009）。
+
+確かめた base は `807bacc`、`docs/spec` の gitlink は `050073a33856cff4559718a8e760289ec3d5a65e`。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -124,3 +142,4 @@ scripts/metal-session.sh run --combination <名前> --validation-layer --gate-ce
 | 1/4 | MSL と起動の形 | #6315 |
 | 2/4 | metallib の作成と腕の手順 | #6316 |
 | 3/4 | 門の run の device の試験 | #6317 |
+| 4/4 | 完了の条件の確かめ | #6318 |
