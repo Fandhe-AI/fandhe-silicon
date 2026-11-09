@@ -57,6 +57,72 @@ grep -c '^#\[ignore' crates/contract/tests/backend_cuda_reach.rs
 
 cargo の 2 行は `0 passed; 0 failed; 4 ignored`、grep は `4`。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-166。ポインタのみ）。
+
+時点のコミット: `0eb5ad4`（`docs/spec` の gitlink は `050073a33856cff4559718a8e760289ec3d5a65e`）
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 上書きの所在 | `grep -n 'fn compute(' crates/contract/src/backend_cuda.rs` | 1 行（`1661:`） |
+| 2 | 試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_reach` | `running 4 tests`、`0 passed; 0 failed; 4 ignored` |
+| 3 | `graphics` を付けたビルド | `cargo test -p fandhe-silicon-contract --features backend-cuda,graphics --test backend_cuda_reach` | (2) と同じ |
+| 4 | device の要る試験の宣言 | `grep -c '^#\[ignore' crates/contract/tests/backend_cuda_reach.rs`、(2) の `ignored` の件数 | どちらも 4 |
+| 5 | 既存の lib の試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` | `57 passed; 0 failed; 15 ignored` |
+| 6 | 組のビルド | `make build-profiles` | 終了コード 0 |
+| 7 | 公開 API | `make public-api-sdk-check`、`make public-api-check` | `sdk_type_refs_total=0` を含む `record:` の行と `ok:` の行が出る。`make public-api-check` は終了コード 0 |
+| 8 | unsafe・依存 | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count`、`make deps-check`、`git diff --stat 496e7d5 HEAD -- Cargo.lock deps-approved.toml crates/contract/tests/backend_cuda_unsafe_count.rs crates/core` | `1 passed; 0 failed`。`[deps-check.sh] ok: ...` の行が出て終了コード 0。diff は空 |
+| 9 | CI | `gh run view 42541441831 --json status,conclusion,headSha,jobs`（`0eb5ad4` の main の push の run） | conclusion は `success`。headSha は `0eb5ad4b1a67e2056c344700668351133644e714`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion は `success` |
+
+(1) の出力。
+
+```text
+1661:    fn compute(&self) -> Option<&dyn ComputeOps> {
+```
+
+(2) の出力（該当の行）。
+
+```text
+running 4 tests
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力（該当の行）。
+
+```text
+running 4 tests
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+4
+```
+
+(5) の出力（該当の行）。
+
+```text
+running 72 tests
+test result: ok. 57 passed; 0 failed; 15 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(7) の出力（該当の行）。
+
+```text
+record: commit=0eb5ad4b1a67e2056c344700668351133644e714 documents=10 public_items_total=13844 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 10 public API document(s) checked, common crate dependencies checked, no chip SDK references
+```
+
+(8) の出力（該当の行）。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
