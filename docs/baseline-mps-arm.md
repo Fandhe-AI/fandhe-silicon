@@ -61,8 +61,67 @@ worktree のルートで実行する。
 - `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test plan`
 - `make baseline-verify`
 
+## MPS の呼び出しと device の要る試験（2/3）
+
+上の「本リポの現状」の表の依存・lints の行は 1/3 の時点の値。
+
+### 依存と lints
+
+- `baseline-wgpu/crates/mps/Cargo.toml` の `[target.'cfg(target_os = "macos")'.dependencies]` に、`objc2`（`=0.6.5`）・`objc2-metal`（`=0.3.2`。`default-features = false`、feature は `std`・`MTLAllocation`・`MTLBuffer`・`MTLCommandBuffer`・`MTLCommandQueue`・`MTLDevice`・`MTLResource`）・`objc2-core-graphics`（`=0.3.2`。`default-features = false`）を置く。記録は `baseline-wgpu/deps-approved.toml`
+- `[lints]` は workspace の継承をやめて自前の表（`unsafe_code = "deny"`・`unsafe_op_in_unsafe_fn = "deny"`・`missing_docs = "warn"`・`undocumented_unsafe_blocks = "deny"`・`missing_safety_doc = "deny"`）
+
+### `run_matmul(plan, inputs)`
+
+macOS 向けだけの safe な公開関数。`MpsError` は `src/lib.rs` にあり、どの OS でもコンパイルされる（`#[non_exhaustive]`、`Display` は固定の英語）。呼び出しの順と、手順が失敗したときの値は次のとおり。
+
+| 手順 | 失敗したときの `MpsError` |
+| ---- | ------------------------ |
+| 入力の種類が計画の入力の型と合うか（device には触れない） | `InputMismatch` |
+| 既定の Metal の device を得る | `NoDevice` |
+| `MPSSupportsMTLDevice` | `Unsupported` |
+| `MPSMatrixDescriptor`・`MPSMatrix`・`MPSMatrixMultiplication` のクラスを引く | `Unsupported` |
+| 行の間隔を尋ね、`check_row_bytes` で照らす | `Plan` |
+| A・B を詰める | `Plan` |
+| A・B・C のバッファを作る（長さ 0 を含む） | `AllocationFailed` |
+| 記述子・行列・kernel を作る | `Unsupported` |
+| コマンドキュー・コマンドバッファを作る | `AllocationFailed` |
+| 投入して 1 回だけ完了を待ち、状態が `Completed` か | `Execution` |
+| 出力のバッファの長さを確かめ、完了の後だけ読んで戻す | `Execution`・`Plan` |
+
+A は M×K、B は K×N、C は M×N で、転置なし・`alpha = 1`・`beta = 0`。出力の型は計画に従う。
+
+### `unsafe` の所在
+
+- 橋の module は `src/mps.rs`。`#[allow(unsafe_code)]` は `src/lib.rs` の `mod mps;` の宣言だけに付く
+- `unsafe` は、`MPSSupportsMTLDevice` の宣言と呼び出し、`msg_send!` の呼び出し、`newBufferWithBytes_length_options`、出力の読み出しの各箇所にあり、どれにも `// SAFETY:` がある。`unsafe fn` は持たない
+- 個数の試験は `tests/unsafe_count.rs`。種別ごとの個数を表と照合し、表に無いファイルは全種別 0 を期待する
+
+### device の要る試験
+
+| ファイル | 試験 | 出力の型 | 判定 |
+| -------- | ---- | -------- | ---- |
+| `tests/mps_gate.rs` | `mps_gate_cell_matches_t1` | 入力と同じ型 | 枠の結果の `comparison().is_match()` の assert |
+| `tests/mps_gate_f32_output.rs` | `mps_gate_cell_f32_output_runs` | f32 | 結果の行と `output=f32` の行の出力だけ |
+
+どちらも `#[ignore]` 付きで macOS 向けだけ。セルは門の run の環境変数で選ぶ。device の回では次の形で流す（セルの識別名は `GemmGateCell::id` の形）。
+
+```text
+scripts/metal-session.sh run --combination <name> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test mps_gate -- --ignored --exact mps_gate_cell_matches_t1
+```
+
+f32 の出力の試験は `--test mps_gate_f32_output` と `mps_gate_cell_f32_output_runs` に替える。
+
+### 確かめ方
+
+worktree のルートで実行する。`--ignored` は付けない。
+
+- `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-mps --test unsafe_count`
+- `cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-mps --all-targets --locked --target aarch64-apple-darwin -- -D warnings`
+- `make baseline-verify`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | crate とセルの計画・入力の詰め替え | #6325 |
+| 2/3 | MPS の呼び出しと device の要る試験 | #6326 |
