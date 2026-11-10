@@ -85,6 +85,26 @@ pub fn load_source(path: &Path) -> Result<String, SourceError> {
     verify_source(&buf).map(str::to_owned)
 }
 
+/// `path` の通常のファイルを上限つきで読み、`expected` に一致したものだけを返す。
+///
+/// 検査は [`load_source`] と同じで、期待の sha256 を引数で受ける。開いたファイルの上でも通常のファイルかを確かめ直す。
+pub fn load_source_against(path: &Path, expected: &[u8; 32]) -> Result<String, SourceError> {
+    let meta = fs::metadata(path).map_err(|_| SourceError::Unreadable)?;
+    if !meta.is_file() {
+        return Err(SourceError::Unreadable);
+    }
+    let file = File::open(path).map_err(|_| SourceError::Unreadable)?;
+    let opened = file.metadata().map_err(|_| SourceError::Unreadable)?;
+    if !opened.is_file() {
+        return Err(SourceError::Unreadable);
+    }
+    let mut buf = Vec::new();
+    file.take(MAX_SOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|_| SourceError::Unreadable)?;
+    verify_source_against(&buf, expected).map(str::to_owned)
+}
+
 /// コマンドの引数の検査の失敗。どの引数かだけを表し、値は含まない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

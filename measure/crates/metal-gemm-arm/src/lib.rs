@@ -6,7 +6,10 @@
 //!
 //! cooperative matrix の GEMM の MSL と起動の形・offline compiler のコマンドの引数は [`coopmat`] module に置く（TASK-1009 のポインタ）。
 //!
-//! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g6` と `run_g7` を出す。
+//! 実行時に環境変数で受けて照らすソースと、それで投入する 1 セルの起動の形は [`external`] module に置く（TASK-1009 のポインタ）。
+//!
+//! macOS 向けにだけ、橋の module `metal` が Metal を直接呼んで 1 セルを 1 回投入する `run_g5` と `run_g6` と `run_g7` を出す。
+//! `run_g5` は実行時に照らしたソースを library にコンパイルして 1 セルを 1 回投入する（TASK-1009 のポインタ）。
 //! `run_g7` は MSL を offline compiler で metallib にして読み、cooperative matrix の 1 セルを 1 回投入する（TASK-1009 のポインタ）。
 //! `unsafe` を書くのは `src/metal.rs` だけで、個数は `tests/unsafe_count.rs` の表が固定する。
 //! 門の 1 セルを device で流す試験は `tests/gate.rs`（`run_g6`）と `tests/gate_g7.rs`（`run_g7`）にあり、どちらも `#[ignore]` 付き。
@@ -14,6 +17,7 @@
 use std::fmt;
 
 pub mod coopmat;
+pub mod external;
 pub mod launch;
 pub mod source;
 
@@ -24,7 +28,7 @@ mod metal;
 mod metallib;
 
 #[cfg(target_os = "macos")]
-pub use metal::{run_g6, run_g7};
+pub use metal::{run_g5, run_g6, run_g7};
 
 /// 投入した metallib の pipeline について読み出した事実。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +37,15 @@ pub struct MetallibFacts {
     pub max_total_threads_per_threadgroup: usize,
     /// 読み込んだ metallib のバイト列の sha256。
     pub metallib_sha256: [u8; 32],
+}
+
+/// 実行時に照らしたソースの pipeline について読み出した事実。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceFacts {
+    /// pipeline が受け付ける threadgroup あたりのスレッド数の上限。
+    pub max_total_threads_per_threadgroup: usize,
+    /// 照合を通ったソースについて計算した sha256。
+    pub source_sha256: [u8; 32],
 }
 
 /// 投入した pipeline について読み出した事実。
@@ -80,6 +93,10 @@ pub enum ArmError {
     WorkDirFailed,
     /// metallib の読み込みに失敗した。
     LibraryLoadFailed,
+    /// この腕には検証レイヤーが有効な環境が要る。
+    ValidationLayerRequired,
+    /// カーネルの設定が未設定または不正。
+    KernelSettingsInvalid,
 }
 
 impl fmt::Display for ArmError {
@@ -101,6 +118,8 @@ impl fmt::Display for ArmError {
             ArmError::ToolFailed => "offline shader compiler failed",
             ArmError::WorkDirFailed => "work directory operation failed",
             ArmError::LibraryLoadFailed => "metallib loading failed",
+            ArmError::ValidationLayerRequired => "validation layer is required for this arm",
+            ArmError::KernelSettingsInvalid => "kernel settings are missing or invalid",
         };
         f.write_str(text)
     }
