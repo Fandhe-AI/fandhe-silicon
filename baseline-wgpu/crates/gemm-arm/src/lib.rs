@@ -5,11 +5,13 @@
 //! 起動の引数を作る純粋関数（[`layout`]）。
 //! device の経路（[`device`]）は wgpu で g3 のセルを 1 つ流し、bin `baseline-wgpu-gemm-gate` が
 //! 門の run の枠から 1 プロセスにつき 1 セルを呼ぶ。
+//! 実行時に環境変数で受けて照らす WGSL（[`external`]）と、その起動の形（[`layout`] の `tiled_*`）も持つ（TASK-1010 のポインタ）。
 
 /// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
 #[allow(unsafe_code)]
 mod bridge;
 pub mod device;
+pub mod external;
 pub mod layout;
 
 /// f32 の A・B を読み、f32 で累積する行列積の WGSL。
