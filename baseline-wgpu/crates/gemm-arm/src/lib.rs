@@ -6,6 +6,7 @@
 //! device の経路（[`device`]）は wgpu で g3 のセルを 1 つ流し、bin `baseline-wgpu-gemm-gate` が
 //! 門の run の枠から 1 プロセスにつき 1 セルを呼ぶ。
 //! 実行時に環境変数で受けて照らす WGSL（[`external`]）と、その起動の形（[`layout`] の `tiled_*`）も持つ（TASK-1010 のポインタ）。
+//! その WGSL を流す device の経路は 2 つで、`run_g1`（[`device`]。safe）と `run_g2`（橋の module の `unsafe fn`）。
 
 /// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
 #[allow(unsafe_code)]
@@ -13,6 +14,8 @@ mod bridge;
 pub mod device;
 pub mod external;
 pub mod layout;
+
+pub use bridge::run_g2;
 
 /// f32 の A・B を読み、f32 で累積する行列積の WGSL。
 pub const COOPMAT_F32_WGSL: &str = include_str!("shaders/coopmat_f32.wgsl");
