@@ -10,7 +10,7 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr::{self, NonNull};
 
-use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput, ValidationLayerSetting};
+use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput};
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject};
@@ -26,7 +26,9 @@ use objc2_metal::{
 };
 
 use crate::coopmat::{COOPMAT_ENTRY, COOPMAT_THREADS, coopmat_launch_for};
-use crate::external::{EXTERNAL_TILE, ExternalError, ExternalKernel, external_launch_for};
+use crate::external::{
+    EXTERNAL_TILE, ExternalError, ExternalKernel, check_g5_request, external_launch_for,
+};
 use crate::launch::{
     BufferLayout, ConstantValue, Launch, OutputKind, crop_matrix, launch_for, pad_matrix, pad8_dim,
 };
@@ -102,9 +104,7 @@ pub unsafe fn run_g5(
     cell: GemmGateCell,
     inputs: &GateInputs,
 ) -> Result<(GateOutput, SourceFacts), ArmError> {
-    if cell.arm() != GemmGateArm::G5 {
-        return Err(ArmError::UnsupportedCell);
-    }
+    check_g5_request(cell, inputs)?;
     let launch = external_launch_for(cell).ok_or(ArmError::UnsupportedCell)?;
     let GateInputs::F32(i) = inputs else {
         return Err(ArmError::DtypeMismatch);
@@ -113,12 +113,6 @@ pub unsafe fn run_g5(
     let a_elems = m.checked_mul(k).ok_or(ArmError::Overflow)?;
     let b_elems = k.checked_mul(n).ok_or(ArmError::Overflow)?;
     let c_elems = m.checked_mul(n).ok_or(ArmError::Overflow)?;
-    if i.a().len() != a_elems || i.b().len() != b_elems {
-        return Err(ArmError::LengthMismatch);
-    }
-    if !ValidationLayerSetting::from_env().is_enabled() {
-        return Err(ArmError::ValidationLayerRequired);
-    }
     let kernel = ExternalKernel::from_env().map_err(|e| match e {
         ExternalError::Source(SourceError::DigestMismatch) => ArmError::SourceMismatch,
         _ => ArmError::KernelSettingsInvalid,

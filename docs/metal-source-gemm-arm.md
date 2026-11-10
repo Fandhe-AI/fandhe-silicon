@@ -71,7 +71,7 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 ### 手順
 
-`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。device を作るのは 7 の後。
+`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。1〜5 の検査は safe な `check_g5_request`（`src/external.rs`）に切り出してあり、`run_g5` は本体の最初にこれを呼ぶ。device を作るのは 7 の後。
 
 1. 腕が `GemmGateArm::G5` でなければ `UnsupportedCell`
 2. 起動の形（`external_launch_for`）が無ければ `UnsupportedCell`
@@ -115,15 +115,15 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 ### unsafe の置き場
 
-`unsafe` を書くのは `src/metal.rs` だけ。`src/external.rs` と `src/source.rs` には書かない。
+`unsafe` を書くのは `src/metal.rs` だけ（`allow(unsafe_code)` は `src/lib.rs` の `mod metal` と、`#[ignore]` の device の試験 `tests/gate_g5.rs` の 2 か所だけ）。`src/external.rs` と `src/source.rs` には書かない。
 
 ### 試験
 
 | 試験 | 確かめること |
 | ---- | ------------ |
 | `tests/external.rs` | 未設定・sha256 と入口名の形・読めないパス・不一致・上限超え・UTF-8 でない入力の `Err` と、文言に値が出ないこと。合成のファイルでの `Ok`。起動の形 |
-| `tests/external_macos.rs` | 腕・dtype・長さの食い違いが device に届く前に `Err`（macOS のみ） |
-| `tests/external_validation_macos.rs` | 検証レイヤーの環境変数を外した子プロセスで `ValidationLayerRequired`（macOS のみ） |
+| `tests/external_macos.rs` | safe な `check_g5_request`（`src/external.rs`）で、腕・dtype・長さの食い違いが device に届く前に `Err`（macOS のみ。`allow(unsafe_code)` は持たない） |
+| `tests/external_validation_macos.rs` | 検証レイヤーの環境変数を外した子プロセスで `check_g5_request` が `ValidationLayerRequired`（macOS のみ。`allow(unsafe_code)` は持たない） |
 
 ### 確かめ方
 

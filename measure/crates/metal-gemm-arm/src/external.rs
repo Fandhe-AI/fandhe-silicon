@@ -9,9 +9,11 @@ use std::fmt;
 use std::path::Path;
 
 use fandhe_silicon_core::hash::sha256_bytes;
+use fandhe_silicon_core::parity::gemm_gate::{GateInputs, ValidationLayerSetting};
 use fandhe_silicon_core::parity::gemm_inputs::GemmInputDtype;
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
 
+use crate::ArmError;
 use crate::source::{SourceError, load_source_against, parse_sha256_hex};
 
 /// ソースのファイルのパスを受ける環境変数の名前。
@@ -152,4 +154,29 @@ pub fn external_launch_for(cell: GemmGateCell) -> Option<ExternalLaunch> {
         groups_width: cell.row().n().div_ceil(EXTERNAL_TILE),
         groups_height: cell.row().m().div_ceil(EXTERNAL_TILE),
     })
+}
+
+/// `run_g5` が device を作る前に行う検査（腕・起動の形・dtype・入力の長さ・検証レイヤーの順）。
+///
+/// `run_g5`（macOS 向けの橋の module `metal`）が本体の最初に呼ぶ。device もカーネルも使わない safe な関数で、
+/// device に届く前に返る `Err` の試験が `unsafe` なしで直に呼べるように、橋の外に置く。
+pub fn check_g5_request(cell: GemmGateCell, inputs: &GateInputs) -> Result<(), ArmError> {
+    if cell.arm() != GemmGateArm::G5 {
+        return Err(ArmError::UnsupportedCell);
+    }
+    external_launch_for(cell).ok_or(ArmError::UnsupportedCell)?;
+    let GateInputs::F32(i) = inputs else {
+        return Err(ArmError::DtypeMismatch);
+    };
+    let (m, n, k) = (cell.row().m(), cell.row().n(), cell.row().k());
+    let a_elems = m.checked_mul(k).ok_or(ArmError::Overflow)?;
+    let b_elems = k.checked_mul(n).ok_or(ArmError::Overflow)?;
+    m.checked_mul(n).ok_or(ArmError::Overflow)?;
+    if i.a().len() != a_elems || i.b().len() != b_elems {
+        return Err(ArmError::LengthMismatch);
+    }
+    if !ValidationLayerSetting::from_env().is_enabled() {
+        return Err(ArmError::ValidationLayerRequired);
+    }
+    Ok(())
 }
