@@ -11,6 +11,7 @@
 //! pipeline の作成などの処理の間に出る Debug の記録から、入口名を持つシェーダーのテキストを 1 つ受け取る口（[`capture`]）も持つ。
 //! 受け取ったテキストの 1 行目の言語版と、入口の束縛の番号を読む関数（[`msl`]）も持つ。
 //! 受け取ったテキストを Metal で直接流す経路は `run_g3prime`（橋の module の `unsafe fn`）で、device の前の検査は [`prime`] の `check_g3prime_request`。
+//! 門の 1 セルを `run_g3prime` で流す device の試験は `tests/gate_prime.rs` にあり、`#[ignore]` 付き。
 
 /// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
 #[allow(unsafe_code)]
