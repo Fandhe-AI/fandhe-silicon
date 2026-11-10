@@ -289,6 +289,60 @@ make baseline-verify
 cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test prime_misuse --test prime_language --test unsafe_count
 ```
 
+## 門の run の device の試験（11/11）
+
+門の 1 セルを、枠の `run_selected_from_env` に「セルの腕が `GemmGateArm::G3Prime` なら `run_g3prime`、ほかは `ArmError::WrongArm` を返す関数」として渡して流す試験を `#[ignore]` 付きで置く。device の要る専用の回でだけ `--ignored` で流し、既定の `cargo test` では流れない。
+
+| ファイル | 試験 | 期待 |
+| -------- | ---- | ---- |
+| `tests/gate_prime.rs` | セルの腕が `GemmGateArm::G3Prime` なら `run_g3prime` で流し、ほかの腕は `ArmError::WrongArm` を返す（f32 と f16acc はセルが運ぶ入力のまま渡す） | `comparison().is_match()`、`bit_mismatches() == 0`、`max_abs_diff() == 0.0`、`validation_layer()`。標準出力に結果の行と `captured_sha256=<64 桁の小文字の 16 進>` を 1 行ずつ出す |
+
+- 試験は 1 本だけ（枠の入口がテストのバイナリにつき 1 回のため）
+- 試験は環境変数を新しく読まない。成果物・環境変数は入口が受けない
+- 標準エラーには何も書かない
+- 計算した sha256 は出力するだけで、期待の値とは比べない
+- ファイルの先頭に `#![allow(unsafe_code)]` を置き、`run_g3prime`（`unsafe fn`）を呼ぶ `unsafe` ブロックを 1 つだけ書く。呼び出し側の条件は rustdoc の `# Safety` にある
+- `src/` の `unsafe` の個数は変わらない
+
+流すときの形:
+
+```text
+scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test gate_prime -- --ignored --nocapture
+```
+
+確かめ方: `make baseline-verify` で `gate_prime` が `1 ignored` になる。
+
+```bash
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test gate_prime
+cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+```
+
+## 完了の条件の確かめ（11/11）
+
+TASK-1010 の 11/11（#8200）として、5/11〜11/11 の成果物を本リポで観測できる事実だけで確かめた記録。環境は GPU なしの Linux。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `external` の試験が通る | `cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test external` | `ok. 18 passed; 0 failed; 0 ignored` |
+| 2 | device に届かない誤用の試験が通る | 同 `--test external_device_misuse`、`--test external_unchecked_misuse` | `ok. 6 passed; 0 failed; 0 ignored`、`ok. 5 passed; 0 failed; 0 ignored` |
+| 3 | 記録の受け取りの試験が通る | 同 `--test capture` | `ok. 9 passed; 0 failed; 0 ignored` |
+| 4 | 言語版と束縛の番号の読み取りの試験が通る | 同 `--test msl` | `ok. 14 passed; 0 failed; 0 ignored` |
+| 5 | 直接流す経路の device の前の検査の試験が通る | 同 `--test prime_misuse`、`--test prime_language` | `ok. 7 passed; 0 failed; 0 ignored`、`ok. 2 passed; 0 failed; 0 ignored` |
+| 6 | unsafe の個数の試験が通る | 同 `--test unsafe_count`、`tests/unsafe_count.rs` の `EXPECTED` の `bridge.rs` | `ok. 7 passed; 0 failed; 0 ignored`、`bridge.rs` の組は block 10・impl 0・fn 2・extern 0・other 0 |
+| 7 | `src` の `allow(unsafe_code)` | `grep -rn 'allow(unsafe_code)' baseline-wgpu/crates/gemm-arm/src` | 1 行（`src/lib.rs` の `mod bridge;` の宣言） |
+| 8 | 試験ファイルの先頭の `allow` | `grep -rln '^#!\[allow(unsafe_code)\]' baseline-wgpu/crates/gemm-arm/tests` | 2 ファイル（`gate_external.rs`・`gate_prime.rs`） |
+| 9 | 誤用の試験と bin に `unsafe` が無い | `grep -rln 'unsafe' baseline-wgpu/crates/gemm-arm/tests/external_unchecked_misuse.rs baseline-wgpu/crates/gemm-arm/tests/prime_misuse.rs`、`grep -rn 'unsafe' baseline-wgpu/crates/gemm-arm/src/bin` | どちらも 0 件 |
+| 10 | device の要る試験の本数 | 同 `--test gate_external`、`--test gate_prime`（`-- --ignored` は付けない） | どちらも `ok. 0 passed; 0 failed; 1 ignored` |
+| 11 | `Cargo.lock` の差 | `git diff 7d6ab62 -- baseline-wgpu/Cargo.lock` | `baseline-wgpu-gemm-arm` の `dependencies` に `log`・`objc2`・`objc2-core-graphics`・`objc2-metal` の 4 行の追加だけ |
+| 12 | 依存の記録の差 | `git diff 7d6ab62 -- baseline-wgpu/deps-approved.toml` | 新しい記録 1 件（`log` `=0.4.34`）、`used_by` の変更 3 か所（`baseline-wgpu-gemm-arm` を追加）、objc2・objc2-metal の `purpose` の行の変更 2 か所 |
+| 13 | `baseline-wgpu/` の検査 | `make baseline-verify`、`make deny`、`make deps-check`、`make baseline-positive-control` | すべて終了コード 0 |
+| 14 | macOS 向けの clippy | `cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --all-targets --locked --target aarch64-apple-darwin -- -D warnings` | 終了コード 0 |
+| 15 | CI の conclusion | `gh run list --branch main --workflow CI --json headSha,conclusion,status`（base のコミットの push の run） | `status` は `completed`、`conclusion` は `success` |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1010）。
+
+確かめた base は `76570ca680aadff3973c2423a96ee50b365d4698`、`docs/spec` の gitlink は `c272f877055ba0939110b9552bc8a18c4c6b9e22`。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -299,3 +353,4 @@ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-ge
 | 8/11 | pipeline の作成の間の記録の受け取り | #8197 |
 | 9/11 | 受け取ったテキストの言語版と束縛の番号の読み取り | #8198 |
 | 10/11 | 受け取ったテキストを Metal で直接流す経路 | #8199 |
+| 11/11 | 門の run の device の試験と完了の条件の確かめ | #8200 |
