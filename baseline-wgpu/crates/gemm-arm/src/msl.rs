@@ -135,6 +135,33 @@ fn is_ident(s: &str) -> bool {
         && bytes.all(is_ident_byte)
 }
 
+/// `kernel` の字句（前後が識別子の文字でないもの）の数を返す。
+///
+/// 後ろは任意の空白（改行・タブ・複数の空白）を挟んで `void` の字句が続く形だけを受け、
+/// それ以外（`kernel` の後に `void` 以外が来る形・末尾の `kernel`）は `EntryPoint` で拒否する。
+/// 引数はコメントと文字列を空白に替えた後のテキスト。
+fn count_kernel_decls(text: &str) -> Result<usize, MslError> {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    for (at, _) in text.match_indices("kernel") {
+        let end = at + "kernel".len();
+        if (at > 0 && is_ident_byte(bytes[at - 1]))
+            || bytes.get(end).is_some_and(|b| is_ident_byte(*b))
+        {
+            continue;
+        }
+        let rest = text[end..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        let is_void = rest
+            .strip_prefix("void")
+            .is_some_and(|r| !r.bytes().next().is_some_and(is_ident_byte));
+        if !is_void {
+            return Err(MslError::EntryPoint);
+        }
+        count += 1;
+    }
+    Ok(count)
+}
+
 /// 入口 `entry` の引数の束縛の番号 5 つを読む。
 ///
 /// 検査の順: 入口の形、束縛の読み取り（番号・名前）、名前の欠け、番号の重なり、大きさの表の構造体。
@@ -147,7 +174,7 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
     let masked = mask_comments_and_strings(text);
     let text = masked.as_str();
     let decl = format!("kernel void {entry}(");
-    if text.matches(decl.as_str()).count() != 1 || text.matches("kernel void ").count() != 1 {
+    if text.matches(decl.as_str()).count() != 1 || count_kernel_decls(text)? != 1 {
         return Err(MslError::EntryPoint);
     }
     let bytes = text.as_bytes();
