@@ -67,6 +67,17 @@ fn zero_two_and_oversize_records_are_refused() {
 }
 
 #[test]
+fn long_first_line_truncation_is_not_reported_as_success() {
+    // 1 行目が余裕を超えて長いと、切り詰め後の 2 行目以降は上限以下になり得る。
+    // それでも不完全なテキストを成功にせず TooLarge にする。
+    let pad = "p".repeat(10_000);
+    let body = "x".repeat(MAX_SHADER_TEXT_BYTES - 100);
+    let msg = format!("compiled '{ENTRY}' {pad}\n// language: metal\n{body}");
+    let err = capture_one(ENTRY, || log::debug!("{msg}")).unwrap_err();
+    assert_eq!(err, CaptureError::TooLarge);
+}
+
+#[test]
 fn shader_text_boundaries() {
     assert_eq!(shader_text("'e' no newline", "e"), None);
     assert_eq!(shader_text("'e'\n", "e"), None);

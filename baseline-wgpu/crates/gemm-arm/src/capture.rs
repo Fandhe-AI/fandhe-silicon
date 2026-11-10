@@ -81,6 +81,8 @@ static INSTALLED: OnceLock<bool> = OnceLock::new();
 /// [`MESSAGE_CAP`] バイトで打ち切って溜める書き手。
 struct Bounded {
     buf: String,
+    /// 上限で本文を切り詰めたか。切り詰めた記録のテキストは不完全なので成功扱いにしない。
+    truncated: bool,
 }
 
 impl fmt::Write for Bounded {
@@ -89,6 +91,7 @@ impl fmt::Write for Bounded {
         if s.len() <= room {
             self.buf.push_str(s);
         } else {
+            self.truncated = true;
             let mut cut = room;
             while !s.is_char_boundary(cut) {
                 cut -= 1;
@@ -121,7 +124,10 @@ impl Log for Sink {
             }
         };
         // 整形は STATE の lock の外で行う（整形の中でほかの記録が出ても詰まらないように）。
-        let mut w = Bounded { buf: String::new() };
+        let mut w = Bounded {
+            buf: String::new(),
+            truncated: false,
+        };
         if write!(w, "{}", record.args()).is_err() {
             return;
         }
@@ -132,7 +138,7 @@ impl Log for Sink {
         if let Some(c) = state.as_mut() {
             c.count += 1;
             if c.count == 1 {
-                if text.len() > MAX_SHADER_TEXT_BYTES {
+                if w.truncated || text.len() > MAX_SHADER_TEXT_BYTES {
                     c.too_large = true;
                 } else {
                     c.text = Some(text.to_owned());
