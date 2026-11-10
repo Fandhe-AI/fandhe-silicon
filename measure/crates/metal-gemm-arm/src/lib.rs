@@ -2,7 +2,7 @@
 //!
 //! 測定 → 製品の一方向だけに依存する。ここには、外部のカーネルのソースを固定の rev・パス・sha256 で
 //! 照らす [`source`] module と、門の 1 セルの起動の表と詰め物・切り出しを持つ [`launch`] module を置く。
-//! bin `fetch-kernel-source` が取得し、腕が [`source::load_source`] で読む。
+//! bin `fetch-kernel-source` が取得し、腕が [`source::load_source`] で読む。bin は rev・パス・sha256 を実行時に受ける形も持つ（TASK-1009 のポインタ）。
 //!
 //! cooperative matrix の GEMM の MSL と起動の形・offline compiler のコマンドの引数は [`coopmat`] module に置く（TASK-1009 のポインタ）。
 //!

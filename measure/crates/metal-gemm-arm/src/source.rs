@@ -84,3 +84,74 @@ pub fn load_source(path: &Path) -> Result<String, SourceError> {
         .map_err(|_| SourceError::Unreadable)?;
     verify_source(&buf).map(str::to_owned)
 }
+
+/// コマンドの引数の検査の失敗。どの引数かだけを表し、値は含まない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ArgError {
+    /// rev が 40 桁の小文字の 16 進でない。
+    Rev,
+    /// パスが素直な相対パスでない。
+    Path,
+    /// sha256 が 64 桁の小文字の 16 進でない。
+    Sha256,
+}
+
+impl fmt::Display for ArgError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Rev => "rev must be 40 lowercase hex digits",
+            Self::Path => "path must be a plain relative path",
+            Self::Sha256 => "sha256 must be 64 lowercase hex digits",
+        })
+    }
+}
+
+impl std::error::Error for ArgError {}
+
+/// 実行時に受けるパスの最大バイト数。超える入力は git を起動する前に拒否する。
+pub const MAX_SOURCE_PATH_BYTES: usize = 4096;
+
+fn is_lower_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// rev が 40 桁の小文字の 16 進だけであることを確かめる。bin が git に渡す前に呼ぶ。
+pub fn check_rev(s: &str) -> Result<&str, ArgError> {
+    if is_lower_hex(s, 40) {
+        Ok(s)
+    } else {
+        Err(ArgError::Rev)
+    }
+}
+
+/// パスを、`<rev>:<path>` の読みが一意で、オプションにも絶対パスにも読まれない形に限る。
+///
+/// 空・長すぎる・`-` か `/` で始まる・`\`・NUL・改行・`:` を含む・空か `.` か `..` の成分を持つものを拒否する。
+pub fn check_source_path(s: &str) -> Result<&str, ArgError> {
+    if s.is_empty()
+        || s.len() > MAX_SOURCE_PATH_BYTES
+        || s.starts_with('-')
+        || s.starts_with('/')
+        || s.chars()
+            .any(|c| matches!(c, '\\' | '\0' | '\n' | '\r' | ':'))
+        || s.split('/').any(|c| matches!(c, "" | "." | ".."))
+    {
+        return Err(ArgError::Path);
+    }
+    Ok(s)
+}
+
+/// 64 桁の小文字の 16 進を 32 バイトに解く。
+pub fn parse_sha256_hex(s: &str) -> Result<[u8; 32], ArgError> {
+    if !is_lower_hex(s, 64) {
+        return Err(ArgError::Sha256);
+    }
+    let nib = |b: u8| if b <= b'9' { b - b'0' } else { b - b'a' + 10 };
+    let b = s.as_bytes();
+    let mut out = [0u8; 32];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = (nib(b[2 * i]) << 4) | nib(b[2 * i + 1]);
+    }
+    Ok(out)
+}
