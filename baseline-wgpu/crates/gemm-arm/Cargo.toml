@@ -1,5 +1,5 @@
 # 比較基準の別 workspace の、cooperative matrix の WGSL で行列積を流す腕の lib crate。
-# 依存は wgpu・log（どちらも完全固定。承認の記録は baseline-wgpu/deps-approved.toml）と、製品の crates/core への path（試験用の feature）だけ。
+# 依存は wgpu・log（どちらも完全固定。承認の記録は baseline-wgpu/deps-approved.toml）と、macOS 向けだけの objc2 系 3 件（同じく完全固定）と、製品の crates/core への path（試験用の feature）だけ。
 # 依存の向きは baseline-wgpu/ → 製品だけで、製品の crate はこの crate を参照しない。
 # lints は workspace の継承をやめて自前の表を持つ（unsafe を持てるのは src/bridge.rs の 1 module だけ。TASK-1010 のポインタ）。
 [package]
@@ -15,6 +15,11 @@ publish.workspace = true
 wgpu = "=30.0.1"
 fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
 log = "=0.4.34"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLPipeline", "MTLResource", "MTLTypes"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false }
 
 [[bin]]
 name = "baseline-wgpu-gemm-gate"

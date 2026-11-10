@@ -239,6 +239,56 @@ make baseline-verify
 cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test msl
 ```
 
+## 受け取ったテキストを Metal で直接流す経路（10/11）
+
+cooperative matrix の WGSL（`COOPMAT_F32_WGSL`・`COOPMAT_F16ACC_WGSL`）で pipeline を作る間の記録から受け取ったテキストを、objc2-metal で直接コンパイルして 1 回流す。入口は橋の module の `unsafe fn` で、device の前の検査と詰め物は `unsafe` を書かない `src/prime.rs` にある。
+
+| 入口 | 種別 | 置き場 | 戻り |
+| ---- | ---- | ------ | ---- |
+| `run_g3prime(cell, inputs)` | `pub unsafe fn` | `src/bridge.rs` | 出力（`GateOutput::F32`）と、受け取ったテキストの sha256 の組 |
+
+呼び出し側の条件は rustdoc の `# Safety` にある。成果物・環境変数は引数でも環境でも受けない。
+
+### 手順
+
+| 順 | 内容 | 失敗 |
+| -- | ---- | ---- |
+| 1 | セルの腕が `G3Prime` か（`check_g3prime_request`） | `ArmError::WrongArm` |
+| 2 | セルの dtype と入力の種類が合うか（f32 は f32、f16acc は binary16） | `ArmError::InputMismatch` |
+| 3 | 検証レイヤーが有効か | `ArmError::ValidationLayerRequired` |
+| 4 | G3 と同じ配置への詰め物と、A・B・C のバイト長（`pad_g3prime`） | `ArmError::Layout(_)` |
+| 5 | macOS でない target では device に触れず返す | `ArmError::UnsupportedTarget` |
+| 6 | G3 と同じ device の要求と、pipeline の作成の間の記録からのテキストの受け取り（`capture_one`） | `NoAdapter`・`MissingFeatures`・`RequestDevice`・`Validation`・`Capture(_)` |
+| 7 | 1 行目の言語版の読み取りと受理の判定（`accepted_language_version`）、束縛の番号の読み取り | `Text(_)`・`LanguageVersion` |
+| 8 | Metal の device・コンパイル・関数・pipeline、1 threadgroup の上限の確認 | `NoMetalDevice`・`Compile`・`Function`・`Pipeline`・`ThreadsExceeded` |
+| 9 | 共有のバッファ A・B・C、束縛、`setBytes`（定数とバイト長）、dispatch、完了の待ち、読み戻し、切り出し | `Allocation`・`Submit`・`Layout(_)` |
+
+1〜3 は safe な `check_g3prime_request(cell, inputs)`（`src/prime.rs`）として単独で呼べ、device にもテキストにも触れない。`run_g3prime` は最初にこれを呼ぶ。受ける言語版は 2.3・2.4・3.0・3.1・3.2・4.0 の 6 つで、判定は OS に依らない純粋関数。
+
+### unsafe
+
+`unsafe` を持つのは `src/bridge.rs` の `run_g3prime`・`make_nsstring`・`new_library`・`new_function`・`set_immutable`・`write_buffer`・`read_f32`・`bind_buffer`・`set_bytes` で、橋の外のファイルには `unsafe` も `#[allow(unsafe_code)]` も無い。個数は `tests/unsafe_count.rs` の表が持つ。
+
+### 依存
+
+macOS 向けだけ（`[target.'cfg(target_os = "macos")'.dependencies]`）で、`objc2`（`=0.6.5`）・`objc2-metal`（`=0.3.2`）・`objc2-core-graphics`（`=0.3.2`）。承認の記録は `baseline-wgpu/deps-approved.toml`。
+
+### 試験
+
+| ファイル | 呼ぶもの | 確かめること |
+| -------- | -------- | ------------ |
+| `tests/prime_misuse.rs` | `check_g3prime_request`・`pad_g3prime` | ほかの腕のセルが `WrongArm`、dtype と入力の食い違いが `InputMismatch`、別の行の入力が `Layout`、検証レイヤーの環境変数が無いと `ValidationLayerRequired`、立てれば正しい入力が `Ok`、バイト長の表、新しい失敗の文言 |
+| `tests/prime_language.rs` | `accepted_language_version` | 6 つの版の受理と、ほかの版の `LanguageVersion` |
+
+どれも device には届かない。環境変数は書き換えずに子プロセスで切り替える。
+
+### 確かめ方
+
+```bash
+make baseline-verify
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test prime_misuse --test prime_language --test unsafe_count
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -248,3 +298,4 @@ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-ge
 | 7/11 | 門の run の device の試験 | #8196 |
 | 8/11 | pipeline の作成の間の記録の受け取り | #8197 |
 | 9/11 | 受け取ったテキストの言語版と束縛の番号の読み取り | #8198 |
+| 10/11 | 受け取ったテキストを Metal で直接流す経路 | #8199 |

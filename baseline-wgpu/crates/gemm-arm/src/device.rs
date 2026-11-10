@@ -19,11 +19,13 @@ use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput, ValidationL
 use fandhe_silicon_core::parity::gemm_inputs::GemmInputDtype;
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
 
+use crate::capture::CaptureError;
 use crate::external::{ExternalWgsl, ExternalWgslError};
 use crate::layout::{
     GemmLayout, LayoutError, constants_bytes, crop_c, pad_a_binary16, pad_a_f32, pad_b_binary16,
     pad_b_f32, tiled_constants_bytes, tiled_workgroup_count, workgroup_count,
 };
+use crate::msl::MslError;
 use crate::{COOPMAT_F16ACC_WGSL, COOPMAT_F32_WGSL, ENTRY_POINT};
 
 /// device の経路の失敗。文言は固定の英語で、wgpu のエラーの中身・アダプタの名前・入力の値を含まない。
@@ -52,6 +54,28 @@ pub enum ArmError {
     ValidationLayerRequired,
     /// 実行時に受けるソースの受け取りに失敗した。
     Source(ExternalWgslError),
+    /// この target ではその経路を流せない。
+    UnsupportedTarget,
+    /// pipeline の作成の間の記録の受け取りに失敗した。
+    Capture(CaptureError),
+    /// 受け取ったシェーダーのテキストの読み取りに失敗した。
+    Text(MslError),
+    /// 受け取ったテキストの言語版を受け付けない。
+    LanguageVersion,
+    /// Metal の device が無い。
+    NoMetalDevice,
+    /// Metal の library の作成に失敗した。
+    Compile,
+    /// Metal の関数の作成に失敗した。
+    Function,
+    /// Metal の pipeline の作成に失敗した。
+    Pipeline,
+    /// 1 threadgroup の上限が起動の大きさに足りない。
+    ThreadsExceeded,
+    /// Metal のバッファなどの確保に失敗した。
+    Allocation,
+    /// Metal の投入が完了しなかった。
+    Submit,
 }
 
 impl std::fmt::Display for ArmError {
@@ -68,6 +92,17 @@ impl std::fmt::Display for ArmError {
             Self::LengthMismatch => "the input length does not match the cell row",
             Self::ValidationLayerRequired => "the validation layer is not enabled",
             Self::Source(_) => "the kernel source was rejected",
+            Self::UnsupportedTarget => "this path is not available on this target",
+            Self::Capture(_) => "the shader record could not be captured",
+            Self::Text(_) => "the captured shader text was rejected",
+            Self::LanguageVersion => "the language version is not accepted",
+            Self::NoMetalDevice => "no metal device is available",
+            Self::Compile => "the library could not be compiled",
+            Self::Function => "the function could not be created",
+            Self::Pipeline => "the pipeline could not be created",
+            Self::ThreadsExceeded => "the threadgroup size exceeds the pipeline limit",
+            Self::Allocation => "an allocation failed",
+            Self::Submit => "the submission did not complete",
         };
         f.write_str(text)
     }
@@ -81,6 +116,18 @@ impl From<LayoutError> for ArmError {
     }
 }
 
+impl From<CaptureError> for ArmError {
+    fn from(e: CaptureError) -> Self {
+        Self::Capture(e)
+    }
+}
+
+impl From<MslError> for ArmError {
+    fn from(e: MslError) -> Self {
+        Self::Text(e)
+    }
+}
+
 impl From<ExternalWgslError> for ArmError {
     fn from(e: ExternalWgslError) -> Self {
         Self::Source(e)
@@ -88,7 +135,7 @@ impl From<ExternalWgslError> for ArmError {
 }
 
 /// `Future` を noop の `Waker` で完了まで poll し続けて結果を返す（外部 executor を使わない）。
-fn block_on<F: Future>(fut: F) -> F::Output {
+pub(crate) fn block_on<F: Future>(fut: F) -> F::Output {
     let mut fut = pin!(fut);
     let mut cx = Context::from_waker(Waker::noop());
     loop {
@@ -144,11 +191,7 @@ pub fn run_g3(cell: GemmGateCell, inputs: &GateInputs) -> Result<GateOutput, Arm
         .and_then(|n| u64::try_from(n).ok())
         .ok_or(ArmError::Layout(LayoutError::SizeOverflow))?;
 
-    let mut features = wgpu::Features::EXPERIMENTAL_COOPERATIVE_MATRIX;
-    if f16 {
-        features |= wgpu::Features::SHADER_F16;
-    }
-    let (device, queue) = open_device(features)?;
+    let (device, queue) = open_device(g3_features(f16))?;
 
     let uncaptured = Arc::new(AtomicBool::new(false));
     {
@@ -184,7 +227,9 @@ pub fn run_g3(cell: GemmGateCell, inputs: &GateInputs) -> Result<GateOutput, Arm
 }
 
 /// アダプタを選び、要る機能が無ければ device を要求する前に失敗する。
-fn open_device(features: wgpu::Features) -> Result<(wgpu::Device, wgpu::Queue), ArmError> {
+pub(crate) fn open_device(
+    features: wgpu::Features,
+) -> Result<(wgpu::Device, wgpu::Queue), ArmError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -203,6 +248,59 @@ fn open_device(features: wgpu::Features) -> Result<(wgpu::Device, wgpu::Queue), 
         trace: wgpu::Trace::Off,
     }))
     .map_err(|_| ArmError::RequestDevice)
+}
+
+/// g3 の束縛の配置と pipeline を作る。`build_and_submit` と、pipeline の作成の間の記録を受け取る経路が共有する。
+pub(crate) fn create_g3_pipeline(
+    device: &wgpu::Device,
+    wgsl: &str,
+) -> (wgpu::BindGroupLayout, wgpu::ComputePipeline) {
+    let entry = |binding: u32, ty: wgpu::BufferBindingType| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    };
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("gemm-arm"),
+        entries: &[
+            entry(0, wgpu::BufferBindingType::Storage { read_only: true }),
+            entry(1, wgpu::BufferBindingType::Storage { read_only: true }),
+            entry(2, wgpu::BufferBindingType::Storage { read_only: false }),
+            entry(3, wgpu::BufferBindingType::Uniform),
+        ],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("gemm-arm"),
+        bind_group_layouts: &[Some(&bgl)],
+        immediate_size: 0,
+    });
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gemm-arm"),
+        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("gemm-arm"),
+        layout: Some(&pipeline_layout),
+        module: &module,
+        entry_point: Some(ENTRY_POINT),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    (bgl, pipeline)
+}
+
+/// g3 の device の要求に渡す機能の組。binary16 の入力のときは `SHADER_F16` を足す。
+pub(crate) fn g3_features(f16: bool) -> wgpu::Features {
+    let mut features = wgpu::Features::EXPERIMENTAL_COOPERATIVE_MATRIX;
+    if f16 {
+        features |= wgpu::Features::SHADER_F16;
+    }
+    features
 }
 
 /// 入力の buffer・パイプライン・束縛を作って 1 回だけ投入し、読み戻し用の buffer を返す。
@@ -253,42 +351,7 @@ fn build_and_submit(
     queue.write_buffer(&b, 0, b_bytes);
     queue.write_buffer(&dims, 0, &dims_bytes);
 
-    let entry = |binding: u32, ty: wgpu::BufferBindingType| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    };
-    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("gemm-arm"),
-        entries: &[
-            entry(0, wgpu::BufferBindingType::Storage { read_only: true }),
-            entry(1, wgpu::BufferBindingType::Storage { read_only: true }),
-            entry(2, wgpu::BufferBindingType::Storage { read_only: false }),
-            entry(3, wgpu::BufferBindingType::Uniform),
-        ],
-    });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("gemm-arm"),
-        bind_group_layouts: &[Some(&bgl)],
-        immediate_size: 0,
-    });
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("gemm-arm"),
-        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("gemm-arm"),
-        layout: Some(&pipeline_layout),
-        module: &module,
-        entry_point: Some(ENTRY_POINT),
-        compilation_options: Default::default(),
-        cache: None,
-    });
+    let (bgl, pipeline) = create_g3_pipeline(device, wgsl);
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("gemm-arm"),
         layout: &bgl,

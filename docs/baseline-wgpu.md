@@ -114,3 +114,12 @@ worktree のルートで実行する。
 | 節・行 | 前の値 → 今の値 | 確かめ方 |
 | ------ | --------------- | -------- |
 | 別 workspace の配置と骨格の `外部依存`（`:27`）と前の補い | registry の外部依存は `wgpu` のみ（`crates/mps` は macOS 向けの objc2 系を持つ）→ `crates/gemm-arm` が `log`（`=0.4.34`。完全固定）も持つ。承認の記録は 5 件（`wgpu`・objc2 系 3 件・`log`） | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の `[dependencies]`、`grep -c '^\[\[approval\]\]' baseline-wgpu/deps-approved.toml`（5 が返る） |
+
+## 今の値の補い（base 9ee64d2）
+
+記録時点の表と既存の節は書き換えない。以下は base `9ee64d2` に、TASK-1010 の 10/11 の変更を足した値。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 別 workspace の配置と骨格の `外部依存`（`:27`）と前の補い | `crates/gemm-arm` は `log` のほかに macOS 向けだけで objc2 系 3 件（`objc2`・`objc2-metal`・`objc2-core-graphics`、どれも `=x.y.z` の完全固定）も持つ。承認の記録は 5 件のままで、objc2 系 3 件の `used_by` は `baseline-wgpu-gemm-arm` と `baseline-wgpu-mps` | `baseline-wgpu/crates/gemm-arm/Cargo.toml` の macOS 向けの節、`grep -c '^\[\[approval\]\]' baseline-wgpu/deps-approved.toml`（5 が返る） |
+| 版の記録の `wgpu_baseline.lockfile_sha256` | `7d9e6f969a39f9754eeb667b19e05635bae6628621b00ead86f232ffa9c5312a` → `43b5905d0ec5e9f4894b58a3e35a898cff0e10ac035f7fe5184575ef766ad1f3`。`version`（`30.0.1`）・`source`（`crates-io`）は変わらない | `sha256sum baseline-wgpu/Cargo.lock` |
