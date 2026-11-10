@@ -90,8 +90,54 @@ make baseline-verify
 cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test external
 ```
 
+## 2 つの device の経路（6/11）
+
+実行時に受けた WGSL のセルを wgpu の device で 1 つ流す経路が 2 つある。違いはシェーダーの作成の口だけで、手順の本体は `src/device.rs` の `pub(crate)` の 1 つの関数を共有する。
+
+| 入口 | 種別 | 置き場 | シェーダーの作成 |
+| ---- | ---- | ------ | ---------------- |
+| `run_g1(cell, inputs)` | safe な `pub fn` | `src/device.rs` | `create_shader_module`（検査あり） |
+| `run_g2(cell, inputs)` | `pub unsafe fn` | `src/bridge.rs` | `create_shader_module_trusted`（`ShaderRuntimeChecks::unchecked()`） |
+
+どちらも成果物（パス・バイト列・sha256）を引数で受けず、戻りは出力（`GateOutput::F32`）と流したソースの sha256 の組。
+
+### 手順
+
+| 順 | 内容 | 失敗 |
+| -- | ---- | ---- |
+| 1 | セルの腕が入口の腕か | `ArmError::WrongArm` |
+| 2 | セルの dtype と入力が f32 か | `ArmError::InputMismatch` |
+| 3 | 入力の長さが M×K・K×N か | `ArmError::LengthMismatch` |
+| 4 | 検証レイヤーが有効か | `ArmError::ValidationLayerRequired` |
+| 5 | `ExternalWgsl::from_env()` | `ArmError::Source(_)` |
+| 6 | device の要求（`Features::empty()`、実験的な機能なし） | `NoAdapter`・`RequestDevice` |
+| 7 | シェーダー・パイプラインの作成（入口名は指定しない）、buffer・束縛、dispatch（`tiled_workgroup_count`）、投入 1 回、読み戻し | `Validation`・`Readback` |
+
+1〜5 は device を作る前に返る。1〜4 は safe な `check_g2_request(cell, inputs)`（`src/device.rs`）として単独で呼べ、`Ok` を返してもシェーダーは作らない。`run_g2` は最初にこれを呼ぶ。
+
+### unsafe
+
+`run_g2` は `unsafe fn` で、呼び出し側の条件は rustdoc の `# Safety` にある。`unsafe` を持つのは `src/bridge.rs` の `run_g2` と `create_unchecked_module` だけで、橋の外のファイルには `unsafe` も `#[allow(unsafe_code)]` も無い。個数は `tests/unsafe_count.rs` の表が持つ。
+
+### 試験
+
+| ファイル | 呼ぶもの | 確かめること |
+| -------- | -------- | ------------ |
+| `tests/external_device_misuse.rs` | `run_g1` | 別の腕のセルが `WrongArm`、binary16 の入力が `InputMismatch`、別の行の入力が `LengthMismatch`、検証レイヤーの環境変数が無いと `ValidationLayerRequired`、ソースの環境変数が無いと `Source(Missing)` |
+| `tests/external_unchecked_misuse.rs` | `check_g2_request` | 同じ入力の拒否と、検証レイヤーの環境変数が立っていれば正しい入力が `Ok` |
+
+どちらも device には届かない入力だけを渡し、環境変数は書き換えずに子プロセスで切り替える。
+
+### 確かめ方
+
+```bash
+make baseline-verify
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test external_device_misuse --test external_unchecked_misuse --test unsafe_count
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 5/11 | 実行時に照らす WGSL の読み込みと起動の形 | #8194 |
+| 6/11 | 2 つの device の経路 | #8195 |
