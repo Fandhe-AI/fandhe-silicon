@@ -128,8 +128,11 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
+/// 先頭が ASCII 英字か `_`、残りが ASCII 英数字か `_` の識別子か。
 fn is_ident(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(is_ident_byte)
+    let mut bytes = s.bytes();
+    matches!(bytes.next(), Some(b) if b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(is_ident_byte)
 }
 
 /// 入口 `entry` の引数の束縛の番号 5 つを読む。
@@ -148,16 +151,36 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
         return Err(MslError::EntryPoint);
     }
     let bytes = text.as_bytes();
+    // 指定した入口の引数リスト（宣言の `(` から対応する `)` の手前まで）だけを走査する。
+    let args_start = text.find(decl.as_str()).ok_or(MslError::EntryPoint)? + decl.len();
+    let mut depth = 1usize;
+    let mut args_end = None;
+    for (i, b) in bytes[args_start..].iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    args_end = Some(args_start + i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let args_end = args_end.ok_or(MslError::EntryPoint)?;
+    let args = &text[args_start..args_end];
+    let bytes = args.as_bytes();
     let mut found: [Option<u32>; 5] = [None; 5];
-    for (at, _) in text.match_indices(BUFFER_ATTR) {
+    for (at, _) in args.match_indices(BUFFER_ATTR) {
         let digits_start = at + BUFFER_ATTR.len();
         let mut end = digits_start;
         while end < bytes.len() && bytes[end].is_ascii_digit() {
             end += 1;
         }
         // 数字は ASCII なので、境界はどちらも char の境界。
-        let number = small_decimal(&text[digits_start..end]).ok_or(MslError::SlotNumber)?;
-        if !text[end..].starts_with(")]]") || number >= SLOT_LIMIT {
+        let number = small_decimal(&args[digits_start..end]).ok_or(MslError::SlotNumber)?;
+        if !args[end..].starts_with(")]]") || number >= SLOT_LIMIT {
             return Err(MslError::SlotNumber);
         }
 
@@ -169,7 +192,7 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
         while name_start > 0 && is_ident_byte(bytes[name_start - 1]) {
             name_start -= 1;
         }
-        let name = &text[name_start..name_end];
+        let name = &args[name_start..name_end];
         let index = SLOT_NAMES
             .iter()
             .position(|known| *known == name)

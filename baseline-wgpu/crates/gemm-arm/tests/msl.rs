@@ -132,9 +132,10 @@ fn slot_numbers_are_checked() {
         assert_eq!(with_args(&args), Err(MslError::SlotNumber), "{number:?}");
     }
     let unclosed = good().replace("[[buffer(2)]]", "[[buffer(2]]");
-    assert_eq!(buffer_slots(&unclosed, ENTRY), Err(MslError::SlotNumber));
-    let at_end = format!("{}[[buffer(", good());
-    assert_eq!(buffer_slots(&at_end, ENTRY), Err(MslError::SlotNumber));
+    // 閉じない括弧は引数リストの対応も崩すので、入口の形の失敗になる。
+    assert_eq!(buffer_slots(&unclosed, ENTRY), Err(MslError::EntryPoint));
+    let at_end = good().replace("uint3 gid", "[[buffer( uint3 gid");
+    assert_eq!(buffer_slots(&at_end, ENTRY), Err(MslError::EntryPoint));
 }
 
 #[test]
@@ -154,7 +155,7 @@ fn slot_names_are_checked() {
     let mut other = GOOD_ARGS.to_vec();
     other.push(("d", "5"));
     assert_eq!(with_args(&other), Err(MslError::UnknownSlot));
-    let nameless = format!("{}[[buffer(6)]]", good());
+    let nameless = good().replace("uint3 gid", "[[buffer(6)]] uint3 gid");
     assert_eq!(buffer_slots(&nameless, ENTRY), Err(MslError::UnknownSlot));
 }
 
@@ -244,5 +245,36 @@ fn errors_do_not_print_values() {
         for fragment in [ENTRY, "99", "[[", "kernel", "uint"] {
             assert!(!shown.contains(fragment), "{shown}");
         }
+    }
+}
+
+#[test]
+fn slots_of_other_functions_are_not_read() {
+    // 指定した kernel の引数が空で、別の通常関数の引数にだけ属性がある。
+    let mut text = String::from("// language: metal2.4\n#include <metal_stdlib>\n");
+    text.push_str(&format!("struct _mslBufferSizes {{\n{SIZES_OK}}};\n"));
+    text.push_str(&format!("{}() {{\n}}\n", kernel(ENTRY)));
+    text.push_str("void helper(\n");
+    for (name, number) in GOOD_ARGS {
+        text.push_str(&format!("    device float* {name} [[buffer({number})]],\n"));
+    }
+    text.push_str("    uint x) {\n}\n");
+    assert_eq!(buffer_slots(&text, ENTRY), Err(MslError::MissingSlot));
+}
+
+#[test]
+fn unclosed_argument_list_is_rejected() {
+    let text = format!(
+        "// language: metal2.4\nstruct _mslBufferSizes {{\n{SIZES_OK}}};\n{}(\n device float* a [[buffer(0)]]\n",
+        kernel(ENTRY)
+    );
+    assert_eq!(buffer_slots(&text, ENTRY), Err(MslError::EntryPoint));
+}
+
+#[test]
+fn entry_name_must_start_with_letter_or_underscore() {
+    for entry in ["123", "1entry"] {
+        let text = build(&GOOD_ARGS, SIZES_OK, &kernel(entry));
+        assert_eq!(buffer_slots(&text, entry), Err(MslError::EntryPoint));
     }
 }
