@@ -140,11 +140,13 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
     if !is_ident(entry) {
         return Err(MslError::EntryPoint);
     }
+    // コメントと文字列リテラルを空白に替えた同じ長さの文字列で、以降の走査をする（束縛の読み取りも入口の宣言の数えも、コメント・文字列の中は見ない）。
+    let masked = mask_comments_and_strings(text);
+    let text = masked.as_str();
     let decl = format!("kernel void {entry}(");
     if text.matches(decl.as_str()).count() != 1 || text.matches("kernel void ").count() != 1 {
         return Err(MslError::EntryPoint);
     }
-
     let bytes = text.as_bytes();
     let mut found: [Option<u32>; 5] = [None; 5];
     for (at, _) in text.match_indices(BUFFER_ATTR) {
@@ -198,8 +200,83 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
     })
 }
 
+/// `//` の行コメント・`/* */` のブロックコメント・`"` の文字列リテラルを空白に替える。
+///
+/// 各文字を同じバイト数の空白に替えるので長さと位置は保たれ、改行は残す。閉じていないものは末尾まで替える。
+fn mask_comments_and_strings(text: &str) -> String {
+    #[derive(Clone, Copy, PartialEq)]
+    enum State {
+        Code,
+        Line,
+        Block,
+        Str,
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut state = State::Code;
+    let mut chars = text.chars().peekable();
+    let blank = |out: &mut String, c: char| {
+        if c == '\n' {
+            out.push('\n');
+        } else {
+            out.extend(std::iter::repeat_n(' ', c.len_utf8()));
+        }
+    };
+    while let Some(c) = chars.next() {
+        match state {
+            State::Code => match (c, chars.peek().copied()) {
+                ('/', Some('/')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Line;
+                }
+                ('/', Some('*')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Block;
+                }
+                ('"', _) => {
+                    out.push(' ');
+                    state = State::Str;
+                }
+                _ => out.push(c),
+            },
+            State::Line => {
+                if c == '\n' {
+                    state = State::Code;
+                }
+                blank(&mut out, c);
+            }
+            State::Block => {
+                if c == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Code;
+                } else {
+                    blank(&mut out, c);
+                }
+            }
+            State::Str => {
+                if c == '\\' {
+                    blank(&mut out, c);
+                    if let Some(n) = chars.next() {
+                        blank(&mut out, n);
+                    }
+                } else {
+                    if c == '"' || c == '\n' {
+                        state = State::Code;
+                    }
+                    blank(&mut out, c);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// 大きさの表の構造体がちょうど 1 つで、本体が 3 行の形かを確かめる。
 fn check_sizes_struct(text: &str) -> Result<(), MslError> {
+    let masked = mask_comments_and_strings(text);
+    let text = masked.as_str();
     if text.matches(SIZES_STRUCT).count() != 1 {
         return Err(MslError::SizesStruct);
     }
