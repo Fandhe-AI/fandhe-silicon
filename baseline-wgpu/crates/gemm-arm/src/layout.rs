@@ -208,3 +208,26 @@ pub fn constants_bytes(layout: &GemmLayout) -> [u8; 16] {
     out[8..12].copy_from_slice(&layout.np.to_le_bytes());
     out
 }
+
+/// 実行時に受けた WGSL を起動する workgroup の数 `[ceil(n / 16), ceil(m / 16), 1]`（x が列、y が行）。
+///
+/// 詰め物はしない。`m`・`n` が `u32` に収まらないとき `Err`。
+pub fn tiled_workgroup_count(m: usize, n: usize) -> Result<[u32; 3], LayoutError> {
+    let to_u32 = |x: usize| u32::try_from(x).map_err(|_| LayoutError::DimensionOverflow);
+    let (m, n) = (to_u32(m)?, to_u32(n)?);
+    let [tx, ty, _] = crate::external::TILED_WORKGROUP_SIZE;
+    Ok([n.div_ceil(tx), m.div_ceil(ty), 1])
+}
+
+/// 実行時に受けた WGSL の定数の束縛のバイト列。元の `m`・`n`・`k` をこの順に little-endian の `u32` で並べ、後ろ 4 バイトは 0。
+///
+/// 詰め物はしない。いずれかが `u32` に収まらないとき `Err`。
+pub fn tiled_constants_bytes(m: usize, n: usize, k: usize) -> Result<[u8; 16], LayoutError> {
+    let to_u32 = |x: usize| u32::try_from(x).map_err(|_| LayoutError::DimensionOverflow);
+    let (m, n, k) = (to_u32(m)?, to_u32(n)?, to_u32(k)?);
+    let mut out = [0u8; 16];
+    out[0..4].copy_from_slice(&m.to_le_bytes());
+    out[4..8].copy_from_slice(&n.to_le_bytes());
+    out[8..12].copy_from_slice(&k.to_le_bytes());
+    Ok(out)
+}
