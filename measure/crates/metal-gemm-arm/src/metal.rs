@@ -2,7 +2,7 @@
 //!
 //! この crate で `unsafe` を書くのはこのファイルだけ（`src/lib.rs` の `mod metal;` の宣言にだけ lint の許可を付ける）。
 //! 呼び出し元は腕の試験（門の枠の `run_cell` に渡す腕）で、
-//! 外へ出すのは safe な [`run_g5`] と [`run_g6`] と [`run_g7`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
+//! 外へ出すのは `unsafe fn` の [`run_g5`]（実行時に受けるカーネルの安全条件を呼び出し側が保証する）と、safe な [`run_g6`] と [`run_g7`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
 //! 完了を待ってからだけ出力を読む。`objc2-foundation` は使わず、`NSString` と 2 つの生成の呼び出しは
 //! `msg_send!` で扱う。エラーの中身は読まず、固定の [`ArmError`] にする。
 
@@ -91,7 +91,14 @@ struct CoopmatDims {
 /// （コンパイルのオプションは設定しない）、入口名の関数で pipeline を作り、buffer 0〜2 に A・B・C、
 /// buffer 3 に元の M・N・K の `Dims` を束縛して 1 回投入する。成果物（パス・バイト列・digest）は引数で受けない。
 /// 検証レイヤーが無効、ソースの設定が未設定・不正、照合が通らないときは `Err` を返す。
-pub fn run_g5(
+///
+/// # Safety
+///
+/// 環境変数が指すソースの sha256 の照合は、内容がそのバイト列であることしか保証しない。呼び出し側は、
+/// そのソースの入口が、buffer 0〜2 を f32 の行優先の列（A・B は読み取りだけ、C だけ書き込み、
+/// 範囲は M・N・K から決まる）として、buffer 3 を `Dims` として宣言どおりにだけ使い、範囲外のアクセスや
+/// 共有バッファへの競合する書き込み、無限ループを持たない監査済みのカーネルであることを保証しなければならない。
+pub unsafe fn run_g5(
     cell: GemmGateCell,
     inputs: &GateInputs,
 ) -> Result<(GateOutput, SourceFacts), ArmError> {
@@ -618,9 +625,10 @@ fn bind_buffers(
 ) {
     // SAFETY: 3 つのバッファは呼び出し側が保持していて、完了待ちが終わるまで生きる（エンコーダは
     // 保持しないため、呼び出し側の保持が生存を保証する）。offset 0 はどのバッファの範囲にも収まり、
-    // index 0〜2 は kernel が宣言する buffer の範囲内。固定のソースの腕ではソースの sha256 の照合が、
-    // 実行時に受けるソースの腕では device を作る前の照合と入口名の形の検査、入口名で選んだ関数、
-    // 検証レイヤーを要る条件にすることが、その前提を保つ。内容は kernel が読む型（f32 か binary16）の
+    // index 0〜2 は kernel が宣言する buffer の範囲内。固定のソースの腕ではソースの sha256 の照合が
+    // その前提を保つ。`run_g5` の腕では、ソースと入口が宣言どおりにだけ buffer を使うことを
+    // `run_g5` の `# Safety` の契約として呼び出し側が保証する（照合・入口名の形の検査・検証レイヤーは
+    // 補助で、データ競合や束縛の契約までは保証しない）。内容は kernel が読む型（f32 か binary16）の
     // 行優先の列で、C だけが書かれる。
     unsafe {
         for (index, buffer) in buffers.iter().enumerate() {

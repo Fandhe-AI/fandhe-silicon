@@ -3,6 +3,8 @@
 //! 環境変数を書き換えずに済むよう、検証レイヤーとカーネルの環境変数を外した子プロセスで同じ試験を流す。
 //! 検証レイヤーの確認は device を作る前なので、device には届かない。
 #![cfg(target_os = "macos")]
+// `run_g5` は `unsafe fn`。ここでは検証レイヤーの確認で device の前に返る入力だけを渡す。
+#![allow(unsafe_code)]
 
 use std::process::{Command, Stdio};
 
@@ -25,10 +27,9 @@ fn run_g5_requires_the_validation_layer() {
             })
             .expect("g5 f32 cell");
         let inputs = GateInputs::F32(generate_f32(row).expect("inputs"));
-        assert_eq!(
-            run_g5(cell, &inputs).err(),
-            Some(ArmError::ValidationLayerRequired)
-        );
+        // SAFETY: 腕・dtype・入力の長さ・検証レイヤーの検査で device を作る前に `Err` を返す入力だけで、カーネルは実行されない。
+        let result = unsafe { run_g5(cell, &inputs) };
+        assert_eq!(result.err(), Some(ArmError::ValidationLayerRequired));
         return;
     }
     let status = Command::new(std::env::current_exe().expect("exe"))

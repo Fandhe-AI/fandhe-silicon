@@ -71,7 +71,7 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 ### 手順
 
-`run_g5`（`src/metal.rs`。macOS 向け）は成果物の引数を取らず、次の順で進む。device を作るのは 7 の後。
+`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。device を作るのは 7 の後。
 
 1. 腕が `GemmGateArm::G5` でなければ `UnsupportedCell`
 2. 起動の形（`external_launch_for`）が無ければ `UnsupportedCell`
