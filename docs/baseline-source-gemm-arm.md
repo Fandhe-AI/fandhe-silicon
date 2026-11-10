@@ -191,6 +191,54 @@ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-ge
 make baseline-verify
 ```
 
+## 受け取ったテキストの言語版と束縛の番号の読み取り（9/11）
+
+`baseline-wgpu/crates/gemm-arm/src/msl.rs`（`unsafe` を書かない。device に触れない）が、`capture_one` で受け取ったテキストを読む関数を 2 つ持つ。どちらも失敗は値を持たない `MslError`（`#[non_exhaustive]`）で、`Display` に入口名・番号・テキストの断片を含まない。
+
+| 関数 | 戻り | 読むもの |
+| ---- | ---- | -------- |
+| `language_version(text)` | `(major, minor)` | 1 行目（最初の改行まで）が `// language: metal<major>.<minor>`（各 1〜2 桁の 10 進）の形であること。前後の空白・`\r`・余分な文字は拒否する。受ける版の判定はしない |
+| `buffer_slots(text, entry)` | `Slots` | 入口 `entry` の引数の束縛の番号 5 つ。`Slots` の読み出しは `a()`・`b()`・`c()`・`dims()`・`sizes()`（大きさの表の引数の番号）で、作れるのは `buffer_slots` だけ |
+
+### `buffer_slots` の検査の順
+
+最初に当たった失敗を返す。
+
+| 順 | 検査 | 失敗 |
+| -- | ---- | ---- |
+| 1 | 入口名が ASCII の識別子で、入口名つきの kernel の宣言と kernel の宣言がどちらもちょうど 1 つ | `EntryPoint` |
+| 2 | 束縛の属性ごとに、番号が 1〜2 桁の 10 進で閉じ括弧が続き、31 未満 | `SlotNumber` |
+| 3 | 属性の直前の名前が 5 つのどれかで、同じ名前が 2 回出ない | `UnknownSlot`・`DuplicateSlot` |
+| 4 | 5 つの名前がそろう | `MissingSlot` |
+| 5 | 5 つの番号が互いに違う | `SlotCollision` |
+| 6 | 大きさの表の構造体がちょうど 1 つで、本体が 3 行（`size0`・`size1`・`size2` の順の `uint`）だけ | `SizesStruct` |
+
+2 と 3 は属性を先頭から順に見るので、1 つの属性の中で番号の検査が名前の検査より先に当たる。
+
+### 試験
+
+`tests/msl.rs`（合成のテキストだけ。device は使わない）。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `language_version_reads_the_first_line` | 1〜2 桁の版と、改行の無い 1 行だけのテキストを読む |
+| `language_line_shape_is_checked` | 形の違う 1 行目が `LanguageLine` |
+| `good_text_returns_the_slots` | 5 つの番号がそのまま読める。空白・字下げの違いと 30 は通る |
+| `entry_point_shape_is_checked` | 入口 0 個・2 個・ほかの kernel の宣言・前方一致・識別子でない入口名が `EntryPoint` |
+| `slot_numbers_are_checked` | 31 以上・3 桁・数字なし・閉じ括弧の欠けが `SlotNumber` |
+| `slot_names_are_checked` | 名前の欠けが `MissingSlot`、重なりが `DuplicateSlot`、ほかの名前・名前の無い属性が `UnknownSlot` |
+| `slot_collisions_are_rejected` | 番号の重なりが `SlotCollision` |
+| `sizes_struct_is_checked` | 行の欠け・余分・並び・型の違い・構造体の有無と個数が `SizesStruct` |
+| `checks_run_in_a_fixed_order` | 複数の誤りがあるとき、上の表の順で最初の失敗が返る |
+| `errors_do_not_print_values` | `Display`・`Debug` に値が出ない |
+
+### 確かめ方
+
+```bash
+make baseline-verify
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test msl
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -199,3 +247,4 @@ make baseline-verify
 | 6/11 | 2 つの device の経路 | #8195 |
 | 7/11 | 門の run の device の試験 | #8196 |
 | 8/11 | pipeline の作成の間の記録の受け取り | #8197 |
+| 9/11 | 受け取ったテキストの言語版と束縛の番号の読み取り | #8198 |

@@ -50,7 +50,7 @@ fandhe-silicon/
 ├── docs/wgpu-baseline-record.md  # 比較基準の wgpu の版の記録の書式（理由・経緯は private spec）
 ├── docs/baseline-wgpu.md     # 比較基準の wgpu の置き場の所在・製品 workspace を守る仕組み・別 workspace の配置・版の記録・確かめ方・CI での検査（1/4）・腕の crate（2/4）・今の値の補い（base d082bc1）・今の値の補い（base 5fa953d）（TASK-7・TASK-1010）
 ├── docs/baseline-gemm-arm.md  # 比較基準の別 workspace の cooperative matrix の GEMM の腕の crate の所在・本リポの現状の事実・WGSL と詰め物（2/4）・device の経路と門の run の bin（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base d082bc1）（TASK-1010）
-├── docs/baseline-source-gemm-arm.md  # 比較基準の別 workspace の、実行時に照らす WGSL と Metal で直接流す GEMM の経路の所在・本リポの現状の事実・実行時に照らす WGSL の読み込みと起動の形（5/11）・2 つの device の経路（6/11）・門の run の device の試験（7/11）・pipeline の作成の間の記録の受け取り（8/11）（TASK-1010）
+├── docs/baseline-source-gemm-arm.md  # 比較基準の別 workspace の、実行時に照らす WGSL と Metal で直接流す GEMM の経路の所在・本リポの現状の事実・実行時に照らす WGSL の読み込みと起動の形（5/11）・2 つの device の経路（6/11）・門の run の device の試験（7/11）・pipeline の作成の間の記録の受け取り（8/11）・受け取ったテキストの言語版と束縛の番号の読み取り（9/11）（TASK-1010）
 ├── docs/baseline-mps-arm.md  # 比較基準の MPS の腕の所在と、本リポの現状の事実・セルの計画と入力の詰め替え（1/3）・MPS の呼び出しと device の要る試験（2/3）・完了の条件の確かめ（3/3）（TASK-1011）
 ├── docs/upper-layer-check.md  # 上の層の検査の所在・出力の読み方・振る舞いと対応するテスト・確かめ方（TASK-15）
 ├── docs/upper-compute-path.md  # 上の層の device・queue・記録先・投入の印の型の所在・型ごとの動き・feature・確かめ方（TASK-2386）・device・queue・記録先・投入の印の型（1/5）・compute のパスの開始と終了（2/5）・バッファの包み（3/5）・試験用の device での試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 2f36d3d）・今の値の補い（base c956c96）
