@@ -212,7 +212,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/metal-gemm-arm.md` | 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb） |
 | `docs/metal-coopmat-gemm-arm.md` | 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/metal-source-gemm-arm.md` | 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7） |
+| `docs/metal-source-gemm-arm.md` | 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
