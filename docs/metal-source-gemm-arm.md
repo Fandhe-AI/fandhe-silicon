@@ -71,7 +71,7 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 ### 手順
 
-`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。device を作るのは 7 の後。
+`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。1〜5 の検査は safe な `check_g5_request`（`src/external.rs`）に切り出してあり、`run_g5` は本体の最初にこれを呼ぶ。device を作るのは 7 の後。
 
 1. 腕が `GemmGateArm::G5` でなければ `UnsupportedCell`
 2. 起動の形（`external_launch_for`）が無ければ `UnsupportedCell`
@@ -115,15 +115,15 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 ### unsafe の置き場
 
-`unsafe` を書くのは `src/metal.rs` だけ。`src/external.rs` と `src/source.rs` には書かない。
+`unsafe` を書くのは `src/metal.rs` だけ（`allow(unsafe_code)` は `src/lib.rs` の `mod metal` と、`#[ignore]` の device の試験 `tests/gate_g5.rs` の 2 か所だけ）。`src/external.rs` と `src/source.rs` には書かない。
 
 ### 試験
 
 | 試験 | 確かめること |
 | ---- | ------------ |
 | `tests/external.rs` | 未設定・sha256 と入口名の形・読めないパス・不一致・上限超え・UTF-8 でない入力の `Err` と、文言に値が出ないこと。合成のファイルでの `Ok`。起動の形 |
-| `tests/external_macos.rs` | 腕・dtype・長さの食い違いが device に届く前に `Err`（macOS のみ） |
-| `tests/external_validation_macos.rs` | 検証レイヤーの環境変数を外した子プロセスで `ValidationLayerRequired`（macOS のみ） |
+| `tests/external_macos.rs` | safe な `check_g5_request`（`src/external.rs`）で、腕・dtype・長さの食い違いが device に届く前に `Err`（macOS のみ。`allow(unsafe_code)` は持たない） |
+| `tests/external_validation_macos.rs` | 検証レイヤーの環境変数を外した子プロセスで `check_g5_request` が `ValidationLayerRequired`（macOS のみ。`allow(unsafe_code)` は持たない） |
 
 ### 確かめ方
 
@@ -165,7 +165,7 @@ TASK-1009 の 7/7（#8193）として、ここまでの成果物を本リポで�
 | - | ------ | -------- | ---- |
 | 1 | 腕の crate が `measure/` の member で、製品の workspace の外にある | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`record:` の行は `measure_pkgs=4 measure_contract_pkgs=1 measure_forbidden=0`、終了コード 0 |
 | 2 | 取得の道具と実行時に照らす入力の試験が通る | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test fetch_cmd_pinned`・`--test fetch_cmd`・`--test external` | `fetch_cmd_pinned` は `ok. 8 passed; 0 failed; 0 ignored`、`fetch_cmd` は `ok. 3 passed; 0 failed; 0 ignored`、`external` は `ok. 7 passed; 0 failed; 0 ignored` |
-| 3 | unsafe | 同 `--test unsafe_count`、`git grep -n 'allow(unsafe_code)' -- measure/crates/metal-gemm-arm`、`grep -hv '^\s*//' measure/crates/metal-gemm-arm/src/external.rs \| grep -c '\bunsafe\b'` | `ok. 5 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は `src/lib.rs:25`・`tests/external_macos.rs:6`・`tests/external_validation_macos.rs:7`・`tests/unsafe_count.rs:298`（試験の入力の文字列リテラルの中）の 4 行（`tests/gate_g5.rs` を足す前の base の値）、コメントの行を除いた `unsafe` の件数は 0 |
+| 3 | unsafe | 同 `--test unsafe_count`、`git grep -n 'allow(unsafe_code)' -- measure/crates/metal-gemm-arm`、`grep -hv '^\s*//' measure/crates/metal-gemm-arm/src/external.rs \| grep -c '\bunsafe\b'` | `ok. 5 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は `src/lib.rs:25`・`tests/gate_g5.rs:8`・`tests/unsafe_count.rs:298`（試験の入力の文字列リテラルの中）の 3 行（`src/lib.rs` と `tests/gate_g5.rs` の 2 行が実際の指定。`tests/external_macos.rs`・`tests/external_validation_macos.rs` は `check_g5_request`（safe な関数）を呼ぶので指定を持たない）、コメントの行を除いた `unsafe` の件数は 0 |
 | 4 | 依存 | `git diff ae152fb -- measure/crates/metal-gemm-arm/Cargo.toml measure/Cargo.lock measure/deps-approved.toml`、`make measure-verify` の `deps-check (measure/)` | 差分は空、`make measure-verify` の終了コード 0 |
 | 5 | 取得したソースを repo に置いていない | `git ls-files measure \| grep -c '\.metal$'` | `1` |
 | 6 | macOS の腕の crate の試験 | `gh run view 42858489754 --log --job <verify-macos の job id>` の `measure-metal-gemm-arm` の `Running` 行ごとの `test result:` | lib の unittests は `ok. 7 passed; 0 failed; 0 ignored`、`coopmat` は 6 passed、`coopmat_macos` は 3 passed、`device` は `0 passed; 0 failed; 2 ignored`、`external` は 7 passed、`external_macos` と `external_validation_macos` の `Running` 行の後に `3 passed` と `1 passed` の 2 行、`fetch_cmd` は 3 passed、`fetch_cmd_pinned` は 8 passed、`gate` と `gate_g7` の `Running` 行の後に `1 ignored` の 2 行、`launch` は 9 passed、`source` は 10 passed、`unsafe_count` は 5 passed |
