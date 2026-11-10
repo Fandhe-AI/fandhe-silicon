@@ -34,3 +34,11 @@ used_by = ["baseline-wgpu-mps"]
 approved_on = "2026-11-08"
 approval_ref = "#926"
 purpose = "コマンドラインのプログラムで既定の Metal の device を得るための Core Graphics のリンク（macOS 向けだけ）"
+
+[[approval]]
+name = "log"
+version = "=0.4.34"
+used_by = ["baseline-wgpu-gemm-arm"]
+approved_on = "2026-11-10"
+approval_ref = "#925"
+purpose = "比較基準の GEMM の腕の crate が、wgpu の下位の層が出す記録を同じプロセスの中で受け取るための facade"
