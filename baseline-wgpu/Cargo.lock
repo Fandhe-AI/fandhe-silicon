@@ -43,6 +43,7 @@ name = "baseline-wgpu-gemm-arm"
 version = "0.0.0"
 dependencies = [
  "fandhe-silicon-core",
+ "log",
  "wgpu",
 ]
 

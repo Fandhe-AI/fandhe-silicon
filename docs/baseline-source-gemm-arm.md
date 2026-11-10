@@ -163,6 +163,34 @@ cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-ge
 cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --all-targets --locked --target aarch64-apple-darwin -- -D warnings
 ```
 
+## pipeline の作成の間の記録の受け取り（8/11）
+
+`baseline-wgpu/crates/gemm-arm/src/capture.rs`（`unsafe` を書かない）が、処理 `f` の間に `log` facade へ流れる Debug の記録から、入口名を持つシェーダーのテキストを 1 つ受け取る `capture_one` を持つ。受け取ったテキストは解釈せず、`f` の戻り値と一緒に返す。
+
+数える記録は、`f` の間の Debug の記録のうち、本文の 1 行目に単引用符で囲んだ入口名を持ち、2 行目以降が `// language: metal` で始まるもの（判定は `shader_text`。2 行目以降を返す）。ほかの記録は保持しない。
+
+| 結果 | 当たる入力 |
+| ---- | ---------- |
+| `CaptureError::LoggerTaken` | ほかの記録の受け口が既に設置されている（`f` は呼ばない） |
+| `CaptureError::NotFound` | 数える記録が 0 件 |
+| `CaptureError::Ambiguous` | 数える記録が 2 件以上 |
+| `CaptureError::TooLarge` | 数える記録が 1 件で、テキストが `MAX_SHADER_TEXT_BYTES`（1 MiB）を超える |
+| `Ok((f の戻り値, テキスト))` | 数える記録がちょうど 1 件で上限以下 |
+
+- 判定の順は表の `NotFound`、`Ambiguous`、`TooLarge`、`Ok`
+- `f` の間だけ最大の level を Debug にし、終わったら（`f` が panic しても）`Off` に戻す
+- process 全体で直列に動き、`f` の間はほかのスレッドが出した記録も数える
+- `CaptureError` の `Display` は入口名・本文を含まない固定の英語
+
+依存: `log` `=0.4.34`（承認の記録は `baseline-wgpu/deps-approved.toml`）。
+
+試験は `tests/capture.rs`（device に触らない。どの OS でも流れる）。
+
+```bash
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test capture
+make baseline-verify
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -170,3 +198,4 @@ cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm 
 | 5/11 | 実行時に照らす WGSL の読み込みと起動の形 | #8194 |
 | 6/11 | 2 つの device の経路 | #8195 |
 | 7/11 | 門の run の device の試験 | #8196 |
+| 8/11 | pipeline の作成の間の記録の受け取り | #8197 |
