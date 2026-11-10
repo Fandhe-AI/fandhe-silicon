@@ -8,6 +8,7 @@
 //! 2 行目以降が `// language: metal` で始まるもの。ほかの記録は保持しない。
 
 use std::fmt::{self, Write as _};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use log::{LevelFilter, Log, Metadata, Record};
@@ -68,6 +69,8 @@ pub fn shader_text<'a>(message: &'a str, entry: &str) -> Option<&'a str> {
 
 /// 受け取りの状態。`capture_one` の間だけ `Some`。
 struct Capturing {
+    /// `capture_one` の呼び出しごとに増える識別子。整形の間に次の取得が始まった記録を捨てるために使う。
+    session: u64,
     entry: &'static str,
     text: Option<String>,
     count: usize,
@@ -75,6 +78,7 @@ struct Capturing {
 }
 
 static STATE: Mutex<Option<Capturing>> = Mutex::new(None);
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 static SERIAL: Mutex<()> = Mutex::new(());
 static INSTALLED: OnceLock<bool> = OnceLock::new();
 
@@ -116,10 +120,10 @@ impl Log for Sink {
         if record.level() != log::Level::Debug {
             return;
         }
-        let entry = {
+        let (entry, session) = {
             let state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
             match state.as_ref() {
-                Some(c) => c.entry,
+                Some(c) => (c.entry, c.session),
                 None => return,
             }
         };
@@ -131,17 +135,27 @@ impl Log for Sink {
         if write!(w, "{}", record.args()).is_err() {
             return;
         }
-        let Some(text) = shader_text(&w.buf, entry) else {
+        let text = shader_text(&w.buf, entry);
+        // 切り詰めた記録は、1 行目の終わりか language の字句の途中で切れて判定できないことがある。
+        // 判定できない記録は見落とさず、数えたうえで上限超えとして扱う（安全側）。
+        let undetermined = text.is_none()
+            && w.truncated
+            && w.buf
+                .split_once('\n')
+                .is_none_or(|(_, rest)| rest.len() < LANGUAGE_MARK.len());
+        if text.is_none() && !undetermined {
             return;
-        };
+        }
         let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(c) = state.as_mut() {
+        // 整形の間に別の取得が始まっていたら、前の取得の記録なので格納しない。
+        if let Some(c) = state.as_mut().filter(|c| c.session == session) {
             c.count += 1;
             if c.count == 1 {
-                if w.truncated || text.len() > MAX_SHADER_TEXT_BYTES {
-                    c.too_large = true;
-                } else {
-                    c.text = Some(text.to_owned());
+                match text {
+                    Some(t) if !w.truncated && t.len() <= MAX_SHADER_TEXT_BYTES => {
+                        c.text = Some(t.to_owned());
+                    }
+                    _ => c.too_large = true,
                 }
             }
         }
@@ -178,6 +192,7 @@ pub fn capture_one<R>(
         return Err(CaptureError::LoggerTaken);
     }
     *STATE.lock().unwrap_or_else(PoisonError::into_inner) = Some(Capturing {
+        session: NEXT_SESSION.fetch_add(1, Ordering::Relaxed),
         entry,
         text: None,
         count: 0,

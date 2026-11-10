@@ -78,6 +78,21 @@ fn long_first_line_truncation_is_not_reported_as_success() {
 }
 
 #[test]
+fn header_overflow_is_counted_not_overlooked() {
+    // 1 行目だけで上限を超える記録は、改行と字句が切り詰めで失われても数える。
+    let long = "h".repeat(MAX_SHADER_TEXT_BYTES + 5_000);
+    let msg = format!("{long} '{ENTRY}'\n// language: metal\nx");
+    let err = capture_one(ENTRY, || log::debug!("{msg}")).unwrap_err();
+    assert_eq!(err, CaptureError::TooLarge);
+    let err = capture_one(ENTRY, || {
+        log::debug!("{msg}");
+        log::debug!("{}", record("a"));
+    })
+    .unwrap_err();
+    assert_eq!(err, CaptureError::Ambiguous);
+}
+
+#[test]
 fn shader_text_boundaries() {
     assert_eq!(shader_text("'e' no newline", "e"), None);
     assert_eq!(shader_text("'e'\n", "e"), None);
