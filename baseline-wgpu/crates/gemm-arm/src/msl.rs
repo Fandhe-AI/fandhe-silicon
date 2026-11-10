@@ -172,7 +172,18 @@ pub fn buffer_slots(text: &str, entry: &str) -> Result<Slots, MslError> {
     let args = &text[args_start..args_end];
     let bytes = args.as_bytes();
     let mut found: [Option<u32>; 5] = [None; 5];
-    for (at, _) in args.match_indices(BUFFER_ATTR) {
+    for (at, _) in args.match_indices("[[") {
+        // `[[` の後ろの空白を飛ばして `buffer` で始まるものを束縛の属性とみなす。厳密な `[[buffer(` の形でなければ拒否する。
+        let after = args[at + 2..].trim_start();
+        let is_buffer = after
+            .strip_prefix("buffer")
+            .is_some_and(|r| !r.bytes().next().is_some_and(is_ident_byte));
+        if !is_buffer {
+            continue;
+        }
+        if !args[at..].starts_with(BUFFER_ATTR) {
+            return Err(MslError::SlotNumber);
+        }
         let digits_start = at + BUFFER_ATTR.len();
         let mut end = digits_start;
         while end < bytes.len() && bytes[end].is_ascii_digit() {

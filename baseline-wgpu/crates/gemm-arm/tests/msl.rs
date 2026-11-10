@@ -278,3 +278,21 @@ fn entry_name_must_start_with_letter_or_underscore() {
         assert_eq!(buffer_slots(&text, entry), Err(MslError::EntryPoint));
     }
 }
+
+#[test]
+fn spaced_buffer_attributes_are_not_ignored() {
+    for spelled in ["[[buffer (5)]]", "[[ buffer(5)]]", "[[buffer\t(5)]]"] {
+        let text = good().replace(
+            "uint3 gid",
+            &format!("device float* d {spelled},\n    uint3 gid"),
+        );
+        assert_eq!(
+            buffer_slots(&text, ENTRY),
+            Err(MslError::SlotNumber),
+            "{spelled}"
+        );
+    }
+    // buffer で始まる別の属性名は束縛の属性ではないので読み飛ばす。
+    let other = good().replace("uint3 gid", "uint3 x [[buffers_other]],\n    uint3 gid");
+    assert!(buffer_slots(&other, ENTRY).is_ok());
+}
