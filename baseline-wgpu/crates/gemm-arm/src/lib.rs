@@ -10,6 +10,7 @@
 //! 門の 1 セルをこの 2 つの経路で流す device の試験は `tests/gate_external.rs` にあり、`#[ignore]` 付き。
 //! pipeline の作成などの処理の間に出る Debug の記録から、入口名を持つシェーダーのテキストを 1 つ受け取る口（[`capture`]）も持つ。
 //! 受け取ったテキストの 1 行目の言語版と、入口の束縛の番号を読む関数（[`msl`]）も持つ。
+//! 受け取ったテキストを Metal で直接流す経路は `run_g3prime`（橋の module の `unsafe fn`）で、device の前の検査は [`prime`] の `check_g3prime_request`。
 
 /// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
 #[allow(unsafe_code)]
@@ -19,8 +20,9 @@ pub mod device;
 pub mod external;
 pub mod layout;
 pub mod msl;
+pub mod prime;
 
-pub use bridge::run_g2;
+pub use bridge::{run_g2, run_g3prime};
 
 /// f32 の A・B を読み、f32 で累積する行列積の WGSL。
 pub const COOPMAT_F32_WGSL: &str = include_str!("shaders/coopmat_f32.wgsl");

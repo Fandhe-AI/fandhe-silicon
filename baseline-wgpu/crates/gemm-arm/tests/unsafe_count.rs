@@ -323,9 +323,9 @@ pub fn compare_counts(
 const EXPECTED: &[(&str, UnsafeCounts)] = &[(
     "bridge.rs",
     UnsafeCounts {
-        block: 2,
+        block: 10,
         impl_: 0,
-        func: 1,
+        func: 2,
         extern_block: 0,
         other: 0,
     },
@@ -406,14 +406,14 @@ fn shifted_table_fails() {
     let shifted = [(
         "bridge.rs",
         UnsafeCounts {
-            block: 3,
-            func: 1,
+            block: 11,
+            func: 2,
             ..UnsafeCounts::ZERO
         },
     )];
     let err = check_dir(&src, &shifted).expect_err("a shifted table must fail");
     assert!(
-        err.contains("bridge.rs: block: expected 3, actual 2"),
+        err.contains("bridge.rs: block: expected 11, actual 10"),
         "{err}"
     );
 }
@@ -423,7 +423,7 @@ fn file_outside_the_table_expects_zero() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let err = check_dir(&src, &[]).expect_err("an empty table must fail on bridge.rs");
     assert!(
-        err.contains("bridge.rs: block: expected 0, actual 2"),
+        err.contains("bridge.rs: block: expected 0, actual 10"),
         "{err}"
     );
 }
