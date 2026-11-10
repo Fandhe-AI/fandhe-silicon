@@ -15,11 +15,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::task::{Context, Poll, Waker};
 
-use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput};
+use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput, ValidationLayerSetting};
 use fandhe_silicon_core::parity::gemm_inputs::GemmInputDtype;
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
-
-use fandhe_silicon_core::parity::gemm_gate::ValidationLayerSetting;
 
 use crate::external::{ExternalWgsl, ExternalWgslError};
 use crate::layout::{
@@ -369,6 +367,7 @@ fn read_back(
     out.extend(chunks.iter().map(|c| f32::from_le_bytes(*c)));
     Ok(out)
 }
+
 /// 実行時に受ける WGSL の経路の、device の前の検査。device にもソースにも触れない。
 ///
 /// 順は、セルの腕が `expected` か（違えば `WrongArm`）、セルの dtype と入力が f32 か（違えば `InputMismatch`）、
