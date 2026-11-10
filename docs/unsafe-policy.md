@@ -27,11 +27,13 @@
     - `cpu_ops/neon.rs` は上の 2 つの守りの対象で、個数の期待値の表を `tests/cpu_ops_neon_unsafe_count.rs` に持つ。`#[allow(unsafe_code)]` は `cpu_ops.rs` の `mod neon;` の宣言だけに付ける。この module の変更は小節「承認」の PR ごとの承認を要する
 - 比較の腕の crate（`baseline-wgpu/crates/`・`measure/crates/` の下で、下位の API〔Metal・MPS・wgpu の実験的な機能〕を呼ぶ橋。TASK-1008〜1011 のポインタ）にも置ける。製品の workspace（`crates/`）の範囲は変えない
     - `baseline-wgpu/`・`measure/` は製品の workspace の外の別 workspace（ルート `Cargo.toml` の `exclude`）で、腕の crate は `publish = false`。製品の crate（`crates/`）は腕の crate に依存しない（向きは測定・比較 → 製品の一方向。[poc-carry-over](../.claude/rules/poc-carry-over.md)）。したがって製品の crate の `#![forbid(unsafe_code)]`・置き場の制限・公開 API の safe の約束は変わらず、上位ライブラリの依存グラフに腕の crate の `unsafe` は入らない
-    - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints.rust]`・`[lints.clippy]` で `unsafe_code = "deny"` とし、`unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` の deny と、その workspace のほかの lints も明記して保つ。`#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける
-    - すべての `unsafe` に `// SAFETY:` を書く（`unsafe fn` は `/// # Safety`）。公開 API は safe なラッパーにする
-    - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う
+    - 腕の crate は workspace の lints の `forbid(unsafe_code)` を継がず、自前の `[lints.rust]`・`[lints.clippy]` で `unsafe_code = "deny"` とし、`unsafe_op_in_unsafe_fn`・`clippy::undocumented_unsafe_blocks`・`clippy::missing_safety_doc` の deny と、その workspace のほかの lints も明記して保つ。`src/` の中の `#[allow(unsafe_code)]` は下位の API を呼ぶ 1 つの module（または関数）にだけ付ける（`tests/` の device の試験ファイルの扱いは下の箇条）
+    - すべての `unsafe` に `// SAFETY:` を書く（`unsafe fn` は `/// # Safety`）。公開 API は safe なラッパーにする。ただし、実行時に受けたカーネル・シェーダーを走らせる入口は、橋の module の中の `unsafe fn` として公開してよい。走らせる前の照合・照らしが保証するのはソースの内容や形までで、カーネル・シェーダーがバッファを宣言どおりにだけ使うことは型や検査で確かめられないので、その条件を `/// # Safety` に呼び出し側の条件として書く（例: `measure/crates/metal-gemm-arm` の `src/metal.rs` の `run_g5`、`baseline-wgpu/crates/gemm-arm` の `src/bridge.rs` の `run_g2`・`run_g3prime`）
+    - 前の検査を safe な関数に分けた crate では、誤用の試験はその safe な関数を呼び、`unsafe` を持たない（例: `baseline-wgpu/crates/gemm-arm` の `check_g2_request`・`check_g3prime_request`）
+    - その `unsafe fn` を呼ぶ `#[ignore]` 付きの device の試験ファイル（`tests/` の下）に限り、ファイルの先頭に `#![allow(unsafe_code)]` を置ける。呼び出しの前提は、そのファイルの `unsafe { }` ブロックの `// SAFETY:` が担う。この `allow` は橋の module の外への `allow` に当たるので、下の箇条のとおり、置く PR とその範囲を変える PR ごとに小節「承認」の PR ごとの承認を要し、包括の承認の対象にしない（例: `measure/crates/metal-gemm-arm/tests/gate_g5.rs` は #8193、`baseline-wgpu/crates/gemm-arm/tests/gate_external.rs` は #8196、`baseline-wgpu/crates/gemm-arm/tests/gate_prime.rs` は #8200 のコメントに承認の記録がある）
+    - 腕の crate ごとに `unsafe` の個数の試験を持ち、個数が変わるときは製品と同じ小節「個数が変わるときの扱い」に従う。個数の試験が数えるのは `src/` の下のファイルで、`tests/` の device の試験ファイルの `unsafe` は数えない
     - 比較の腕の crate で `#[allow(unsafe_code)]` を付ける PR（橋の module を 1 つ置く最初の PR を含む）と、その範囲を変える PR は、小節「承認」の PR ごとの承認を要し、包括の承認の対象にしない。承認のコメントは、その PR か、その PR が閉じる子の Issue に置いてよい（実装の前に置ける）。コメントには対象の crate と module（または関数）と承認日を書き、PR 本文から承認のコメントへリンクする
-    - 腕の crate ごとに `allow` を付けるのは、下位の API を呼ぶ橋の module 1 つだけにする。2 つ目の module や橋の外の関数への `allow`、腕の crate の外への置き場の変更、数える道具の変更は、この制限を超える変更として同じ PR ごとの承認を要する
+    - 腕の crate ごとに `allow` を付けるのは、下位の API を呼ぶ橋の module 1 つだけにする。2 つ目の module や橋の外の関数への `allow`、上の device の試験ファイルの先頭の `#![allow(unsafe_code)]`、腕の crate の外への置き場の変更、数える道具の変更は、この制限を超える変更として同じ PR ごとの承認を要する
     - 腕の crate の `unsafe` の個数だけが増える PR（`allow` の範囲が変わらないもの）のマージは、小節「承認」の既存の仕組み（PR ごとの承認、または包括の承認）に従う
 
 ## 不変条件の書式
@@ -151,7 +153,7 @@ unsafe fn raw_ptr(handle: RawHandle) -> *mut u8 {
 ### してはいけないこと
 
 - 期待値だけを先に、または後から変える PR を出す
-- `#[allow(unsafe_code)]` を backend・`cpu_ops` の NEON の module・比較の腕の crate の下位の API を呼ぶ module（または関数）以外に付ける。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
+- `#[allow(unsafe_code)]` を backend・`cpu_ops` の NEON の module・比較の腕の crate の下位の API を呼ぶ module（または関数）以外に付ける（比較の腕の crate の `unsafe fn` を呼ぶ `#[ignore]` 付きの device の試験ファイルの先頭に、PR ごとの承認で置く `#![allow(unsafe_code)]` を除く）。`deny(unsafe_code)`・`forbid(unsafe_code)`・workspace の lints を緩める
 - 個数テストを `#[ignore]` や cfg で外す、検査を弱める
 - `git commit --no-verify` を使う
 - 文書・README・コメントに個数の値や変化の履歴を持つ
@@ -214,3 +216,13 @@ worktree のルートで実行する。
 | ------ | --------------- | -------- |
 | 前の補い（base 55fd9c1）の「個数テスト」の行の `measure/crates/metal-gemm-arm` の分（表は `src/metal.rs` の 1 行だけで block 11・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 17 行目） | block 11 → block 15・ほか 0（表は今も `src/metal.rs` の 1 行だけ。`src/metallib.rs` は表に無く、全種別 0 を期待する）。`#[allow(unsafe_code)]` は 17 行目 → 21 行目（直後の 22 行目が `mod metal;`）。テストは今も 5 件 | `grep -n 'const EXPECTED' measure/crates/metal-gemm-arm/tests/unsafe_count.rs`、`grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed） |
 | 前の補い（base 5fa953d）の表の `measure/crates/metal-gemm-arm` の分 | 上の行のとおり（前の補い（base 5fa953d）は `measure/crates/metal-gemm-arm` の値を直していない） | 同上 |
+
+## 今の値の補い（base 2446902）
+
+記録時点の表と既存の節は書き換えない。以下は base `2446902` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 節・行 | 前の値 → 今の値 | 確かめ方 |
+| ------ | --------------- | -------- |
+| 前の補い（base ae152fb）の `measure/crates/metal-gemm-arm` の行（表は `src/metal.rs` の 1 行だけで block 15・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 21 行目） | block 15・ほか 0 → block 15・fn 1・ほか 0（`unsafe fn` は `run_g5`。表は今も `src/metal.rs` の 1 行だけ）。`#[allow(unsafe_code)]` は 21 行目 → 25 行目（直後の 26 行目が `mod metal;`）。テストは今も 5 件 | `grep -n 'const EXPECTED' measure/crates/metal-gemm-arm/tests/unsafe_count.rs`、`grep -n 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src/lib.rs`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed） |
+| 前の補い（base 55fd9c1）の「個数テスト」の行の `baseline-wgpu/crates/gemm-arm` の分（表は `src/bridge.rs` の 1 行だけで block 1・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 10 行目） | block 1・ほか 0 → block 10・fn 2・ほか 0（`unsafe fn` は `run_g2`・`run_g3prime`。表は今も `src/bridge.rs` の 1 行だけ）。`#[allow(unsafe_code)]` は 10 行目 → 17 行目（直後の 18 行目が `mod bridge;`）。テストは今も 7 件 | `sed -n '/^const EXPECTED/,/^)\];/p' baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`、`grep -n 'allow(unsafe_code)' baseline-wgpu/crates/gemm-arm/src/lib.rs`、`cargo test --offline --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --test unsafe_count`（7 passed） |
+| 前の補い（base 55fd9c1）の「`#[allow(unsafe_code)]` は腕の crate ごとに `src/lib.rs` の 1 箇所」 | `src/lib.rs` の 1 箇所 → `src/lib.rs` の 1 箇所に加えて、`unsafe fn` を呼ぶ `#[ignore]` 付きの device の試験ファイルの先頭（8 行目）にも `#![allow(unsafe_code)]` がある。`measure/crates/metal-gemm-arm/tests/gate_g5.rs`・`baseline-wgpu/crates/gemm-arm/tests/gate_external.rs`・`baseline-wgpu/crates/gemm-arm/tests/gate_prime.rs` | `grep -n 'allow(unsafe_code)' measure/crates/metal-gemm-arm/tests/gate_g5.rs baseline-wgpu/crates/gemm-arm/tests/gate_external.rs baseline-wgpu/crates/gemm-arm/tests/gate_prime.rs` |
