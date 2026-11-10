@@ -67,8 +67,75 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test fetch_cmd_pinned
 ```
 
+## 実行時に照らすソースの腕の手順（6/7）
+
+### 手順
+
+`run_g5`（`src/metal.rs`。macOS 向け）は `unsafe fn` で、照合は内容の同一性しか保証しないため、ソースの入口が宣言どおりにだけ buffer を使うことを呼び出し側が `# Safety` の契約として保証する。成果物の引数は取らず、次の順で進む。device を作るのは 7 の後。
+
+1. 腕が `GemmGateArm::G5` でなければ `UnsupportedCell`
+2. 起動の形（`external_launch_for`）が無ければ `UnsupportedCell`
+3. 入力が f32 でなければ `DtypeMismatch`
+4. A・B の長さが M×K・K×N でなければ `LengthMismatch`（計算のあふれは `Overflow`）
+5. 検証レイヤーが有効でなければ `ValidationLayerRequired`
+6. 環境変数からソースを読んで照らす。sha256 の不一致は `SourceMismatch`、ほかの失敗は `KernelSettingsInvalid`
+7. 既定の device（無ければ `NoDevice`）
+8. 照合を通ったメモリ上の文字列を、オプションを設定せずにコンパイル（`CompileFailed`）
+9. 入口名の関数（function constant なし）と pipeline を作る（`FunctionFailed`・`PipelineFailed`）
+10. 256 スレッドが pipeline の上限を超えれば `ThreadsExceeded`
+11. A・B・C の共有バッファを作り、A・B を書き、C を 0 で埋める
+12. 束縛して 1 回投入し、完了待ちの後に状態が完了でなければ `SubmitFailed`、完了なら C を読む（切り出しなし）
+
+### 環境変数
+
+| 名前 | 内容 |
+| ---- | ---- |
+| `FANDHE_SILICON_KERNEL_SOURCE` | ソースのファイルのパス |
+| `FANDHE_SILICON_KERNEL_SHA256` | 期待の sha256（64 桁の小文字の 16 進） |
+| `FANDHE_SILICON_KERNEL_ENTRY` | 入口名（`[A-Za-z_][A-Za-z0-9_]{0,63}`） |
+
+3 つとも必須。`ExternalKernel::from_env`（または `from_lookup`）の検査の順は、未設定、sha256 の形、入口名の形、ソースの読み取りと照合。
+失敗の文言は固定の英語で、値・パスを含まない。
+
+### 束縛と起動の形
+
+| 位置 | 内容 |
+| ---- | ---- |
+| buffer 0 | A（M×K、f32） |
+| buffer 1 | B（K×N、f32） |
+| buffer 2 | C（M×N、f32。0 で埋める） |
+| buffer 3 | `Dims { m, n, k }`（12 バイト。元の M・N・K） |
+
+- threadgroup は 16×16×1、threadgroup 数は `(ceil(n / 16), ceil(m / 16), 1)`。詰め物はしない。
+- threadgroup のメモリは設定しない。
+
+### 事実の型
+
+`SourceFacts` は `max_total_threads_per_threadgroup`（pipeline の上限）と `source_sha256`（照合を通ったソースについて計算した値）を持つ。
+
+### unsafe の置き場
+
+`unsafe` を書くのは `src/metal.rs` だけ。`src/external.rs` と `src/source.rs` には書かない。
+
+### 試験
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `tests/external.rs` | 未設定・sha256 と入口名の形・読めないパス・不一致・上限超え・UTF-8 でない入力の `Err` と、文言に値が出ないこと。合成のファイルでの `Ok`。起動の形 |
+| `tests/external_macos.rs` | 腕・dtype・長さの食い違いが device に届く前に `Err`（macOS のみ） |
+| `tests/external_validation_macos.rs` | 検証レイヤーの環境変数を外した子プロセスで `ValidationLayerRequired`（macOS のみ） |
+
+### 確かめ方
+
+```text
+cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test external
+```
+
+macOS では `--test external_macos`・`--test external_validation_macos`・`--test unsafe_count` も流す。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 5/7 | 取得の道具の 5 引数の形 | #8191 |
+| 6/7 | 実行時に照らすソースの腕の手順 | #8192 |

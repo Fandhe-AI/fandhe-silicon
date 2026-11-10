@@ -2,7 +2,7 @@
 //!
 //! この crate で `unsafe` を書くのはこのファイルだけ（`src/lib.rs` の `mod metal;` の宣言にだけ lint の許可を付ける）。
 //! 呼び出し元は腕の試験（門の枠の `run_cell` に渡す腕）で、
-//! 外へ出すのは safe な [`run_g6`] と [`run_g7`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
+//! 外へ出すのは `unsafe fn` の [`run_g5`]（実行時に受けるカーネルの安全条件を呼び出し側が保証する）と、safe な [`run_g6`] と [`run_g7`] だけ。起動の表（[`crate::launch`]）の値を Metal の呼び出しに写し、
 //! 完了を待ってからだけ出力を読む。`objc2-foundation` は使わず、`NSString` と 2 つの生成の呼び出しは
 //! `msg_send!` で扱う。エラーの中身は読まず、固定の [`ArmError`] にする。
 
@@ -10,7 +10,7 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr::{self, NonNull};
 
-use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput};
+use fandhe_silicon_core::parity::gemm_gate::{GateInputs, GateOutput, ValidationLayerSetting};
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, GemmGateCell};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject};
@@ -26,15 +26,17 @@ use objc2_metal::{
 };
 
 use crate::coopmat::{COOPMAT_ENTRY, COOPMAT_THREADS, coopmat_launch_for};
+use crate::external::{EXTERNAL_TILE, ExternalError, ExternalKernel, external_launch_for};
 use crate::launch::{
     BufferLayout, ConstantValue, Launch, OutputKind, crop_matrix, launch_for, pad_matrix, pad8_dim,
 };
-use crate::{ArmError, MetallibFacts, PipelineFacts};
+use crate::source::SourceError;
+use crate::{ArmError, MetallibFacts, PipelineFacts, SourceFacts};
 
 /// UTF-8 を表す `NSStringEncoding` の値。
 const UTF8_ENCODING: usize = 4;
 
-/// `Dims`（buffer 3）。値は詰めた後の M・N・K。
+/// `Dims`（buffer 3）。値は、`run_g6` では詰めた後の M・N・K、`run_g5` では元の M・N・K。
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Dims {
@@ -80,6 +82,106 @@ struct CoopmatDims {
     m: u32,
     k: u32,
     n: u32,
+}
+
+/// 門の `G5` の f32 のセルを、実行時に照らしたソースで 1 回だけ投入し、出力（M×N、行優先）と事実を返す。
+///
+/// 手順は、腕・起動の形・dtype・入力の長さの検査、検証レイヤーの確認、環境変数で受けたソースの照合と
+/// 入口名の検査の順で、ここまでは device を作らない。続けて照合を通ったメモリ上の文字列をコンパイルし
+/// （コンパイルのオプションは設定しない）、入口名の関数で pipeline を作り、buffer 0〜2 に A・B・C、
+/// buffer 3 に元の M・N・K の `Dims` を束縛して 1 回投入する。成果物（パス・バイト列・digest）は引数で受けない。
+/// 検証レイヤーが無効、ソースの設定が未設定・不正、照合が通らないときは `Err` を返す。
+///
+/// # Safety
+///
+/// 環境変数が指すソースの sha256 の照合は、内容がそのバイト列であることしか保証しない。呼び出し側は、
+/// そのソースの入口が、buffer 0〜2 を f32 の行優先の列（A・B は読み取りだけ、C だけ書き込み、
+/// 範囲は M・N・K から決まる）として、buffer 3 を `Dims` として宣言どおりにだけ使い、範囲外のアクセスや
+/// 共有バッファへの競合する書き込み、無限ループを持たない監査済みのカーネルであることを保証しなければならない。
+pub unsafe fn run_g5(
+    cell: GemmGateCell,
+    inputs: &GateInputs,
+) -> Result<(GateOutput, SourceFacts), ArmError> {
+    if cell.arm() != GemmGateArm::G5 {
+        return Err(ArmError::UnsupportedCell);
+    }
+    let launch = external_launch_for(cell).ok_or(ArmError::UnsupportedCell)?;
+    let GateInputs::F32(i) = inputs else {
+        return Err(ArmError::DtypeMismatch);
+    };
+    let (m, n, k) = (cell.row().m(), cell.row().n(), cell.row().k());
+    let a_elems = m.checked_mul(k).ok_or(ArmError::Overflow)?;
+    let b_elems = k.checked_mul(n).ok_or(ArmError::Overflow)?;
+    let c_elems = m.checked_mul(n).ok_or(ArmError::Overflow)?;
+    if i.a().len() != a_elems || i.b().len() != b_elems {
+        return Err(ArmError::LengthMismatch);
+    }
+    if !ValidationLayerSetting::from_env().is_enabled() {
+        return Err(ArmError::ValidationLayerRequired);
+    }
+    let kernel = ExternalKernel::from_env().map_err(|e| match e {
+        ExternalError::Source(SourceError::DigestMismatch) => ArmError::SourceMismatch,
+        _ => ArmError::KernelSettingsInvalid,
+    })?;
+
+    let device = MTLCreateSystemDefaultDevice().ok_or(ArmError::NoDevice)?;
+    let source_string = make_nsstring(kernel.source())?;
+    let library = new_library(&device, &source_string, &MTLCompileOptions::new())?;
+    let name_string = make_nsstring(kernel.entry())?;
+    let function = new_function_by_name(&library, &name_string)?;
+    let pipeline = device
+        .newComputePipelineStateWithFunction_error(&function)
+        .map_err(|_| ArmError::PipelineFailed)?;
+    let max_threads = pipeline.maxTotalThreadsPerThreadgroup();
+    if launch.threads_width * launch.threads_height > max_threads {
+        return Err(ArmError::ThreadsExceeded);
+    }
+
+    let a_buffer = new_shared_buffer(&device, a_elems, size_of::<f32>())?;
+    let b_buffer = new_shared_buffer(&device, b_elems, size_of::<f32>())?;
+    let c_buffer = new_shared_buffer(&device, c_elems, size_of::<f32>())?;
+    write_buffer(&a_buffer, i.a())?;
+    write_buffer(&b_buffer, i.b())?;
+    zero_buffer(&c_buffer)?;
+
+    let queue = device.newCommandQueue().ok_or(ArmError::AllocationFailed)?;
+    let command_buffer = queue.commandBuffer().ok_or(ArmError::SubmitFailed)?;
+    let encoder = command_buffer
+        .computeCommandEncoder()
+        .ok_or(ArmError::SubmitFailed)?;
+    encoder.setComputePipelineState(&pipeline);
+    bind_buffers(&encoder, &[&a_buffer, &b_buffer, &c_buffer]);
+    let dims = Dims {
+        m: to_u32(m)?,
+        n: to_u32(n)?,
+        k: to_u32(k)?,
+    };
+    set_bytes(&encoder, &dims, 3);
+    encoder.dispatchThreadgroups_threadsPerThreadgroup(
+        MTLSize {
+            width: launch.groups_width,
+            height: launch.groups_height,
+            depth: 1,
+        },
+        MTLSize {
+            width: EXTERNAL_TILE,
+            height: EXTERNAL_TILE,
+            depth: 1,
+        },
+    );
+    encoder.endEncoding();
+    command_buffer.commit();
+    command_buffer.waitUntilCompleted();
+    if command_buffer.status() != MTLCommandBufferStatus::Completed {
+        return Err(ArmError::SubmitFailed);
+    }
+
+    let out = read_buffer::<f32>(&c_buffer, c_elems)?;
+    let facts = SourceFacts {
+        max_total_threads_per_threadgroup: max_threads,
+        source_sha256: kernel.sha256(),
+    };
+    Ok((GateOutput::F32(out), facts))
 }
 
 /// 門の `G6` のセルを 1 回だけ投入し、出力（M×N、行優先）と pipeline の事実を返す。
@@ -523,7 +625,10 @@ fn bind_buffers(
 ) {
     // SAFETY: 3 つのバッファは呼び出し側が保持していて、完了待ちが終わるまで生きる（エンコーダは
     // 保持しないため、呼び出し側の保持が生存を保証する）。offset 0 はどのバッファの範囲にも収まり、
-    // index 0〜2 は kernel が宣言する buffer の範囲内。内容は kernel が読む型（f32 か binary16）の
+    // index 0〜2 は kernel が宣言する buffer の範囲内。固定のソースの腕ではソースの sha256 の照合が
+    // その前提を保つ。`run_g5` の腕では、ソースと入口が宣言どおりにだけ buffer を使うことを
+    // `run_g5` の `# Safety` の契約として呼び出し側が保証する（照合・入口名の形の検査・検証レイヤーは
+    // 補助で、データ競合や束縛の契約までは保証しない）。内容は kernel が読む型（f32 か binary16）の
     // 行優先の列で、C だけが書かれる。
     unsafe {
         for (index, buffer) in buffers.iter().enumerate() {
@@ -542,7 +647,7 @@ fn set_bytes<V: Copy>(
     // SAFETY: `pointer` は `value` を指す非 null のポインタで、`size_of::<V>()` バイトが読める。`V` は
     // この module の `repr(C)` の `u32` だけの構造体で、padding を持たない。Metal は呼び出しの間に
     // バイト列をコピーするので、`value` の生存はこの呼び出しの間で足りる。大きさは 4096 バイト未満で、
-    // `index` は kernel が宣言する buffer の範囲内。
+    // `index` は kernel が宣言する buffer の範囲内。両方の腕で、その前提は `bind_buffers` の根拠と同じ手順が保つ。
     unsafe {
         encoder.setBytes_length_atIndex(pointer, size_of::<V>(), index);
     }

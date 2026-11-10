@@ -13,7 +13,7 @@ const KINDS: [&str; 5] = ["block", "impl", "fn", "extern-block", "other"];
 type Counts = [usize; 5];
 
 /// `src/` からの相対パス → 種別ごとの個数（block・impl・fn・extern-block・other）。
-const EXPECTED: &[(&str, Counts)] = &[("metal.rs", [15, 0, 0, 0, 0])];
+const EXPECTED: &[(&str, Counts)] = &[("metal.rs", [15, 0, 1, 0, 0])];
 
 /// コメントと文字列リテラルの中身を空白にした文字列を返す（改行と長さは保つ）。
 fn strip(src: &str) -> String {
