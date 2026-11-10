@@ -135,9 +135,38 @@ make baseline-verify
 cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test external_device_misuse --test external_unchecked_misuse --test unsafe_count
 ```
 
+## 門の run の device の試験（7/11）
+
+門の 1 セルを、枠の `run_selected_from_env` に「腕で `run_g1`・`run_g2` を選ぶ関数」として渡して流す試験を `#[ignore]` 付きで置く。device の要る専用の回でだけ `--ignored` で流し、既定の `cargo test` では流れない。
+
+| ファイル | 試験 | 期待 |
+| -------- | ---- | ---- |
+| `tests/gate_external.rs` | セルの腕が `GemmGateArm::G1` なら `run_g1`、`GemmGateArm::G2` なら `run_g2` で流し、ほかの腕は `ArmError::WrongArm` を返す | `comparison().is_match()`、`bit_mismatches() == 0`、`max_abs_diff() == 0.0`、`validation_layer()`。標準出力に結果の行と `source_sha256=<64 桁の小文字の 16 進>` を 1 行ずつ出す |
+
+- 試験は 1 本だけ（枠の入口がテストのバイナリにつき 1 回のため）
+- 試験は新しい環境変数を読まない。ソースと sha256 は入口が `FANDHE_SILICON_KERNEL_SOURCE`・`FANDHE_SILICON_KERNEL_SHA256` で受ける
+- 標準エラーには何も書かない
+- 計算した sha256 は出力するだけで、期待の値とは比べない
+- ファイルの先頭に `#![allow(unsafe_code)]` を置き、`run_g2`（`unsafe fn`）を呼ぶ `unsafe` ブロックを 1 つだけ書く。`run_g1` は `unsafe` の外で呼ぶ
+- `src/` の `unsafe` の個数は変わらない
+
+流すときの形:
+
+```text
+scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- env FANDHE_SILICON_KERNEL_SOURCE=<ファイル> FANDHE_SILICON_KERNEL_SHA256=<値> cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test gate_external -- --ignored --nocapture
+```
+
+確かめ方: `make baseline-verify` で `gate_external` が `1 ignored` になる。
+
+```bash
+cargo test --manifest-path baseline-wgpu/Cargo.toml --locked -p baseline-wgpu-gemm-arm --test gate_external
+cargo clippy --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 5/11 | 実行時に照らす WGSL の読み込みと起動の形 | #8194 |
 | 6/11 | 2 つの device の経路 | #8195 |
+| 7/11 | 門の run の device の試験 | #8196 |

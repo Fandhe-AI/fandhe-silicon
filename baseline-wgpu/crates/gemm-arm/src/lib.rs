@@ -7,6 +7,7 @@
 //! 門の run の枠から 1 プロセスにつき 1 セルを呼ぶ。
 //! 実行時に環境変数で受けて照らす WGSL（[`external`]）と、その起動の形（[`layout`] の `tiled_*`）も持つ（TASK-1010 のポインタ）。
 //! その WGSL を流す device の経路は 2 つで、`run_g1`（[`device`]。safe）と `run_g2`（橋の module の `unsafe fn`）。
+//! 門の 1 セルをこの 2 つの経路で流す device の試験は `tests/gate_external.rs` にあり、`#[ignore]` 付き。
 
 /// 下位の API の unsafe な口を呼ぶ橋。この crate で `unsafe` を持つのはこの module だけ。
 #[allow(unsafe_code)]
