@@ -133,9 +133,53 @@ cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm
 
 macOS では `--test external_macos`・`--test external_validation_macos`・`--test unsafe_count` も流す。
 
+## 門の run の device の試験（7/7）
+
+macOS 向けに、門の 1 セルを枠の `run_selected_from_env` に `run_g5` を渡して流す試験を `#[ignore]` 付きで置く。device の要る専用の回でだけ `--ignored` で流し、既定の `cargo test` では流れない。
+
+| ファイル | 試験 | 期待 |
+| -------- | ---- | ---- |
+| `tests/gate_g5.rs` | 選ばれた 1 セルを `run_g5` で流す（腕が `G5` でないセルは `UnsupportedCell`） | セルの腕が `G5`、`bit_mismatches()` が 0、`max_abs_diff()` が 0.0、`comparison().is_match()`、`validation_layer()` が真、`max_total_threads_per_threadgroup` が 256 以上。標準出力に結果の行・`source_sha256=<64 桁の小文字の 16 進>`・`max_total_threads_per_threadgroup=<値>` を 1 行ずつ出す |
+
+- 試験は 1 本だけ（枠の入口が 1 つのテストのバイナリにつき 1 回のため）
+- ソースのファイル・sha256・入口名は `run_g5` が環境変数で受ける（試験は新しい環境変数を読まない）
+- 標準エラーには何も書かない
+- 計算した sha256 は出力するだけで、期待の値とは比べない
+- `tests/gate_g5.rs` の先頭に `#![allow(unsafe_code)]` を置き、`run_g5`（`unsafe fn`）を呼ぶ `unsafe` ブロックを 1 つ書く。`src/` の `unsafe` の個数は変わらない
+
+流すときの形:
+
+```text
+scripts/metal-session.sh run --combination <名前> --validation-layer --gate-cell <セルの識別名> -- env FANDHE_SILICON_KERNEL_SOURCE=<ファイル> FANDHE_SILICON_KERNEL_SHA256=<値> FANDHE_SILICON_KERNEL_ENTRY=<入口名> cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g5 -- --ignored --nocapture
+```
+
+`<ファイル>` は `fetch-kernel-source <clone> <output> <rev> <path> <sha256>` の 5 引数の形で書く。
+
+確かめ方: `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g5`（macOS では `1 ignored`、Linux では 0 本）・`cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings`
+
+## 完了の条件の確かめ（7/7）
+
+TASK-1009 の 7/7（#8193）として、ここまでの成果物を本リポで観測できる事実だけで確かめた記録。(1)〜(5)・(8) は Linux での手元の実行、(6)・(7) は 6/7 のマージ（`268802f`）の後の main の push の run（run id `42858489754`）の CI のログと conclusion。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 腕の crate が `measure/` の member で、製品の workspace の外にある | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`、`exclude = ["baseline-wgpu", "measure", "wasm"]`、`record:` の行は `measure_pkgs=4 measure_contract_pkgs=1 measure_forbidden=0`、終了コード 0 |
+| 2 | 取得の道具と実行時に照らす入力の試験が通る | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test fetch_cmd_pinned`・`--test fetch_cmd`・`--test external` | `fetch_cmd_pinned` は `ok. 8 passed; 0 failed; 0 ignored`、`fetch_cmd` は `ok. 3 passed; 0 failed; 0 ignored`、`external` は `ok. 7 passed; 0 failed; 0 ignored` |
+| 3 | unsafe | 同 `--test unsafe_count`、`git grep -n 'allow(unsafe_code)' -- measure/crates/metal-gemm-arm`、`grep -hv '^\s*//' measure/crates/metal-gemm-arm/src/external.rs \| grep -c '\bunsafe\b'` | `ok. 5 passed; 0 failed; 0 ignored`、`allow(unsafe_code)` は `src/lib.rs:25`・`tests/external_macos.rs:6`・`tests/external_validation_macos.rs:7`・`tests/unsafe_count.rs:298`（試験の入力の文字列リテラルの中）の 4 行（`tests/gate_g5.rs` を足す前の base の値）、コメントの行を除いた `unsafe` の件数は 0 |
+| 4 | 依存 | `git diff ae152fb -- measure/crates/metal-gemm-arm/Cargo.toml measure/Cargo.lock measure/deps-approved.toml`、`make measure-verify` の `deps-check (measure/)` | 差分は空、`make measure-verify` の終了コード 0 |
+| 5 | 取得したソースを repo に置いていない | `git ls-files measure \| grep -c '\.metal$'` | `1` |
+| 6 | macOS の腕の crate の試験 | `gh run view 42858489754 --log --job <verify-macos の job id>` の `measure-metal-gemm-arm` の `Running` 行ごとの `test result:` | lib の unittests は `ok. 7 passed; 0 failed; 0 ignored`、`coopmat` は 6 passed、`coopmat_macos` は 3 passed、`device` は `0 passed; 0 failed; 2 ignored`、`external` は 7 passed、`external_macos` と `external_validation_macos` の `Running` 行の後に `3 passed` と `1 passed` の 2 行、`fetch_cmd` は 3 passed、`fetch_cmd_pinned` は 8 passed、`gate` と `gate_g7` の `Running` 行の後に `1 ignored` の 2 行、`launch` は 9 passed、`source` は 10 passed、`unsafe_count` は 5 passed |
+| 7 | CI | `gh run view 42858489754 --json headSha,jobs` | headSha は `268802fd55864352194ca926be8ee61c017459a8`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` の conclusion はいずれも `success` |
+| 8 | `tests/gate_g5.rs`（手元の実行） | `cargo test --manifest-path measure/Cargo.toml --locked -p measure-metal-gemm-arm --test gate_g5`、`cargo clippy --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --all-targets --target aarch64-apple-darwin --locked -- -D warnings` | Linux では `ok. 0 passed; 0 failed; 0 ignored`（`cfg(target_os = "macos")` で外れる）、`aarch64-apple-darwin` の clippy は終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-1009）。
+
+確かめた base は `268802f`、`docs/spec` の gitlink は `c272f877055ba0939110b9552bc8a18c4c6b9e22`。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 5/7 | 取得の道具の 5 引数の形 | #8191 |
 | 6/7 | 実行時に照らすソースの腕の手順 | #8192 |
+| 7/7 | 門の run の device の試験・完了の条件の確かめ | #8193 |

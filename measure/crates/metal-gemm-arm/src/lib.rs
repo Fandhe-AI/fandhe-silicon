@@ -12,7 +12,7 @@
 //! `run_g5` は実行時に照らしたソースを library にコンパイルして 1 セルを 1 回投入する（TASK-1009 のポインタ）。
 //! `run_g7` は MSL を offline compiler で metallib にして読み、cooperative matrix の 1 セルを 1 回投入する（TASK-1009 のポインタ）。
 //! `unsafe` を書くのは `src/metal.rs` だけで、個数は `tests/unsafe_count.rs` の表が固定する。
-//! 門の 1 セルを device で流す試験は `tests/gate.rs`（`run_g6`）と `tests/gate_g7.rs`（`run_g7`）にあり、どちらも `#[ignore]` 付き。
+//! 門の 1 セルを device で流す試験は `tests/gate.rs`（`run_g6`）・`tests/gate_g7.rs`（`run_g7`）・`tests/gate_g5.rs`（`run_g5`）にあり、いずれも `#[ignore]` 付き。
 
 use std::fmt;
 
