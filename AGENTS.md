@@ -43,6 +43,7 @@ P0 と P1 はいずれも codex ジョブを失敗させる（マージ前に解
 - **unsafe の配置と根拠（P0/P1）**: `unsafe` は `crates/contract` の backend モジュール
   （FFI 境界）と、`cpu_ops` の aarch64 の NEON の module（組み込み関数を呼ぶ橋）と、`baseline-wgpu/crates/`・`measure/crates/` の比較の腕の crate（下位の API を呼ぶ橋。TASK-1008〜1011 のポインタ）に限る。`core`・`exec`・`upper` の `#![forbid(unsafe_code)]` の除去・緩和は P0。
   腕の crate がある `baseline-wgpu/`・`measure/` は製品の workspace の外の別 workspace（ルート `Cargo.toml` の `exclude`）で、腕の crate は `publish = false`。製品の crate は腕の crate に依存せず（向きは測定・比較 → 製品の一方向）、製品の守りは変わらない。
+  腕の crate では、実行時に受けたカーネル・シェーダーを走らせる入口を橋の module の中の `unsafe fn`（`/// # Safety` に呼び出し側の条件）として公開してよく、それを呼ぶ `#[ignore]` 付きの device の試験ファイルの先頭の `#![allow(unsafe_code)]` は、`docs/unsafe-policy.md` の小節「承認」の PR ごとの承認があるときだけ置ける。
   `// SAFETY:`（`unsafe fn` は `/// # Safety`。`unsafe extern` ブロックは直前の `// SAFETY:` に宣言の署名とリンクの根拠。書式は `docs/unsafe-policy.md` の「不変条件の書式」）の欠落・根拠不十分、workspace lints
   （`undocumented_unsafe_blocks`・`missing_safety_doc`・`unsafe_op_in_unsafe_fn`）の緩和は P1
 - **依存とサプライチェーン（P0/P1）**: wgpu・wgpu-core・wgpu-hal・wgpu-types・naga の
