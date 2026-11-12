@@ -15,8 +15,9 @@ use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
 use fandhe_silicon_core::execution::{
-    BindingLayout, FunctionConstant, FunctionConstantValue, GpuTiming, ImportedSemaphoreHandle,
-    MslFloatFunctions, MslMathMode, PipelineInput, SubmitToken,
+    Binding, BindingLayout, FunctionConstant, FunctionConstantValue, GpuTiming,
+    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, PipelineHandle, PipelineInput,
+    SubmitToken,
 };
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1338,4 +1339,145 @@ fn pipeline_cache_key_reaches_through_the_public_device() {
     assert_eq!(a, b);
     let key = a.unwrap();
     assert_eq!((key.compiler_id, key.target), ("metal", "metal-msl"));
+}
+
+/// dispatch の試験が使う、1 つの要素を写す小さなカーネル。
+const COPY_KERNEL: &str = "#include <metal_stdlib>\n\
+    using namespace metal;\n\
+    kernel void copy_u32(device const uint* src [[buffer(0)]],\n\
+                            device uint* dst [[buffer(1)]],\n\
+                            uint gid [[thread_position_in_grid]]) {\n\
+        dst[gid] = src[gid];\n\
+    }\n";
+
+/// 公開の `Device` から `COPY_KERNEL` のパイプラインを作る。
+fn copy_pipeline(device: &dyn Device) -> PipelineHandle {
+    device
+        .compute()
+        .expect("a Metal device must expose compute()")
+        .create_pipeline(
+            PipelineInput::Msl {
+                source: COPY_KERNEL,
+                entry_point: "copy_u32",
+            },
+            &BindingLayout::new(vec![0, 1]),
+        )
+        .expect("create_pipeline")
+}
+
+/// TASK-775 のポインタ。公開の `Device` から dispatch を記録でき、製品のビルドでは記録のある `submit` が
+/// `Unsupported` で拒まれる。通し番号は使われず、出力は 0 のまま。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dispatch_through_the_public_device_is_recorded_and_submit_is_unsupported() {
+    let device = new_device();
+    let pipeline = copy_pipeline(device.as_ref());
+    let memory = device.memory();
+    let src = memory
+        .allocate(16, BufferUsage::empty())
+        .expect("allocate src");
+    let dst = memory
+        .allocate(16, BufferUsage::empty())
+        .expect("allocate dst");
+    memory.upload(&src, 0, &[7; 16]).expect("upload");
+
+    let queue = device.queue();
+    let mut encoder = queue.create_encoder();
+    queue
+        .dispatch_ex(
+            &mut encoder,
+            &pipeline,
+            &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+            &[],
+            [4, 1, 1],
+            [1, 1, 1],
+            &[],
+        )
+        .expect("dispatch_ex");
+    let r = queue.submit(encoder, &[]);
+    assert!(
+        matches!(
+            r,
+            Err(ContractError::Unsupported {
+                op: "submit",
+                backend: BackendKind::Metal
+            })
+        ),
+        "{r:?}"
+    );
+    let next = submit_empty(device.as_ref());
+    assert_eq!(next.sequence, 1);
+    queue.wait_blocking(next, None).expect("wait_blocking");
+    assert_eq!(
+        memory.download_blocking(&dst, 0, 16).expect("download"),
+        vec![0; 16]
+    );
+}
+
+/// COMP-35・COMP-87 のポインタ。公開の `Device` から、記録の時点の拒否が variant で区別できる。
+/// 拒否だけを受けた記録先の `submit` は成功する。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn record_time_rejections_through_the_public_device() {
+    let device = new_device();
+    let other = new_device();
+    let pipeline = copy_pipeline(device.as_ref());
+    let foreign_pipeline = copy_pipeline(other.as_ref());
+    let src = device
+        .memory()
+        .allocate(16, BufferUsage::empty())
+        .expect("allocate src");
+    let dst = device
+        .memory()
+        .allocate(16, BufferUsage::empty())
+        .expect("allocate dst");
+    let foreign_buffer = other
+        .memory()
+        .allocate(16, BufferUsage::empty())
+        .expect("allocate foreign");
+    let ok = [Binding::new(0, &src, 0), Binding::new(1, &dst, 0)];
+
+    let queue = device.queue();
+    let mut encoder = queue.create_encoder();
+
+    let r = queue.dispatch(&mut encoder, &foreign_pipeline, &ok, [4, 1, 1]);
+    assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+    let r = queue.dispatch(
+        &mut encoder,
+        &pipeline,
+        &[
+            Binding::new(0, &foreign_buffer, 0),
+            Binding::new(1, &dst, 0),
+        ],
+        [4, 1, 1],
+    );
+    assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+    let r = queue.dispatch(&mut encoder, &pipeline, &ok, [0, 1, 1]);
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+    let r = queue.dispatch(&mut encoder, &pipeline, &ok[..1], [4, 1, 1]);
+    match r {
+        Err(ContractError::InvalidArgument(message)) => {
+            assert!(message.contains("slot 1"), "{message}");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+
+    let r = queue.dispatch(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 68)],
+        [4, 1, 1],
+    );
+    match r {
+        Err(ContractError::InvalidArgument(message)) => {
+            assert!(message.contains("slot 1"), "{message}");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+
+    let token = queue.submit(encoder, &[]).expect("submit");
+    queue.wait_blocking(token, None).expect("wait_blocking");
 }

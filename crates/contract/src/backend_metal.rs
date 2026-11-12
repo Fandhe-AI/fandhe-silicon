@@ -4392,6 +4392,691 @@ mod imp {
             assert_eq!(h.__backend_device_id(), device.id);
         }
 
+        /// dispatch の記録・投入の時の積み・完了を、小さなカーネルで確かめる（TASK-775 のポインタ）。
+        ///
+        /// 結果は CPU で計算した参照とバイトで比べる。待ちは `poll` の繰り返しで、feature に依らない。
+        mod dispatch {
+            use super::*;
+            use fandhe_silicon_core::execution::{Binding, ConstantBinding, ThreadgroupMemory};
+
+            const DISPATCH_KERNELS: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        kernel void copy_u32(device const uint* src [[buffer(0)]],\n\
+                                                device uint* dst [[buffer(1)]],\n\
+                                                uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid];\n\
+                        }\n\
+                        kernel void add_const(device const uint* src [[buffer(0)]],\n\
+                                                device uint* dst [[buffer(1)]],\n\
+                                                constant uint& k [[buffer(2)]],\n\
+                                                uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid] + k;\n\
+                        }\n\
+                        kernel void add_one(device const uint* src [[buffer(0)]],\n\
+                                            device uint* dst [[buffer(1)]],\n\
+                                            uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid] + 1;\n\
+                        }\n\
+                        kernel void mul_two(device const uint* src [[buffer(0)]],\n\
+                                            device uint* dst [[buffer(1)]],\n\
+                                            uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid] * 2;\n\
+                        }\n\
+                        kernel void group_sum(device const uint* src [[buffer(0)]],\n\
+                                                device uint* dst [[buffer(1)]],\n\
+                                                threadgroup uint* tg [[threadgroup(0)]],\n\
+                                                uint gid [[thread_position_in_grid]],\n\
+                                                uint lid [[thread_position_in_threadgroup]],\n\
+                                                uint group [[threadgroup_position_in_grid]],\n\
+                                                uint size [[threads_per_threadgroup]]) {\n\
+                            tg[lid] = src[gid];\n\
+                            threadgroup_barrier(mem_flags::mem_threadgroup);\n\
+                            if (lid == 0) {\n\
+                                uint sum = 0;\n\
+                                for (uint i = 0; i < size; i++) { sum += tg[i]; }\n\
+                                dst[group] = sum;\n\
+                            }\n\
+                        }\n\
+                        kernel void group_mark(device uint* dst [[buffer(0)]],\n\
+                                                uint group [[threadgroup_position_in_grid]]) {\n\
+                            dst[group] = group + 1;\n\
+                        }\n\
+                        kernel void skip_unused(device uint* dst [[buffer(0)]],\n\
+                                                device uint* unused [[buffer(1)]],\n\
+                                                uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = gid + 7;\n\
+                        }\n";
+
+            fn pipeline(device: &MetalDevice, entry: &str, slots: Vec<u32>) -> PipelineHandle {
+                device
+                    .create_pipeline(
+                        PipelineInput::Msl {
+                            source: DISPATCH_KERNELS,
+                            entry_point: entry,
+                        },
+                        &BindingLayout::new(slots),
+                    )
+                    .expect("create_pipeline")
+            }
+
+            fn to_bytes(values: &[u32]) -> Vec<u8> {
+                values.iter().flat_map(|v| v.to_le_bytes()).collect()
+            }
+
+            fn buffer_of(device: &MetalDevice, values: &[u32]) -> BufferHandle {
+                let h = device
+                    .allocate(values.len() as u64 * 4, BufferUsage::empty())
+                    .expect("allocate");
+                device.upload(&h, 0, &to_bytes(values)).expect("upload");
+                h
+            }
+
+            fn zeroed(device: &MetalDevice, words: u64) -> BufferHandle {
+                device
+                    .allocate(words * 4, BufferUsage::empty())
+                    .expect("allocate")
+            }
+
+            fn read_u32s(device: &MetalDevice, h: &BufferHandle, words: u64) -> Vec<u32> {
+                let bytes = device.read_range(h, 0, words * 4).expect("read_range");
+                bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
+                    .collect()
+            }
+
+            /// 10 秒まで `poll` を繰り返し、`Complete` になることを確かめる。
+            fn wait_done(device: &MetalDevice, token: SubmitToken) {
+                let started = std::time::Instant::now();
+                loop {
+                    match device.poll(token) {
+                        CompletionState::Pending => {}
+                        state => {
+                            assert_eq!(state, CompletionState::Complete);
+                            return;
+                        }
+                    }
+                    assert!(
+                        started.elapsed() < std::time::Duration::from_secs(10),
+                        "submission did not complete"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+
+            fn record_count(device: &MetalDevice, id: u64) -> Option<usize> {
+                device.open.lock().get(&id).map(Vec::len)
+            }
+
+            fn submit_and_wait(device: &MetalDevice, encoder: CommandEncoder) {
+                let token = device.submit(encoder, &[]).expect("submit");
+                wait_done(device, token);
+            }
+
+            /// COMP-4・COMP-26 のポインタ。0 でない `offset` の位置から読み書きする。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_reads_and_writes_at_a_nonzero_binding_offset() {
+                let device = new_device();
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let input: Vec<u32> = (100..116).collect();
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 16);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 16), Binding::new(1, &dst, 32)],
+                        [8, 1, 1],
+                    )
+                    .expect("dispatch");
+                submit_and_wait(&device, enc);
+                let mut expected = vec![0_u32; 16];
+                expected[8..16].copy_from_slice(&input[4..12]);
+                assert_eq!(read_u32s(&device, &dst, 16), expected);
+            }
+
+            /// COMP-5・COMP-27 のポインタ。定数の slot が配置に含まれ、カーネルがその値を読む。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_passes_a_constant_by_slot() {
+                let device = new_device();
+                let p = pipeline(&device, "add_const", vec![0, 1, 2]);
+                let input: Vec<u32> = (0..8).map(|i| i * 3).collect();
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 8);
+                let k = 41_u32;
+                let k_bytes = k.to_le_bytes();
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch_ex(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        &[ConstantBinding::new(2, &k_bytes)],
+                        [8, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    )
+                    .expect("dispatch_ex");
+                submit_and_wait(&device, enc);
+                let expected: Vec<u32> = input.iter().map(|v| v + k).collect();
+                assert_eq!(read_u32s(&device, &dst, 8), expected);
+            }
+
+            /// COMP-6・COMP-30 のポインタ。スレッドグループの数と大きさ、共有メモリの `index` と `bytes` で動く。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_runs_the_given_threadgroups_with_threadgroup_memory() {
+                let device = new_device();
+                let p = pipeline(&device, "group_sum", vec![0, 1]);
+                let input: Vec<u32> = (1..=32).collect();
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 4);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch_ex(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        &[],
+                        [4, 1, 1],
+                        [8, 1, 1],
+                        &[ThreadgroupMemory::new(0, 32)],
+                    )
+                    .expect("dispatch_ex");
+                submit_and_wait(&device, enc);
+                let expected: Vec<u32> = input.chunks(8).map(|c| c.iter().sum()).collect();
+                assert_eq!(read_u32s(&device, &dst, 4), expected);
+            }
+
+            /// COMP-6・COMP-30 のポインタ。スレッド数を `[1, 1, 1]` と明示した dispatch の全スレッドグループが動く。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_with_one_thread_per_threadgroup_marks_every_group() {
+                let device = new_device();
+                let p = pipeline(&device, "group_mark", vec![0]);
+                let dst = zeroed(&device, 6);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch_ex(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &dst, 0)],
+                        &[],
+                        [6, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    )
+                    .expect("dispatch_ex");
+                submit_and_wait(&device, enc);
+                assert_eq!(read_u32s(&device, &dst, 6), vec![1, 2, 3, 4, 5, 6]);
+            }
+
+            /// COMP-36 のポインタ。前の出力を次の入力にした 3 回の dispatch が記録の順に動く。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn three_dispatches_in_one_encoder_run_in_recorded_order() {
+                let device = new_device();
+                let p = pipeline(&device, "add_one", vec![0, 1]);
+                let input: Vec<u32> = (10..18).collect();
+                let b0 = buffer_of(&device, &input);
+                let chain = [
+                    b0,
+                    zeroed(&device, 8),
+                    zeroed(&device, 8),
+                    zeroed(&device, 8),
+                ];
+                let mut enc = device.create_encoder();
+                for pair in chain.windows(2) {
+                    device
+                        .dispatch(
+                            &mut enc,
+                            &p,
+                            &[Binding::new(0, &pair[0], 0), Binding::new(1, &pair[1], 0)],
+                            [8, 1, 1],
+                        )
+                        .expect("dispatch");
+                }
+                submit_and_wait(&device, enc);
+                let expected: Vec<u32> = input.iter().map(|v| v + 3).collect();
+                assert_eq!(read_u32s(&device, &chain[3], 8), expected);
+            }
+
+            /// COMP-3 のポインタ。同じパイプラインを続けて渡し、別のパイプラインに替えて戻しても結果が参照と一致する。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn repeating_and_switching_pipelines_matches_the_reference() {
+                let device = new_device();
+                let add = pipeline(&device, "add_one", vec![0, 1]);
+                let mul = pipeline(&device, "mul_two", vec![0, 1]);
+                let input: Vec<u32> = (0..8).collect();
+                let b0 = buffer_of(&device, &input);
+                let chain = [
+                    b0,
+                    zeroed(&device, 8),
+                    zeroed(&device, 8),
+                    zeroed(&device, 8),
+                    zeroed(&device, 8),
+                ];
+                let mut enc = device.create_encoder();
+                for (i, p) in [&add, &add, &mul, &add].into_iter().enumerate() {
+                    device
+                        .dispatch(
+                            &mut enc,
+                            p,
+                            &[
+                                Binding::new(0, &chain[i], 0),
+                                Binding::new(1, &chain[i + 1], 0),
+                            ],
+                            [8, 1, 1],
+                        )
+                        .expect("dispatch");
+                }
+                submit_and_wait(&device, enc);
+                let expected: Vec<u32> = input.iter().map(|v| (v + 2) * 2 + 1).collect();
+                assert_eq!(read_u32s(&device, &chain[4], 8), expected);
+            }
+
+            /// COMP-34 のポインタ。簡易版の `dispatch` は、既定の値を渡した `dispatch_ex` と同じ結果になる。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn simple_dispatch_matches_dispatch_ex_with_the_defaults() {
+                let device = new_device();
+                let p = pipeline(&device, "add_one", vec![0, 1]);
+                let input: Vec<u32> = (5..13).collect();
+                let src = buffer_of(&device, &input);
+                let simple_out = zeroed(&device, 8);
+                let ex_out = zeroed(&device, 8);
+                let mut a = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut a,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &simple_out, 0)],
+                        [8, 1, 1],
+                    )
+                    .expect("dispatch");
+                let mut b = device.create_encoder();
+                device
+                    .dispatch_ex(
+                        &mut b,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &ex_out, 0)],
+                        &[],
+                        [8, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    )
+                    .expect("dispatch_ex");
+                submit_and_wait(&device, a);
+                submit_and_wait(&device, b);
+                let simple = device.read_range(&simple_out, 0, 32).expect("read");
+                let ex = device.read_range(&ex_out, 0, 32).expect("read");
+                assert_eq!(simple, ex);
+                let expected: Vec<u32> = input.iter().map(|v| v + 1).collect();
+                assert_eq!(simple, to_bytes(&expected));
+            }
+
+            /// COMP-35 のポインタ。前に束縛した slot を省いた記録は拒まれ、記録の数は増えない。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn omitting_a_previously_bound_slot_is_rejected_and_not_recorded() {
+                let device = new_device();
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let input: Vec<u32> = (1..9).collect();
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 8);
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        [8, 1, 1],
+                    )
+                    .expect("dispatch");
+                assert_eq!(record_count(&device, id), Some(1));
+                let r = device.dispatch(&mut enc, &p, &[Binding::new(0, &src, 0)], [8, 1, 1]);
+                match r {
+                    Err(ContractError::InvalidArgument(message)) => {
+                        assert!(message.contains("slot 1"), "{message}");
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                }
+                assert_eq!(record_count(&device, id), Some(1));
+                submit_and_wait(&device, enc);
+                assert_eq!(read_u32s(&device, &dst, 8), input);
+            }
+
+            /// COMP-39 のポインタ。投入の前に束縛したバッファを `free` すると、投入は拒まれて何も積まれない。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn freeing_a_bound_buffer_before_submit_is_rejected_without_submitting() {
+                let device = new_device();
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let src = buffer_of(&device, &[1, 2, 3, 4]);
+                let dst = zeroed(&device, 4);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch");
+                device.free(src);
+                let before = device.test_submitted_count();
+                let r = device.submit(enc, &[]);
+                match r {
+                    Err(ContractError::InvalidArgument(message)) => {
+                        assert!(message.contains("slot 0"), "{message}");
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                }
+                assert_eq!(device.test_submitted_count(), before);
+                assert_eq!(read_u32s(&device, &dst, 4), vec![0, 0, 0, 0]);
+            }
+
+            /// COMP-39 のポインタ。`submit_many` は、どれか 1 つの記録先が当たれば全部を積まない。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn submit_many_with_one_freed_buffer_submits_nothing() {
+                let device = new_device();
+                let p = pipeline(&device, "add_one", vec![0, 1]);
+                let src_a = buffer_of(&device, &[1, 2, 3, 4]);
+                let src_b = buffer_of(&device, &[5, 6, 7, 8]);
+                let dst_a = zeroed(&device, 4);
+                let dst_b = zeroed(&device, 4);
+                let mut a = device.create_encoder();
+                let mut b = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut a,
+                        &p,
+                        &[Binding::new(0, &src_a, 0), Binding::new(1, &dst_a, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch a");
+                device
+                    .dispatch(
+                        &mut b,
+                        &p,
+                        &[Binding::new(0, &src_b, 0), Binding::new(1, &dst_b, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch b");
+                device.free(src_b);
+                let before = device.test_submitted_count();
+                let r = device.submit_many(vec![a, b], &[], &[]);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+                assert_eq!(device.test_submitted_count(), before);
+                assert_eq!(device.test_open_encoder_count(), 0);
+                assert_eq!(read_u32s(&device, &dst_a, 4), vec![0, 0, 0, 0]);
+                assert_eq!(read_u32s(&device, &dst_b, 4), vec![0, 0, 0, 0]);
+            }
+
+            /// COMP-87 のポインタ。長さを超える `offset` は記録の時点で拒まれ、長さちょうどの `offset` は動く。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn an_offset_past_the_length_is_rejected_and_the_exact_length_runs() {
+                let device = new_device();
+                let p = pipeline(&device, "skip_unused", vec![0, 1]);
+                let dst = zeroed(&device, 4);
+                let unused = zeroed(&device, 16);
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                let r = device.dispatch(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &dst, 0), Binding::new(1, &unused, 68)],
+                    [4, 1, 1],
+                );
+                match r {
+                    Err(ContractError::InvalidArgument(message)) => {
+                        assert!(message.contains("slot 1"), "{message}");
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                }
+                assert_eq!(record_count(&device, id), Some(0));
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &dst, 0), Binding::new(1, &unused, 64)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch at the exact length");
+                submit_and_wait(&device, enc);
+                assert_eq!(read_u32s(&device, &dst, 4), vec![7, 8, 9, 10]);
+            }
+
+            /// 投入の後・完了の前の `free` は解放の保留に置かれ、完了の後に pool へ回る。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn freeing_a_buffer_of_a_held_submission_keeps_it_until_completion() {
+                let device = new_device();
+                let held = HeldCommits::new(&device);
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let src = buffer_of(&device, &[1, 2, 3, 4]);
+                let dst = zeroed(&device, 4);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch");
+                let token = device.submit(enc, &[]).expect("submit");
+                let held_slot = device.test_slot_of(&dst).expect("slot");
+                let pool_before = device.test_pool_len();
+                device.free(dst);
+                assert_eq!(device.test_pending_release_count(), 1);
+                assert_eq!(device.test_pool_len(), pool_before);
+                let other = zeroed(&device, 4);
+                assert_ne!(device.test_slot_of(&other), Some(held_slot));
+                held.release();
+                wait_done(&device, token);
+                assert_eq!(device.test_pending_release_count(), 0);
+                assert_eq!(device.test_pool_len(), pool_before + 1);
+            }
+
+            /// 使用中のバッファの `upload`・`download_async`・`read_range` は拒まれ、完了の後は通る。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reads_and_writes_of_an_in_use_buffer_are_rejected_until_completion() {
+                let device = new_device();
+                let held = HeldCommits::new(&device);
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let input = [11_u32, 12, 13, 14];
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 4);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch");
+                let token = device.submit(enc, &[]).expect("submit");
+                let r = device.upload(&dst, 0, &[0xFF; 16]);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+                type Downloads = Arc<Mutex<Vec<Result<Vec<u8>, ContractError>>>>;
+                let seen: Downloads = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&seen);
+                device.download_async(
+                    &dst,
+                    0,
+                    16,
+                    Box::new(move |result| sink.lock().expect("lock").push(result)),
+                );
+                {
+                    let calls = seen.lock().expect("lock");
+                    assert_eq!(calls.len(), 1);
+                    assert!(
+                        matches!(calls[0], Err(ContractError::InvalidArgument(_))),
+                        "{:?}",
+                        calls[0]
+                    );
+                }
+                let r = device.read_range(&dst, 0, 16);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+                held.release();
+                wait_done(&device, token);
+                assert_eq!(read_u32s(&device, &dst, 4), input);
+                device.upload(&dst, 0, &[0xAB; 16]).expect("upload");
+                assert_eq!(
+                    device.read_range(&dst, 0, 16).expect("read"),
+                    vec![0xAB; 16]
+                );
+            }
+
+            /// 使用中のバッファの `download_blocking` は拒まれ、完了の後は通る。
+            #[cfg(feature = "native-blocking-wait")]
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn download_blocking_of_an_in_use_buffer_is_rejected_until_completion() {
+                let device = new_device();
+                let held = HeldCommits::new(&device);
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let src = buffer_of(&device, &[21, 22, 23, 24]);
+                let dst = zeroed(&device, 4);
+                let mut enc = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                        [4, 1, 1],
+                    )
+                    .expect("dispatch");
+                let token = device.submit(enc, &[]).expect("submit");
+                let r = device.download_blocking(&dst, 0, 16);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+                held.release();
+                wait_done(&device, token);
+                let bytes = device.download_blocking(&dst, 0, 16).expect("download");
+                assert_eq!(bytes, to_bytes(&[21, 22, 23, 24]));
+            }
+
+            /// `submit_many` の 2 つの記録先は 1 つの印で両方の結果がそろい、投入の数は 1 だけ増える。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn submit_many_with_two_encoders_completes_both_with_one_token() {
+                let device = new_device();
+                let p = pipeline(&device, "add_one", vec![0, 1]);
+                let in_a: Vec<u32> = (0..8).collect();
+                let in_b: Vec<u32> = (50..58).collect();
+                let src_a = buffer_of(&device, &in_a);
+                let src_b = buffer_of(&device, &in_b);
+                let dst_a = zeroed(&device, 8);
+                let dst_b = zeroed(&device, 8);
+                let mut a = device.create_encoder();
+                let mut b = device.create_encoder();
+                device
+                    .dispatch(
+                        &mut a,
+                        &p,
+                        &[Binding::new(0, &src_a, 0), Binding::new(1, &dst_a, 0)],
+                        [8, 1, 1],
+                    )
+                    .expect("dispatch a");
+                device
+                    .dispatch(
+                        &mut b,
+                        &p,
+                        &[Binding::new(0, &src_b, 0), Binding::new(1, &dst_b, 0)],
+                        [8, 1, 1],
+                    )
+                    .expect("dispatch b");
+                let before = device.test_submitted_count();
+                let token = device
+                    .submit_many(vec![a, b], &[], &[])
+                    .expect("submit_many");
+                wait_done(&device, token);
+                assert_eq!(device.test_submitted_count(), before + 1);
+                let exp_a: Vec<u32> = in_a.iter().map(|v| v + 1).collect();
+                let exp_b: Vec<u32> = in_b.iter().map(|v| v + 1).collect();
+                assert_eq!(read_u32s(&device, &dst_a, 8), exp_a);
+                assert_eq!(read_u32s(&device, &dst_b, 8), exp_b);
+            }
+
+            /// COMP-35・COMP-87 のポインタ。記録の時点の拒否は、どれも記録先の記録を変えない。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn record_time_rejections_leave_the_encoder_records_unchanged() {
+                let device = new_device();
+                let other = new_device();
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let foreign_p = pipeline(&other, "copy_u32", vec![0, 1]);
+                let src = buffer_of(&device, &[1, 2, 3, 4]);
+                let dst = zeroed(&device, 4);
+                let foreign_buf = zeroed(&other, 4);
+                let ok = [Binding::new(0, &src, 0), Binding::new(1, &dst, 0)];
+
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                device
+                    .dispatch(&mut enc, &p, &ok, [4, 1, 1])
+                    .expect("dispatch");
+                assert_eq!(record_count(&device, id), Some(1));
+
+                let r = device.dispatch(&mut enc, &foreign_p, &ok, [4, 1, 1]);
+                assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+                let r = device.dispatch(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &foreign_buf, 0), Binding::new(1, &dst, 0)],
+                    [4, 1, 1],
+                );
+                assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+                let forged = PipelineHandle::__backend_new(p.__backend_id() + 1000, device.id);
+                let r = device.dispatch(&mut enc, &forged, &ok, [4, 1, 1]);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+                let r = device.dispatch(&mut enc, &p, &ok, [4, 0, 1]);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+                let device_max_width =
+                    u32::try_from(device.device.maxThreadsPerThreadgroup().width)
+                        .expect("width fits u32");
+                let r = device.dispatch_ex(
+                    &mut enc,
+                    &p,
+                    &ok,
+                    &[],
+                    [1, 1, 1],
+                    [device_max_width, 2, 1],
+                    &[],
+                );
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+                let mut done = device.create_encoder();
+                let done_id = done.__backend_id();
+                device
+                    .dispatch(&mut done, &p, &ok, [4, 1, 1])
+                    .expect("dispatch");
+                submit_and_wait(&device, done);
+                let mut stale = CommandEncoder::__backend_new(done_id, None);
+                let r = device.dispatch(&mut stale, &p, &ok, [4, 1, 1]);
+                assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+                assert_eq!(record_count(&device, id), Some(1));
+                submit_and_wait(&device, enc);
+                assert_eq!(read_u32s(&device, &dst, 4), vec![1, 2, 3, 4]);
+            }
+        }
         /// DEV-80・TASK-2932 のポインタ。`fault_hooks` の口から模擬のロストを呼ぶ。
         #[cfg(feature = "fault-injection")]
         mod lost {
