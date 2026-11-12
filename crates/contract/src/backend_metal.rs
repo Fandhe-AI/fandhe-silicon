@@ -1713,7 +1713,10 @@ mod imp {
         missing_required_constants, missing_required_reason, precheck_submit, precheck_submit_many,
         prepare_constants, register_table, remove_issued, retire, take_next,
     };
-    use super::{MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range, metal_cache_key};
+    use super::{
+        DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
+        metal_cache_key,
+    };
 
     use fandhe_silicon_core::capability::{
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
