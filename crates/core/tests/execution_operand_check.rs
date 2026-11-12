@@ -2,12 +2,12 @@
 //!
 //! C1・C3 に当たる入力がその拒否で返り、C4〜C8 を判定せず容量の閉包も呼ばれないこと、
 //! C1・C3 を通る入力では `validate_dispatch_operands` を単独で呼んだ結果と同じ値が返ること、
-//! すべての検査を通る入力が `Ok(())` になること、署名が固定であることを確かめる。feature なしで動く。
+//! すべての検査を通る入力が `Ok(())` になること、検査が通る 6 通りの入力で 3 つの関数がどれも `Ok(())` を返すこと、署名が固定であることを確かめる。feature なしで動く。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
-    BindingLayout, DType, OperandBinding, OperandConstant, OperandSpec, validate_dispatch_operands,
-    validate_operands,
+    BindingLayout, DType, OperandBinding, OperandConstant, OperandSpec, validate_declared_operands,
+    validate_dispatch_operands, validate_operands,
 };
 use std::cell::Cell;
 
@@ -180,4 +180,104 @@ fn validate_operands_return_type_is_pinned() {
         u64::MAX,
     );
     assert_eq!(r, Ok(()));
+}
+
+/// 3 つの関数（C1・C3、C4〜C8、続けて呼ぶ関数）が同じ入力でどれも `Ok(())` を返すことを確かめる。
+fn assert_all_accept(
+    declared: &[OperandSpec<'_>],
+    layout: &BindingLayout,
+    bindings: &[OperandBinding],
+    consts: &[OperandConstant<'_>],
+    cap: Cap,
+    max: u64,
+) {
+    assert_eq!(validate_declared_operands(declared, layout), Ok(()));
+    assert_eq!(
+        validate_dispatch_operands(declared, bindings, consts, cap, max),
+        Ok(())
+    );
+    assert_eq!(
+        validate_operands(declared, layout, bindings, consts, cap, max),
+        Ok(())
+    );
+}
+
+/// 宣言 2 件と束縛 2 件の件数が一致する入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_matching_counts() {
+    let d = [
+        spec(0, DType::F32, &[4], &[1], 4),
+        spec(1, DType::F32, &[4], &[1], 4),
+    ];
+    let layout = BindingLayout::new(vec![0, 1]);
+    let bindings = [
+        OperandBinding { slot: 0, offset: 0 },
+        OperandBinding { slot: 1, offset: 0 },
+    ];
+    assert_all_accept(&d, &layout, &bindings, &[], |_| None, u64::MAX);
+}
+
+/// 容量が必要バイト数とちょうど等しい入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_exact_capacity() {
+    let d = [spec(0, DType::F32, &[4], &[1], 4)];
+    let layout = BindingLayout::new(vec![0]);
+    let bindings = [OperandBinding { slot: 0, offset: 0 }];
+    assert_all_accept(&d, &layout, &bindings, &[], |_| Some(16), u64::MAX);
+}
+
+/// alignment の倍数の offset が容量に収まる入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_aligned_offset() {
+    let d = [spec(0, DType::F32, &[4], &[1], 16)];
+    let layout = BindingLayout::new(vec![0]);
+    let bindings = [OperandBinding {
+        slot: 0,
+        offset: 16,
+    }];
+    assert_all_accept(&d, &layout, &bindings, &[], |_| Some(1024), u64::MAX);
+}
+
+/// 定数の長さが宣言のバイト数と一致する入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_constant_length() {
+    let d = [spec(0, DType::U32, &[3], &[1], 4)];
+    let layout = BindingLayout::new(vec![0]);
+    let bytes = [0u8; 12];
+    let consts = [OperandConstant {
+        slot: 0,
+        bytes: &bytes,
+    }];
+    assert_all_accept(&d, &layout, &[], &consts, |_| None, u64::MAX);
+}
+
+/// 必要バイト数が上限とちょうど等しい入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_exact_limit() {
+    let d = [spec(0, DType::F32, &[1000], &[1], 4)];
+    let layout = BindingLayout::new(vec![0]);
+    assert_all_accept(&d, &layout, &[], &[], |_| None, 4_000);
+}
+
+/// 行列積の A・B・C と次元の定数を宣言した入力は 3 つの関数ともに通る（BIND-23）。
+#[test]
+fn sequential_checks_accept_gemm() {
+    let d = [
+        spec(0, DType::F32, &[37, 53], &[53, 1], 4),
+        spec(1, DType::F32, &[53, 41], &[41, 1], 4),
+        spec(2, DType::F32, &[37, 41], &[41, 1], 4),
+        spec(3, DType::U32, &[3], &[1], 4),
+    ];
+    let layout = BindingLayout::new(vec![0, 1, 2, 3]);
+    let bindings = [
+        OperandBinding { slot: 0, offset: 0 },
+        OperandBinding { slot: 1, offset: 0 },
+        OperandBinding { slot: 2, offset: 0 },
+    ];
+    let bytes = [0u8; 12];
+    let consts = [OperandConstant {
+        slot: 3,
+        bytes: &bytes,
+    }];
+    assert_all_accept(&d, &layout, &bindings, &consts, |_| Some(1 << 20), u64::MAX);
 }
