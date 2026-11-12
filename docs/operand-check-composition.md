@@ -84,3 +84,23 @@ make verify
 cargo test -p fandhe-silicon-core --test execution_operand_check
 make verify
 ```
+
+## 同じ slot の宣言が複数あるときの C4（4/6）
+
+`crates/core/src/execution/dispatch_check.rs` の `check_capacity` は、`declared` に同じ `slot` の宣言が複数あるとき、C4 を最後の宣言で判定する。C5・C6 は先頭の宣言のままで、C8・C7 はすべての宣言を見る。公開の入口は `validate_dispatch_operands` で、`validate_operands` も同じ動きになる（TASK-426）。
+
+単体テスト `dispatch_check_duplicate_slot_uses_last_declaration_for_c4` の入力は、slot 0 の宣言 2 件（先頭 F32 `[1]`・alignment 16、後ろ F32 `[16]`・alignment 0）。
+
+| 段 | 入力 | 期待 |
+| -- | ---- | ---- |
+| C4 | offset 0・容量 `Some(4)` | `C4` で拒否 |
+| C4 | offset 0・容量 `Some(64)` | `Ok(())` |
+| C6 | 4 バイトの定数 | `Ok(())` |
+| C5 | offset 4 | `C5` で拒否 |
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-core --lib dispatch_check
+make verify
+```

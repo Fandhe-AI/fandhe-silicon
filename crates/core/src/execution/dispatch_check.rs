@@ -1,4 +1,4 @@
-//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423・TASK-2952・TASK-2951 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44）。
+//! dispatch に渡す引数の宣言を、背後実装を呼ぶ前に確かめる純粋関数（TASK-421・TASK-423・TASK-2952・TASK-2951・TASK-426 のポインタ。BIND-35〜BIND-39・BIND-41〜BIND-44）。
 //!
 //! `execution` から再公開される。上や下-2 が組み立てた宣言を、下-1 の背後実装へ渡す前に
 //! 共通の層で拒否するために置く。C4（残容量）・C5（offset の境界）・C6（定数の長さ）・C7（宣言に無い `slot`・`slot` の重複）・C8（長さ 0・`u64` のあふれ・上限超過）を判定する。
@@ -58,7 +58,7 @@ pub fn required_bytes(spec: &OperandSpec<'_>) -> Option<u64> {
 ///    `alignment` の倍数でなければ拒否する。
 /// 5. C6: `consts` のバイト列の長さが宣言の必要バイト数と異なれば（短くても長くても）拒否する。
 ///
-/// 同じ `slot` の宣言が複数あるときは、C4・C5・C6 とも先頭のものを使う。
+/// 同じ `slot` の宣言が複数あるときは、C4 は最後のもの、C5・C6 は先頭のものを使う（BIND-45）。
 ///
 /// # Errors
 ///
@@ -138,7 +138,7 @@ fn check_slots(
 
 /// C4: 容量が分かる束縛について、必要バイト数が残り（容量 - offset）に収まるかを調べる。
 ///
-/// `validate_dispatch_operands` から C8 を通った後に呼ばれる。同じ `slot` の宣言が複数あるときは先頭のものを使う（C5・C6 と同じ）。
+/// `validate_dispatch_operands` から C8 を通った後に呼ばれる。同じ `slot` の宣言が複数あるときは最後のものを使う。
 fn check_capacity<F>(
     declared: &[OperandSpec<'_>],
     bindings: &[OperandBinding],
@@ -148,7 +148,7 @@ where
     F: Fn(&OperandBinding) -> Option<u64>,
 {
     for b in bindings {
-        let Some(spec) = declared.iter().find(|s| s.slot == b.slot) else {
+        let Some(spec) = declared.iter().rev().find(|s| s.slot == b.slot) else {
             continue;
         };
         let Some(cap) = binding_capacity(b) else {
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_check_duplicate_slot_uses_first_declaration_everywhere() {
+    fn dispatch_check_duplicate_slot_uses_last_declaration_for_c4() {
         // 同じ slot の宣言が 2 件: 先頭は 4 バイト・alignment 16、後ろは 64 バイト・alignment 0。
         // declared 内の slot の重複は C7 にしない。
         let s = [
@@ -480,10 +480,12 @@ mod tests {
                 ..spec(DType::F32, &[16])
             },
         ];
-        // C4: 先頭の 4 バイトは容量 4 に収まる（後ろを採ると拒否される）。
+        // C4: 最後の 64 バイトの宣言を使うので、容量 4 は拒否され、容量 64 は通る。
         let b = [OperandBinding { slot: 0, offset: 0 }];
+        let r = validate_dispatch_operands(&s, &b, &[], |_| Some(4), 1024);
+        assert!(matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with("C4:")));
         assert_eq!(
-            validate_dispatch_operands(&s, &b, &[], |_| Some(4), 1024),
+            validate_dispatch_operands(&s, &b, &[], |_| Some(64), 1024),
             Ok(())
         );
         // C6: 先頭の 4 バイトと一致する定数は通る（後ろを採ると拒否される）。
