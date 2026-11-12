@@ -111,6 +111,10 @@ impl CommandQueue for Recording {
         });
         self.result.clone()
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 fn buffer(id: u64) -> BufferHandle {

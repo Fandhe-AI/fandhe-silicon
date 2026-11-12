@@ -110,6 +110,7 @@ fandhe-silicon/
 ├── docs/declared-operand-check.md  # 引数の宣言の C1・C3 を判定する純粋関数の所在・現状の振る舞い（1/4）・C1 の件数の試験（2/4）・C3 の次元数の試験（3/4）・完了の条件の確かめ（4/4）（TASK-420）
 ├── docs/operand-check-composition.md  # 引数の宣言の C1・C3 と C4〜C8 を続けて判定する純粋関数の所在・所在と現状の振る舞い（1/6）・直接の呼び出しの試験（2/6）・検査が通る 6 通りの入力の試験（3/6）・同じ slot の宣言が複数あるときの C4（4/6）・複数の違反の順と重複した宣言の試験（5/6）・完了の条件の確かめ（6/6）（TASK-426）
 ├── docs/dispatch-check-inputs.md  # dispatch の検査の入力の組と入力から契約の型の値を作る関数の所在・入力の組と当たる検査（1/2）・完了の条件の確かめ（2/2）（TASK-2944）
+├── docs/dispatch-checked-default.md  # 投入の前の検査の既定の本体と上限を返す必須のメソッド `CommandQueue::max_buffer_bytes` の所在・振る舞い（1/6）（TASK-569）
 ├── docs/parity-tool.md       # 結果の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・閾値と範囲の扱い・確かめ方・今の値の補い（base e416527）（TASK-24）
 ├── docs/pixel-parity-tool.md # 画素の一致を確かめる共通の道具の所在・振る舞い・対応するテスト・確かめ方（TASK-26）
 ├── docs/parity-non-finite.md # 有限でない値の規則の所在・振る舞い・対応するテスト・確かめ方（TASK-25）

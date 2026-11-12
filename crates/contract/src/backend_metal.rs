@@ -3086,6 +3086,11 @@ mod imp {
             encoder.__backend_record();
             Ok(())
         }
+
+        /// `limits()` の `max_buffer_bytes` と同じ値を返す。
+        fn max_buffer_bytes(&self) -> u64 {
+            self.limits.max_buffer_bytes
+        }
     }
 
     /// Metal から読んだ `NSUInteger` を `u64` にする。収まらなければ切り詰めず `InvalidArgument` にする。

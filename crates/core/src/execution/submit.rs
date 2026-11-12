@@ -273,7 +273,7 @@ impl Drop for CommandEncoder {
 /// `create_encoder` は `Result` を返さず、その時点では何も投入しない（CMD-1）。
 /// 既定の本体を持つメソッドは、背後実装が上書きしなければ次のように振る舞う:
 /// `poll_ex` は `poll` の 3 値を写し、`submit_ex`・`submit_exportable` は `submit` に委ね、`gpu_timing` は `Unavailable`。
-/// `submit_many` は既定の本体を持たず、背後実装が必ず実装する。
+/// `submit_many`・`max_buffer_bytes` は既定の本体を持たず、背後実装が必ず実装する。
 pub trait CommandQueue {
     /// 記録先を作る。何も投入しない。
     fn create_encoder(&self) -> CommandEncoder;
@@ -397,6 +397,7 @@ pub trait CommandQueue {
     ///     #[cfg(feature = "native-blocking-wait")]
     ///     fn wait_blocking(&self, _t: SubmitToken, _o: Option<std::time::Duration>)
     ///         -> Result<(), ContractError> { Ok(()) }
+    ///     fn max_buffer_bytes(&self) -> u64 { 0 }
     /// }
     /// ```
     ///
@@ -432,6 +433,7 @@ pub trait CommandQueue {
     ///         _t: [u32; 3],
     ///         _m: &[ThreadgroupMemory],
     ///     ) -> Result<(), ContractError> { Ok(()) }
+    ///     fn max_buffer_bytes(&self) -> u64 { 0 }
     /// }
     /// ```
     /// 投入した記録先は値で移っているので、その後に `dispatch` へ渡すと所有権の移動のエラーになる（CMD-5）。
@@ -477,4 +479,42 @@ pub trait CommandQueue {
             &[],
         )
     }
+
+    /// 投入の前の検査が C8 の上限に使う値（バイト）を返す。既定の本体は無く、必ず実装する。
+    ///
+    /// `max_buffer_bytes` を持たない実装は拒まれる。
+    ///
+    /// ```compile_fail,E0046
+    /// use fandhe_silicon_core::error::{CompletionState, ContractError};
+    /// use fandhe_silicon_core::execution::{
+    ///     Binding, CommandEncoder, CommandQueue, ConstantBinding, ImportedSemaphoreHandle,
+    ///     PipelineHandle, SubmitToken, ThreadgroupMemory,
+    /// };
+    /// struct Q;
+    /// impl CommandQueue for Q {
+    ///     fn create_encoder(&self) -> CommandEncoder { CommandEncoder::__backend_new(1, None) }
+    ///     fn submit(&self, _c: CommandEncoder, _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn submit_many(&self, _c: Vec<CommandEncoder>, _a: &[SubmitToken], _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn poll(&self, _t: SubmitToken) -> CompletionState { CompletionState::Complete }
+    ///     fn on_complete(&self, _t: SubmitToken, cb: Box<dyn FnOnce(CompletionState) + Send>) {
+    ///         cb(CompletionState::Complete);
+    ///     }
+    ///     #[cfg(feature = "native-blocking-wait")]
+    ///     fn wait_blocking(&self, _t: SubmitToken, _o: Option<std::time::Duration>)
+    ///         -> Result<(), ContractError> { Ok(()) }
+    ///     fn dispatch_ex(
+    ///         &self,
+    ///         _e: &mut CommandEncoder,
+    ///         _p: &PipelineHandle,
+    ///         _b: &[Binding<'_>],
+    ///         _c: &[ConstantBinding<'_>],
+    ///         _d: [u32; 3],
+    ///         _t: [u32; 3],
+    ///         _m: &[ThreadgroupMemory],
+    ///     ) -> Result<(), ContractError> { Ok(()) }
+    /// }
+    /// ```
+    fn max_buffer_bytes(&self) -> u64;
 }

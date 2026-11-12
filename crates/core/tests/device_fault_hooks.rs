@@ -131,6 +131,10 @@ impl CommandQueue for NoQueue {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// 故障の口を持つかを選べるダミーの device。

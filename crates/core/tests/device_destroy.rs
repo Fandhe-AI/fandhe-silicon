@@ -132,6 +132,10 @@ impl CommandQueue for DummyQueue {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// `destroy` を上書きしない device。`Drop` の回数だけを数える。

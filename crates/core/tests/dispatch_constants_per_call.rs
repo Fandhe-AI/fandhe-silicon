@@ -98,6 +98,10 @@ impl CommandQueue for Recording {
         });
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 #[test]

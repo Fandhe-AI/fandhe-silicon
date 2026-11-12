@@ -75,6 +75,10 @@ impl CommandQueue for Plain {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 #[test]
