@@ -66,9 +66,37 @@ device に触らない試験:
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 ```
 
+## device の要る試験（3/4）
+
+`crates/contract/src/backend_cuda.rs` の `transfer_device_tests` module にある（cfg は `test` かつ feature `native-blocking-wait`）。各試験に `#[ignore]` を付けており、既定では流れない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `upload_at_offsets_reads_back_through_download_blocking` | 長さと位置と書く長さの 6 組（終端まで書く組・1 MiB の組を含む）で、書いた内容が全体の読み戻しの該当の範囲に現れ、ほかは 0 のままであること |
+| `download_blocking_returns_byte_len_bytes_of_the_written_contents` | 長さ 4097 の確保で、4 組の位置と長さの読み戻しが `byte_len` の長さで書いた内容の該当の範囲と一致すること |
+| `upload_past_the_end_or_overflowing_is_rejected_and_leaves_the_contents_unchanged` | 終端ちょうどの upload は通り、終端を越える・`u64` があふれる 4 入力は `InvalidArgument` で、内容が変わらないこと |
+| `download_blocking_past_the_end_is_rejected_and_in_range_windows_match` | 終端を越える 3 入力は `InvalidArgument`、範囲内の 4 つの窓（長さ 0 を含む）は書いた内容と一致すること |
+| `overflowing_offset_plus_len_is_rejected_by_upload_and_download_blocking` | あふれる入力が upload で 2 つ、download_blocking で 3 つ `InvalidArgument` になり、内容が変わらないこと |
+| `missing_usage_is_rejected_and_leaves_the_contents_unchanged` | 読み出しだけ・書き込みだけ・空の用途の確保で、足りない側の操作（長さ 0 を含む）が `InvalidArgument` になり、内容が変わらないこと |
+| `the_recorded_usage_decides_even_if_the_handle_claims_more` | 表に記録した用途が `STORAGE` だけなら、読み書きを申告したハンドルの写しでも元のハンドルでも `InvalidArgument` になること |
+| `download_async_without_download_usage_calls_back_once_with_invalid_argument` | `DOWNLOAD` の無い確保への `download_async` が、コールバックを 1 回だけ `InvalidArgument` で呼ぶこと |
+
+確かめ方（device の要らない件数の確認。試験は `ignored` と数えられる）:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda
+```
+
+`33 ignored` の形で通る。`--features backend-cuda` だけの組は `19 ignored` のまま。device の要る試験の流し方:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda::transfer_device_tests -- --ignored
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 用途の検査 | #4443 |
 | 2/4 | 境界の入力の試験 | #4444 |
+| 3/4 | device の要る試験 | #4445 |

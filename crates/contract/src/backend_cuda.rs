@@ -4140,6 +4140,259 @@ mod pool_device_tests {
     }
 }
 
+/// CUDA の device に触る、upload・download_blocking・download_async の用途と範囲の試験。device の無い環境では流さない。
+#[cfg(all(test, feature = "native-blocking-wait"))]
+mod transfer_device_tests {
+    use super::*;
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 読み書きの両方を許す用途。
+    fn rw() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    /// 0 でない値が並ぶ長さ `len` の列。
+    fn pattern(len: u64) -> Vec<u8> {
+        (0..len)
+            .map(|i| u8::try_from(i % 251).unwrap_or(0) + 1)
+            .collect()
+    }
+
+    /// 任意の位置から書いた内容が、全体の読み戻しの該当の範囲に現れる（MEM-4）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn upload_at_offsets_reads_back_through_download_blocking() {
+        let d = device();
+        let max = d.limits().max_buffer_bytes;
+        let mib = 1024 * 1024u64;
+        for (len, offset, write_len) in [
+            (1u64, 0u64, 1u64),
+            (4097, 0, 300),
+            (4097, 5, 300),
+            (4097, 3797, 300),
+            (mib, 0, 4096),
+            (mib, 4099, 4096),
+        ] {
+            if len > max {
+                println!("not-run: len={len} exceeds max_buffer_bytes={max}");
+                continue;
+            }
+            let h = d.allocate(len, rw()).expect("allocate");
+            let src = pattern(write_len);
+            d.upload(&h, offset, &src).expect("upload");
+            let mut expected = vec![0u8; usize::try_from(len).expect("len")];
+            let start = usize::try_from(offset).expect("offset");
+            expected[start..start + src.len()].copy_from_slice(&src);
+            assert_eq!(
+                d.download_blocking(&h, 0, len).expect("download"),
+                expected,
+                "len={len} offset={offset}"
+            );
+            d.free(h);
+        }
+    }
+
+    /// 読み戻しの長さは `byte_len` に等しく、中身は書いた内容の該当の範囲（MEM-5）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn download_blocking_returns_byte_len_bytes_of_the_written_contents() {
+        let d = device();
+        let h = d.allocate(4097, rw()).expect("allocate");
+        let src = pattern(4097);
+        d.upload(&h, 0, &src).expect("upload");
+        for (offset, byte_len) in [(0u64, 0u64), (0, 1), (5, 7), (0, 4097)] {
+            let got = d.download_blocking(&h, offset, byte_len).expect("download");
+            let start = usize::try_from(offset).expect("offset");
+            let end = start + usize::try_from(byte_len).expect("byte_len");
+            assert_eq!(got.len(), end - start);
+            assert_eq!(got, src[start..end], "offset={offset} byte_len={byte_len}");
+        }
+        d.free(h);
+    }
+
+    /// 終端を越える・あふれる upload は拒まれ、内容は変わらない（MEM-70）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn upload_past_the_end_or_overflowing_is_rejected_and_leaves_the_contents_unchanged() {
+        let d = device();
+        let h = d.allocate(16, rw()).expect("allocate");
+        d.upload(&h, 0, &[0x11; 16]).expect("upload");
+        d.upload(&h, 8, &[0x22; 8]).expect("upload to the end");
+        let mut expected = vec![0x11u8; 8];
+        expected.extend_from_slice(&[0x22; 8]);
+        for (offset, data) in [
+            (8u64, vec![0x33u8; 9]),
+            (17, vec![]),
+            (u64::MAX, vec![0x33; 1]),
+            (u64::MAX - 7, vec![0x33; 16]),
+        ] {
+            assert!(
+                matches!(
+                    d.upload(&h, offset, &data),
+                    Err(ContractError::InvalidArgument(_))
+                ),
+                "offset={offset} len={}",
+                data.len()
+            );
+        }
+        assert_eq!(d.download_blocking(&h, 0, 16).expect("download"), expected);
+        d.free(h);
+    }
+
+    /// 終端を越える読み戻しは拒まれ、範囲内の窓は書いた内容と一致する（MEM-73）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn download_blocking_past_the_end_is_rejected_and_in_range_windows_match() {
+        let d = device();
+        let h = d.allocate(4097, rw()).expect("allocate");
+        let src = pattern(4097);
+        d.upload(&h, 0, &src).expect("upload");
+        for (offset, byte_len) in [(4090u64, 8u64), (0, 4098), (4098, 0)] {
+            assert!(
+                matches!(
+                    d.download_blocking(&h, offset, byte_len),
+                    Err(ContractError::InvalidArgument(_))
+                ),
+                "offset={offset} byte_len={byte_len}"
+            );
+        }
+        for (offset, byte_len) in [(0u64, 4097u64), (1, 4096), (4096, 1), (2048, 0)] {
+            let start = usize::try_from(offset).expect("offset");
+            let end = start + usize::try_from(byte_len).expect("byte_len");
+            assert_eq!(
+                d.download_blocking(&h, offset, byte_len).expect("download"),
+                src[start..end],
+                "offset={offset} byte_len={byte_len}"
+            );
+        }
+        d.free(h);
+    }
+
+    /// `offset + len` が `u64` であふれる入力は、upload も download_blocking も拒む（MEM-76）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn overflowing_offset_plus_len_is_rejected_by_upload_and_download_blocking() {
+        let d = device();
+        let h = d.allocate(16, rw()).expect("allocate");
+        let src = pattern(16);
+        d.upload(&h, 0, &src).expect("upload");
+        for (offset, data) in [(u64::MAX, vec![0x44u8; 1]), (u64::MAX - 7, vec![0x44; 16])] {
+            assert!(matches!(
+                d.upload(&h, offset, &data),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+        for (offset, byte_len) in [(u64::MAX, 1u64), (1, u64::MAX), (u64::MAX - 7, 16)] {
+            assert!(matches!(
+                d.download_blocking(&h, offset, byte_len),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+        assert_eq!(d.download_blocking(&h, 0, 16).expect("download"), src);
+        d.free(h);
+    }
+
+    /// 用途が足りない upload と読み戻しは拒まれ、内容は変わらない（MEM-109）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn missing_usage_is_rejected_and_leaves_the_contents_unchanged() {
+        let d = device();
+        let download_only = d
+            .allocate(16, BufferUsage::STORAGE | BufferUsage::DOWNLOAD)
+            .expect("allocate");
+        assert!(matches!(
+            d.upload(&download_only, 0, &[0x55]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            d.upload(&download_only, 0, &[]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert_eq!(
+            d.download_blocking(&download_only, 0, 16)
+                .expect("download"),
+            vec![0u8; 16]
+        );
+        d.free(download_only);
+
+        let upload_only = d
+            .allocate(16, BufferUsage::STORAGE | BufferUsage::UPLOAD)
+            .expect("allocate");
+        d.upload(&upload_only, 0, &[0x55; 16]).expect("upload");
+        for byte_len in [1u64, 0] {
+            assert!(matches!(
+                d.download_blocking(&upload_only, 0, byte_len),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+        d.free(upload_only);
+
+        let none = d.allocate(16, BufferUsage::empty()).expect("allocate");
+        assert!(matches!(
+            d.upload(&none, 0, &[0x55]),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            d.download_blocking(&none, 0, 1),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        d.free(none);
+    }
+
+    /// 用途の判定は表に記録した値で行い、ハンドルの申告が多くても通らない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_recorded_usage_decides_even_if_the_handle_claims_more() {
+        let d = device();
+        let h = d.allocate(16, BufferUsage::STORAGE).expect("allocate");
+        let claimed =
+            BufferHandle::__backend_new(d.current_generation(), h.__backend_id(), d.id, 16, rw());
+        for handle in [&claimed, &h] {
+            assert!(matches!(
+                d.upload(handle, 0, &[1u8]),
+                Err(ContractError::InvalidArgument(_))
+            ));
+            assert!(matches!(
+                d.download_blocking(handle, 0, 1),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+        d.free(h);
+    }
+
+    /// `DOWNLOAD` の無い確保への download_async は、コールバックを 1 回だけ `InvalidArgument` で呼ぶ。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn download_async_without_download_usage_calls_back_once_with_invalid_argument() {
+        let d = device();
+        let h = d
+            .allocate(16, BufferUsage::STORAGE | BufferUsage::UPLOAD)
+            .expect("allocate");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        d.download_async(
+            &h,
+            0,
+            16,
+            Box::new(move |r| {
+                sink.lock()
+                    .unwrap()
+                    .push(matches!(r, Err(ContractError::InvalidArgument(_))));
+            }),
+        );
+        assert_eq!(*seen.lock().unwrap(), vec![true]);
+        d.free(h);
+    }
+}
+
 #[cfg(all(test, feature = "fault-injection"))]
 mod lost_state_tests {
     //! 模擬のロストの状態 `LostState` の固定（device に触らない。TASK-2934）。
