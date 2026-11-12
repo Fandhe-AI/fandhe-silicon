@@ -93,6 +93,63 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wa
 cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda::transfer_device_tests -- --ignored
 ```
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-342。ポインタのみ）。
+
+時点のコミット: `d9266d9`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 用途と範囲の検査の試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` | 62 passed; 0 failed; 19 ignored、終了コード 0 |
+| 2 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` | 62 passed; 0 failed; 33 ignored、終了コード 0 |
+| 3 | 既存の device の要る統合試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --test backend_cuda_device` | 0 passed; 0 failed; 12 ignored、終了コード 0 |
+| 4 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 1 passed、終了コード 0 |
+| 5 | 公開 API | `make public-api-sdk-check` | `sdk_type_refs_total=0`、終了コード 0 |
+| 6 | 依存の検査 | `make deps-check`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | 終了コード 0、件数 5 |
+| 7 | CI | `gh run view 43166167083 --json conclusion,headSha,jobs`（main の push の run） | conclusion success、headSha `d9266d9035a4e79b41917667ad4d23d34e39b283`、`make verify (fmt + clippy + test)` success、`make verify + build-profiles (macos-latest)` success、`make deny (cargo-deny)` success |
+
+(1) の出力。
+
+```text
+running 81 tests
+test result: ok. 62 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```text
+running 95 tests
+test result: ok. 62 passed; 0 failed; 33 ignored; 0 measured; 13 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 12 tests
+test result: ok. 0 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+(5) の出力。
+
+```text
+record: commit=d9266d9035a4e79b41917667ad4d23d34e39b283 documents=10 public_items_total=13924 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+```
+
+(6) の出力。
+
+```text
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+5
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -100,3 +157,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wa
 | 1/4 | 用途の検査 | #4443 |
 | 2/4 | 境界の入力の試験 | #4444 |
 | 3/4 | device の要る試験 | #4445 |
+| 4/4 | 完了の条件の確かめ | #4446 |
