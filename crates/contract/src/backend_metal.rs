@@ -49,9 +49,9 @@ use fandhe_silicon_core::device_lost::LostCallback;
 use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
-    __BackendSharedEncoderCloser, CacheKey, FunctionConstant, FunctionConstantValue, GpuTiming,
-    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, OperandBinding, OperandConstant,
-    OperandSpec, PipelineInput, SubmitToken, validate_dispatch_operands,
+    __BackendSharedEncoderCloser, CacheKey, DType, FunctionConstant, FunctionConstantValue,
+    GpuTiming, ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, OperandBinding,
+    OperandConstant, OperandSpec, PipelineInput, SubmitToken, validate_dispatch_operands,
 };
 use fandhe_silicon_core::hash::sha256_u64;
 use fandhe_silicon_core::memory::validate_buffer_range;
@@ -1783,6 +1783,95 @@ fn check_declared_operands(
         Some(e) => Err(e),
         None => Ok(()),
     }
+}
+
+/// reflection が返すバッファ引数の要素の型。
+///
+/// `Struct` は構造体の引数、`Other` は上の 5 つにも `Struct` にも当たらない型の `MTLDataType` の値をそのまま持つ。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReflectedDataType {
+    Float,
+    Half,
+    UInt,
+    Int,
+    Bool,
+    Struct,
+    Other(u64),
+}
+
+/// reflection が返すバッファ引数のバイト長。0 は `Unchecked`、0 でなければ `Bytes`。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReflectedSize {
+    Bytes(u64),
+    Unchecked,
+}
+
+/// reflection から読んだバッファ引数 1 つ（slot・バイト長・要素の型）。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReflectedBuffer {
+    slot: u32,
+    size: ReflectedSize,
+    data_type: ReflectedDataType,
+}
+
+/// パイプラインの reflection から読んだ値。
+///
+/// `argument_count` はバッファ以外も含む引数の数、`buffers` はバッファ引数の並び（slot の昇順）。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PipelineReflection {
+    argument_count: usize,
+    buffers: Vec<ReflectedBuffer>,
+}
+
+/// `DType` に対応する reflection の要素の型を返す。
+///
+/// `F32`→`Float`・`F16`→`Half`・`U32`→`UInt`・`I32`→`Int`・`Bool`→`Bool`。表に無い `DType` は `None`。
+#[cfg_attr(not(test), allow(dead_code))]
+fn expected_data_type(dtype: DType) -> Option<ReflectedDataType> {
+    match dtype {
+        DType::F32 => Some(ReflectedDataType::Float),
+        DType::F16 => Some(ReflectedDataType::Half),
+        DType::U32 => Some(ReflectedDataType::UInt),
+        DType::I32 => Some(ReflectedDataType::Int),
+        DType::Bool => Some(ReflectedDataType::Bool),
+        _ => None,
+    }
+}
+
+/// reflection の引数 1 つの index・バイト長・型から `ReflectedBuffer` を作る。
+///
+/// index が `u32`、バイト長が `u64` に収まらないときは `BackendFailure` を返す。
+/// バイト長 0 は `ReflectedSize::Unchecked`、型は変えずに持つ。
+#[cfg_attr(not(test), allow(dead_code))]
+fn classify_reflected_buffer(
+    index: usize,
+    data_size: usize,
+    data_type: ReflectedDataType,
+) -> Result<ReflectedBuffer, ContractError> {
+    let slot = u32::try_from(index).map_err(|_| ContractError::BackendFailure {
+        op: "create_pipeline",
+        backend: BackendKind::Metal,
+        detail: "reflected argument index does not fit u32".into(),
+    })?;
+    let bytes = u64::try_from(data_size).map_err(|_| ContractError::BackendFailure {
+        op: "create_pipeline",
+        backend: BackendKind::Metal,
+        detail: "reflected buffer size does not fit u64".into(),
+    })?;
+    let size = if bytes == 0 {
+        ReflectedSize::Unchecked
+    } else {
+        ReflectedSize::Bytes(bytes)
+    };
+    Ok(ReflectedBuffer {
+        slot,
+        size,
+        data_type,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -9021,5 +9110,142 @@ mod dispatch_checked_tests {
             Ok(u64::MAX)
         });
         assert!(starts_with(result, "C8:"));
+    }
+}
+
+#[cfg(test)]
+mod reflection_value_tests {
+    use super::*;
+
+    /// ART-89: `DType` の 5 通りが reflection の型に写る。
+    #[test]
+    fn expected_data_type_maps_five_dtypes() {
+        assert_eq!(
+            expected_data_type(DType::F32),
+            Some(ReflectedDataType::Float)
+        );
+        assert_eq!(
+            expected_data_type(DType::F16),
+            Some(ReflectedDataType::Half)
+        );
+        assert_eq!(
+            expected_data_type(DType::U32),
+            Some(ReflectedDataType::UInt)
+        );
+        assert_eq!(expected_data_type(DType::I32), Some(ReflectedDataType::Int));
+        assert_eq!(
+            expected_data_type(DType::Bool),
+            Some(ReflectedDataType::Bool)
+        );
+    }
+
+    /// 対応表の値と要素のバイト数の組を並べ、`Struct` と `Other` はどの `DType` にも当たらない。
+    #[test]
+    fn mapped_types_pair_with_byte_size_and_exclude_struct_other() {
+        let table = [
+            (DType::F32, ReflectedDataType::Float, 4),
+            (DType::F16, ReflectedDataType::Half, 2),
+            (DType::U32, ReflectedDataType::UInt, 4),
+            (DType::I32, ReflectedDataType::Int, 4),
+            (DType::Bool, ReflectedDataType::Bool, 1),
+        ];
+        for (dtype, expected, bytes) in table {
+            assert_eq!(expected_data_type(dtype), Some(expected));
+            assert_eq!(dtype.byte_size(), bytes);
+            assert_ne!(expected, ReflectedDataType::Struct);
+            assert_ne!(expected, ReflectedDataType::Other(0));
+        }
+    }
+
+    /// バイト長 4 と `Float` は `Bytes(4)`・`Float` で、slot は index と同じ。
+    #[test]
+    fn classify_keeps_slot_size_and_type() {
+        let got = classify_reflected_buffer(3, 4, ReflectedDataType::Float);
+        assert_eq!(
+            got,
+            Ok(ReflectedBuffer {
+                slot: 3,
+                size: ReflectedSize::Bytes(4),
+                data_type: ReflectedDataType::Float,
+            })
+        );
+    }
+
+    /// バイト長 0 は `Unchecked` で、型はそのまま。
+    #[test]
+    fn classify_zero_size_is_unchecked() {
+        let got = classify_reflected_buffer(0, 0, ReflectedDataType::Half);
+        assert_eq!(
+            got,
+            Ok(ReflectedBuffer {
+                slot: 0,
+                size: ReflectedSize::Unchecked,
+                data_type: ReflectedDataType::Half,
+            })
+        );
+    }
+
+    /// `Struct` は型のまま持ち、バイト長 12 は `Bytes(12)`。
+    #[test]
+    fn classify_struct_keeps_size() {
+        let got = classify_reflected_buffer(1, 12, ReflectedDataType::Struct);
+        assert_eq!(
+            got,
+            Ok(ReflectedBuffer {
+                slot: 1,
+                size: ReflectedSize::Bytes(12),
+                data_type: ReflectedDataType::Struct,
+            })
+        );
+    }
+
+    /// 対応表の外の型は `Other` の値のまま持つ。
+    #[test]
+    fn classify_other_type_is_kept() {
+        let got = classify_reflected_buffer(2, 8, ReflectedDataType::Other(7));
+        assert_eq!(got.map(|b| b.data_type), Ok(ReflectedDataType::Other(7)));
+    }
+
+    /// index が `u32` に収まらないと `BackendFailure`。
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn classify_index_over_u32_fails() {
+        let over = usize::try_from(u64::from(u32::MAX) + 1).unwrap_or(usize::MAX);
+        let got = classify_reflected_buffer(over, 4, ReflectedDataType::Float);
+        assert!(matches!(
+            got,
+            Err(ContractError::BackendFailure {
+                op: "create_pipeline",
+                backend: BackendKind::Metal,
+                ..
+            })
+        ));
+    }
+
+    /// index が `u32::MAX` ちょうどなら通る。
+    #[test]
+    fn classify_index_u32_max_passes() {
+        let max = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
+        let got = classify_reflected_buffer(max, 4, ReflectedDataType::Int);
+        assert_eq!(got.map(|b| b.slot), Ok(u32::MAX));
+    }
+
+    /// `classify_reflected_buffer` の結果で `PipelineReflection` を組み、両方の欄を読める。
+    #[test]
+    fn pipeline_reflection_holds_count_and_buffers() {
+        let buffers: Vec<ReflectedBuffer> = [
+            classify_reflected_buffer(0, 4, ReflectedDataType::Float),
+            classify_reflected_buffer(2, 0, ReflectedDataType::Struct),
+        ]
+        .into_iter()
+        .filter_map(Result::ok)
+        .collect();
+        let reflection = PipelineReflection {
+            argument_count: 3,
+            buffers: buffers.clone(),
+        };
+        assert_eq!(reflection.argument_count, 3);
+        assert_eq!(reflection.buffers, buffers);
+        assert_eq!(reflection.buffers.len(), 2);
     }
 }
