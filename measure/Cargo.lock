@@ -33,6 +33,14 @@ name = "measure-detect"
 version = "0.0.0"
 
 [[package]]
+name = "measure-kernel-accept"
+version = "0.0.0"
+dependencies = [
+ "fandhe-silicon-core",
+ "measure-metal-gemm-arm",
+]
+
+[[package]]
 name = "measure-metal-gemm-arm"
 version = "0.0.0"
 dependencies = [

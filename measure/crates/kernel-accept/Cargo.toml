@@ -1,0 +1,19 @@
+# kernel-accept: 実行時に受けるカーネルの一覧のファイルの形の検査と入口名の抜き出し（TASK-485 のポインタ）。
+# 測定の腕の crate に path で依存し、共通の crate は試験でだけ使う。向きは測定 → 製品の一方向だけにする。
+[package]
+name = "measure-kernel-accept"
+version = "0.0.0"
+description = "実行時に受けるカーネルの一覧のファイルの読み取りと形の検査、入口名の抜き出しの純粋な部品"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+measure-metal-gemm-arm = { path = "../metal-gemm-arm" }
+
+[dev-dependencies]
+fandhe-silicon-core = { path = "../../../crates/core" }
+
+[lints]
+workspace = true
