@@ -20,13 +20,11 @@
 //! 読み書きの `unsafe` ブロックの同期の根拠は、この前提に頼る。
 //! 記録の操作（コピー・クリア・dispatch）を足す変更では、これらのブロックの同期の根拠を必ず書き直す。
 //!
-//! `free` したバッファは、同じ `byte_len` の再利用の一覧（pool）へ回す（上限を超える分は解放する）。
-//! 今の投入はどのバッファも参照しないので、`free` したバッファを無条件に pool へ回す（回す前に、
-//! そのバッファを参照する未完了の投入が無いかを確かめる実行時の検査は無い）。
-//! 記録の操作を足す変更では、遅延解放（バッファを参照する未完了の投入が終わるまで解放しない）と合わせて
-//! pool への回し方を見直す（TASK-610・TASK-319 のポインタ）。pool に入れる前に全バイトを 0 にするので、
-//! 再利用された `allocate` の利用者に以前の内容は見えない。pool に入ったバッファは、device の Drop まで
-//! 保持される（合計の上限は 64 MiB）。
+//! `free` は、表から外したバッファを最後に使った投入が終わっていなければ解放の保留の一覧に置き、
+//! ゼロ化も再利用の一覧（pool）への回しもしない。終わったら（完了か失敗）、全バイトを 0 にしてから
+//! 同じ `byte_len` の pool へ回す（上限を超える分は解放する）。再利用された `allocate` の利用者に以前の内容は見えない。
+//! pool に入ったバッファは、device の Drop まで保持される（合計の上限は 64 MiB）。
+//! 保留の一覧のバッファは、device の Drop ではゼロ化せずに落とす。
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
@@ -1067,6 +1065,14 @@ impl<G, C> Submissions<G, C> {
         self.state_ex_of(sequence, classify)
     }
 
+    /// 通し番号の投入が終わっているか（完了か失敗。走っているあいだは偽）。
+    ///
+    /// 読み取りだけで、回収も世代の照合もしない。答えは表の列の状態・watermark・失敗の集合で決まる。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn is_finished(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> bool {
+        self.state_of(sequence, classify) != CompletionState::Pending
+    }
+
     /// 通し番号の完了状態。呼ぶ前に `reclaim` しておく。
     ///
     /// 表にあれば列の状態、無ければ失敗の集合にあるものと未払い出しの番号（0 を含む）は `Lost`、
@@ -1492,6 +1498,48 @@ impl<G> SizePool<G> {
     }
 }
 
+/// 表から外したが、最後に使った投入が終わっていないバッファの一覧。`device` の表の錠の中に置く。
+///
+/// 項目は通し番号と一緒に積んだ順に持つ。ゼロ化も再利用の一覧への回しも、この部品は行わない
+/// （終わった項目を外して返し、続きは呼び出し側が錠の外で行う）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct PendingReleases<B> {
+    items: Vec<(u64, B)>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl<B> PendingReleases<B> {
+    fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    /// 通し番号つきで末尾へ積む。
+    fn push(&mut self, sequence: u64, item: B) {
+        self.items.push((sequence, item));
+    }
+
+    /// `is_finished` が真の項目を積んだ順に外して返す。偽の項目は相対の順を保って残す（先頭で止めない）。
+    fn take_finished(&mut self, is_finished: impl Fn(u64) -> bool) -> Vec<B> {
+        let mut finished = Vec::new();
+        let mut kept = Vec::new();
+        for (sequence, item) in self.items.drain(..) {
+            if is_finished(sequence) {
+                finished.push(item);
+            } else {
+                kept.push((sequence, item));
+            }
+        }
+        self.items = kept;
+        finished
+    }
+
+    /// 試験専用。積んである件数。
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
 /// 解放されたバッファを、ゼロ化してから再利用の一覧へ回す流れ。受け入れられなかったバッファを返す
 /// （呼び出し側が解放する）。device に触らず、錠の取り方は呼び出し側の閉包に任せる。
 ///
@@ -1529,8 +1577,8 @@ mod imp {
     use super::wait_result;
     use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
-        BufState, Callback, CompilePlan, ConstantKind, GroupState, OpenEncoders, SizePool,
-        Submissions, check_dispatch_args, check_token_owner, check_unique_slots,
+        BufState, Callback, CompilePlan, ConstantKind, GroupState, OpenEncoders, PendingReleases,
+        SizePool, Submissions, check_dispatch_args, check_token_owner, check_unique_slots,
         classify_pipeline_input, compile_plan, drive_table, driven_generation, finish_table,
         group_state_of, missing_required_constants, missing_required_reason, precheck_submit,
         precheck_submit_many, prepare_constants, register_table, remove_issued, retire, take_next,
@@ -1812,6 +1860,8 @@ mod imp {
         slot: u64,
         /// 払い出したときの世代。`free` はロストの後でも、これと一致するハンドルなら外す。
         generation: u64,
+        /// このバッファを最後に使った投入の通し番号。使った投入が無ければ `None`。
+        last_submission: Option<u64>,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -1824,6 +1874,9 @@ mod imp {
         next_slot: u64,
         /// 解放されたバッファの再利用の一覧。入っているのは全バイトが 0 のバッファだけ。
         pool: SizePool<Retained<ProtocolObject<dyn MTLBuffer>>>,
+        /// 表から外したが、最後に使った投入が終わっていないバッファの一覧。ゼロ化も再利用の一覧への回しもまだしていない。
+        /// 終わったものは回収の点で外してゼロ化し、再利用の一覧へ回す。device の Drop ではゼロ化せずに落とす。
+        pending: PendingReleases<BufferEntry>,
     }
 
     /// device のパイプラインの表。識別子は device ごとに 1 から払い出す。
@@ -1977,6 +2030,7 @@ mod imp {
                     map: HashMap::new(),
                     next_slot: 1,
                     pool: SizePool::new(),
+                    pending: PendingReleases::new(),
                 }),
                 pipelines: Mutex::new(Pipelines {
                     next_id: AtomicU64::new(1),
@@ -2103,6 +2157,12 @@ mod imp {
             self.lock_buffers().pool.entries
         }
 
+        /// 試験専用。解放の保留の一覧にあるバッファの数。
+        #[cfg(test)]
+        fn test_pending_release_count(&self) -> usize {
+            self.lock_buffers().pending.len()
+        }
+
         /// 試験専用。ハンドルが指す表のバッファの slot。表に無ければ `None`。
         #[cfg(test)]
         fn test_slot_of(&self, handle: &BufferHandle) -> Option<u64> {
@@ -2116,6 +2176,73 @@ mod imp {
         #[cfg(test)]
         fn test_open_encoder_count(&self) -> usize {
             self.open.lock().len()
+        }
+
+        /// 表から外したバッファを全バイト 0 にしてから再利用の一覧へ回す。受け入れられなかったものは解放する。
+        ///
+        /// どの錠も持たない所から呼ぶ（一覧の検査と入れる処理が、表の錠を取り直す）。
+        fn retire_entry(&self, entry: BufferEntry) {
+            // 一覧の分類は、ハンドルの申告ではなく Metal のバッファの実際の長さで決める。
+            let Ok(byte_len) = u64::try_from(entry.buffer.length()) else {
+                return;
+            };
+            // 表から外したので、このバッファはどのハンドルからも到達できない。ゼロ化は錠の外で行う。
+            let rejected = retire(
+                byte_len,
+                entry,
+                |len| self.lock_buffers().pool.would_accept(len),
+                zero_fill,
+                |entry| {
+                    let BufferEntry {
+                        buffer,
+                        slot,
+                        generation,
+                        last_submission,
+                    } = entry;
+                    self.lock_buffers()
+                        .pool
+                        .put(byte_len, slot, buffer)
+                        .map(|buffer| BufferEntry {
+                            buffer,
+                            slot,
+                            generation,
+                            last_submission,
+                        })
+                },
+            );
+            // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
+            drop(rejected);
+        }
+
+        /// 解放の保留の一覧から、最後に使った投入が終わったバッファを外し、ゼロ化して再利用の一覧へ回す。
+        ///
+        /// 駆動する呼び出し（`submit`・`submit_many`・`allocate`・`poll`・`poll_ex`）が呼ぶ。`wait_blocking` は
+        /// どの経路も最後に `poll` を通るので、そこで回収される。投入済みの表の錠を持った所からは呼ばない。
+        fn release_finished(&self) {
+            let finished = {
+                let mut buffers = self.lock_buffers();
+                let subs = self.lock_submissions();
+                buffers
+                    .pending
+                    .take_finished(|sequence| subs.is_finished(sequence, group_state))
+            };
+            for entry in finished {
+                self.retire_entry(entry);
+            }
+        }
+
+        /// 最後に使った投入が終わっていないバッファの読み書きを `InvalidArgument` で拒む。
+        ///
+        /// 表の錠を持った所（`with_buffer` の `f` の中）から呼ぶ。投入済みの表の錠は判定の間だけ持つ。
+        fn check_not_in_use(&self, entry: &BufferEntry) -> Result<(), ContractError> {
+            if let Some(sequence) = entry.last_submission
+                && !self.lock_submissions().is_finished(sequence, group_state)
+            {
+                return Err(ContractError::InvalidArgument(
+                    "buffer is in use by an unfinished submission".into(),
+                ));
+            }
+            Ok(())
         }
 
         /// ハンドルを照合し、この device のバッファの表の項目を `&mut` で借りて `f` を呼ぶ。`f` の間は表の錠を持つ。
@@ -2152,6 +2279,7 @@ mod imp {
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
             self.with_buffer(src, |entry| {
+                self.check_not_in_use(entry)?;
                 let buffer = &entry.buffer;
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
@@ -2335,6 +2463,7 @@ mod imp {
         ) -> Result<SubmitToken, ContractError> {
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
             let generation = self.drive_and_generation();
+            self.release_finished();
             precheck_submit(wait)?;
             self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
@@ -2356,6 +2485,7 @@ mod imp {
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。
             // `after` の照合と印の払い出しには、駆動の後に読んだ同じ値を使う。
             let generation = self.drive_and_generation();
+            self.release_finished();
             precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
             self.open.claim(&ids)?;
@@ -2379,6 +2509,7 @@ mod imp {
                 let mut subs = self.lock_submissions();
                 subs.reclaim_and_state_of(token.sequence, group_state)
             };
+            self.release_finished();
             self.drive_callbacks(generation);
             state
         }
@@ -2400,6 +2531,7 @@ mod imp {
                 let mut subs = self.lock_submissions();
                 subs.reclaim_and_state_ex_of(token.sequence, group_state)
             };
+            self.release_finished();
             self.drive_callbacks(generation);
             state
         }
@@ -2837,6 +2969,7 @@ mod imp {
         ) -> Result<BufferHandle, ContractError> {
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
             let generation = self.drive_and_generation();
+            self.release_finished();
             validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
                 requested_bytes: byte_len,
@@ -2870,6 +3003,7 @@ mod imp {
                     buffer,
                     slot,
                     generation,
+                    last_submission: None,
                 },
             );
             Ok(BufferHandle::__backend_new(
@@ -2878,13 +3012,18 @@ mod imp {
         }
 
         /// `bytes` を `dst` の `dst_offset` から書き込む。範囲の検査に当たると、バッファの内容を変えずに返す。
+        ///
+        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` で、内容を変えない。
         fn upload(
             &self,
             dst: &BufferHandle,
             dst_offset: u64,
             bytes: &[u8],
         ) -> Result<(), ContractError> {
-            self.with_buffer(dst, |entry| write_range(entry, dst_offset, bytes))
+            self.with_buffer(dst, |entry| {
+                self.check_not_in_use(entry)?;
+                write_range(entry, dst_offset, bytes)
+            })
         }
 
         /// `src` の `src_offset` から `byte_len` バイトを読み出す。記録の操作が無く GPU はバッファに触れないので、待たずに返る。
@@ -2899,6 +3038,8 @@ mod imp {
         }
 
         /// 読み出してから、その場で `callback` を 1 回だけ呼ぶ。失敗も `callback` に渡す。
+        ///
+        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` を渡し、読まない。
         fn download_async(
             &self,
             src: &BufferHandle,
@@ -2909,12 +3050,12 @@ mod imp {
             callback(self.read_range(src, src_offset, byte_len));
         }
 
-        /// この device のハンドルなら、表から外し、全バイトを 0 にしてから再利用の一覧へ回す。
+        /// この device のハンドルなら、表から外す。最後に使った投入が終わっていれば（使った投入が無い場合を含む）、
+        /// 全バイトを 0 にしてから再利用の一覧へ回す。終わっていなければ、解放の保留の一覧に置き、ゼロ化も一覧への回しもしない。
         ///
+        /// 保留のバッファは、投入が終わった後の回収で、同じ流れ（ゼロ化してから一覧へ回す）に乗る。
         /// 一覧が上限（件数・大きさの合計）に達していれば、ゼロ化せずに解放する。ゼロ化に失敗したバッファも
         /// 一覧に入れず解放する（以前の内容を次の `allocate` の利用者に見せない側に倒す）。
-        /// 今の投入はどのバッファも参照しないので、一覧へは無条件に回す（参照する未完了の投入があるかの
-        /// 実行時の検査は無い。記録の操作を足す変更では、遅延解放と合わせて見直す）。
         /// 一覧に入ったバッファは device の Drop まで保持される（合計の上限は 64 MiB）。
         /// 別の device のハンドルは何もしない（同じ識別子を持つ自 device のバッファを巻き込まない）。
         /// 照合は device の今の世代ではなく、表の項目を払い出したときの世代と比べるので、ロストの後でもロスト前のハンドルで解放できる。
@@ -2922,44 +3063,29 @@ mod imp {
             if buffer.__backend_device_id() != self.id {
                 return;
             }
-            // ロストの後でも、払い出したときの世代と一致するハンドルなら外して解放する（device の世代とは比べない）。
-            let removed = remove_issued(
-                &mut self.lock_buffers().map,
-                buffer.__backend_id(),
-                buffer.__backend_generation(),
-                |entry| entry.generation,
-            );
-            let Some(entry) = removed else {
-                return;
+            let entry = {
+                let mut buffers = self.lock_buffers();
+                // ロストの後でも、払い出したときの世代と一致するハンドルなら外して解放する（device の世代とは比べない）。
+                let removed = remove_issued(
+                    &mut buffers.map,
+                    buffer.__backend_id(),
+                    buffer.__backend_generation(),
+                    |entry| entry.generation,
+                );
+                let Some(entry) = removed else {
+                    return;
+                };
+                if let Some(sequence) = entry.last_submission {
+                    // 錠の順は表 → 投入済みの表。
+                    let finished = self.lock_submissions().is_finished(sequence, group_state);
+                    if !finished {
+                        buffers.pending.push(sequence, entry);
+                        return;
+                    }
+                }
+                entry
             };
-            // 一覧の分類は、ハンドルの申告ではなく Metal のバッファの実際の長さで決める。
-            let Ok(byte_len) = u64::try_from(entry.buffer.length()) else {
-                return;
-            };
-            // 表から外したので、このバッファはどのハンドルからも到達できない。ゼロ化は錠の外で行う。
-            let rejected = retire(
-                byte_len,
-                entry,
-                |len| self.lock_buffers().pool.would_accept(len),
-                zero_fill,
-                |entry| {
-                    let BufferEntry {
-                        buffer,
-                        slot,
-                        generation,
-                    } = entry;
-                    self.lock_buffers()
-                        .pool
-                        .put(byte_len, slot, buffer)
-                        .map(|buffer| BufferEntry {
-                            buffer,
-                            slot,
-                            generation,
-                        })
-                },
-            );
-            // 錠を放してから落とす。Metal のバッファの解放を錠の中で行わない。
-            drop(rejected);
+            self.retire_entry(entry);
         }
     }
 
@@ -3161,6 +3287,7 @@ mod imp {
             );
             let first_slot = device.test_slot_of(&first).expect("slot");
             device.free(first);
+            assert_eq!(device.test_pending_release_count(), 0);
             let second = device.allocate(64, BufferUsage::empty()).expect("allocate");
             assert_ne!(stale.__backend_id(), second.__backend_id());
             assert_eq!(device.test_pool_reuse_count(), 1);
@@ -4146,6 +4273,90 @@ pub use imp::MetalDeviceProvider;
 
 #[cfg(all(target_os = "macos", feature = "fault-injection"))]
 pub use imp::{MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider};
+
+#[cfg(test)]
+mod pending_release_tests {
+    use super::{BufState, GroupState, PendingReleases, Submissions, group_state_of};
+
+    #[allow(clippy::ptr_arg)] // `Submissions<Vec<_>>` の分類関数は `&Vec` を受ける
+    fn classify(group: &Vec<BufState>) -> GroupState {
+        group_state_of(group.iter().copied())
+    }
+
+    #[test]
+    fn an_empty_list_takes_nothing() {
+        let mut list: PendingReleases<&str> = PendingReleases::new();
+        assert!(list.take_finished(|_| true).is_empty());
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn pushed_items_are_counted() {
+        let mut list = PendingReleases::new();
+        list.push(1, "a");
+        list.push(2, "b");
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn only_finished_items_are_taken_in_pushed_order_and_the_rest_keep_their_order() {
+        let mut list = PendingReleases::new();
+        for (seq, name) in [(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e")] {
+            list.push(seq, name);
+        }
+        let taken = list.take_finished(|seq| seq % 2 == 1);
+        assert_eq!(taken, vec!["a", "c", "e"]);
+        assert_eq!(list.len(), 2);
+        let rest = list.take_finished(|_| true);
+        assert_eq!(rest, vec!["b", "d"]);
+    }
+
+    #[test]
+    fn nothing_is_taken_when_none_is_finished_and_all_when_all_are() {
+        let mut list = PendingReleases::new();
+        list.push(1, "a");
+        list.push(2, "b");
+        assert!(list.take_finished(|_| false).is_empty());
+        assert_eq!(list.len(), 2);
+        assert_eq!(list.take_finished(|_| true), vec!["a", "b"]);
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn a_second_take_does_not_return_items_taken_before() {
+        let mut list = PendingReleases::new();
+        list.push(1, "a");
+        list.push(2, "b");
+        assert_eq!(list.take_finished(|seq| seq == 1), vec!["a"]);
+        assert!(list.take_finished(|seq| seq == 1).is_empty());
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn is_finished_is_false_for_running_and_true_for_completed_and_failed_groups() {
+        let mut subs: Submissions<Vec<BufState>> = Submissions::new();
+        subs.pending.insert(1, vec![BufState::Running]);
+        subs.pending.insert(2, vec![BufState::Done]);
+        subs.pending.insert(3, vec![BufState::Failed]);
+        subs.next_sequence = 4;
+        assert!(!subs.is_finished(1, classify));
+        assert!(subs.is_finished(2, classify));
+        assert!(subs.is_finished(3, classify));
+    }
+
+    #[test]
+    fn is_finished_is_true_at_or_below_the_watermark_and_for_the_failed_set_without_reclaiming() {
+        let mut subs: Submissions<Vec<BufState>> = Submissions::new();
+        subs.watermark = 2;
+        subs.failed.insert(3);
+        subs.next_sequence = 5;
+        assert!(subs.is_finished(1, classify));
+        assert!(subs.is_finished(2, classify));
+        assert!(subs.is_finished(3, classify));
+        assert_eq!(subs.watermark, 2);
+        assert!(subs.pending.is_empty());
+    }
+}
 
 #[cfg(test)]
 mod precheck_tests {
