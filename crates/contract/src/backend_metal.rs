@@ -330,6 +330,11 @@ const MAX_CONSTANT_BYTES: usize = 4096;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const THREADGROUP_MEMORY_ALIGN: u32 = 16;
 
+/// 束縛のバッファの offset の倍数。`setBuffer_offset_atIndex` の offset の整列条件で、この倍数でない
+/// offset は記録の前に拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const BUFFER_OFFSET_ALIGN: u64 = 4;
+
 /// `check_dispatch_args` に渡す束縛 1 件の値（slot・offset・バッファの確保の長さ）。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
@@ -376,7 +381,7 @@ struct DispatchArgs<'a> {
 
 /// dispatch の引数を記録の前に検査する。最初に当たった項目を `InvalidArgument` で返し、副作用は持たない。
 ///
-/// 順は、`dispatch_dims`、`threads_per_threadgroup`、slot、束縛の offset、定数、共有メモリ。
+/// 順は、`dispatch_dims`、`threads_per_threadgroup`、slot、束縛の offset（長さ、4 の倍数の順）、定数、共有メモリ。
 /// 足し算・掛け算は `checked_*` で行い、あふれも拒否する。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
@@ -438,6 +443,16 @@ fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
     if let Some(b) = args.bindings.iter().find(|b| b.offset > b.buffer_len) {
         return invalid(format!(
             "binding slot {} offset exceeds the buffer length",
+            b.slot
+        ));
+    }
+    if let Some(b) = args
+        .bindings
+        .iter()
+        .find(|b| b.offset % BUFFER_OFFSET_ALIGN != 0)
+    {
+        return invalid(format!(
+            "binding slot {} offset is not a multiple of {BUFFER_OFFSET_ALIGN}",
             b.slot
         ));
     }
@@ -2180,7 +2195,7 @@ mod imp {
         for (buffer, offset, index) in bindings {
             // SAFETY: `setBuffer_offset_atIndex` に渡す `buffer` は `Retained` で持った生きたバッファで、
             // 参照を保持する command buffer に積むので GPU が使う間も生きている。`offset` は記録の時点で
-            // 確保の長さ以下であることを確かめた。`index` は記録の時点で 0〜30 であることを確かめた。
+            // 確保の長さ以下かつ 4 の倍数（`BUFFER_OFFSET_ALIGN`）であることを確かめた。`index` は記録の時点で 0〜30 であることを確かめた。
             // このバッファを使う投入が終わるまで CPU は読み書きしない（読み書きと解放は、最後に使った投入が
             // 完了していることを表の錠と投入の錠の中で確かめてから行う）。
             unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), *offset, *index) };
@@ -5778,8 +5793,19 @@ mod precheck_tests {
         let mut f = DispatchFixture::new();
         f.bindings[0].offset = 64;
         assert!(f.check().is_ok());
-        f.bindings[0].offset = 65;
-        assert_invalid(f.check(), "slot 0");
+        f.bindings[0].offset = 68;
+        assert_invalid(f.check(), "exceeds the buffer length");
+    }
+
+    #[test]
+    fn binding_offset_not_multiple_of_four_is_rejected() {
+        let mut f = DispatchFixture::new();
+        for offset in [1, 2, 3, 62] {
+            f.bindings[0].offset = offset;
+            assert_invalid(f.check(), "not a multiple of 4");
+        }
+        f.bindings[0].offset = 60;
+        assert!(f.check().is_ok());
     }
 
     #[test]
