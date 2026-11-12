@@ -285,6 +285,10 @@ name = "stub_device_queue"
 required-features = ["test-support"]
 
 [[test]]
+name = "stub_device_dispatch_checked"
+required-features = ["test-support"]
+
+[[test]]
 name = "stub_device_compute"
 required-features = ["test-support"]
 
