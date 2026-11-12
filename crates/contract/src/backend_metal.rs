@@ -6877,25 +6877,28 @@ mod imp {
                     assert_eq!(record_count(&device, id), Some(0));
                 }
 
-                /// metallib から作った GEMM と ReLU を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                /// device の要る比較試験が共有する補助関数（f32 の置き読み・T1 での突き合わせ）。
                 #[cfg(feature = "test-support")]
-                mod parity_gemm_relu {
+                mod parity_common {
                     use super::*;
-                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
                     use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
                     use fandhe_silicon_core::parity::tolerance::T1;
 
-                    fn u32_of(v: usize) -> u32 {
+                    pub(super) fn u32_of(v: usize) -> u32 {
                         u32::try_from(v).expect("fits in u32")
                     }
 
                     /// ビット列を保ったまま f32 の列を置く。
-                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
+                    pub(super) fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
                         let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
                         buffer_of(device, &bits)
                     }
 
-                    fn read_f32s(device: &MetalDevice, h: &BufferHandle, len: usize) -> Vec<f32> {
+                    pub(super) fn read_f32s(
+                        device: &MetalDevice,
+                        h: &BufferHandle,
+                        len: usize,
+                    ) -> Vec<f32> {
                         read_u32s(device, h, len as u64)
                             .into_iter()
                             .map(f32::from_bits)
@@ -6903,7 +6906,11 @@ mod imp {
                     }
 
                     /// 参照と実測を T1 で比べ、外れた要素が 0 でなければケースの名前と最初の位置を添えて落とす。
-                    fn assert_matches_reference(name: &str, reference: &[f32], actual: &[f32]) {
+                    pub(super) fn assert_matches_reference(
+                        name: &str,
+                        reference: &[f32],
+                        actual: &[f32],
+                    ) {
                         let cmp = compare_f32_with_special_values(reference, actual, T1)
                             .expect("compare");
                         if !cmp.is_match() {
@@ -6912,6 +6919,16 @@ mod imp {
                             panic!("{name}: mismatch at {at:?}: (reference, actual) = {pair:?}");
                         }
                     }
+                }
+
+                /// metallib から作った GEMM と ReLU を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                #[cfg(feature = "test-support")]
+                mod parity_gemm_relu {
+                    use super::parity_common::{
+                        assert_matches_reference, f32_buffer, read_f32s, u32_of,
+                    };
+                    use super::*;
+                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
 
                     /// ART-17 のポインタ。metallib から作った GEMM を G-01〜G-13・E-1 の 14 件で投入し、CPU の参照と外れた要素 0 で一致する。
                     #[test]
@@ -7037,19 +7054,10 @@ mod imp {
                 /// metallib から作った部分 Top-k を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
                 #[cfg(feature = "test-support")]
                 mod parity_topk {
+                    use super::parity_common::{f32_buffer, u32_of};
                     use super::*;
                     use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
                     use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
-
-                    fn u32_of(v: usize) -> u32 {
-                        u32::try_from(v).expect("fits in u32")
-                    }
-
-                    /// ビット列を保ったまま f32 の列を置く。
-                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
-                        let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
-                        buffer_of(device, &bits)
-                    }
 
                     /// ART-17 のポインタ。metallib から作った部分 Top-k を E-3・E-4 で投入し、CPU の参照と外れた件数 0 で一致する。
                     #[test]
@@ -7125,6 +7133,248 @@ mod imp {
                                 );
                             }
                         }
+                    }
+                }
+
+                /// metallib から作った simdgroup 行列の GEMM を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                #[cfg(feature = "test-support")]
+                mod parity_coopmat {
+                    use super::parity_common::{
+                        assert_matches_reference, f32_buffer, read_f32s, u32_of,
+                    };
+                    use super::*;
+                    use fandhe_silicon_core::parity::binary16::widen_binary16_slice;
+                    use fandhe_silicon_core::parity::case_inputs::{OutputClass, classify};
+                    use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
+                    use fandhe_silicon_core::parity::gemm_inputs::{
+                        GemmGateRow, GemmInputDtype, generate_f32, reference_for,
+                    };
+
+                    /// 8×8 のタイルを 1 つの simdgroup が受け持ち、`k` を 8 ずつ進めて積和する MSL（TASK-492）。形は 8 の倍数に限る。
+                    const COOPMAT_GEMM_MSL: &str = "#include <metal_stdlib>\n\
+                                        #include <metal_simdgroup_matrix>\n\
+                                        using namespace metal;\n\
+                                        struct Dims { uint m; uint k; uint n; };\n\
+                                        kernel void coopmat_gemm_f32(device const float* a [[buffer(0)]],\n\
+                                                                    device const float* b [[buffer(1)]],\n\
+                                                                    device float* c [[buffer(2)]],\n\
+                                                                    constant Dims& dims [[buffer(3)]],\n\
+                                                                    uint2 tile [[threadgroup_position_in_grid]]) {\n\
+                                            uint row = tile.y * 8;\n\
+                                            uint col = tile.x * 8;\n\
+                                            simdgroup_float8x8 acc = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);\n\
+                                            for (uint i = 0; i < dims.k; i += 8) {\n\
+                                                simdgroup_float8x8 ma;\n\
+                                                simdgroup_float8x8 mb;\n\
+                                                simdgroup_load(ma, a + row * dims.k + i, dims.k);\n\
+                                                simdgroup_load(mb, b + i * dims.n + col, dims.n);\n\
+                                                simdgroup_multiply_accumulate(acc, ma, mb, acc);\n\
+                                            }\n\
+                                            simdgroup_store(acc, c + row * dims.n + col, dims.n);\n\
+                                        }\n";
+
+                    /// 実機の最大のバッファの長さを上限にした device。大きな行の入力を置くのに使う。
+                    fn device_with_real_limit() -> MetalDevice {
+                        let device = MTLCreateSystemDefaultDevice().expect("default device");
+                        let max = u64::try_from(device.maxBufferLength()).expect("fits in u64");
+                        let queue = device.newCommandQueue().expect("queue");
+                        MetalDevice::new(
+                            __backend_next_device_id().expect("id"),
+                            take_next(&NEXT_GENERATION).expect("generation"),
+                            String::new(),
+                            LimitsTable {
+                                max_buffer_bytes: max,
+                                max_dispatch_dims: [u32::MAX; 3],
+                                max_texture_size: MAX_TEXTURE_SIZE,
+                            },
+                            device,
+                            queue,
+                        )
+                    }
+
+                    /// 120 秒まで `poll` を繰り返し、`Complete` になることを確かめる。
+                    fn wait_long(device: &MetalDevice, token: SubmitToken) {
+                        let started = std::time::Instant::now();
+                        loop {
+                            match device.poll(token) {
+                                CompletionState::Pending => {}
+                                state => {
+                                    assert_eq!(state, CompletionState::Complete);
+                                    return;
+                                }
+                            }
+                            assert!(
+                                started.elapsed() < std::time::Duration::from_secs(120),
+                                "submission did not complete"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                    }
+
+                    /// 8 の倍数へ切り上げる。
+                    fn pad8(x: usize) -> usize {
+                        x.div_ceil(8).checked_mul(8).expect("no overflow")
+                    }
+
+                    /// 行優先の行列を、右と下を 0 で埋めた `rows_p`×`cols_p` へ写す。
+                    fn pad_matrix(
+                        values: &[f32],
+                        rows: usize,
+                        cols: usize,
+                        rows_p: usize,
+                        cols_p: usize,
+                    ) -> Vec<f32> {
+                        assert_eq!(values.len(), rows * cols);
+                        let mut out = vec![0.0f32; rows_p * cols_p];
+                        for (dst, src) in
+                            out.chunks_exact_mut(cols_p).zip(values.chunks_exact(cols))
+                        {
+                            dst.get_mut(..cols)
+                                .expect("row has room")
+                                .copy_from_slice(src);
+                        }
+                        out
+                    }
+
+                    /// 詰めた行列から先頭の `rows`×`cols` を行優先で取り出す。
+                    fn unpad_matrix(
+                        c: &[f32],
+                        rows: usize,
+                        cols: usize,
+                        cols_p: usize,
+                    ) -> Vec<f32> {
+                        c.chunks_exact(cols_p)
+                            .take(rows)
+                            .flat_map(|row| row.get(..cols).expect("row has cols").iter().copied())
+                            .collect()
+                    }
+
+                    /// 1 つの入力を投入し、`reference` と比べる。
+                    fn run_input(
+                        device: &MetalDevice,
+                        lib: &Path,
+                        row: GemmGateRow,
+                        label: &str,
+                        a: &[f32],
+                        b: &[f32],
+                        reference: &[f32],
+                    ) {
+                        let (m, k, n) = (row.m(), row.k(), row.n());
+                        let (mp, kp, np) = (pad8(m), pad8(k), pad8(n));
+                        let (sa, sb, sc) = (
+                            [mp as u64, kp as u64],
+                            [kp as u64, np as u64],
+                            [mp as u64, np as u64],
+                        );
+                        let (ra, rb, rc) = ([kp as i64, 1], [np as i64, 1], [np as i64, 1]);
+                        let declared = [
+                            spec(0, DType::F32, &sa, &ra),
+                            spec(1, DType::F32, &sb, &rb),
+                            spec(2, DType::F32, &sc, &rc),
+                            spec(3, DType::U32, &[3], &[1]),
+                        ];
+                        let hooks = device.artifact_hooks().expect("artifact hooks");
+                        let p = hooks
+                            .create_pipeline_checked_from_metallib(
+                                lib,
+                                "coopmat_gemm_f32",
+                                &declared,
+                            )
+                            .expect("create from metallib");
+                        let ab = f32_buffer(device, &pad_matrix(a, m, k, mp, kp));
+                        let bb = f32_buffer(device, &pad_matrix(b, k, n, kp, np));
+                        let cb = zeroed(device, (mp * np) as u64);
+                        let dims = to_bytes(&[u32_of(mp), u32_of(kp), u32_of(np)]);
+                        let name = format!("{}/{label}", row.name());
+                        let mut enc = device.create_encoder();
+                        let enc_id = enc.__backend_id();
+                        let r = device.dispatch_checked(
+                            &mut enc,
+                            &p,
+                            &[
+                                Binding::new(0, &ab, 0),
+                                Binding::new(1, &bb, 0),
+                                Binding::new(2, &cb, 0),
+                            ],
+                            &[ConstantBinding::new(3, &dims)],
+                            &declared,
+                            [u32_of(np / 8), u32_of(mp / 8), 1],
+                            [32, 1, 1],
+                            &[],
+                        );
+                        assert_eq!(r, Ok(()), "{name}");
+                        assert_eq!(record_count(device, enc_id), Some(1), "{name}");
+                        let token = device.submit(enc, &[]).expect("submit");
+                        wait_long(device, token);
+                        let actual = unpad_matrix(&read_f32s(device, &cb, mp * np), m, n, np);
+                        assert_matches_reference(&name, reference, &actual);
+                    }
+
+                    /// 1 つの行について、1 つ目の入力と特殊値を置いた入力を投入して比べる。
+                    fn run_row(row: GemmGateRow) {
+                        assert!(COOPMAT_GEMM_MSL.contains("simdgroup_multiply_accumulate"));
+                        let device = device_with_real_limit();
+                        let dir = ScratchDir::new("parity-coopmat");
+                        let lib = build_metallib(&dir, "coopmat", COOPMAT_GEMM_MSL);
+                        let (m, k, n) = (row.m(), row.k(), row.n());
+
+                        let inputs = generate_f32(row).expect("inputs");
+                        let half = inputs.to_binary16().expect("binary16 inputs");
+                        let a = widen_binary16_slice(half.a()).expect("widen a");
+                        let b = widen_binary16_slice(half.b()).expect("widen b");
+                        let reference =
+                            reference_for(row, GemmInputDtype::F16Acc, &inputs).expect("reference");
+                        run_input(&device, &lib, row, "first", &a, &b, reference.values());
+
+                        let mut a2 = a.clone();
+                        let specials = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -0.0];
+                        for (r, v) in specials.into_iter().enumerate() {
+                            *a2.get_mut(r * k).expect("row has a first column") = v;
+                        }
+                        let reference2 = reference_gemm_f32(&a2, &b, m, k, n).expect("reference");
+                        for class in [OutputClass::Nan, OutputClass::PosInf, OutputClass::NegInf] {
+                            assert!(
+                                reference2.iter().any(|&x| classify(x) == class),
+                                "{}: no {class:?} in the reference",
+                                row.name()
+                            );
+                        }
+                        run_input(&device, &lib, row, "special", &a2, &b, &reference2);
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った simdgroup 行列の GEMM を sq512 の 2 つの入力で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn coopmat_gemm_from_the_metallib_matches_the_cpu_reference_for_sq512() {
+                        run_row(GemmGateRow::Sq512);
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った simdgroup 行列の GEMM を sq2048 の 2 つの入力で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn coopmat_gemm_from_the_metallib_matches_the_cpu_reference_for_sq2048() {
+                        run_row(GemmGateRow::Sq2048);
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った simdgroup 行列の GEMM を sq4096 の 2 つの入力で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn coopmat_gemm_from_the_metallib_matches_the_cpu_reference_for_sq4096() {
+                        run_row(GemmGateRow::Sq4096);
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った simdgroup 行列の GEMM を rect4096x1024x4096 の 2 つの入力で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn coopmat_gemm_from_the_metallib_matches_the_cpu_for_rect4096x1024x4096() {
+                        run_row(GemmGateRow::Rect4096x1024x4096);
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った simdgroup 行列の GEMM を odd37x41x53 の 2 つの入力で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn coopmat_gemm_from_the_metallib_matches_the_cpu_reference_for_odd37x41x53() {
+                        run_row(GemmGateRow::Odd37x41x53);
                     }
                 }
             }
