@@ -6450,6 +6450,433 @@ mod imp {
                     assert_eq!(r, Ok(()), "len {len}");
                 }
             }
+
+            /// TASK-492 のポインタ。事前にコンパイルした metallib と binary archive から作る経路の device の試験。
+            #[cfg(feature = "artifact-inspection")]
+            mod metallib {
+                use super::*;
+                use fandhe_silicon_core::execution::DType;
+                use std::path::{Path, PathBuf};
+                use std::sync::atomic::{AtomicU64, Ordering};
+
+                static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
+
+                /// 試験ごとに新しく作る一時のディレクトリ。`Drop` で中身ごと消す。
+                struct ScratchDir {
+                    path: PathBuf,
+                }
+
+                impl ScratchDir {
+                    fn new(tag: &str) -> Self {
+                        let n = NEXT_SCRATCH.fetch_add(1, Ordering::Relaxed);
+                        let path = std::env::temp_dir().join(format!(
+                            "fandhe-silicon-{}-{}-{}",
+                            std::process::id(),
+                            tag,
+                            n
+                        ));
+                        std::fs::create_dir(&path).expect("create scratch dir");
+                        Self { path }
+                    }
+
+                    fn path(&self) -> &Path {
+                        &self.path
+                    }
+                }
+
+                impl Drop for ScratchDir {
+                    fn drop(&mut self) {
+                        let _ = std::fs::remove_dir_all(&self.path);
+                    }
+                }
+
+                /// `source` を `.metal` に書いて metallib にし、`.metal` と `.air` を消して metallib のパスを返す。
+                fn build_metallib(dir: &ScratchDir, name: &str, source: &str) -> PathBuf {
+                    let metal = dir.path().join(format!("{name}.metal"));
+                    let air = dir.path().join(format!("{name}.air"));
+                    let lib = dir.path().join(format!("{name}.metallib"));
+                    std::fs::write(&metal, source).expect("write metal source");
+                    let compiled = std::process::Command::new("/usr/bin/xcrun")
+                        .args([
+                            "-sdk",
+                            "macosx",
+                            "metal",
+                            "-c",
+                            "-fmetal-math-mode=safe",
+                            "-o",
+                        ])
+                        .arg(&air)
+                        .arg(&metal)
+                        .output()
+                        .expect("run xcrun metal");
+                    assert!(
+                        compiled.status.success(),
+                        "metal failed: {}",
+                        String::from_utf8_lossy(&compiled.stderr)
+                    );
+                    let linked = std::process::Command::new("/usr/bin/xcrun")
+                        .args(["-sdk", "macosx", "metallib", "-o"])
+                        .arg(&lib)
+                        .arg(&air)
+                        .output()
+                        .expect("run xcrun metallib");
+                    assert!(
+                        linked.status.success(),
+                        "metallib failed: {}",
+                        String::from_utf8_lossy(&linked.stderr)
+                    );
+                    std::fs::remove_file(&metal).expect("remove metal source");
+                    std::fs::remove_file(&air).expect("remove air");
+                    assert!(!metal.exists());
+                    assert!(!air.exists());
+                    lib
+                }
+
+                /// 行列積（`gemm_f32`）。各要素は 0 から `k` の昇順に `fma` で積む。
+                const GEMM_MSL: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        struct GemmDims { uint m; uint k; uint n; };\n\
+                        kernel void gemm_f32(device const float* a [[buffer(0)]],\n\
+                                            device const float* b [[buffer(1)]],\n\
+                                            device float* c [[buffer(2)]],\n\
+                                            constant GemmDims& dims [[buffer(3)]],\n\
+                                            uint2 gid [[thread_position_in_grid]]) {\n\
+                            uint col = gid.x;\n\
+                            uint row = gid.y;\n\
+                            if (row >= dims.m || col >= dims.n) { return; }\n\
+                            float acc = 0.0f;\n\
+                            for (uint i = 0; i < dims.k; i++) {\n\
+                                acc = fma(a[row * dims.k + i], b[i * dims.n + col], acc);\n\
+                            }\n\
+                            c[row * dims.n + col] = acc;\n\
+                        }\n";
+
+                /// ReLU（`relu_f32`）。`x > 0` ならそのまま、そうでなければ 0。
+                const RELU_MSL: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        kernel void relu_f32(device const float* x [[buffer(0)]],\n\
+                                            device float* y [[buffer(1)]],\n\
+                                            constant uint& len [[buffer(2)]],\n\
+                                            uint gid [[thread_position_in_grid]]) {\n\
+                            if (gid >= len) { return; }\n\
+                            y[gid] = x[gid] > 0.0f ? x[gid] : 0.0f;\n\
+                        }\n";
+
+                /// 部分 Top-k（`topk_f32`）。スレッド 0 だけが選ぶ。有限でないスコアは外し、
+                /// f32 の全順序の降順（同点は添字の昇順）で先頭 `min(k, 有限の件数)` 件と件数を書く。
+                const TOPK_MSL: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        struct TopkParams { uint len; uint k; };\n\
+                        static int order_key(float s) {\n\
+                            int v = as_type<int>(s);\n\
+                            if (v < 0) { v ^= 0x7fffffff; }\n\
+                            return v;\n\
+                        }\n\
+                        kernel void topk_f32(device const float* scores [[buffer(0)]],\n\
+                                            device uint* out_slots [[buffer(1)]],\n\
+                                            device float* out_scores [[buffer(2)]],\n\
+                                            device uint* out_count [[buffer(3)]],\n\
+                                            constant TopkParams& params [[buffer(4)]],\n\
+                                            uint gid [[thread_position_in_grid]]) {\n\
+                            if (gid != 0) { return; }\n\
+                            uint finite = 0;\n\
+                            for (uint i = 0; i < params.len; i++) {\n\
+                                if (isfinite(scores[i])) { finite++; }\n\
+                            }\n\
+                            uint want = min(params.k, finite);\n\
+                            int prev_key = 0;\n\
+                            uint prev_idx = 0;\n\
+                            for (uint r = 0; r < want; r++) {\n\
+                                bool found = false;\n\
+                                int best_key = 0;\n\
+                                uint best_idx = 0;\n\
+                                for (uint i = 0; i < params.len; i++) {\n\
+                                    float s = scores[i];\n\
+                                    if (!isfinite(s)) { continue; }\n\
+                                    int key = order_key(s);\n\
+                                    if (r > 0 && !(key < prev_key || (key == prev_key && i > prev_idx))) { continue; }\n\
+                                    if (!found || key > best_key) {\n\
+                                        found = true;\n\
+                                        best_key = key;\n\
+                                        best_idx = i;\n\
+                                    }\n\
+                                }\n\
+                                out_slots[r] = best_idx;\n\
+                                out_scores[r] = scores[best_idx];\n\
+                                prev_key = best_key;\n\
+                                prev_idx = best_idx;\n\
+                            }\n\
+                            out_count[0] = want;\n\
+                        }\n";
+
+                /// binary archive の試験用に、同じ形の入口を 2 つ持つ。
+                const ARCHIVE_MSL: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        kernel void archived_copy(device const uint* src [[buffer(0)]],\n\
+                                                device uint* dst [[buffer(1)]],\n\
+                                                uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid];\n\
+                        }\n\
+                        kernel void unarchived_copy(device const uint* src [[buffer(0)]],\n\
+                                                    device uint* dst [[buffer(1)]],\n\
+                                                    uint gid [[thread_position_in_grid]]) {\n\
+                            dst[gid] = src[gid];\n\
+                        }\n";
+
+                fn spec<'a>(
+                    slot: u32,
+                    dtype: DType,
+                    shape: &'a [u64],
+                    stride: &'a [i64],
+                ) -> OperandSpec<'a> {
+                    OperandSpec {
+                        slot,
+                        dtype,
+                        shape,
+                        stride,
+                        alignment: 4,
+                    }
+                }
+
+                /// 宣言から作り、表の件数が 1 増えることを確かめる。
+                fn builds_and_grows_table(
+                    device: &MetalDevice,
+                    lib: &Path,
+                    entry: &str,
+                    declared: &[OperandSpec<'_>],
+                ) {
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let before = device.lock_pipelines().map.len();
+                    hooks
+                        .create_pipeline_checked_from_metallib(lib, entry, declared)
+                        .expect("create from metallib");
+                    assert_eq!(device.lock_pipelines().map.len(), before + 1, "{entry}");
+                }
+
+                /// 書き出した archive のパスとバイト列を返す。
+                fn archive_of(
+                    device: &MetalDevice,
+                    dir: &ScratchDir,
+                    entry: &str,
+                ) -> (PathBuf, Vec<u8>) {
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let path = dir.path().join("copy.archive");
+                    let bytes = hooks
+                        .compile_and_write_binary_archive(
+                            ARCHIVE_MSL,
+                            entry,
+                            MslMathMode::Safe,
+                            &path,
+                        )
+                        .expect("write archive");
+                    (path, bytes)
+                }
+
+                /// ART-58 のポインタ。GEMM・Top-k・ReLU の metallib から、引数と同じ数の宣言でパイプラインが作られ、表が 1 ずつ増える。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn gemm_topk_and_relu_build_from_their_metallibs() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("three");
+                    let m4: &[u64] = &[4, 4];
+                    let rm4: &[i64] = &[4, 1];
+                    let gemm = build_metallib(&dir, "gemm", GEMM_MSL);
+                    let declared = [
+                        spec(0, DType::F32, m4, rm4),
+                        spec(1, DType::F32, m4, rm4),
+                        spec(2, DType::F32, m4, rm4),
+                        spec(3, DType::U32, &[3], &[1]),
+                    ];
+                    builds_and_grows_table(&device, &gemm, "gemm_f32", &declared);
+
+                    let topk = build_metallib(&dir, "topk", TOPK_MSL);
+                    let declared = [
+                        spec(0, DType::F32, &[8], &[1]),
+                        spec(1, DType::U32, &[3], &[1]),
+                        spec(2, DType::F32, &[3], &[1]),
+                        spec(3, DType::U32, &[1], &[1]),
+                        spec(4, DType::U32, &[2], &[1]),
+                    ];
+                    builds_and_grows_table(&device, &topk, "topk_f32", &declared);
+
+                    let relu = build_metallib(&dir, "relu", RELU_MSL);
+                    let declared = [
+                        spec(0, DType::F32, &[8], &[1]),
+                        spec(1, DType::F32, &[8], &[1]),
+                        spec(2, DType::U32, &[1], &[1]),
+                    ];
+                    builds_and_grows_table(&device, &relu, "relu_f32", &declared);
+                }
+
+                /// ART-58 のポインタ。`.metal` と `.air` が無い状態でも、metallib だけからパイプラインが作られる。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn a_metallib_builds_after_its_source_and_air_are_removed() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("sourceless");
+                    let lib = build_metallib(&dir, "relu", RELU_MSL);
+                    assert!(!dir.path().join("relu.metal").exists());
+                    assert!(!dir.path().join("relu.air").exists());
+                    let declared = [
+                        spec(0, DType::F32, &[8], &[1]),
+                        spec(1, DType::F32, &[8], &[1]),
+                        spec(2, DType::U32, &[1], &[1]),
+                    ];
+                    builds_and_grows_table(&device, &lib, "relu_f32", &declared);
+                }
+
+                /// metallib に無い入口の名前は `ArtifactRejected`（`metallib`）で、表は変わらない。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn an_entry_point_missing_from_the_metallib_is_rejected() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("missing-entry");
+                    let lib = build_metallib(&dir, "relu", RELU_MSL);
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let before = device.lock_pipelines().map.len();
+                    let declared = [spec(0, DType::F32, &[8], &[1])];
+                    assert!(matches!(
+                        hooks.create_pipeline_checked_from_metallib(
+                            &lib,
+                            "no_such_entry",
+                            &declared
+                        ),
+                        Err(ContractError::ArtifactRejected {
+                            kind: "metallib",
+                            ..
+                        })
+                    ));
+                    assert_eq!(device.lock_pipelines().map.len(), before);
+                }
+
+                /// shape と stride の次元数が違う宣言は `C3:` で始まる `InvalidArgument` で、表は変わらない。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn mismatched_shape_and_stride_dimensions_are_rejected_by_c3() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("c3");
+                    let lib = build_metallib(&dir, "relu", RELU_MSL);
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let before = device.lock_pipelines().map.len();
+                    let declared = [
+                        spec(0, DType::F32, &[4, 4], &[1]),
+                        spec(1, DType::F32, &[8], &[1]),
+                        spec(2, DType::U32, &[1], &[1]),
+                    ];
+                    match hooks.create_pipeline_checked_from_metallib(&lib, "relu_f32", &declared) {
+                        Err(ContractError::InvalidArgument(m)) => {
+                            assert!(m.starts_with("C3:"), "{m}");
+                        }
+                        other => panic!("unexpected: {:?}", other.map(|_| ())),
+                    }
+                    assert_eq!(device.lock_pipelines().map.len(), before);
+                }
+
+                /// 書き出した binary archive のバイト列は、空でなく、ファイルの中身と同じ。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn the_written_binary_archive_matches_the_file() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("archive-bytes");
+                    let (path, bytes) = archive_of(&device, &dir, "archived_copy");
+                    assert!(!bytes.is_empty());
+                    assert_eq!(std::fs::read(&path).expect("read archive"), bytes);
+                }
+
+                /// archive に入れた入口は、`fail_on_archive_miss` が `true` でもパイプラインが作られ、表が 1 増える。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn a_pipeline_builds_from_the_archive_with_fail_on_miss() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("archive-hit");
+                    let (path, _) = archive_of(&device, &dir, "archived_copy");
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let before = device.lock_pipelines().map.len();
+                    hooks
+                        .create_pipeline_from_archive_path(
+                            ARCHIVE_MSL,
+                            "archived_copy",
+                            MslMathMode::Safe,
+                            &path,
+                            true,
+                        )
+                        .expect("create from archive");
+                    assert_eq!(device.lock_pipelines().map.len(), before + 1);
+                }
+
+                /// archive に無い入口は、`true` なら `ArtifactRejected`（`compute-pipeline`）で表は変わらず、`false` なら作られる。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn an_entry_missing_from_the_archive_fails_only_with_fail_on_miss() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("archive-miss");
+                    let (path, _) = archive_of(&device, &dir, "archived_copy");
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let before = device.lock_pipelines().map.len();
+                    assert!(matches!(
+                        hooks.create_pipeline_from_archive_path(
+                            ARCHIVE_MSL,
+                            "unarchived_copy",
+                            MslMathMode::Safe,
+                            &path,
+                            true,
+                        ),
+                        Err(ContractError::ArtifactRejected {
+                            kind: "compute-pipeline",
+                            ..
+                        })
+                    ));
+                    assert_eq!(device.lock_pipelines().map.len(), before);
+                    hooks
+                        .create_pipeline_from_archive_path(
+                            ARCHIVE_MSL,
+                            "unarchived_copy",
+                            MslMathMode::Safe,
+                            &path,
+                            false,
+                        )
+                        .expect("create without fail_on_archive_miss");
+                    assert_eq!(device.lock_pipelines().map.len(), before + 1);
+                }
+
+                /// archive から作ったパイプラインは束縛の無い配置で表に置かれ、束縛 1 つの `dispatch_ex` は拒まれて記録されない。
+                #[test]
+                #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                fn an_archive_pipeline_rejects_a_binding_without_recording() {
+                    let device = new_device();
+                    let dir = ScratchDir::new("archive-dispatch");
+                    let (path, _) = archive_of(&device, &dir, "archived_copy");
+                    let hooks = device.artifact_hooks().expect("artifact hooks");
+                    let handle = hooks
+                        .create_pipeline_from_archive_path(
+                            ARCHIVE_MSL,
+                            "archived_copy",
+                            MslMathMode::Safe,
+                            &path,
+                            true,
+                        )
+                        .expect("create from archive");
+                    let buf = buffer_of(&device, &[0; 4]);
+                    let mut enc = device.create_encoder();
+                    let id = enc.__backend_id();
+                    let r = device.dispatch_ex(
+                        &mut enc,
+                        &handle,
+                        &[Binding::new(0, &buf, 0)],
+                        &[],
+                        [1, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    );
+                    match r {
+                        Err(ContractError::InvalidArgument(m)) => {
+                            assert!(m.contains("is not in the binding layout"), "{m}");
+                        }
+                        other => panic!("unexpected: {other:?}"),
+                    }
+                    assert_eq!(record_count(&device, id), Some(0));
+                }
+            }
         }
 
         /// DEV-80・TASK-2932 のポインタ。`fault_hooks` の口から模擬のロストを呼ぶ。
