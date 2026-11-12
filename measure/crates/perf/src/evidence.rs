@@ -57,17 +57,20 @@ fn is_hex(s: &str, len: usize) -> bool {
 
 token!(
     /// 64 桁の小文字 16 進（SHA-256）。
-    Sha256, |s| is_hex(s, 64)
+    Sha256,
+    |s| is_hex(s, 64)
 );
 
 token!(
     /// 40 桁の小文字 16 進（commit SHA）。
-    CommitSha, |s| is_hex(s, 40)
+    CommitSha,
+    |s| is_hex(s, 40)
 );
 
 token!(
     /// `x.y.z` の版（各部は先頭 0 なしの 10 進で 9 桁以内）。
-    SemVer, |s| {
+    SemVer,
+    |s| {
         let mut n = 0;
         let ok = s.split('.').all(|p| {
             n += 1;
@@ -81,7 +84,8 @@ token!(
 
 token!(
     /// 英数字を `.`・`-`・`+` でつないだ版の綴り（1〜64 文字、先頭は英数字）。
-    VersionText, |s| {
+    VersionText,
+    |s| {
         let b = s.as_bytes();
         (1..=64).contains(&b.len())
             && b[0].is_ascii_alphanumeric()
@@ -92,7 +96,8 @@ token!(
 
 token!(
     /// 表のキーに使う名前。`[A-Za-z0-9][A-Za-z0-9._-]*` で 1〜64 文字（`/`・空白・`_` 始まりを受けない）。
-    Name, |s| {
+    Name,
+    |s| {
         let b = s.as_bytes();
         (1..=64).contains(&b.len())
             && b[0].is_ascii_alphanumeric()
@@ -103,7 +108,8 @@ token!(
 
 token!(
     /// device が返した名前。ASCII の英数字・空白・`._()+,-` だけで 1〜128 文字、前後が空白でなく `_` 始まりでない。
-    DeviceName, |s| {
+    DeviceName,
+    |s| {
         let b = s.as_bytes();
         (1..=128).contains(&b.len())
             && b[0] != b' '
@@ -118,7 +124,8 @@ token!(
 
 token!(
     /// 機能・オプションの指定 1 つ。空白・引用符・`\`・`/`・`~`・制御文字を含まない ASCII で 1〜128 文字、`_` 始まりでない。
-    OptionToken, |s| {
+    OptionToken,
+    |s| {
         let b = s.as_bytes();
         (1..=128).contains(&b.len())
             && b[0] != b'_'
@@ -130,9 +137,11 @@ token!(
 
 token!(
     /// リポジトリの URL。`https://` 始まりの ASCII で、空白・引用符・`\`・`@`・`?`・`#` を含まず 256 文字以内。
-    GitRepository, |s| {
+    GitRepository,
+    |s| {
         s.len() <= 256
-            && s.strip_prefix("https://").is_some_and(|rest| !rest.is_empty())
+            && s.strip_prefix("https://")
+                .is_some_and(|rest| !rest.is_empty())
             && s.bytes().all(|c| {
                 c.is_ascii_graphic()
                     && !matches!(c, b'"' | b'\'' | b'`' | b'\\' | b'@' | b'?' | b'#')
