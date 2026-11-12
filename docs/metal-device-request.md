@@ -151,3 +151,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 - 「所在」の表の依存の行: `objc2-metal` の feature に `MTLArgument` が加わった。crate と版は変わらない。確かめ方: `grep -n 'objc2-metal' crates/contract/Cargo.toml`
 - パイプラインの reflection の取り出しの所在と試験は [metal-pipeline-reflection](metal-pipeline-reflection.md) に置く。
+
+## 今の値の補い（base 3cd4a0c）
+
+記録時点の表と既存の節は書き換えない。
+
+- 「所在」の表の依存の行: feature `artifact-inspection` を付けたビルドでは、`objc2-metal` の feature `MTLBinaryArchive` が加わる。crate と版は変わらない。確かめ方: `grep -n 'artifact-inspection =\|objc2-metal' crates/contract/Cargo.toml`
+- 成果物の検査の口（`Device::artifact_hooks()`）の所在と試験は [metal-artifact-hooks](metal-artifact-hooks.md) に置く（TASK-492）。

@@ -442,3 +442,15 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_compute` | `ok. 10 passed; 0 failed` |
 | `cargo test -p fandhe-silicon-core --features test-support --test stub_device_dispatch_checked` | `ok. 5 passed; 0 failed` |
 | `cargo test -p fandhe-silicon-core --features test-support --lib stub_device` | `ok. 28 passed; 0 failed`（237 filtered out） |
+
+## 今の値の補い（base 3cd4a0c）
+
+記録時点の表と既存の節は書き換えない。以下は base `3cd4a0c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+`Device` の既定の本体を持つ method の並びに、feature `artifact-inspection` の裏の `artifact_hooks`（既定は `None`）が加わった。試験用の device は上書きしない。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base 70ab958）」の `destroy` の `:205` | `:205` → `:213` | `grep -nE '^    fn (compute\|graphics\|external_interop\|physical_gpu_id\|fault_hooks\|textures\|artifact_hooks\|destroy)' crates/core/src/device.rs` |
+| 同じ節の `DeviceProvider` の `:213` | `:213` → `:221` | `grep -n 'pub trait DeviceProvider' crates/core/src/device.rs` |
+| 既定の本体を持つ method の所在 | `compute` `:149`・`graphics` `:157`・`external_interop` `:166`・`physical_gpu_id` `:175`・`fault_hooks` `:184`・`textures` `:191`（どれも変わらない）に加えて、`artifact_hooks` `:199` | 同上 |
