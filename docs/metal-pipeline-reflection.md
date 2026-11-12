@@ -130,3 +130,11 @@ test backend_metal::imp::reflection_type_tests::the_six_mapped_types_are_copied 
 | 2/4 | パイプラインの生成の reflection から引数の宣言を取り出す | #4938 | #8246 |
 | 3/4 | 3 演算と型の対応表の reflection の device の要る試験を `#[ignore]` 付きで足す | #4939 | #8247 |
 | 4/4 | 完了の条件の確かめ | #4940 | 本頁 |
+
+## 今の値の補い（base 3cd4a0c）
+
+記録時点の表と既存の節は書き換えない。以下は base `3cd4a0c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+- feature `artifact-inspection` のビルドの `create_pipeline_checked_from_metallib`（metallib のファイルから作る経路）が `reflect_function` を呼ぶ。確かめ方: `grep -n 'self.reflect_function' crates/contract/src/backend_metal.rs`
+- 確かめ表の (4) の行頭の `#[ignore` の件数: 68 件 → 85 件（`grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs`）。名前に `reflect` を含む `fn` は 6 件のまま。
+- metallib から作る経路の所在と試験は [metal-artifact-hooks](metal-artifact-hooks.md) に置く（TASK-492）。

@@ -422,3 +422,14 @@ base `760233c` の作業ツリーで流した。
 | 本リポの現状の事実の feature の表の `artifact-inspection` の行 | core に同名の feature は無い → `crates/core/Cargo.toml` の 28 行目に `artifact-inspection = []` がある。contract の `artifact-inspection` は `["backend-metal", "fandhe-silicon-core/artifact-inspection"]`（`crates/contract/Cargo.toml` の 54 行目）で、`backend-metal` の要求に加えて core の同名 feature へ転送する | `git grep -n 'artifact-inspection' -- crates/core/Cargo.toml crates/contract/Cargo.toml` |
 | 「本リポに無い部品」の `artifact-inspection` の裏の `Device` の読み出しの行と、(5) の `git grep -n 'artifact-inspection' -- crates/core` の 0 件 | 読み出しは無く、`crates/core` への当たりは 0 件 → `Device::artifact_hooks`（既定の本体は `None`）が feature `artifact-inspection` の裏にある（`crates/core/src/device.rs` の 197〜201 行目）。当たりは `crates/core` の 4 ファイル 6 行（`Cargo.toml` の 28・267 行目、`src/artifact.rs` の 1 行目、`src/device.rs` の 197・198 行目、`src/lib.rs` の 101 行目）。trait `ArtifactHooks` は `crates/core/src/artifact.rs` | `git grep -n 'artifact-inspection' -- crates/core` |
 | 「本リポに無い部品」の「core の `[features]` に `graphics`・`artifact-inspection` は無い」の行と、(5) の `crates/core/Cargo.toml` の行 0 件 | `artifact-inspection` の行は 0 件 → 2 件。`[features]` に 28 行目の `artifact-inspection = []`、`[[test]]` の `device_artifact_hooks` の `required-features = ["artifact-inspection"]`（267 行目） | `git grep -n 'artifact-inspection' -- crates/core/Cargo.toml` |
+
+## 今の値の補い（base 3cd4a0c）
+
+記録時点の表と既存の節は書き換えない。以下は base `3cd4a0c` で観測した今の値（実行環境は GPU なしの Linux）。1/8 の親のコミットは `c2abac4`。直前の「今の値の補い（base eda0509）」の後に、契約の crate の `artifact-inspection` が `objc2-metal?/MTLBinaryArchive` を加え、Metal の device が `artifact_hooks()` を上書きした（[metal-artifact-hooks](metal-artifact-hooks.md)、TASK-492）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| core の feature | `crates/core/Cargo.toml` の 28 行目に `artifact-inspection = []` がある（変わらない） | `git grep -n 'artifact-inspection' -- crates/core/Cargo.toml` |
+| 契約の crate の `artifact-inspection` | `["backend-metal", "fandhe-silicon-core/artifact-inspection"]` → `["backend-metal", "fandhe-silicon-core/artifact-inspection", "objc2-metal?/MTLBinaryArchive"]`（`crates/contract/Cargo.toml` の 54 行目）。core の同名 feature へ転送し、`objc2-metal` の `MTLBinaryArchive` を有効にする | `git grep -n 'artifact-inspection =' -- crates/contract/Cargo.toml` |
+| `Device::artifact_hooks()` | `crates/core/src/device.rs` の 199 行目に、feature の裏で既定が `None` のメソッドがある（変わらない） | `grep -n 'fn artifact_hooks' crates/core/src/device.rs` |
+| `artifact-inspection` で切られたアイテムの「`crates/contract` には 0 件」 | 0 件 → `crates/contract` に 17 行。`backend_metal.rs` に 13 行、`cfg_gate_doctest.rs` に 4 行（123・124・133・134 行目）。`crates/core` は `src/lib.rs` と `src/device.rs` の 2 行で変わらない | `git grep -n 'feature = "artifact-inspection"' -- crates` |

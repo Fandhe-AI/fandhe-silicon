@@ -139,3 +139,12 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 | ------ | --------------- | -------------- |
 | 本リポの現状の「テスト・診断専用の feature」の行と、確かめの「テスト・診断専用」の行 | `artifact-inspection`（`backend-metal` を要する）で、core への転送の記述は無い → `["backend-metal", "fandhe-silicon-core/artifact-inspection"]`（`crates/contract/Cargo.toml` の 54 行目）で、`backend-metal` の要求に加えて core の同名 feature（`crates/core/Cargo.toml` の 28 行目 `artifact-inspection = []`）へ転送する。`default` と本番の 4 組の含意の閉包に入らない点は変わらない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml`、`git grep -n 'artifact-inspection' -- crates/core/Cargo.toml crates/contract/Cargo.toml` |
 | 同じ行の `fault-injection`（含意なし） | 含意なし → `["fandhe-silicon-core/fault-injection"]`（`crates/contract/Cargo.toml` の 53 行目）で core の同名 feature へ転送する | `git grep -n 'fault-injection =' -- crates/contract/Cargo.toml` |
+
+## 今の値の補い（base 3cd4a0c）
+
+記録時点の表と既存の節は書き換えない。以下は base `3cd4a0c` で観測した今の値（実行環境は GPU なしの Linux）。1/8 の親のコミットは `c2abac4`。直前の「今の値の補い（base eda0509）」の後に、契約の crate の `artifact-inspection` に値が 1 つ加わった（[metal-artifact-hooks](metal-artifact-hooks.md)、TASK-492）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 本リポの現状の「テスト・診断専用の feature」の行と、確かめの「テスト・診断専用」の行の `artifact-inspection` | `["backend-metal", "fandhe-silicon-core/artifact-inspection"]` → `["backend-metal", "fandhe-silicon-core/artifact-inspection", "objc2-metal?/MTLBinaryArchive"]`（`crates/contract/Cargo.toml` の 54 行目）。`backend-metal` の要求と core の同名 feature への転送に加えて、`objc2-metal` の feature `MTLBinaryArchive` を有効にする。`default` と本番の 4 組の含意の閉包に入らない点は変わらない | `git grep -n 'artifact-inspection =' -- crates/contract/Cargo.toml` |
+| `crates/core` の `artifact-inspection` | `crates/core/Cargo.toml` の 28 行目 `artifact-inspection = []` と `[[test]]` の `device_artifact_hooks`（267 行目）がある（変わらない） | `git grep -n 'artifact-inspection' -- crates/core/Cargo.toml` |
