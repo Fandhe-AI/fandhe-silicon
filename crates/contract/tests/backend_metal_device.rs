@@ -15,9 +15,9 @@ use fandhe_silicon_core::error::{
     CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
 };
 use fandhe_silicon_core::execution::{
-    Binding, BindingLayout, FunctionConstant, FunctionConstantValue, GpuTiming,
-    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, PipelineHandle, PipelineInput,
-    SubmitToken,
+    Binding, BindingLayout, ConstantBinding, DType, FunctionConstant, FunctionConstantValue,
+    GpuTiming, ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, OperandSpec,
+    PipelineHandle, PipelineInput, SubmitToken,
 };
 use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -136,11 +136,16 @@ fn usage() -> BufferUsage {
 
 /// `BufferHandle` は `Clone` を持たないので、同じ識別子・世代・device の識別子で作り直した写しを返す。
 fn forged_copy(h: &BufferHandle) -> BufferHandle {
+    forged_copy_with_size(h, h.size())
+}
+
+/// `h` と同じ識別子・世代・device の識別子で、大きさだけ `size` にしたハンドルを返す。
+fn forged_copy_with_size(h: &BufferHandle, size: u64) -> BufferHandle {
     BufferHandle::__backend_new(
         h.__backend_generation(),
         h.__backend_id(),
         h.__backend_device_id(),
-        h.size(),
+        size,
         h.usage(),
     )
 }
@@ -1480,4 +1485,237 @@ fn record_time_rejections_through_the_public_device() {
 
     let token = queue.submit(encoder, &[]).expect("submit");
     queue.wait_blocking(token, None).expect("wait_blocking");
+}
+
+/// `dispatch_checked` の試験で使う MSL。GEMM の形・引数なし・1 slot の書き込みの 3 本。
+const CHECKED_KERNELS: &str = "#include <metal_stdlib>\n\
+    using namespace metal;\n\
+    kernel void gemm_f32(device const float* a [[buffer(0)]],\n\
+        device const float* b [[buffer(1)]],\n\
+        device float* c [[buffer(2)]],\n\
+        constant uint* dims [[buffer(3)]],\n\
+        uint2 gid [[thread_position_in_grid]]) {\n\
+        uint m = dims[0];\n\
+        uint n = dims[1];\n\
+        uint k = dims[2];\n\
+        if (gid.y >= m || gid.x >= n) { return; }\n\
+        float acc = 0.0;\n\
+        for (uint i = 0; i < k; i++) { acc += a[gid.y * k + i] * b[i * n + gid.x]; }\n\
+        c[gid.y * n + gid.x] = acc;\n\
+    }\n\
+    kernel void noop() {}\n\
+    kernel void fill(device float* out [[buffer(0)]], uint gid [[thread_position_in_grid]]) {\n\
+        out[gid] = 1.0;\n\
+    }\n";
+
+/// 公開の `Device` から `CHECKED_KERNELS` の `entry` のパイプラインを `slots` の配置で作る。
+fn checked_pipeline(device: &dyn Device, entry: &str, slots: Vec<u32>) -> PipelineHandle {
+    device
+        .compute()
+        .expect("a Metal device must expose compute()")
+        .create_pipeline(
+            PipelineInput::Msl {
+                source: CHECKED_KERNELS,
+                entry_point: entry,
+            },
+            &BindingLayout::new(slots),
+        )
+        .expect("create_pipeline")
+}
+
+/// stride と alignment を指定しない宣言 1 件を作る。
+fn decl<'a>(slot: u32, dtype: DType, shape: &'a [u64]) -> OperandSpec<'a> {
+    OperandSpec {
+        slot,
+        dtype,
+        shape,
+        stride: &[],
+        alignment: 0,
+    }
+}
+
+/// 戻り値が `InvalidArgument` で、文言が `prefix` で始まるかを返す。
+fn rejected_with(r: &Result<(), ContractError>, prefix: &str) -> bool {
+    matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(prefix))
+}
+
+/// u32 の列をネイティブエンディアンのバイト列にする。
+fn u32_bytes(values: &[u32]) -> Vec<u8> {
+    values.iter().flat_map(|v| v.to_ne_bytes()).collect()
+}
+
+/// BIND-61 のポインタ。公開の `Device` の `queue()` 越しの `dispatch_checked` は、
+/// `limits().max_buffer_bytes` より 1 大きい宣言を `C8:` で拒み、上限ちょうどは通す。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dispatch_checked_through_the_public_device_rejects_one_byte_over_the_limit() {
+    let device = new_device();
+    let limit = device.limits().max_buffer_bytes;
+    let pipeline = checked_pipeline(device.as_ref(), "noop", vec![]);
+    let queue = device.queue();
+    let mut encoder = queue.create_encoder();
+
+    let over = [limit.checked_add(1).expect("limit + 1")];
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[],
+        &[],
+        &[decl(0, DType::Bool, &over)],
+        [1, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert!(rejected_with(&r, "C8:"), "{r:?}");
+
+    let at = [limit];
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[],
+        &[],
+        &[decl(0, DType::Bool, &at)],
+        [1, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert_eq!(r, Ok(()));
+}
+
+/// BIND-52 のポインタ。公開の `Device` の `queue()` 越しの `dispatch_checked` は、
+/// 束縛のバッファの実際の長さで容量を照らし、ハンドルの大きさが長さと違えば拒む。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dispatch_checked_through_the_public_device_uses_the_buffer_length() {
+    let device = new_device();
+    let memory = device.memory();
+    let pipeline = checked_pipeline(device.as_ref(), "fill", vec![0]);
+    let h = memory.allocate(16, usage()).expect("allocate");
+    let queue = device.queue();
+    let mut encoder = queue.create_encoder();
+
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &h, 0)],
+        &[],
+        &[decl(0, DType::F32, &[100])],
+        [4, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert!(rejected_with(&r, "C4:"), "{r:?}");
+
+    let resized = forged_copy_with_size(&h, 400);
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &resized, 0)],
+        &[],
+        &[decl(0, DType::F32, &[4])],
+        [4, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &h, 0)],
+        &[],
+        &[decl(0, DType::F32, &[4])],
+        [4, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert_eq!(r, Ok(()));
+    memory.free(h);
+}
+
+/// BIND-50 のポインタ。公開の `Device` の `queue()` 越しの `dispatch_checked` は、
+/// 行数 0 の GEMM の宣言を、ハンドルを表で引く前に `C8:` で拒む。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dispatch_checked_through_the_public_device_rejects_a_zero_length_gemm_first() {
+    let device = new_device();
+    let memory = device.memory();
+    let pipeline = checked_pipeline(device.as_ref(), "gemm_f32", vec![0, 1, 2, 3]);
+    let own = memory.allocate(16, usage()).expect("allocate");
+    let unknown = [
+        forged_unknown_id(&own),
+        forged_unknown_id(&own),
+        forged_unknown_id(&own),
+    ];
+    let dims = u32_bytes(&[0, 4, 4]);
+    let queue = device.queue();
+    let mut encoder = queue.create_encoder();
+
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[
+            Binding::new(0, &unknown[0], 0),
+            Binding::new(1, &unknown[1], 0),
+            Binding::new(2, &unknown[2], 0),
+        ],
+        &[ConstantBinding::new(3, &dims)],
+        &[
+            decl(0, DType::F32, &[0, 4]),
+            decl(1, DType::F32, &[4, 4]),
+            decl(2, DType::F32, &[0, 4]),
+            decl(3, DType::U32, &[3]),
+        ],
+        [1, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert!(rejected_with(&r, "C8:"), "{r:?}");
+    memory.free(own);
+}
+
+/// 公開の `Device` の `queue()` 越しの `dispatch_checked` は、別の device のバッファの束縛を
+/// 本物の宣言でも `DeviceMismatch` で拒み、同じ device のバッファは通す。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn dispatch_checked_through_the_public_device_rejects_another_devices_buffer() {
+    let first = new_device();
+    let second = new_device();
+    let pipeline = checked_pipeline(second.as_ref(), "fill", vec![0]);
+    let foreign = first
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate first");
+    let own = second
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate second");
+    let queue = second.queue();
+    let mut encoder = queue.create_encoder();
+
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &foreign, 0)],
+        &[],
+        &[decl(0, DType::F32, &[4])],
+        [4, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+    let r = queue.dispatch_checked(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &own, 0)],
+        &[],
+        &[decl(0, DType::F32, &[4])],
+        [4, 1, 1],
+        [1, 1, 1],
+        &[],
+    );
+    assert_eq!(r, Ok(()));
+    first.memory().free(foreign);
+    second.memory().free(own);
 }
