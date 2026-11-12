@@ -24,6 +24,8 @@ native-blocking-wait = []
 ext-interop = []
 # 描画の公開の型と GraphicsOps を載せる（graphics モジュール）。契約の crate の同名の feature から転送される（説明は docs/graphics-types.md）。
 graphics = []
+# 成果物の検査の口（`artifact` module と `Device::artifact_hooks`）を載せる。既定にも本番の組にも入れない。契約の crate の同名の feature から転送される。
+artifact-inspection = []
 
 [[test]]
 name = "fault_hooks_types"
@@ -259,6 +261,10 @@ required-features = ["ext-interop"]
 [[test]]
 name = "device_fault_hooks"
 required-features = ["fault-injection"]
+
+[[test]]
+name = "device_artifact_hooks"
+required-features = ["artifact-inspection"]
 
 [[test]]
 name = "interop_extension_defaults"

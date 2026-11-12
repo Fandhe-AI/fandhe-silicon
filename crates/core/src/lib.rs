@@ -97,5 +97,9 @@ pub mod ptx_search;
 #[cfg(feature = "fault-injection")]
 pub mod fault;
 
+/// 成果物の検査の口の trait（`ArtifactHooks`）。
+#[cfg(feature = "artifact-inspection")]
+pub mod artifact;
+
 #[cfg(feature = "graphics")]
 pub mod graphics;
