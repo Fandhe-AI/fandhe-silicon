@@ -272,7 +272,7 @@ impl Drop for CommandEncoder {
 ///
 /// `create_encoder` は `Result` を返さず、その時点では何も投入しない（CMD-1）。
 /// 既定の本体を持つメソッドは、背後実装が上書きしなければ次のように振る舞う:
-/// `poll_ex` は `poll` の 3 値を写し、`submit_ex`・`submit_exportable` は `submit` に委ね、`gpu_timing` は `Unavailable`。
+/// `poll_ex` は `poll` の 3 値を写し、`submit_ex`・`submit_exportable` は `submit` に委ね、`dispatch_checked` は引数の宣言を照らしてから `dispatch_ex` に委ね、`gpu_timing` は `Unavailable`。
 /// `submit_many`・`max_buffer_bytes` は既定の本体を持たず、背後実装が必ず実装する。
 pub trait CommandQueue {
     /// 記録先を作る。何も投入しない。
@@ -517,4 +517,126 @@ pub trait CommandQueue {
     /// }
     /// ```
     fn max_buffer_bytes(&self) -> u64;
+
+    /// 引数の宣言を照らしてから `dispatch_ex` を呼ぶ。
+    ///
+    /// 既定の本体は、束縛ごとの容量に束縛のハンドルの `size()` を、上限に `max_buffer_bytes()` を渡して
+    /// C8・C7・C4・C5・C6 の順に照らす（BIND-53）。違反は `dispatch_ex` を呼ばずに
+    /// `InvalidArgument`（文言の先頭は `C8:`・`C7:`・`C4:`・`C5:`・`C6:`）で返す。
+    /// 通れば `dispatch_ex` を 1 回呼び、結果をそのまま返す。
+    /// 既定の本体は束縛のハンドルを照らさず、受けた引数をそのまま `dispatch_ex` に渡す。
+    ///
+    /// # Errors
+    ///
+    /// 宣言の照らしに違反があれば `ContractError::InvalidArgument`。通ったときは `dispatch_ex` の結果。
+    ///
+    /// ```
+    /// use std::cell::Cell;
+    /// use fandhe_silicon_core::error::{CompletionState, ContractError};
+    /// use fandhe_silicon_core::execution::{
+    ///     Binding, CommandEncoder, CommandQueue, ConstantBinding, DType, ImportedSemaphoreHandle,
+    ///     OperandSpec, PipelineHandle, SubmitToken, ThreadgroupMemory,
+    /// };
+    /// use fandhe_silicon_core::memory::{BufferHandle, BufferUsage};
+    /// struct Q { calls: Cell<u32> }
+    /// impl CommandQueue for Q {
+    ///     fn create_encoder(&self) -> CommandEncoder { CommandEncoder::__backend_new(1, None) }
+    ///     fn submit(&self, _c: CommandEncoder, _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn submit_many(&self, _c: Vec<CommandEncoder>, _a: &[SubmitToken], _w: &[ImportedSemaphoreHandle])
+    ///         -> Result<SubmitToken, ContractError> { Ok(SubmitToken::__backend_new(0, 0, 0)) }
+    ///     fn poll(&self, _t: SubmitToken) -> CompletionState { CompletionState::Complete }
+    ///     fn on_complete(&self, _t: SubmitToken, cb: Box<dyn FnOnce(CompletionState) + Send>) {
+    ///         cb(CompletionState::Complete);
+    ///     }
+    ///     #[cfg(feature = "native-blocking-wait")]
+    ///     fn wait_blocking(&self, _t: SubmitToken, _o: Option<std::time::Duration>)
+    ///         -> Result<(), ContractError> { Ok(()) }
+    ///     fn dispatch_ex(
+    ///         &self,
+    ///         _e: &mut CommandEncoder,
+    ///         _p: &PipelineHandle,
+    ///         _b: &[Binding<'_>],
+    ///         _c: &[ConstantBinding<'_>],
+    ///         _d: [u32; 3],
+    ///         _t: [u32; 3],
+    ///         _m: &[ThreadgroupMemory],
+    ///     ) -> Result<(), ContractError> {
+    ///         self.calls.set(self.calls.get() + 1);
+    ///         Ok(())
+    ///     }
+    ///     fn max_buffer_bytes(&self) -> u64 { 4000 }
+    /// }
+    /// let queue = Q { calls: Cell::new(0) };
+    /// let mut encoder = queue.create_encoder();
+    /// let pipeline = PipelineHandle::__backend_new(1, 1);
+    /// let buffer = BufferHandle::__backend_new(1, 1, 1, 16, BufferUsage::STORAGE);
+    /// let bindings = [Binding::new(0, &buffer, 0)];
+    ///
+    /// let too_big = [OperandSpec { slot: 0, dtype: DType::F32, shape: &[100], stride: &[1], alignment: 0 }];
+    /// let result = queue.dispatch_checked(
+    ///     &mut encoder, &pipeline, &bindings, &[], &too_big, [1, 1, 1], [1, 1, 1], &[],
+    /// );
+    /// match result {
+    ///     Err(ContractError::InvalidArgument(m)) => assert!(m.starts_with("C4:")),
+    ///     other => panic!("unexpected: {other:?}"),
+    /// }
+    /// assert_eq!(queue.calls.get(), 0);
+    ///
+    /// let fits = [OperandSpec { slot: 0, dtype: DType::F32, shape: &[4], stride: &[1], alignment: 0 }];
+    /// let result = queue.dispatch_checked(
+    ///     &mut encoder, &pipeline, &bindings, &[], &fits, [1, 1, 1], [1, 1, 1], &[],
+    /// );
+    /// assert!(result.is_ok());
+    /// assert_eq!(queue.calls.get(), 1);
+    /// ```
+    // 引数は dispatch の宣言の並びそのままで、まとめる型を挟まない。
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_checked(
+        &self,
+        encoder: &mut CommandEncoder,
+        pipeline: &PipelineHandle,
+        bindings: &[Binding<'_>],
+        consts: &[ConstantBinding<'_>],
+        declared: &[super::OperandSpec<'_>],
+        dispatch_dims: [u32; 3],
+        threads_per_threadgroup: [u32; 3],
+        threadgroup_memory: &[ThreadgroupMemory],
+    ) -> Result<(), ContractError> {
+        let operand_bindings: Vec<super::OperandBinding> = bindings
+            .iter()
+            .map(|b| super::OperandBinding {
+                slot: b.slot,
+                offset: b.offset,
+            })
+            .collect();
+        let operand_consts: Vec<super::OperandConstant<'_>> = consts
+            .iter()
+            .map(|c| super::OperandConstant {
+                slot: c.slot,
+                bytes: c.bytes,
+            })
+            .collect();
+        super::validate_dispatch_operands(
+            declared,
+            &operand_bindings,
+            &operand_consts,
+            |b| {
+                bindings
+                    .iter()
+                    .find(|x| x.slot == b.slot)
+                    .map(|x| x.buffer.size())
+            },
+            self.max_buffer_bytes(),
+        )?;
+        self.dispatch_ex(
+            encoder,
+            pipeline,
+            bindings,
+            consts,
+            dispatch_dims,
+            threads_per_threadgroup,
+            threadgroup_memory,
+        )
+    }
 }
