@@ -219,7 +219,6 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
-| `docs/cuda-upload-download.md` | CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4） |
 | `docs/cuda-capability-query.md` | CUDA の背後実装の能力の問合せ（TASK-175）の所在と、本リポの現状の事実・能力の表と問合せ（1/4）・能力の表の共通の規則の検査（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
