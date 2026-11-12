@@ -59,3 +59,7 @@ cargo build -p fandhe-silicon-core --target wasm32-unknown-unknown
 make verify && make check && make deny
 make public-api-check && make public-name-check && make public-api-webgpu-check && make core-deps-check
 ```
+
+## 今の値の補い（base 2b3b38b）
+
+「所在」の表の `CommandQueue` の「必須のメソッドは …」の行は記録時点の値で、書き換えない。今は `CommandQueue` に、必須の `max_buffer_bytes` と、既定の本体を持つ `dispatch_checked` が足されている（[dispatch-checked-default.md](dispatch-checked-default.md)、TASK-569）。
