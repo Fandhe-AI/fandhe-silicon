@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics` の裏に試験・故障の差し込み・描画の module を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics`・`artifact-inspection` の裏に試験・故障の差し込み・描画・成果物の検査の口の module を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 

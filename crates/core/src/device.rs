@@ -192,6 +192,14 @@ pub trait Device: Capabilities {
         None
     }
 
+    /// 成果物の検査の口。既定は `None`（持たない）。
+    ///
+    /// 持つ背後実装だけが上書きする。feature `artifact-inspection` のビルドにだけある。対応する項目のポインタ: DEV-80、TASK-492。
+    #[cfg(feature = "artifact-inspection")]
+    fn artifact_hooks(&self) -> Option<&dyn crate::artifact::ArtifactHooks> {
+        None
+    }
+
     /// device を明示に破棄する。値を消費する。
     ///
     /// 既定の本体は値を落とす（`Drop` と同じ）。背後実装が上書きする。対応する項目のポインタ: DEV-151。

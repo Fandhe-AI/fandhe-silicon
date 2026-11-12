@@ -51,7 +51,7 @@ backend-dx12-compute = ["contract-core"]
 test-support = ["fandhe-silicon-core/test-support"]
 # fault-injection は core の同名 feature（故障の差し込み口）へ転送する（説明は docs/contract-fault-injection.md）。
 fault-injection = ["fandhe-silicon-core/fault-injection"]
-artifact-inspection = ["backend-metal"]
+artifact-inspection = ["backend-metal", "fandhe-silicon-core/artifact-inspection"]
 
 [[test]]
 name = "backend_cuda_capability"
