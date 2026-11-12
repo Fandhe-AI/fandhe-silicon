@@ -124,3 +124,5 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 - `submit_many` の device に触る前の検査（`precheck_submit_many`）の順は、`after` の各印の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）。CUDA の背後実装の同名の検査と同じ順で、複数の不正が重なるときはこの順で最初のものが返る。そのあとに全記録先の所属（`InvalidArgument`）を検査する流れは変わらない。
 - 重なる不正の順は `precheck_tests` の `submit_many_checks_after_then_empty_then_wait`（他 device の印と空の列と空でない `wait` の組を含む）で確かめる。どの OS でも流れる。確かめ方: `grep -n 'fn precheck_submit_many' crates/contract/src/backend_metal.rs`
+
+製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が入るまで、積み込みの形は単体試験のビルドだけが確かめる。

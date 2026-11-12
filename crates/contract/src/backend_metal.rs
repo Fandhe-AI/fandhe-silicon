@@ -19,6 +19,9 @@
 //! ロストは、feature `fault-injection` の模擬（`FaultHooks::simulate_device_lost`）と、device の型の内側の
 //! コールバックの登録（`DeviceLostNotify`）だけがある。
 //!
+//! 製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が
+//! 入るまで、safe な経路から任意の MSL を走らせない。積み込みの形は単体試験のビルドだけが確かめる。
+//!
 //! `free` は、表から外したバッファを最後に使った投入が終わっていなければ解放の保留の一覧に置き、
 //! ゼロ化も再利用の一覧（pool）への回しもしない。終わったら（完了か失敗）、全バイトを 0 にしてから
 //! 同じ `byte_len` の pool へ回す（上限を超える分は解放する）。再利用された `allocate` の利用者に以前の内容は見えない。
@@ -507,6 +510,12 @@ struct RecordedBinding {
     generation: u64,
     offset: u64,
 }
+
+/// dispatch の実行を許すか。`check_dispatch_args` は引数の数値と宣言の配置だけを見て、カーネルが実際に触る範囲は
+/// 保証しない。その保証（シェーダーの検証または実行時の範囲の制限）が入るまで、製品のビルドでは false にして
+/// 記録を含む投入を `Unsupported` で拒む。この crate の単体試験のビルドだけが、積み込みの形を確かめるために true にする。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);
 
 /// 記録した dispatch 1 件。`dispatch_ex` が検査の後に積み、投入の時に取り出して compute encoder に積む。
 ///
@@ -2273,6 +2282,14 @@ mod imp {
                 |id| buffers.map.get(&id).map(|entry| entry.generation),
                 self.current_generation(),
             )?;
+            // 任意の MSL がカーネルのアクセス範囲を保証されないまま走るのを防ぐ。dispatch を含む投入は、
+            // 範囲の保証が入るまで製品のビルドでは何も積まず確定せずに拒む（fail-closed）。
+            if !DISPATCH_EXECUTION_ENABLED && records.iter().any(|group| !group.is_empty()) {
+                return Err(ContractError::Unsupported {
+                    op: "submit",
+                    backend: BackendKind::Metal,
+                });
+            }
             let bound_ids: Vec<u64> = records
                 .iter()
                 .flatten()

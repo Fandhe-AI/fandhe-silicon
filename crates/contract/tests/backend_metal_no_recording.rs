@@ -255,3 +255,19 @@ fn backend_metal_constant_safety_comment_keeps_its_rationale() {
         constant_misses.join("\n")
     );
 }
+
+/// 製品のビルドで dispatch を含む投入を拒む門が残っていることを、ソースの文字列で守る。
+/// 外すときは、カーネルが触る範囲を保証する仕組みと、それを確かめる試験を同じ変更で入れる。
+#[test]
+fn backend_metal_dispatch_execution_gate_stays_closed_outside_unit_tests() {
+    assert!(
+        SOURCE.contains("const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);"),
+        "dispatch execution must stay disabled in non-test builds"
+    );
+    assert!(
+        SOURCE.contains(
+            "if !DISPATCH_EXECUTION_ENABLED && records.iter().any(|group| !group.is_empty())"
+        ),
+        "commit_records must reject recorded dispatches while the gate is closed"
+    );
+}
