@@ -6876,6 +6876,163 @@ mod imp {
                     }
                     assert_eq!(record_count(&device, id), Some(0));
                 }
+
+                /// metallib から作った GEMM と ReLU を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                #[cfg(feature = "test-support")]
+                mod parity_gemm_relu {
+                    use super::*;
+                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
+                    use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
+                    use fandhe_silicon_core::parity::tolerance::T1;
+
+                    fn u32_of(v: usize) -> u32 {
+                        u32::try_from(v).expect("fits in u32")
+                    }
+
+                    /// ビット列を保ったまま f32 の列を置く。
+                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
+                        let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
+                        buffer_of(device, &bits)
+                    }
+
+                    fn read_f32s(device: &MetalDevice, h: &BufferHandle, len: usize) -> Vec<f32> {
+                        read_u32s(device, h, len as u64)
+                            .into_iter()
+                            .map(f32::from_bits)
+                            .collect()
+                    }
+
+                    /// 参照と実測を T1 で比べ、外れた要素が 0 でなければケースの名前と最初の位置を添えて落とす。
+                    fn assert_matches_reference(name: &str, reference: &[f32], actual: &[f32]) {
+                        let cmp = compare_f32_with_special_values(reference, actual, T1)
+                            .expect("compare");
+                        if !cmp.is_match() {
+                            let at = cmp.first_mismatch();
+                            let pair = at.map(|i| (reference.get(i), actual.get(i)));
+                            panic!("{name}: mismatch at {at:?}: (reference, actual) = {pair:?}");
+                        }
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った GEMM を G-01〜G-13・E-1 の 14 件で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn gemm_from_the_metallib_matches_the_cpu_reference_for_14_cases() {
+                        let device = new_device();
+                        let dir = ScratchDir::new("parity-gemm");
+                        let lib = build_metallib(&dir, "gemm", GEMM_MSL);
+                        let ids = [
+                            CaseId::G01,
+                            CaseId::G02,
+                            CaseId::G03,
+                            CaseId::G04,
+                            CaseId::G05,
+                            CaseId::G06,
+                            CaseId::G07,
+                            CaseId::G08,
+                            CaseId::G09,
+                            CaseId::G10,
+                            CaseId::G11,
+                            CaseId::G12,
+                            CaseId::G13,
+                            CaseId::E1,
+                        ];
+                        for id in ids {
+                            let CaseInput::Gemm(g) = id.input().expect("input") else {
+                                panic!("{}: not a gemm input", id.name());
+                            };
+                            let output = id.reference().expect("reference");
+                            let reference = output.as_f32().expect("f32 reference");
+                            let (m, k, n) = (g.m(), g.k(), g.n());
+                            let (sa, sb, sc) = (
+                                [m as u64, k as u64],
+                                [k as u64, n as u64],
+                                [m as u64, n as u64],
+                            );
+                            let (ra, rb, rc) = ([k as i64, 1], [n as i64, 1], [n as i64, 1]);
+                            let declared = [
+                                spec(0, DType::F32, &sa, &ra),
+                                spec(1, DType::F32, &sb, &rb),
+                                spec(2, DType::F32, &sc, &rc),
+                                spec(3, DType::U32, &[3], &[1]),
+                            ];
+                            let hooks = device.artifact_hooks().expect("artifact hooks");
+                            let p = hooks
+                                .create_pipeline_checked_from_metallib(&lib, "gemm_f32", &declared)
+                                .expect("create from metallib");
+                            let a = f32_buffer(&device, g.a());
+                            let b = f32_buffer(&device, g.b());
+                            let c = zeroed(&device, (m * n) as u64);
+                            let dims = to_bytes(&[u32_of(m), u32_of(k), u32_of(n)]);
+                            let mut enc = device.create_encoder();
+                            let enc_id = enc.__backend_id();
+                            let r = device.dispatch_checked(
+                                &mut enc,
+                                &p,
+                                &[
+                                    Binding::new(0, &a, 0),
+                                    Binding::new(1, &b, 0),
+                                    Binding::new(2, &c, 0),
+                                ],
+                                &[ConstantBinding::new(3, &dims)],
+                                &declared,
+                                [u32_of(n.div_ceil(8)), u32_of(m.div_ceil(8)), 1],
+                                [8, 8, 1],
+                                &[],
+                            );
+                            assert_eq!(r, Ok(()), "{}", id.name());
+                            assert_eq!(record_count(&device, enc_id), Some(1), "{}", id.name());
+                            submit_and_wait(&device, enc);
+                            let actual = read_f32s(&device, &c, m * n);
+                            assert_matches_reference(id.name(), reference, &actual);
+                        }
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った ReLU を E-2 で投入し、CPU の参照と外れた要素 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn relu_from_the_metallib_matches_the_cpu_reference() {
+                        let device = new_device();
+                        let dir = ScratchDir::new("parity-relu");
+                        let lib = build_metallib(&dir, "relu", RELU_MSL);
+                        let id = CaseId::E2;
+                        let CaseInput::Relu(x) = id.input().expect("input") else {
+                            panic!("{}: not a relu input", id.name());
+                        };
+                        let output = id.reference().expect("reference");
+                        let reference = output.as_f32().expect("f32 reference");
+                        let len = x.len();
+                        let shape = [len as u64];
+                        let declared = [
+                            spec(0, DType::F32, &shape, &[1]),
+                            spec(1, DType::F32, &shape, &[1]),
+                            spec(2, DType::U32, &[1], &[1]),
+                        ];
+                        let hooks = device.artifact_hooks().expect("artifact hooks");
+                        let p = hooks
+                            .create_pipeline_checked_from_metallib(&lib, "relu_f32", &declared)
+                            .expect("create from metallib");
+                        let xb = f32_buffer(&device, &x);
+                        let yb = zeroed(&device, len as u64);
+                        let consts = to_bytes(&[u32_of(len)]);
+                        let mut enc = device.create_encoder();
+                        let enc_id = enc.__backend_id();
+                        let r = device.dispatch_checked(
+                            &mut enc,
+                            &p,
+                            &[Binding::new(0, &xb, 0), Binding::new(1, &yb, 0)],
+                            &[ConstantBinding::new(2, &consts)],
+                            &declared,
+                            [u32_of(len.div_ceil(64)), 1, 1],
+                            [64, 1, 1],
+                            &[],
+                        );
+                        assert_eq!(r, Ok(()), "{}", id.name());
+                        assert_eq!(record_count(&device, enc_id), Some(1), "{}", id.name());
+                        submit_and_wait(&device, enc);
+                        let actual = read_f32s(&device, &yb, len);
+                        assert_matches_reference(id.name(), reference, &actual);
+                    }
+                }
             }
         }
 
