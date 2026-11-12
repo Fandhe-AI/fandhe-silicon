@@ -104,3 +104,28 @@ make verify
 cargo test -p fandhe-silicon-core --lib dispatch_check
 make verify
 ```
+
+## 複数の違反の順と重複した宣言の試験（5/6）
+
+C4〜C8 の違反が複数ある入力での返り方と、同じ `slot` の宣言が複数あるときの扱いを、外の crate から公開のパスで `validate_dispatch_operands` を直接呼んで確かめる。上限は `u64::MAX` で、feature なしで動く（TASK-426）。
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/core/tests/execution_operand_check.rs` |
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `dispatch_checks_return_first_violation_in_order` | C8・C7・C4・C5・C6 のすべてに当たる入力から、違反を 1 つずつ外していく | `C8`、`C7`、`C4`、`C5`、`C6`、`Ok(())` の順 |
+| `dispatch_checks_return_earlier_of_two_violations` | 隣り合う 2 つの検査（C8 と C7、C7 と C4、C4 と C5、C5 と C6）に同時に当たる入力 | 前の検査の拒否 |
+| `duplicate_declarations_c8_checks_every_declaration` | slot 0 の宣言 2 件の一方の `shape` に 0（前後どちらでも） | どちらも `C8` |
+| `duplicate_declarations_c7_checks_every_declaration` | slot 0・slot 0・slot 1 の宣言。束縛は slot 1 / slot 5 / slot 0 を 2 回 | `Ok(())` / `C7` / `C7` |
+| `duplicate_declarations_c4_uses_last_declaration` | F32 `[1]` と F32 `[16]` の宣言。束縛 offset 0 | 容量 `Some(4)` で `C4`、`Some(64)` で `Ok(())`、前後を入れ替えると `Some(4)` で `Ok(())` |
+| `duplicate_declarations_c5_uses_first_declaration` | `alignment` 16 と 0 の宣言。束縛 offset 4・容量 `None` | `C5`、前後を入れ替えると `Ok(())` |
+| `duplicate_declarations_c6_uses_first_declaration` | F32 `[1]` と F32 `[16]` の宣言。定数のみ | 先頭が `[1]` なら 4 バイトで `Ok(())`・64 バイトで `C6`、前後を入れ替えると逆 |
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-core --test execution_operand_check
+make verify
+```

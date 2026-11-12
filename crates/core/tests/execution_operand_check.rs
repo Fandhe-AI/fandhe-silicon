@@ -2,7 +2,7 @@
 //!
 //! C1・C3 に当たる入力がその拒否で返り、C4〜C8 を判定せず容量の閉包も呼ばれないこと、
 //! C1・C3 を通る入力では `validate_dispatch_operands` を単独で呼んだ結果と同じ値が返ること、
-//! すべての検査を通る入力が `Ok(())` になること、検査が通る 6 通りの入力で 3 つの関数がどれも `Ok(())` を返すこと、署名が固定であることを確かめる。feature なしで動く。
+//! すべての検査を通る入力が `Ok(())` になること、検査が通る 6 通りの入力で 3 つの関数がどれも `Ok(())` を返すこと、C4〜C8 の違反が複数ある入力で C8 → C7 → C4 → C5 → C6 の順に最初の 1 件が返ること、同じ slot の宣言が複数あるときの C8・C7・C4・C5・C6 の扱い、署名が固定であることを確かめる。feature なしで動く。
 
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::execution::{
@@ -280,4 +280,205 @@ fn sequential_checks_accept_gemm() {
         bytes: &bytes,
     }];
     assert_all_accept(&d, &layout, &bindings, &consts, |_| Some(1 << 20), u64::MAX);
+}
+
+/// 宣言・束縛・定数・容量を渡して `validate_dispatch_operands` を呼ぶ（上限は `u64::MAX`）。
+fn dispatch(
+    declared: &[OperandSpec<'_>],
+    bindings: &[OperandBinding],
+    consts: &[OperandConstant<'_>],
+    cap: Cap,
+) -> Result<(), ContractError> {
+    validate_dispatch_operands(declared, bindings, consts, cap, u64::MAX)
+}
+
+/// 違反を 1 つずつ外していくと、返る拒否が C8 → C7 → C4 → C5 → C6 の順に進み、最後に `Ok(())` になる（BIND-45）。
+#[test]
+fn dispatch_checks_return_first_violation_in_order() {
+    let cap16: Cap = |_| Some(16);
+    let cap_none: Cap = |_| None;
+    let bytes8 = [0u8; 8];
+    let bytes12 = [0u8; 12];
+    let c8_d = [
+        spec(2, DType::F32, &[0], &[], 0),
+        spec(0, DType::F32, &[100], &[], 16),
+        spec(1, DType::U32, &[3], &[], 0),
+    ];
+    let fixed_d = [
+        spec(2, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[100], &[], 16),
+        spec(1, DType::U32, &[3], &[], 0),
+    ];
+    let b9 = OperandBinding { slot: 9, offset: 0 };
+    let b0_off4 = OperandBinding { slot: 0, offset: 4 };
+    let b0_off16 = OperandBinding {
+        slot: 0,
+        offset: 16,
+    };
+    let c8_consts = [OperandConstant {
+        slot: 1,
+        bytes: &bytes8,
+    }];
+    let ok_consts = [OperandConstant {
+        slot: 1,
+        bytes: &bytes12,
+    }];
+
+    let r = dispatch(&c8_d, &[b9, b0_off4], &c8_consts, cap16);
+    assert!(is_rejected_by(&r, "C8"), "{r:?}");
+    let r = dispatch(&fixed_d, &[b9, b0_off4], &c8_consts, cap16);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let r = dispatch(&fixed_d, &[b0_off4], &c8_consts, cap16);
+    assert!(is_rejected_by(&r, "C4"), "{r:?}");
+    let r = dispatch(&fixed_d, &[b0_off4], &c8_consts, cap_none);
+    assert!(is_rejected_by(&r, "C5"), "{r:?}");
+    let r = dispatch(&fixed_d, &[b0_off16], &c8_consts, cap_none);
+    assert!(is_rejected_by(&r, "C6"), "{r:?}");
+    let r = dispatch(&fixed_d, &[b0_off16], &ok_consts, cap_none);
+    assert_eq!(r, Ok(()));
+}
+
+/// 隣り合う 2 つの検査に同時に当たる入力では、前の検査の拒否だけが返る（BIND-45）。
+#[test]
+fn dispatch_checks_return_earlier_of_two_violations() {
+    let bytes8 = [0u8; 8];
+
+    // C8 と C7
+    let d = [spec(0, DType::F32, &[0], &[], 0)];
+    let r = dispatch(&d, &[OperandBinding { slot: 9, offset: 0 }], &[], |_| None);
+    assert!(is_rejected_by(&r, "C8"), "{r:?}");
+
+    // C7 と C4
+    let d = [spec(0, DType::F32, &[100], &[], 0)];
+    let bindings = [
+        OperandBinding { slot: 9, offset: 0 },
+        OperandBinding { slot: 0, offset: 0 },
+    ];
+    let r = dispatch(&d, &bindings, &[], |_| Some(4));
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+
+    // C4 と C5
+    let d = [spec(0, DType::F32, &[100], &[], 16)];
+    let r = dispatch(&d, &[OperandBinding { slot: 0, offset: 4 }], &[], |_| {
+        Some(16)
+    });
+    assert!(is_rejected_by(&r, "C4"), "{r:?}");
+
+    // C5 と C6
+    let d = [
+        spec(0, DType::F32, &[4], &[], 16),
+        spec(1, DType::U32, &[3], &[], 0),
+    ];
+    let consts = [OperandConstant {
+        slot: 1,
+        bytes: &bytes8,
+    }];
+    let r = dispatch(
+        &d,
+        &[OperandBinding { slot: 0, offset: 4 }],
+        &consts,
+        |_| None,
+    );
+    assert!(is_rejected_by(&r, "C5"), "{r:?}");
+}
+
+/// 同じ slot の宣言が複数あるとき、C8 は前後どちらの宣言の違反も拒否する（BIND-45）。
+#[test]
+fn duplicate_declarations_c8_checks_every_declaration() {
+    let zero_last = [
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[0], &[], 0),
+    ];
+    let zero_first = [
+        spec(0, DType::F32, &[0], &[], 0),
+        spec(0, DType::F32, &[1], &[], 0),
+    ];
+    for d in [&zero_last, &zero_first] {
+        let r = dispatch(d, &[], &[], |_| None);
+        assert!(is_rejected_by(&r, "C8"), "{r:?}");
+    }
+}
+
+/// 同じ slot の宣言が複数あっても、C7 は宣言の重複を拒否せず、束縛の側の重複と未宣言だけを拒否する（BIND-45）。
+#[test]
+fn duplicate_declarations_c7_checks_every_declaration() {
+    let d = [
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(1, DType::F32, &[1], &[], 0),
+    ];
+    let b = |slot| OperandBinding { slot, offset: 0 };
+    let r = dispatch(&d, &[b(1)], &[], |_| None);
+    assert_eq!(r, Ok(()));
+    let r = dispatch(&d, &[b(5)], &[], |_| None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+    let r = dispatch(&d, &[b(0), b(0)], &[], |_| None);
+    assert!(is_rejected_by(&r, "C7"), "{r:?}");
+}
+
+/// 同じ slot の宣言が複数あるとき、C4 は最後の宣言で判定し、前後を入れ替えると結果も入れ替わる（BIND-45）。
+#[test]
+fn duplicate_declarations_c4_uses_last_declaration() {
+    let small_then_large = [
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[16], &[], 0),
+    ];
+    let large_then_small = [
+        spec(0, DType::F32, &[16], &[], 0),
+        spec(0, DType::F32, &[1], &[], 0),
+    ];
+    let bindings = [OperandBinding { slot: 0, offset: 0 }];
+    let r = dispatch(&small_then_large, &bindings, &[], |_| Some(4));
+    assert!(is_rejected_by(&r, "C4"), "{r:?}");
+    let r = dispatch(&small_then_large, &bindings, &[], |_| Some(64));
+    assert_eq!(r, Ok(()));
+    let r = dispatch(&large_then_small, &bindings, &[], |_| Some(4));
+    assert_eq!(r, Ok(()));
+}
+
+/// 同じ slot の宣言が複数あるとき、C5 は先頭の宣言で判定し、前後を入れ替えると結果も入れ替わる（BIND-45）。
+#[test]
+fn duplicate_declarations_c5_uses_first_declaration() {
+    let aligned_first = [
+        spec(0, DType::F32, &[1], &[], 16),
+        spec(0, DType::F32, &[1], &[], 0),
+    ];
+    let aligned_last = [
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[1], &[], 16),
+    ];
+    let bindings = [OperandBinding { slot: 0, offset: 4 }];
+    let r = dispatch(&aligned_first, &bindings, &[], |_| None);
+    assert!(is_rejected_by(&r, "C5"), "{r:?}");
+    let r = dispatch(&aligned_last, &bindings, &[], |_| None);
+    assert_eq!(r, Ok(()));
+}
+
+/// 同じ slot の宣言が複数あるとき、C6 は先頭の宣言の大きさで判定し、前後を入れ替えると結果も入れ替わる（BIND-45）。
+#[test]
+fn duplicate_declarations_c6_uses_first_declaration() {
+    let small_then_large = [
+        spec(0, DType::F32, &[1], &[], 0),
+        spec(0, DType::F32, &[16], &[], 0),
+    ];
+    let large_then_small = [
+        spec(0, DType::F32, &[16], &[], 0),
+        spec(0, DType::F32, &[1], &[], 0),
+    ];
+    let bytes4 = [0u8; 4];
+    let bytes64 = [0u8; 64];
+    let c4 = [OperandConstant {
+        slot: 0,
+        bytes: &bytes4,
+    }];
+    let c64 = [OperandConstant {
+        slot: 0,
+        bytes: &bytes64,
+    }];
+    assert_eq!(dispatch(&small_then_large, &[], &c4, |_| None), Ok(()));
+    let r = dispatch(&small_then_large, &[], &c64, |_| None);
+    assert!(is_rejected_by(&r, "C6"), "{r:?}");
+    assert_eq!(dispatch(&large_then_small, &[], &c64, |_| None), Ok(()));
+    let r = dispatch(&large_then_small, &[], &c4, |_| None);
+    assert!(is_rejected_by(&r, "C6"), "{r:?}");
 }
