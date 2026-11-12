@@ -149,3 +149,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 | 1/3 | オプション付きの入力の生成 | #5627 |
 | 2/3 | device の要る生成の試験 | #5628 |
 | 3/3 | 完了の条件の確かめ | #5629 |
+
+## 今の値の補い（base da4f3d1）
+
+記録時点の表と既存の節は書き換えない。
+
+- `create_pipeline` の入力の分類からコンパイル・特殊化までは、`imp` の中の `compile_function` にある。確かめ方: `grep -n 'fn compile_function' crates/contract/src/backend_metal.rs`
+- 「完了の条件の確かめ（3/3）」の (2)・(3) の `grep` のコマンドは、今の base でもそのまま流せる。出力の行数は (2) が 30 行、(3) が 7 行。
+- パイプラインの reflection の取り出しの所在と試験は [metal-pipeline-reflection](metal-pipeline-reflection.md) に置く。

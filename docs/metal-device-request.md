@@ -144,3 +144,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 - 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 55 → 59。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
 - 増えた 4 本の所在は [metal-dispatch-checked](metal-dispatch-checked.md) に置く。
+
+## 今の値の補い（base da4f3d1）
+
+記録時点の表と既存の節は書き換えない。
+
+- 「所在」の表の依存の行: `objc2-metal` の feature に `MTLArgument` が加わった。crate と版は変わらない。確かめ方: `grep -n 'objc2-metal' crates/contract/Cargo.toml`
+- パイプラインの reflection の取り出しの所在と試験は [metal-pipeline-reflection](metal-pipeline-reflection.md) に置く。
