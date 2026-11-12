@@ -11,14 +11,16 @@
 //! 公開するのは `MetalDeviceProvider` だけ。device の型 `MetalDevice` は非公開で、上・下-2 は
 //! `request` が返す `Box<dyn Device>` 越しに使う。
 //!
-//! 投入は、記録先ごとに空のコマンドバッファを 1 つ作って確定する（`submit`・`submit_many`）。
-//! 記録の操作（コピー・クリア・dispatch）・待ちセマフォ・実際のロストの検出はこの段では持たない。
-//! したがって投入するコマンドバッファはエンコーダを開かず、どのバッファも参照せず、
-//! device のメモリへの CPU からの読み書きと GPU の読み書きが重なることはない。
+//! `dispatch_ex` は検査に通った引数を、記録先ごとの表に plain な値として積む。投入（`submit`・`submit_many`）は、
+//! 束縛したバッファが投入の時にまだ有効なことを全件確かめ、コマンドバッファを 1 つ作り、記録のある記録先ごとに
+//! compute encoder を 1 つ開いて記録の順に積み、確定する。束縛した各バッファの最後に使った投入は、払い出した
+//! 通し番号になる（確かめと登録は同じ錠の中）。コピー・クリア・待ちセマフォ・実際のロストの検出は持たない。
+//! 読み書きの `unsafe` ブロックの同期の根拠は、最後に使った投入が完了していることを確かめてからコピーすることに置く。
 //! ロストは、feature `fault-injection` の模擬（`FaultHooks::simulate_device_lost`）と、device の型の内側の
-//! コールバックの登録（`DeviceLostNotify`）だけがある（TASK-2932、DEV-80 のポインタ）。
-//! 読み書きの `unsafe` ブロックの同期の根拠は、この前提に頼る。
-//! 記録の操作（コピー・クリア・dispatch）を足す変更では、これらのブロックの同期の根拠を必ず書き直す。
+//! コールバックの登録（`DeviceLostNotify`）だけがある。
+//!
+//! 製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が
+//! 入るまで、safe な経路から任意の MSL を走らせない。積み込みの形は単体試験のビルドだけが確かめる。
 //!
 //! `free` は、表から外したバッファを最後に使った投入が終わっていなければ解放の保留の一覧に置き、
 //! ゼロ化も再利用の一覧（pool）への回しもしない。終わったら（完了か失敗）、全バイトを 0 にしてから
@@ -28,9 +30,9 @@
 //!
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
-//! `layout` の写しと一緒に置く。コンパイルのオプション付きの 2 つの入力も受け付ける（TASK-774 のポインタ）。function constant の設定の `unsafe` ブロックは 1 つで、記録の操作とは関係しない。
+//! `layout` の写しと一緒に置く。コンパイルのオプション付きの 2 つの入力も受け付ける（TASK-774 のポインタ）。function constant の設定の `unsafe` ブロックは 1 つで、記録とは関係しない。
 //! キャッシュキーの口（`pipeline_cache_key`。TASK-501 のポインタ）は MSL の 4 つの入力でキーを返し、パイプラインを作らない。
-//! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は識別子の集合だけを握る。
+//! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は記録先の表だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 
@@ -331,6 +333,11 @@ const MAX_CONSTANT_BYTES: usize = 4096;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const THREADGROUP_MEMORY_ALIGN: u32 = 16;
 
+/// 束縛のバッファの offset の倍数。`setBuffer_offset_atIndex` の offset の整列条件で、この倍数でない
+/// offset は記録の前に拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const BUFFER_OFFSET_ALIGN: u64 = 4;
+
 /// `check_dispatch_args` に渡す束縛 1 件の値（slot・offset・バッファの確保の長さ）。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
@@ -377,7 +384,7 @@ struct DispatchArgs<'a> {
 
 /// dispatch の引数を記録の前に検査する。最初に当たった項目を `InvalidArgument` で返し、副作用は持たない。
 ///
-/// 順は、`dispatch_dims`、`threads_per_threadgroup`、slot、束縛の offset、定数、共有メモリ。
+/// 順は、`dispatch_dims`、`threads_per_threadgroup`、slot、束縛の offset（長さ、4 の倍数の順）、定数、共有メモリ。
 /// 足し算・掛け算は `checked_*` で行い、あふれも拒否する。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
@@ -442,6 +449,16 @@ fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
             b.slot
         ));
     }
+    if let Some(b) = args
+        .bindings
+        .iter()
+        .find(|b| b.offset % BUFFER_OFFSET_ALIGN != 0)
+    {
+        return invalid(format!(
+            "binding slot {} offset is not a multiple of {BUFFER_OFFSET_ALIGN}",
+            b.slot
+        ));
+    }
 
     for c in args.constants {
         if c.len == 0 {
@@ -482,6 +499,101 @@ fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
         return invalid("threadgroup memory exceeds the device limit".into());
     }
     Ok(())
+}
+
+/// 記録した束縛 1 件。バッファは識別子と払い出しの世代で指し、Objective-C の型を持たない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecordedBinding {
+    slot: u32,
+    buffer_id: u64,
+    generation: u64,
+    offset: u64,
+}
+
+/// dispatch の実行を許すか。`check_dispatch_args` は引数の数値と宣言の配置だけを見て、カーネルが実際に触る範囲は
+/// 保証しない。その保証（シェーダーの検証または実行時の範囲の制限）が入るまで、製品のビルドでは false にして
+/// 記録を含む投入を `Unsupported` で拒む。この crate の単体試験のビルドだけが、積み込みの形を確かめるために true にする。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);
+
+/// 記録した dispatch 1 件。`dispatch_ex` が検査の後に積み、投入の時に取り出して compute encoder に積む。
+///
+/// 定数の bytes は写しを持つ。Objective-C の型を持たないので、記録先の表は `Send + Sync` のままになる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DispatchRecord {
+    pipeline: u64,
+    bindings: Vec<RecordedBinding>,
+    constants: Vec<(u32, Vec<u8>)>,
+    dispatch_dims: [u32; 3],
+    threads_per_threadgroup: [u32; 3],
+    threadgroup_memory: Vec<(u32, u32)>,
+}
+
+/// 投入の時の束縛のバッファの確かめ。全記録の全束縛を並びの順に見て、最初に外れたものを `InvalidArgument` で返す。
+///
+/// 外れるのは、識別子が表に無い（`lookup` が `None`）・表の項目の世代が記録の世代と違う・記録の世代が
+/// 今の世代と違うとき（COMP-39）。メッセージに束縛の slot の番号を載せる。副作用は持たない。
+/// `submit`・`submit_many` が積む前に呼び、1 件でも外れれば何も積まない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_recorded_buffers(
+    records: &[Vec<DispatchRecord>],
+    lookup: impl Fn(u64) -> Option<u64>,
+    current_generation: u64,
+) -> Result<(), ContractError> {
+    for binding in records.iter().flatten().flat_map(|r| r.bindings.iter()) {
+        let alive = binding.generation == current_generation
+            && lookup(binding.buffer_id) == Some(binding.generation);
+        if !alive {
+            return Err(ContractError::InvalidArgument(format!(
+                "a bound buffer was freed before submit (binding slot {})",
+                binding.slot
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 記録先ごとの記録の列を、compute encoder 1 つ分の並び（run）に分ける純粋な計画。
+///
+/// 各要素は（記録, `setComputePipelineState` を呼ぶか）。空の記録先は run を作らず、記録先どうしは run を共有しない。
+/// run の中で直前の記録とパイプラインが同じなら呼ばない。それまでの記録が設定した共有メモリの index の
+/// どれかを次の記録が持たないときは、その記録の前で run を切り、新しい run の先頭として呼ぶ。
+/// 記録を run に移して返すので、実行する側は run ごとに開く・各記録を積む・閉じるを順に回すだけでよい。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn encode_plan<T>(
+    groups: Vec<Vec<T>>,
+    pipeline_of: impl Fn(&T) -> u64,
+    threadgroup_indices_of: impl Fn(&T) -> &[u32],
+) -> Vec<Vec<(T, bool)>> {
+    let mut runs = Vec::new();
+    for group in groups {
+        let mut run: Vec<(T, bool)> = Vec::new();
+        let mut last_pipeline = 0;
+        let mut set_indices: HashSet<u32> = HashSet::new();
+        for record in group {
+            let indices = threadgroup_indices_of(&record);
+            let covers = set_indices.iter().all(|i| indices.contains(i));
+            let pipeline = pipeline_of(&record);
+            let set_pipeline = if run.is_empty() {
+                true
+            } else if covers {
+                pipeline != last_pipeline
+            } else {
+                runs.push(std::mem::take(&mut run));
+                set_indices.clear();
+                true
+            };
+            set_indices.extend(indices.iter().copied());
+            last_pipeline = pipeline;
+            run.push((record, set_pipeline));
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+    }
+    runs
 }
 
 /// function constant の `index` の上限（含む）。MSL 4.1 仕様の 5.8 節（Program Scope Function Constants）が
@@ -783,8 +895,8 @@ type Callback = Box<dyn FnOnce(CompletionState) + Send>;
 /// `G` は 1 回の投入が持つ列の型で、本物では Objective-C のコマンドバッファの列、試験では偽の状態の列。
 /// `C` は登録された callback の型。
 ///
-/// 登録の表と投入済みの表は同じ錠の中に置く（device にはほかに `buffers`・`open` の錠があるが、この表の操作は
-/// それらを同時に取らない）。callback はどの錠も握らずに呼ぶ。
+/// 登録の表と投入済みの表は同じ錠の中に置く。device のほかの錠（`buffers`・`pipelines`・`open`）とは、
+/// バッファ -> パイプライン -> 記録先 -> 投入済みの順にだけ入れ子で取る（逆の向きでは取らない）。callback はどの錠も握らずに呼ぶ。
 /// 登録の判定は `state_of` が行い、`pending` から回収で外れた番号でも watermark と失敗の集合から
 /// 終端の値が決まるので、登録の表は `pending` と独立に持てる。
 /// callback は必ず表から外して錠を放してから呼ぶ。
@@ -1119,54 +1231,69 @@ impl<G, C> Submissions<G, C> {
     }
 }
 
-/// 開いている記録先の識別子の集合。`CommandEncoder` の後始末の hook を兼ねる。
+/// 開いている記録先の識別子と、その記録先に積んだ dispatch の記録の表。`CommandEncoder` の後始末の hook を兼ねる。
 ///
-/// Objective-C の型を持たないので `Send + Sync` で、記録先が device より長く生きても安全に使える。
+/// 記録は Objective-C の型を持たない plain な値なので `Send + Sync` で、記録先が device より長く生きても安全に使える。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct OpenEncoders {
-    ids: Mutex<HashSet<u64>>,
+    ids: Mutex<HashMap<u64, Vec<DispatchRecord>>>,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl OpenEncoders {
     fn new() -> Self {
         Self {
-            ids: Mutex::new(HashSet::new()),
+            ids: Mutex::new(HashMap::new()),
         }
     }
 
-    /// 集合の錠を取る。更新は挿入と削除だけなので、汚れていても中身を使う。
-    fn lock(&self) -> MutexGuard<'_, HashSet<u64>> {
+    /// 表の錠を取る。更新は挿入・積み・削除だけなので、汚れていても中身を使う。
+    fn lock(&self) -> MutexGuard<'_, HashMap<u64, Vec<DispatchRecord>>> {
         self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// 渡された識別子が開いている集合にあるかを、集合を変えずに返す（0 は集合に入らないので偽）。
+    /// 渡された識別子が開いている表にあるかを、表を変えずに返す（0 は表に入らないので偽）。
     fn is_open(&self, id: u64) -> bool {
-        self.lock().contains(&id)
+        self.lock().contains_key(&id)
     }
 
-    /// 渡された識別子が全部開いている集合にあることを確かめ、あれば集合から外す。
+    /// 開いている記録先の記録の列の末尾に `record` を積む。
     ///
-    /// 1 つでも無い（0 を含む）・同じ識別子が重複していれば `InvalidArgument` で、集合は変えない。
-    fn claim(&self, ids: &[u64]) -> Result<(), ContractError> {
+    /// 開いていなければ（0 を含む）`InvalidArgument` で、表は変えない（記録先の項目は作らない）。
+    fn record(&self, id: u64, record: DispatchRecord) -> Result<(), ContractError> {
+        match self.lock().get_mut(&id) {
+            Some(records) => {
+                records.push(record);
+                Ok(())
+            }
+            None => Err(ContractError::InvalidArgument(
+                "encoder is not open on this device".into(),
+            )),
+        }
+    }
+
+    /// 渡された識別子が全部開いている表にあることを確かめ、あれば表から外して記録の列を渡した順に返す。
+    ///
+    /// 1 つでも無い（0 を含む）・同じ識別子が重複していれば `InvalidArgument` で、表は変えない。
+    fn claim(&self, ids: &[u64]) -> Result<Vec<Vec<DispatchRecord>>, ContractError> {
         let mut open = self.lock();
         let mut seen = HashSet::with_capacity(ids.len());
         for id in ids {
-            if !open.contains(id) || !seen.insert(*id) {
+            if !open.contains_key(id) || !seen.insert(*id) {
                 return Err(ContractError::InvalidArgument(
                     "encoder is not open on this device".into(),
                 ));
             }
         }
-        for id in ids {
-            open.remove(id);
-        }
-        Ok(())
+        Ok(ids
+            .iter()
+            .map(|id| open.remove(id).unwrap_or_default())
+            .collect())
     }
 }
 
 impl __BackendSharedEncoderCloser for OpenEncoders {
-    /// 投入されずに破棄された記録先を集合から外す。無ければ何もしない。
+    /// 投入されずに破棄された記録先を、積んだ記録ごと表から外す。無ければ何もしない。
     fn close(&self, id: u64) {
         self.lock().remove(&id);
     }
@@ -1566,6 +1693,8 @@ fn retire<B, E>(
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -1577,13 +1706,17 @@ mod imp {
     use super::wait_result;
     use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
-        BufState, Callback, CompilePlan, ConstantKind, GroupState, OpenEncoders, PendingReleases,
-        SizePool, Submissions, check_dispatch_args, check_token_owner, check_unique_slots,
-        classify_pipeline_input, compile_plan, drive_table, driven_generation, finish_table,
-        group_state_of, missing_required_constants, missing_required_reason, precheck_submit,
-        precheck_submit_many, prepare_constants, register_table, remove_issued, retire, take_next,
+        BufState, Callback, CompilePlan, ConstantKind, DispatchRecord, GroupState, OpenEncoders,
+        PendingReleases, RecordedBinding, SizePool, Submissions, check_dispatch_args,
+        check_recorded_buffers, check_token_owner, check_unique_slots, classify_pipeline_input,
+        compile_plan, drive_table, driven_generation, encode_plan, finish_table, group_state_of,
+        missing_required_constants, missing_required_reason, precheck_submit, precheck_submit_many,
+        prepare_constants, register_table, remove_issued, retire, take_next,
     };
-    use super::{MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range, metal_cache_key};
+    use super::{
+        DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
+        metal_cache_key,
+    };
 
     use fandhe_silicon_core::capability::{
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
@@ -1617,10 +1750,11 @@ mod imp {
     use objc2_core_graphics as _;
     use objc2_foundation::{NSProcessInfo, NSString};
     use objc2_metal::{
-        MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue, MTLCompileOptions,
-        MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
+        MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
+        MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState,
+        MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
         MTLFunctionConstantValues, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
-        MTLResourceOptions,
+        MTLResourceOptions, MTLSize,
     };
 
     /// 計画をライブラリのコンパイルのオプションにする。`create_pipeline` から呼ばれる。
@@ -1917,17 +2051,17 @@ mod imp {
         limits: LimitsTable,
         /// 既定の device。
         device: Retained<ProtocolObject<dyn MTLDevice>>,
-        /// コマンドキュー。`submit`・`submit_many` が空のコマンドバッファをここから作る。
+        /// コマンドキュー。`submit`・`submit_many` がコマンドバッファをここから 1 つ作る。
         queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
         /// バッファの表。
         buffers: Mutex<Buffers>,
         /// パイプラインの表。作成した状態は device が持ち、破棄の口は持たない。
         pipelines: Mutex<Pipelines>,
-        /// 開いている（まだ投入も破棄もされていない）記録先の識別子の集合。hook と共有する。
+        /// 開いている（まだ投入も破棄もされていない）記録先の識別子と、積んだ dispatch の記録の表。hook と共有する。
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
         submissions: Mutex<Submissions<Vec<CommandBuffer>>>,
-        /// 試験専用。`Some` の間は `commit_buffers` が確定を遅らせ、ここに溜める（`None` なら従来どおり即確定）。
+        /// 試験専用。`Some` の間は `commit_records` が確定を遅らせ、ここに溜める（`None` なら従来どおり即確定）。
         /// 確定していないコマンドバッファは完了しないので、登録の時点で未完了の状態を決定的に作れる。
         /// 製品のビルドには存在しない。
         #[cfg(test)]
@@ -1951,6 +2085,163 @@ mod imp {
         }))
     }
 
+    /// Metal のバッファ（参照を保持する）。
+    type MetalBuffer = Retained<ProtocolObject<dyn MTLBuffer>>;
+
+    /// 投入の時に compute encoder へ積む 1 件。記録を、Metal の呼び出しにそのまま渡せる値へ変換したもの。
+    ///
+    /// 変換で失敗しうる処理（`usize` への変換・表の引き直し）は `prepare_groups` が済ませる。
+    /// 積む側（`encode_run`）は、この値を順に渡すだけで失敗しない。
+    struct PreparedDispatch {
+        pipeline_id: u64,
+        state: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+        /// （バッファ, offset, index）。バッファは `Retained` で持つ。
+        bindings: Vec<(MetalBuffer, usize, usize)>,
+        /// （bytes の写し, index）。
+        constants: Vec<(Vec<u8>, usize)>,
+        /// （長さ, index）。
+        threadgroup_memory: Vec<(usize, usize)>,
+        /// `threadgroup_memory` の index（積み方の計画が見る）。
+        threadgroup_indices: Vec<u32>,
+        grid: MTLSize,
+        threads: MTLSize,
+    }
+
+    /// `NSUInteger` に収まらない値は、切り詰めずに `InvalidArgument` にする。
+    fn to_usize(value: impl TryInto<usize>) -> Result<usize, ContractError> {
+        value
+            .try_into()
+            .map_err(|_| ContractError::InvalidArgument("value does not fit usize".into()))
+    }
+
+    /// 記録先ごとの記録を `PreparedDispatch` にする。バッファ・パイプラインは表から `Retained` を写す。
+    ///
+    /// 表に無いもの・`usize` に収まらない値は `InvalidArgument`（積み始める前に返る）。
+    fn prepare_groups(
+        buffers: &Buffers,
+        pipelines: &Pipelines,
+        records: Vec<Vec<DispatchRecord>>,
+    ) -> Result<Vec<Vec<PreparedDispatch>>, ContractError> {
+        let size = |dims: [u32; 3]| -> Result<MTLSize, ContractError> {
+            Ok(MTLSize {
+                width: to_usize(dims[0])?,
+                height: to_usize(dims[1])?,
+                depth: to_usize(dims[2])?,
+            })
+        };
+        let mut groups = Vec::with_capacity(records.len());
+        for group in records {
+            let mut prepared = Vec::with_capacity(group.len());
+            for record in group {
+                let Some((state, _)) = pipelines.map.get(&record.pipeline) else {
+                    return Err(ContractError::InvalidArgument(
+                        "pipeline handle is not in this device's table".into(),
+                    ));
+                };
+                let mut bindings = Vec::with_capacity(record.bindings.len());
+                for binding in &record.bindings {
+                    let Some(entry) = buffers.map.get(&binding.buffer_id) else {
+                        return Err(ContractError::InvalidArgument(format!(
+                            "a bound buffer was freed before submit (binding slot {})",
+                            binding.slot
+                        )));
+                    };
+                    bindings.push((
+                        entry.buffer.clone(),
+                        to_usize(binding.offset)?,
+                        to_usize(binding.slot)?,
+                    ));
+                }
+                let mut constants = Vec::with_capacity(record.constants.len());
+                for (slot, bytes) in record.constants {
+                    constants.push((bytes, to_usize(slot)?));
+                }
+                let mut threadgroup_memory = Vec::with_capacity(record.threadgroup_memory.len());
+                for (index, bytes) in &record.threadgroup_memory {
+                    threadgroup_memory.push((to_usize(*bytes)?, to_usize(*index)?));
+                }
+                prepared.push(PreparedDispatch {
+                    pipeline_id: record.pipeline,
+                    state: state.clone(),
+                    bindings,
+                    constants,
+                    threadgroup_memory,
+                    threadgroup_indices: record
+                        .threadgroup_memory
+                        .iter()
+                        .map(|(index, _)| *index)
+                        .collect(),
+                    grid: size(record.dispatch_dims)?,
+                    threads: size(record.threads_per_threadgroup)?,
+                });
+            }
+            groups.push(prepared);
+        }
+        Ok(groups)
+    }
+
+    /// 開いた compute encoder 1 つに、run の記録を順に積んで閉じる。失敗しうる処理を持たない。
+    ///
+    /// `run` の各要素の真偽は、`setComputePipelineState` を呼ぶか（積み方の計画が決める）。
+    fn encode_run(
+        encoder: &ProtocolObject<dyn MTLComputeCommandEncoder>,
+        run: Vec<(PreparedDispatch, bool)>,
+    ) {
+        for (dispatch, set_pipeline) in run {
+            if set_pipeline {
+                encoder.setComputePipelineState(&dispatch.state);
+            }
+            set_bindings(encoder, &dispatch.bindings);
+            set_constants(encoder, &dispatch.constants);
+            set_threadgroup_memory(encoder, &dispatch.threadgroup_memory);
+            encoder.dispatchThreadgroups_threadsPerThreadgroup(dispatch.grid, dispatch.threads);
+        }
+        encoder.endEncoding();
+    }
+
+    /// 束縛のバッファを、それぞれの index に offset つきで設定する。
+    fn set_bindings(
+        encoder: &ProtocolObject<dyn MTLComputeCommandEncoder>,
+        bindings: &[(MetalBuffer, usize, usize)],
+    ) {
+        for (buffer, offset, index) in bindings {
+            // SAFETY: `setBuffer_offset_atIndex` に渡す `buffer` は `Retained` で持った生きたバッファで、
+            // 参照を保持する command buffer に積むので GPU が使う間も生きている。`offset` は記録の時点で
+            // 確保の長さ以下かつ 4 の倍数（`BUFFER_OFFSET_ALIGN`）であることを確かめた。`index` は記録の時点で 0〜30 であることを確かめた。
+            // このバッファを使う投入が終わるまで CPU は読み書きしない（読み書きと解放は、最後に使った投入が
+            // 完了していることを表の錠と投入の錠の中で確かめてから行う）。
+            unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), *offset, *index) };
+        }
+    }
+
+    /// 定数の bytes を、それぞれの index に値渡しで設定する。
+    fn set_constants(
+        encoder: &ProtocolObject<dyn MTLComputeCommandEncoder>,
+        constants: &[(Vec<u8>, usize)],
+    ) {
+        for (bytes, index) in constants {
+            let pointer = NonNull::from(bytes.as_slice()).cast::<c_void>();
+            // SAFETY: `setBytes_length_atIndex` に渡す `pointer` は、長さ 1〜4096 の `Vec<u8>` の先頭で、
+            // 呼び出しの間は `constants` が借用しているので生きている。長さは `bytes.len()` と同じで、
+            // 記録の時点で 1〜4096 であることを確かめた。`index` は記録の時点で 0〜30 であることを確かめた。
+            // 値は呼び出しの中でコピーされるので、戻った後にポインタは使われない。
+            unsafe { encoder.setBytes_length_atIndex(pointer, bytes.len(), *index) };
+        }
+    }
+
+    /// 共有メモリの長さを、それぞれの index に設定する。
+    fn set_threadgroup_memory(
+        encoder: &ProtocolObject<dyn MTLComputeCommandEncoder>,
+        threadgroup_memory: &[(usize, usize)],
+    ) {
+        for (length, index) in threadgroup_memory {
+            // SAFETY: `setThreadgroupMemoryLength_atIndex` に渡す共有メモリの長さは、記録の時点で 16 の倍数で、
+            // パイプラインの固定の分との合計が device の上限以下であることを確かめた。
+            // `index` は記録の時点で 0〜30 であることを確かめた。ポインタは渡さない。
+            unsafe { encoder.setThreadgroupMemoryLength_atIndex(*length, *index) };
+        }
+    }
+
     impl MetalDevice {
         /// いまの世代。投入の印・バッファのハンドルの払い出しと照合は、この値を読む。
         fn current_generation(&self) -> u64 {
@@ -1972,13 +2263,52 @@ mod imp {
             self.submissions.lock().unwrap_or_else(|e| e.into_inner())
         }
 
-        /// 空のコマンドバッファを 1 つ作って確定し、通し番号で表に登録する。
+        /// 記録を束縛のバッファの確かめ・積み・確定・登録の順で投入し、通し番号の印を返す。
         ///
-        /// 一括投入も 1 つだけ作る（記録の操作が無いので 1 つで足りる）。作成・確定・採番・登録を表の錠の中で行う。
+        /// `submit`・`submit_many` が共有する。`records` は記録先ごとの記録の列（渡した順）。
+        /// バッファの表の錠を取ったまま、全束縛のバッファが有効なことを確かめ（外れれば `InvalidArgument` で
+        /// command buffer も通し番号も作らない）、command buffer を 1 つ作り、記録のある記録先ごとに
+        /// compute encoder を 1 つ開いて記録の順に積んで閉じ、確定し、束縛した各バッファの最後に使った投入を
+        /// 払い出した通し番号にする。記録がまったく無いときは encoder を開かず、空の command buffer を確定する。
+        /// 錠の順は バッファの表 -> パイプラインの表 -> 投入済みの表 -> `commit_hold`。
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
         /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
         /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
-        fn commit_buffers(&self, generation: u64) -> Result<SubmitToken, ContractError> {
+        fn commit_records(
+            &self,
+            generation: u64,
+            records: Vec<Vec<DispatchRecord>>,
+        ) -> Result<SubmitToken, ContractError> {
+            let mut buffers = self.lock_buffers();
+            check_recorded_buffers(
+                &records,
+                |id| buffers.map.get(&id).map(|entry| entry.generation),
+                self.current_generation(),
+            )?;
+            // 任意の MSL がカーネルのアクセス範囲を保証されないまま走るのを防ぐ。dispatch を含む投入は、
+            // 範囲の保証が入るまで製品のビルドでは何も積まず確定せずに拒む（fail-closed）。
+            if !DISPATCH_EXECUTION_ENABLED && records.iter().any(|group| !group.is_empty()) {
+                return Err(ContractError::Unsupported {
+                    op: "submit",
+                    backend: BackendKind::Metal,
+                });
+            }
+            let bound_ids: Vec<u64> = records
+                .iter()
+                .flatten()
+                .flat_map(|record| record.bindings.iter().map(|binding| binding.buffer_id))
+                .collect();
+            // encoder を開く前に、失敗しうる変換と表の引き直しを済ませる。
+            let groups = {
+                let pipelines = self.lock_pipelines();
+                prepare_groups(&buffers, &pipelines, records)?
+            };
+            let runs = encode_plan(
+                groups,
+                |dispatch| dispatch.pipeline_id,
+                |dispatch| dispatch.threadgroup_indices.as_slice(),
+            );
+
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
             let sequence = subs.next_sequence;
@@ -1997,12 +2327,28 @@ mod imp {
                         backend: BACKEND,
                         detail: "commandBuffer returned None".into(),
                     })?;
+            for run in runs {
+                let Some(encoder) = buffer.computeCommandEncoder() else {
+                    // 確定せずに落とす。通し番号も登録も進めない。
+                    return Err(ContractError::BackendFailure {
+                        op: "submit",
+                        backend: BACKEND,
+                        detail: "computeCommandEncoder returned None".into(),
+                    });
+                };
+                encode_run(&encoder, run);
+            }
             #[cfg(not(test))]
             buffer.commit();
             #[cfg(test)]
             self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
+            for id in bound_ids {
+                if let Some(entry) = buffers.map.get_mut(&id) {
+                    entry.last_submission = Some(sequence);
+                }
+            }
             Ok(SubmitToken::__backend_new(generation, sequence, self.id))
         }
 
@@ -2043,7 +2389,7 @@ mod imp {
             }
         }
 
-        /// 試験専用。確定を遅らせる状態なら溜め、そうでなければ確定する。`commit_buffers` から投入の錠の中で呼ぶ。
+        /// 試験専用。確定を遅らせる状態なら溜め、そうでなければ確定する。`commit_records` から投入の錠の中で呼ぶ。
         ///
         /// 錠の順は 投入の錠 -> `commit_hold` の錠。`release_held_commits` は `commit_hold` の錠だけを取る。
         #[cfg(test)]
@@ -2298,9 +2644,9 @@ mod imp {
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から読める
                     // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
                     // `offset + len <= length()` を保証している。GPU の書き込みと重ならないことは、
-                    // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
-                    // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
-                    // このブロックの同期の根拠を必ず書き直す）。`with_buffer` が表の錠を持ったまま
+                    // 最後に使った投入が完了していることを、表の錠と投入の錠の中で
+                    // `check_not_in_use` が確かめてからコピーすることに根拠を置く。
+                    // `with_buffer` が表の錠を持ったまま
                     // `f` を呼ぶため、コピーの間は `free` でバッファが落ちない。`out` は新しく確保した
                     // `len` バイトの領域で、Metal の領域とは重ならない。
                     unsafe {
@@ -2316,8 +2662,8 @@ mod imp {
         /// 登録が残っていれば、その列の完了を待ってから、残りの callback を `poll` と同じ判定の値で 1 回ずつ呼ぶ。
         ///
         /// 登録が無ければ待たない。待ちに上限は無く、確定済みの command buffer が終わるまで戻らない。
-        /// 「確定済みの command buffer は必ず終わる」ことに頼る。この前提は、投入するコマンドバッファが空である
-        /// 現在の形に対するもので、記録の操作を足す変更では見直す。callback の panic は捨てる。本体は `finish_table`。
+        /// 「確定済みの command buffer は必ず終わる」ことに頼る。待つのは登録のある列だけで、登録の無い確定済みの
+        /// command buffer は、落としても Metal が参照するバッファを保持する。callback の panic は捨てる。本体は `finish_table`。
         fn drop(&mut self) {
             let generation = self.generation.load(Ordering::Acquire);
             let subs = self
@@ -2436,15 +2782,15 @@ mod imp {
     }
 
     impl CommandQueue for MetalDevice {
-        /// 記録先の識別子と空の記録だけを作る。コマンドバッファは作らず、何も投入しない。
+        /// 記録先の識別子と空の記録の列だけを作る。コマンドバッファは作らず、何も投入しない。
         ///
-        /// 識別子はプロセス全体の通し番号で、この device の開いている集合に入れる。
-        /// 投入せずに破棄すると hook が集合から外す。
+        /// 識別子はプロセス全体の通し番号で、この device の開いている表に入れる。
+        /// 投入せずに破棄すると hook が、積んだ記録ごと表から外す。
         fn create_encoder(&self) -> CommandEncoder {
             let closer: Arc<dyn __BackendSharedEncoderCloser> = self.open.clone();
             match __backend_next_encoder_id() {
                 Some(id) => {
-                    self.open.lock().insert(id);
+                    self.open.lock().insert(id, Vec::new());
                     CommandEncoder::__backend_new_shared(id, closer)
                 }
                 // 通し番号が尽きた場合の id 0 は集合に入れない。投入は `InvalidArgument` で拒まれる。
@@ -2452,10 +2798,12 @@ mod imp {
             }
         }
 
-        /// 空のコマンドバッファを 1 つ作って確定する。
+        /// 記録先に積んだ dispatch を、コマンドバッファ 1 つの compute encoder に積んで確定する。
         ///
-        /// 空でない `wait` は何も投入せず `Unsupported`。記録先がこの device の開いている集合に無ければ
-        /// `InvalidArgument`（別の device の記録先を含む）で、何も投入しない。
+        /// 空でない `wait` は何も投入せず `Unsupported`。記録先がこの device の開いている表に無ければ
+        /// `InvalidArgument`（別の device の記録先を含む）で、何も投入しない。記録先は取り出した時点で消費され、
+        /// 束縛のバッファが投入の前に解放されていた場合（COMP-39）も `InvalidArgument` で、何も積まず通し番号も払い出さない。
+        /// 積めたら、束縛した各バッファの最後に使った投入が、払い出した通し番号になる。記録が無いときは空のコマンドバッファを確定する。
         fn submit(
             &self,
             mut commands: CommandEncoder,
@@ -2465,17 +2813,18 @@ mod imp {
             let generation = self.drive_and_generation();
             self.release_finished();
             precheck_submit(wait)?;
-            self.open.claim(&[commands.__backend_id()])?;
+            let records = self.open.claim(&[commands.__backend_id()])?;
             commands.__backend_disarm_closer();
-            self.commit_buffers(generation)
+            self.commit_records(generation, records)
         }
 
         /// 複数の記録先を 1 回で投入し、1 つの印を返す。
         ///
         /// 順は、`after` の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、
-        /// 空の列（`InvalidArgument`）、`wait`（`Unsupported`）、記録先の所属（`InvalidArgument`）。
-        /// 検査に当たると何も投入しない。単一の列でコマンドバッファは投入順に完了するので、
-        /// `after` は照合だけで追加の待ちは入れない。
+        /// 空の列（`InvalidArgument`）、`wait`（`Unsupported`）、記録先の所属（`InvalidArgument`）、
+        /// 束縛のバッファの確かめ（`InvalidArgument`）。検査に当たると何も投入しない。
+        /// コマンドバッファは 1 つで、記録のある記録先ごとに compute encoder を渡した順に積む（記録の無い記録先は開かない）。
+        /// 単一の列でコマンドバッファは投入順に完了するので、`after` は照合だけで追加の待ちは入れない。
         fn submit_many(
             &self,
             mut commands: Vec<CommandEncoder>,
@@ -2488,11 +2837,11 @@ mod imp {
             self.release_finished();
             precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
-            self.open.claim(&ids)?;
+            let records = self.open.claim(&ids)?;
             for command in &mut commands {
                 command.__backend_disarm_closer();
             }
-            self.commit_buffers(generation)
+            self.commit_records(generation, records)
         }
 
         /// 列の全部が完了なら `Complete`、どれかが `Error` なら `Lost`、他は `Pending`。
@@ -2628,12 +2977,12 @@ mod imp {
         }
 
         // dispatch の記録は TASK-775 のポインタ。
-        /// 引数を記録の前に検査する。検査に通っても `Unsupported` を返し、encoder に何も積まない。
+        /// 引数を検査し、通ったら記録先に dispatch を 1 件積む。command buffer と encoder は投入の時に作る。
         ///
-        /// 照らす順は、記録先（この device の開いている表にあるか。集合から外さない）、パイプライン
+        /// 照らす順は、記録先（この device の開いている表にあるか。表から外さない）、パイプライン
         /// （別の device は `DeviceMismatch`、表に無ければ `InvalidArgument`）、束縛のバッファ（並びの順。
         /// 別の device は `DeviceMismatch`、表に無い・世代違いは `InvalidArgument`）、その後に引数の値の検査。
-        /// 拒否は記録先の集合・表・device の状態を変えない。
+        /// 拒否は記録先の表・device の状態を変えない。通ったら記録を積んで `Ok(())` を返す。
         fn dispatch_ex(
             &self,
             encoder: &mut CommandEncoder,
@@ -2711,10 +3060,31 @@ mod imp {
                 max_dispatch_dims: self.limits.max_dispatch_dims,
             })?;
 
-            Err(ContractError::Unsupported {
-                op: "dispatch_ex",
-                backend: fandhe_silicon_core::capability::BackendKind::Metal,
-            })
+            let record = DispatchRecord {
+                pipeline: pipeline.__backend_id(),
+                bindings: bindings
+                    .iter()
+                    .map(|binding| RecordedBinding {
+                        slot: binding.slot,
+                        buffer_id: binding.buffer.__backend_id(),
+                        generation: binding.buffer.__backend_generation(),
+                        offset: binding.offset,
+                    })
+                    .collect(),
+                constants: consts
+                    .iter()
+                    .map(|constant| (constant.slot, constant.bytes.to_vec()))
+                    .collect(),
+                dispatch_dims,
+                threads_per_threadgroup,
+                threadgroup_memory: threadgroup_memory
+                    .iter()
+                    .map(|memory| (memory.index, memory.bytes))
+                    .collect(),
+            };
+            self.open.record(encoder.__backend_id(), record)?;
+            encoder.__backend_record();
+            Ok(())
         }
     }
 
@@ -2764,10 +3134,10 @@ mod imp {
             // `host_range`（`validate_buffer_range` を呼ぶ）が `offset + bytes.len() <= length()` を保証している。
             // `&mut BufferEntry` を受けているので、この領域を CPU 側で読み書きする他の参照は同時に存在しない
             // （表の項目は表の錠の中で、または表から外して単独で所有した状態でしか借りられない）。
-            // GPU の読み書きと重ならないことは、
-            // この背後実装が投入するコマンドバッファがエンコーダを開かず、どのバッファも参照しない
-            // （記録の操作を持たない）ことに根拠を置く（記録の操作を足す変更では、
-            // このブロックの同期の根拠を必ず書き直す）。`bytes` は呼び出し側の借用した領域で、
+            // GPU の読み書きと重ならないことは、最後に使った投入が完了していることの確かめに根拠を置く。
+            // `upload` は表の錠と投入の錠の中で `check_not_in_use` が確かめてから書く。ゼロ化は、
+            // `free` と `release_finished` が最後に使った投入の完了（`is_finished`）を確かめてから
+            // 表の外で単独で所有した項目に対して行う。`bytes` は呼び出し側の借用した領域で、
             // Metal の領域とは重ならない。
             unsafe {
                 core::ptr::copy_nonoverlapping(bytes.as_ptr(), base.add(offset), bytes.len());
@@ -3026,7 +3396,9 @@ mod imp {
             })
         }
 
-        /// `src` の `src_offset` から `byte_len` バイトを読み出す。記録の操作が無く GPU はバッファに触れないので、待たずに返る。
+        /// `src` の `src_offset` から `byte_len` バイトを読み出す。待たずに返る。
+        ///
+        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` で、読まない。
         #[cfg(feature = "native-blocking-wait")]
         fn download_blocking(
             &self,
@@ -3344,7 +3716,7 @@ mod imp {
             assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
             assert_eq!(second.test_submitted_count(), 0);
             assert_eq!(first.test_submitted_count(), 0);
-            // 記録先は破棄で元の device の集合から外れる。
+            // 記録先は破棄で元の device の表から外れる。
             assert_eq!(first.test_open_encoder_count(), 0);
         }
 
@@ -5238,7 +5610,7 @@ mod precheck_tests {
     #[test]
     fn claim_rejects_id_zero_unknown_ids_and_duplicates_without_changing_the_set() {
         let open = OpenEncoders::new();
-        open.lock().extend([5, 6]);
+        open.lock().extend([(5, Vec::new()), (6, Vec::new())]);
         for ids in [&[0_u64][..], &[5, 7][..], &[5, 5][..]] {
             let r = open.claim(ids);
             assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
@@ -5248,10 +5620,60 @@ mod precheck_tests {
         assert!(open.lock().is_empty());
     }
 
+    /// 記録 1 件（パイプラインの識別子だけを変える基準の値）。
+    fn record_of(pipeline: u64) -> DispatchRecord {
+        DispatchRecord {
+            pipeline,
+            bindings: Vec::new(),
+            constants: Vec::new(),
+            dispatch_dims: [1, 1, 1],
+            threads_per_threadgroup: [1, 1, 1],
+            threadgroup_memory: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn record_appends_to_an_open_encoder_in_order() {
+        let open = OpenEncoders::new();
+        open.lock().insert(5, Vec::new());
+        assert!(open.record(5, record_of(1)).is_ok());
+        assert!(open.record(5, record_of(2)).is_ok());
+        let claimed = open.claim(&[5]).expect("claim");
+        assert_eq!(claimed, vec![vec![record_of(1), record_of(2)]]);
+    }
+
+    #[test]
+    fn record_rejects_an_unopened_id_without_creating_it() {
+        let open = OpenEncoders::new();
+        open.lock().insert(5, Vec::new());
+        for id in [0_u64, 6] {
+            let r = open.record(id, record_of(1));
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+        }
+        assert_eq!(open.lock().len(), 1);
+        assert!(open.lock().get(&5).is_some_and(Vec::is_empty));
+    }
+
+    #[test]
+    fn claim_returns_the_records_in_the_given_order_and_removes_them() {
+        let open = OpenEncoders::new();
+        open.lock().extend([
+            (5, vec![record_of(1)]),
+            (6, Vec::new()),
+            (7, vec![record_of(3)]),
+        ]);
+        let claimed = open.claim(&[7, 5, 6]).expect("claim");
+        assert_eq!(
+            claimed,
+            vec![vec![record_of(3)], vec![record_of(1)], Vec::new()]
+        );
+        assert!(open.lock().is_empty());
+    }
+
     #[test]
     fn is_open_reports_membership_without_changing_the_set() {
         let open = OpenEncoders::new();
-        open.lock().insert(5);
+        open.lock().insert(5, Vec::new());
         assert!(!open.is_open(0));
         assert!(!open.is_open(6));
         assert!(open.is_open(5));
@@ -5391,8 +5813,19 @@ mod precheck_tests {
         let mut f = DispatchFixture::new();
         f.bindings[0].offset = 64;
         assert!(f.check().is_ok());
-        f.bindings[0].offset = 65;
-        assert_invalid(f.check(), "slot 0");
+        f.bindings[0].offset = 68;
+        assert_invalid(f.check(), "exceeds the buffer length");
+    }
+
+    #[test]
+    fn binding_offset_not_multiple_of_four_is_rejected() {
+        let mut f = DispatchFixture::new();
+        for offset in [1, 2, 3, 62] {
+            f.bindings[0].offset = offset;
+            assert_invalid(f.check(), "not a multiple of 4");
+        }
+        f.bindings[0].offset = 60;
+        assert!(f.check().is_ok());
     }
 
     #[test]
@@ -5441,10 +5874,139 @@ mod precheck_tests {
     #[test]
     fn closing_removes_the_id_and_is_harmless_twice() {
         let open = OpenEncoders::new();
-        open.lock().insert(9);
+        open.lock().insert(9, vec![record_of(1)]);
         open.close(9);
         open.close(9);
         assert!(open.lock().is_empty());
+    }
+
+    /// 束縛 1 件だけを持つ記録（slot・識別子・世代を指定する）。
+    fn bound(slot: u32, buffer_id: u64, generation: u64) -> DispatchRecord {
+        DispatchRecord {
+            bindings: vec![RecordedBinding {
+                slot,
+                buffer_id,
+                generation,
+                offset: 0,
+            }],
+            ..record_of(1)
+        }
+    }
+
+    /// 識別子 1 に世代 3 のバッファだけがある表の引き方。
+    fn table_with_buffer_one(id: u64) -> Option<u64> {
+        (id == 1).then_some(3)
+    }
+
+    #[test]
+    fn recorded_buffers_that_are_all_alive_are_accepted() {
+        let records = vec![vec![bound(0, 1, 3)], vec![bound(1, 1, 3), record_of(2)]];
+        assert!(check_recorded_buffers(&records, table_with_buffer_one, 3).is_ok());
+        assert!(check_recorded_buffers(&[], table_with_buffer_one, 3).is_ok());
+    }
+
+    #[test]
+    fn a_missing_stale_or_old_generation_buffer_is_rejected_with_its_slot() {
+        let cases = [
+            ("missing", bound(4, 2, 3), 3),
+            ("entry generation", bound(5, 1, 2), 2),
+            ("device generation", bound(6, 1, 3), 4),
+        ];
+        for (name, record, current) in cases {
+            let slot = record.bindings[0].slot;
+            let r = check_recorded_buffers(&[vec![record]], table_with_buffer_one, current);
+            match r {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert!(msg.contains(&format!("slot {slot}")), "{name}: {msg}");
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_failure_in_a_later_group_rejects_the_whole_set() {
+        let records = vec![vec![bound(0, 1, 3)], vec![bound(7, 9, 3)]];
+        let r = check_recorded_buffers(&records, table_with_buffer_one, 3);
+        match r {
+            Err(ContractError::InvalidArgument(msg)) => assert!(msg.contains("slot 7"), "{msg}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// 計画の試験の入力（パイプラインの識別子と共有メモリの index）。
+    #[derive(Debug, PartialEq)]
+    struct Step(u64, Vec<u32>);
+
+    fn plan(groups: Vec<Vec<Step>>) -> Vec<Vec<(Step, bool)>> {
+        encode_plan(groups, |s| s.0, |s| s.1.as_slice())
+    }
+
+    fn summary(runs: &[Vec<(Step, bool)>]) -> Vec<Vec<(u64, bool)>> {
+        runs.iter()
+            .map(|run| run.iter().map(|(s, set)| (s.0, *set)).collect())
+            .collect()
+    }
+
+    #[test]
+    fn empty_groups_make_no_run_and_groups_do_not_share_a_run() {
+        assert!(plan(vec![]).is_empty());
+        assert!(plan(vec![vec![], vec![]]).is_empty());
+        let runs = plan(vec![
+            vec![Step(1, vec![])],
+            vec![],
+            vec![Step(1, vec![]), Step(1, vec![])],
+        ]);
+        assert_eq!(
+            summary(&runs),
+            vec![vec![(1, true)], vec![(1, true), (1, false)]]
+        );
+    }
+
+    #[test]
+    fn the_pipeline_is_set_again_only_when_it_changes() {
+        let runs = plan(vec![vec![
+            Step(1, vec![]),
+            Step(1, vec![]),
+            Step(2, vec![]),
+            Step(1, vec![]),
+        ]]);
+        assert_eq!(
+            summary(&runs),
+            vec![vec![(1, true), (1, false), (2, true), (1, true)]]
+        );
+    }
+
+    #[test]
+    fn a_missing_threadgroup_index_ends_the_run_and_sets_the_pipeline_again() {
+        let runs = plan(vec![vec![
+            Step(1, vec![0]),
+            Step(1, vec![0, 1]),
+            Step(1, vec![0]),
+            Step(1, vec![]),
+        ]]);
+        assert_eq!(
+            summary(&runs),
+            vec![
+                vec![(1, true), (1, false)],
+                vec![(1, true)],
+                vec![(1, true)]
+            ]
+        );
+    }
+
+    #[test]
+    fn every_record_comes_out_once_in_order() {
+        let groups = vec![
+            vec![Step(1, vec![2]), Step(2, vec![2]), Step(2, vec![])],
+            vec![Step(3, vec![])],
+        ];
+        let flat: Vec<u64> = plan(groups)
+            .into_iter()
+            .flatten()
+            .map(|(s, _)| s.0)
+            .collect();
+        assert_eq!(flat, vec![1, 2, 2, 3]);
     }
 
     #[test]
