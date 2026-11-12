@@ -93,3 +93,34 @@ cargo test -p fandhe-silicon-core --doc execution::submit
 cargo test -p fandhe-silicon-core --test dispatch_checked_default
 make verify
 ```
+
+## 検査の順と受け渡しの試験（4/6）
+
+最小の queue と、`dispatch_ex` の引数の写しを積み欄で決めた結果を返す queue で、`dispatch_checked` の既定の本体を外の crate から公開のパスだけで呼ぶ。feature なしで動く。
+
+### 所在
+
+| 項目 | 値 |
+| ---- | -- |
+| 試験 | `crates/core/tests/dispatch_checked_default.rs` |
+| 記録する queue | `dispatch_ex` が受けた引数の写しを積み、欄の結果を返す。`dispatch_checked` は上書きしない |
+
+### 試験・入力・期待
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `dispatch_checked_rejects_other_checks_before_dispatch_ex` | 上限は十分大きい。F32 `[0]`、F32 `[u64::MAX]`、宣言に無い slot の束縛、alignment 16 に対し offset 4、定数が必要バイト数より短い宣言 | 順に先頭 `C8:`・`C8:`・`C7:`・`C5:`・`C6:` の `InvalidArgument`、`dispatch_ex` は 0 回 |
+| `dispatch_checked_checks_in_order_with_queue_limit` | 大きさ 16 のハンドル、`Bool` `[4001]`。上限 4000 と 4001 | 上限 4000 は先頭 `C8:`、4001 は先頭 `C4:`。どちらも 0 回 |
+| `dispatch_checked_passes_arguments_to_dispatch_ex_unchanged` | 束縛 2 件・定数 1 件・起動の大きさ・共有メモリを持つ通る入力 | `Ok(())`、`dispatch_ex` は 1 回で、受けた引数が渡した値と一致 |
+| `dispatch_checked_returns_dispatch_ex_error_unchanged` | 通る入力。`dispatch_ex` が `DeviceMismatch` または `InvalidArgument` を返す | 同じ値が返り、`dispatch_ex` は 1 回 |
+| `dispatch_checked_reaches_through_dyn_command_queue` | `&dyn CommandQueue` 越しに大きさ 16 のハンドル、F32 `[100]` | 先頭 `C4:`、0 回 |
+| `dispatch_checked_return_type_is_pinned` | 引数 9 個の関数ポインタ型へ代入して呼ぶ | 型が合い、通る入力で `Ok(())`、1 回 |
+
+照合は `InvalidArgument` と文言の先頭までで、`dispatch_ex` の `Err` は値の一致まで見る。
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --test dispatch_checked_default
+make verify
+```
