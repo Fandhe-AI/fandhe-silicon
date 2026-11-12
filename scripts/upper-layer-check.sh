@@ -84,7 +84,7 @@ CONTRACT_MANIFEST_REL = "crates/contract/Cargo.toml"
 # 測定の workspace の manifest（製品の workspace_root からの相対）。
 MEASURE_MANIFEST_REL = "measure/Cargo.toml"
 # (4) 測定のビルドで契約の crate に対して有効になってはいけない feature。
-FORBIDDEN_FEATURES = ("fault-injection", "test-support")
+FORBIDDEN_FEATURES = ("artifact-inspection", "fault-injection", "test-support")
 # 数える依存の種類（metadata の dependencies の kind。通常の依存は null）。
 DEP_KINDS = ("normal", "build", "dev")
 # チップの crate の package 名（折りたたんだ形で完全一致）。

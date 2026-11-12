@@ -53,7 +53,7 @@
 | unsafe の不在（forbid の宣言・forbid が届かない位置の unsafe） | 節 1 の `real-unsafe`・`real-unsafe-again`・`no-forbid-msg`・`unsafe-in-tests-msg`・`unsafe-in-build-rs-msg`・`unsafe-two-count` |
 | チップの crate の不在（依存・ソース） | 節 1 の `chip-dep-*`・`chip-use-*`・`chip-path-*`・`comment-not-chip`・`string-not-chip` |
 | 直接依存の許可リスト | 節 1 の `allow-ok`・`allow-extra-normal`・`allow-renamed-extra`・`allow-chip` |
-| 測定の feature | 節 1 の `measure-default`・`measure-test-support`・`measure-fault-injection`・`measure-forward`・`measure-indirect` |
+| 測定の feature | 節 1 の `measure-default`・`measure-test-support`・`measure-fault-injection`・`measure-artifact-inspection`・`measure-forward`・`measure-forward-artifact-inspection`・`measure-indirect`（節 4 の `real_measure_artifact_inspection` を含む） |
 | 対象 0 件の合格 | 節 1 の `measure-no-contract`・`allow-zero-deps-count`・`measure-zero-contract-deps-count` |
 | 終了コード 2 | 節 1 の `upper-missing`・`product-not-json`・`no-rs-files`・`symlink-rs`・`unterminated-comment`・`measure-not-json` |
 | ツールが無いとき | 節 2 の `no_python3`・`no_cargo`・`no_git`・`unknown_option` |
