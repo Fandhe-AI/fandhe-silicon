@@ -130,3 +130,12 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 | -- | ----------------- | -------------- |
 | 本リポの現状の「組ごとの build / clippy / test」の確かめ方と「CI での走り方」の確かめ方 | `grep -n 'NATIVE_SETS' -A16 scripts/build-profiles.sh` → 配列が 33〜51 行目、閉じ括弧が 52 行目なので、`-A20` が要る（`grep -n 'NATIVE_SETS' -A20 scripts/build-profiles.sh` の先頭の当たりは 32 行目で、52 行目の `)` まで出る） | `grep -n 'NATIVE_SETS' -A20 scripts/build-profiles.sh` |
 | 「CI での走り方」の表の `make build-profiles` | `NATIVE_SETS` は 14 組、`cargo test -p fandhe-silicon-contract` の回数は 16 → `NATIVE_SETS` は 19 組、回数は 21（既定の組 1 回、`NATIVE_SETS` の 19 組、`--all-features` 1 回） | `sed -n 33,51p scripts/build-profiles.sh \| grep -c '^  "'`（19） |
+
+## 今の値の補い（base eda0509）
+
+記録時点の表と既存の節は書き換えない。以下は base `eda0509` で観測した今の値（実行環境は GPU なしの Linux）。TASK-492 の 1/8 で、core に feature `artifact-inspection` が加わった。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 本リポの現状の「テスト・診断専用の feature」の行と、確かめの「テスト・診断専用」の行 | `artifact-inspection`（`backend-metal` を要する）で、core への転送の記述は無い → `["backend-metal", "fandhe-silicon-core/artifact-inspection"]`（`crates/contract/Cargo.toml` の 54 行目）で、`backend-metal` の要求に加えて core の同名 feature（`crates/core/Cargo.toml` の 28 行目 `artifact-inspection = []`）へ転送する。`default` と本番の 4 組の含意の閉包に入らない点は変わらない | `sed -n '/\[features\]/,/^$/p' crates/contract/Cargo.toml`、`git grep -n 'artifact-inspection' -- crates/core/Cargo.toml crates/contract/Cargo.toml` |
+| 同じ行の `fault-injection`（含意なし） | 含意なし → `["fandhe-silicon-core/fault-injection"]`（`crates/contract/Cargo.toml` の 53 行目）で core の同名 feature へ転送する | `git grep -n 'fault-injection =' -- crates/contract/Cargo.toml` |
