@@ -1875,6 +1875,70 @@ fn classify_reflected_buffer(
     })
 }
 
+/// 書き出したファイルを読むときの上限のバイト数。
+#[cfg(feature = "artifact-inspection")]
+#[cfg_attr(not(test), allow(dead_code))]
+const ARTIFACT_READ_LIMIT: u64 = 1 << 28;
+
+/// 絶対・UTF-8・空でないパスを `&str` にして返す。外れれば `InvalidArgument`。
+#[cfg(feature = "artifact-inspection")]
+#[cfg_attr(not(test), allow(dead_code))]
+fn artifact_path_str(path: &std::path::Path) -> Result<&str, ContractError> {
+    if path.as_os_str().is_empty() {
+        return Err(ContractError::InvalidArgument(
+            "artifact path is empty".into(),
+        ));
+    }
+    if !path.is_absolute() {
+        return Err(ContractError::InvalidArgument(
+            "artifact path must be absolute".into(),
+        ));
+    }
+    path.to_str()
+        .ok_or_else(|| ContractError::InvalidArgument("artifact path is not valid UTF-8".into()))
+}
+
+/// 通常のファイル（シンボリックリンクでない）で、長さが 1 以上 `limit` 以下のときだけ中身を返す。
+/// 外れれば `ArtifactRejected { kind: "binary-archive" }`。
+#[cfg(feature = "artifact-inspection")]
+#[cfg_attr(not(test), allow(dead_code))]
+fn read_written_artifact(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, ContractError> {
+    use std::io::Read as _;
+
+    let rejected = |reason: String| ContractError::ArtifactRejected {
+        kind: "binary-archive",
+        reason,
+    };
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|e| rejected(format!("cannot inspect written artifact: {e}")))?;
+    if !metadata.file_type().is_file() {
+        return Err(rejected("written artifact is not a regular file".into()));
+    }
+    if metadata.len() == 0 {
+        return Err(rejected("written artifact is empty".into()));
+    }
+    if metadata.len() > limit {
+        return Err(rejected(format!("written artifact exceeds {limit} bytes")));
+    }
+    let file = std::fs::File::open(path)
+        .map_err(|e| rejected(format!("cannot open written artifact: {e}")))?;
+    let opened = file
+        .metadata()
+        .map_err(|e| rejected(format!("cannot inspect opened artifact: {e}")))?;
+    if !opened.file_type().is_file() {
+        return Err(rejected("written artifact is not a regular file".into()));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| rejected(format!("cannot read written artifact: {e}")))?;
+    match u64::try_from(bytes.len()) {
+        Ok(0) => Err(rejected("written artifact is empty".into())),
+        Ok(n) if n <= limit => Ok(bytes),
+        _ => Err(rejected(format!("written artifact exceeds {limit} bytes"))),
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
@@ -9623,5 +9687,132 @@ mod reflection_value_tests {
         assert_eq!(reflection.argument_count, 3);
         assert_eq!(reflection.buffers, buffers);
         assert_eq!(reflection.buffers.len(), 2);
+    }
+}
+
+#[cfg(all(test, feature = "artifact-inspection"))]
+mod artifact_path_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    /// 試験ごとの一時ディレクトリ。落ちたときも `Drop` で消す。
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "fandhe-silicon-artifact-path-{}-{name}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn is_invalid(r: Result<&str, ContractError>) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(_)))
+    }
+
+    fn is_rejected(r: Result<Vec<u8>, ContractError>) -> bool {
+        matches!(
+            r,
+            Err(ContractError::ArtifactRejected {
+                kind: "binary-archive",
+                ..
+            })
+        )
+    }
+
+    #[test]
+    fn path_str_accepts_absolute_utf8() {
+        let p = Path::new("/tmp/fandhe-silicon-artifact.bin");
+        assert_eq!(
+            artifact_path_str(p).unwrap(),
+            "/tmp/fandhe-silicon-artifact.bin"
+        );
+    }
+
+    #[test]
+    fn path_str_rejects_relative_and_empty() {
+        assert!(is_invalid(artifact_path_str(Path::new(
+            "relative/archive.bin"
+        ))));
+        assert!(is_invalid(artifact_path_str(Path::new(""))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_str_rejects_non_utf8() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let p = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff"));
+        assert!(is_invalid(artifact_path_str(p)));
+    }
+
+    #[test]
+    fn read_returns_bytes_with_default_limit() {
+        assert_eq!(ARTIFACT_READ_LIMIT, 1 << 28);
+        let dir = TempDir::new("read-ok");
+        let path = dir.0.join("a.bin");
+        std::fs::write(&path, [1u8, 2, 3]).unwrap();
+        assert_eq!(
+            read_written_artifact(&path, ARTIFACT_READ_LIMIT).unwrap(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn read_enforces_limit_boundary() {
+        let dir = TempDir::new("read-limit");
+        let path = dir.0.join("a.bin");
+        std::fs::write(&path, [1u8, 2, 3, 4]).unwrap();
+        assert_eq!(read_written_artifact(&path, 4).unwrap().len(), 4);
+        assert!(is_rejected(read_written_artifact(&path, 3)));
+    }
+
+    #[test]
+    fn read_rejects_empty_missing_and_directory() {
+        let dir = TempDir::new("read-bad");
+        let empty = dir.0.join("empty.bin");
+        std::fs::write(&empty, []).unwrap();
+        assert!(is_rejected(read_written_artifact(
+            &empty,
+            ARTIFACT_READ_LIMIT
+        )));
+        let missing = dir.0.join("missing.bin");
+        assert!(is_rejected(read_written_artifact(
+            &missing,
+            ARTIFACT_READ_LIMIT
+        )));
+        let sub = dir.0.join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        assert!(is_rejected(read_written_artifact(
+            &sub,
+            ARTIFACT_READ_LIMIT
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_rejects_symlink() {
+        let dir = TempDir::new("read-link");
+        let target = dir.0.join("target.bin");
+        std::fs::write(&target, [1u8, 2, 3]).unwrap();
+        let link = dir.0.join("link.bin");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(is_rejected(read_written_artifact(
+            &link,
+            ARTIFACT_READ_LIMIT
+        )));
+        assert_eq!(
+            read_written_artifact(&target, ARTIFACT_READ_LIMIT).unwrap(),
+            vec![1, 2, 3]
+        );
     }
 }
