@@ -8215,7 +8215,7 @@ mod lost_state_tests {
 mod dispatch_checked_tests {
     use super::*;
     use fandhe_silicon_core::execution::DType;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
     fn spec<'a>(slot: u32, dtype: DType, shape: &'a [u64]) -> OperandSpec<'a> {
         OperandSpec {
@@ -8354,5 +8354,232 @@ mod dispatch_checked_tests {
         );
         assert_eq!(result, Ok(()));
         assert_eq!(calls.get(), 2);
+    }
+
+    fn aligned_spec<'a>(
+        slot: u32,
+        dtype: DType,
+        shape: &'a [u64],
+        alignment: u32,
+    ) -> OperandSpec<'a> {
+        OperandSpec {
+            slot,
+            dtype,
+            shape,
+            stride: &[],
+            alignment,
+        }
+    }
+
+    fn binding_at(slot: u32, offset: u64) -> OperandBinding {
+        OperandBinding { slot, offset }
+    }
+
+    /// 容量の問い合わせで受けた位置を記録しながら、位置ごとの結果を返す。
+    fn run(
+        declared: &[OperandSpec<'_>],
+        bindings: &[OperandBinding],
+        consts: &[OperandConstant<'_>],
+        limit: u64,
+        answer: impl Fn(usize) -> Result<u64, ContractError>,
+    ) -> (Result<(), ContractError>, Vec<usize>) {
+        let seen: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+        let result = check_declared_operands(
+            declared,
+            bindings,
+            consts,
+            |pos| {
+                seen.borrow_mut().push(pos);
+                answer(pos)
+            },
+            limit,
+        );
+        (result, seen.into_inner())
+    }
+
+    #[test]
+    fn misaligned_offset_is_rejected_by_c5_after_every_binding_is_looked_up() {
+        let shape = [4u64];
+        let declared = [
+            aligned_spec(0, DType::F32, &shape, 0),
+            aligned_spec(1, DType::F32, &shape, 16),
+        ];
+        let bindings = [binding_at(0, 0), binding_at(1, 4)];
+        let (result, seen) = run(&declared, &bindings, &[], 1 << 20, |_| Ok(64));
+        assert!(starts_with(result, "C5:"));
+        assert_eq!(seen, vec![0, 1]);
+    }
+
+    #[test]
+    fn constant_size_mismatch_is_rejected_by_c6() {
+        let shape = [4u64];
+        let shape_u32 = [3u64];
+        let declared = [
+            spec(0, DType::F32, &shape),
+            spec(1, DType::F32, &shape),
+            spec(2, DType::U32, &shape_u32),
+        ];
+        let bindings = [binding_at(0, 0), binding_at(1, 0)];
+        let consts = [OperandConstant {
+            slot: 2,
+            bytes: &[0u8; 8],
+        }];
+        let (result, seen) = run(&declared, &bindings, &consts, 1 << 20, |_| Ok(16));
+        assert!(starts_with(result, "C6:"));
+        assert_eq!(seen, vec![0, 1]);
+    }
+
+    #[test]
+    fn slot_mistakes_are_rejected_by_c7_without_any_lookup() {
+        let shape = [4u64];
+        let shape_one = [1u64];
+        let four = [0u8; 4];
+        let nine = [OperandConstant {
+            slot: 9,
+            bytes: &four,
+        }];
+        let same = [OperandConstant {
+            slot: 0,
+            bytes: &four,
+        }];
+        let one = [spec(0, DType::F32, &shape)];
+        let one_u32 = [spec(0, DType::U32, &shape_one)];
+        let cases: [(
+            &[OperandSpec<'_>],
+            Vec<OperandBinding>,
+            &[OperandConstant<'_>],
+        ); 4] = [
+            (&one, vec![binding_at(0, 0), binding_at(5, 0)], &[]),
+            (&one, vec![binding_at(0, 0), binding_at(0, 0)], &[]),
+            (&one, vec![binding_at(0, 0)], &nine),
+            (&one_u32, vec![binding_at(0, 0)], &same),
+        ];
+        for (declared, bindings, consts) in cases {
+            let (result, seen) = run(declared, &bindings, consts, 1 << 20, |_| {
+                Err(ContractError::DeviceMismatch)
+            });
+            assert!(starts_with(result, "C7:"));
+            assert!(seen.is_empty());
+        }
+    }
+
+    #[test]
+    fn overflowing_declaration_is_rejected_by_c8_without_any_lookup() {
+        let shape = [u64::MAX];
+        let declared = [spec(0, DType::F32, &shape)];
+        let (result, seen) = run(&declared, &[binding_at(0, 0)], &[], 1 << 20, |_| {
+            Err(ContractError::DeviceMismatch)
+        });
+        assert!(starts_with(result, "C8:"));
+        assert!(seen.is_empty());
+    }
+
+    #[test]
+    fn c8_comes_before_a_lookup_error() {
+        let zero = [0u64, 4];
+        let shape = [4u64];
+        let declared = [spec(0, DType::F32, &shape), spec(1, DType::F32, &zero)];
+        let bindings = [binding_at(0, 0), binding_at(1, 0)];
+        let (result, seen) = run(&declared, &bindings, &[], 1 << 20, |_| {
+            Err(ContractError::InvalidArgument("lookup".into()))
+        });
+        assert!(starts_with(result, "C8:"));
+        assert!(seen.is_empty());
+    }
+
+    #[test]
+    fn c7_comes_before_a_lookup_error() {
+        let shape = [4u64];
+        let declared = [spec(0, DType::F32, &shape)];
+        let bindings = [binding_at(0, 0), binding_at(5, 0)];
+        let (result, seen) = run(&declared, &bindings, &[], 1 << 20, |_| {
+            Err(ContractError::InvalidArgument("lookup".into()))
+        });
+        assert!(starts_with(result, "C7:"));
+        assert!(seen.is_empty());
+    }
+
+    #[test]
+    fn c4_stops_the_lookups_at_the_first_violation() {
+        let shape = [100u64];
+        let declared = [spec(0, DType::F32, &shape), spec(1, DType::F32, &shape)];
+        let bindings = [binding_at(0, 0), binding_at(1, 0)];
+        let (result, seen) = run(&declared, &bindings, &[], 1 << 20, |pos| {
+            if pos == 0 {
+                Ok(16)
+            } else {
+                Err(ContractError::DeviceMismatch)
+            }
+        });
+        assert!(matches!(
+            &result,
+            Err(ContractError::InvalidArgument(m)) if m.starts_with("C4:") && m.contains("slot 0")
+        ));
+        assert_eq!(seen, vec![0]);
+    }
+
+    #[test]
+    fn the_first_lookup_error_wins_over_a_later_c4() {
+        let shape = [100u64];
+        let declared = [spec(0, DType::F32, &shape), spec(1, DType::F32, &shape)];
+        let bindings = [binding_at(0, 0), binding_at(1, 0)];
+        let invalid = ContractError::InvalidArgument("lookup".into());
+        let (result, _) = run(&declared, &bindings, &[], 1 << 20, |pos| {
+            if pos == 0 {
+                Err(ContractError::InvalidArgument("lookup".into()))
+            } else {
+                Ok(16)
+            }
+        });
+        assert_eq!(result, Err(invalid));
+    }
+
+    #[test]
+    fn a_lookup_error_wins_over_c5() {
+        let shape = [4u64];
+        let declared = [aligned_spec(0, DType::F32, &shape, 16)];
+        let (result, _) = run(&declared, &[binding_at(0, 4)], &[], 1 << 20, |_| {
+            Err(ContractError::DeviceMismatch)
+        });
+        assert_eq!(result, Err(ContractError::DeviceMismatch));
+    }
+
+    #[test]
+    fn offset_counts_against_the_capacity() {
+        let shape = [4u64];
+        let declared = [spec(0, DType::F32, &shape)];
+        let (result, _) = run(&declared, &[binding_at(0, 16)], &[], 1 << 20, |_| Ok(32));
+        assert_eq!(result, Ok(()));
+        let (result, _) = run(&declared, &[binding_at(0, 20)], &[], 1 << 20, |_| Ok(32));
+        assert!(starts_with(result, "C4:"));
+    }
+
+    #[test]
+    fn lookups_follow_the_binding_order_not_the_slot_order() {
+        let shape = [4u64];
+        let declared = [spec(1, DType::F32, &shape), spec(3, DType::F32, &shape)];
+        let bindings = [binding_at(3, 0), binding_at(1, 0)];
+        let (result, seen) = run(&declared, &bindings, &[], 1 << 20, |_| Ok(16));
+        assert_eq!(result, Ok(()));
+        assert_eq!(seen, vec![0, 1]);
+    }
+
+    #[test]
+    fn extreme_values_return_a_result_without_panicking() {
+        let big = [u64::MAX];
+        let declared = [spec(0, DType::Bool, &big)];
+        let (result, _) = run(&declared, &[binding_at(0, 0)], &[], u64::MAX, |_| {
+            Ok(u64::MAX)
+        });
+        assert_eq!(result, Ok(()));
+        let (result, _) = run(&declared, &[binding_at(0, u64::MAX)], &[], u64::MAX, |_| {
+            Ok(u64::MAX)
+        });
+        assert!(starts_with(result, "C4:"));
+        let declared = [spec(0, DType::F32, &big)];
+        let (result, _) = run(&declared, &[binding_at(0, 0)], &[], u64::MAX, |_| {
+            Ok(u64::MAX)
+        });
+        assert!(starts_with(result, "C8:"));
     }
 }
