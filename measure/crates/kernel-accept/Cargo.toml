@@ -1,6 +1,5 @@
 # kernel-accept: 実行時に受けるカーネルの一覧のファイルの形の検査と入口名の抜き出し（TASK-485 のポインタ）。
-# 製品の crate（契約・共通）と測定の腕の crate に path で依存する。向きは測定 → 製品の一方向だけにする。
-# 契約の crate は `test-support`・`fault-injection` を有効にしない（`scripts/upper-layer-check.sh` が検査する）。
+# 測定の腕の crate に path で依存し、共通の crate は試験でだけ使う。向きは測定 → 製品の一方向だけにする。
 [package]
 name = "measure-kernel-accept"
 version = "0.0.0"
@@ -11,9 +10,10 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["backend-metal", "native-blocking-wait"] }
-fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
 measure-metal-gemm-arm = { path = "../metal-gemm-arm" }
+
+[dev-dependencies]
+fandhe-silicon-core = { path = "../../../crates/core" }
 
 [lints]
 workspace = true
