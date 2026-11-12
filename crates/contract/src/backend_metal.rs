@@ -3981,7 +3981,9 @@ mod imp {
         /// reflection 付きの生成が表を変えずに値を返すことの確認（ART-89 のポインタ）。
         mod reflection {
             use super::*;
+            use crate::backend_metal::expected_data_type;
             use crate::backend_metal::{ReflectedBuffer, ReflectedSize};
+            use fandhe_silicon_core::execution::DType;
 
             const ONE_FLOAT_BUFFER: &str = "#include <metal_stdlib>\nusing namespace metal;\nkernel void k(device float* a [[buffer(0)]]) { a[0] = 1.0f; }\n";
 
@@ -4016,6 +4018,211 @@ mod imp {
                 let handle = device.register_pipeline(state, &layout).expect("register");
                 assert_eq!(device.lock_pipelines().map.len(), before + 1);
                 assert_eq!(handle.__backend_device_id(), device.id);
+            }
+
+            const GEMM_KERNEL: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                struct GemmDims { uint m; uint n; uint k; };\n\
+                kernel void gemm(device const float* a [[buffer(0)]],\n\
+                                device const float* b [[buffer(1)]],\n\
+                                device float* c [[buffer(2)]],\n\
+                                constant GemmDims& dims [[buffer(3)]],\n\
+                                uint2 gid [[thread_position_in_grid]]) {\n\
+                    if (gid.x >= dims.n || gid.y >= dims.m) { return; }\n\
+                    float acc = 0.0f;\n\
+                    for (uint i = 0; i < dims.k; ++i) { acc = fma(a[gid.y * dims.k + i], b[i * dims.n + gid.x], acc); }\n\
+                    c[gid.y * dims.n + gid.x] = acc;\n\
+                }\n";
+
+            const RELU_KERNEL: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                kernel void relu(device const float* x [[buffer(0)]],\n\
+                                device float* y [[buffer(1)]],\n\
+                                constant uint& n [[buffer(2)]],\n\
+                                uint i [[thread_position_in_grid]]) {\n\
+                    if (i >= n) { return; }\n\
+                    y[i] = max(x[i], 0.0f);\n\
+                }\n";
+
+            const TOPK_KERNEL: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                struct TopkParams { uint n; uint k; };\n\
+                kernel void topk(device const float* scores [[buffer(0)]],\n\
+                                device uint* out_index [[buffer(1)]],\n\
+                                device float* out_value [[buffer(2)]],\n\
+                                constant TopkParams& params [[buffer(3)]],\n\
+                                uint gid [[thread_position_in_grid]]) {\n\
+                    if (gid != 0) { return; }\n\
+                    for (uint j = 0; j < params.k; ++j) { out_value[j] = -INFINITY; out_index[j] = 0; }\n\
+                    for (uint i = 0; i < params.n; ++i) {\n\
+                        float v = scores[i];\n\
+                        uint at = i;\n\
+                        for (uint j = 0; j < params.k; ++j) {\n\
+                            if (v > out_value[j]) {\n\
+                                float tv = out_value[j]; uint ti = out_index[j];\n\
+                                out_value[j] = v; out_index[j] = at;\n\
+                                v = tv; at = ti;\n\
+                            }\n\
+                        }\n\
+                    }\n\
+                }\n";
+
+            const DTYPE_TABLE_KERNEL: &str = "#include <metal_stdlib>\n\
+                using namespace metal;\n\
+                kernel void dtypes(device const half* h [[buffer(1)]],\n\
+                                device const float* f [[buffer(0)]],\n\
+                                device const int* i [[buffer(3)]],\n\
+                                device const uint* u [[buffer(2)]],\n\
+                                device const bool* b [[buffer(4)]],\n\
+                                device float* out [[buffer(5)]]) {\n\
+                    out[0] = f[0] + float(h[0]) + float(u[0]) + float(i[0]) + (b[0] ? 1.0f : 0.0f);\n\
+                }\n";
+
+            fn msl<'a>(source: &'a str, entry_point: &'a str) -> PipelineInput<'a> {
+                PipelineInput::Msl {
+                    source,
+                    entry_point,
+                }
+            }
+
+            fn msl_safe<'a>(source: &'a str, entry_point: &'a str) -> PipelineInput<'a> {
+                PipelineInput::MslWithOptions {
+                    source,
+                    entry_point,
+                    math_mode: MslMathMode::Safe,
+                }
+            }
+
+            fn reflect(
+                device: &MetalDevice,
+                input: &PipelineInput<'_>,
+                layout: &BindingLayout,
+            ) -> PipelineReflection {
+                let function = device.compile_function(input, layout).expect("compile");
+                let (_state, reflection) = device.reflect_function(&function).expect("reflect");
+                reflection
+            }
+
+            fn buffer(slot: u32, bytes: u64, data_type: ReflectedDataType) -> ReflectedBuffer {
+                ReflectedBuffer {
+                    slot,
+                    size: ReflectedSize::Bytes(bytes),
+                    data_type,
+                }
+            }
+
+            /// GEMM のカーネルの引数 4 つが slot・バイト長・型どおりに読める（ART-89 のポインタ）。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reflect_function_reads_the_gemm_kernel_arguments() {
+                let device = new_device();
+                let layout = BindingLayout::new(vec![0, 1, 2, 3]);
+                let got = reflect(&device, &msl(GEMM_KERNEL, "gemm"), &layout);
+                assert_eq!(
+                    got,
+                    PipelineReflection {
+                        argument_count: 4,
+                        buffers: vec![
+                            buffer(0, 4, ReflectedDataType::Float),
+                            buffer(1, 4, ReflectedDataType::Float),
+                            buffer(2, 4, ReflectedDataType::Float),
+                            buffer(3, 12, ReflectedDataType::Struct),
+                        ],
+                    }
+                );
+            }
+
+            /// 要素ごと演算 Relu のカーネルの引数 3 つが slot・バイト長・型どおりに読める（ART-89 のポインタ）。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reflect_function_reads_the_relu_kernel_arguments() {
+                let device = new_device();
+                let layout = BindingLayout::new(vec![0, 1, 2]);
+                let got = reflect(&device, &msl(RELU_KERNEL, "relu"), &layout);
+                assert_eq!(
+                    got,
+                    PipelineReflection {
+                        argument_count: 3,
+                        buffers: vec![
+                            buffer(0, 4, ReflectedDataType::Float),
+                            buffer(1, 4, ReflectedDataType::Float),
+                            buffer(2, 4, ReflectedDataType::UInt),
+                        ],
+                    }
+                );
+            }
+
+            /// 部分 Top-k のカーネルの引数 4 つが slot・バイト長・型どおりに読める（ART-89 のポインタ）。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reflect_function_reads_the_topk_kernel_arguments() {
+                let device = new_device();
+                let layout = BindingLayout::new(vec![0, 1, 2, 3]);
+                let got = reflect(&device, &msl(TOPK_KERNEL, "topk"), &layout);
+                assert_eq!(
+                    got,
+                    PipelineReflection {
+                        argument_count: 4,
+                        buffers: vec![
+                            buffer(0, 4, ReflectedDataType::Float),
+                            buffer(1, 4, ReflectedDataType::UInt),
+                            buffer(2, 4, ReflectedDataType::Float),
+                            buffer(3, 8, ReflectedDataType::Struct),
+                        ],
+                    }
+                );
+            }
+
+            /// `Msl` と `Safe` 指定の `MslWithOptions` で読める引数が同じで、どちらもパイプラインになる（ART-89 のポインタ）。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn msl_and_safe_options_reflect_the_same_arguments_and_create_pipeline() {
+                let device = new_device();
+                let cases: [(&str, &str, Vec<u32>); 3] = [
+                    (GEMM_KERNEL, "gemm", vec![0, 1, 2, 3]),
+                    (RELU_KERNEL, "relu", vec![0, 1, 2]),
+                    (TOPK_KERNEL, "topk", vec![0, 1, 2, 3]),
+                ];
+                for (source, entry, slots) in cases {
+                    let layout = BindingLayout::new(slots);
+                    let plain = reflect(&device, &msl(source, entry), &layout);
+                    let safe = reflect(&device, &msl_safe(source, entry), &layout);
+                    assert_eq!(plain, safe, "entry={entry}");
+                    assert!(
+                        device.create_pipeline(msl(source, entry), &layout).is_ok(),
+                        "entry={entry}"
+                    );
+                    assert!(
+                        device
+                            .create_pipeline(msl_safe(source, entry), &layout)
+                            .is_ok(),
+                        "entry={entry}"
+                    );
+                }
+            }
+
+            /// 5 つの型のバッファが slot の昇順に並び、型とバイト長が対応表どおりになる（ART-89 のポインタ）。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reflect_function_maps_five_dtypes_by_slot_order() {
+                let device = new_device();
+                let layout = BindingLayout::new(vec![0, 1, 2, 3, 4, 5]);
+                let got = reflect(&device, &msl(DTYPE_TABLE_KERNEL, "dtypes"), &layout);
+                assert_eq!(got.argument_count, 6);
+                assert_eq!(got.buffers.len(), 6);
+                let slots: Vec<u32> = got.buffers.iter().map(|b| b.slot).collect();
+                assert_eq!(slots, vec![0, 1, 2, 3, 4, 5]);
+                let dtypes = [DType::F32, DType::F16, DType::U32, DType::I32, DType::Bool];
+                for (b, d) in got.buffers.iter().zip(dtypes) {
+                    assert_eq!(Some(b.data_type), expected_data_type(d), "slot={}", b.slot);
+                    assert_eq!(
+                        b.size,
+                        ReflectedSize::Bytes(d.byte_size()),
+                        "slot={}",
+                        b.slot
+                    );
+                }
+                assert_eq!(got.buffers[5], buffer(5, 4, ReflectedDataType::Float));
             }
         }
 
