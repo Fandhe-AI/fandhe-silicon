@@ -36,7 +36,7 @@ failed=0
 # 渡す引数の組（both / product-only / measure-only）、測定の metadata の全体を差し替える文字列（空なら組み立てる）。
 DEF_UPPER_DEPS='[]'
 DEF_MEASURE_PKGS='[{"id":"m","name":"m","dependencies":[],"features":{}}]'
-DEF_CONTRACT='{"id":"c","name":"fandhe-silicon-contract","manifest_path":"@D@/crates/contract/Cargo.toml","dependencies":[],"features":{"default":["contract-core"],"contract-core":[],"x":["test-support"],"test-support":[],"fault-injection":[]},"targets":[]}'
+DEF_CONTRACT='{"id":"c","name":"fandhe-silicon-contract","manifest_path":"@D@/crates/contract/Cargo.toml","dependencies":[],"features":{"default":["contract-core"],"contract-core":[],"x":["test-support"],"test-support":[],"fault-injection":[],"artifact-inspection":[]},"targets":[]}'
 UPPER_DEPS="${DEF_UPPER_DEPS}"
 MEASURE_PKGS="${DEF_MEASURE_PKGS}"
 CONTRACT_PKG="${DEF_CONTRACT}"
@@ -288,6 +288,9 @@ run_case measure-test-support 1 "${FB}"
 expect_text measure-test-support-msg err "violation: check=measure-feature package=m kind=normal feature=test-support"
 MEASURE_PKGS="$(mpkg "$(cdep null '["fault-injection"]')")"
 run_case measure-fault-injection 1 "${FB}"
+MEASURE_PKGS="$(mpkg "$(cdep null '["artifact-inspection"]')")"
+run_case measure-artifact-inspection 1 "${FB}"
+expect_text measure-artifact-inspection-msg err "violation: check=measure-feature package=m kind=normal feature=artifact-inspection"
 MEASURE_PKGS="$(mpkg "$(cdep '"dev"' '["test-support"]')")"
 run_case measure-dev-test-support 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep '"build"' '["test-support"]')")"
@@ -296,6 +299,8 @@ MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract/test-support"]}')
 run_case measure-forward 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract?/fault-injection"]}')"
 run_case measure-forward-optional 1 "${FB}"
+MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract/artifact-inspection"]}')"
+run_case measure-forward-artifact-inspection 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep null '[]' true '"k"')" '{"f":["k/test-support"]}')"
 run_case measure-forward-renamed 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["other/test-support"]}')"
@@ -789,6 +794,7 @@ edition = "2021"
 default = []
 test-support = []
 fault-injection = []
+artifact-inspection = []
 TOML
 printf '%s\n' '// fixture' >"${rw}/ws/crates/contract/src/lib.rs"
 printf '%s\n' '// fixture' >"${rw}/ws/measure/harness/src/lib.rs"
@@ -941,6 +947,11 @@ fandhe-silicon-contract = { path = "../../crates/contract", features = ["fault-i
         || report_fail real_measure_fault_injection_setup "cannot prepare"
     real_case real_measure_fault_injection 1 \
         "e:violation: check=measure-feature package=harness kind=normal feature=fault-injection" "!ok: "
+    real_state "" '[dependencies]
+fandhe-silicon-contract = { path = "../../crates/contract", features = ["artifact-inspection"] }' \
+        || report_fail real_measure_artifact_inspection_setup "cannot prepare"
+    real_case real_measure_artifact_inspection 1 \
+        "e:violation: check=measure-feature package=harness kind=normal feature=artifact-inspection" "!ok: "
     real_state "" "${HARNESS_CONTRACT}
 [features]
 x = [\"fandhe-silicon-contract/test-support\"]" || report_fail real_measure_forward_setup "cannot prepare"
