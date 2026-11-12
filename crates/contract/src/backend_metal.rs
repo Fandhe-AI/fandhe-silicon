@@ -5244,6 +5244,446 @@ mod imp {
                 submit_and_wait(&device, enc);
                 assert_eq!(read_u32s(&device, &dst, 4), vec![1, 2, 3, 4]);
             }
+
+            use fandhe_silicon_core::execution::DType;
+
+            /// `dispatch_checked` の試験が使うカーネル。`DISPATCH_KERNELS` とは別に持つ。
+            const CHECKED_KERNELS: &str = "#include <metal_stdlib>\n\
+                        using namespace metal;\n\
+                        kernel void gemm_f32(device const float* a [[buffer(0)]],\n\
+                            device const float* b [[buffer(1)]],\n\
+                            device float* c [[buffer(2)]],\n\
+                            constant uint* dims [[buffer(3)]],\n\
+                            uint2 gid [[thread_position_in_grid]]) {\n\
+                            uint m = dims[0];\n\
+                            uint n = dims[1];\n\
+                            uint k = dims[2];\n\
+                            if (gid.y >= m || gid.x >= n) { return; }\n\
+                            float acc = 0.0;\n\
+                            for (uint i = 0; i < k; i++) { acc += a[gid.y * k + i] * b[i * n + gid.x]; }\n\
+                            c[gid.y * n + gid.x] = acc;\n\
+                        }\n\
+                        kernel void noop() {}\n";
+
+            fn checked_pipeline(
+                device: &MetalDevice,
+                entry: &str,
+                slots: Vec<u32>,
+            ) -> PipelineHandle {
+                device
+                    .create_pipeline(
+                        PipelineInput::Msl {
+                            source: CHECKED_KERNELS,
+                            entry_point: entry,
+                        },
+                        &BindingLayout::new(slots),
+                    )
+                    .expect("create_pipeline")
+            }
+
+            fn decl<'a>(
+                slot: u32,
+                dtype: DType,
+                shape: &'a [u64],
+                alignment: u32,
+            ) -> OperandSpec<'a> {
+                OperandSpec {
+                    slot,
+                    dtype,
+                    shape,
+                    stride: &[],
+                    alignment,
+                }
+            }
+
+            fn rejected_with(r: &Result<(), ContractError>, prefix: &str) -> bool {
+                matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(prefix))
+            }
+
+            /// 次元を `[4, 1, 1]`・`[1, 1, 1]` に固定して `dispatch_checked` を呼ぶ。
+            fn checked_run(
+                device: &MetalDevice,
+                enc: &mut CommandEncoder,
+                p: &PipelineHandle,
+                bindings: &[Binding<'_>],
+                consts: &[ConstantBinding<'_>],
+                declared: &[OperandSpec<'_>],
+            ) -> Result<(), ContractError> {
+                device.dispatch_checked(
+                    enc,
+                    p,
+                    bindings,
+                    consts,
+                    declared,
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                )
+            }
+
+            /// BIND-50 のポインタ。長さ 0 の次元の宣言は、表に無いハンドルを束縛していても C8 で拒む。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_rejects_a_zero_length_gemm_before_looking_up_handles() {
+                let device = new_device();
+                let p = checked_pipeline(&device, "gemm_f32", vec![0, 1, 2, 3]);
+                let missing = BufferHandle::__backend_new(
+                    device.generation(),
+                    u64::MAX,
+                    device.id,
+                    16,
+                    BufferUsage::empty(),
+                );
+                let dims = to_bytes(&[0, 4, 4]);
+                let bindings = [
+                    Binding::new(0, &missing, 0),
+                    Binding::new(1, &missing, 0),
+                    Binding::new(2, &missing, 0),
+                ];
+                let consts = [ConstantBinding::new(3, &dims)];
+                let (a, b, c, d) = ([0u64, 4], [4u64, 4], [0u64, 4], [3u64]);
+                let declared = [
+                    decl(0, DType::F32, &a, 0),
+                    decl(1, DType::F32, &b, 0),
+                    decl(2, DType::F32, &c, 0),
+                    decl(3, DType::U32, &d, 0),
+                ];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                let before = device.test_submitted_count();
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &bindings,
+                    &consts,
+                    &declared,
+                    [1, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert!(rejected_with(&r, "C8:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+                assert_eq!(device.test_submitted_count(), before);
+            }
+
+            /// BIND-52 のポインタ。バッファの実際の長さを超える宣言は C4 で拒む。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_rejects_a_declaration_larger_than_the_buffer() {
+                let device = new_device();
+                let p = pipeline(&device, "group_mark", vec![0]);
+                let buf = zeroed(&device, 4);
+                let shape = [100u64];
+                let declared = [decl(0, DType::F32, &shape, 0)];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &buf, 0)],
+                    &[],
+                    &declared,
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert!(rejected_with(&r, "C4:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+            }
+
+            /// BIND-61 のポインタ。上限を 1 バイト超える宣言は C8、上限ちょうどは通る。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_rejects_one_byte_over_the_limit_and_runs_at_the_limit() {
+                let device = new_device();
+                let p = checked_pipeline(&device, "noop", vec![]);
+                let limit = device.limits().max_buffer_bytes;
+                let over = [limit.checked_add(1).expect("limit plus one")];
+                let at = [limit];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                let declared_over = [decl(0, DType::Bool, &over, 0)];
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[],
+                    &[],
+                    &declared_over,
+                    [1, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert!(rejected_with(&r, "C8:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+                let declared_at = [decl(0, DType::Bool, &at, 0)];
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[],
+                    &[],
+                    &declared_at,
+                    [1, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert_eq!(r, Ok(()));
+                assert_eq!(record_count(&device, id), Some(1));
+            }
+
+            /// 表の項目と合わないハンドルは、通る宣言でも `dispatch_ex` の前に拒む。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_rejects_handles_that_do_not_match_the_table() {
+                let device = new_device();
+                let other = new_device();
+                let p = pipeline(&device, "group_mark", vec![0]);
+                let h = zeroed(&device, 4);
+                let foreign = zeroed(&other, 4);
+                let copy = |id: u64, generation: u64, size: u64| {
+                    BufferHandle::__backend_new(
+                        generation,
+                        id,
+                        h.__backend_device_id(),
+                        size,
+                        BufferUsage::empty(),
+                    )
+                };
+                let bigger = copy(h.__backend_id(), h.__backend_generation(), 400);
+                let smaller = copy(h.__backend_id(), h.__backend_generation(), 4);
+                let next_generation = copy(
+                    h.__backend_id(),
+                    h.__backend_generation().checked_add(1).expect("generation"),
+                    h.size(),
+                );
+                let unknown = copy(u64::MAX, h.__backend_generation(), h.size());
+                let shape = [4u64];
+                let declared = [decl(0, DType::F32, &shape, 0)];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                for bad in [&bigger, &smaller, &next_generation, &unknown] {
+                    let r = device.dispatch_checked(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, bad, 0)],
+                        &[],
+                        &declared,
+                        [4, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    );
+                    assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+                    assert_eq!(record_count(&device, id), Some(0));
+                }
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &foreign, 0)],
+                    &[],
+                    &declared,
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &h, 0)],
+                    &[],
+                    &declared,
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert_eq!(r, Ok(()));
+                assert_eq!(record_count(&device, id), Some(1));
+            }
+
+            /// C5・C6・C7（4 通り）・C8 の入力は、記録の前に拒む。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_rejects_c5_c6_c7_and_c8_before_recording() {
+                let device = new_device();
+                let copy = pipeline(&device, "copy_u32", vec![0, 1]);
+                let add = pipeline(&device, "add_const", vec![0, 1, 2]);
+                let src = buffer_of(&device, &(0..16).collect::<Vec<u32>>());
+                let dst = zeroed(&device, 16);
+                let shape = [4u64];
+                let shape_u32 = [3u64];
+                let shape_one = [1u64];
+                let shape_max = [u64::MAX];
+                let four = [0u8; 4];
+                let eight = [0u8; 8];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+
+                // C5: offset が宣言の alignment の倍数でない。
+                let declared = [
+                    decl(0, DType::F32, &shape, 0),
+                    decl(1, DType::F32, &shape, 16),
+                ];
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0), Binding::new(1, &dst, 4)],
+                    &[],
+                    &declared,
+                );
+                assert!(rejected_with(&r, "C5:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+
+                // C6: 定数の大きさが宣言と合わない。
+                let declared = [
+                    decl(0, DType::F32, &shape, 0),
+                    decl(1, DType::F32, &shape, 0),
+                    decl(2, DType::U32, &shape_u32, 0),
+                ];
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &add,
+                    &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                    &[ConstantBinding::new(2, &eight)],
+                    &declared,
+                );
+                assert!(rejected_with(&r, "C6:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+
+                // C7: 宣言に無い束縛・同じ slot の束縛が 2 件・宣言に無い定数・束縛と定数の重なり。
+                let one = [decl(0, DType::F32, &shape, 0)];
+                let one_u32 = [decl(0, DType::U32, &shape_one, 0)];
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0), Binding::new(5, &dst, 0)],
+                    &[],
+                    &one,
+                );
+                assert!(rejected_with(&r, "C7:"), "{r:?}");
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0), Binding::new(0, &dst, 0)],
+                    &[],
+                    &one,
+                );
+                assert!(rejected_with(&r, "C7:"), "{r:?}");
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0)],
+                    &[ConstantBinding::new(9, &four)],
+                    &one,
+                );
+                assert!(rejected_with(&r, "C7:"), "{r:?}");
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0)],
+                    &[ConstantBinding::new(0, &four)],
+                    &one_u32,
+                );
+                assert!(rejected_with(&r, "C7:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+
+                // C8: 要素数の積があふれる。
+                let declared = [decl(0, DType::F32, &shape_max, 0)];
+                let r = checked_run(
+                    &device,
+                    &mut enc,
+                    &copy,
+                    &[Binding::new(0, &src, 0)],
+                    &[],
+                    &declared,
+                );
+                assert!(rejected_with(&r, "C8:"), "{r:?}");
+                assert_eq!(record_count(&device, id), Some(0));
+            }
+
+            /// ちょうどの宣言は `dispatch_ex` に渡り、投入した出力が入力と一致する。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_passes_an_exact_declaration_to_the_dispatch() {
+                let device = new_device();
+                let p = pipeline(&device, "copy_u32", vec![0, 1]);
+                let input: Vec<u32> = (200..216).collect();
+                let src = buffer_of(&device, &input);
+                let dst = zeroed(&device, 16);
+                let shape = [16u64];
+                let declared = [
+                    decl(0, DType::U32, &shape, 0),
+                    decl(1, DType::U32, &shape, 0),
+                ];
+                let mut enc = device.create_encoder();
+                let id = enc.__backend_id();
+                let r = device.dispatch_checked(
+                    &mut enc,
+                    &p,
+                    &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                    &[],
+                    &declared,
+                    [16, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                );
+                assert_eq!(r, Ok(()));
+                assert_eq!(record_count(&device, id), Some(1));
+                submit_and_wait(&device, enc);
+                assert_eq!(read_u32s(&device, &dst, 16), input);
+            }
+
+            /// 新しい確保と、解放後に再利用した確保のハンドルは、その大きさの宣言で通る。
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn dispatch_checked_accepts_fresh_and_reused_allocations() {
+                let device = new_device();
+                let p = pipeline(&device, "group_mark", vec![0]);
+                for len in [4u64, 12, 4100] {
+                    let shape = [len];
+                    let declared = [decl(0, DType::Bool, &shape, 0)];
+                    let fresh = device
+                        .allocate(len, BufferUsage::empty())
+                        .expect("allocate");
+                    {
+                        let mut enc = device.create_encoder();
+                        let r = device.dispatch_checked(
+                            &mut enc,
+                            &p,
+                            &[Binding::new(0, &fresh, 0)],
+                            &[],
+                            &declared,
+                            [1, 1, 1],
+                            [1, 1, 1],
+                            &[],
+                        );
+                        assert_eq!(r, Ok(()), "len {len}");
+                    }
+                    device.free(fresh);
+                    let before = device.test_pool_reuse_count();
+                    let reused = device
+                        .allocate(len, BufferUsage::empty())
+                        .expect("allocate");
+                    assert_eq!(device.test_pool_reuse_count(), before + 1, "len {len}");
+                    let mut enc = device.create_encoder();
+                    let r = device.dispatch_checked(
+                        &mut enc,
+                        &p,
+                        &[Binding::new(0, &reused, 0)],
+                        &[],
+                        &declared,
+                        [1, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    );
+                    assert_eq!(r, Ok(()), "len {len}");
+                }
+            }
         }
 
         /// DEV-80・TASK-2932 のポインタ。`fault_hooks` の口から模擬のロストを呼ぶ。
