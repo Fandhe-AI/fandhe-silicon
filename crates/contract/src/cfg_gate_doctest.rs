@@ -14,6 +14,7 @@
 //! （`MemoryOps::download_blocking`・`CommandQueue::wait_blocking`。別々の snippet）、
 //! `ext-interop` の core のアイテム（`ExternalInterop`）、
 //! `fault-injection`（core の `fault` モジュールと `Device::fault_hooks`。TASK-271）、`graphics`（core の `graphics` モジュールと `Device::graphics`。TASK-137）、
+//! `artifact-inspection`（core の `artifact` モジュールと `Device::artifact_hooks`。TASK-492）、
 //! `cpu-ops`（契約の crate の `cpu_ops` モジュールと、`UnaryElementwiseOp` の網羅の `match` が E0004 で落ちること。TASK-2457）。
 //! feature に依らず通る `download_async`・`on_complete` の doctest も置く。
 
@@ -116,6 +117,28 @@ pub struct GraphicsGate;
 #[doc = "```"]
 #[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
 pub struct DeviceGraphicsGate;
+
+/// `artifact-inspection` を有効にしない構成では core の `artifact` モジュールが解決できずコンパイルエラーになる
+/// （contract の feature が core の同名 feature へ転送されることの確かめ。TASK-492）。
+#[cfg_attr(not(feature = "artifact-inspection"), doc = "```compile_fail")]
+#[cfg_attr(feature = "artifact-inspection", doc = "```")]
+#[doc = "use fandhe_silicon_core::artifact::ArtifactHooks;"]
+#[doc = "fn probe(_: &dyn ArtifactHooks) {}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct ArtifactInspectionGate;
+
+/// `artifact-inspection` を有効にしない構成では `Device::artifact_hooks` が解決できずコンパイルエラーになる
+/// （core の `Device` の既定メソッドが同じ feature の裏にあることの確かめ。TASK-492）。
+#[cfg_attr(not(feature = "artifact-inspection"), doc = "```compile_fail")]
+#[cfg_attr(feature = "artifact-inspection", doc = "```")]
+#[doc = "use fandhe_silicon_core::device::Device;"]
+#[doc = "fn probe(device: &dyn Device) {"]
+#[doc = "    let _ = device.artifact_hooks();"]
+#[doc = "}"]
+#[doc = "```"]
+#[allow(dead_code)] // doctest を載せるためだけのアイテムで、実行時には使わない。
+pub struct DeviceArtifactHooksGate;
 
 /// `cpu-ops` を有効にしない構成では契約の crate の `cpu_ops` モジュールが無く、参照するとコンパイルエラーになる（CPU-28）。
 #[cfg_attr(not(feature = "cpu-ops"), doc = "```compile_fail")]
