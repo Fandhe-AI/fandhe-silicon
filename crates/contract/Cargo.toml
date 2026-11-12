@@ -18,7 +18,7 @@ fandhe-silicon-core = { path = "../core" }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "=0.6.5", optional = true }
 objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
-objc2-metal = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDataType", "MTLDevice", "MTLFunctionConstantValues", "MTLLibrary", "MTLResource", "MTLTypes", "objc2-core-foundation"] }
+objc2-metal = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "MTLAllocation", "MTLArgument", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDataType", "MTLDevice", "MTLFunctionConstantValues", "MTLLibrary", "MTLResource", "MTLTypes", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false }
 
 # CUDA の背後実装の依存。ドライバは実行時に動的に読み込む（`nvcc` はビルドに要らない）。
