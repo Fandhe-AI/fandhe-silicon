@@ -2198,6 +2198,10 @@ impl CommandQueue for CudaDevice {
             backend: BACKEND,
         })
     }
+    /// `limits()` の `max_buffer_bytes` と同じ値を返す。
+    fn max_buffer_bytes(&self) -> u64 {
+        self.limits.max_buffer_bytes
+    }
 }
 
 #[cfg(test)]

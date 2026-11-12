@@ -106,6 +106,10 @@ impl CommandQueue for Recording {
         });
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// 寿命の引数を書かない構造体。記録先を欄に置く。

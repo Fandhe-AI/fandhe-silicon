@@ -135,6 +135,10 @@ impl CommandQueue for DummyQueue {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// 要求の所有形態をそのまま持つダミーの device。

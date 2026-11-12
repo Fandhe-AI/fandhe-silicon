@@ -231,4 +231,8 @@ impl CommandQueue for Recorder {
             threadgroup_memory,
         )
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }

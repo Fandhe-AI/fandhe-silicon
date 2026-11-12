@@ -569,6 +569,10 @@ mod via_command_queue {
                 backend: BackendKind::Metal,
             })
         }
+
+        fn max_buffer_bytes(&self) -> u64 {
+            0
+        }
     }
 
     fn queue_wait(script: FaultScript, timeout: Option<Duration>) -> Result<(), ContractError> {

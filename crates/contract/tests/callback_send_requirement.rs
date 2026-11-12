@@ -122,6 +122,10 @@ impl CommandQueue for Stub {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

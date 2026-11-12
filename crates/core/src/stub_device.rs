@@ -473,6 +473,11 @@ impl CommandQueue for StubQueue {
             backend: self.backend,
         })
     }
+
+    /// `limits()` の `max_buffer_bytes` と同じ値を返す。
+    fn max_buffer_bytes(&self) -> u64 {
+        LIMITS.max_buffer_bytes
+    }
 }
 
 /// パイプラインの印を払い出す `ComputeOps`。`StubDevice` が持つ。
