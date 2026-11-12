@@ -34,8 +34,10 @@
 //! キャッシュキーの口（`pipeline_cache_key`。TASK-501 のポインタ）は MSL の 4 つの入力でキーを返し、パイプラインを作らない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は記録先の表だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
+//! `dispatch_checked`（TASK-436 のポインタ）は、束縛のハンドルを表の項目と照らし、バッファの実際の長さと `limits()` の上限で引数の宣言を照らしてから `dispatch_ex` に委ねる。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -48,7 +50,8 @@ use fandhe_silicon_core::error::DeviceLostReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, CacheKey, FunctionConstant, FunctionConstantValue, GpuTiming,
-    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, PipelineInput, SubmitToken,
+    ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, OperandBinding, OperandConstant,
+    OperandSpec, PipelineInput, SubmitToken, validate_dispatch_operands,
 };
 use fandhe_silicon_core::hash::sha256_u64;
 use fandhe_silicon_core::memory::validate_buffer_range;
@@ -1690,6 +1693,98 @@ fn retire<B, E>(
     put(buffer)
 }
 
+/// 束縛のハンドルを表の項目と照らし、通ればバッファの実際の長さを返す。
+///
+/// ハンドルの世代が項目の世代と違うとき、またはハンドルの `size()` が `buffer_len` と違うときは `InvalidArgument`。
+/// 世代、大きさの順に見る。device に触らない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_handle_record(
+    handle_generation: u64,
+    handle_size: u64,
+    entry_generation: u64,
+    buffer_len: u64,
+) -> Result<u64, ContractError> {
+    if handle_generation != entry_generation {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle generation does not match the issued record".into(),
+        ));
+    }
+    if handle_size != buffer_len {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle size does not match the buffer length".into(),
+        ));
+    }
+    Ok(buffer_len)
+}
+
+/// 引数の宣言を C8、C7、C4、C5、C6 の順に照らす。
+///
+/// `capacity(i)` は `bindings` の `i` 番目の束縛の容量（ハンドルの照合を含む）を返す。C4 の段で
+/// 束縛の並びの順に引かれ、同じ位置は 2 回引かない。`capacity` が `Err` を返した束縛は、
+/// その `Err` をそのまま返す。照らしが通ったときは、まだ引いていない位置もすべて引いてから `Ok(())` を返す。
+/// C8・C7 に当たるときは `capacity` を 1 回も呼ばない。device に触らない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_declared_operands(
+    declared: &[OperandSpec<'_>],
+    bindings: &[OperandBinding],
+    consts: &[OperandConstant<'_>],
+    capacity: impl Fn(usize) -> Result<u64, ContractError>,
+    max_buffer_bytes: u64,
+) -> Result<(), ContractError> {
+    let lens: RefCell<Vec<Option<u64>>> = RefCell::new(vec![None; bindings.len()]);
+    let first_err: RefCell<Option<ContractError>> = RefCell::new(None);
+    // 引いた結果を位置ごとに保持する。`capacity` を呼んでいる間は借用を持たない。
+    let fetch = |pos: usize| -> Option<u64> {
+        let known = lens.borrow().get(pos).copied().flatten();
+        if known.is_some() {
+            return known;
+        }
+        match capacity(pos) {
+            Ok(len) => {
+                if let Some(entry) = lens.borrow_mut().get_mut(pos) {
+                    *entry = Some(len);
+                }
+                Some(len)
+            }
+            Err(e) => {
+                let mut first = first_err.borrow_mut();
+                if first.is_none() {
+                    *first = Some(e);
+                }
+                None
+            }
+        }
+    };
+    let checked = validate_dispatch_operands(
+        declared,
+        bindings,
+        consts,
+        |b| {
+            let Some(pos) = bindings.iter().position(|x| x.slot == b.slot) else {
+                return Some(0);
+            };
+            // 照合に外れた束縛は容量 0 として C4 を落とし、下で照合のエラーを優先する。
+            Some(fetch(pos).unwrap_or(0))
+        },
+        max_buffer_bytes,
+    );
+    let lookup_err = first_err.borrow_mut().take();
+    if let Some(e) = lookup_err {
+        return Err(e);
+    }
+    checked?;
+    for pos in 0..bindings.len() {
+        if fetch(pos).is_none() {
+            break;
+        }
+    }
+    let lookup_err = first_err.borrow_mut().take();
+    match lookup_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
@@ -1707,11 +1802,12 @@ mod imp {
     use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
         BufState, Callback, CompilePlan, ConstantKind, DispatchRecord, GroupState, OpenEncoders,
-        PendingReleases, RecordedBinding, SizePool, Submissions, check_dispatch_args,
-        check_recorded_buffers, check_token_owner, check_unique_slots, classify_pipeline_input,
-        compile_plan, drive_table, driven_generation, encode_plan, finish_table, group_state_of,
-        missing_required_constants, missing_required_reason, precheck_submit, precheck_submit_many,
-        prepare_constants, register_table, remove_issued, retire, take_next,
+        PendingReleases, RecordedBinding, SizePool, Submissions, check_declared_operands,
+        check_dispatch_args, check_handle_record, check_recorded_buffers, check_token_owner,
+        check_unique_slots, classify_pipeline_input, compile_plan, drive_table, driven_generation,
+        encode_plan, finish_table, group_state_of, missing_required_constants,
+        missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
+        register_table, remove_issued, retire, take_next,
     };
     use super::{
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
@@ -1735,7 +1831,7 @@ mod imp {
     use fandhe_silicon_core::execution::{
         __BackendSharedEncoderCloser, __backend_next_encoder_id, BindingLayout, CacheKey,
         CommandEncoder, CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle,
-        PipelineHandle, PipelineInput, SubmitToken,
+        OperandBinding, OperandConstant, OperandSpec, PipelineHandle, PipelineInput, SubmitToken,
     };
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::fault::FaultHooks;
@@ -3090,6 +3186,73 @@ mod imp {
         /// `limits()` の `max_buffer_bytes` と同じ値を返す。
         fn max_buffer_bytes(&self) -> u64 {
             self.limits.max_buffer_bytes
+        }
+
+        // TASK-436 のポインタ。
+        /// 引数の宣言を C8、C7、C4、C5、C6 の順に照らし、通ったら `dispatch_ex` を 1 回呼んでその結果を返す。
+        ///
+        /// C4 の容量は束縛のバッファの実際の長さ、上限は `limits()` の `max_buffer_bytes`。C8・C7 の違反は
+        /// ハンドルを表で引かずに返す。C4 の段で束縛のハンドルを並びの順に照らし、別の device のものは
+        /// `DeviceMismatch`、表に無いもの・世代や大きさが表の項目と違うものは `InvalidArgument` で返す
+        /// （どちらも `dispatch_ex` は呼ばない）。項目は BIND-52。
+        // 引数は dispatch の宣言の並びそのままで、まとめる型を挟まない。
+        #[allow(clippy::too_many_arguments)]
+        fn dispatch_checked(
+            &self,
+            encoder: &mut CommandEncoder,
+            pipeline: &PipelineHandle,
+            bindings: &[fandhe_silicon_core::execution::Binding<'_>],
+            consts: &[fandhe_silicon_core::execution::ConstantBinding<'_>],
+            declared: &[OperandSpec<'_>],
+            dispatch_dims: [u32; 3],
+            threads_per_threadgroup: [u32; 3],
+            threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
+        ) -> Result<(), ContractError> {
+            let operand_bindings: Vec<OperandBinding> = bindings
+                .iter()
+                .map(|b| OperandBinding {
+                    slot: b.slot,
+                    offset: b.offset,
+                })
+                .collect();
+            let operand_consts: Vec<OperandConstant<'_>> = consts
+                .iter()
+                .map(|c| OperandConstant {
+                    slot: c.slot,
+                    bytes: c.bytes,
+                })
+                .collect();
+            let capacity = |i: usize| -> Result<u64, ContractError> {
+                let Some(binding) = bindings.get(i) else {
+                    return Err(ContractError::InvalidArgument(
+                        "binding position is out of range".into(),
+                    ));
+                };
+                self.with_buffer(binding.buffer, |entry| {
+                    check_handle_record(
+                        binding.buffer.__backend_generation(),
+                        binding.buffer.size(),
+                        entry.generation,
+                        to_u64(entry.buffer.length())?,
+                    )
+                })
+            };
+            check_declared_operands(
+                declared,
+                &operand_bindings,
+                &operand_consts,
+                capacity,
+                self.limits.max_buffer_bytes,
+            )?;
+            self.dispatch_ex(
+                encoder,
+                pipeline,
+                bindings,
+                consts,
+                dispatch_dims,
+                threads_per_threadgroup,
+                threadgroup_memory,
+            )
         }
     }
 
@@ -8045,5 +8208,151 @@ mod lost_state_tests {
             .lose(DeviceLostReason::Unknown, &generation, &source)
             .unwrap();
         assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod dispatch_checked_tests {
+    use super::*;
+    use fandhe_silicon_core::execution::DType;
+    use std::cell::Cell;
+
+    fn spec<'a>(slot: u32, dtype: DType, shape: &'a [u64]) -> OperandSpec<'a> {
+        OperandSpec {
+            slot,
+            dtype,
+            shape,
+            stride: &[],
+            alignment: 0,
+        }
+    }
+
+    fn binding(slot: u32) -> OperandBinding {
+        OperandBinding { slot, offset: 0 }
+    }
+
+    fn starts_with(r: Result<(), ContractError>, prefix: &str) -> bool {
+        matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(prefix))
+    }
+
+    #[test]
+    fn handle_record_returns_the_length_when_generation_and_size_match() {
+        assert_eq!(check_handle_record(3, 16, 3, 16), Ok(16));
+    }
+
+    #[test]
+    fn handle_record_rejects_a_different_generation() {
+        assert!(matches!(
+            check_handle_record(2, 16, 3, 16),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn handle_record_rejects_a_larger_size() {
+        assert!(matches!(
+            check_handle_record(3, 400, 3, 16),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn handle_record_rejects_a_smaller_size() {
+        assert!(matches!(
+            check_handle_record(3, 4, 3, 16),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    /// BIND-50: 長さ 0 の次元は、束縛を表で引く前に C8 で拒む。
+    #[test]
+    fn zero_length_dimension_is_rejected_before_any_lookup() {
+        let shape_a = [0u64, 4];
+        let shape_b = [4u64, 4];
+        let shape_c = [0u64, 4];
+        let declared = [
+            spec(0, DType::F32, &shape_a),
+            spec(1, DType::F32, &shape_b),
+            spec(2, DType::F32, &shape_c),
+        ];
+        let bindings = [binding(0), binding(1), binding(2)];
+        let calls = Cell::new(0u32);
+        let result = check_declared_operands(
+            &declared,
+            &bindings,
+            &[],
+            |_| {
+                calls.set(calls.get() + 1);
+                Err(ContractError::DeviceMismatch)
+            },
+            1 << 20,
+        );
+        assert!(starts_with(result, "C8:"));
+        assert_eq!(calls.get(), 0);
+    }
+
+    /// BIND-52: 実際の長さを超える宣言は C4 で拒む。
+    #[test]
+    fn declaration_larger_than_the_buffer_length_is_rejected_by_c4() {
+        let shape = [100u64];
+        let declared = [spec(0, DType::F32, &shape)];
+        let result = check_declared_operands(&declared, &[binding(0)], &[], |_| Ok(16), 1 << 20);
+        assert!(starts_with(result, "C4:"));
+    }
+
+    /// BIND-61: 上限を 1 バイト超える宣言は C8、上限ちょうどは通る。
+    #[test]
+    fn declaration_one_byte_over_the_limit_is_rejected_and_the_limit_passes() {
+        let limit: u64 = 1 << 20;
+        let over = [limit.checked_add(1).unwrap()];
+        let exact = [limit];
+        let result =
+            check_declared_operands(&[spec(0, DType::Bool, &over)], &[], &[], |_| Ok(0), limit);
+        assert!(starts_with(result, "C8:"));
+        let result =
+            check_declared_operands(&[spec(0, DType::Bool, &exact)], &[], &[], |_| Ok(0), limit);
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn lookup_errors_are_returned_as_they_are() {
+        let shape = [4u64];
+        let declared = [spec(0, DType::F32, &shape)];
+        let result = check_declared_operands(
+            &declared,
+            &[binding(0)],
+            &[],
+            |_| Err(ContractError::DeviceMismatch),
+            1 << 20,
+        );
+        assert_eq!(result, Err(ContractError::DeviceMismatch));
+        let invalid = ContractError::InvalidArgument("lookup".into());
+        let result = check_declared_operands(
+            &declared,
+            &[binding(0)],
+            &[],
+            |_| Err(invalid.clone()),
+            1 << 20,
+        );
+        assert_eq!(result, Err(invalid));
+    }
+
+    #[test]
+    fn every_binding_is_looked_up_once_when_the_declaration_passes() {
+        let shape = [4u64];
+        let declared = [spec(0, DType::F32, &shape), spec(1, DType::F32, &shape)];
+        let calls = Cell::new(0u32);
+        let result = check_declared_operands(
+            &declared,
+            &[binding(0), binding(1)],
+            &[],
+            |_| {
+                calls.set(calls.get() + 1);
+                Ok(16)
+            },
+            1 << 20,
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls.get(), 2);
     }
 }
