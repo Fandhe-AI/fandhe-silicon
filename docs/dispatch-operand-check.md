@@ -382,3 +382,7 @@ ART-90・ART-92 のポインタ。実装（`crates/core/src`）は変えず、�
 - 確かめた base: `2b742a2`。`git diff origin/main -- crates/core/src` は空
 
 関連: dispatch の検査の入力の組は [dispatch-check-inputs.md](dispatch-check-inputs.md)（TASK-2944）。
+
+## 同じ slot の宣言が複数あるときの C4 の補い（TASK-426）
+
+上の「対応するテスト」の箇条の「`declared` 内の重複は … 先頭の宣言を使う」と、「現状と前提の確認（1/4）」の節の表の単体テストの行の `dispatch_check_duplicate_slot_uses_first_declaration_everywhere` は、base `dec502e` までの記述である。今はその試験の名前が `dispatch_check_duplicate_slot_uses_last_declaration_for_c4` で、C4 は同じ `slot` の最後の宣言を、C5・C6 は先頭の宣言を使う。詳細は [operand-check-composition.md](operand-check-composition.md) を参照。
