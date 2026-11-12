@@ -422,6 +422,22 @@ pub struct FlowReference {
     pub relu: Vec<f32>,
 }
 
+/// GEMM の入力の長さが行の `M×K`・`K×N` と合うか確かめる（device に触る前の検査）。
+pub fn check_gemm_input_lengths(row: GemmGateRow, inputs: &GemmInputsF32) -> Result<(), FlowError> {
+    let a_len = row
+        .m()
+        .checked_mul(row.k())
+        .ok_or(FlowError::SizeOverflow)?;
+    let b_len = row
+        .k()
+        .checked_mul(row.n())
+        .ok_or(FlowError::SizeOverflow)?;
+    if inputs.a().len() != a_len || inputs.b().len() != b_len {
+        return Err(FlowError::LengthMismatch);
+    }
+    Ok(())
+}
+
 /// 3 段の CPU の参照を作る。
 pub fn reference(
     row: GemmGateRow,

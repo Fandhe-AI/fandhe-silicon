@@ -121,8 +121,8 @@ mod device {
     use super::{FlowOutputs, RunError, Stage, StepKind};
     use crate::accept::error_kind;
     use crate::flow::{
-        DispatchShape, FlowError, FlowKernel, FlowKernels, Role, add_shape, f32_from_ne_bytes,
-        f32_ne_bytes, gemm_shape, relu_shape,
+        DispatchShape, FlowError, FlowKernel, FlowKernels, Role, add_shape,
+        check_gemm_input_lengths, f32_from_ne_bytes, f32_ne_bytes, gemm_shape, relu_shape,
     };
 
     fn err(stage: Stage, step: StepKind, kind: &'static str) -> RunError {
@@ -286,6 +286,7 @@ mod device {
         kernel: &FlowKernel,
         inputs: &GemmInputsF32,
     ) -> Result<Vec<f32>, RunError> {
+        check_gemm_input_lengths(row, inputs).map_err(|e| RunError::from_flow(Stage::Gemm, e))?;
         let out_len = row
             .m()
             .checked_mul(row.n())

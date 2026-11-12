@@ -333,3 +333,19 @@ fn unreadable_or_mismatched_sources_are_rejected_before_any_device() {
     let err = load_kernel(&f.manifest, &f.dir, Role::PlainGemm, &lookup).unwrap_err();
     assert_eq!(err, FlowError::SourceUnreadable(Role::PlainGemm));
 }
+
+#[test]
+fn gemm_input_lengths_are_checked_against_the_row() {
+    use fandhe_silicon_core::parity::gemm_inputs::generate_f32;
+    use measure_kernel_accept::flow::check_gemm_input_lengths;
+
+    let odd = generate_f32(GemmGateRow::Odd37x41x53).expect("inputs");
+    assert_eq!(
+        check_gemm_input_lengths(GemmGateRow::Odd37x41x53, &odd),
+        Ok(())
+    );
+    assert_eq!(
+        check_gemm_input_lengths(GemmGateRow::Sq512, &odd),
+        Err(FlowError::LengthMismatch)
+    );
+}
