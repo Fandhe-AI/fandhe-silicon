@@ -69,6 +69,10 @@ impl ManifestEntry {
     pub fn entry(&self) -> &str {
         &self.entry
     }
+    /// パスの最後の成分。`<dir>/<ファイル名>` を読む段が使う。
+    pub fn file_name(&self) -> &str {
+        file_name(&self.path)
+    }
 }
 
 /// 同じパスのソースと、そこに属する入口の行。

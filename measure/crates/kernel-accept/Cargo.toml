@@ -1,19 +1,22 @@
-# kernel-accept: 実行時に受けるカーネルの一覧のファイルの形の検査と入口名の抜き出し（TASK-485 のポインタ）。
-# 測定の腕の crate に path で依存し、共通の crate は試験でだけ使う。向きは測定 → 製品の一方向だけにする。
+# kernel-accept: 実行時に受けるカーネルの一覧の検査・入口名の抜き出しと、一覧の 1 行からパイプラインを作るコマンド（TASK-485 のポインタ）。
+# 契約の crate の公開 API と共通の crate、測定の腕の crate に path で依存する。向きは測定 → 製品の一方向だけにする。
 [package]
 name = "measure-kernel-accept"
 version = "0.0.0"
-description = "実行時に受けるカーネルの一覧のファイルの読み取りと形の検査、入口名の抜き出しの純粋な部品"
+description = "実行時に受けるカーネルの一覧の検査と入口名の抜き出し、一覧の 1 行からパイプラインを作るコマンド"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[dependencies]
-measure-metal-gemm-arm = { path = "../metal-gemm-arm" }
+[[bin]]
+name = "accept-kernel"
+path = "src/bin/accept-kernel.rs"
 
-[dev-dependencies]
-fandhe-silicon-core = { path = "../../../crates/core" }
+[dependencies]
+fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["backend-metal", "native-blocking-wait"] }
+fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
+measure-metal-gemm-arm = { path = "../metal-gemm-arm" }
 
 [lints]
 workspace = true
