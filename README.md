@@ -210,8 +210,9 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
 | `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 55fd9c1）（TASK-1082） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
-| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順） |
+| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順）・今の値の補い（base ad1e625） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
+| `docs/metal-dispatch-record.md` | Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表 |
 | `docs/metal-gemm-arm.md` | 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb） |
 | `docs/metal-coopmat-gemm-arm.md` | 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/metal-source-gemm-arm.md` | 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7） |

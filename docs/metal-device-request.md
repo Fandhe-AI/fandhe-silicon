@@ -127,3 +127,13 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 重なる不正の順は `precheck_tests` の `submit_many_checks_after_then_empty_then_wait`（他 device の印と空の列と空でない `wait` の組を含む）で確かめる。どの OS でも流れる。確かめ方: `grep -n 'fn precheck_submit_many' crates/contract/src/backend_metal.rs`
 
 製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が入るまで、積み込みの形は単体試験のビルドだけが確かめる。
+
+## 今の値の補い（base ad1e625）
+
+記録時点の表と既存の節は書き換えない。以下は base `ad1e625` で観測した今の値（実行環境は GPU なしの Linux）。
+
+- 「所在」の表の `unsafe` の行: 読み書きのコピー 2 つと function constant の設定 1 つに加えて、compute encoder への設定の関数 `set_bindings`・`set_constants`・`set_threadgroup_memory` が `unsafe` を持つ。個数は `crates/contract/tests/backend_metal_unsafe_count.rs` の表が持つ。確かめ方: `grep -n 'fn set_bindings\|fn set_constants\|fn set_threadgroup_memory' crates/contract/src/backend_metal.rs`
+- 「所在」の表の依存の行: `objc2-metal` の feature に `MTLCommandEncoder`・`MTLComputeCommandEncoder`・`MTLTypes` が加わった。crate と版は変わらない。確かめ方: `grep -n 'objc2-metal' crates/contract/Cargo.toml`
+- `free` は、最後に使った投入が終わっていないバッファを解放の保留に置く。使用中のバッファへの `upload`・`download_blocking`・`download_async` は `InvalidArgument` で拒む。
+- dispatch の記録と積みの所在・試験は [metal-dispatch-record](metal-dispatch-record.md) に置く。
+- 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 53 → 55。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
