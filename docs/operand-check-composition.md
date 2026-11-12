@@ -129,3 +129,21 @@ C4〜C8 の違反が複数ある入力での返り方と、同じ `slot` の宣�
 cargo test -p fandhe-silicon-core --test execution_operand_check
 make verify
 ```
+
+## 完了の条件の確かめ（6/6）（TASK-426。以下は当時の base の記録）
+
+6/6（#4762）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-426）。GPU の実機は使わず、下の base で実行した値を書く。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 関数が共通の crate に feature の条件なしで置かれ、公開のパスで呼べる | `grep -n operand_check crates/core/src/execution.rs`・`cargo check -p fandhe-silicon-core`（feature なし） | 12 行目に `mod operand_check;`、27 行目に `pub use operand_check::validate_operands;`。`execution.rs` の先頭 30 行に `cfg` は 0 件。`cargo check` の終了コードは 0 |
+| 2 | C1・C3 に当たる入力でその拒否を返し、容量の問い合わせが 0 回 | `cargo test -p fandhe-silicon-core --test execution_operand_check` の `validate_operands_returns_c` | `validate_operands_returns_c1_without_dispatch_checks`・`validate_operands_returns_c3_without_dispatch_checks` が ok。対照の `validate_operands_runs_dispatch_checks_after_declared_checks`・`validate_operands_accepts_input_that_passes_every_check` も ok |
+| 3 | 検査が通る 6 通りの入力で 3 つの関数がどれも `Ok(())` | 同上の `sequential_checks_accept_` | 6 件が ok |
+| 4 | 複数の違反で C8 → C7 → C4 → C5 → C6 の順に先頭の 1 件 | 同上の `dispatch_checks_return_first_violation_in_order`・`dispatch_checks_return_earlier_of_two_violations` | 2 件が ok |
+| 5 | 同じ slot の宣言が複数あるときの C8・C7・C4・C5・C6 | 同上の `duplicate_declarations_` と、`cargo test -p fandhe-silicon-core --lib dispatch_check_duplicate` | 統合テスト 5 件と単体テスト 1 件（`dispatch_check_duplicate_slot_uses_last_declaration_for_c4`）が ok |
+| 6 | 背後実装・ファイル・時刻に触れない | `grep -nE 'std::(fs\|time\|env\|net\|process\|thread)\|SystemTime\|Instant' crates/core/src/execution/operand_check.rs crates/core/src/execution/dispatch_check.rs`・`make core-deps-check`・`make wasm-verify` | grep は 0 件。`core-deps-check` は `unexpected=0 missing=0 forward_violations=0` で終了コード 0。`wasm-verify` の終了コードは 0 |
+| 7 | 依存 0・unsafe 0 | 1/6 の親（`25f1b96`）から base までの `Cargo.lock`・`deps-approved.toml`・`crates/core/Cargo.toml` の差分の統計・`grep -c unsafe crates/core/src/execution/operand_check.rs` | 差分は空。unsafe は 0 件 |
+| 8 | CI で流れる場所 | `make verify`（`cargo test --workspace --all-features`）・`gh run list --branch main --workflow ci.yml` | `make verify` の終了コードは 0 で、`execution_operand_check` の 18 件、`--lib operand_check` の 6 件、`--lib dispatch_check` の 21 件が ok。base の push の run（`43154445889`）は記録時点で queued |
+| 9 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-426）。確かめた base は `459e26f`、`docs/spec` の gitlink は `5f6d802c905938bba1ed963340029d61fe3651a0`。
