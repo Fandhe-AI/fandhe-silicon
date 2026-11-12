@@ -60,3 +60,27 @@ make verify
 cargo test -p fandhe-silicon-core --test execution_operand_check
 make verify
 ```
+
+## 検査が通る 6 通りの入力の試験（3/6）
+
+検査をすべて通る 6 通りの入力で、`validate_declared_operands`・`validate_dispatch_operands`・`validate_operands` がどれも `Ok(())` を返すことを、外の crate から公開のパスで確かめる。feature なしで動く（TASK-426）。
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/core/tests/execution_operand_check.rs` |
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `sequential_checks_accept_matching_counts` | F32 `[4]` の宣言 2 件・束縛 2 件・容量 `None` | 3 つの関数がどれも `Ok(())` |
+| `sequential_checks_accept_exact_capacity` | F32 `[4]`（16 バイト）・容量 `Some(16)` | 同上 |
+| `sequential_checks_accept_aligned_offset` | `alignment` 16・offset 16・容量 `Some(1024)` | 同上 |
+| `sequential_checks_accept_constant_length` | U32 `[3]` の宣言 1 件・12 バイトの定数・束縛なし | 同上 |
+| `sequential_checks_accept_exact_limit` | F32 `[1000]`（4,000 バイト）・束縛なし・上限 4,000 | 同上 |
+| `sequential_checks_accept_gemm` | M=37・K=53・N=41 の A・B・C と次元の定数・容量 `Some(1 << 20)` | 同上 |
+
+### 確かめ方
+
+```bash
+cargo test -p fandhe-silicon-core --test execution_operand_check
+make verify
+```
