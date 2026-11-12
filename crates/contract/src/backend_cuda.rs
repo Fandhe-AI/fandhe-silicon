@@ -3778,13 +3778,16 @@ mod device_tests {
         #[ignore = "requires a CUDA device"]
         fn a_handle_from_before_the_loss_can_still_be_freed_once() {
             let d = device();
-            let h = d.allocate(64, BufferUsage::empty()).expect("allocate");
+            let h = d.allocate(64, BufferUsage::UPLOAD).expect("allocate");
             inject(
                 d.fault_hooks(),
                 HookFault::DeviceLost(DeviceLostReason::Unknown),
             )
             .expect("loss");
-            assert!(d.upload(&h, 0, &[1]).is_err());
+            assert!(matches!(
+                d.upload(&h, 0, &[1]),
+                Err(ContractError::InvalidArgument(_))
+            ));
             assert_eq!(d.lock().map.len(), 1);
 
             let again = BufferHandle::__backend_new(
