@@ -5077,6 +5077,7 @@ mod imp {
                 assert_eq!(read_u32s(&device, &dst, 4), vec![1, 2, 3, 4]);
             }
         }
+
         /// DEV-80・TASK-2932 のポインタ。`fault_hooks` の口から模擬のロストを呼ぶ。
         #[cfg(feature = "fault-injection")]
         mod lost {
