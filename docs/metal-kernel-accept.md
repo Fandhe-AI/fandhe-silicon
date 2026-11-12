@@ -52,3 +52,46 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 ### 入口名の抜き出し
 
 `scan_entries` は、正規表現 `kernel\s+void\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(` と同じ規則で、先頭から重ならずに入口名を出現の順に拾う。コメントは除かない。
+
+## 一覧の 1 行の受け付け（2/6）
+
+一覧の 1 入口を 1 プロセスでパイプラインにする bin `accept-kernel` と、その部品、device の要る試験の所在と振る舞いを置く。記録の正は private spec 側にある（TASK-485。ポインタのみ）。
+
+| 項目 | 事実 |
+| ---- | ---- |
+| bin | `measure/crates/kernel-accept/src/bin/accept-kernel.rs`（`accept-kernel <manifest> <dir> <path> <entry>`） |
+| 部品 | `src/accept.rs`（行の選択・ソースの置き場・入口の並びの照合・入力の組み立て・エラーの種類の写し。Metal に触れるのは macOS の cfg の内側の `create_on_device` だけ）、`src/constants.rs`（`specialized_constants`） |
+| 試験（どの OS でも） | `tests/accept.rs`・`tests/constants.rs`・`tests/accept_cmd.rs` |
+| 試験（device の要るもの） | `tests/accept_device.rs`（`#![cfg(target_os = "macos")]`、`#[ignore]` 付き 2 本） |
+
+### bin の手順と終了コード
+
+手順の順は固定で、device を作るのは最後の手順だけ。
+
+1. 引数の数が 4 でない（UTF-8 でない引数を含む）と終了コード 2。
+2. `<manifest>` を `load` で読む。読めない・形の違反は終了コード 2。`<path> <entry>` の組が一覧の行に無いときも終了コード 2。
+3. macOS 以外は終了コード 3 で終わる。
+4. `<dir>/<path のファイル名>` を、その行の sha256 で `load_source_against` が照らして読む。失敗は終了コード 1。
+5. `scan_entries` の並びが、一覧のそのパスの入口の並び（数も順も）と一致しなければ終了コード 1。
+6. device を作り（Metal・ComputeOnly・ProductIndependent）、`compute()` の口で空の配置のパイプラインを作る。投入はしない。入力は行の種類が `specialized` なら `MslSpecialized`、`msl` なら `Msl`。device が取れない・compute の口が無いときは終了コード 1。
+7. 作れたら標準出力に `accepted` の 1 行で終了コード 0。作れなかったら標準出力にエラーの種類の固定の文字列を 1 行出し、終了コード 1。
+
+| 終了コード | 意味 |
+| ---------- | ---- |
+| 0 | パイプラインを作れた |
+| 1 | 手順 4〜7 の失敗 |
+| 2 | 引数・一覧・選んだ組が不正（device に届く前に返る） |
+| 3 | macOS 以外 |
+
+標準エラーには固定の英語の文言と引数の番号だけを出し、引数の値・入口名・パスは出さない。契約のエラーの文言も出さず、固定の種類の文字列に写す。
+
+### `specialized` の行に渡す定数
+
+`specialized_constants` は、起動の表（`launch_for`）の f32・`Sq512` のセルの function constant 18 個を、`ConstantValue::UInt` → `U32`、`Bool` → `Bool` に写す（index はそのまま）。`tests/constants.rs` が個数・index・型・値を表のセルと突き合わせる。
+
+### device の試験
+
+- 試験の名前: `msl_entries_return_pipelines`・`specialized_entries_return_pipelines`。それぞれ一覧のその種類の全行について子プロセス `accept-kernel` を起動し、全部が終了コード 0 でシグナルでの終了が 0 のときだけ一致とする。期待の本数はその種類の行数で、0 行は失敗。
+- 標準出力には行ごとの 1 行（一覧の行の番号と終了コードまたは `signal`）と集計の 1 行（行数・0 の数・それ以外の数・シグナルの数）を出す。
+- 環境変数: `FANDHE_SILICON_KERNEL_MANIFEST`（一覧のパス）・`FANDHE_SILICON_KERNEL_DIR`（ソースを置いたディレクトリ）・`FANDHE_SILICON_TEST_MACHINE_COMBINATION`（試験の枠の組み合わせ）、必要なら `FANDHE_SILICON_TEST_RECORD_DIR`。欠けたときは skip せず失敗する。
+- 流し方: `cargo test --manifest-path measure/Cargo.toml -p measure-kernel-accept --test accept_device -- --ignored`
