@@ -137,3 +137,10 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - `free` は、最後に使った投入が終わっていないバッファを解放の保留に置く。使用中のバッファへの `upload`・`download_blocking`・`download_async` は `InvalidArgument` で拒む。
 - dispatch の記録と積みの所在・試験は [metal-dispatch-record](metal-dispatch-record.md) に置く。
 - 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 53 → 55。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
+
+## 今の値の補い（base f433877）
+
+記録時点の表と既存の節は書き換えない。
+
+- 行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`）は 55 → 59。数えたコマンド: `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs`
+- 増えた 4 本の所在は [metal-dispatch-checked](metal-dispatch-checked.md) に置く。

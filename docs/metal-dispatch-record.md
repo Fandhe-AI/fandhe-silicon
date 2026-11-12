@@ -207,3 +207,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 3/5 | dispatch を記録して投入の時に compute encoder に積む | #5637 | #8222 |
 | 4/5 | dispatch の device の要る試験を `#[ignore]` 付きで足す | #5638 | #8225 |
 | 5/5 | 完了の条件の確かめ | #5639 | 本頁 |
+
+## 今の値の補い（base f433877）
+
+記録時点の表と既存の節は書き換えない。以下は base `f433877` で観測した今の値。
+
+- `impl CommandQueue for MetalDevice` は `dispatch_checked` を持ち、引数の宣言を照らした後に `dispatch_ex` を呼ぶ。
+- 行頭の `#[ignore` の件数（ファイル全体。上の表の module ごとの件数とは別の数え方）は、`crates/contract/src/backend_metal.rs` が 55 → 62、`crates/contract/tests/backend_metal_device.rs` が 55 → 59。数えたコマンド: `grep -cE '^\s*#\[ignore' <ファイル>`
+- 上書きの所在と試験は [metal-dispatch-checked](metal-dispatch-checked.md) に置く。

@@ -151,7 +151,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/dispatch-operand-check.md` | 引数の宣言の C4〜C8 を判定する純粋関数（TASK-421・TASK-423）の所在・現状の振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（4/4）・現状と前提の確認（1/4）・C4 の容量不明・offset の試験（2/4）・alignment 0 の C5 の試験（3/4）・完了の条件の確かめ（4/4）（TASK-425）・C7 の実装（1/2）・統合テストと完了の条件の確かめ（2/2）（TASK-2952）・定数の C7 の試験（1/2）・完了の条件の確かめ（2/2）（TASK-424） |
 | `docs/declared-operand-check.md` | 引数の宣言の C1・C3 を判定する純粋関数（TASK-420）の所在・現状の振る舞い（1/4）・C1 の件数の試験（2/4）・C3 の次元数の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/operand-check-composition.md` | 引数の宣言の C1・C3 と C4〜C8 を続けて判定する純粋関数（TASK-426）の所在・所在と現状の振る舞い（1/6）・直接の呼び出しの試験（2/6）・検査が通る 6 通りの入力の試験（3/6）・同じ slot の宣言が複数あるときの C4（4/6）・複数の違反の順と重複した宣言の試験（5/6）・完了の条件の確かめ（6/6） |
-| `docs/dispatch-checked-default.md` | 投入の前の検査の既定の本体と上限を返す必須のメソッド `CommandQueue::max_buffer_bytes`（TASK-569）の所在・上限を返す必須のメソッド（1/6）・既定の本体（2/6）・容量と上限の拒否の試験（3/6）・検査の順と受け渡しの試験（4/6）・試験用の device の queue の試験（5/6）・完了の条件の確かめ（6/6） |
+| `docs/dispatch-checked-default.md` | 投入の前の検査の既定の本体と上限を返す必須のメソッド `CommandQueue::max_buffer_bytes`（TASK-569）の所在・上限を返す必須のメソッド（1/6）・既定の本体（2/6）・容量と上限の拒否の試験（3/6）・検査の順と受け渡しの試験（4/6）・試験用の device の queue の試験（5/6）・完了の条件の確かめ（6/6）・今の値の補い（base f433877） |
 | `docs/dispatch-check-inputs.md` | dispatch の検査の入力の組と入力から契約の型の値を作る関数（TASK-2944）の所在・入力の組と当たる検査（1/2）・完了の条件の確かめ（2/2） |
 | `docs/buffer-range-check.md` | バッファの引数検査の純粋関数（TASK-309 の 1/4）の所在・現状の振る舞い・対応するテスト・確かめ方・境界の入力の試験（2/4）・拒否のときの内容の不変の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 3e32680） |
 | `docs/buffer-usage-check.md` | 用途の 12 値の対応表と用途と操作の対応の検査（TASK-1796）の所在・現状の振る舞い・対応するテスト・確かめ方 |
@@ -211,9 +211,10 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/perf-variation-rule.md` | 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027） |
 | `docs/detection-counting.md` | 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 55fd9c1）（TASK-1082） |
 | `docs/metal-run-procedure.md` | Metal の実機での試験の実行手順（TASK-19）。手順を助けるスクリプト `scripts/metal-session.sh` の振る舞いと、回帰テストとの対応 |
-| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順）・今の値の補い（base ad1e625） |
+| `docs/metal-device-request.md` | Metal の背後実装の device の取得・診断・確保（TASK-158）の所在・振る舞い・対応するテスト・確かめ方・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順）・今の値の補い（base ad1e625）・今の値の補い（base f433877） |
 | `docs/metal-compile-options.md` | Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/metal-dispatch-record.md` | Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表 |
+| `docs/metal-dispatch-record.md` | Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base f433877） |
+| `docs/metal-dispatch-checked.md` | Metal の投入の前の検査の上書き（TASK-436）の所在と、本リポの現状の事実・上書きの振る舞い（1/5）・宣言の照らしの関数の試験（2/5）・device の要る試験（3/5・4/5）・完了の条件の確かめ（5/5）・段の表 |
 | `docs/metal-gemm-arm.md` | 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb） |
 | `docs/metal-coopmat-gemm-arm.md` | 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/metal-source-gemm-arm.md` | 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7） |

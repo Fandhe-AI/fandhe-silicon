@@ -172,3 +172,10 @@ make verify
 | 9 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
 
 完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-569）。確かめた base は `2b3b38b`、`docs/spec` の gitlink は `5f6d802c905938bba1ed963340029d61fe3651a0`。
+
+## 今の値の補い（base f433877）
+
+記録時点の表と既存の節は書き換えない。
+
+- `crates/contract/src/backend_metal.rs` の `impl CommandQueue for MetalDevice` は `dispatch_checked` を上書きする。容量はバッファの実際の長さ。
+- 上書きの所在と試験は [metal-dispatch-checked](metal-dispatch-checked.md) に置く。
