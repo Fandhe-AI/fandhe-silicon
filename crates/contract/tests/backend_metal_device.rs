@@ -136,11 +136,16 @@ fn usage() -> BufferUsage {
 
 /// `BufferHandle` は `Clone` を持たないので、同じ識別子・世代・device の識別子で作り直した写しを返す。
 fn forged_copy(h: &BufferHandle) -> BufferHandle {
+    forged_copy_with_size(h, h.size())
+}
+
+/// `h` と同じ識別子・世代・device の識別子で、大きさだけ `size` にしたハンドルを返す。
+fn forged_copy_with_size(h: &BufferHandle, size: u64) -> BufferHandle {
     BufferHandle::__backend_new(
         h.__backend_generation(),
         h.__backend_id(),
         h.__backend_device_id(),
-        h.size(),
+        size,
         h.usage(),
     )
 }
@@ -1534,17 +1539,6 @@ fn rejected_with(r: &Result<(), ContractError>, prefix: &str) -> bool {
     matches!(r, Err(ContractError::InvalidArgument(m)) if m.starts_with(prefix))
 }
 
-/// `h` と同じ識別子・世代・device の識別子で、大きさだけ `size` にしたハンドルを返す。
-fn sized_copy(h: &BufferHandle, size: u64) -> BufferHandle {
-    BufferHandle::__backend_new(
-        h.__backend_generation(),
-        h.__backend_id(),
-        h.__backend_device_id(),
-        size,
-        h.usage(),
-    )
-}
-
 /// u32 の列をネイティブエンディアンのバイト列にする。
 fn u32_bytes(values: &[u32]) -> Vec<u8> {
     values.iter().flat_map(|v| v.to_ne_bytes()).collect()
@@ -1612,7 +1606,7 @@ fn dispatch_checked_through_the_public_device_uses_the_buffer_length() {
     );
     assert!(rejected_with(&r, "C4:"), "{r:?}");
 
-    let resized = sized_copy(&h, 400);
+    let resized = forged_copy_with_size(&h, 400);
     let r = queue.dispatch_checked(
         &mut encoder,
         &pipeline,
