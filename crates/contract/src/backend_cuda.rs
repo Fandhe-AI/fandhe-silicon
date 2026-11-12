@@ -2255,6 +2255,177 @@ mod tests {
         ));
     }
 
+    /// 共通の型の用途の 13 値。1 ビットずつ試すための一覧。
+    const ALL_USAGES: [BufferUsage; 13] = [
+        BufferUsage::STORAGE,
+        BufferUsage::UPLOAD,
+        BufferUsage::DOWNLOAD,
+        BufferUsage::VERTEX,
+        BufferUsage::INDEX,
+        BufferUsage::UNIFORM,
+        BufferUsage::EXPORTABLE,
+        BufferUsage::MAP_READ,
+        BufferUsage::MAP_WRITE,
+        BufferUsage::INDIRECT,
+        BufferUsage::QUERY_RESOLVE,
+        BufferUsage::BLAS_INPUT,
+        BufferUsage::TLAS_INPUT,
+    ];
+
+    /// `access_range` を呼ぶ操作の組。操作の名前・役割・要る用途・文字列に含まれる用途の名前。
+    const ACCESS_OPS: [(&str, UsageRole, BufferUsage, &str); 2] = [
+        (
+            "upload",
+            UsageRole::UploadDestination,
+            BufferUsage::UPLOAD,
+            "UPLOAD",
+        ),
+        (
+            "download_blocking",
+            UsageRole::ReadbackSource,
+            BufferUsage::DOWNLOAD,
+            "DOWNLOAD",
+        ),
+    ];
+
+    fn all_usages_union() -> BufferUsage {
+        ALL_USAGES
+            .iter()
+            .fold(BufferUsage::empty(), |acc, &u| acc | u)
+    }
+
+    /// 用途の拒否であること（操作の名前で始まり、要る用途の名前を含む）を確かめる。
+    fn assert_usage_rejection(
+        result: Result<(usize, usize), ContractError>,
+        op: &str,
+        usage_name: &str,
+    ) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => {
+                assert!(msg.starts_with(&format!("{op}: ")), "{msg}");
+                assert!(msg.contains(usage_name), "{msg}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    /// 要る 1 ビットだけで通り、それ以外の 12 値の 1 ビットだけと空は用途の拒否になる。
+    #[test]
+    fn access_range_accepts_the_required_bit_and_rejects_every_other_single_bit() {
+        let all = all_usages_union();
+        assert_eq!(all.bits().count_ones(), 13);
+        for (op, role, required, name) in ACCESS_OPS {
+            assert!(matches!(
+                access_range(op, role, required, 16, 0, 16),
+                Ok((0, 16))
+            ));
+            assert!(matches!(
+                access_range(op, role, all, 16, 0, 16),
+                Ok((0, 16))
+            ));
+            assert_usage_rejection(
+                access_range(op, role, BufferUsage::empty(), 16, 0, 16),
+                op,
+                name,
+            );
+            let mut rejected = 0;
+            for &single in ALL_USAGES.iter().filter(|&&u| u != required) {
+                assert_usage_rejection(access_range(op, role, single, 16, 0, 16), op, name);
+                rejected += 1;
+            }
+            assert_eq!(rejected, 12);
+        }
+    }
+
+    /// 用途が足りるとき、範囲は終端の境界と `u64` のあふれで決まる。
+    #[test]
+    fn access_range_range_boundaries_with_a_sufficient_usage() {
+        let accepted: [(u64, u64, (usize, usize)); 3] =
+            [(8, 8, (8, 16)), (0, 16, (0, 16)), (16, 0, (16, 16))];
+        let rejected: [(u64, u64); 5] = [
+            (8, 9),
+            (17, 0),
+            (u64::MAX, 1),
+            (1, u64::MAX),
+            (u64::MAX - 7, 16),
+        ];
+        for (op, role, required, _) in ACCESS_OPS {
+            for (offset, len, expected) in accepted {
+                assert_eq!(
+                    access_range(op, role, required, 16, offset, len).unwrap(),
+                    expected,
+                    "{op} {offset} {len}"
+                );
+            }
+            for (offset, len) in rejected {
+                assert!(
+                    matches!(
+                        access_range(op, role, required, 16, offset, len),
+                        Err(ContractError::InvalidArgument(_))
+                    ),
+                    "{op} {offset} {len}"
+                );
+            }
+        }
+    }
+
+    /// 用途が足りないときは範囲が外れていても用途の拒否が返る。
+    #[test]
+    fn access_range_reports_the_usage_rejection_before_the_range() {
+        for (op, role, required, name) in ACCESS_OPS {
+            for (offset, len) in [(17u64, 1u64), (u64::MAX, 1)] {
+                assert_usage_rejection(
+                    access_range(op, role, BufferUsage::STORAGE, 16, offset, len),
+                    op,
+                    name,
+                );
+                assert!(matches!(
+                    access_range(op, role, required, 16, offset, len),
+                    Err(ContractError::InvalidArgument(_))
+                ));
+            }
+        }
+    }
+
+    /// 同じ引数でも、判定は表に記録した用途だけで替わる。
+    #[test]
+    fn access_range_decides_by_the_recorded_usage_only() {
+        let up = UsageRole::UploadDestination;
+        let down = UsageRole::ReadbackSource;
+        assert_usage_rejection(
+            access_range("upload", up, BufferUsage::STORAGE, 16, 4, 8),
+            "upload",
+            "UPLOAD",
+        );
+        assert!(matches!(
+            access_range(
+                "upload",
+                up,
+                BufferUsage::STORAGE | BufferUsage::UPLOAD,
+                16,
+                4,
+                8
+            ),
+            Ok((4, 12))
+        ));
+        assert_usage_rejection(
+            access_range("download_blocking", down, BufferUsage::UPLOAD, 16, 4, 8),
+            "download_blocking",
+            "DOWNLOAD",
+        );
+        assert!(matches!(
+            access_range(
+                "download_blocking",
+                down,
+                BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                16,
+                4,
+                8
+            ),
+            Ok((4, 12))
+        ));
+    }
+
     fn snapshot(cc: (i32, i32), map: Option<bool>) -> CapabilitySnapshot {
         CapabilitySnapshot {
             compute_capability: cc,

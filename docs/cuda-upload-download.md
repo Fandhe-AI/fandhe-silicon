@@ -49,8 +49,26 @@ device に触らない試験:
 | ---- | ------------ |
 | `access_range_checks_the_usage_before_the_range` | 用途が足りず範囲も外れる入力が用途の拒否になること、空の用途の長さ 0 の読み戻しが拒まれること、過申告の用途で範囲内なら通ること、`u64` があふれる入力が拒まれること |
 
+## 境界の入力の試験（2/4）
+
+`access_range` に device を使わずに値を入れる試験。確保長は 16 を使う。`crates/contract/src/backend_cuda.rs` の `tests` module にあり、前節の表の試験に加えて流れる。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `access_range_accepts_the_required_bit_and_rejects_every_other_single_bit` | 2 つの役割それぞれで、要る 1 ビットだけと 13 値の和が通ること、空と要るビットを除く 12 値の 1 ビットだけが用途の拒否になること |
+| `access_range_range_boundaries_with_a_sufficient_usage` | 用途が足りるとき、終端ちょうど・長さ 0 の終端・終端の 1 つ先・`u64` があふれる入力の通る・拒むが 2 つの役割で同じになること |
+| `access_range_reports_the_usage_rejection_before_the_range` | 用途が足りず範囲も外れる入力が、2 つの役割とも操作の名前で始まる用途の拒否になること |
+| `access_range_decides_by_the_recorded_usage_only` | ほかの引数を変えず記録した用途だけを替えると、結果が拒否と通るで替わること |
+
+確かめ方:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 用途の検査 | #4443 |
+| 2/4 | 境界の入力の試験 | #4444 |
