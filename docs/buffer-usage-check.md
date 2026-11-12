@@ -67,3 +67,11 @@ TASK-1796 の続き。上の「所在」「現状の振る舞い」は記録時�
 cargo test -p fandhe-silicon-core usage_check
 make verify
 ```
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「読み戻しの元・upload の宛先・描画先からの写しの先の役割」の「背後実装からこの検査を呼ぶ配線は無く、背後実装の振る舞いは変えていない」 | 配線は無い → CUDA の背後実装（`crates/contract/src/backend_cuda.rs`）は `validate_usage_for_role` を `access_range` の中で呼ぶ（`:1254`）。`access_range` は `CudaDevice::range` から呼ばれ、`upload` は `UsageRole::UploadDestination`、読み出しは `UsageRole::ReadbackSource` を渡す。用途の拒否は操作名を前置した `InvalidArgument` で返る。Metal の背後実装（`backend_metal.rs`）は `validate_usage_for_role` を呼ばない（0 件） | `git grep -n 'validate_usage_for_role' -- crates/contract`、`grep -n 'fn access_range' -A12 crates/contract/src/backend_cuda.rs`、`git grep -c 'validate_usage_for_role' -- crates/contract/src/backend_metal.rs`（0 件で終了コード 1） |

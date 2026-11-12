@@ -164,3 +164,11 @@ TASK-1008 の 5/5（#6313）として、ここまでの成果物を本リポで�
 | 「門の run の device の試験（4/5）」の確かめ方の「2 つの試験のバイナリが ignored を数える」 | macOS で ignored を数える試験のバイナリは 2 つ（`gate`・`device`） → 3 つ（`gate`・`device`・`gate_g7`）。`#[ignore]` 付きの試験は `gate` に 1 本・`device` に 2 本・`gate_g7` に 1 本の計 4 本。`gate_g7` は `G7` のセルを `run_g7` で流す。Linux では 3 つのバイナリとも `0 passed; 0 failed; 0 ignored` | `grep -c '^#\[ignore' measure/crates/metal-gemm-arm/tests/gate.rs measure/crates/metal-gemm-arm/tests/device.rs measure/crates/metal-gemm-arm/tests/gate_g7.rs`（1・2・1 が返る）、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test gate_g7` |
 | 「完了の条件の確かめ（5/5）」の表の (4) の `allow(unsafe_code)` の位置 | `src/lib.rs:17` → `src/lib.rs:21`（直後の行は `mod metal;`）。`unsafe_count` は今も `ok. 5 passed; 0 failed; 0 ignored` | `grep -rn 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src` |
 | 同表の (6) の lib の unittests | macOS の lib の unittests は `ok. 3 passed; 0 failed; 0 ignored` → `ok. 7 passed; 0 failed; 0 ignored`（Linux では 0 passed）。`source` は 10 passed、`fetch_cmd` は 3 passed、`launch` は 9 passed、`unsafe_count` は 5 passed のまま。`gate`・`device` の ignored は 1・2 のまま、`gate_g7` が `0 passed; 0 failed; 1 ignored` で加わる。`coopmat` は 6 passed、`coopmat_macos` は 3 passed | main の push の run `42670445568` の `verify-macos` のログの `measure-metal-gemm-arm` の `Running` 行ごとの `test result:`（`gh run view 42670445568 --log --job <verify-macos の job id>`）。Linux の値は `cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm` |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 完了の条件の確かめの表の項目 1（`members` と `record:` の行） | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`（4 件）、`measure_pkgs=4 measure_contract_pkgs=1` → `members = ["crates/cpu-ops-arm", "crates/detect", "crates/kernel-accept", "crates/metal-gemm-arm", "crates/perf"]`（5 件）、`measure_pkgs=5 measure_contract_pkgs=2`（`measure_forbidden=0`、`exclude` は変わらない。終了コード 0） | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` |

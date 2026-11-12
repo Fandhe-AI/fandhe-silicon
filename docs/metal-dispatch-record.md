@@ -215,3 +215,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - `impl CommandQueue for MetalDevice` は `dispatch_checked` を持ち、引数の宣言を照らした後に `dispatch_ex` を呼ぶ。
 - 行頭の `#[ignore` の件数（ファイル全体。上の表の module ごとの件数とは別の数え方）は、`crates/contract/src/backend_metal.rs` が 55 → 62、`crates/contract/tests/backend_metal_device.rs` が 55 → 59。数えたコマンド: `grep -cE '^\s*#\[ignore' <ファイル>`
 - 上書きの所在と試験は [metal-dispatch-checked](metal-dispatch-checked.md) に置く。
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base f433877）」の行頭の `#[ignore` の件数（`crates/contract/src/backend_metal.rs`） | 62 → 85 | `grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs` |
+| 同じ行の `crates/contract/tests/backend_metal_device.rs` | 59 → 59（変わらない） | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |

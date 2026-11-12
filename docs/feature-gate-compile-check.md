@@ -187,3 +187,11 @@ spec の本文・内部判断は転記しない（[spec-confidentiality](../.cla
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「依存の承認の件数の現状」の節の `grep -c '^\[\[approval\]\]'` の行 | 4 が返る（4 件は `crates/contract` を `used_by` に持つ macOS 向けの `objc2` 系）→ 5 が返る（`objc2` 系 4 件に、wasm32 以外向けの `cudarc` の 1 件が加わった。5 件とも `used_by` は `fandhe-silicon-contract`） | `grep -c '^\[\[approval\]\]' deps-approved.toml`、`grep -c '^name = "objc2' deps-approved.toml`（4 が返る）、`grep -n -A3 '^name = "cudarc"' deps-approved.toml` |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base 25d8dc2）」の `cfg_gate_doctest.rs` の doctest の件数 | 11 件 → 13 件。`ArtifactInspectionGate`（`:129`）と `DeviceArtifactHooksGate`（`:141`）が加わった。どちらも feature `artifact-inspection` で fence を切り替える | `grep -c '^pub struct' crates/contract/src/cfg_gate_doctest.rs`（13 が返る）、`grep -n '^pub struct' crates/contract/src/cfg_gate_doctest.rs` |

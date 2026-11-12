@@ -103,3 +103,13 @@ cargo test -p fandhe-silicon-contract --features backend-metal --lib dispatch_ch
 | 3/5 | `dispatch_checked` の device の要る試験を `#[ignore]` 付きで足す | #4791 | #8242 |
 | 4/5 | 公開の device の口から `dispatch_checked` の device の要る試験を `#[ignore]` 付きで足す | #4792 | #8243 |
 | 5/5 | 完了の条件の確かめ | #4793 | 本頁 |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 確かめの表の項目 3（`backend_metal.rs` の行頭の `#[ignore` の件数） | 62 件 → 85 件 | `grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs` |
+| 同じ項目の `backend_metal_device.rs` | 59 件 → 59 件（変わらない） | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
+| 同じ項目の `fn dispatch_checked…` の件数 | `backend_metal.rs` に 7 件、`backend_metal_device.rs` に 4 件 → 変わらない | `grep -n -A1 '#\[ignore' crates/contract/src/backend_metal.rs \| grep -c 'fn dispatch_checked'`、`grep -n -A1 '#\[ignore' crates/contract/tests/backend_metal_device.rs \| grep -c 'fn dispatch_checked'` |

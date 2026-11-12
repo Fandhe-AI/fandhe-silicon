@@ -149,3 +149,11 @@ TASK-2956 の 3/3（#7589）として、本リポで観測できる事実だけ�
 | 「Metal の上書き（2/3）」の表の所在（`backend_metal.rs:1912`） | `:1912` → `:2119`（`compute()` が `Some(self)` を返すことは同じ） | `grep -n 'fn compute' crates/contract/src/backend_metal.rs` |
 | CUDA の背後実装の上書き（記載なし） | `CudaDevice` も `Device::compute()` を上書きして `Some(self)` を返す（所在は `backend_cuda.rs` の `:1661`） | `grep -n 'fn compute(' crates/contract/src/backend_cuda.rs` |
 | 「今の値の補い（base 6b35dd9）」の `ci.yml` の行（`make verify` `:177`・`:505`、`make build-profiles` `:181`・`:508`） | `make verify` は `:177`・`:520`、`make build-profiles` は `:181`・`:523` | `grep -nE 'run: make (verify\|build-profiles)$' .github/workflows/ci.yml` |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base dd1a116）」の行頭の `#[ignore` の件数（`crates/contract/tests/backend_metal_device.rs`） | 53 → 59 | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |

@@ -87,3 +87,12 @@ make public-api-check && make public-name-check && make public-api-webgpu-check 
 | ------ | --------------- | -------------- |
 | 「今の値の補い（base dd1a116）」の `create_pipeline_checked` の行の時点 | base `dd1a116` → TASK-457 の 1/4（`cb8e391`）の後。今も `create_pipeline_checked` は既定の本体を持ち、`validate_declared_operands` を通ってから `create_pipeline` を呼ぶ | `git show dd1a116:crates/core/src/execution/compute.rs \| grep -c create_pipeline_checked`（0）、`git log --oneline -S'fn create_pipeline_checked' -- crates/core/src/execution/compute.rs` |
 | 同じ表の `ComputeOps` の既定の本体を持つメソッド | `pipeline_cache_key` → `create_pipeline_checked` と `pipeline_cache_key` の 2 つ（必須は `create_pipeline` のまま） | `grep -n '^    fn ' crates/core/src/execution/compute.rs` |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「公開に足した名前」の `CommandQueue` の表（`dispatch_ex` は必須、`dispatch` は既定の本体） | 2 つの行のとおり（変わらない）。`CommandQueue`（`crates/core/src/execution/submit.rs`）の必須のメソッドは、`dispatch_ex` のほかに `create_encoder`・`submit`・`submit_many`・`poll`・`on_complete`・`max_buffer_bytes`（feature `native-blocking-wait` の裏に `wait_blocking`）。既定の本体を持つメソッドは、`dispatch` のほかに `dispatch_checked`・`poll_ex`・`submit_ex`・`gpu_timing`（feature `ext-interop` の裏に `submit_exportable`）。`dispatch_checked` は宣言を照らしてから `dispatch_ex` を呼ぶ（[dispatch-checked-default.md](dispatch-checked-default.md)） | `awk 'NR>=277 && /^    fn / {print NR": "$0}' crates/core/src/execution/submit.rs`、`sed -n '/fn dispatch_ex/,/;$/p' crates/core/src/execution/submit.rs`、`grep -n 'fn max_buffer_bytes' crates/core/src/execution/submit.rs` |
+| 「本リポの現状」の「必須のメソッド」の行（`dispatch_ex` を持たない実装は拒まれる） | `dispatch_ex` を持たない実装が拒まれる点は同じ。`submit.rs` の rustdoc の陽性対照の実装は `max_buffer_bytes` も持つ | `sed -n 380,440p crates/core/src/execution/submit.rs`、`cargo test -p fandhe-silicon-core --doc execution::submit` |

@@ -374,3 +374,11 @@ run ごとの記録を読んで run 間の集計を標準出力に出すコマ�
 | ------ | --------------- | -------- |
 | 「依存の承認の件数の現状」の節の `measure/Cargo.lock` の `[[package]]` の件数（347 行目） | 5 件 → 13 件。`fandhe-silicon-contract`・`fandhe-silicon-core`・`measure-cpu-ops-arm`・`measure-detect`・`measure-metal-gemm-arm`・`measure-perf` の 6 件に、`bitflags` と `objc2` 系 6 件（`objc2`・`objc2-core-foundation`・`objc2-core-graphics`・`objc2-encode`・`objc2-foundation`・`objc2-metal`）が加わった | `grep -c '^\[\[package\]\]' measure/Cargo.lock`（13 が返る）、`grep '^name = ' measure/Cargo.lock` |
 | 「今の値の補い（base 3e32680）」の `measure/Cargo.lock` の `cudarc`・`objc2` の package の行（357 行目の「`objc2` の package は載らない」） | `cudarc`・`objc2` の package は載らない → `objc2` 系 6 件の package が載る（`objc2-metal` などは `measure/crates/metal-gemm-arm` の macOS 向けの依存から入る。`measure/deps-approved.toml` の記録は 3 件で、残りは推移的依存）。`cudarc` の package は載らないまま | `grep -c 'name = "cudarc"' measure/Cargo.lock`（0 が返る）、`grep -c '^name = "objc2' measure/Cargo.lock`（6 が返る）、`grep -c '^\[\[approval\]\]' measure/deps-approved.toml`（3 が返る） |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「今の値の補い（base 55fd9c1）」の `measure/Cargo.lock` の `[[package]]` の件数 | 13 件 → 15 件。13 件に `dispatch2` と `measure-kernel-accept` が加わった（`objc2` 系は 6 件のまま） | `grep -c '^\[\[package\]\]' measure/Cargo.lock`（15 が返る）、`grep '^name = ' measure/Cargo.lock`、`grep -c '^name = "objc2' measure/Cargo.lock`（6 が返る） |
