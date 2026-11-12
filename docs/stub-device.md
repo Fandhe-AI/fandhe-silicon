@@ -427,3 +427,18 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | 「今の値の補い（base 25d8dc2）」の `Device`・`DeviceProvider` の行（今は `:127`・`:199`） | `DeviceProvider` は `:199` → `:213`（`Device` は `:127` のまま） | `grep -n 'pub trait DeviceProvider' crates/core/src/device.rs` |
 | 「今の値の補い（base 25d8dc2）」の `CommandQueue`（`:277`） | 同じ（`:277`） | `grep -n 'pub trait CommandQueue' crates/core/src/execution/submit.rs` |
 | 「今の値の補い（base 6b35dd9）」の `ci.yml` の行（`make verify` `:177`・`make build-profiles` `:181`・`make wasm-verify` `:276`） | `make verify` `:177`（同じ）・`make build-profiles` `:181`（同じ）・`make wasm-verify` `:276` → `:282` | `grep -nE 'run: make (verify\|build-profiles\|wasm-verify)$' .github/workflows/ci.yml`（`verify-macos` の `:520`・`:523` と `wasm-macos` の `:481` も出る） |
+
+## 今の値の補い（base 2b3b38b）
+
+記録時点の表と既存の節は書き換えない。以下は base `2b3b38b` で観測した今の値（実行環境は GPU なしの Linux）。
+
+「再実行の契機」の `CommandQueue` に必須の method が増えたときに当たる。`CommandQueue` の必須のメソッドに `max_buffer_bytes` が加わり、試験用の device の queue は `limits()` の `max_buffer_bytes` と同じ値を返す（[dispatch-checked-default.md](dispatch-checked-default.md)、TASK-569）。「所在」の表の `CommandQueue` の「必須は …」の行は記録時点の値で、書き換えない。試験は `stub_device_dispatch_checked` が加わって 5 本になった。
+
+| コマンド | `test result:` の行 |
+| -------- | ------------------- |
+| `cargo test -p fandhe-silicon-core --features test-support --test stub_device_request` | `ok. 9 passed; 0 failed` |
+| `cargo test -p fandhe-silicon-core --features test-support --test stub_device_memory` | `ok. 11 passed; 0 failed` |
+| `cargo test -p fandhe-silicon-core --features test-support --test stub_device_queue` | `ok. 9 passed; 0 failed` |
+| `cargo test -p fandhe-silicon-core --features test-support --test stub_device_compute` | `ok. 10 passed; 0 failed` |
+| `cargo test -p fandhe-silicon-core --features test-support --test stub_device_dispatch_checked` | `ok. 5 passed; 0 failed` |
+| `cargo test -p fandhe-silicon-core --features test-support --lib stub_device` | `ok. 28 passed; 0 failed`（237 filtered out） |

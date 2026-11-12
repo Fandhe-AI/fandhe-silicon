@@ -154,3 +154,21 @@ feature `test-support` の裏の試験用の device を `StubDeviceProvider::req
 cargo test -p fandhe-silicon-core --features test-support --test stub_device_dispatch_checked
 make verify
 ```
+
+## 完了の条件の確かめ（6/6）（TASK-569。以下は当時の base の記録）
+
+6/6（#4874）で記録した。本リポで観測できる事実だけを書く（ポインタ: `docs/spec/05-tasks.md` の TASK-569）。GPU の実機は使わず、下の base で実行した値を書く。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `max_buffer_bytes` が必須で、`dispatch_checked` が既定の本体を持ち、feature の条件なしで公開のパスから呼べる | `grep -nE 'fn max_buffer_bytes\|fn dispatch_checked' crates/core/src/execution/submit.rs`・`cargo check -p fandhe-silicon-core`（feature なし）・`cargo test -p fandhe-silicon-core --doc execution::submit`・`make doctest-error-code-check` | 宣言は 519 行（`fn max_buffer_bytes(&self) -> u64;`）と 595 行（`fn dispatch_checked(`）で、2 つの宣言の前後に `#[cfg` は 0 件。`cargo check` の終了コードは 0。`max_buffer_bytes` の `compile_fail,E0046` の例（487 行）が ok。`doctest-error-code-check` の終了コードは 0 |
+| 2 | 全部の `CommandQueue` の実装が `max_buffer_bytes` を持つ | `git grep -n "impl.*CommandQueue for" origin/main`・`git grep -c "fn max_buffer_bytes" origin/main -- crates` の合計・実装ごとの確認・`gh run list` / `gh run view` | `impl … CommandQueue for` は 25 件（`docs/public-api-webgpu-check.md` の表の 1 行を含む。コードの実装は 24 件）。`fn max_buffer_bytes` は合計 24 件（trait の宣言 1 件と `submit.rs` の rustdoc の例 3 件を含む）。`fn max_buffer_bytes` を持たないコードの実装は `submit.rs` の 494 行の `compile_fail,E0046` の例だけ。`backend_metal.rs` の実装は Linux では型検査されない。base の push の run `43177786667` の `make verify + build-profiles (macos-latest)` ジョブは、観測した時点で status が `in_progress`、conclusion は空 |
+| 3 | 容量 16 バイトに 400 バイトの束縛が `C4`、上限を 1 バイト超える宣言が `C8`、panic しない | `cargo test -p fandhe-silicon-core --test dispatch_checked_default`・`cargo test -p fandhe-silicon-core --features test-support --test stub_device_dispatch_checked` | 前者は 3/6 の 6 件（`dispatch_checked_rejects_binding_larger_than_buffer_size_with_c4`・`dispatch_checked_rejects_one_byte_over_max_buffer_bytes_with_c8` を含む）を含む 12 件が ok。後者は 5 件が ok（`stub_queue_rejects_binding_larger_than_allocated_size_with_c4`・`stub_queue_rejects_one_byte_over_limit_with_c8` を含む） |
+| 4 | ほかの検査との受け渡しと `dispatch_ex` の結果の返し | 同じ `--test dispatch_checked_default` の 4/6 の 6 件 | `dispatch_checked_rejects_other_checks_before_dispatch_ex`・`dispatch_checked_checks_in_order_with_queue_limit`・`dispatch_checked_passes_arguments_to_dispatch_ex_unchanged`・`dispatch_checked_returns_dispatch_ex_error_unchanged`・`dispatch_checked_reaches_through_dyn_command_queue`・`dispatch_checked_return_type_is_pinned` が ok |
+| 5 | `BufferHandle` の既存の `compile_fail` が通り続ける | `cargo test -p fandhe-silicon-contract --no-default-features --features test-support --doc memory_free_doctest` | `test result: ok. 3 passed; 0 failed` |
+| 6 | 背後実装・ファイル・時刻に触れない既定の本体 | `grep -nE 'std::(fs\|time\|env\|net\|process\|thread)\|SystemTime\|Instant' crates/core/src/execution/submit.rs`・`make core-deps-check`・`make wasm-verify` | `submit.rs` 全体で 5 件。335 行の `wait_blocking` の引数の型 `Option<std::time::Duration>` と、rustdoc の例の `wait_blocking` の 4 件で、`dispatch_checked` の本体（595〜641 行）は 0 件。`core-deps-check` は `unexpected=0 missing=0 forward_violations=0` で `ok:` を出力。`wasm-verify` の終了コードは 0 |
+| 7 | 依存 0・unsafe 0 | 1/6 の親（`d9266d9`）から base までの `git diff --stat ... -- Cargo.lock deps-approved.toml`・`git diff ... -- crates/core/Cargo.toml`・`git diff ... -- crates/contract/src` の `^+.*unsafe` の件数 | `Cargo.lock`・`deps-approved.toml` の差分は 0 行。`crates/core/Cargo.toml` の差分は `[[test]]` の 1 項目（`name = "stub_device_dispatch_checked"`・`required-features = ["test-support"]`）だけ。`unsafe` を含む追加行は 0 件 |
+| 8 | CI で流れる場所 | `make verify`（`cargo test --workspace --all-features`）と、`cargo test -p fandhe-silicon-core --all-features` の `--doc` | `make verify` の終了コードは 0 で、`dispatch_checked_default` の 12 件、`stub_device_dispatch_checked` の 5 件が ok。`--doc` は 117 件と 100 件の 2 つの `test result:` が ok で、`execution::submit` に絞ると 4 件と 12 件が ok |
+| 9 | 品質ゲート | `make check`・`make verify`・`make deny`・`make deps-check`・`make build-profiles`・`make wasm-verify` | すべて終了コード 0 |
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-569）。確かめた base は `2b3b38b`、`docs/spec` の gitlink は `5f6d802c905938bba1ed963340029d61fe3651a0`。
