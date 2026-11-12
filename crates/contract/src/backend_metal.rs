@@ -7033,6 +7033,100 @@ mod imp {
                         assert_matches_reference(id.name(), reference, &actual);
                     }
                 }
+
+                /// metallib から作った部分 Top-k を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                #[cfg(feature = "test-support")]
+                mod parity_topk {
+                    use super::*;
+                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
+                    use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
+
+                    fn u32_of(v: usize) -> u32 {
+                        u32::try_from(v).expect("fits in u32")
+                    }
+
+                    /// ビット列を保ったまま f32 の列を置く。
+                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
+                        let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
+                        buffer_of(device, &bits)
+                    }
+
+                    /// ART-17 のポインタ。metallib から作った部分 Top-k を E-3・E-4 で投入し、CPU の参照と外れた件数 0 で一致する。
+                    #[test]
+                    #[ignore = "touches the Metal device; run only in a dedicated device session"]
+                    fn topk_from_the_metallib_matches_the_cpu_reference_for_2_cases() {
+                        let device = new_device();
+                        let dir = ScratchDir::new("parity-topk");
+                        let lib = build_metallib(&dir, "topk", TOPK_MSL);
+                        for id in [CaseId::E3, CaseId::E4] {
+                            let CaseInput::TopK { scores, k } = id.input().expect("input") else {
+                                panic!("{}: not a top-k input", id.name());
+                            };
+                            let output = id.reference().expect("reference");
+                            let reference = output.as_topk().expect("top-k reference");
+                            let len = scores.len();
+                            let (s_len, s_k) = ([len as u64], [k as u64]);
+                            let declared = [
+                                spec(0, DType::F32, &s_len, &[1]),
+                                spec(1, DType::U32, &s_k, &[1]),
+                                spec(2, DType::F32, &s_k, &[1]),
+                                spec(3, DType::U32, &[1], &[1]),
+                                spec(4, DType::U32, &[2], &[1]),
+                            ];
+                            let hooks = device.artifact_hooks().expect("artifact hooks");
+                            let p = hooks
+                                .create_pipeline_checked_from_metallib(&lib, "topk_f32", &declared)
+                                .expect("create from metallib");
+                            let sb = f32_buffer(&device, &scores);
+                            let slots = zeroed(&device, k as u64);
+                            let outs = zeroed(&device, k as u64);
+                            let count = zeroed(&device, 1);
+                            let params = to_bytes(&[u32_of(len), u32_of(k)]);
+                            let mut enc = device.create_encoder();
+                            let enc_id = enc.__backend_id();
+                            let r = device.dispatch_checked(
+                                &mut enc,
+                                &p,
+                                &[
+                                    Binding::new(0, &sb, 0),
+                                    Binding::new(1, &slots, 0),
+                                    Binding::new(2, &outs, 0),
+                                    Binding::new(3, &count, 0),
+                                ],
+                                &[ConstantBinding::new(4, &params)],
+                                &declared,
+                                [1, 1, 1],
+                                [1, 1, 1],
+                                &[],
+                            );
+                            assert_eq!(r, Ok(()), "{}", id.name());
+                            assert_eq!(record_count(&device, enc_id), Some(1), "{}", id.name());
+                            submit_and_wait(&device, enc);
+                            let n = read_u32s(&device, &count, 1)
+                                .first()
+                                .copied()
+                                .and_then(|c| usize::try_from(c).ok())
+                                .expect("count");
+                            assert_eq!(n, reference.len(), "{}", id.name());
+                            let actual: Vec<TopKEntry> = read_u32s(&device, &slots, k as u64)
+                                .into_iter()
+                                .zip(read_u32s(&device, &outs, k as u64))
+                                .take(n)
+                                .map(|(slot, bits)| TopKEntry::new(slot, f32::from_bits(bits)))
+                                .collect();
+                            let cmp = compare_topk(reference, &actual).expect("compare");
+                            if !cmp.is_match() {
+                                let at = cmp.first_mismatch();
+                                panic!(
+                                    "{}: mismatch at {at:?}: reference {:?}, actual {:?}",
+                                    id.name(),
+                                    at.and_then(|i| reference.get(i)),
+                                    at.and_then(|i| actual.get(i)),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
 
