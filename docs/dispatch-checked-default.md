@@ -124,3 +124,33 @@ make verify
 cargo test -p fandhe-silicon-core --test dispatch_checked_default
 make verify
 ```
+
+## 試験用の device の queue の試験（5/6）
+
+feature `test-support` の裏の試験用の device を `StubDeviceProvider::request` で作り、その queue の `dispatch_checked` を外の crate から公開のパスだけで呼ぶ。
+
+### 所在
+
+| 項目 | 値 |
+| ---- | -- |
+| 試験 | `crates/core/tests/stub_device_dispatch_checked.rs` |
+| feature | `test-support`（`Cargo.toml` の `required-features`） |
+
+### 試験・入力・期待
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `stub_queue_max_buffer_bytes_matches_device_limits` | `BackendKind` の 3 値ごとの device | `queue().max_buffer_bytes()` が `limits().max_buffer_bytes` と一致 |
+| `stub_queue_rejects_binding_larger_than_allocated_size_with_c4` | 大きさ 16 で確保したハンドルの束縛、F32 `[100]` | 先頭 `C4:` の `InvalidArgument` |
+| `stub_queue_rejects_one_byte_over_limit_with_c8` | `Bool` の `[上限 + 1]` と `[上限]` | 前者は先頭 `C8:`、後者は検査を通り `dispatch_ex` の `Unsupported` がそのまま返る |
+| `stub_queue_passes_through_dispatch_ex_result` | 大きさ 16 のハンドルの束縛、F32 `[4]` | `dispatch_checked` の結果が `dispatch_ex` を直接呼んだ結果と一致 |
+| `stub_queue_c4_uses_handle_size` | 大きさ 4 のハンドルの束縛、F32 `[4]` | 先頭 `C4:` の `InvalidArgument` |
+
+照合は `InvalidArgument` と文言の先頭までで、文言の全文は固定しない。
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --features test-support --test stub_device_dispatch_checked
+make verify
+```
