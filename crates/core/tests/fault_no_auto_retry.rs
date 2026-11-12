@@ -99,6 +99,10 @@ impl CommandQueue for UnknownCompletionQueue {
             backend: BackendKind::Metal,
         })
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// 投入の後に完了不明を観測し、そのあとの確認を重ねても、内側の投入が 1 回のままであることを照合する。

@@ -76,6 +76,10 @@ impl CommandQueue for FixedPoll {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 fn token() -> SubmitToken {

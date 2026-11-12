@@ -105,6 +105,10 @@ impl CommandQueue for CountingQueue {
     ) -> Result<(), ContractError> {
         Ok(())
     }
+
+    fn max_buffer_bytes(&self) -> u64 {
+        0
+    }
 }
 
 const POLICIES: [RetryPolicy; 2] = [RetryPolicy::IdempotentSafe, RetryPolicy::NotIdempotent];
