@@ -1925,12 +1925,17 @@ fn read_written_artifact(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, 
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        // FIFO への差し替えで open が停止しないよう、非ブロッキングで開く。
-        // 値は libc の O_NONBLOCK（外部依存を足さないため直書き）。
-        #[cfg(target_os = "linux")]
-        options.custom_flags(0o4000);
+        // FIFO への差し替えで open が停止しないよう O_NONBLOCK で、シンボリックリンクを
+        // open と不可分に拒否するよう O_NOFOLLOW で開く。値は libc の定数（外部依存を足さないため直書き）。
+        #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+        options.custom_flags(0o4000 | 0o100_000);
+        #[cfg(all(
+            target_os = "linux",
+            not(any(target_arch = "arm", target_arch = "aarch64"))
+        ))]
+        options.custom_flags(0o4000 | 0o400_000);
         #[cfg(target_os = "macos")]
-        options.custom_flags(0x4);
+        options.custom_flags(0x4 | 0x100);
     }
     let file = options
         .open(path)
@@ -9828,6 +9833,31 @@ mod artifact_path_tests {
             &sub,
             ARTIFACT_READ_LIMIT
         )));
+    }
+
+    #[cfg(all(unix, any(target_os = "linux", target_os = "macos")))]
+    #[test]
+    fn read_open_does_not_follow_symlink() {
+        // 検査後に通常のファイルがリンクへ差し替わった場合を、open だけで拒否することを確かめる。
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let dir = TempDir::new("read-nofollow");
+        let target = dir.0.join("target.bin");
+        std::fs::write(&target, [1u8]).unwrap();
+        let link = dir.0.join("link.bin");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(target_os = "macos")]
+        options.custom_flags(0x4 | 0x100);
+        #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+        options.custom_flags(0o4000 | 0o100_000);
+        #[cfg(all(
+            target_os = "linux",
+            not(any(target_arch = "arm", target_arch = "aarch64"))
+        ))]
+        options.custom_flags(0o4000 | 0o400_000);
+        assert!(options.open(&link).is_err());
+        assert!(options.open(&target).is_ok());
     }
 
     #[cfg(unix)]
