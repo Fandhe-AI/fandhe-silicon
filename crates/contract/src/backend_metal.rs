@@ -1920,13 +1920,45 @@ fn read_written_artifact(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, 
     if metadata.len() > limit {
         return Err(rejected(format!("written artifact exceeds {limit} bytes")));
     }
-    let file = std::fs::File::open(path)
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // FIFO への差し替えで open が停止しないよう、非ブロッキングで開く。
+        // 値は libc の O_NONBLOCK（外部依存を足さないため直書き）。
+        #[cfg(target_os = "linux")]
+        options.custom_flags(0o4000);
+        #[cfg(target_os = "macos")]
+        options.custom_flags(0x4);
+    }
+    let file = options
+        .open(path)
         .map_err(|e| rejected(format!("cannot open written artifact: {e}")))?;
     let opened = file
         .metadata()
         .map_err(|e| rejected(format!("cannot inspect opened artifact: {e}")))?;
     if !opened.file_type().is_file() {
         return Err(rejected("written artifact is not a regular file".into()));
+    }
+    // 検査の後に open までの間でシンボリックリンク等へ差し替えられていないことを、
+    // 開いたハンドルと開いた直後のパス（リンクを辿らない）の同一性で確かめる。
+    let after = std::fs::symlink_metadata(path)
+        .map_err(|e| rejected(format!("cannot re-inspect written artifact: {e}")))?;
+    if !after.file_type().is_file() {
+        return Err(rejected("written artifact is not a regular file".into()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if opened.dev() != after.dev() || opened.ino() != after.ino() {
+            return Err(rejected("written artifact changed while opening".into()));
+        }
+    }
+    if opened.len() == 0 || opened.len() > limit {
+        return Err(rejected(
+            "written artifact size changed while opening".into(),
+        ));
     }
     let mut bytes = Vec::new();
     file.take(limit.saturating_add(1))
