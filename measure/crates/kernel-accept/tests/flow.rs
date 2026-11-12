@@ -349,3 +349,34 @@ fn gemm_input_lengths_are_checked_against_the_row() {
         Err(FlowError::LengthMismatch)
     );
 }
+
+#[test]
+fn kernel_roles_are_checked_against_the_row_and_stage() {
+    use measure_kernel_accept::flow::{check_gemm_role, check_role};
+
+    let f = Fixture::new("role");
+    let lookup = lookup_with(&GOOD);
+    let spec = load_kernel(&f.manifest, &f.dir, Role::SpecializedGemm, &lookup).expect("spec");
+    let plain = load_kernel(&f.manifest, &f.dir, Role::PlainGemm, &lookup).expect("plain");
+    let add = load_kernel(&f.manifest, &f.dir, Role::Add, &lookup).expect("add");
+    assert_eq!(check_gemm_role(GemmGateRow::Sq512, &spec), Ok(()));
+    assert_eq!(check_gemm_role(GemmGateRow::Odd37x41x53, &plain), Ok(()));
+    assert_eq!(
+        check_gemm_role(GemmGateRow::Sq512, &plain),
+        Err(FlowError::RoleMismatch(Role::SpecializedGemm))
+    );
+    assert_eq!(
+        check_gemm_role(GemmGateRow::Odd37x41x53, &spec),
+        Err(FlowError::RoleMismatch(Role::PlainGemm))
+    );
+    assert_eq!(check_role(&add, Role::Add), Ok(()));
+    assert_eq!(
+        check_role(&add, Role::Relu),
+        Err(FlowError::RoleMismatch(Role::Relu))
+    );
+    assert!(
+        !FlowError::RoleMismatch(Role::Add)
+            .to_string()
+            .contains("k_add")
+    );
+}

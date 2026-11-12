@@ -3,6 +3,10 @@
 //! 1 段は「パイプラインを作る → 入力と出力のバッファを確保して入力を書く → 記録先を作って dispatch を 1 件積む
 //! → 投入して待つ → 完了を確かめる → 出力を読む」の順で、段が終わったらバッファを解放する。
 //! 呼び出し元は後続の段の device の試験。入口名とソースは照合済みの [`FlowKernels`] からだけ取る。
+//! 製品の Metal の背後実装は、記録のある投入を単体試験のビルド以外では `Unsupported` で拒む。
+//! そのため依存 crate としてこの口を呼ぶと、段の投入は固定の種類の失敗で返り、出力は得られない。
+//! 拒否の解除は契約側の判断で、この crate は既存の拒否を迂回しない。
+//! 投入の前に、カーネルの役割が行・段と合うことを確かめる（不一致は device に触る前に拒む）。
 //! Metal に触れるのは macOS の cfg の内側だけで、エラーは固定の種類の文字列に写し、
 //! 値・入口名・契約の文言を含めない。
 
@@ -78,6 +82,7 @@ impl RunError {
             FlowError::SizeOverflow => "size-overflow",
             FlowError::LengthMismatch => "length-mismatch",
             FlowError::AllocationFailed => "allocation-failed",
+            FlowError::RoleMismatch(_) => "role-mismatch",
             _ => "invalid-flow",
         };
         Self {
@@ -122,7 +127,8 @@ mod device {
     use crate::accept::error_kind;
     use crate::flow::{
         DispatchShape, FlowError, FlowKernel, FlowKernels, Role, add_shape,
-        check_gemm_input_lengths, f32_from_ne_bytes, f32_ne_bytes, gemm_shape, relu_shape,
+        check_gemm_input_lengths, check_gemm_role, check_role, f32_from_ne_bytes, f32_ne_bytes,
+        gemm_shape, relu_shape,
     };
 
     fn err(stage: Stage, step: StepKind, kind: &'static str) -> RunError {
@@ -286,6 +292,7 @@ mod device {
         kernel: &FlowKernel,
         inputs: &GemmInputsF32,
     ) -> Result<Vec<f32>, RunError> {
+        check_gemm_role(row, kernel).map_err(|e| RunError::from_flow(Stage::Gemm, e))?;
         check_gemm_input_lengths(row, inputs).map_err(|e| RunError::from_flow(Stage::Gemm, e))?;
         let out_len = row
             .m()
@@ -310,6 +317,10 @@ mod device {
         inputs: &GemmInputsF32,
         addend: &[f32],
     ) -> Result<FlowOutputs, RunError> {
+        // 先頭の段を流す前に、後続の段の役割も確かめる（途中で投入済みにしない）。
+        check_gemm_role(row, &kernels.gemm).map_err(|e| RunError::from_flow(Stage::Gemm, e))?;
+        check_role(&kernels.add, Role::Add).map_err(|e| RunError::from_flow(Stage::Add, e))?;
+        check_role(&kernels.relu, Role::Relu).map_err(|e| RunError::from_flow(Stage::Relu, e))?;
         let gemm = run_gemm(device, row, &kernels.gemm, inputs)?;
         let len = gemm.len();
         if addend.len() != len {

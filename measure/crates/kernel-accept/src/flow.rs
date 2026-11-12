@@ -118,6 +118,8 @@ pub enum FlowError {
     LengthMismatch,
     /// 領域を確保できない。
     AllocationFailed,
+    /// カーネルの役割が段・行の要る役割と合わない。
+    RoleMismatch(Role),
 }
 
 impl fmt::Display for FlowError {
@@ -139,6 +141,7 @@ impl fmt::Display for FlowError {
             FlowError::SizeOverflow => f.write_str("size overflow"),
             FlowError::LengthMismatch => f.write_str("length mismatch"),
             FlowError::AllocationFailed => f.write_str("allocation failed"),
+            FlowError::RoleMismatch(r) => write!(f, "{}: kernel role does not match", r.label()),
         }
     }
 }
@@ -420,6 +423,21 @@ pub struct FlowReference {
     pub add: Vec<f32>,
     /// Relu の出力。
     pub relu: Vec<f32>,
+}
+
+/// カーネルの役割が、段の要る役割と合うか確かめる（device に触る前の検査）。
+pub fn check_role(kernel: &FlowKernel, expected: Role) -> Result<(), FlowError> {
+    if kernel.role() == expected {
+        Ok(())
+    } else {
+        Err(FlowError::RoleMismatch(expected))
+    }
+}
+
+/// GEMM のカーネルの役割が行の要る役割と合うか確かめる。扱わない行は `UnsupportedRow`。
+pub fn check_gemm_role(row: GemmGateRow, kernel: &FlowKernel) -> Result<(), FlowError> {
+    let expected = gemm_role(row).ok_or(FlowError::UnsupportedRow)?;
+    check_role(kernel, expected)
 }
 
 /// GEMM の入力の長さが行の `M×K`・`K×N` と合うか確かめる（device に触る前の検査）。
