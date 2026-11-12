@@ -31,6 +31,7 @@
 //! `MetalDevice` は Objective-C のオブジェクトを持つので `Send`・`Sync` ではない（`unsafe impl` は足さない）。
 //! `create_pipeline`（TASK-773 のポインタ。`Device::compute()` から届く）は MSL のソースから compute パイプライン状態を作り、パイプラインの表に
 //! `layout` の写しと一緒に置く。コンパイルのオプション付きの 2 つの入力も受け付ける（TASK-774 のポインタ）。function constant の設定の `unsafe` ブロックは 1 つで、記録とは関係しない。
+//! `create_pipeline` の MSL のコンパイルの手順は `compile_function` にあり、`reflect_function` は同じ手順で作った関数から reflection 付きでパイプライン状態を作って、引数の数とバッファの引数ごとの slot・バイト長・型を取り出す（TASK-493 のポインタ）。
 //! キャッシュキーの口（`pipeline_cache_key`。TASK-501 のポインタ）は MSL の 4 つの入力でキーを返し、パイプラインを作らない。
 //! 投入済みの表は device の錠の中に置き、記録先の後始末の hook は記録先の表だけを握る。
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
@@ -1891,12 +1892,13 @@ mod imp {
     use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
         BufState, Callback, CompilePlan, ConstantKind, DispatchRecord, GroupState, OpenEncoders,
-        PendingReleases, RecordedBinding, SizePool, Submissions, check_declared_operands,
-        check_dispatch_args, check_handle_record, check_recorded_buffers, check_token_owner,
-        check_unique_slots, classify_pipeline_input, compile_plan, drive_table, driven_generation,
-        encode_plan, finish_table, group_state_of, missing_required_constants,
-        missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
-        register_table, remove_issued, retire, take_next,
+        PendingReleases, PipelineReflection, RecordedBinding, ReflectedDataType, SizePool,
+        Submissions, check_declared_operands, check_dispatch_args, check_handle_record,
+        check_recorded_buffers, check_token_owner, check_unique_slots, classify_pipeline_input,
+        classify_reflected_buffer, compile_plan, drive_table, driven_generation, encode_plan,
+        finish_table, group_state_of, missing_required_constants, missing_required_reason,
+        precheck_submit, precheck_submit_many, prepare_constants, register_table, remove_issued,
+        retire, take_next,
     };
     use super::{
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
@@ -1936,10 +1938,10 @@ mod imp {
     use objc2_foundation::{NSProcessInfo, NSString};
     use objc2_metal::{
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
-        MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState,
-        MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
-        MTLFunctionConstantValues, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
-        MTLResourceOptions, MTLSize,
+        MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineDescriptor,
+        MTLComputePipelineReflection, MTLComputePipelineState, MTLCreateSystemDefaultDevice,
+        MTLDataType, MTLDevice, MTLFunction, MTLFunctionConstantValues, MTLLibrary,
+        MTLMathFloatingPointFunctions, MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
     };
 
     /// 計画をライブラリのコンパイルのオプションにする。`create_pipeline` から呼ばれる。
@@ -3469,35 +3471,57 @@ mod imp {
     #[repr(align(4))]
     struct Aligned4([u8; 4]);
 
+    /// reflection の引数の数と、バッファの引数を slot の昇順で読む。
+    // `arguments()` と `MTLArgument` の読み出しはこの関数だけが使う。
+    #[allow(deprecated)]
+    fn read_reflection(
+        reflection: &MTLComputePipelineReflection,
+    ) -> Result<PipelineReflection, ContractError> {
+        let arguments = reflection.arguments().to_vec();
+        let mut buffers = Vec::new();
+        for a in &arguments {
+            if a.r#type() == objc2_metal::MTLArgumentType::Buffer {
+                buffers.push(classify_reflected_buffer(
+                    a.index(),
+                    a.bufferDataSize(),
+                    metal_data_type(a.bufferDataType()),
+                )?);
+            }
+        }
+        buffers.sort_by_key(|b| b.slot);
+        Ok(PipelineReflection {
+            argument_count: arguments.len(),
+            buffers,
+        })
+    }
+
+    /// `MTLDataType` を reflection の要素の型に写す。対応表に無い型は `Other`。
+    fn metal_data_type(t: MTLDataType) -> ReflectedDataType {
+        match t {
+            MTLDataType::Float => ReflectedDataType::Float,
+            MTLDataType::Half => ReflectedDataType::Half,
+            MTLDataType::UInt => ReflectedDataType::UInt,
+            MTLDataType::Int => ReflectedDataType::Int,
+            MTLDataType::Bool => ReflectedDataType::Bool,
+            MTLDataType::Struct => ReflectedDataType::Struct,
+            other => ReflectedDataType::Other(u64::try_from(other.0).unwrap_or(u64::MAX)),
+        }
+    }
+
     /// NSError の説明文を取り出す。
     fn describe(error: &objc2_foundation::NSError) -> String {
         error.localizedDescription().to_string()
     }
 
-    /// 公開の `Device`（`MetalDeviceProvider::request` が返す `Box<dyn Device>`）からは
-    /// `Device::compute()` でこの実装へ届く（TASK-2956 のポインタ。`create_pipeline` の実装は TASK-773 のポインタ）。
-    impl ComputeOps for MetalDevice {
-        /// MSL のソースから compute パイプラインを作り、表に登録して返す。
-        ///
-        /// 受け付けるのは `Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions`。
-        /// オプション付きの入力は、`Safe` なら数学モードを設定し、`Fast` と `MslFloatFunctions::Fast` は
-        /// 何も設定せず、`Precise` なら関数の精度を設定する。言語版は設定しない。設定の関数を持たない
-        /// 環境では `Unsupported`。`Msl`・`MslSpecialized` は既定のオプションでコンパイルする。
-        /// 入力の分類・`layout.slots` と function constant の
-        /// 重複の検査は Metal の API を呼ぶ前に行う。ライブラリのコンパイルと、特殊化しない関数からの
-        /// function constant の宣言の読み出しの後、特殊化の前に、必須の定数（`is_function_constant_defined` で
-        /// 守られていないもの）がすべて渡されているかを確かめ、足りなければ `ArtifactRejected { kind: "msl" }`
-        /// を返す。`Msl` は定数の並びが空として扱うので、必須の定数を持つカーネルは拒まれる。
-        /// `MslSpecialized` は function constant が空でも特殊化の API（`newFunctionWithName_constantValues_error`）で
-        /// 関数を作る。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
-        /// `layout` は検査したうえで写しを表に持つだけで、カーネルの引数とは突き合わせない。
-        fn create_pipeline(
+    impl MetalDevice {
+        /// `create_pipeline` と同じ入力の分類・検査・コンパイル・特殊化で関数を作る。
+        fn compile_function(
             &self,
-            input: PipelineInput<'_>,
+            input: &PipelineInput<'_>,
             layout: &BindingLayout,
-        ) -> Result<PipelineHandle, ContractError> {
-            let (source, entry_point, constants, specialized) = classify_pipeline_input(&input)?;
-            let plan = compile_plan(&input)?;
+        ) -> Result<Retained<ProtocolObject<dyn MTLFunction>>, ContractError> {
+            let (source, entry_point, constants, specialized) = classify_pipeline_input(input)?;
+            let plan = compile_plan(input)?;
             check_unique_slots(&layout.slots)?;
             let prepared = prepare_constants(constants)?;
             let options = compile_options(plan)?;
@@ -3547,11 +3571,15 @@ mod imp {
                     .newFunctionWithName_constantValues_error(&name, &values)
                     .map_err(|e| rejected("msl", "MSL function specialization failed", &e))?
             };
-            let state = self
-                .device
-                .newComputePipelineStateWithFunction_error(&function)
-                .map_err(|e| rejected("compute-pipeline", "pipeline state creation failed", &e))?;
+            Ok(function)
+        }
 
+        /// パイプライン状態を `layout` の写しと一緒に表に置き、handle を返す。
+        fn register_pipeline(
+            &self,
+            state: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+            layout: &BindingLayout,
+        ) -> Result<PipelineHandle, ContractError> {
             let mut pipelines = self.lock_pipelines();
             let id =
                 take_next(&pipelines.next_id).ok_or_else(|| ContractError::BackendFailure {
@@ -3561,6 +3589,76 @@ mod imp {
                 })?;
             pipelines.map.insert(id, (state, layout.clone()));
             Ok(PipelineHandle::__backend_new(id, self.id))
+        }
+
+        /// 関数から reflection 付きでパイプライン状態を作り、引数の数とバッファの引数ごとの
+        /// slot・バイト長・型を返す。表には置かない。バイト長 0 は `ReflectedSize::Unchecked`、
+        /// 型 `Struct` は `ReflectedDataType::Struct`。
+        #[cfg_attr(not(test), allow(dead_code))]
+        fn reflect_function(
+            &self,
+            function: &ProtocolObject<dyn MTLFunction>,
+        ) -> Result<
+            (
+                Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+                PipelineReflection,
+            ),
+            ContractError,
+        > {
+            let descriptor = MTLComputePipelineDescriptor::new();
+            descriptor.setComputeFunction(Some(function));
+            let mut reflection = None;
+            let state = self
+                .device
+                .newComputePipelineStateWithDescriptor_options_reflection_error(
+                    &descriptor,
+                    MTLPipelineOption::BindingInfo,
+                    Some(&mut reflection),
+                )
+                .map_err(|e| ContractError::ArtifactRejected {
+                    kind: "compute-pipeline",
+                    reason: format!("pipeline state creation failed: {}", describe(&e)),
+                })?;
+            let reflection = reflection.ok_or_else(|| ContractError::BackendFailure {
+                op: "create_pipeline",
+                backend: BACKEND,
+                detail: "pipeline reflection was not returned".into(),
+            })?;
+            Ok((state, read_reflection(&reflection)?))
+        }
+    }
+
+    /// 公開の `Device`（`MetalDeviceProvider::request` が返す `Box<dyn Device>`）からは
+    /// `Device::compute()` でこの実装へ届く（TASK-2956 のポインタ。`create_pipeline` の実装は TASK-773 のポインタ）。
+    impl ComputeOps for MetalDevice {
+        /// MSL のソースから compute パイプラインを作り、表に登録して返す。
+        ///
+        /// 受け付けるのは `Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions`。
+        /// オプション付きの入力は、`Safe` なら数学モードを設定し、`Fast` と `MslFloatFunctions::Fast` は
+        /// 何も設定せず、`Precise` なら関数の精度を設定する。言語版は設定しない。設定の関数を持たない
+        /// 環境では `Unsupported`。`Msl`・`MslSpecialized` は既定のオプションでコンパイルする。
+        /// 入力の分類・`layout.slots` と function constant の
+        /// 重複の検査は Metal の API を呼ぶ前に行う。ライブラリのコンパイルと、特殊化しない関数からの
+        /// function constant の宣言の読み出しの後、特殊化の前に、必須の定数（`is_function_constant_defined` で
+        /// 守られていないもの）がすべて渡されているかを確かめ、足りなければ `ArtifactRejected { kind: "msl" }`
+        /// を返す。`Msl` は定数の並びが空として扱うので、必須の定数を持つカーネルは拒まれる。
+        /// `MslSpecialized` は function constant が空でも特殊化の API（`newFunctionWithName_constantValues_error`）で
+        /// 関数を作る。Metal 側の失敗は握りつぶさず `ArtifactRejected` に写す。
+        /// `layout` は検査したうえで写しを表に持つだけで、カーネルの引数とは突き合わせない。
+        fn create_pipeline(
+            &self,
+            input: PipelineInput<'_>,
+            layout: &BindingLayout,
+        ) -> Result<PipelineHandle, ContractError> {
+            let function = self.compile_function(&input, layout)?;
+            let state = self
+                .device
+                .newComputePipelineStateWithFunction_error(&function)
+                .map_err(|e| ContractError::ArtifactRejected {
+                    kind: "compute-pipeline",
+                    reason: format!("pipeline state creation failed: {}", describe(&e)),
+                })?;
+            self.register_pipeline(state, layout)
         }
 
         /// MSL の 4 つの入力のキャッシュキーを返す（TASK-501 のポインタ）。パイプラインは作らない。
@@ -3778,6 +3876,36 @@ mod imp {
         }
     }
 
+    /// `metal_data_type` の写しの確認。device には触らない。
+    #[cfg(test)]
+    mod reflection_type_tests {
+        use super::{MTLDataType, ReflectedDataType, metal_data_type};
+
+        #[test]
+        fn the_six_mapped_types_are_copied() {
+            assert_eq!(
+                metal_data_type(MTLDataType::Float),
+                ReflectedDataType::Float
+            );
+            assert_eq!(metal_data_type(MTLDataType::Half), ReflectedDataType::Half);
+            assert_eq!(metal_data_type(MTLDataType::UInt), ReflectedDataType::UInt);
+            assert_eq!(metal_data_type(MTLDataType::Int), ReflectedDataType::Int);
+            assert_eq!(metal_data_type(MTLDataType::Bool), ReflectedDataType::Bool);
+            assert_eq!(
+                metal_data_type(MTLDataType::Struct),
+                ReflectedDataType::Struct
+            );
+        }
+
+        #[test]
+        fn a_type_outside_the_table_keeps_its_raw_value() {
+            assert_eq!(
+                metal_data_type(MTLDataType::Float4),
+                ReflectedDataType::Other(u64::try_from(MTLDataType::Float4.0).unwrap())
+            );
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -3848,6 +3976,47 @@ mod imp {
                 device,
                 queue,
             )
+        }
+
+        /// reflection 付きの生成が表を変えずに値を返すことの確認（ART-89 のポインタ）。
+        mod reflection {
+            use super::*;
+            use crate::backend_metal::{ReflectedBuffer, ReflectedSize};
+
+            const ONE_FLOAT_BUFFER: &str = "#include <metal_stdlib>\nusing namespace metal;\nkernel void k(device float* a [[buffer(0)]]) { a[0] = 1.0f; }\n";
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn reflect_function_reads_one_float_buffer_and_leaves_the_table_alone() {
+                let device = new_device();
+                let layout = BindingLayout::new(vec![0]);
+                let function = device
+                    .compile_function(
+                        &PipelineInput::Msl {
+                            source: ONE_FLOAT_BUFFER,
+                            entry_point: "k",
+                        },
+                        &layout,
+                    )
+                    .expect("compile");
+                let before = device.lock_pipelines().map.len();
+                let (state, reflection) = device.reflect_function(&function).expect("reflect");
+                assert_eq!(
+                    reflection,
+                    PipelineReflection {
+                        argument_count: 1,
+                        buffers: vec![ReflectedBuffer {
+                            slot: 0,
+                            size: ReflectedSize::Bytes(4),
+                            data_type: ReflectedDataType::Float,
+                        }],
+                    }
+                );
+                assert_eq!(device.lock_pipelines().map.len(), before);
+                let handle = device.register_pipeline(state, &layout).expect("register");
+                assert_eq!(device.lock_pipelines().map.len(), before + 1);
+                assert_eq!(handle.__backend_device_id(), device.id);
+            }
         }
 
         /// 一覧が空の状態の確保は、全バイトが 0（MEM-2 のポインタ）。
