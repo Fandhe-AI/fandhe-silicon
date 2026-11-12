@@ -241,7 +241,7 @@ impl fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
-fn is_entry_name(s: &str) -> bool {
+pub(crate) fn is_entry_name(s: &str) -> bool {
     let mut it = s.bytes();
     s.len() <= MAX_ENTRY_BYTES
         && matches!(it.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
