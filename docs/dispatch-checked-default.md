@@ -62,3 +62,34 @@ cargo test -p fandhe-silicon-core --doc execution::submit
 ```
 
 `dispatch_checked` の例（容量を超える宣言は先頭 `C4:` の `Err` で `dispatch_ex` は 0 回、収まる宣言は `Ok(())` で 1 回）が通る。
+
+## 容量と上限の拒否の試験（3/6）
+
+背後実装を使わない最小の queue で、`dispatch_checked` の既定の本体を外の crate から公開のパスだけで呼ぶ。feature なしで動く。
+
+### 所在
+
+| 項目 | 値 |
+| ---- | -- |
+| 試験 | `crates/core/tests/dispatch_checked_default.rs` |
+| 最小の queue | `dispatch_ex` の呼び出し回数を数え、`max_buffer_bytes` に欄の値を返す。`dispatch_checked` は上書きしない |
+
+### 試験・入力・期待
+
+| 試験 | 入力 | 期待 |
+| ---- | ---- | ---- |
+| `dispatch_checked_rejects_binding_larger_than_buffer_size_with_c4` | 大きさ 16 のハンドル、F32 `[100]`、上限 4096 | 先頭 `C4:` の `InvalidArgument`、`dispatch_ex` は 0 回 |
+| `dispatch_checked_rejects_one_byte_over_max_buffer_bytes_with_c8` | 上限 4000、束縛なし、`Bool` `[4001]` | 先頭 `C8:` の `InvalidArgument`、0 回 |
+| `dispatch_checked_accepts_required_bytes_equal_to_max_buffer_bytes` | 上限 4000、束縛なし、`Bool` `[4000]` | `Ok(())`、1 回 |
+| `dispatch_checked_accepts_binding_that_fits_buffer_size` | 大きさ 16 のハンドル、F32 `[4]` | `Ok(())`、1 回 |
+| `dispatch_checked_c4_uses_size_minus_offset` | 大きさ 32 のハンドル、F32 `[4]`、offset 16 と 20 | offset 16 は `Ok(())`、offset 20 は先頭 `C4:` で回数は増えない |
+| `dispatch_checked_c4_uses_each_binding_handle_size` | slot 0 が大きさ 16、slot 1 が大きさ 400、宣言は両方 F32 `[100]` | 先頭 `C4:` で文言に `slot 0` を含み 0 回。slot 0 も 400 にすると `Ok(())` で 1 回 |
+
+照合は `InvalidArgument` と文言の先頭までで、文言の全文は固定しない。どの試験も `Result` を受けて `assert!` だけで通る。
+
+### 確かめ方
+
+```sh
+cargo test -p fandhe-silicon-core --test dispatch_checked_default
+make verify
+```
