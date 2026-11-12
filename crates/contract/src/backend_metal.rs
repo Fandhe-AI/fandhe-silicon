@@ -37,6 +37,7 @@
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! `dispatch_checked`（TASK-436 のポインタ）は、束縛のハンドルを表の項目と照らし、バッファの実際の長さと `limits()` の上限で引数の宣言を照らしてから `dispatch_ex` に委ねる。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
+//! feature `artifact-inspection` のビルドでは `Device::artifact_hooks()` が `ArtifactHooks` の実装（binary archive の書き出しと読み込み、metallib からのパイプラインの生成）を返す（TASK-492 のポインタ）。
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -2006,6 +2007,10 @@ mod imp {
         metal_cache_key,
     };
 
+    #[cfg(feature = "artifact-inspection")]
+    use super::{ARTIFACT_READ_LIMIT, artifact_path_str, read_written_artifact};
+    #[cfg(feature = "artifact-inspection")]
+    use fandhe_silicon_core::artifact::ArtifactHooks;
     use fandhe_silicon_core::capability::{
         BackendKind, Capabilities, CapabilityLevel, CapabilityQuery, FeatureId, LimitsTable,
     };
@@ -2025,6 +2030,8 @@ mod imp {
         CommandEncoder, CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle,
         OperandBinding, OperandConstant, OperandSpec, PipelineHandle, PipelineInput, SubmitToken,
     };
+    #[cfg(feature = "artifact-inspection")]
+    use fandhe_silicon_core::execution::{MslMathMode, validate_declared_operands};
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::fault::FaultHooks;
     use fandhe_silicon_core::memory::{
@@ -2036,7 +2043,11 @@ mod imp {
     // コマンドラインのプログラムで `MTLCreateSystemDefaultDevice` が既定の device を返すには、
     // Core Graphics がリンクされている必要がある。参照を置いてリンクを確実にする（シンボルは使わない）。
     use objc2_core_graphics as _;
+    #[cfg(feature = "artifact-inspection")]
+    use objc2_foundation::{NSArray, NSURL};
     use objc2_foundation::{NSProcessInfo, NSString};
+    #[cfg(feature = "artifact-inspection")]
+    use objc2_metal::{MTLBinaryArchive, MTLBinaryArchiveDescriptor};
     use objc2_metal::{
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
         MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineDescriptor,
@@ -3048,6 +3059,11 @@ mod imp {
             Some(self)
         }
 
+        #[cfg(feature = "artifact-inspection")]
+        fn artifact_hooks(&self) -> Option<&dyn ArtifactHooks> {
+            Some(self)
+        }
+
         /// `create_pipeline` を持つ `ComputeOps` の実装（この型自身）を返す（TASK-2956 のポインタ）。
         fn compute(&self) -> Option<&dyn ComputeOps> {
             Some(self)
@@ -3783,6 +3799,132 @@ mod imp {
         }
     }
 
+    /// feature `artifact-inspection` のビルドで `Device::artifact_hooks()` が返す実装（TASK-492 のポインタ）。
+    #[cfg(feature = "artifact-inspection")]
+    impl ArtifactHooks for MetalDevice {
+        /// MSL を数学モードつきでコンパイルし、`path` へ binary archive を書き出して、書き出したバイト列を返す。
+        ///
+        /// `path` は絶対パス。Metal の失敗は `ArtifactRejected { kind: "binary-archive" }`。
+        /// パイプライン状態は作らず、表にも置かない。
+        fn compile_and_write_binary_archive(
+            &self,
+            source: &str,
+            entry_point: &str,
+            math_mode: MslMathMode,
+            path: &std::path::Path,
+        ) -> Result<Vec<u8>, ContractError> {
+            let path_str = artifact_path_str(path)?;
+            let input = PipelineInput::MslWithOptions {
+                source,
+                entry_point,
+                math_mode,
+            };
+            let function = self.compile_function(&input, &BindingLayout::new(Vec::new()))?;
+            let rejected =
+                |what: &str, error: &objc2_foundation::NSError| ContractError::ArtifactRejected {
+                    kind: "binary-archive",
+                    reason: format!("{what}: {}", describe(error)),
+                };
+            let descriptor = MTLComputePipelineDescriptor::new();
+            descriptor.setComputeFunction(Some(&function));
+            let archive = self
+                .device
+                .newBinaryArchiveWithDescriptor_error(&MTLBinaryArchiveDescriptor::new())
+                .map_err(|e| rejected("binary archive creation failed", &e))?;
+            archive
+                .addComputePipelineFunctionsWithDescriptor_error(&descriptor)
+                .map_err(|e| rejected("adding the pipeline to the binary archive failed", &e))?;
+            let url = NSURL::fileURLWithPath(&NSString::from_str(path_str));
+            archive
+                .serializeToURL_error(&url)
+                .map_err(|e| rejected("binary archive serialization failed", &e))?;
+            read_written_artifact(path, ARTIFACT_READ_LIMIT)
+        }
+
+        /// MSL と `path` の binary archive からパイプラインを作り、空の layout で表に置いて handle を返す。
+        ///
+        /// `path` は絶対パス。`fail_on_archive_miss` が `true` のときは archive に無いと作成が失敗する。
+        /// archive の読み込みの失敗は `ArtifactRejected { kind: "binary-archive" }`、
+        /// パイプライン状態の作成の失敗は `ArtifactRejected { kind: "compute-pipeline" }`。
+        fn create_pipeline_from_archive_path(
+            &self,
+            source: &str,
+            entry_point: &str,
+            math_mode: MslMathMode,
+            path: &std::path::Path,
+            fail_on_archive_miss: bool,
+        ) -> Result<PipelineHandle, ContractError> {
+            let path_str = artifact_path_str(path)?;
+            let input = PipelineInput::MslWithOptions {
+                source,
+                entry_point,
+                math_mode,
+            };
+            let layout = BindingLayout::new(Vec::new());
+            let function = self.compile_function(&input, &layout)?;
+            let archive_descriptor = MTLBinaryArchiveDescriptor::new();
+            archive_descriptor.setUrl(Some(&NSURL::fileURLWithPath(&NSString::from_str(path_str))));
+            let archive = self
+                .device
+                .newBinaryArchiveWithDescriptor_error(&archive_descriptor)
+                .map_err(|e| ContractError::ArtifactRejected {
+                    kind: "binary-archive",
+                    reason: format!("binary archive loading failed: {}", describe(&e)),
+                })?;
+            let descriptor = MTLComputePipelineDescriptor::new();
+            descriptor.setComputeFunction(Some(&function));
+            descriptor.setBinaryArchives(Some(&NSArray::from_retained_slice(&[archive])));
+            let options = if fail_on_archive_miss {
+                MTLPipelineOption::FailOnBinaryArchiveMiss
+            } else {
+                MTLPipelineOption::None
+            };
+            let state = self
+                .device
+                .newComputePipelineStateWithDescriptor_options_reflection_error(
+                    &descriptor,
+                    options,
+                    None,
+                )
+                .map_err(|e| ContractError::ArtifactRejected {
+                    kind: "compute-pipeline",
+                    reason: format!("pipeline state creation failed: {}", describe(&e)),
+                })?;
+            self.register_pipeline(state, &layout)
+        }
+
+        /// `metallib_path` の metallib から `entry_point` の関数を読み、`declared` の slot の並びの layout で表に置いて handle を返す。
+        ///
+        /// slot の重複と宣言の次元数の検査、`metallib_path`（絶対パス）の検査は device とファイルに触る前に行う。
+        /// MSL のソースからはコンパイルしない。読み込みの失敗と入口の名前が無いときは `ArtifactRejected { kind: "metallib" }`。
+        fn create_pipeline_checked_from_metallib(
+            &self,
+            metallib_path: &std::path::Path,
+            entry_point: &str,
+            declared: &[OperandSpec<'_>],
+        ) -> Result<PipelineHandle, ContractError> {
+            let layout = BindingLayout::new(declared.iter().map(|d| d.slot).collect());
+            check_unique_slots(&layout.slots)?;
+            validate_declared_operands(declared, &layout)?;
+            let path_str = artifact_path_str(metallib_path)?;
+            let library = self
+                .device
+                .newLibraryWithURL_error(&NSURL::fileURLWithPath(&NSString::from_str(path_str)))
+                .map_err(|e| ContractError::ArtifactRejected {
+                    kind: "metallib",
+                    reason: format!("metallib loading failed: {}", describe(&e)),
+                })?;
+            let function = library
+                .newFunctionWithName(&NSString::from_str(entry_point))
+                .ok_or_else(|| ContractError::ArtifactRejected {
+                    kind: "metallib",
+                    reason: format!("entry point `{entry_point}` was not found in the metallib"),
+                })?;
+            let (state, _reflection) = self.reflect_function(&function)?;
+            self.register_pipeline(state, &layout)
+        }
+    }
+
     impl MemoryOps for MetalDevice {
         /// shared の storage でバッファを確保する。
         ///
@@ -4324,6 +4466,64 @@ mod imp {
                     );
                 }
                 assert_eq!(got.buffers[5], buffer(5, 4, ReflectedDataType::Float));
+            }
+        }
+
+        /// 成果物の検査の口が device から届き、metallib の経路が入力の誤りを表に触れずに拒むことの確認。
+        #[cfg(feature = "artifact-inspection")]
+        mod artifact_hooks_reach {
+            use super::*;
+            use fandhe_silicon_core::execution::DType;
+            use std::path::Path;
+
+            fn spec(slot: u32) -> OperandSpec<'static> {
+                OperandSpec {
+                    slot,
+                    dtype: DType::F32,
+                    shape: &[4],
+                    stride: &[1],
+                    alignment: 4,
+                }
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn metallib_route_rejects_bad_inputs_without_touching_the_table() {
+                let device = new_device();
+                let hooks = device.artifact_hooks().expect("artifact hooks");
+                let before = device.lock_pipelines().map.len();
+                let absolute = std::env::temp_dir().join("fandhe-silicon-unused.metallib");
+
+                let duplicated = [spec(0), spec(0)];
+                assert!(matches!(
+                    hooks.create_pipeline_checked_from_metallib(&absolute, "k", &duplicated),
+                    Err(ContractError::InvalidArgument(_))
+                ));
+                assert_eq!(device.lock_pipelines().map.len(), before);
+
+                let declared = [spec(0)];
+                assert!(matches!(
+                    hooks.create_pipeline_checked_from_metallib(
+                        Path::new("relative.metallib"),
+                        "k",
+                        &declared
+                    ),
+                    Err(ContractError::InvalidArgument(_))
+                ));
+                assert_eq!(device.lock_pipelines().map.len(), before);
+
+                let missing = std::env::temp_dir().join(format!(
+                    "fandhe-silicon-missing-{}.metallib",
+                    std::process::id()
+                ));
+                assert!(matches!(
+                    hooks.create_pipeline_checked_from_metallib(&missing, "k", &declared),
+                    Err(ContractError::ArtifactRejected {
+                        kind: "metallib",
+                        ..
+                    })
+                ));
+                assert_eq!(device.lock_pipelines().map.len(), before);
             }
         }
 
