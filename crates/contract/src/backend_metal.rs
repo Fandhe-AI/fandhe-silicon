@@ -321,6 +321,171 @@ fn check_unique_slots(slots: &[u32]) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// dispatch の束縛・定数の slot と、共有メモリの index の上限（含む）。これを超える番号は拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAX_DISPATCH_SLOT: u32 = 30;
+
+/// 定数 1 件の bytes の長さの上限（含む）。これを超えるものは拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAX_CONSTANT_BYTES: usize = 4096;
+
+/// 共有メモリ 1 件の長さの倍数。この倍数でない長さは拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const THREADGROUP_MEMORY_ALIGN: u32 = 16;
+
+/// `check_dispatch_args` に渡す束縛 1 件の値（slot・offset・バッファの確保の長さ）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct BindingArg {
+    slot: u32,
+    offset: u64,
+    buffer_len: u64,
+}
+
+/// `check_dispatch_args` に渡す定数 1 件の値（slot・bytes の長さ）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct ConstantArg {
+    slot: u32,
+    len: usize,
+}
+
+/// `check_dispatch_args` に渡す共有メモリ 1 件の値（index・bytes）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct ThreadgroupArg {
+    index: u32,
+    bytes: u32,
+}
+
+/// `check_dispatch_args` の入力。device とパイプラインから読んだ値を plain な型で持つ。
+///
+/// `MetalDevice::dispatch_ex` が表の照合の後に組み立てる。Objective-C の型を持たないので、どの OS でも試験できる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct DispatchArgs<'a> {
+    dispatch_dims: [u32; 3],
+    threads_per_threadgroup: [u32; 3],
+    bindings: &'a [BindingArg],
+    constants: &'a [ConstantArg],
+    threadgroup_memory: &'a [ThreadgroupArg],
+    layout_slots: &'a [u32],
+    pipeline_max_total_threads: u64,
+    pipeline_static_threadgroup_memory: u64,
+    device_max_threadgroup_memory: u64,
+    device_max_threads_per_threadgroup: [u64; 3],
+    max_dispatch_dims: [u32; 3],
+}
+
+/// dispatch の引数を記録の前に検査する。最初に当たった項目を `InvalidArgument` で返し、副作用は持たない。
+///
+/// 順は、`dispatch_dims`、`threads_per_threadgroup`、slot、束縛の offset、定数、共有メモリ。
+/// 足し算・掛け算は `checked_*` で行い、あふれも拒否する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_dispatch_args(args: &DispatchArgs<'_>) -> Result<(), ContractError> {
+    let invalid = |msg: String| Err(ContractError::InvalidArgument(msg));
+
+    if args.dispatch_dims.contains(&0) {
+        return invalid("dispatch_dims contains zero".into());
+    }
+    if args
+        .dispatch_dims
+        .iter()
+        .zip(args.max_dispatch_dims)
+        .any(|(dim, max)| *dim > max)
+    {
+        return invalid("dispatch_dims exceeds the limit".into());
+    }
+
+    if args.threads_per_threadgroup.contains(&0) {
+        return invalid("threads_per_threadgroup contains zero".into());
+    }
+    if args
+        .threads_per_threadgroup
+        .iter()
+        .zip(args.device_max_threads_per_threadgroup)
+        .any(|(threads, max)| u64::from(*threads) > max)
+    {
+        return invalid("threads_per_threadgroup exceeds the device limit".into());
+    }
+    let total = args
+        .threads_per_threadgroup
+        .iter()
+        .try_fold(1_u64, |acc, t| acc.checked_mul(u64::from(*t)));
+    match total {
+        Some(total) if total <= args.pipeline_max_total_threads => {}
+        _ => return invalid("threads_per_threadgroup exceeds the pipeline thread limit".into()),
+    }
+
+    let mut used = HashSet::new();
+    let slots = args
+        .bindings
+        .iter()
+        .map(|b| b.slot)
+        .chain(args.constants.iter().map(|c| c.slot));
+    for slot in slots {
+        if slot > MAX_DISPATCH_SLOT {
+            return invalid(format!("slot {slot} exceeds the maximum slot"));
+        }
+        if !used.insert(slot) {
+            return invalid(format!("duplicate slot in dispatch: {slot}"));
+        }
+        if !args.layout_slots.contains(&slot) {
+            return invalid(format!("slot {slot} is not in the binding layout"));
+        }
+    }
+    if let Some(slot) = args.layout_slots.iter().find(|s| !used.contains(s)) {
+        return invalid(format!("slot {slot} of the binding layout is not provided"));
+    }
+
+    if let Some(b) = args.bindings.iter().find(|b| b.offset > b.buffer_len) {
+        return invalid(format!(
+            "binding slot {} offset exceeds the buffer length",
+            b.slot
+        ));
+    }
+
+    for c in args.constants {
+        if c.len == 0 {
+            return invalid(format!("constant slot {} is empty", c.slot));
+        }
+        if c.len > MAX_CONSTANT_BYTES {
+            return invalid(format!(
+                "constant slot {} exceeds the maximum length",
+                c.slot
+            ));
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let mut total = args.pipeline_static_threadgroup_memory;
+    for t in args.threadgroup_memory {
+        if t.index > MAX_DISPATCH_SLOT {
+            return invalid(format!(
+                "threadgroup memory index {} exceeds the maximum index",
+                t.index
+            ));
+        }
+        if !seen.insert(t.index) {
+            return invalid(format!("duplicate threadgroup memory index: {}", t.index));
+        }
+        if t.bytes % THREADGROUP_MEMORY_ALIGN != 0 {
+            return invalid(format!(
+                "threadgroup memory index {} length is not a multiple of {THREADGROUP_MEMORY_ALIGN}",
+                t.index
+            ));
+        }
+        total = match total.checked_add(u64::from(t.bytes)) {
+            Some(total) => total,
+            None => return invalid("threadgroup memory total overflows".into()),
+        };
+    }
+    if total > args.device_max_threadgroup_memory {
+        return invalid("threadgroup memory exceeds the device limit".into());
+    }
+    Ok(())
+}
+
 /// function constant の `index` の上限（含む）。MSL 4.1 仕様の 5.8 節（Program Scope Function Constants）が
 /// 許す範囲 0〜65535 の上端で、Apple の公開文書に基づく。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -969,6 +1134,11 @@ impl OpenEncoders {
         self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// 渡された識別子が開いている集合にあるかを、集合を変えずに返す（0 は集合に入らないので偽）。
+    fn is_open(&self, id: u64) -> bool {
+        self.lock().contains(&id)
+    }
+
     /// 渡された識別子が全部開いている集合にあることを確かめ、あれば集合から外す。
     ///
     /// 1 つでも無い（0 を含む）・同じ識別子が重複していれば `InvalidArgument` で、集合は変えない。
@@ -1357,12 +1527,13 @@ mod imp {
     use super::sweep_stale_table;
     #[cfg(feature = "native-blocking-wait")]
     use super::wait_result;
+    use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
         BufState, Callback, CompilePlan, ConstantKind, GroupState, OpenEncoders, SizePool,
-        Submissions, check_token_owner, check_unique_slots, classify_pipeline_input, compile_plan,
-        drive_table, driven_generation, finish_table, group_state_of, missing_required_constants,
-        missing_required_reason, precheck_submit, precheck_submit_many, prepare_constants,
-        register_table, remove_issued, retire, take_next,
+        Submissions, check_dispatch_args, check_token_owner, check_unique_slots,
+        classify_pipeline_input, compile_plan, drive_table, driven_generation, finish_table,
+        group_state_of, missing_required_constants, missing_required_reason, precheck_submit,
+        precheck_submit_many, prepare_constants, register_table, remove_issued, retire, take_next,
     };
     use super::{MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range, metal_cache_key};
 
@@ -2324,22 +2495,101 @@ mod imp {
                 .timing_of(token.sequence, group_state)
         }
 
-        // dispatch の記録は TASK-775 のポインタ。この実装は引数を読まず、encoder に何も積まない。
+        // dispatch の記録は TASK-775 のポインタ。
+        /// 引数を記録の前に検査する。検査に通っても `Unsupported` を返し、encoder に何も積まない。
+        ///
+        /// 照らす順は、記録先（この device の開いている表にあるか。集合から外さない）、パイプライン
+        /// （別の device は `DeviceMismatch`、表に無ければ `InvalidArgument`）、束縛のバッファ（並びの順。
+        /// 別の device は `DeviceMismatch`、表に無い・世代違いは `InvalidArgument`）、その後に引数の値の検査。
+        /// 拒否は記録先の集合・表・device の状態を変えない。
         fn dispatch_ex(
             &self,
-            _encoder: &mut CommandEncoder,
-            _pipeline: &fandhe_silicon_core::execution::PipelineHandle,
-            _bindings: &[fandhe_silicon_core::execution::Binding<'_>],
-            _consts: &[fandhe_silicon_core::execution::ConstantBinding<'_>],
-            _dispatch_dims: [u32; 3],
-            _threads_per_threadgroup: [u32; 3],
-            _threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
+            encoder: &mut CommandEncoder,
+            pipeline: &fandhe_silicon_core::execution::PipelineHandle,
+            bindings: &[fandhe_silicon_core::execution::Binding<'_>],
+            consts: &[fandhe_silicon_core::execution::ConstantBinding<'_>],
+            dispatch_dims: [u32; 3],
+            threads_per_threadgroup: [u32; 3],
+            threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
         ) -> Result<(), ContractError> {
+            if !self.open.is_open(encoder.__backend_id()) {
+                return Err(ContractError::InvalidArgument(
+                    "encoder is not open on this device".into(),
+                ));
+            }
+
+            if pipeline.__backend_device_id() != self.id {
+                return Err(ContractError::DeviceMismatch);
+            }
+            let (layout_slots, pipeline_max_total_threads, pipeline_static_threadgroup_memory) = {
+                let pipelines = self.lock_pipelines();
+                let Some((state, layout)) = pipelines.map.get(&pipeline.__backend_id()) else {
+                    return Err(ContractError::InvalidArgument(
+                        "pipeline handle is not in this device's table".into(),
+                    ));
+                };
+                (
+                    layout.slots.clone(),
+                    to_u64(state.maxTotalThreadsPerThreadgroup())?,
+                    to_u64(state.staticThreadgroupMemoryLength())?,
+                )
+            };
+
+            let mut binding_args = Vec::with_capacity(bindings.len());
+            for binding in bindings {
+                let buffer_len =
+                    self.with_buffer(binding.buffer, |entry| to_u64(entry.buffer.length()))?;
+                binding_args.push(BindingArg {
+                    slot: binding.slot,
+                    offset: binding.offset,
+                    buffer_len,
+                });
+            }
+            let constant_args: Vec<ConstantArg> = consts
+                .iter()
+                .map(|c| ConstantArg {
+                    slot: c.slot,
+                    len: c.bytes.len(),
+                })
+                .collect();
+            let threadgroup_args: Vec<ThreadgroupArg> = threadgroup_memory
+                .iter()
+                .map(|t| ThreadgroupArg {
+                    index: t.index,
+                    bytes: t.bytes,
+                })
+                .collect();
+
+            let max_threads = self.device.maxThreadsPerThreadgroup();
+            check_dispatch_args(&DispatchArgs {
+                dispatch_dims,
+                threads_per_threadgroup,
+                bindings: &binding_args,
+                constants: &constant_args,
+                threadgroup_memory: &threadgroup_args,
+                layout_slots: &layout_slots,
+                pipeline_max_total_threads,
+                pipeline_static_threadgroup_memory,
+                device_max_threadgroup_memory: to_u64(self.device.maxThreadgroupMemoryLength())?,
+                device_max_threads_per_threadgroup: [
+                    to_u64(max_threads.width)?,
+                    to_u64(max_threads.height)?,
+                    to_u64(max_threads.depth)?,
+                ],
+                max_dispatch_dims: self.limits.max_dispatch_dims,
+            })?;
+
             Err(ContractError::Unsupported {
                 op: "dispatch_ex",
                 backend: fandhe_silicon_core::capability::BackendKind::Metal,
             })
         }
+    }
+
+    /// Metal から読んだ `NSUInteger` を `u64` にする。収まらなければ切り詰めず `InvalidArgument` にする。
+    fn to_u64(value: usize) -> Result<u64, ContractError> {
+        u64::try_from(value)
+            .map_err(|_| ContractError::InvalidArgument("value does not fit u64".into()))
     }
 
     /// `allocate` が Metal のバッファを作る前に通す検査。
@@ -4785,6 +5035,196 @@ mod precheck_tests {
         }
         assert!(open.claim(&[5, 6]).is_ok());
         assert!(open.lock().is_empty());
+    }
+
+    #[test]
+    fn is_open_reports_membership_without_changing_the_set() {
+        let open = OpenEncoders::new();
+        open.lock().insert(5);
+        assert!(!open.is_open(0));
+        assert!(!open.is_open(6));
+        assert!(open.is_open(5));
+        assert!(open.is_open(5));
+        assert_eq!(open.lock().len(), 1);
+    }
+
+    /// 全項目を受理する基準の入力（スロット 0 が束縛、1 が定数）。
+    struct DispatchFixture {
+        bindings: Vec<BindingArg>,
+        constants: Vec<ConstantArg>,
+        threadgroup: Vec<ThreadgroupArg>,
+        layout: Vec<u32>,
+        dims: [u32; 3],
+        threads: [u32; 3],
+        max_dims: [u32; 3],
+        device_axes: [u64; 3],
+        pipeline_total: u64,
+        pipeline_static: u64,
+        device_memory: u64,
+    }
+
+    impl DispatchFixture {
+        fn new() -> Self {
+            Self {
+                bindings: vec![BindingArg {
+                    slot: 0,
+                    offset: 16,
+                    buffer_len: 64,
+                }],
+                constants: vec![ConstantArg { slot: 1, len: 8 }],
+                threadgroup: vec![ThreadgroupArg {
+                    index: 0,
+                    bytes: 32,
+                }],
+                layout: vec![0, 1],
+                dims: [4, 2, 1],
+                threads: [8, 4, 1],
+                max_dims: [u32::MAX; 3],
+                device_axes: [1024, 1024, 64],
+                pipeline_total: 1024,
+                pipeline_static: 0,
+                device_memory: 32768,
+            }
+        }
+
+        fn check(&self) -> Result<(), ContractError> {
+            check_dispatch_args(&DispatchArgs {
+                dispatch_dims: self.dims,
+                threads_per_threadgroup: self.threads,
+                bindings: &self.bindings,
+                constants: &self.constants,
+                threadgroup_memory: &self.threadgroup,
+                layout_slots: &self.layout,
+                pipeline_max_total_threads: self.pipeline_total,
+                pipeline_static_threadgroup_memory: self.pipeline_static,
+                device_max_threadgroup_memory: self.device_memory,
+                device_max_threads_per_threadgroup: self.device_axes,
+                max_dispatch_dims: self.max_dims,
+            })
+        }
+    }
+
+    /// 拒否が `InvalidArgument` で、文言に `needle` を含むこと。
+    fn assert_invalid(r: Result<(), ContractError>, needle: &str) {
+        match r {
+            Err(ContractError::InvalidArgument(m)) => {
+                assert!(m.contains(needle), "{m} should contain {needle}")
+            }
+            other => panic!("expected InvalidArgument({needle}), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_args_baseline_is_accepted() {
+        assert!(DispatchFixture::new().check().is_ok());
+    }
+
+    #[test]
+    fn dispatch_dims_zero_and_over_limit_are_rejected() {
+        let mut f = DispatchFixture::new();
+        f.dims = [1, 0, 1];
+        assert_invalid(f.check(), "dispatch_dims");
+        let mut f = DispatchFixture::new();
+        f.max_dims = [4, 2, 1];
+        assert!(f.check().is_ok());
+        f.dims = [4, 3, 1];
+        assert_invalid(f.check(), "dispatch_dims");
+    }
+
+    #[test]
+    fn threads_zero_axis_limit_and_product_overflow_are_rejected() {
+        let mut f = DispatchFixture::new();
+        f.threads = [0, 1, 1];
+        assert_invalid(f.check(), "threads_per_threadgroup");
+        let mut f = DispatchFixture::new();
+        f.threads = [1025, 1, 1];
+        assert_invalid(f.check(), "threads_per_threadgroup");
+        let mut f = DispatchFixture::new();
+        f.threads = [32, 32, 1];
+        assert!(f.check().is_ok());
+        f.pipeline_total = 1023;
+        assert_invalid(f.check(), "threads_per_threadgroup");
+        let mut f = DispatchFixture::new();
+        f.device_axes = [u64::MAX; 3];
+        f.threads = [u32::MAX; 3];
+        f.pipeline_total = u64::MAX;
+        assert_invalid(f.check(), "threads_per_threadgroup");
+    }
+
+    #[test]
+    fn slot_limit_duplicates_and_layout_mismatch_are_rejected() {
+        let mut f = DispatchFixture::new();
+        f.bindings[0].slot = 30;
+        f.layout = vec![30, 1];
+        assert!(f.check().is_ok());
+        f.bindings[0].slot = 31;
+        f.layout = vec![31, 1];
+        assert_invalid(f.check(), "31");
+
+        let mut f = DispatchFixture::new();
+        f.constants[0].slot = 0;
+        f.layout = vec![0];
+        assert_invalid(f.check(), "0");
+
+        let mut f = DispatchFixture::new();
+        f.layout = vec![0];
+        assert_invalid(f.check(), "1");
+
+        let mut f = DispatchFixture::new();
+        f.layout = vec![0, 1, 7];
+        assert_invalid(f.check(), "7");
+    }
+
+    #[test]
+    fn binding_offset_accepts_the_length_and_rejects_one_more() {
+        let mut f = DispatchFixture::new();
+        f.bindings[0].offset = 64;
+        assert!(f.check().is_ok());
+        f.bindings[0].offset = 65;
+        assert_invalid(f.check(), "slot 0");
+    }
+
+    #[test]
+    fn constant_length_bounds_and_empty_are_rejected() {
+        let mut f = DispatchFixture::new();
+        f.constants[0].len = 4096;
+        assert!(f.check().is_ok());
+        f.constants[0].len = 4097;
+        assert_invalid(f.check(), "slot 1");
+        f.constants[0].len = 0;
+        assert_invalid(f.check(), "slot 1");
+    }
+
+    #[test]
+    fn threadgroup_memory_index_alignment_duplicates_and_total_are_checked() {
+        let mut f = DispatchFixture::new();
+        f.threadgroup[0].index = 30;
+        assert!(f.check().is_ok());
+        f.threadgroup[0].index = 31;
+        assert_invalid(f.check(), "31");
+
+        let mut f = DispatchFixture::new();
+        f.threadgroup[0].bytes = 24;
+        assert_invalid(f.check(), "index 0");
+
+        let mut f = DispatchFixture::new();
+        f.threadgroup.push(ThreadgroupArg {
+            index: 0,
+            bytes: 16,
+        });
+        assert_invalid(f.check(), "index: 0");
+
+        let mut f = DispatchFixture::new();
+        f.pipeline_static = 100;
+        f.device_memory = 132;
+        assert!(f.check().is_ok());
+        f.device_memory = 131;
+        assert_invalid(f.check(), "threadgroup memory");
+        f.threadgroup[0].bytes = 48;
+        f.device_memory = 148;
+        assert!(f.check().is_ok());
+        f.threadgroup[0].bytes = 64;
+        assert_invalid(f.check(), "threadgroup memory");
     }
 
     #[test]
