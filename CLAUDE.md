@@ -69,9 +69,9 @@ fandhe-silicon/
 ├── docs/stub-device.md       # 試験用の device の所在と、本リポの現状の事実・現状の形（2/5）・試験（3/5）・公開 API の検査（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 6b35dd9）・今の値の補い（base 25d8dc2）・今の値の補い（base 2f36d3d）（TASK-156）・今の値の補い（base 70ab958）・今の値の補い（base 2b3b38b）・今の値の補い（base 3cd4a0c）
 ├── docs/contract-memory-types.md  # バッファ・メモリ操作の公開の型の所在と、本リポの現状の事実・現状の形（2/6）・試験（3/6）・試験（4/6）・試験（5/6）・完了の条件の確かめ（6/6）（TASK-308）・コールバックの `Send` 要求の型検査・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680）（TASK-240）
 ├── docs/contract-binding-types.md  # 束縛の宣言・束縛の組・配置・パイプラインの配置の公開の型の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-419）
-├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方・今の値の補い（base dd1a116）（TASK-769）・今の値の補い（base 70ab958）
+├── docs/contract-compute-types.md  # compute の dispatch に渡す公開の型と簡易版 dispatch の既定の本体の所在と、本リポの現状の事実・対応するテスト・確かめ方・今の値の補い（base dd1a116）（TASK-769）・今の値の補い（base 70ab958）・今の値の補い（base 2847d3c）
 ├── docs/compute-encoder-lifetime-check.md  # compute の記録先の借用の寿命と定数の渡し方の試験の所在と、本リポの現状の事実・記録先の型と借用の試験（1/3）・定数を dispatch ごとに渡す形の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 2f36d3d）（TASK-772）
-├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-2956）・今の値の補い（base 70ab958）
+├── docs/device-compute.md   # device から compute の口へ届く読み出しの所在と、本リポの現状の事実・現状の形（1/3）・Metal の上書き（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 6b35dd9）・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-2956）・今の値の補い（base 70ab958）・今の値の補い（base 2847d3c）
 ├── docs/device-textures.md  # device からテクスチャを作る操作へ届く口の所在と、本リポの現状の事実・現状の形（1/4）・試験用の device の答え（2/4）・到達の試験（3/4）・完了の条件の確かめ（4/4）・段の表・サンプラーを作る操作・今の値の補い（base 6b35dd9）・作る操作の行の能力の問合せ（1/2）・作る操作の行の鍵の完了の条件の確かめ（2/2）（TASK-150）・今の値の補い（base 70ab958）
 ├── docs/render-target-handle.md  # 描画先の handle の型（`RenderTargetHandle`）と照合の関数（`check_render_target_device`）の所在と、本リポの現状の事実・現状の形（1/4・2/4）・試験（3/4）・完了の条件の確かめ（4/4）・描画の操作越しの確かめ（5/5）・今の値の補い（base 6b35dd9）（TASK-375）
 ├── docs/graphics-types.md    # 描画の公開の型と操作の trait の所在・現状の形（1/4）・device の口と試験用の device（2/4）・CI への組み込み（3/4）・型の試験（4/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い・描画パスの状態の操作の型の試験の補い・今の値の補い（base 2f36d3d）（TASK-837）
@@ -130,7 +130,7 @@ fandhe-silicon/
 ├── docs/exec-denormal-judgment.md  # 下-2 の f32 の非正規化数の判定の所在と、本リポの現状の事実・判定と操作・経路ごとの保持（1/6）・報告の資料の記述の項（2/6）・拒否した呼び出しと経路の無い呼び出しで試しの実行を流さない試験（3/6）・試しの実行の失敗をそのまま返す試験（4/6）・組み合わせの表の呼び出しの回数と判定できない経路を外す試験（5/6）・完了の条件の確かめ（6/6）・段の表・今の値の補い（base dbbb5c0）・今の値の補い（base 515bb19）・今の値の補い（base 8e4b99b）（TASK-925）
 ├── docs/exec-cpu-route.md  # 下-2 の CPU の経路の所在と、本リポの現状の事実・host の列の長さと要素数の照合（1/4）・CPU の経路の f16 の積和（2/4）・入力の組と CPU の参照との比べの試験（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base dbbb5c0）（TASK-930）・subgroup の総和の host の列の長さと出力の数の照合（1/6）・CPU の経路の subgroup の総和（2/6）・CPU の経路の f32 の総和の非正規化数の判定（3/6）・入力の組と CPU の参照との比べの試験（4/6）・出力の sha256 の行（5/6）・完了の条件の確かめ（6/6）・段の表・今の値の補い（base 515bb19）（TASK-931）・atomic の加算の host の列の長さと出力の数の照合（1/4）・CPU の経路の atomic の加算と非正規化数の判定（2/4）・入力の組と CPU の参照との比べと出力の sha256 の行（3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 8e4b99b）（TASK-932）
 ├── docs/buffer-range-check.md  # バッファの引数検査の純粋関数の所在・現状の振る舞い・対応するテスト・確かめ方・境界の入力の試験・拒否のときの内容の不変の試験・完了の条件の確かめ（4/4）・今の値の補い（base 3e32680）（TASK-309 の 1/4〜4/4）
-├── docs/buffer-usage-check.md  # 用途の 12 値の対応表と用途と操作の対応の検査の所在・現状の振る舞い・対応するテスト・確かめ方・読み戻しの元・upload の宛先・描画先からの写しの先の役割（TASK-1796）
+├── docs/buffer-usage-check.md  # 用途の 12 値の対応表と用途と操作の対応の検査の所在・現状の振る舞い・対応するテスト・確かめ方・読み戻しの元・upload の宛先・描画先からの写しの先の役割・今の値の補い（base 2847d3c）（TASK-1796）
 ├── docs/buffer-size-usage-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・今の値の補い（base 3e32680）（TASK-310）
 ├── docs/buffer-slice.md      # バッファの部分範囲の型の所在・部分範囲の型と作る口（1/5）・確かめ方・入れ子の絞りと解放の後の型検査（2/5）・境界の入力の試験（3/5）・入れ子と全体の範囲の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 801a89d）（TASK-311）
 ├── docs/mapped-range.md      # 書き込み用のビューの型の所在・書き込み用のビューの型と長さ・空の判定（1/4）・確かめ方・範囲の絞り（2/4）・境界の入力と絞りの試験（3/4）・完了の条件の確かめ（4/4）（TASK-312）
@@ -138,8 +138,8 @@ fandhe-silicon/
 ├── docs/inventory-trace-check.md  # 一覧と項目の対応を確かめる検査の所在・検査のスクリプト・対応するテスト・確かめ方・追随分の取り込みの手順（TASK-16・TASK-17）
 ├── docs/implementation-scope.md  # 実装に含める範囲の決定の記録の所在と本リポの現状の事実（TASK-43）
 ├── docs/vulkan-operand-extraction.md  # Vulkan の成果物からオペランドの宣言を取り出す道具の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・取り出す内容と対象・対象外の形と拒否する入力・振る舞いとテストの対応・確かめ方（TASK-98）
-├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・段・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針・依存の承認の件数の現状・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7）・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680）（TASK-233）
-├── docs/contract-feature-check.md  # default feature とテスト・診断専用 feature の検査の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）・今の値の補い（base 25d8dc2）・今の値の補い（base eda0509）・今の値の補い（base 3cd4a0c）（TASK-226）
+├── docs/feature-gate-compile-check.md  # feature ゲートのコンパイル失敗の試験の所在と、本リポの現状の事実・段・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針・依存の承認の件数の現状・アイテムへの差し替え（5/7・6/7）・完了の条件の確かめ（7/7）・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680）・今の値の補い（base 2847d3c）（TASK-233）
+├── docs/contract-feature-check.md  # default feature とテスト・診断専用 feature の検査の所在と、本リポの現状の事実・現状と前提の確認（1/3）・実装（2/3）・CI への組み込み（3/3）・今の値の補い（base 25d8dc2）・今の値の補い（base eda0509）・今の値の補い（base 3cd4a0c）・今の値の補い（base 2847d3c）（TASK-226）
 ├── docs/profile-switch-check.md  # プロファイルの切替の検査の所在と、本リポの現状の事実・プロファイルの feature と crate の構成の試験（1/4）・プロファイルごとの試験の本数の検査（2/4）・CI への組み込み（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 25d8dc2）・今の値の補い（base 0f8b01c）（TASK-227）
 ├── docs/ext-interop-build-check.md  # ext-interop と片方の背後実装の組のビルドの確かめの所在と、本リポの現状の事実・現状と前提の確認（1/4）・実装（2/4）・テスト（3/4）・完了の条件の確かめと 3 構成の結果の記録（4/4）・依存の承認の件数の現状・今の値の補い（base 25d8dc2）・今の値の補い（base 3e32680）（TASK-231）
 ├── docs/dx12-compute-check.md  # DX12 の compute に関する点検の記録の所在と、本リポの現状の事実・本リポでの反映の方針（TASK-236）
@@ -175,7 +175,7 @@ fandhe-silicon/
 ├── docs/profile-dep-graph-check.md  # 依存グラフのプロファイルごとの検査（CpuOnly・ComputeOnly の Metal の組と per-header feature）の所在・出力の読み方・数え方の定義の所在・陽性対照（一覧に 1 件足すと落ちることの確かめ）・確かめ方・完了の条件の確かめ（5/6）・プロファイルごとの件数の記録（6/6）（TASK-228）・現状と前提の確認（1/6）（TASK-229）・Graphics（Vulkan）の組の検査（2/6）・Graphics と相互運用の組の検査（3/6）・選んでいない SDK と比較基準の差の検査（4/6）・試験（5/6）・完了の条件の確かめと件数・差の記録（6/6）・今の値の補い（base 3e32680）（TASK-229）
 ├── docs/public-api-diff.md   # 公開 API の差分の道具の所在・2 つの JSON の作り方・流し方・振る舞いと対応するテスト・確かめ方・完了の条件の確かめ（5/5）（TASK-17）
 ├── docs/measurement-record.md  # 測定の記録の形式と置き場の決定の記録の所在と、本リポの現状の事実・本リポでの反映の方針（TASK-28）
-├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・CPU の演算の時間を測る bin（TASK-2960）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1）
+├── docs/measurement-tool.md  # 性能を測る共通の道具の所在・本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・現状の形（3/8〜7/8・9/11・10/11）・完了の条件の確かめ（8/8）（TASK-27）・回の run_ids との突き合わせ（TASK-2947）・CPU の演算の時間を測る bin（TASK-2960）・本リポでの反映の方針・依存の承認の件数の現状・今の値の補い（base 3e32680）・今の値の補い（base d082bc1）・今の値の補い（base 55fd9c1）・今の値の補い（base 2847d3c）
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
 ├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）・今の値の補い（base 55fd9c1）（TASK-1082）
@@ -183,11 +183,11 @@ fandhe-silicon/
 ├── docs/metal-compile-options.md  # Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base da4f3d1）
 ├── docs/metal-pipeline-reflection.md  # Metal のパイプラインの reflection の取り出し（TASK-493）の所在と、本リポの現状の事実・値の型と対応表（1/4）・reflection の取り出し（2/4）・device の要る試験（2/4・3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 3cd4a0c）
 ├── docs/metal-artifact-hooks.md  # Metal の成果物の検査の口（`artifact-inspection` の裏の `ArtifactHooks`）の所在と、本リポの現状の事実・共通の crate の口（1/8）・パスとファイルの部品（2/8）・Metal の上書き（3/8）・device の要る試験（3/8〜7/8）・完了の条件の確かめ（8/8）・段の表（TASK-492）
-├── docs/metal-dispatch-record.md  # Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base f433877）
-├── docs/metal-dispatch-checked.md  # Metal の投入の前の検査の上書き（TASK-436）の所在と、本リポの現状の事実・上書きの振る舞い（1/5）・宣言の照らしの関数の試験（2/5）・device の要る試験（3/5・4/5）・完了の条件の確かめ（5/5）・段の表
-├── docs/metal-gemm-arm.md  # 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb）
-├── docs/metal-coopmat-gemm-arm.md  # 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4）
-├── docs/metal-source-gemm-arm.md  # 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7）
+├── docs/metal-dispatch-record.md  # Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base f433877）・今の値の補い（base 2847d3c）
+├── docs/metal-dispatch-checked.md  # Metal の投入の前の検査の上書き（TASK-436）の所在と、本リポの現状の事実・上書きの振る舞い（1/5）・宣言の照らしの関数の試験（2/5）・device の要る試験（3/5・4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base 2847d3c）
+├── docs/metal-gemm-arm.md  # 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb）・今の値の補い（base 2847d3c）
+├── docs/metal-coopmat-gemm-arm.md  # 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2847d3c）
+├── docs/metal-source-gemm-arm.md  # 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7）・今の値の補い（base 2847d3c）
 ├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）
 ├── docs/cuda-command-submit.md  # CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）
 ├── docs/cuda-create-pipeline.md  # CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）

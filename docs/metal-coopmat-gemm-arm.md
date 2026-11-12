@@ -143,3 +143,11 @@ TASK-1009 の 4/4（#6318）として、ここまでの成果物を本リポで�
 | 2/4 | metallib の作成と腕の手順 | #6316 |
 | 3/4 | 門の run の device の試験 | #6317 |
 | 4/4 | 完了の条件の確かめ | #6318 |
+
+## 今の値の補い（base 2847d3c）
+
+記録時点の表と既存の節は書き換えない。以下は base `2847d3c` で観測した今の値（実行環境は GPU なしの Linux）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 完了の条件の確かめの表の項目 1（`members` と `record:` の行） | `members = ["crates/cpu-ops-arm", "crates/detect", "crates/metal-gemm-arm", "crates/perf"]`（4 件）、`measure_pkgs=4 measure_contract_pkgs=1` → `members = ["crates/cpu-ops-arm", "crates/detect", "crates/kernel-accept", "crates/metal-gemm-arm", "crates/perf"]`（5 件）、`measure_pkgs=5 measure_contract_pkgs=2`（`measure_forbidden=0`、`exclude` は変わらない。終了コード 0） | `grep -n '^members' measure/Cargo.toml`、`grep -n '^exclude' Cargo.toml`、`make upper-layer-check` |
