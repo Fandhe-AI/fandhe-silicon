@@ -6877,25 +6877,28 @@ mod imp {
                     assert_eq!(record_count(&device, id), Some(0));
                 }
 
-                /// metallib から作った GEMM と ReLU を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                /// device の要る比較試験が共有する補助関数（f32 の置き読み・T1 での突き合わせ）。
                 #[cfg(feature = "test-support")]
-                mod parity_gemm_relu {
+                mod parity_common {
                     use super::*;
-                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
                     use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
                     use fandhe_silicon_core::parity::tolerance::T1;
 
-                    fn u32_of(v: usize) -> u32 {
+                    pub(super) fn u32_of(v: usize) -> u32 {
                         u32::try_from(v).expect("fits in u32")
                     }
 
                     /// ビット列を保ったまま f32 の列を置く。
-                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
+                    pub(super) fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
                         let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
                         buffer_of(device, &bits)
                     }
 
-                    fn read_f32s(device: &MetalDevice, h: &BufferHandle, len: usize) -> Vec<f32> {
+                    pub(super) fn read_f32s(
+                        device: &MetalDevice,
+                        h: &BufferHandle,
+                        len: usize,
+                    ) -> Vec<f32> {
                         read_u32s(device, h, len as u64)
                             .into_iter()
                             .map(f32::from_bits)
@@ -6903,7 +6906,11 @@ mod imp {
                     }
 
                     /// 参照と実測を T1 で比べ、外れた要素が 0 でなければケースの名前と最初の位置を添えて落とす。
-                    fn assert_matches_reference(name: &str, reference: &[f32], actual: &[f32]) {
+                    pub(super) fn assert_matches_reference(
+                        name: &str,
+                        reference: &[f32],
+                        actual: &[f32],
+                    ) {
                         let cmp = compare_f32_with_special_values(reference, actual, T1)
                             .expect("compare");
                         if !cmp.is_match() {
@@ -6912,6 +6919,16 @@ mod imp {
                             panic!("{name}: mismatch at {at:?}: (reference, actual) = {pair:?}");
                         }
                     }
+                }
+
+                /// metallib から作った GEMM と ReLU を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
+                #[cfg(feature = "test-support")]
+                mod parity_gemm_relu {
+                    use super::parity_common::{
+                        assert_matches_reference, f32_buffer, read_f32s, u32_of,
+                    };
+                    use super::*;
+                    use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
 
                     /// ART-17 のポインタ。metallib から作った GEMM を G-01〜G-13・E-1 の 14 件で投入し、CPU の参照と外れた要素 0 で一致する。
                     #[test]
@@ -7037,19 +7054,10 @@ mod imp {
                 /// metallib から作った部分 Top-k を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
                 #[cfg(feature = "test-support")]
                 mod parity_topk {
+                    use super::parity_common::{f32_buffer, u32_of};
                     use super::*;
                     use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput};
                     use fandhe_silicon_core::parity::topk::{TopKEntry, compare_topk};
-
-                    fn u32_of(v: usize) -> u32 {
-                        u32::try_from(v).expect("fits in u32")
-                    }
-
-                    /// ビット列を保ったまま f32 の列を置く。
-                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
-                        let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
-                        buffer_of(device, &bits)
-                    }
 
                     /// ART-17 のポインタ。metallib から作った部分 Top-k を E-3・E-4 で投入し、CPU の参照と外れた件数 0 で一致する。
                     #[test]
@@ -7131,6 +7139,9 @@ mod imp {
                 /// metallib から作った simdgroup 行列の GEMM を `dispatch_checked` で投入し、CPU の参照と比べる device の試験。
                 #[cfg(feature = "test-support")]
                 mod parity_coopmat {
+                    use super::parity_common::{
+                        assert_matches_reference, f32_buffer, read_f32s, u32_of,
+                    };
                     use super::*;
                     use fandhe_silicon_core::parity::binary16::widen_binary16_slice;
                     use fandhe_silicon_core::parity::case_inputs::{OutputClass, classify};
@@ -7138,8 +7149,6 @@ mod imp {
                     use fandhe_silicon_core::parity::gemm_inputs::{
                         GemmGateRow, GemmInputDtype, generate_f32, reference_for,
                     };
-                    use fandhe_silicon_core::parity::special_values::compare_f32_with_special_values;
-                    use fandhe_silicon_core::parity::tolerance::T1;
 
                     /// 8×8 のタイルを 1 つの simdgroup が受け持ち、`k` を 8 ずつ進めて積和する MSL（TASK-492）。形は 8 の倍数に限る。
                     const COOPMAT_GEMM_MSL: &str = "#include <metal_stdlib>\n\
@@ -7163,34 +7172,6 @@ mod imp {
                                             }\n\
                                             simdgroup_store(acc, c + row * dims.n + col, dims.n);\n\
                                         }\n";
-
-                    fn u32_of(v: usize) -> u32 {
-                        u32::try_from(v).expect("fits in u32")
-                    }
-
-                    /// ビット列を保ったまま f32 の列を置く。
-                    fn f32_buffer(device: &MetalDevice, values: &[f32]) -> BufferHandle {
-                        let bits: Vec<u32> = values.iter().map(|v| v.to_bits()).collect();
-                        buffer_of(device, &bits)
-                    }
-
-                    fn read_f32s(device: &MetalDevice, h: &BufferHandle, len: usize) -> Vec<f32> {
-                        read_u32s(device, h, len as u64)
-                            .into_iter()
-                            .map(f32::from_bits)
-                            .collect()
-                    }
-
-                    /// 参照と実測を T1 で比べ、外れた要素が 0 でなければ名前と最初の位置を添えて落とす。
-                    fn assert_matches_reference(name: &str, reference: &[f32], actual: &[f32]) {
-                        let cmp = compare_f32_with_special_values(reference, actual, T1)
-                            .expect("compare");
-                        if !cmp.is_match() {
-                            let at = cmp.first_mismatch();
-                            let pair = at.map(|i| (reference.get(i), actual.get(i)));
-                            panic!("{name}: mismatch at {at:?}: (reference, actual) = {pair:?}");
-                        }
-                    }
 
                     /// 実機の最大のバッファの長さを上限にした device。大きな行の入力を置くのに使う。
                     fn device_with_real_limit() -> MetalDevice {
