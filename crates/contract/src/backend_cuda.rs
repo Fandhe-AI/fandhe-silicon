@@ -37,6 +37,10 @@
 //!
 //! `CudaDevice` は `Device::destroy` を上書きし、登録済みの完了の callback を `Lost` で呼び切ってから stream を同期し、
 //! `fault-injection` のビルドではロストの通知を `Destroyed` で 1 回呼んでから解放する（TASK-191）。
+//!
+//! `upload` は確保のときの用途に `UPLOAD` が無ければ、`download_blocking`・`download_async` は `DOWNLOAD` が無ければ、
+//! 範囲を見ずに `InvalidArgument` で拒み、下位の API を呼ばない。照らす順は別の device、世代、表に無いハンドル、用途、範囲で、
+//! 判定には表に記録した用途を使いハンドルの申告は使わない（TASK-342）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -77,7 +81,8 @@ use fandhe_silicon_core::interop::{
     ExternalInterop, ExternalMemoryHandle, ExternalSemaphoreHandle, PhysicalGpuId,
 };
 use fandhe_silicon_core::memory::{
-    BufferHandle, BufferUsage, MemoryOps, validate_allocation_size, validate_buffer_range,
+    BufferHandle, BufferUsage, MemoryOps, UsageRole, validate_allocation_size,
+    validate_buffer_range, validate_usage_for_role,
 };
 
 /// この provider が受け持つ背後実装。
@@ -1235,6 +1240,35 @@ fn remove_issued<T>(
     }
 }
 
+/// 記録した用途が操作の役割を満たすかを範囲より先に照らし、通れば `[start, end)` を返す純粋関数。
+///
+/// 用途の拒否は `op` を前置した `InvalidArgument`。範囲は `validate_buffer_range` と `usize` への変換で照らす。
+fn access_range(
+    op: &'static str,
+    role: UsageRole,
+    recorded: BufferUsage,
+    entry_len: u64,
+    offset: u64,
+    len: u64,
+) -> Result<(usize, usize), ContractError> {
+    match validate_usage_for_role(recorded, role) {
+        Ok(()) => {}
+        Err(ContractError::InvalidArgument(msg)) => {
+            return Err(ContractError::InvalidArgument(format!("{op}: {msg}")));
+        }
+        Err(other) => return Err(other),
+    }
+    validate_buffer_range(offset, len, entry_len)?;
+    let start = usize::try_from(offset)
+        .map_err(|_| ContractError::InvalidArgument("offset exceeds usize".into()))?;
+    let len = usize::try_from(len)
+        .map_err(|_| ContractError::InvalidArgument("length exceeds usize".into()))?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| ContractError::InvalidArgument("range exceeds usize".into()))?;
+    Ok((start, end))
+}
+
 /// device が持つバッファの表と再利用の一覧。ハンドルの id から `BufferEntry` を引く。
 #[derive(Default)]
 struct Buffers {
@@ -1545,9 +1579,13 @@ impl CudaDevice {
         let _ = catch_unwind(AssertUnwindSafe(move || drop(dropped)));
     }
 
-    /// ハンドルの所属と範囲を検査して `[start, end)` を返す。`cudarc` の境界の panic に届く前に拒む。
+    /// ハンドルの所属・表に記録した用途・範囲を順に検査して `[start, end)` を返す。`cudarc` の境界の panic に届く前に拒む。
+    ///
+    /// 用途は表の項目の記録で判定し、ハンドルの申告は使わない。
     fn range(
         &self,
+        op: &'static str,
+        role: UsageRole,
         table: &BTreeMap<u64, BufferEntry>,
         handle: &BufferHandle,
         offset: u64,
@@ -1564,21 +1602,26 @@ impl CudaDevice {
         let entry = table
             .get(&handle.__backend_id())
             .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))?;
-        validate_buffer_range(offset, len, entry.slice.len() as u64)?;
-        let start = usize::try_from(offset)
-            .map_err(|_| ContractError::InvalidArgument("offset exceeds usize".into()))?;
-        let len = usize::try_from(len)
-            .map_err(|_| ContractError::InvalidArgument("length exceeds usize".into()))?;
-        let end = start
-            .checked_add(len)
-            .ok_or_else(|| ContractError::InvalidArgument("range exceeds usize".into()))?;
-        Ok((start, end))
+        access_range(op, role, entry.usage, entry.slice.len() as u64, offset, len)
     }
 
     /// バッファの範囲を host へ読む。同期まで同じ関数の中で終える。
-    fn read(&self, src: &BufferHandle, offset: u64, len: u64) -> Result<Vec<u8>, ContractError> {
+    fn read(
+        &self,
+        op: &'static str,
+        src: &BufferHandle,
+        offset: u64,
+        len: u64,
+    ) -> Result<Vec<u8>, ContractError> {
         let buffers = self.lock();
-        let (start, end) = self.range(&buffers.map, src, offset, len)?;
+        let (start, end) = self.range(
+            op,
+            UsageRole::ReadbackSource,
+            &buffers.map,
+            src,
+            offset,
+            len,
+        )?;
         // 確保できなければ abort せず `AllocationFailed` で返す。
         let mut out: Vec<u8> = Vec::new();
         out.try_reserve_exact(end - start)
@@ -1863,7 +1906,14 @@ impl MemoryOps for CudaDevice {
         bytes: &[u8],
     ) -> Result<(), ContractError> {
         let mut buffers = self.lock();
-        let (start, end) = self.range(&buffers.map, dst, dst_offset, bytes.len() as u64)?;
+        let (start, end) = self.range(
+            "upload",
+            UsageRole::UploadDestination,
+            &buffers.map,
+            dst,
+            dst_offset,
+            bytes.len() as u64,
+        )?;
         if bytes.is_empty() {
             return Ok(());
         }
@@ -1887,7 +1937,7 @@ impl MemoryOps for CudaDevice {
         src_offset: u64,
         byte_len: u64,
     ) -> Result<Vec<u8>, ContractError> {
-        self.read(src, src_offset, byte_len)
+        self.read("download_blocking", src, src_offset, byte_len)
     }
 
     fn download_async(
@@ -1898,7 +1948,7 @@ impl MemoryOps for CudaDevice {
         callback: Box<dyn FnOnce(Result<Vec<u8>, ContractError>) + Send>,
     ) {
         // ロックは `read` の中で離れているので、コールバックはロックの外で呼ばれる。
-        callback(self.read(src, src_offset, byte_len));
+        callback(self.read("download_async", src, src_offset, byte_len));
     }
 
     fn free(&self, buffer: BufferHandle) {
@@ -2153,6 +2203,57 @@ impl CommandQueue for CudaDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn access_range_checks_the_usage_before_the_range() {
+        // 用途が足りず範囲も外れる入力は、用途の拒否になる。
+        let err = access_range(
+            "upload",
+            UsageRole::UploadDestination,
+            BufferUsage::DOWNLOAD,
+            16,
+            17,
+            1,
+        )
+        .unwrap_err();
+        match err {
+            ContractError::InvalidArgument(msg) => {
+                assert!(msg.starts_with("upload: "), "{msg}");
+                assert!(msg.contains("UPLOAD"), "{msg}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+        // 空の用途は、長さ 0 の読み戻しでも拒む。
+        assert!(matches!(
+            access_range(
+                "download_blocking",
+                UsageRole::ReadbackSource,
+                BufferUsage::empty(),
+                16,
+                0,
+                0
+            ),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        // 過申告の用途で範囲内なら通る。
+        let all = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
+        assert!(matches!(
+            access_range("upload", UsageRole::UploadDestination, all, 16, 4, 8),
+            Ok((4, 12))
+        ));
+        // 用途が足りていて u64 があふれる入力は拒む。
+        assert!(matches!(
+            access_range(
+                "download_blocking",
+                UsageRole::ReadbackSource,
+                BufferUsage::DOWNLOAD,
+                16,
+                u64::MAX,
+                1
+            ),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
 
     fn snapshot(cc: (i32, i32), map: Option<bool>) -> CapabilitySnapshot {
         CapabilitySnapshot {
@@ -3677,13 +3778,16 @@ mod device_tests {
         #[ignore = "requires a CUDA device"]
         fn a_handle_from_before_the_loss_can_still_be_freed_once() {
             let d = device();
-            let h = d.allocate(64, BufferUsage::empty()).expect("allocate");
+            let h = d.allocate(64, BufferUsage::UPLOAD).expect("allocate");
             inject(
                 d.fault_hooks(),
                 HookFault::DeviceLost(DeviceLostReason::Unknown),
             )
             .expect("loss");
-            assert!(d.upload(&h, 0, &[1]).is_err());
+            assert!(matches!(
+                d.upload(&h, 0, &[1]),
+                Err(ContractError::InvalidArgument(_))
+            ));
             assert_eq!(d.lock().map.len(), 1);
 
             let again = BufferHandle::__backend_new(
@@ -3724,6 +3828,11 @@ mod device_tests {
 mod pool_device_tests {
     use super::*;
 
+    /// 読み書きの両方を許す用途。確保の用途に `UPLOAD` と `DOWNLOAD` が要る試験で使う。
+    fn rw() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
     fn device() -> CudaDevice {
         open_device(DeviceRequest {
             backend: BACKEND,
@@ -3748,7 +3857,7 @@ mod pool_device_tests {
     fn a_fresh_allocation_reads_back_all_zero() {
         let d = device();
         for len in [1u64, 4096, 4097, 65_536, 1024 * 1024] {
-            let h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            let h = d.allocate(len, rw()).expect("allocate");
             assert_eq!(nonzero_bytes(&d, &h, len), 0, "len={len}");
         }
         assert_eq!(d.test_pool_reuse_count(), 0);
@@ -3765,7 +3874,7 @@ mod pool_device_tests {
                 println!("not-run: len={len} exceeds max_buffer_bytes={max}");
                 continue;
             }
-            let h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            let h = d.allocate(len, rw()).expect("allocate");
             let src: Vec<u8> = (0..len)
                 .map(|i| u8::try_from(i % 251).unwrap_or(0) + 1)
                 .collect();
@@ -3780,12 +3889,12 @@ mod pool_device_tests {
     fn reused_buffers_never_expose_previous_contents_over_1000_rounds() {
         let d = device();
         let len = 4097u64;
-        let mut h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        let mut h = d.allocate(len, rw()).expect("allocate");
         for round in 0..1000u32 {
             let fill = u8::try_from(round % 255).unwrap_or(0) + 1;
             d.upload(&h, 0, &vec![fill; 4097]).expect("upload");
             d.free(h);
-            h = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+            h = d.allocate(len, rw()).expect("allocate");
             assert_eq!(nonzero_bytes(&d, &h, len), 0, "round={round}");
         }
         let n = d.test_pool_reuse_count();
@@ -3800,16 +3909,18 @@ mod pool_device_tests {
     fn a_different_usage_is_not_reused() {
         let d = device();
         let len = 4096u64;
-        let a = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        let a = d.allocate(len, rw()).expect("allocate");
         let slot_a = d.test_slot_of(&a).expect("slot");
         d.free(a);
         d.stream.synchronize().expect("synchronize");
         let reused_before = d.test_pool_reuse_count();
-        let b = d.allocate(len, BufferUsage::UPLOAD).expect("allocate");
+        let b = d
+            .allocate(len, BufferUsage::UPLOAD | BufferUsage::DOWNLOAD)
+            .expect("allocate");
         assert_eq!(d.test_pool_reuse_count(), reused_before);
-        assert_eq!(b.usage(), BufferUsage::UPLOAD);
+        assert_eq!(b.usage(), BufferUsage::UPLOAD | BufferUsage::DOWNLOAD);
         assert_eq!(nonzero_bytes(&d, &b, len), 0);
-        let again = d.allocate(len, BufferUsage::STORAGE).expect("allocate");
+        let again = d.allocate(len, rw()).expect("allocate");
         assert_eq!(d.test_pool_reuse_count(), reused_before + 1);
         assert_eq!(d.test_slot_of(&again), Some(slot_a));
     }
@@ -3819,18 +3930,13 @@ mod pool_device_tests {
     #[ignore = "requires a CUDA device"]
     fn a_freed_handle_does_not_alias_the_reused_buffer() {
         let d = device();
-        let h = d.allocate(64, BufferUsage::STORAGE).expect("allocate");
-        let stale = BufferHandle::__backend_new(
-            d.current_generation(),
-            h.__backend_id(),
-            d.id,
-            64,
-            BufferUsage::STORAGE,
-        );
+        let h = d.allocate(64, rw()).expect("allocate");
+        let stale =
+            BufferHandle::__backend_new(d.current_generation(), h.__backend_id(), d.id, 64, rw());
         let slot = d.test_slot_of(&h).expect("slot");
         d.free(h);
         d.stream.synchronize().expect("synchronize");
-        let fresh = d.allocate(64, BufferUsage::STORAGE).expect("allocate");
+        let fresh = d.allocate(64, rw()).expect("allocate");
         assert_eq!(d.test_slot_of(&fresh), Some(slot));
         assert_ne!(fresh.__backend_id(), stale.__backend_id());
         assert_eq!(d.test_pool_reuse_count(), 1);
@@ -3850,13 +3956,13 @@ mod pool_device_tests {
     fn the_pool_is_bounded_and_matches_only_the_same_length() {
         let d = device();
         let handles: Vec<BufferHandle> = (0..POOL_MAX_ENTRIES + 4)
-            .map(|_| d.allocate(32, BufferUsage::STORAGE).expect("allocate"))
+            .map(|_| d.allocate(32, rw()).expect("allocate"))
             .collect();
         for h in handles {
             d.free(h);
         }
         assert_eq!(d.test_pool_len(), POOL_MAX_ENTRIES);
-        let other = d.allocate(33, BufferUsage::STORAGE).expect("allocate");
+        let other = d.allocate(33, rw()).expect("allocate");
         assert_eq!(d.test_pool_reuse_count(), 0);
         assert_eq!(d.test_pool_len(), POOL_MAX_ENTRIES);
         d.free(other);
@@ -4292,7 +4398,9 @@ mod teardown_device_tests {
         let d = device();
         let handles: Vec<BufferHandle> = (0..3)
             .map(|_| {
-                let h = d.allocate(4097, BufferUsage::STORAGE).expect("allocate");
+                let h = d
+                    .allocate(4097, BufferUsage::STORAGE | BufferUsage::UPLOAD)
+                    .expect("allocate");
                 d.upload(&h, 0, &[7u8; 4097]).expect("upload");
                 h
             })
