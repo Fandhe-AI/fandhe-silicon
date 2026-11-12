@@ -2,13 +2,14 @@
 //!
 //! 上（`fandhe-silicon-upper`）や下-2（`fandhe-silicon-exec`）が組み立てた入力を、
 //! 下-1（`fandhe-silicon-contract`）の背後実装が受け取るときの形を定める。
-//! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C4〜C8 を判定する純粋関数（`dispatch_check`）、引数の宣言の C1・C3 を判定する純粋関数（`declared_check`）、間接実行の引数の固定長の構造体とバイト列との変換・開始位置の整列と範囲の検査・`first_instance` の判定（`indirect_args`）、パイプライン統計のフラグの組と問合せの結果の大きさ・位置・問合せの組の個数と解決先の検査（`query_check`）を置き、コンパイル・チップ固有の型は持たない。
+//! ここには型の定義と、型に固有の定数を返す関数、引数の宣言の C4〜C8 を判定する純粋関数（`dispatch_check`）、引数の宣言の C1・C3 を判定する純粋関数（`declared_check`）、引数の宣言の C1・C3 と C4〜C8 を続けて判定する純粋関数（`operand_check`）、間接実行の引数の固定長の構造体とバイト列との変換・開始位置の整列と範囲の検査・`first_instance` の判定（`indirect_args`）、パイプライン統計のフラグの組と問合せの結果の大きさ・位置・問合せの組の個数と解決先の検査（`query_check`）を置き、コンパイル・チップ固有の型は持たない。
 //! 入力は借用で持つので、確保も所有権の移動も起きない。
 
 mod compute;
 mod declared_check;
 mod dispatch_check;
 mod indirect_args;
+mod operand_check;
 mod query_check;
 mod submit;
 
@@ -23,6 +24,7 @@ pub use indirect_args::{
     DispatchIndirectArgs, DrawIndexedIndirectArgs, DrawIndirectArgs, FirstInstanceDecision,
     first_instance_decision, validate_indirect_args_range,
 };
+pub use operand_check::validate_operands;
 pub use query_check::{
     PipelineStatisticsFlags, QUERY_RESOLVE_BUFFER_ALIGNMENT, QUERY_SET_MAX_QUERIES, QUERY_SIZE,
     validate_query_resolve, validate_query_set_count,
@@ -216,7 +218,7 @@ impl DType {
 /// 引数 1 つの宣言。
 ///
 /// 形と stride は借用で持つので、確保も所有権の移動も起きない。
-/// この型自体は値を保持するだけで、検査と必要バイト数の計算は `validate_declared_operands`・`validate_dispatch_operands`・`required_bytes` が行う。
+/// この型自体は値を保持するだけで、検査と必要バイト数の計算は `validate_declared_operands`・`validate_dispatch_operands`・`validate_operands`・`required_bytes` が行う。
 #[derive(Debug, Clone, Copy)]
 pub struct OperandSpec<'a> {
     /// 束縛の番号。
