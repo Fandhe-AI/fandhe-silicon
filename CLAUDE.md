@@ -179,7 +179,7 @@ fandhe-silicon/
 ├── docs/perf-gate-rule.md  # 性能の値を採る前の門の規則の所在と、本リポの現状の事実・段の表・門の規則（2/4）・試験（3/4）・完了の条件の確かめ（4/4）・本リポでの反映の方針（TASK-1026）
 ├── docs/perf-variation-rule.md  # 性能の判定の変動の幅の規則の所在と、本リポの現状の事実・形の設計（決定の記録のポインタと守る規約）・変動の幅の規則（3/6）・測り直しと判定不能の扱い（4/6）・再現の試験（5/6）・段の表・完了の条件の確かめ（6/6）・本リポでの反映の方針（TASK-1027）
 ├── docs/detection-counting.md  # 変異体の検出の結果を数える道具の所在と、本リポの現状の事実・段の表・変異体ごとの分類（1/4）・下限・上限とセルのラベル（2/4）・コマンドと境界の入力の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1b5ab17）・今の値の補い（base 55fd9c1）（TASK-1082）
-├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順）・今の値の補い（base ad1e625）・今の値の補い（base f433877）・今の値の補い（base da4f3d1）・今の値の補い（base 3cd4a0c）
+├── docs/metal-device-request.md  # Metal の背後実装の device の取得・診断・確保の所在・振る舞い・対応するテスト・確かめ方（TASK-158）・ハンドルの検証と `free` の無視の試験・今の値の補い（base d533488）・今の値の補い（base dd1a116）（TASK-317）・今の値の補い（base dd1a116、submit_many の検査の順）・今の値の補い（base ad1e625）・今の値の補い（base f433877）・今の値の補い（base da4f3d1）・今の値の補い（base 3cd4a0c）・別の device のバッファを渡した dispatch の拒否の試験（1/2）
 ├── docs/metal-compile-options.md  # Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base da4f3d1）
 ├── docs/metal-pipeline-reflection.md  # Metal のパイプラインの reflection の取り出し（TASK-493）の所在と、本リポの現状の事実・値の型と対応表（1/4）・reflection の取り出し（2/4）・device の要る試験（2/4・3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 3cd4a0c）
 ├── docs/metal-artifact-hooks.md  # Metal の成果物の検査の口（`artifact-inspection` の裏の `ArtifactHooks`）の所在と、本リポの現状の事実・共通の crate の口（1/8）・パスとファイルの部品（2/8）・Metal の上書き（3/8）・device の要る試験（3/8〜7/8）・完了の条件の確かめ（8/8）・段の表（TASK-492）

@@ -1719,3 +1719,53 @@ fn dispatch_checked_through_the_public_device_rejects_another_devices_buffer() {
     first.memory().free(foreign);
     second.memory().free(own);
 }
+
+/// DEV-16 のポインタ。2 回の request で得た 2 つの device で、1 つ目の device のバッファを
+/// 2 つ目の device の簡易版 `dispatch` の束縛に渡すと `DeviceMismatch` で拒まれ、
+/// 同じ識別子を持つ 2 つ目の device のバッファの中身は変わらない。
+#[test]
+#[ignore = "touches the Metal device; run only in a dedicated device session"]
+fn two_devices_reject_each_others_buffers_in_dispatch_and_keep_their_own_records() {
+    let first = new_device();
+    let second = new_device();
+    let from_first = first
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate first");
+    let from_second = second
+        .memory()
+        .allocate(16, usage())
+        .expect("allocate second");
+    assert_ne!(
+        from_first.__backend_device_id(),
+        from_second.__backend_device_id()
+    );
+    // 各 device の最初のバッファは同じ識別子を持つ（取り違えが最も起きやすい組）。
+    assert_eq!(from_first.__backend_id(), from_second.__backend_id());
+    second
+        .memory()
+        .upload(&from_second, 0, &[0xAA; 16])
+        .expect("upload second");
+
+    let pipeline = checked_pipeline(second.as_ref(), "fill", vec![0]);
+    let queue = second.queue();
+    let mut encoder = queue.create_encoder();
+
+    // パイプライン・記録先・dispatch の次元は 2 つ目の device のもので、外れているのは束縛のバッファだけ。
+    let r = queue.dispatch(
+        &mut encoder,
+        &pipeline,
+        &[Binding::new(0, &from_first, 0)],
+        [1, 1, 1],
+    );
+    assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+    let kept = second
+        .memory()
+        .download_blocking(&from_second, 0, 16)
+        .expect("download second");
+    assert_eq!(kept, vec![0xAA; 16]);
+
+    first.memory().free(from_first);
+    second.memory().free(from_second);
+}
