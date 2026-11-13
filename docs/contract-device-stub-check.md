@@ -44,6 +44,7 @@ TASK-137 の作業を進めるにあたり、記録の所在と本リポの現�
 | 8/8 | #7577 | 完了の条件の確かめ |
 | 9/9 | #7593・#7596 | compute の口の契約テスト |
 | 10/10 | #7612 | 描画の口の契約テスト |
+| 11/11 | #8272 | 成果物の検査の口の契約テスト |
 
 ## 形の設計（2/6）
 
@@ -359,6 +360,49 @@ base `760233c` の作業ツリーで流した。
 - 3 つ目: `GraphicsGate (line 99) - compile fail ... ok`・`DeviceGraphicsGate (line 109) - compile fail ... ok`
 - 4 つ目: `GraphicsGate (line 99) ... ok`・`DeviceGraphicsGate (line 109) ... ok`
 
+## 成果物の検査の口の契約テスト（11/11）
+
+範囲は `docs/spec/05-tasks.md` の TASK-137（ポインタのみ。DEV-80 のポインタ）。`Device::artifact_hooks()`（[metal-artifact-hooks](metal-artifact-hooks.md)。TASK-492 のポインタ）の確かめを、既存の契約テストの共通の `check()` に足した。新しい `#[test]` と feature の門の対は足していない。
+
+### 足した確かめ
+
+`crates/contract/tests/stub_device_profiles.rs` の `check()` の中、描画の確かめの後。feature `artifact-inspection` のビルドでだけ動く。
+
+| プロファイル | 確かめ |
+| ------------ | ------ |
+| 全プロファイル | `Option<&dyn ArtifactHooks>` で受けて `is_none()` |
+
+無い側の門は、既存の `crates/contract/src/cfg_gate_doctest.rs` の `ArtifactInspectionGate`（core の `artifact` モジュール）と `DeviceArtifactHooksGate`（`Device::artifact_hooks`）が受け持つ（TASK-492 のポインタ。この段では足していない）。
+
+| 組 | 見え方 |
+| -- | ------ |
+| 既定の組、`artifact-inspection` を含まない `NATIVE_SETS` の組 | `compile fail ... ok` |
+| `NATIVE_SETS` の `artifact-inspection` の組（`scripts/build-profiles.sh` の `# spec BUILD-65` の行）、`--all-features` | `ok` |
+
+### どの組で何本流れるか
+
+- `make verify`（`--all-features`）: 9 本
+- `make build-profiles` の `test-support` を含む各組（`graphics`・`artifact-inspection` 無し）: 6 本
+- `artifact_hooks()` の確かめが流れるのは、契約の crate で `artifact-inspection` と `test-support` を両方含む組、つまり今は `--all-features` だけ。`NATIVE_SETS` の `artifact-inspection` の組は `test-support` を含まないので、`required-features` によりこの試験はビルドされない
+
+### 確かめ方
+
+```text
+cargo test -p fandhe-silicon-contract --features test-support --test stub_device_profiles
+cargo test -p fandhe-silicon-contract --all-features --test stub_device_profiles
+cargo test -p fandhe-silicon-contract --doc cfg_gate
+cargo test -p fandhe-silicon-contract --no-default-features --features artifact-inspection --doc cfg_gate
+```
+
+### 実行の結果
+
+base `68e7823` の作業ツリーで流した。
+
+- 1 つ目: `test result: ok. 6 passed; 0 failed`
+- 2 つ目: `test result: ok. 9 passed; 0 failed`
+- 3 つ目: `ArtifactInspectionGate (line 123) - compile fail ... ok`・`DeviceArtifactHooksGate (line 133) - compile fail ... ok`
+- 4 つ目: `ArtifactInspectionGate (line 123) ... ok`・`DeviceArtifactHooksGate (line 133) ... ok`
+
 ## 本リポでの反映の方針
 
 本書には現状の事実と、決定の記録のポインタ・どの形でも守る規約を置く。具体の形（型・名前・置き場・試験の名前）は受け持つ段の PR のコードと公開テストが示し、その PR で本書に節を足す。
@@ -387,6 +431,7 @@ base `760233c` の作業ツリーで流した。
 - 上の `crates/core` の feature の行と末尾の表の「描画の操作の trait …は無い」「core の `[features]` に `graphics` … は無い」は記録時点の値で、書き換えない。今は core の `[features]` に `graphics` があり（契約の crate の `graphics` から転送）、`crates/core/src/graphics.rs` に `GraphicsOps` がある（[graphics-types](graphics-types.md)）。公開のトレイトは `GraphicsOps` を足して 14 件
 - 末尾の表の「描画の操作の trait と、それへ届く `Device` の読み出しは無い」は記録時点の値で、書き換えない。今は `Device::graphics()` が feature `graphics` の裏で `crates/core/src/device.rs` にある（既定は `None`。[graphics-types](graphics-types.md)）
 - `Device::graphics()` の確かめは今は「描画の口の契約テスト（10/10）」にある。「契約テストの実装（7/8）」の「本リポに無い部品」の 2 行目と「完了の条件の確かめ（8/8）」の (5) の描画の操作の部分は記録時点の値で、書き換えない
+- `Device::artifact_hooks()` の確かめは今は「成果物の検査の口の契約テスト（11/11）」にある。「契約テストの実装（7/8）」の「本リポに無い部品」の 3 行目と「完了の条件の確かめ（8/8）」の (5) の `artifact-inspection` の部分は記録時点の値で、書き換えない（今の値は「今の値の補い（base eda0509）」の節）。冒頭の「本リポの現状」の表の「feature の裏のアイテム」の行と「本書の対象の言及」の行も記録時点の値で、書き換えない。今は `git grep -n 'feature = "artifact-inspection"' -- crates` の当たりが 20 行、`git grep -nE 'TASK-137([^0-9]|$)' -- . ':!docs/spec' ':!.agents'` の当たりが `CLAUDE.md`・`README.md`・`crates/contract/src/cfg_gate_doctest.rs`・`crates/contract/tests/stub_device_profiles.rs`・`docs/contract-device-stub-check.md`・`docs/profile-switch-check.md` の 6 ファイル（11/11 の試験を足した作業ツリーで流した値）
 
 ## 今の値の補い（base 6b35dd9）
 
