@@ -188,3 +188,55 @@ cargo test --release -p fandhe-silicon-contract \
 ```
 
 device の無い OS では `device` module はコンパイルされず、純粋な部分の試験だけが流れる。
+
+## 完了の条件の確かめ（6/6）
+
+TASK-485 の 6/6 として、ここまでの成果物の所在と、device の回で流す形を、本リポで観測できる事実だけでまとめる。完了の条件の正は private spec 側の記録に従う（`docs/spec/05-tasks.md` の TASK-485。ポインタのみ）。
+
+所在の案内: 上の「所在」の表は measure の crate の分。契約の crate の単体試験の所在は「契約の crate の単体試験の所在（4/6）」と「バッチの積和と部分 Top-k（5/6）」の節、measure から外した口は「3/6 の口の移しの補い」の節にある。
+
+### 確かめの対象
+
+| # | 確かめる振る舞い | コードの所在 | 試験 | 流し方 |
+| - | ---------------- | ------------ | ---- | ------ |
+| 1 | 一覧の各行の入口をパイプラインにする受け付け | `measure/crates/kernel-accept`（bin `accept-kernel`、`tests/accept_device.rs`） | `msl_entries_return_pipelines`・`specialized_entries_return_pipelines` | `cargo test --release --manifest-path measure/Cargo.toml --locked -p measure-kernel-accept --test accept_device -- --ignored` |
+| 2 | 特殊化する GEMM の出力と CPU の参照の比べ | `crates/contract/src/metal_flow_device_tests.rs` の `device::gemm` | `specialized_gemm_sq512_matches_reference`・`specialized_gemm_sq2048_matches_reference` | `cargo test --release -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,test-support --lib metal_flow_device_tests::device::gemm -- --ignored` |
+| 3 | GEMM→加算→Relu の 3 段の出力の比べ | 同ファイルの `device::flow` | `gemm_add_relu_sq512_matches_reference`・`gemm_add_relu_sq2048_matches_reference`・`gemm_add_relu_odd_matches_reference` | 同じ形で `metal_flow_device_tests::device::flow` |
+| 4 | バッチの積和と部分 Top-k の比べ | `crates/contract/src/metal_batch_topk_device_tests.rs` の `device` | `scores_and_topk_small_match_reference`・`scores_and_topk_large_match_reference` | 同じ形で `metal_batch_topk_device_tests` |
+
+### 流す形
+
+- 同じ回で 1 の受け付けを先に流し、一覧の形は measure 側で確かめる。その後に製品の workspace で 2〜4 を流す。
+- 一覧のファイルは「一覧のファイルの形（1/6）」の形のもので、repo の外に置く。一覧に現れる重複しないパスごとに、ソースを `fetch-kernel-source <clone> <dir>/<ファイル名> <rev> <path> <sha256>` の 5 引数の形で repo の外のディレクトリに取得する。
+- 環境変数は同じシェルで渡す。値は書かず、置き場の字句で示す。
+
+| 試験の組 | 受ける環境変数 |
+| -------- | -------------- |
+| 1（measure） | `FANDHE_SILICON_KERNEL_MANIFEST`（`<一覧のファイルの絶対パス>`）・`FANDHE_SILICON_KERNEL_DIR`（`<取得したソースのディレクトリ>`）と試験の枠の分 |
+| 2・3（`metal_flow_device_tests`） | 上の 2 つに `FANDHE_SILICON_GEMM_SPECIALIZED_ENTRY`・`FANDHE_SILICON_GEMM_PLAIN_ENTRY`・`FANDHE_SILICON_ADD_ENTRY`・`FANDHE_SILICON_RELU_ENTRY` と試験の枠の分 |
+| 4（`metal_batch_topk_device_tests`） | 試験の枠の分だけ |
+
+試験の枠の分は `FANDHE_SILICON_TEST_MACHINE_COMBINATION`（必要なら `FANDHE_SILICON_TEST_RECORD_DIR`）。どれも `--release` と `--ignored` で流す。環境変数が欠けた試験は skip せず失敗する。
+
+### `#[ignore` の件数
+
+数え方は `grep -cE '^\s*#\[ignore' <file>`。
+
+| ファイル | 件数 |
+| -------- | ---- |
+| `measure/crates/kernel-accept/tests/accept_device.rs` | 2 |
+| `crates/contract/src/metal_flow_device_tests.rs` | 5 |
+| `crates/contract/src/metal_batch_topk_device_tests.rs` | 2 |
+
+### 確かめの行
+
+| # | 確かめ | コマンド |
+| - | ------ | -------- |
+| 1 | 投入の門の守りの試験が通る | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_no_recording --test backend_metal_unsafe_count` |
+| 2 | 3 つの移しの commit の差分に `crates/contract/src/backend_metal.rs`・`crates/contract/Cargo.toml`・`crates/contract/tests/` が無い | `git show --stat 7e4899a 8844241 fbda0eb` |
+| 3 | 新しい 2 つのファイルに `unsafe` が無い | `git grep -c unsafe -- crates/contract/src/metal_flow_device_tests.rs crates/contract/src/metal_batch_topk_device_tests.rs` が何も出さない |
+| 4 | Linux では device の部分がコンパイルされない | `cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,test-support --lib -- --list` に `device::` の試験が出ない。macOS の型検査は CI の `verify-macos` と `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --features backend-metal,native-blocking-wait,test-support --lib --tests -- -D warnings` |
+| 5 | `test-support` なしの組の `--lib` に入らない | `cargo test -p fandhe-silicon-contract --features backend-metal --lib -- --list` に `metal_flow_device_tests`・`metal_batch_topk_device_tests` が出ない |
+| 6 | measure の crate に `run`・`flow` の module が無い | `git grep -nE 'mod (run\|flow)\b\|(run\|flow)::' -- measure/crates/kernel-accept` が 0 件 |
+
+確かめた base は `fbda0eb`。
