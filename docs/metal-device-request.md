@@ -166,3 +166,43 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 - 入力: 2 回の request で得た 2 つの device。各 device の最初のバッファは同じ識別子を持つ。2 つ目の device のバッファに `0xAA` を書き、2 つ目の device でパイプラインと記録先を作り、1 つ目の device のバッファを束縛に入れた簡易版の `dispatch` を呼ぶ。
 - 期待: `Err(ContractError::DeviceMismatch)`。その後、2 つ目の device のバッファを読み戻すと `0xAA` のまま。
 - 確かめ: Linux では 0 件で成功する。macOS 向けの型検査と lint は `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal,native-blocking-wait -- -D warnings`。
+
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-158。ポインタのみ）。
+
+時点のコミット: `4aceda1`
+
+1/2 で足した試験は `crates/contract/tests/backend_metal_device.rs` の `two_devices_reject_each_others_buffers_in_dispatch_and_keep_their_own_records`（`#[ignore]` 付き）。device の要る試験は流していない（`--ignored` なし）。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 1/2 の試験の宣言 | `grep -n -B4 'fn two_devices_reject_each_others_buffers_in_dispatch_and_keep_their_own_records' crates/contract/tests/backend_metal_device.rs` | 直前に `#[test]` と `#[ignore = "touches the Metal device; run only in a dedicated device session"]` が付く |
+| 2 | device の要る試験のファイル（Linux） | `cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_device` | 0 件、終了コード 0 |
+| 3 | device に触らない単体 | `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection,native-blocking-wait --lib backend_metal` | 159 passed; 0 failed、終了コード 0 |
+| 4 | aarch64-apple-darwin の clippy | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features <組> -- -D warnings` | `backend-metal,native-blocking-wait` と `backend-metal,fault-injection,native-blocking-wait` の 2 組とも終了コード 0 |
+| 5 | 行頭の `#[ignore` の件数 | `grep -cE '^\s*#\[ignore' <ファイル>` | 下の件数 |
+| 6 | 依存 | `make deps-check`、`git diff --stat 0fd20b6 4aceda1 -- Cargo.lock deps-approved.toml` | 終了コード 0、差分 0 行、`deps-approved.toml` の `[[approval]]` は 5 件 |
+
+(2) の出力:
+
+```text
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(3) の出力:
+
+```text
+running 159 tests
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+```
+
+(5) のファイルごとの件数:
+
+| ファイル | 件数 |
+| -------- | ---- |
+| `crates/contract/tests/backend_metal_device.rs` | 60 |
+| `crates/contract/src/backend_metal.rs` | 85 |
+| `crates/contract/tests/backend_metal_fault.rs` | 3 |
+| `crates/contract/tests/backend_metal_ext_interop.rs` | 3 |
