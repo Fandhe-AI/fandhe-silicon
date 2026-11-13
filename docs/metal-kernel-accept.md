@@ -148,3 +148,43 @@ GEMM と GEMM→加算→Relu の口と device の要る試験は、上の「dev
 | Metal に触れる箇所 | `accept` の macOS の cfg の内側だけ |
 
 確かめ方: `git grep -n 'flow::\|run::' -- measure/crates/kernel-accept` が 0 件、`make measure-verify` が通る。
+
+## バッチの積和と部分 Top-k（5/6）
+
+クエリ×文書の内積（得点）と、クエリごとの部分 Top-k を Metal の device に 2 段で投入し、CPU の参照と比べる試験。カーネルは試験のファイルの中の文字列で、`Msl` として作る。
+
+| 項目 | 現状 |
+| ---- | ---- |
+| ファイル | `crates/contract/src/metal_batch_topk_device_tests.rs` |
+| `lib.rs` の宣言 | `#[cfg(all(test, feature = "backend-metal", feature = "test-support"))] mod metal_batch_topk_device_tests;` |
+| 純粋な部分 | 入力の生成・得点の参照・候補の併合・起動の形・バイト列の変換。module `pure_tests` の試験はどの OS でも流れる |
+| device の部分 | module `device`。`#[cfg(all(target_os = "macos", feature = "native-blocking-wait"))]` |
+| feature の組 | `backend-metal,native-blocking-wait,test-support` |
+
+起動の形:
+
+| 段 | スレッド数 | threadgroup 数 | 定数（slot 3） |
+| -- | ---------- | -------------- | -------------- |
+| 得点 | `[16, 16, 1]` | `[ceil(N/16), ceil(Q/16), 1]` | `{ n_docs, dim, n_queries }`（u32 が 3 個） |
+| 部分 Top-k | `[256, 1, 1]` | `[Q, 1, 1]` | `{ n_docs, k }`（u32 が 2 個） |
+
+どちらも layout は `[0, 1, 2, 3]`。得点の出力のバッファが、そのまま部分 Top-k の束縛 0 になる。
+
+device の要る試験（どちらも `#[ignore = "touches the Metal device; run only in a dedicated device session"]` 付き。判定は core の試験の枠で行い、組み合わせの環境変数が無い未実施も失敗にする）:
+
+| 試験 | 規模（N, D, Q） | 内容 |
+| ---- | --------------- | ---- |
+| `device::scores_and_topk_small_match_reference` | (20000, 128, 64) | 得点を CPU の参照と比べ、device が返した得点の各行に当てた上位 10 件と、候補を併合した結果を全クエリで比べる |
+| `device::scores_and_topk_large_match_reference` | (100000, 128, 64) | 同上 |
+
+得点と全クエリの上位 10 件がすべて一致のときだけ一致とする。標準出力には規模ごとに 1 行（規模・k・得点の最大の差・一致したクエリの数・判定）を出す。受ける環境変数は試験の枠の `FANDHE_SILICON_TEST_MACHINE_COMBINATION` だけ。
+
+流し方（CPU の参照は debug では遅いので `--release`）:
+
+```bash
+cargo test --release -p fandhe-silicon-contract \
+  --features backend-metal,native-blocking-wait,test-support \
+  --lib metal_batch_topk_device_tests -- --ignored
+```
+
+device の無い OS では `device` module はコンパイルされず、純粋な部分の試験だけが流れる。
