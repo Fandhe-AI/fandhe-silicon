@@ -44,3 +44,7 @@ pub mod backend_cuda;
 // CPU の演算（TASK-1351 のポインタ）。
 #[cfg(feature = "cpu-ops")]
 pub mod cpu_ops;
+
+// GEMM と GEMM→加算→Relu の device の要る試験とその純粋な部品（TASK-485 のポインタ）。
+#[cfg(all(test, feature = "backend-metal", feature = "test-support"))]
+mod metal_flow_device_tests;
