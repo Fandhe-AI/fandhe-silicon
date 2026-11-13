@@ -52,6 +52,8 @@ test-support = ["fandhe-silicon-core/test-support"]
 # fault-injection は core の同名 feature（故障の差し込み口）へ転送する（説明は docs/contract-fault-injection.md）。
 fault-injection = ["fandhe-silicon-core/fault-injection"]
 artifact-inspection = ["backend-metal", "fandhe-silicon-core/artifact-inspection", "objc2-metal?/MTLBinaryArchive"]
+# pvrtc-probe も backend-metal を要求し、Metal の device で PVRTC の形式のテクスチャの作成を試みる単体試験のために objc2-metal の 2 つの header の feature を有効にする（説明は docs/metal-pvrtc-create-check.md）。
+pvrtc-probe = ["backend-metal", "objc2-metal?/MTLPixelFormat", "objc2-metal?/MTLTexture"]
 
 [[test]]
 name = "backend_cuda_capability"

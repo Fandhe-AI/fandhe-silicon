@@ -7,6 +7,7 @@
 //! 完了していることの確かめに根拠を置く。compute encoder へ設定する 3 つの `unsafe` ブロックの `// SAFETY:` は、
 //! 呼ぶメソッドごとに 1 つずつあり、CPU 側で確かめた前提の語句を保つ。関数の定数の設定の SAFETY
 //! （記録に関わらない `setConstantValue_type_atIndex` の呼び出し）は別に 1 つだけ数える。
+//! テクスチャの記述子を作る呼び出し（`texture2DDescriptorWithPixelFormat_width_height_mipmapped`）の SAFETY も別に 1 つだけ数える。
 //! 対象はソースの文字列なので feature・target ではゲートせず、Metal の型にも device にも触らない
 //! （どの OS でも流れる）。`unsafe` の個数の試験（`backend_metal_unsafe_count.rs`）と同じ読み方をする。
 
@@ -128,6 +129,12 @@ const CONSTANT_SAFETY_MARKER: &str = "setConstantValue_type_atIndex";
 /// 関数の定数の設定の `// SAFETY:` が含んでいなければならない、根拠の語句。
 const CONSTANT_SAFETY_RATIONALE: &[&str] = &["局所", "アラインメント", "長さ", "直前で"];
 
+/// テクスチャの記述子を作る呼び出しに結びつく `// SAFETY:` を見分ける語句。
+const DESCRIPTOR_SAFETY_MARKER: &str = "texture2DDescriptorWithPixelFormat_width_height_mipmapped";
+
+/// 記述子を作る呼び出しの `// SAFETY:` が含んでいなければならない、根拠の語句。
+const DESCRIPTOR_SAFETY_RATIONALE: &[&str] = &["幅と高さ", "定数", "この関数の中だけ"];
+
 /// compute encoder へ設定する 3 つの呼び出しの印と、それぞれの `// SAFETY:` が含んでいなければならない語句。
 const ENCODER_SAFETY: &[(&str, &[&str])] = &[
     ("setBuffer_offset_atIndex", &["Retained", "offset", "index"]),
@@ -150,6 +157,7 @@ fn backend_metal_contents_safety_comments_state_the_completed_submission_rationa
         .filter(|(_, text)| {
             let flat = flatten(text);
             !flat.contains(CONSTANT_SAFETY_MARKER)
+                && !flat.contains(DESCRIPTOR_SAFETY_MARKER)
                 && !ENCODER_SAFETY
                     .iter()
                     .any(|(marker, _)| flat.contains(marker))
@@ -253,6 +261,41 @@ fn backend_metal_constant_safety_comment_keeps_its_rationale() {
         constant_misses.is_empty(),
         "the constant SAFETY comment lost its rationale:\n{}",
         constant_misses.join("\n")
+    );
+}
+
+#[test]
+fn backend_metal_descriptor_safety_comment_keeps_its_rationale() {
+    let comments = safety_comments();
+    let descriptor: Vec<_> = comments
+        .iter()
+        .filter(|(_, text)| flatten(text).contains(DESCRIPTOR_SAFETY_MARKER))
+        .collect();
+    assert_eq!(
+        descriptor.len(),
+        1,
+        "expected exactly one `// SAFETY:` comment for `{DESCRIPTOR_SAFETY_MARKER}`"
+    );
+    let mut misses = Vec::new();
+    for (no, text) in &descriptor {
+        let flat = flatten(text);
+        if flat.contains("contents()") {
+            misses.push(format!(
+                "src/backend_metal.rs:{no}: the descriptor SAFETY must not mention `contents()`"
+            ));
+        }
+        for phrase in DESCRIPTOR_SAFETY_RATIONALE {
+            if !flat.contains(phrase) {
+                misses.push(format!(
+                    "src/backend_metal.rs:{no}: missing `{phrase}` in the descriptor SAFETY comment"
+                ));
+            }
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "the descriptor SAFETY comment lost its rationale:\n{}",
+        misses.join("\n")
     );
 }
 
