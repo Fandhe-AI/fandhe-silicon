@@ -1,7 +1,7 @@
 //! 契約の crate の `default` feature と、テスト・診断専用 feature の関係の確認。
 //!
 //! `cargo metadata --no-deps` で契約の crate の features を読み（外部 crate なしの小さな JSON 読み取り）、
-//! `default` の中身の完全一致・既定で無効な feature の不在・テスト・診断専用の 3 つが
+//! `default` の中身の完全一致・既定で無効な feature の不在・テスト・診断専用の 4 つが
 //! `default` と本番の組の含意に入らないことを確かめる（spec TASK-226、BUILD-8・BUILD-65、本番の組は
 //! BUILD-1〜BUILD-4 のポインタ）。`feature_gate_scope.rs`（TASK-233）は別の範囲として残す。
 //! `cargo metadata` は有効な feature に左右されないので、どの feature の組で流しても結果は同じになる。
@@ -23,7 +23,12 @@ const OFF_BY_DEFAULT: [&str; 6] = [
     "ext-interop",
     "native-blocking-wait",
 ];
-const TEST_ONLY: [&str; 3] = ["test-support", "fault-injection", "artifact-inspection"];
+const TEST_ONLY: [&str; 4] = [
+    "test-support",
+    "fault-injection",
+    "artifact-inspection",
+    "pvrtc-probe",
+];
 /// `scripts/build-profiles.sh` の `NATIVE_SETS` の BUILD-1〜BUILD-4 の注記がある 4 行の写し。
 const PRODUCTION_SETS: [&str; 4] = [
     "contract-core,cpu-isa,cpu-ops",
@@ -343,6 +348,10 @@ fn violations(map: &Features) -> Vec<String> {
         Some(l) if l.iter().any(|i| i == "backend-metal") => {}
         _ => v.push("artifact-inspection must require backend-metal".into()),
     }
+    match map.get("pvrtc-probe") {
+        Some(l) if l.iter().any(|i| i == "backend-metal") => {}
+        _ => v.push("pvrtc-probe must require backend-metal".into()),
+    }
     v
 }
 
@@ -500,6 +509,14 @@ fn control_test_only_feature_implied_through_production_sets() {
         },
         "backend-metal -> artifact-inspection",
     );
+    assert_caught(
+        |m| {
+            m.get_mut("backend-metal")
+                .unwrap()
+                .push("pvrtc-probe".into())
+        },
+        "backend-metal -> pvrtc-probe",
+    );
 }
 
 #[test]
@@ -507,6 +524,14 @@ fn control_artifact_inspection_loses_backend_metal() {
     assert_caught(
         |m| m.get_mut("artifact-inspection").unwrap().clear(),
         "artifact-inspection emptied",
+    );
+}
+
+#[test]
+fn control_pvrtc_probe_loses_backend_metal() {
+    assert_caught(
+        |m| m.get_mut("pvrtc-probe").unwrap().clear(),
+        "pvrtc-probe emptied",
     );
 }
 

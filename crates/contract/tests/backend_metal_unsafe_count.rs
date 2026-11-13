@@ -12,7 +12,7 @@ const EXPECTED: &[ExpectedFile] = &[ExpectedFile {
     path: "src/backend_metal.rs",
     source: include_str!("../src/backend_metal.rs"),
     expected: UnsafeCounts {
-        block: 6,
+        block: 7,
         ..UnsafeCounts::ZERO
     },
 }];

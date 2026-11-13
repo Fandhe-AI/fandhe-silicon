@@ -7626,6 +7626,79 @@ mod imp {
             assert!(device.lock_pipelines().map.is_empty());
         }
     }
+
+    /// PVRTC の 8 つの画素形式で 2D テクスチャの作成だけを試みる、device に触る試験専用の module。
+    /// `pvrtc-probe` を付けた試験のビルドでだけ有効で、実機の回でだけ流す。公開の口・型の値・表の行は持たない。
+    #[cfg(all(test, feature = "pvrtc-probe"))]
+    mod pvrtc_create_tests {
+        use objc2_metal::{
+            MTLCreateSystemDefaultDevice, MTLDevice, MTLGPUFamily, MTLPixelFormat, MTLStorageMode,
+            MTLTextureDescriptor, MTLTextureUsage,
+        };
+
+        /// 作成を試みるテクスチャの幅と高さ（mip は 1 段）。
+        const SIZE: usize = 32;
+
+        /// 試みる PVRTC の画素形式（出力の行の名前と定数）。
+        #[allow(deprecated)]
+        const PVRTC_FORMATS: [(&str, MTLPixelFormat); 8] = [
+            ("PVRTC_RGB_2BPP", MTLPixelFormat::PVRTC_RGB_2BPP),
+            ("PVRTC_RGB_2BPP_sRGB", MTLPixelFormat::PVRTC_RGB_2BPP_sRGB),
+            ("PVRTC_RGB_4BPP", MTLPixelFormat::PVRTC_RGB_4BPP),
+            ("PVRTC_RGB_4BPP_sRGB", MTLPixelFormat::PVRTC_RGB_4BPP_sRGB),
+            ("PVRTC_RGBA_2BPP", MTLPixelFormat::PVRTC_RGBA_2BPP),
+            ("PVRTC_RGBA_2BPP_sRGB", MTLPixelFormat::PVRTC_RGBA_2BPP_sRGB),
+            ("PVRTC_RGBA_4BPP", MTLPixelFormat::PVRTC_RGBA_4BPP),
+            ("PVRTC_RGBA_4BPP_sRGB", MTLPixelFormat::PVRTC_RGBA_4BPP_sRGB),
+        ];
+
+        /// 判定を出力する GPU family。
+        const FAMILIES: [(&str, MTLGPUFamily); 9] = [
+            ("Apple2", MTLGPUFamily::Apple2),
+            ("Apple3", MTLGPUFamily::Apple3),
+            ("Apple4", MTLGPUFamily::Apple4),
+            ("Apple5", MTLGPUFamily::Apple5),
+            ("Apple6", MTLGPUFamily::Apple6),
+            ("Apple7", MTLGPUFamily::Apple7),
+            ("Apple8", MTLGPUFamily::Apple8),
+            ("Apple9", MTLGPUFamily::Apple9),
+            ("Mac2", MTLGPUFamily::Mac2),
+        ];
+
+        /// 既定の device で PVRTC の形式ごとに作成を試み、`pvrtc:` の行と `family:` の行を標準出力に出す。
+        /// 作成の成否は値として出すだけで assert せず、device が取れたことと 8 形式の行が出たことだけを確かめる。
+        /// COVT-141
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn pvrtc_formats_attempt_texture_creation() {
+            let device = MTLCreateSystemDefaultDevice().expect("default Metal device");
+            for (name, family) in FAMILIES {
+                println!("family: {name}={}", device.supportsFamily(family));
+            }
+            let mut rows = Vec::new();
+            for (name, format) in PVRTC_FORMATS {
+                // SAFETY: texture2DDescriptorWithPixelFormat_width_height_mipmapped に渡す幅と高さは
+                // 試験の定数 `SIZE`（32）で 0 ではなく、mipmap なしの 2D の記述子を作るだけである。
+                // 作った記述子はこの関数の中だけで使い、外へ渡さない。
+                let descriptor = unsafe {
+                    MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                        format, SIZE, SIZE, false,
+                    )
+                };
+                descriptor.setStorageMode(MTLStorageMode::Shared);
+                descriptor.setUsage(MTLTextureUsage::ShaderRead);
+                let created = device.newTextureWithDescriptor(&descriptor).is_some();
+                let row = format!("pvrtc: format={name} created={created}");
+                println!("{row}");
+                rows.push(row);
+            }
+            assert_eq!(rows.len(), PVRTC_FORMATS.len());
+            for (name, _) in PVRTC_FORMATS {
+                let prefix = format!("pvrtc: format={name} ");
+                assert_eq!(rows.iter().filter(|r| r.starts_with(&prefix)).count(), 1);
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

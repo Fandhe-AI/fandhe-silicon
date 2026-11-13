@@ -221,6 +221,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-coopmat-gemm-arm.md` | 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2847d3c） |
 | `docs/metal-source-gemm-arm.md` | 実行時に照らすソースの Metal 直接の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・取得の道具の 5 引数の形（5/7）・実行時に照らすソースの腕の手順（6/7）・門の run の device の試験（7/7）・完了の条件の確かめ（7/7）・今の値の補い（base 2847d3c） |
 | `docs/metal-kernel-accept.md` | 実行時に受けるカーネルの受け付けの道具（measure の crate）と、契約の crate の単体試験の GEMM・GEMM→加算→Relu・バッチの積和と部分 Top-k の device の要る試験（TASK-485）の所在と、本リポの現状・一覧のファイルの形（1/6）・一覧の 1 行の受け付け（2/6）・起動の形と CPU の参照（3/6）・契約の crate の単体試験の所在（4/6）・device の要る試験（4/6）・3/6 の口の移しの補い・バッチの積和と部分 Top-k（5/6）・完了の条件の確かめ（6/6） |
+| `docs/metal-pvrtc-create-check.md` | Metal の device で PVRTC の形式のテクスチャの作成を試みる試験の所在と、本リポの現状の事実・試験の振る舞い・確かめ（2/2）（TASK-1380） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
