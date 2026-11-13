@@ -158,3 +158,11 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 - 「所在」の表の依存の行: feature `artifact-inspection` を付けたビルドでは、`objc2-metal` の feature `MTLBinaryArchive` が加わる。crate と版は変わらない。確かめ方: `grep -n 'artifact-inspection =\|objc2-metal' crates/contract/Cargo.toml`
 - 成果物の検査の口（`Device::artifact_hooks()`）の所在と試験は [metal-artifact-hooks](metal-artifact-hooks.md) に置く（TASK-492）。
+
+## 別の device のバッファを渡した dispatch の拒否の試験（1/2）
+
+`crates/contract/tests/backend_metal_device.rs` の `two_devices_reject_each_others_buffers_in_dispatch_and_keep_their_own_records`。`backend-metal` と `native-blocking-wait` を有効にしたビルドの macOS で、device に触るので `#[ignore]` 付き（device の要る専用の回で流す）。
+
+- 入力: 2 回の request で得た 2 つの device。各 device の最初のバッファは同じ識別子を持つ。2 つ目の device のバッファに `0xAA` を書き、2 つ目の device でパイプラインと記録先を作り、1 つ目の device のバッファを束縛に入れた簡易版の `dispatch` を呼ぶ。
+- 期待: `Err(ContractError::DeviceMismatch)`。その後、2 つ目の device のバッファを読み戻すと `0xAA` のまま。
+- 確かめ: Linux では 0 件で成功する。macOS 向けの型検査と lint は `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal,native-blocking-wait -- -D warnings`。
