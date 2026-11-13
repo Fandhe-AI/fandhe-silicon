@@ -36,7 +36,7 @@ failed=0
 # 渡す引数の組（both / product-only / measure-only）、測定の metadata の全体を差し替える文字列（空なら組み立てる）。
 DEF_UPPER_DEPS='[]'
 DEF_MEASURE_PKGS='[{"id":"m","name":"m","dependencies":[],"features":{}}]'
-DEF_CONTRACT='{"id":"c","name":"fandhe-silicon-contract","manifest_path":"@D@/crates/contract/Cargo.toml","dependencies":[],"features":{"default":["contract-core"],"contract-core":[],"x":["test-support"],"test-support":[],"fault-injection":[],"artifact-inspection":[]},"targets":[]}'
+DEF_CONTRACT='{"id":"c","name":"fandhe-silicon-contract","manifest_path":"@D@/crates/contract/Cargo.toml","dependencies":[],"features":{"default":["contract-core"],"contract-core":[],"x":["test-support"],"test-support":[],"fault-injection":[],"artifact-inspection":[],"pvrtc-probe":[]},"targets":[]}'
 UPPER_DEPS="${DEF_UPPER_DEPS}"
 MEASURE_PKGS="${DEF_MEASURE_PKGS}"
 CONTRACT_PKG="${DEF_CONTRACT}"
@@ -301,6 +301,11 @@ MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract?/fault-injection"
 run_case measure-forward-optional 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract/artifact-inspection"]}')"
 run_case measure-forward-artifact-inspection 1 "${FB}"
+MEASURE_PKGS="$(mpkg "$(cdep null '["pvrtc-probe"]')")"
+run_case measure-pvrtc-probe 1 "${FB}"
+expect_text measure-pvrtc-probe-msg err "violation: check=measure-feature package=m kind=normal feature=pvrtc-probe"
+MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["fandhe-silicon-contract/pvrtc-probe"]}')"
+run_case measure-forward-pvrtc-probe 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep null '[]' true '"k"')" '{"f":["k/test-support"]}')"
 run_case measure-forward-renamed 1 "${FB}"
 MEASURE_PKGS="$(mpkg "$(cdep)" '{"f":["other/test-support"]}')"
@@ -795,6 +800,7 @@ default = []
 test-support = []
 fault-injection = []
 artifact-inspection = []
+pvrtc-probe = []
 TOML
 printf '%s\n' '// fixture' >"${rw}/ws/crates/contract/src/lib.rs"
 printf '%s\n' '// fixture' >"${rw}/ws/measure/harness/src/lib.rs"
@@ -952,6 +958,11 @@ fandhe-silicon-contract = { path = "../../crates/contract", features = ["artifac
         || report_fail real_measure_artifact_inspection_setup "cannot prepare"
     real_case real_measure_artifact_inspection 1 \
         "e:violation: check=measure-feature package=harness kind=normal feature=artifact-inspection" "!ok: "
+    real_state "" '[dependencies]
+fandhe-silicon-contract = { path = "../../crates/contract", features = ["pvrtc-probe"] }' \
+        || report_fail real_measure_pvrtc_probe_setup "cannot prepare"
+    real_case real_measure_pvrtc_probe 1 \
+        "e:violation: check=measure-feature package=harness kind=normal feature=pvrtc-probe" "!ok: "
     real_state "" "${HARNESS_CONTRACT}
 [features]
 x = [\"fandhe-silicon-contract/test-support\"]" || report_fail real_measure_forward_setup "cannot prepare"
