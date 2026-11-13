@@ -65,7 +65,7 @@ TASK-310 の作業を進めるにあたり、記録の所在と本リポの現�
 | `import_memory` | 本リポに無い | `git grep -n import_memory -- crates wasm measure` |
 | `docs/contract/` の項目ファイル | 項目ごとのファイルは無い（`README.md`・`TEMPLATE.md`・`procedure.md` のみ） | `ls docs/contract` |
 
-補い: 上の表の `.usage()`・`.size()` の行は記録した時点の値で、書き換えていない。いま同じコマンドを流すと、`crates/upper/src/buffer.rs` の rustdoc の例の 1 行（`b.handle().size()`）にも当たる。製品の処理としての呼び出しではない。`impl MemoryOps` の行はいまも `crates/upper` に当たらない。
+補い: 上の表の `.usage()`・`.size()` の行は記録した時点の値で、書き換えていない。いま同じコマンドを流すと、`crates/upper/src/buffer.rs` の rustdoc の例の 1 行（`b.handle().size()`）にも当たる。製品の処理としての呼び出しではない。`impl MemoryOps` の行はいまも `crates/upper` に当たらない。`import_memory` の行も記録した時点の値で、いま同じコマンドを流すと、`crates/core/src/interop.rs`（`ExternalInterop` の操作）・`crates/core/src/interop/same_gpu.rs`・`crates/contract/src/backend_cuda.rs` と試験に当たる（相互運用の拡張の操作で、この頁の用途と大きさの問合せの処理ではない。[contract-interop-types](contract-interop-types.md)）。
 
 方針:
 
