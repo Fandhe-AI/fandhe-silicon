@@ -14,9 +14,11 @@ name = "accept-kernel"
 path = "src/bin/accept-kernel.rs"
 
 [dependencies]
-fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["backend-metal", "native-blocking-wait"] }
 fandhe-silicon-core = { path = "../../../crates/core", features = ["test-support"] }
 measure-metal-gemm-arm = { path = "../metal-gemm-arm" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+fandhe-silicon-contract = { path = "../../../crates/contract", default-features = false, features = ["backend-metal"] }
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@
 use fandhe_silicon_core::execution::FunctionConstantValue;
 use fandhe_silicon_core::parity::gemm_inputs::{GemmGateRow, GemmInputDtype};
 use fandhe_silicon_core::parity::gemm_population::{GemmGateArm, gate_cells};
-use measure_kernel_accept::constants::specialized_constants;
+use measure_kernel_accept::constants::{launch_function_constants, specialized_constants};
 use measure_metal_gemm_arm::launch::{ConstantValue, launch_for};
 
 #[test]
@@ -34,6 +34,31 @@ fn matches_the_launch_table_cell() {
             (FunctionConstantValue::U32(a), ConstantValue::UInt(b)) => assert_eq!(a, b),
             (FunctionConstantValue::Bool(a), ConstantValue::Bool(b)) => assert_eq!(a, b),
             _ => panic!("type differs at index {index}"),
+        }
+    }
+}
+
+#[test]
+fn launch_function_constants_match_both_specialized_rows() {
+    for row in [GemmGateRow::Sq512, GemmGateRow::Sq2048] {
+        let cell = gate_cells()
+            .into_iter()
+            .find(|c| {
+                c.arm() == GemmGateArm::G6 && c.row() == row && c.dtype() == GemmInputDtype::F32
+            })
+            .expect("cell");
+        let launch = launch_for(cell).expect("launch");
+        let c = launch_function_constants(&launch);
+        assert_eq!(c.len(), 18);
+        assert_eq!(c.len(), launch.constants.len());
+        for (i, (got, &(index, want))) in c.iter().zip(launch.constants.iter()).enumerate() {
+            assert_eq!(got.index, index);
+            assert_eq!(got.index as usize, i);
+            match (got.value, want) {
+                (FunctionConstantValue::U32(a), ConstantValue::UInt(b)) => assert_eq!(a, b),
+                (FunctionConstantValue::Bool(a), ConstantValue::Bool(b)) => assert_eq!(a, b),
+                _ => panic!("type differs at index {index}"),
+            }
         }
     }
 }

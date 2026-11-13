@@ -98,60 +98,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 ## 起動の形と CPU の参照（3/6）
 
-特殊化する GEMM・特殊化しない GEMM・加算・Relu の 4 つの役割を、契約の公開 API で流す口と、device に触れない起動の形・入力・CPU の参照を置く。所在は `src/flow.rs`（純粋な部品）・`src/run.rs`（段ごとに投入して待つ口。Metal に触れるのは macOS の cfg の内側だけ）・`tests/flow.rs`（どの OS でも走る試験）。
-
-### 入口の受け取り
-
-役割ごとに入口名を環境変数で受ける。
-
-| 役割 | 環境変数 | 一覧の `mode` |
-| ---- | -------- | ------------- |
-| 特殊化する GEMM | `FANDHE_SILICON_GEMM_SPECIALIZED_ENTRY` | `specialized` |
-| 特殊化しない GEMM | `FANDHE_SILICON_GEMM_PLAIN_ENTRY` | `msl` |
-| 加算 | `FANDHE_SILICON_ADD_ENTRY` | `msl` |
-| Relu | `FANDHE_SILICON_RELU_ENTRY` | `msl` |
-
-一覧のファイルとソースのディレクトリは `FANDHE_SILICON_KERNEL_MANIFEST`・`FANDHE_SILICON_KERNEL_DIR` で受ける。受け取りは device を作る前に全部済ませる。順は次のとおり。
-
-1. 値が欠ける・空であると `Err`。
-2. 入口名が `[A-Za-z_][A-Za-z0-9_]{0,63}` の形でなければ `Err`。
-3. 一覧にちょうど 1 回現れなければ `Err`。
-4. 行の `mode` が役割と合わなければ `Err`。
-5. 行のパスと sha256 で `load_source_against` が読む。失敗は `Err`。
-
-device の口は、照合を終えた `FlowKernels` だけを受ける。エラーは固定の英語の文言と役割の名前だけで、値・パス・入口名・ソースを含めない。
-
-### 形状と入力
-
-形状は `Sq512`・`Sq2048`・`Odd37x41x53`。M・N・K は core の値。`Sq512`・`Sq2048` は特殊化する GEMM、`Odd37x41x53` は特殊化しない GEMM を使う。
-
-- A・B は `generate_f32(row)`。
-- 加算の第 2 項（M×N）は、固定の seed の `SplitMix64` の `next_signed_unit_f32` を M×N 回呼んで作る。
-
-### 起動の形
-
-| 役割 | パイプラインの入力 | スレッド数 | threadgroup 数 | 束縛 | 定数（u32、ネイティブエンディアン） | threadgroup のメモリ | layout |
-| ---- | ------------------ | ---------- | -------------- | ---- | ---------------------------------- | -------------------- | ------ |
-| 特殊化する GEMM | `MslSpecialized` | `launch_for` の値 `[threads,1,1]` | `[groups_width, groups_height, 1]` | slot 0 A・1 B・2 C | slot 3 `{m,n,k}`・4 `{k,n,0,0}`・5 `{0,0,groups_height,groups_width}`・6 `{1,k,0,0}` | index 0・`launch_for` の値 | `[0..=6]` |
-| 特殊化しない GEMM | `Msl` | `[16,16,1]` | `[ceil(n/16), ceil(m/16), 1]` | slot 0 A・1 B・2 C | slot 3 `{m,n,k}` | なし | `[0,1,2,3]` |
-| 加算 | `Msl` | `[256,1,1]` | `[ceil(len/256),1,1]` | slot 0 GEMM の出力・1 第 2 項・2 出力 | slot 3 `{len}` | なし | `[0,1,2,3]` |
-| Relu | `Msl` | `[256,1,1]` | `[ceil(len/256),1,1]` | slot 0 加算の出力・1 出力 | slot 2 `{len}` | なし | `[0,1,2]` |
-
-特殊化する GEMM の function constant と、スレッド数・threadgroup 数・threadgroup のメモリは `launch_for` の `Launch` の数値をそのまま使う（詰め物なし）。`tests/flow.rs` は `eff_m`・`eff_n`・`eff_k` が M・N・K と同じこと、threadgroup のメモリが 16 の倍数であることを確かめる。要素数が 0 の加算・Relu の形は `Err`。
-
-### CPU の参照
-
-- GEMM は `reference_gemm_f32(a, b, m, k, n)`。
-- 加算は GEMM の参照の各要素に第 2 項を足した値。
-- Relu は加算の参照の各要素 `x` に対し `if x > 0.0 { x } else { 0.0 }`（`-0.0` と NaN は `+0.0`）。
-
-### 段ごとの投入
-
-1 段は、パイプラインを作る → 入力と出力のバッファを確保して入力を書く → 記録先を作って `dispatch_ex` を 1 件積む → `submit` → `wait_blocking` → `poll` で完了を確かめる → `download_blocking` で出力を読む、の順。確保したバッファは成否に関わらず解放する。`run_flow` は GEMM → 加算 → Relu を 3 回の投入で流し、前の段の出力を次の段の入力にする。`run_gemm` は GEMM の段だけを流す。失敗は段・手順・固定の種類の文字列だけを持つ `RunError` で返し、値・入口名・契約の文言を含めない。要素数とバイト数の計算は `checked_*` で行う。製品の Metal の背後実装は記録のある投入を単体試験のビルド以外では `Unsupported` で拒むため、依存 crate としてこの口を呼ぶと段の投入は固定の種類の失敗で返り、出力は得られない。この crate は既存の拒否を迂回しない。
-
-### 試験
-
-`tests/flow.rs` は device に触れず、3 形状の起動の形、第 2 項の再現と長さ、加算と Relu の参照の式（`-1.0`・`0.0`・`-0.0`・正の値）、バイト列の往復、入口の受け取り（`lookup` の差し替えで欠け・形の誤り・一覧に無い・`mode` の食い違い・ソースの照合の失敗）と、エラーの文言に値が出ないことを確かめる。device の要る試験はこの節の範囲の外。
+起動の形・入力・CPU の参照・入口の受け取り・段ごとの投入は、下の「契約の crate の単体試験の所在（4/6）」へ移った。measure の crate には `src/flow.rs`・`src/run.rs`・`tests/flow.rs` は無い。
 
 ## 契約の crate の単体試験の所在（4/6）
 
@@ -189,3 +136,15 @@ cargo test --release -p fandhe-silicon-contract \
 ```
 
 絞るときは `metal_flow_device_tests::device::gemm` や `metal_flow_device_tests::device::flow` を指定する。device の無い OS では `device` module はコンパイルされず、純粋な部分の試験だけが流れる。
+
+## 3/6 の口の移しの補い
+
+GEMM と GEMM→加算→Relu の口と device の要る試験は、上の「device の要る試験（4/6）」の契約の crate の単体試験にある。measure の crate からは `src/flow.rs`・`src/run.rs`・`tests/flow.rs` を外した。
+
+| 項目 | 現状 |
+| ---- | ---- |
+| `launch_function_constants` | `src/constants.rs` にあり、`tests/constants.rs` が特殊化する GEMM の 2 つの形状で起動の表と照らす |
+| 契約の crate の依存の feature | `backend-metal` だけ（macOS 向けの依存として宣言） |
+| Metal に触れる箇所 | `accept` の macOS の cfg の内側だけ |
+
+確かめ方: `git grep -n 'flow::\|run::' -- measure/crates/kernel-accept` が 0 件、`make measure-verify` が通る。
