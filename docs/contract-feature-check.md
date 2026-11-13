@@ -156,3 +156,11 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「今の値の補い（base eda0509）」の base `eda0509` | PR のブランチ上のコミットで、main の履歴には無い → main の履歴で 1/8 に当たるコミットは `b19eb22`（#8249）。そのコミットの `crates/core/Cargo.toml` の 28 行目 `artifact-inspection = []` と `crates/contract/Cargo.toml` の 54 行目の `artifact-inspection` の値は、その節の表のとおり | `git merge-base --is-ancestor eda0509 origin/main; echo $?`（1 が返る）、`git log --oneline origin/main --grep '#8249'`、`git show b19eb22:crates/contract/Cargo.toml \| grep -n 'artifact-inspection ='` |
+
+## 今の値の補い（base cf11629）
+
+記録時点の表と既存の節は書き換えない。以下は base `cf11629` で観測した今の値（実行環境は GPU なしの Linux）。TASK-1380 の 2/2 で、契約の crate にテスト・診断専用の feature `pvrtc-probe` が加わった（[metal-pvrtc-create-check](metal-pvrtc-create-check.md)）。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 本リポの現状の「テスト・診断専用の feature」の行と、確かめの「テスト・診断専用」の行（3 つとする記述） | `test-support`・`fault-injection`・`artifact-inspection` の 3 つ → 4 つ目として `pvrtc-probe` が加わる。`["backend-metal", "objc2-metal?/MTLPixelFormat", "objc2-metal?/MTLTexture"]`（`crates/contract/Cargo.toml`）で、`backend-metal` を要する。`default` と本番の組の含意の閉包に入らない点は変わらず、`crates/contract/tests/feature_default_scope.rs` が検査する | `git grep -n 'pvrtc-probe' -- crates/contract/Cargo.toml crates/contract/tests/feature_default_scope.rs` |
