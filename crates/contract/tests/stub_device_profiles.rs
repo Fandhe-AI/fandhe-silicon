@@ -2,7 +2,7 @@
 //!
 //! 組ごとに `#[test]` を 1 本置く。`Graphics` の 3 本は feature `graphics` の裏にあるので、
 //! `graphics` の有無で流れる本数が変わる。
-//! 共通の確かめには `compute()` の口（`CpuOnly` は `None`、それ以外は `create_pipeline` が `Ok`）も含み、feature `graphics` のビルドでは `graphics()` の口（`Graphics` だけ `Some` で `create_render_pipeline` が `Ok`）も含む。試験用の device は core の feature `test-support` の裏にある。
+//! 共通の確かめには `compute()` の口（`CpuOnly` は `None`、それ以外は `create_pipeline` が `Ok`）も含み、feature `graphics` のビルドでは `graphics()` の口（`Graphics` だけ `Some` で `create_render_pipeline` が `Ok`）も含み、feature `artifact-inspection` のビルドでは `artifact_hooks()` の口（どのプロファイルでも `None`）も含む。試験用の device は core の feature `test-support` の裏にある。
 
 use std::sync::{Arc, Mutex};
 
@@ -118,6 +118,15 @@ fn check(profile: Profile, kind: Kind) {
         } else {
             assert!(device.graphics().is_none());
         }
+    }
+
+    // feature `artifact-inspection` のビルドでは成果物の検査の口も確かめる。試験用の device は上書きしないので、どのプロファイルでも `None`。
+    #[cfg(feature = "artifact-inspection")]
+    {
+        use fandhe_silicon_core::artifact::ArtifactHooks;
+
+        let hooks: Option<&dyn ArtifactHooks> = device.artifact_hooks();
+        assert!(hooks.is_none());
     }
 }
 
