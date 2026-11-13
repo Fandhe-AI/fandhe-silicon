@@ -48,3 +48,7 @@ pub mod cpu_ops;
 // GEMM と GEMM→加算→Relu の device の要る試験とその純粋な部品（TASK-485 のポインタ）。
 #[cfg(all(test, feature = "backend-metal", feature = "test-support"))]
 mod metal_flow_device_tests;
+
+// バッチの積和と部分 Top-k の device の要る試験とその純粋な部品（TASK-485 のポインタ）。
+#[cfg(all(test, feature = "backend-metal", feature = "test-support"))]
+mod metal_batch_topk_device_tests;
