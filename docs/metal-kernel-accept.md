@@ -189,3 +189,15 @@ cargo test --release -p fandhe-silicon-contract \
 ```
 
 絞るときは `metal_flow_device_tests::device::gemm` や `metal_flow_device_tests::device::flow` を指定する。device の無い OS では `device` module はコンパイルされず、純粋な部分の試験だけが流れる。
+
+## 3/6 の口の移しの補い
+
+GEMM と GEMM→加算→Relu の口と device の要る試験は、上の「device の要る試験（4/6）」の契約の crate の単体試験にある。measure の crate からは `src/flow.rs`・`src/run.rs`・`tests/flow.rs` を外した。
+
+| 項目 | 現状 |
+| ---- | ---- |
+| `launch_function_constants` | `src/constants.rs` にあり、`tests/constants.rs` が特殊化する GEMM の 2 つの形状で起動の表と照らす |
+| 契約の crate の依存の feature | `backend-metal` だけ |
+| Metal に触れる箇所 | `accept` の macOS の cfg の内側だけ |
+
+確かめ方: `git grep -n 'flow::\|run::' -- measure/crates/kernel-accept` が 0 件、`make measure-verify` が通る。
