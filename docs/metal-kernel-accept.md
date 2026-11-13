@@ -152,3 +152,40 @@ device の口は、照合を終えた `FlowKernels` だけを受ける。エラ�
 ### 試験
 
 `tests/flow.rs` は device に触れず、3 形状の起動の形、第 2 項の再現と長さ、加算と Relu の参照の式（`-1.0`・`0.0`・`-0.0`・正の値）、バイト列の往復、入口の受け取り（`lookup` の差し替えで欠け・形の誤り・一覧に無い・`mode` の食い違い・ソースの照合の失敗）と、エラーの文言に値が出ないことを確かめる。device の要る試験はこの節の範囲の外。
+
+## 契約の crate の単体試験の所在（4/6）
+
+GEMM と GEMM→加算→Relu の device の要る試験と、その純粋な部品は、契約の crate の単体試験のビルドの中にある（TASK-485 のポインタ）。
+
+| 項目 | 内容 |
+| ---- | ---- |
+| ファイル | `crates/contract/src/metal_flow_device_tests.rs` |
+| 宣言 | `crates/contract/src/lib.rs` の `#[cfg(all(test, feature = "backend-metal", feature = "test-support"))] mod metal_flow_device_tests;`（`pub` にしない） |
+| 純粋な部分 | 宣言の cfg のまま、どの OS でも流れる。一覧の 1 行の引き当て・入口の受け取り・ソースの照合・起動の形・入力と CPU の参照を持つ。module は `pure_tests` |
+| device の部分 | module `device`。さらに `#[cfg(all(target_os = "macos", feature = "native-blocking-wait"))]`。その下に `gemm`（2 本）と `flow`（3 本） |
+| feature の組 | `backend-metal,native-blocking-wait,test-support` |
+
+純粋な部分は、一覧のテキストを LF で行に分け、各行を半角の空白 1 つで 5 欄に分ける（欄の数が 5 でない行は `Err`）。使う欄は `path` の最後の要素・`sha256`（64 桁の小文字の 16 進）・`mode`・入口名。ソースは `<ディレクトリ>/<ファイル名>` を大きさの上限（一覧 64 KiB、ソース 1 MiB）を読む前に照らして読み、`sha256_bytes` の値と一覧の値を比べ、UTF-8 として受ける。どれも device を作る前に済ませる。環境変数の読み出しは `&dyn Fn(&str) -> Option<OsString>` の差し替え口で受け、device の試験は `std::env::var_os` を渡す。エラーは固定の英語の文言で、値・パス・入口名・ソースを含まない。
+
+device の部分は公開の `MetalDeviceProvider::request` で device を作り、段ごとに記録先を作って `dispatch_ex` を 1 件積み、`submit`・`wait_blocking`・`poll` で完了を確かめてから `download_blocking` で出力を読む。段の後には成否に関わらずバッファを解放する。`flow` は先頭の段を流す前に 3 段すべてのカーネルの役割を照らす。
+
+## device の要る試験（4/6）
+
+どれも `#[ignore = "touches the Metal device; run only in a dedicated device session"]` 付きで、専用の実機の回でだけ流す。判定は core の試験の枠で行い、組み合わせの環境変数が無い未実施も失敗にする。
+
+| module | 試験 | 内容 |
+| ------ | ---- | ---- |
+| `device::gemm` | `specialized_gemm_sq512_matches_reference`・`specialized_gemm_sq2048_matches_reference` | 特殊化する GEMM の出力を CPU の参照と比べる |
+| `device::flow` | `gemm_add_relu_sq512_matches_reference`・`gemm_add_relu_sq2048_matches_reference`・`gemm_add_relu_odd_matches_reference` | 3 段の出力をそれぞれの CPU の参照と比べ、3 段すべて一致のときだけ一致とする |
+
+受ける環境変数: `FANDHE_SILICON_KERNEL_MANIFEST`（一覧のファイルの絶対パス）・`FANDHE_SILICON_KERNEL_DIR`（ソースを置いたディレクトリ）・`FANDHE_SILICON_GEMM_SPECIALIZED_ENTRY`・`FANDHE_SILICON_GEMM_PLAIN_ENTRY`・`FANDHE_SILICON_ADD_ENTRY`・`FANDHE_SILICON_RELU_ENTRY`（各役割の入口名）と、試験の枠の `FANDHE_SILICON_TEST_MACHINE_COMBINATION`。欠けた試験は固定の文言で失敗する。標準出力には件ごとに 1 行（形状・段・要素数・最大の差・判定）を出し、入口名とパスは出さない。
+
+流し方（2048 の CPU の参照は debug では遅いので `--release`）:
+
+```bash
+cargo test --release -p fandhe-silicon-contract \
+  --features backend-metal,native-blocking-wait,test-support \
+  --lib metal_flow_device_tests -- --ignored
+```
+
+絞るときは `metal_flow_device_tests::device::gemm` や `metal_flow_device_tests::device::flow` を指定する。device の無い OS では `device` module はコンパイルされず、純粋な部分の試験だけが流れる。
