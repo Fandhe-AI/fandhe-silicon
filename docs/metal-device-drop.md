@@ -115,6 +115,13 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 
 上の 2 本は、実行の結果の `ignored` の件数を見る（macOS 以外では統合試験は 0 件）。
 
+## 今の値の補い（device の要る試験の準備）
+
+3/4 の表の、投入を含む 4 本の試験（`dropping_with_an_open_encoder_...` 以外の `dropping_right_after_*` 2 本と `destroying_right_after_*` 2 本）は、試験用の補助 `submit_one` で投入する。`submit_one` は先に `hold_commits` で確定を遅らせてから空の記録先を投入し、戻った時点の `poll` が `Pending` であることを確かめる。溜めた確定は破棄の側（`Drop`・`destroy`）が流して待つ。
+
+- `destroying_right_after_on_complete_calls_it_once` の callback に渡る値は `Lost` で、試験は `Lost` との一致を確かめる（表の「`Pending` 以外」より強い）
+- `dropping_right_after_on_complete_calls_it_once_with_complete` の値は `Complete` のまま
+
 ## 完了の条件の確かめ（4/4）
 
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-189。ポインタのみ）。
