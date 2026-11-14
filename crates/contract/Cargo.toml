@@ -21,9 +21,9 @@ objc2-foundation = { version = "=0.3.2", optional = true, default-features = fal
 objc2-metal = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "MTLAllocation", "MTLArgument", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDataType", "MTLDevice", "MTLFunctionConstantValues", "MTLLibrary", "MTLResource", "MTLTypes", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false }
 
-# CUDA の背後実装の依存。ドライバは実行時に動的に読み込む（`nvcc` はビルドに要らない）。
-# wasm32 の依存グラフには入らない。承認の記録は deps-approved.toml（approval_ref #423）。
-# Vulkan の背後実装の依存。ローダは実行時に動的に読み込む。承認の記録は deps-approved.toml（approval_ref #422）。
+# CUDA・Vulkan の背後実装の依存を置く共通のテーブル（どちらも wasm32 の依存グラフには入らない）。
+# - cudarc（CUDA）: ドライバは実行時に動的に読み込む（`nvcc` はビルドに要らない）。承認の記録は deps-approved.toml（approval_ref #423）。
+# - ash（Vulkan）: ローダは実行時に動的に読み込む。承認の記録は deps-approved.toml（approval_ref #422）。
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cudarc = { version = "=0.19.10", optional = true, default-features = false, features = ["driver", "nvrtc", "fallback-dynamic-loading", "cuda-12060"] }
 ash = { version = "=0.38.0", optional = true, default-features = false, features = ["loaded", "std"] }

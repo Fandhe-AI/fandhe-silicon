@@ -450,6 +450,8 @@ impl MemoryOps for VulkanDevice {
 impl CommandQueue for VulkanDevice {
     /// 記録先の識別子を払い出す。投入を受け付けないので、開いている記録先の集合は持たない。
     fn create_encoder(&self) -> CommandEncoder {
+        // 識別子が尽きたときの 0 は CUDA・Metal の背後実装と同じ扱い。この device はどの識別子も
+        // 投入で受け付けない（`submit` は常に `Unsupported`）ので、0 を返しても誤って通る経路は無い。
         CommandEncoder::__backend_new(__backend_next_encoder_id().unwrap_or(0), None)
     }
 
