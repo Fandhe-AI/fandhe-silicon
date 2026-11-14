@@ -124,6 +124,48 @@ device は作らず、ローダにも物理 device にも触れない。返す�
 
 「所在」の表の試験の行は 1/5 の時点の値で、今は `crates/contract/tests/backend_vulkan_device.rs` も加わっている。
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-159。ポインタのみ）。
+
+時点のコミット: `33018d16`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 検査で弾く入力 | `cargo test -p fandhe-silicon-contract --features backend-vulkan --test backend_vulkan_request` | 5 passed、終了コード 0 |
+| 2 | 単体 | `cargo test -p fandhe-silicon-contract --features backend-vulkan --lib backend_vulkan` | 11 passed、終了コード 0。`-- --nocapture` では `absent_loader_is_device_unavailable` が `not-run: Vulkan loader is present` を出力 |
+| 3 | 差し込み | `cargo test -p fandhe-silicon-contract --features backend-vulkan,fault-injection --test backend_vulkan_fault` | 3 passed、終了コード 0 |
+| 4 | device の要る試験の宣言 | `cargo test -p fandhe-silicon-contract --features backend-vulkan,graphics --test backend_vulkan_device` | 0 passed; 0 failed; 6 ignored、終了コード 0 |
+| 5 | 個数テスト | `cargo test -p fandhe-silicon-contract --test backend_vulkan_unsafe_count` | 1 passed、終了コード 0 |
+| 6 | 依存 | `make deps-check`、`make deny`、`grep -c '^\[\[approval\]\]' deps-approved.toml` | `make deps-check` と `make deny` は終了コード 0。`[[approval]]` は 6 件 |
+| 7 | 公開 API | `make public-api-sdk-check` | `sdk_type_refs_total=0`、終了コード 0 |
+| 8 | wasm32 | `make wasm-backend-check` | `name=ash wasm32_n=0 native_n=1 result=match`（`backend-vulkan`）、`ok: all 3 configurations match`、終了コード 0 |
+| 9 | CI | `gh pr checks 8277`・`8280`・`8282`・`8283` | 4 つの PR とも `make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `pass` |
+
+(2) の出力（`test result:` の行）。
+
+```text
+running 11 tests
+not-run: Vulkan loader is present
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+```
+
+(4) の出力。
+
+```text
+running 6 tests
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(8) の出力。
+
+```text
+deps: feature=backend-metal name=ash wasm32_n=0 native_n=0 result=match
+deps: feature=backend-vulkan name=ash wasm32_n=0 native_n=1 result=match
+deps: feature=backend-cuda name=ash wasm32_n=0 native_n=0 result=match
+ok: all 3 configurations match
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -132,3 +174,4 @@ device は作らず、ローダにも物理 device にも触れない。返す�
 | 2/5 | ash を足して device の取得と診断を実装する | #3711 |
 | 3/5 | 初期化の失敗の差し込みと失敗の種類の試験 | #3712 |
 | 4/5 | device の要る試験を ignore 付きで足す | #3713 |
+| 5/5 | 完了の条件の確かめ | #3714 |
