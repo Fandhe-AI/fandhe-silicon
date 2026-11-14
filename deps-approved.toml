@@ -61,3 +61,11 @@ used_by = ["fandhe-silicon-contract"]
 approved_on = "2026-10-20"
 approval_ref = "#423"
 purpose = "CUDA の背後実装の device の取得・診断・確保とパイプライン生成（NVRTC）の FFI（ドライバと NVRTC は実行時に動的に読み込む）"
+
+[[approval]]
+name = "ash"
+version = "=0.38.0"
+used_by = ["fandhe-silicon-contract"]
+approved_on = "2026-10-20"
+approval_ref = "#422"
+purpose = "Vulkan の背後実装の device の取得・診断の FFI（ローダは実行時に動的に読み込む）"

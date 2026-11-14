@@ -23,8 +23,10 @@ objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = 
 
 # CUDA の背後実装の依存。ドライバは実行時に動的に読み込む（`nvcc` はビルドに要らない）。
 # wasm32 の依存グラフには入らない。承認の記録は deps-approved.toml（approval_ref #423）。
+# Vulkan の背後実装の依存。ローダは実行時に動的に読み込む。承認の記録は deps-approved.toml（approval_ref #422）。
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cudarc = { version = "=0.19.10", optional = true, default-features = false, features = ["driver", "nvrtc", "fallback-dynamic-loading", "cuda-12060"] }
+ash = { version = "=0.38.0", optional = true, default-features = false, features = ["loaded", "std"] }
 
 # feature 名は spec BUILD-47 / BUILD-8 / BUILD-65 に合わせる。
 # backend-* は src/backend_*.rs のモジュールを有効にする（Vulkan・CUDA は wasm32 で外す。spec TASK-5）。
@@ -40,7 +42,7 @@ graphics = ["fandhe-silicon-core/graphics", "objc2-metal?/MTLPixelFormat", "objc
 ext-interop = ["fandhe-silicon-core/ext-interop"]
 # backend-* は共通契約の入口（contract-core）を前提とする。artifact-inspection は Metal の成果物を検査するため backend-metal を要求する。
 backend-metal = ["contract-core", "dep:objc2", "dep:objc2-foundation", "dep:objc2-metal", "dep:objc2-core-graphics"]
-backend-vulkan = ["contract-core"]
+backend-vulkan = ["contract-core", "dep:ash"]
 backend-cuda = ["contract-core", "dep:cudarc"]
 # DX12 の compute の背後実装の置き場（中身なし・名前は仮。形は spec TASK-222、
 # モジュールの骨格と依存の閉じ込めは TASK-234。参照: BUILD-17・D-26・D-32）。
