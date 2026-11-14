@@ -11,7 +11,9 @@
 //! feature `graphics` の下では、`Profile::Graphics` で作った device の `Device::graphics()` が描画先の作成の 2 つ
 //! （`create_offscreen_target`・`create_offscreen_target_with_depth`）を持つ（TASK-377 のポインタ）。`ComputeOnly` の device では `None`。
 //!
-//! 公開するのは `MetalDeviceProvider` だけ。device の型 `MetalDevice` は非公開で、上・下-2 は
+//! macOS のとき公開するのは `MetalDeviceProvider` で、feature `fault-injection` の下では加えて、差し込みの provider
+//! （`MetalDefaultDeviceNoneProvider`・`MetalCommandQueueNoneProvider`）と、`request` の呼び出しの数を読む
+//! `request_call_count` も公開する。device の型 `MetalDevice` は非公開で、上・下-2 は
 //! `request` が返す `Box<dyn Device>` 越しに使う。
 //!
 //! `dispatch_ex` は検査に通った引数を、記録先ごとの表に plain な値として積む。投入（`submit`・`submit_many`）は、

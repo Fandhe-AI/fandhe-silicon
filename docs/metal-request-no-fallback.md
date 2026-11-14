@@ -98,9 +98,9 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 数の持ち方 | 背後実装ごとにプロセスに 1 つ。読む関数だけで、戻す口は無い | 各 module の `REQUEST_CALLS` と `request_call_count` |
 | 試験 | `crates/contract/tests/backend_request_call_count.rs` の 1 本 `each_backend_counts_only_its_own_provider_requests` | 同ファイル |
 | `[[test]]` の `required-features` | `backend-vulkan`・`backend-cuda`・`fault-injection` | `crates/contract/Cargo.toml` |
-| cfg | wasm32 以外。macOS では Metal の 3 つの provider も呼ぶ | 同ファイルの先頭と `counts` |
+| cfg | wasm32 以外。macOS かつ `backend-metal` のビルドでは Metal の 3 つの provider も呼ぶ（それ以外では Metal の欄は 0 のまま） | 同ファイルの先頭と `counts` |
 
-試験は、最初に 3 つの数が `[0, 0, 0]` であることを確かめる。続けて、検査で拒まれる要求を渡して、Vulkan の 8 つの provider（`Cuda` の要求）、CUDA の 6 つの provider（`Vulkan` の要求）、macOS では Metal の 3 つの provider（`Vulkan` の要求）を 1 回ずつ呼ぶ。呼ぶたびに、その背後実装の数だけがちょうど 1 増え、ほかの数は変わらないことを値そのもので照らす。device には触らない。
+試験は、最初に 3 つの数が `[0, 0, 0]` であることを確かめる。続けて、検査で拒まれる要求を渡して、Vulkan の 8 つの provider（`Cuda` の要求）、CUDA の 6 つの provider（`Vulkan` の要求）、macOS かつ `backend-metal` のビルドでは Metal の 3 つの provider（`Vulkan` の要求）を 1 回ずつ呼ぶ。呼ぶたびに、その背後実装の数だけがちょうど 1 増え、ほかの数は変わらないことを値そのもので照らす。device には触らない。
 
 確かめ方。
 
