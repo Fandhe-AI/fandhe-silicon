@@ -308,3 +308,15 @@ TASK-271 の作業を進めるにあたり、記録の所在と本リポの現�
 ## CUDA の `fault_hooks`（TASK-2934）
 
 `backend-cuda` と `fault-injection` の両方を付けたビルドにある。所在と動きは [cuda-simulated-device-lost](cuda-simulated-device-lost.md)。
+
+## provider の request の呼び出しの数（`request_call_count`）
+
+feature `fault-injection` の下で、3 つの背後実装の module（`backend_metal`・`backend_vulkan`・`backend_cuda`）に `pub fn request_call_count() -> u64` がある。Metal のものは macOS かつ `backend-metal` のときだけにある。所在と試験の詳細は [metal-request-no-fallback](metal-request-no-fallback.md) の 3/5（TASK-277 のポインタ）。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 数える呼び出し | その module の `DeviceProvider::request` の全部（本物の provider と差し込みの provider。要求の検査で拒んだ呼び出しも数える） | 各 module の `note_request_call()` の呼び出しと `request_call_count` |
+| 数の持ち方 | 背後実装ごとにプロセスに 1 つ。読む関数だけで、戻す口は無い | 各 module の `REQUEST_CALLS` |
+| 試験 | 3 つの数が互いに独立に増えることを照らす 1 本 | `crates/contract/tests/backend_request_call_count.rs` |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-vulkan,backend-cuda,fault-injection --test backend_request_call_count`

@@ -22,7 +22,7 @@ fn request(backend: BackendKind) -> DeviceRequest {
     }
 }
 
-/// 3 つの背後実装の数（macOS 以外では Metal の欄は 0 のまま）。
+/// 3 つの背後実装の数（macOS かつ `backend-metal` でないビルドでは Metal の欄は 0 のまま）。
 fn counts() -> [u64; 3] {
     #[cfg(all(target_os = "macos", feature = "backend-metal"))]
     let metal = fandhe_silicon_contract::backend_metal::request_call_count();
