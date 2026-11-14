@@ -45,8 +45,43 @@ cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targ
 
 1 本目はどの OS でも流れる。
 
+## 明示の破棄（2/4）
+
+`Device::destroy` を上書きする。順は次のとおり。本体は `destroy_in_order`。
+
+| 順 | 動き |
+| -- | ---- |
+| 1 | 登録済みの完了の callback を待たずに `Lost` で呼び切る（`Submissions::take_all_lost` → `run_callbacks`） |
+| 2 | 投入済みの列を全部待つ（`wait_pending`） |
+| 3 | ロストの通知（`fault-injection` のビルドだけ。`Destroyed` で 1 回。先にロストしていれば呼ばない） |
+| 4 | 解放（1/4 の `Drop` の流れ） |
+
+callback の最初の panic、無ければ通知先の panic を、解放の後に再送出する。もう一方は捨てる。
+
+| 項目 | `Drop` | `destroy` |
+| ---- | ------ | --------- |
+| ロストの通知 | 呼ばない | `fault-injection` のビルドで呼ぶ |
+| callback の値 | 待った後の `poll` と同じ判定 | `Lost` |
+| panic | 捨てる | 解放の後に再送出する |
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `take_all_lost_returns_every_registration_as_lost_and_empties_the_table` | 登録が全部 `Lost` で返り、表が空になる |
+| `destroy_steps_run_in_order` | 4 つの段が順に 1 回ずつ呼ばれ、戻りは `None` |
+| `destroy_steps_return_the_first_panic_after_release` | 解放のあとに最初の panic の中身を返す |
+| `destroy_steps_return_the_notify_panic_when_flush_has_none` | callback 側に無ければ通知先の中身を返す |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::teardown_tests
+cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib backend_metal::teardown_tests
+cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,fault-injection -- -D warnings
+```
+
+上の 2 本はどの OS でも流れる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | `Drop` の待ちと記録先の破棄 | #3842 |
+| 2/4 | 明示の破棄 | #3843 |

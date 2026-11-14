@@ -41,6 +41,7 @@
 //! `dispatch_checked`（TASK-436 のポインタ）は、束縛のハンドルを表の項目と照らし、バッファの実際の長さと `limits()` の上限で引数の宣言を照らしてから `dispatch_ex` に委ねる。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
 //! device の `Drop` は、開いている記録先の記録を投入せずに捨て、投入済みの列を全部待ってから、残りの完了の callback を呼び、欄を解放する（TASK-189 のポインタ）。
+//! `Device::destroy` を上書きし、完了の callback を `Lost` で呼び切ってから投入済みの列を全部待ち、`fault-injection` のビルドではロストの通知を `Destroyed` で 1 回呼んでから解放する（TASK-189 のポインタ）。
 //! feature `artifact-inspection` のビルドでは `Device::artifact_hooks()` が `ArtifactHooks` の実装（binary archive の書き出しと読み込み、metallib からのパイプラインの生成）を返す（TASK-492 のポインタ）。
 
 use std::cell::RefCell;
@@ -1113,6 +1114,14 @@ impl<G, C> Submissions<G, C> {
         }
     }
 
+    /// 登録を全部外して、状態をすべて `Lost` にして返す（世代はそのまま）。明示の破棄が使う。
+    fn take_all_lost(&mut self) -> Vec<(C, u64, CompletionState)> {
+        std::mem::take(&mut self.callbacks)
+            .into_iter()
+            .map(|(_, generation, callback)| (callback, generation, CompletionState::Lost))
+            .collect()
+    }
+
     /// 登録を全部外して返す。待ったあとでも `Pending` の番号は `Lost`（起きないはずの経路の fail-closed）。
     ///
     /// 判定を済ませてから外すので、判定が panic しても登録は失われない。
@@ -1480,6 +1489,33 @@ fn finish_all<G, C>(
 ) {
     subs.wait_pending(&wait);
     finish_table(subs, current_generation, wait, classify, call);
+}
+
+/// 明示の破棄の順を固定する。`flush`（完了の callback を `Lost` で呼び切る）→ `wait`（投入済みの列を待つ）
+/// → `notify`（ロストの通知）→ `release`（解放）を 1 回ずつ呼ぶ。
+///
+/// `flush` の panic の中身があればそれを、無ければ `notify` の中身を返す（呼ぶ側が解放の後に再送出する）。
+/// 両方あるときは `notify` の中身を `discard_panic` で捨てる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn destroy_in_order<D>(
+    device: D,
+    flush: impl FnOnce(&D) -> Option<Box<dyn std::any::Any + Send>>,
+    wait: impl FnOnce(&D),
+    notify: impl FnOnce(&D) -> Option<Box<dyn std::any::Any + Send>>,
+    release: impl FnOnce(D),
+) -> Option<Box<dyn std::any::Any + Send>> {
+    let flushed = flush(&device);
+    wait(&device);
+    let notified = notify(&device);
+    release(device);
+    match (flushed, notified) {
+        (Some(first), Some(second)) => {
+            discard_panic(second);
+            Some(first)
+        }
+        (Some(first), None) => Some(first),
+        (None, other) => other,
+    }
 }
 
 /// 終端の状態に寄せる。待ったあとでも `Pending` なら（起きないはずだが）失敗側の `Lost` にする。
@@ -2277,6 +2313,7 @@ mod imp {
     };
     #[cfg(feature = "graphics")]
     use super::{TargetTable, create_pair_or_release, offscreen_target_plan};
+    use super::{destroy_in_order, run_callbacks};
     #[cfg(feature = "graphics")]
     use fandhe_silicon_core::execution::ConstantBinding;
     #[cfg(feature = "graphics")]
@@ -3386,6 +3423,46 @@ mod imp {
             DeviceDiagnostics {
                 adapter_name: self.adapter_name.clone(),
                 backend_name: BACKEND_NAME,
+            }
+        }
+
+        /// 登録済みの完了の callback を待たずに `Lost` で呼び切り、投入済みの列を全部待つ。
+        ///
+        /// `fault-injection` のビルドではロストの通知を `Destroyed` で 1 回呼んでから解放する。
+        /// callback と通知先の最初の panic は、解放の後に再送出する。本体は `destroy_in_order`。
+        fn destroy(self: Box<Self>) {
+            let flush = |d: &Self| {
+                let ready = d.lock_submissions().take_all_lost();
+                run_callbacks(
+                    ready,
+                    || d.current_generation(),
+                    |callback: Callback, state| callback(state),
+                )
+            };
+            let wait = |d: &Self| {
+                #[cfg(test)]
+                d.release_held_commits();
+                d.lock_submissions().wait_pending(|group| {
+                    for buffer in group {
+                        buffer.waitUntilCompleted();
+                    }
+                });
+            };
+            #[cfg(feature = "fault-injection")]
+            let notify = |d: &Self| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    d.lost.lose(
+                        fandhe_silicon_core::error::DeviceLostReason::Destroyed,
+                        &d.generation,
+                        &NEXT_GENERATION,
+                    )
+                }))
+                .err()
+            };
+            #[cfg(not(feature = "fault-injection"))]
+            let notify = |_: &Self| None;
+            if let Some(payload) = destroy_in_order(*self, flush, wait, notify, drop) {
+                std::panic::resume_unwind(payload);
             }
         }
     }
@@ -11978,5 +12055,59 @@ mod teardown_tests {
         assert!(open.lock().is_empty());
         __BackendSharedEncoderCloser::close(&open, 5);
         assert!(open.lock().is_empty());
+    }
+
+    #[test]
+    fn take_all_lost_returns_every_registration_as_lost_and_empties_the_table() {
+        let (mut subs, _groups) = fake_table(&[0, 1]);
+        subs.callbacks.push((1, 0, Box::new(|_| {})));
+        subs.callbacks.push((2, 1, Box::new(|_| {})));
+        let taken = subs.take_all_lost();
+        assert_eq!(taken.len(), 2);
+        assert!(taken.iter().all(|(_, _, s)| *s == CompletionState::Lost));
+        assert!(subs.callbacks.is_empty());
+    }
+
+    type Payload = Option<Box<dyn std::any::Any + Send>>;
+
+    #[test]
+    fn destroy_steps_run_in_order() {
+        let log: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+        let out = destroy_in_order(
+            (),
+            |_| {
+                log.borrow_mut().push("flush");
+                None
+            },
+            |_| log.borrow_mut().push("wait"),
+            |_| {
+                log.borrow_mut().push("notify");
+                None
+            },
+            |_| log.borrow_mut().push("release"),
+        );
+        assert!(out.is_none());
+        assert_eq!(*log.borrow(), ["flush", "wait", "notify", "release"]);
+    }
+
+    #[test]
+    fn destroy_steps_return_the_first_panic_after_release() {
+        let released = RefCell::new(false);
+        let out: Payload = destroy_in_order(
+            (),
+            |_| Some(Box::new(1_u8)),
+            |_| {},
+            |_| Some(Box::new(2_u16)),
+            |_| *released.borrow_mut() = true,
+        );
+        assert!(*released.borrow());
+        assert!(out.expect("payload").is::<u8>());
+    }
+
+    #[test]
+    fn destroy_steps_return_the_notify_panic_when_flush_has_none() {
+        let out: Payload =
+            destroy_in_order((), |_| None, |_| {}, |_| Some(Box::new(2_u16)), |_| {});
+        assert!(out.expect("payload").is::<u16>());
     }
 }
