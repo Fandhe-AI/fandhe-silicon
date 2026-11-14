@@ -8267,6 +8267,135 @@ mod imp {
         }
     }
 
+    /// 描画先のテクスチャの形を読み出した値。`target_shape` が返し、device の要る試験だけが使う（TASK-377）。
+    #[cfg(all(test, feature = "graphics"))]
+    #[derive(Debug, PartialEq)]
+    struct TargetShape {
+        width: usize,
+        height: usize,
+        pixel_format: MTLPixelFormat,
+        storage_mode: MTLStorageMode,
+        usage: MTLTextureUsage,
+        texture_type: MTLTextureType,
+        mipmap_level_count: usize,
+        sample_count: usize,
+    }
+
+    #[cfg(all(test, feature = "graphics"))]
+    impl MetalDevice {
+        /// handle の識別子で表を引き、テクスチャの形を読み出す。表に無ければ `None`。錠は引く間だけ取る。
+        fn target_shape(&self, target: &RenderTargetHandle) -> Option<TargetShape> {
+            use objc2_metal::MTLResource;
+            let table = self.lock_targets();
+            let texture = table.map.get(&target.__backend_id())?;
+            Some(TargetShape {
+                width: texture.width(),
+                height: texture.height(),
+                pixel_format: texture.pixelFormat(),
+                storage_mode: texture.storageMode(),
+                usage: texture.usage(),
+                texture_type: texture.textureType(),
+                mipmap_level_count: texture.mipmapLevelCount(),
+                sample_count: texture.sampleCount(),
+            })
+        }
+    }
+
+    /// 描画先の作成の 2 つの口が Metal の device の上で作るテクスチャの形を確かめる、device に触る試験専用の module
+    /// （TASK-377 のポインタ）。実機の回でだけ流す。
+    #[cfg(all(test, feature = "graphics"))]
+    mod offscreen_target_device_tests {
+        use super::*;
+        use fandhe_silicon_core::graphics::{
+            CompareFunction, DepthConfig, DepthFormat, GraphicsOps, PixelFormat,
+        };
+
+        /// `Graphics` の device を具体型で作る。具体型で形を読むため、`request_with` を通さず同じ手順で作る。
+        fn new_graphics_device() -> MetalDevice {
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let queue = device.newCommandQueue().expect("queue");
+            let mut created = MetalDevice::new(
+                __backend_next_device_id().expect("id"),
+                take_next(&NEXT_GENERATION).expect("generation"),
+                String::new(),
+                LimitsTable {
+                    max_buffer_bytes: 1 << 20,
+                    max_dispatch_dims: [u32::MAX; 3],
+                    max_texture_size: MAX_TEXTURE_SIZE,
+                },
+                device,
+                queue,
+            );
+            created.graphics_enabled = true;
+            created
+        }
+
+        fn depth_config() -> DepthConfig {
+            DepthConfig {
+                format: DepthFormat::Depth32Float,
+                clear_value: 1.0,
+                compare: CompareFunction::Less,
+                write_enabled: true,
+            }
+        }
+
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn color_target_has_the_expected_texture_shape() {
+            // TEX-1
+            let device = new_graphics_device();
+            let target = device
+                .create_offscreen_target(1280, 720, PixelFormat::Rgba8Unorm)
+                .expect("create color target");
+            assert_eq!(
+                device.target_shape(&target),
+                Some(TargetShape {
+                    width: 1280,
+                    height: 720,
+                    pixel_format: MTLPixelFormat::RGBA8Unorm,
+                    storage_mode: MTLStorageMode::Private,
+                    usage: MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead,
+                    texture_type: MTLTextureType::Type2D,
+                    mipmap_level_count: 1,
+                    sample_count: 1,
+                })
+            );
+        }
+
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn color_and_depth_targets_have_the_expected_texture_shapes() {
+            // TEX-3
+            let device = new_graphics_device();
+            let (color, depth) = device
+                .create_offscreen_target_with_depth(
+                    1280,
+                    720,
+                    PixelFormat::Rgba8Unorm,
+                    depth_config(),
+                )
+                .expect("create color and depth targets");
+            assert_ne!(color.__backend_id(), depth.__backend_id());
+            assert_eq!(
+                device.target_shape(&depth),
+                Some(TargetShape {
+                    width: 1280,
+                    height: 720,
+                    pixel_format: MTLPixelFormat::Depth32Float,
+                    storage_mode: MTLStorageMode::Private,
+                    usage: MTLTextureUsage::RenderTarget,
+                    texture_type: MTLTextureType::Type2D,
+                    mipmap_level_count: 1,
+                    sample_count: 1,
+                })
+            );
+            let alone = device
+                .create_offscreen_target(1280, 720, PixelFormat::Rgba8Unorm)
+                .expect("create color target alone");
+            assert_eq!(device.target_shape(&color), device.target_shape(&alone));
+        }
+    }
+
     /// PVRTC の 8 つの画素形式で 2D テクスチャの作成だけを試みる、device に触る試験専用の module。
     /// `pvrtc-probe` を付けた試験のビルドでだけ有効で、実機の回でだけ流す。公開の口・型の値・表の行は持たない。
     #[cfg(all(test, feature = "pvrtc-probe"))]
