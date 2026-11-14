@@ -42,6 +42,7 @@ fn compute_only_request_returns_a_vulkan_device() {
     assert_eq!(diagnostics.backend_name, "vulkan");
     // adapter_name の値は環境ごとに違うので、書式の部品だけを確かめる。
     let name = diagnostics.adapter_name;
+    println!("adapter_name={name}");
     let head = name.find(" (vulkan api=").expect("api part");
     assert!(head > 0);
     assert!(name.contains(" driver_version=0x"));
