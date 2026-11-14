@@ -94,6 +94,24 @@ const BACKEND_NAME: &str = "cuda";
 /// device の世代の採番。背後実装の中で 1 から単調増加に取る。
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// この背後実装の provider の `request` が呼ばれた回数（feature `fault-injection` のビルドだけで数える）。
+#[cfg(feature = "fault-injection")]
+static REQUEST_CALLS: AtomicU64 = AtomicU64::new(0);
+
+/// provider の `request` の入口で最初に呼ぶ。feature `fault-injection` の無いビルドでは何もしない。
+fn note_request_call() {
+    #[cfg(feature = "fault-injection")]
+    REQUEST_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// この背後実装の provider（`CudaDeviceProvider` と差し込みの provider）の `request` が、プロセスの開始から呼ばれた回数。
+///
+/// 要求の検査で拒んだ呼び出しも数える。数は戻せない。試験・診断用で、feature `fault-injection` の裏にある。
+#[cfg(feature = "fault-injection")]
+pub fn request_call_count() -> u64 {
+    REQUEST_CALLS.load(Ordering::SeqCst)
+}
+
 /// カウンタの現在値を返して 1 進める。使い切ったら `None`。`request_device` から呼ばれる。
 fn take_next(counter: &AtomicU64) -> Option<u64> {
     let mut current = counter.load(Ordering::Relaxed);
@@ -531,6 +549,7 @@ pub struct CudaDeviceProvider;
 
 impl DeviceProvider for CudaDeviceProvider {
     fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+        note_request_call();
         request_device(req)
     }
 }
@@ -569,6 +588,7 @@ macro_rules! injected_provider {
         #[cfg(feature = "fault-injection")]
         impl DeviceProvider for $name {
             fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+                note_request_call();
                 check_request(&req)?;
                 Err($failure)
             }

@@ -88,9 +88,29 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 （diff は出力なし）
 ```
 
+## provider の request の呼び出しの数（3/5）
+
+3 つの背後実装の module（`backend_metal`・`backend_vulkan`・`backend_cuda`）に、feature `fault-injection` の下で `pub fn request_call_count() -> u64` がある。Metal のものは macOS だけにある。
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 数える呼び出し | その module の `DeviceProvider::request` の全部（本物の provider と差し込みの provider）。要求の検査で拒んだ呼び出しも数える | 各 module の `note_request_call()` の呼び出し（Metal 3 か所・Vulkan 2 か所・CUDA 2 か所） |
+| 数の持ち方 | 背後実装ごとにプロセスに 1 つ。読む関数だけで、戻す口は無い | 各 module の `REQUEST_CALLS` と `request_call_count` |
+| 試験 | `crates/contract/tests/backend_request_call_count.rs` の 1 本 `each_backend_counts_only_its_own_provider_requests` | 同ファイル |
+| `[[test]]` の `required-features` | `backend-vulkan`・`backend-cuda`・`fault-injection` | `crates/contract/Cargo.toml` |
+| cfg | wasm32 以外。macOS では Metal の 3 つの provider も呼ぶ | 同ファイルの先頭と `counts` |
+
+試験は、最初に 3 つの数が `[0, 0, 0]` であることを確かめる。続けて、検査で拒まれる要求を渡して、Vulkan の 8 つの provider（`Cuda` の要求）、CUDA の 6 つの provider（`Vulkan` の要求）、macOS では Metal の 3 つの provider（`Vulkan` の要求）を 1 回ずつ呼ぶ。呼ぶたびに、その背後実装の数だけがちょうど 1 増え、ほかの数は変わらないことを値そのもので照らす。device には触らない。
+
+確かめ方。
+
+- Linux: `cargo test -p fandhe-silicon-contract --features backend-vulkan,backend-cuda,fault-injection --test backend_request_call_count`
+- macOS: `cargo test -p fandhe-silicon-contract --all-features --test backend_request_call_count`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | 組み合わせの検査と失敗の伝播の試験 | #4080 |
 | 2/2 | 完了の条件の確かめ | #4081 |
+| 3/5 | provider の request の呼び出しの数 | #8295 |

@@ -2421,6 +2421,24 @@ mod imp {
     /// この背後実装のプロセスの中で、device を作るごとに 1 つ増える世代の源。1 から始まる。
     static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+    /// この背後実装の provider の `request` が呼ばれた回数（feature `fault-injection` のビルドだけで数える）。
+    #[cfg(feature = "fault-injection")]
+    static REQUEST_CALLS: AtomicU64 = AtomicU64::new(0);
+
+    /// provider の `request` の入口で最初に呼ぶ。feature `fault-injection` の無いビルドでは何もしない。
+    fn note_request_call() {
+        #[cfg(feature = "fault-injection")]
+        REQUEST_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// この背後実装の provider（`MetalDeviceProvider` と差し込みの provider）の `request` が、プロセスの開始から呼ばれた回数。
+    ///
+    /// 要求の検査で拒んだ呼び出しも数える。数は戻せない。試験・診断用で、feature `fault-injection` の裏にある。
+    #[cfg(feature = "fault-injection")]
+    pub fn request_call_count() -> u64 {
+        REQUEST_CALLS.load(Ordering::SeqCst)
+    }
+
     /// `request` の中の呼び出しの結果を `None` に差し替える指示。
     ///
     /// 本物の `request` は `Faults::default()`（何も差し替えない）で同じ関数を通る。
@@ -2557,6 +2575,7 @@ mod imp {
         ///
         /// 別の背後実装へは切り替えない。
         fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+            note_request_call();
             request_with(req, Faults::default())
         }
     }
@@ -2574,6 +2593,7 @@ mod imp {
     impl DeviceProvider for MetalDefaultDeviceNoneProvider {
         /// 検査を通ったら、既定の device の取得の結果を `None` に差し替えて `DeviceUnavailable` を返す。
         fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+            note_request_call();
             request_with(
                 req,
                 Faults {
@@ -2597,6 +2617,7 @@ mod imp {
     impl DeviceProvider for MetalCommandQueueNoneProvider {
         /// 検査を通ったら、コマンドキューの作成の結果を `None` に差し替えて `DeviceUnavailable` を返す。
         fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+            note_request_call();
             request_with(
                 req,
                 Faults {
@@ -8757,7 +8778,7 @@ mod imp {
 pub use imp::MetalDeviceProvider;
 
 #[cfg(all(target_os = "macos", feature = "fault-injection"))]
-pub use imp::{MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider};
+pub use imp::{MetalCommandQueueNoneProvider, MetalDefaultDeviceNoneProvider, request_call_count};
 
 #[cfg(test)]
 mod pending_release_tests {
