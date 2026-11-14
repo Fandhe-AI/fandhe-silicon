@@ -115,6 +115,52 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 
 上の 2 本は、実行の結果の `ignored` の件数を見る（macOS 以外では統合試験は 0 件）。
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-189。ポインタのみ）。
+
+時点のコミット: `ea724aef`。`docs/spec` の gitlink は `3f9168084bba265e4d9044c513a30e7f2a84243d`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | `Drop` の部品 | `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::teardown_tests` | 7 passed; 0 failed; 0 ignored、終了コード 0 |
+| 2 | 明示の破棄の順の部品 | `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib backend_metal::teardown_tests` | 7 passed; 0 failed; 0 ignored、終了コード 0 |
+| 3 | device の要る試験の宣言 | `grep -c '^\s*#\[ignore' crates/contract/src/backend_metal.rs`、同 `crates/contract/tests/backend_metal_destroy.rs` | `backend_metal.rs` は 96、`backend_metal_destroy.rs` は 2 |
+| 4 | macOS の型検査 | `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --all-features -- -D warnings` | 終了コード 0 |
+| 5 | 依存 0・unsafe 0 | `git diff --stat 152a6b20..HEAD -- Cargo.lock deps-approved.toml crates/core crates/contract/src/lib.rs crates/contract/tests/backend_metal_unsafe_count.rs`、`cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_unsafe_count`、`make deps-check` | diff は出力なし、1 passed; 0 failed、`make deps-check` は終了コード 0 |
+| 6 | 公開の型の検査 | `make public-api-sdk-check`、`make public-api-webgpu-check` | `sdk_type_refs_total=0`、`ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok`、終了コード 0 |
+| 7 | CI | `gh run view 43628048020 --json conclusion,headSha,jobs`（`ea724aef` の main の push の run） | conclusion `success`、headSha `ea724aef4a7afbf46e1fe6343f676c883841c58e`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(5) の `152a6b20` は、1/4 の 1 つ前のコミット。
+
+(1) の出力。
+
+```text
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 160 filtered out; finished in 0.00s
+```
+
+(2) の出力。
+
+```text
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 0.00s
+```
+
+(5) の出力。
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+```
+
+(6) の出力。
+
+```text
+record: commit=ea724aef4a7afbf46e1fe6343f676c883841c58e documents=10 public_items_total=14168 sdk_type_refs_total=0 sdk_other_refs_total=0 common_declared_deps=0 common_chip_deps=0
+ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok, ext-interop ok, submit token ops ok
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -122,3 +168,4 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 | 1/4 | `Drop` の待ちと記録先の破棄 | #3842 |
 | 2/4 | 明示の破棄 | #3843 |
 | 3/4 | device の要る試験 | #3844 |
+| 4/4 | 完了の条件の確かめ | #3845 |
