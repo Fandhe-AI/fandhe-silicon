@@ -82,9 +82,67 @@ cargo test -p fandhe-silicon-contract --features backend-metal,graphics --lib of
 
 前者は `3 ignored`、後者は `2 ignored` の形で通る。Linux では統合試験のファイルが 0 件になり、crate の中の module はコンパイルされない。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-377。ポインタのみ）。
+
+時点のコミット: `ede5116`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | device の要らない試験 | `cargo test -p fandhe-silicon-contract --features backend-metal,graphics --lib offscreen_target_tests` | `8 passed; 0 failed; 0 ignored; 0 measured; 160 filtered out` |
+| 2 | macOS の型検査 | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal,graphics -- -D warnings`、同じコマンドの `--features backend-metal` | どちらも終了コード 0 |
+| 3 | unsafe の守り | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_unsafe_count --test backend_metal_no_recording` | `8 passed; 0 failed; 0 ignored` と `1 passed; 0 failed; 0 ignored` |
+| 4 | 依存 | `make deps-check`、`gh pr diff 8278 --name-only`、`gh pr diff 8279 --name-only`、この PR の差分の `--name-only` | `make deps-check` は終了コード 0。3 つの差分のどれにも `Cargo.lock` が無い |
+| 5 | 依存グラフ | `make profile-dep-graph-check` | 下の (5) の行、終了コード 0 |
+| 6 | 公開 API | `make public-api-check`、`make public-api-sdk-check` | どちらも終了コード 0 |
+| 7 | device の要る試験の本数 | `grep -c '^#\[ignore' crates/contract/tests/backend_metal_offscreen_target.rs`、2/3 の module の中の行頭の `#[ignore` の数 | 3 と 2 |
+| 8 | CI | `gh run view 43573191511`（2/3 のマージのコミットの main の push の run） | conclusion `success`、headSha `ede5116615d6635fb34f3e78cb4da9065ce7c242`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success` |
+
+(1) の出力。
+
+```text
+running 8 tests
+test backend_metal::offscreen_target_tests::pair_failure_in_color_calls_neither_depth_nor_release ... ok
+test backend_metal::offscreen_target_tests::pair_failure_in_depth_releases_the_color_once_and_returns_the_depth_error ... ok
+test backend_metal::offscreen_target_tests::pair_success_returns_both_and_does_not_release ... ok
+test backend_metal::offscreen_target_tests::table_exhaustion_leaves_the_table_unchanged_and_drops_the_resource_once ... ok
+test backend_metal::offscreen_target_tests::plan_accepts_the_exact_limit_and_returns_byte_counts ... ok
+test backend_metal::offscreen_target_tests::plan_rejects_zero_and_over_limit_sizes ... ok
+test backend_metal::offscreen_target_tests::table_issues_ids_from_one_and_never_reuses_them ... ok
+test backend_metal::offscreen_target_tests::plan_returns_the_color_bytes_without_depth ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 160 filtered out; finished in 0.00s
+```
+
+(3) の出力。
+
+```text
+running 8 tests
+test objc2_metal_features_do_not_include_other_encoder_headers ... ok
+test backend_metal_dispatch_execution_gate_stays_closed_outside_unit_tests ... ok
+test backend_metal_constant_safety_comment_keeps_its_rationale ... ok
+test backend_metal_target_descriptor_safety_comments_state_the_validated_size ... ok
+test backend_metal_encoder_safety_comments_state_the_cpu_side_preconditions ... ok
+test backend_metal_descriptor_safety_comment_keeps_its_rationale ... ok
+test backend_metal_contents_safety_comments_state_the_completed_submission_rationale ... ok
+test backend_metal_code_has_no_words_beyond_compute_dispatch ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+running 1 test
+test backend_metal_unsafe_count_matches_expected ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+```
+
+(5) の出力。
+
+```text
+ok: 4 profile(s) checked, no judged crates (judged=0)
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 描画先の作成と描画の口 | #4581 |
 | 2/3 | device の要る試験 | #4582 |
+| 3/3 | 完了の条件の確かめ | #4583 |
