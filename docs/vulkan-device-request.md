@@ -105,6 +105,25 @@ device は作らず、ローダにも物理 device にも触れない。返す�
 | `an_injected_failure_is_distinct_from_the_other_kinds` | 差し込みの値が `Timeout`・`CapabilityInsufficient` と値も種類も違い、`RuntimeError`・`Lost` の完了状態の種類とも違う |
 | `injected_providers_check_the_request_first` | Vulkan でない背後実装と `CpuOnly` は 7 個とも `InvalidCombination`（差し込みより先に検査が走る） |
 
+## device の要る試験（4/5）
+
+置き場は `crates/contract/tests/backend_vulkan_device.rs`。feature `backend-vulkan` のビルド（wasm32 以外）にあり、
+どの試験も `#[ignore = "requires a Vulkan device"]` を付けていて、`--ignored` を付けたときだけ走る。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `compute_only_request_returns_a_vulkan_device` | `ComputeOnly` の `request` が `Ok`。`backend()` が `Vulkan`、`ownership()` が `ProductIndependent`、`diagnostics().backend_name` が `vulkan`、`adapter_name` が ` (vulkan api=`（前が空でない）と ` driver_version=0x` を含む（値は固定しない） |
+| `two_requests_take_increasing_generations` | 2 回の `request` が `Ok` で、2 つ目の `generation()` が 1 つ目より大きい |
+| `query_ex_has_no_rows` | `FEATURE_SHADER_F16` の `query_ex` が `UNLISTED_FEATURE_QUERY`、`query` が `Unsupported` |
+| `memory_and_queue_operations_are_unsupported` | `memory().allocate` と `queue().submit` が `Unsupported`（背後実装は `Vulkan`）。`create_encoder` は panic しない。`queue().max_buffer_bytes()` が `limits().max_buffer_bytes` と等しい |
+| `graphics_request_returns_a_device_with_feature_graphics` | feature `graphics` のビルドにだけある。`Graphics` の `request` が `Ok` で、`backend()` が `Vulkan`、`graphics()` が `None` |
+| `dropping_a_device_does_not_panic` | `request` → `drop` を 2 回繰り返して panic しない |
+
+確かめ方: `cargo test -p fandhe-silicon-contract --features backend-vulkan --test backend_vulkan_device` の `test result:` の行は
+`0 passed; 0 failed; 5 ignored`、`--features backend-vulkan,graphics` では `6 ignored`。
+
+「所在」の表の試験の行は 1/5 の時点の値で、今は `crates/contract/tests/backend_vulkan_device.rs` も加わっている。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -112,3 +131,4 @@ device は作らず、ローダにも物理 device にも触れない。返す�
 | 1/5 | request の検査と provider の入口 | #3710 |
 | 2/5 | ash を足して device の取得と診断を実装する | #3711 |
 | 3/5 | 初期化の失敗の差し込みと失敗の種類の試験 | #3712 |
+| 4/5 | device の要る試験を ignore 付きで足す | #3713 |
