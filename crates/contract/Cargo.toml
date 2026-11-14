@@ -122,6 +122,10 @@ name = "backend_vulkan_request"
 required-features = ["backend-vulkan"]
 
 [[test]]
+name = "backend_vulkan_fault"
+required-features = ["backend-vulkan", "fault-injection"]
+
+[[test]]
 name = "fault_injection_forwarding"
 required-features = ["fault-injection"]
 
