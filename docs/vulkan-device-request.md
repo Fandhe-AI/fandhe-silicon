@@ -112,7 +112,7 @@ device は作らず、ローダにも物理 device にも触れない。返す�
 
 | 試験 | 確かめること |
 | ---- | ------------ |
-| `compute_only_request_returns_a_vulkan_device` | `ComputeOnly` の `request` が `Ok`。`backend()` が `Vulkan`、`ownership()` が `ProductIndependent`、`diagnostics().backend_name` が `vulkan`、`adapter_name` が ` (vulkan api=`（前が空でない）と ` driver_version=0x` を含む（値は固定しない） |
+| `compute_only_request_returns_a_vulkan_device` | `ComputeOnly` の `request` が `Ok`。`backend()` が `Vulkan`、`ownership()` が `ProductIndependent`、`diagnostics().backend_name` が `vulkan`、`adapter_name` が ` (vulkan api=`（前が空でない）と ` driver_version=0x` を含む（値は固定しない）。`adapter_name=<値>` の 1 行を標準出力に出す |
 | `two_requests_take_increasing_generations` | 2 回の `request` が `Ok` で、2 つ目の `generation()` が 1 つ目より大きい |
 | `query_ex_has_no_rows` | `FEATURE_SHADER_F16` の `query_ex` が `UNLISTED_FEATURE_QUERY`、`query` が `Unsupported` |
 | `memory_and_queue_operations_are_unsupported` | `memory().allocate` と `queue().submit` が `Unsupported`（背後実装は `Vulkan`）。`create_encoder` は panic しない。`queue().max_buffer_bytes()` が `limits().max_buffer_bytes` と等しい |
