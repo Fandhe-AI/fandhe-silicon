@@ -164,3 +164,12 @@ feature の一覧は `[features]` を正とし、本書に全部を列挙し直�
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 本リポの現状の「テスト・診断専用の feature」の行と、確かめの「テスト・診断専用」の行（3 つとする記述） | `test-support`・`fault-injection`・`artifact-inspection` の 3 つ → 4 つ目として `pvrtc-probe` が加わる。`["backend-metal", "objc2-metal?/MTLPixelFormat", "objc2-metal?/MTLTexture"]`（`crates/contract/Cargo.toml`）で、`backend-metal` を要する。`default` と本番の組の含意の閉包に入らない点は変わらず、`crates/contract/tests/feature_default_scope.rs` が検査する | `git grep -n 'pvrtc-probe' -- crates/contract/Cargo.toml crates/contract/tests/feature_default_scope.rs` |
+
+## 今の値の補い（`backend-metal,fault-injection` の組を足した後）
+
+上の表と文は記録時点の値で、書き換えていない。`NATIVE_SETS` に `backend-metal,fault-injection` の組（`graphics` を付けない形の Metal の試験用）が加わった。今の値は次のとおり。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「組ごとの build / clippy / test」の確かめ方と「CI での走り方」の確かめ方の `grep -A` | 配列が 33〜51 行目で `-A20` → 配列が 34〜53 行目、閉じ括弧が 54 行目、`NATIVE_SETS=(` の行が 33 行目なので `-A21` が要る | `grep -n 'NATIVE_SETS' -A21 scripts/build-profiles.sh`（先頭の当たりは 33 行目で、54 行目の `)` まで出る） |
+| 「CI での走り方」の表の `make build-profiles` | `NATIVE_SETS` は 19 組、`cargo test -p fandhe-silicon-contract` の回数は 21 → `NATIVE_SETS` は 20 組、回数は 22（既定の組 1 回、`NATIVE_SETS` の 20 組、`--all-features` 1 回） | `sed -n 34,53p scripts/build-profiles.sh \| grep -c '^  "'`（20） |
