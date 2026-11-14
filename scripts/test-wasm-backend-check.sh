@@ -386,6 +386,8 @@ old = '#[cfg(all(feature = "backend-vulkan", not(target_arch = "wasm32")))]'
 if old not in t:
     sys.exit("gate line not found")
 open(p, "w").write(t.replace(old, '#[cfg(feature = "backend-vulkan")]', 1))
+# 実物のモジュールは wasm32 に無い ash を使うので、写しでは公開のアイテムが 1 件の空の骨格に差し替える。
+open(p.replace("lib.rs", "backend_vulkan.rs"), "w").write("//! 陽性対照用の骨格。\n\n/// 公開のアイテム 1 件。\npub struct Probe;\n")
 PY
 set +e
 (cd "${W}" && scripts/wasm-backend-check.sh) >"${OUT_F}" 2>"${ERR_F}"
