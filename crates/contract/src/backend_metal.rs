@@ -8709,7 +8709,7 @@ mod imp {
             assert!(all_completed(&buffers));
         }
 
-        /// DEV-151。登録の直後に明示に破棄すると、callback は 1 回だけ呼ばれ、`Pending` は渡らない。
+        /// DEV-151。登録の直後に明示に破棄すると、callback は 1 回だけ `Lost` で呼ばれる（確定を遅らせているので未完了のまま破棄される）。
         #[test]
         #[ignore = "touches the Metal device; run only in a dedicated device session"]
         fn destroying_right_after_on_complete_calls_it_once() {
@@ -8720,7 +8720,7 @@ mod imp {
             (Box::new(device) as Box<dyn Device>).destroy();
             let seen = seen.lock().unwrap();
             assert_eq!(seen.len(), 1);
-            assert_ne!(seen[0], CompletionState::Pending);
+            assert_eq!(seen[0], CompletionState::Lost);
         }
 
         /// ロストの通知と明示の破棄（`fault-injection` のビルドだけ）。
