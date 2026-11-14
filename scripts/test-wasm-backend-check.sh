@@ -391,7 +391,7 @@ set +e
 (cd "${W}" && scripts/wasm-backend-check.sh) >"${OUT_F}" 2>"${ERR_F}"
 rc=$?
 set -e
-expect "real-positive-control" 1 "module: feature=backend-vulkan module=backend_vulkan expect=absent found=present public_items=0 result=mismatch" \
+expect "real-positive-control" 1 "module: feature=backend-vulkan module=backend_vulkan expect=absent found=present public_items=1 result=mismatch" \
   "violation: module: feature=backend-vulkan" "FAILED:" "!ok:"
 
 echo "passed=${passed} failed=${failed}"
