@@ -454,3 +454,14 @@ TASK-156 は次の 5 つの Issue に分けて進める。
 | 「今の値の補い（base 70ab958）」の `destroy` の `:205` | `:205` → `:213` | `grep -nE '^    fn (compute\|graphics\|external_interop\|physical_gpu_id\|fault_hooks\|textures\|artifact_hooks\|destroy)' crates/core/src/device.rs` |
 | 同じ節の `DeviceProvider` の `:213` | `:213` → `:221` | `grep -n 'pub trait DeviceProvider' crates/core/src/device.rs` |
 | 既定の本体を持つ method の所在 | `compute` `:149`・`graphics` `:157`・`external_interop` `:166`・`physical_gpu_id` `:175`・`fault_hooks` `:184`・`textures` `:191`（どれも変わらない）に加えて、`artifact_hooks` `:199` | 同上 |
+
+## 今の値の補い（`backend-metal,fault-injection` の組を足した後）
+
+上の表と文は記録時点の値で、書き換えていない。`scripts/build-profiles.sh` の `NATIVE_SETS` に 1 組が加わり、その後ろの行が 1 行ずれた。今の行番号は次のとおり。
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| 「`make build-profiles`」の行（`:101`）の core を feature なしで流す段 | `:85`〜`:86` → clippy が `:91`、test が `:92` | `grep -nE 'CORE_PKG\}"( --all-targets -- -D warnings)? *$' scripts/build-profiles.sh` |
+| 同じ行の `test-support` だけの clippy と test | `:89`・`:90` → `:95`・`:96` | `grep -n 'features test-support' scripts/build-profiles.sh` |
+| 同じ行の contract の `test-support` 単独の組・`backend-metal,test-support` の組 | `:39`・`:40` → `:43`・`:44` | `grep -n '"test-support"\|"backend-metal,test-support"' scripts/build-profiles.sh` |
+| 「feature なし」の行（`:234`）の `cargo test -p fandhe-silicon-core` | `:86` → `:92` | `grep -nE 'cargo test -p "\$\{CORE_PKG\}" *$' scripts/build-profiles.sh` |

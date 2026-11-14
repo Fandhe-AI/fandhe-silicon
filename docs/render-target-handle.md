@@ -173,3 +173,12 @@ cargo test -p fandhe-silicon-core --features test-support,graphics --test render
 ## 今の値の補い（base 6b35dd9）
 
 上の表の `ci.yml` の行番号は記録時点の値で、書き換えない。今の `.github/workflows/ci.yml` では `make verify` が `:177`・`:505`、`make build-profiles` が `:181`・`:508`、`make wasm-verify` が `:276`・`:466` である（数えたコマンド: `grep -nE 'run: make (verify|wasm-verify|build-profiles|profile-test-count-check)$' .github/workflows/ci.yml`）。
+
+## 今の値の補い（`backend-metal,fault-injection` の組を足した後）
+
+上の表と文は記録時点の値で、書き換えていない。`scripts/build-profiles.sh` の `NATIVE_SETS` に 1 組が加わり、core の組の行が 1 行ずれた。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 「流れる組」の `render_target_device_check` の core の `test-support` だけの組 | `:88`〜`:90` → clippy が `:95`、test が `:96` | `grep -nE 'features test-support( -- -D warnings)? *$' scripts/build-profiles.sh` |
+| 「流れる組」の core の `test-support,graphics` の組 | `:95`・`:96` → `:101`・`:102` | `grep -n 'features test-support,graphics' scripts/build-profiles.sh` |

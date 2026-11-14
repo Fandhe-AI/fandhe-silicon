@@ -347,3 +347,13 @@ cargo test -p fandhe-silicon-core --features graphics,test-support --doc graphic
 cargo test -p fandhe-silicon-core --features graphics --test graphics_ops_doctest_shape
 cargo test -p fandhe-silicon-core --features graphics --test graphics_types
 ```
+
+## 今の値の補い（`backend-metal,fault-injection` の組を足した後）
+
+上の表と文は記録時点の値で、書き換えていない。`scripts/build-profiles.sh` の `NATIVE_SETS` に 1 組が加わり、core の組の行が 1 行ずれた。
+
+| 表の行 | 記録の値 → 今の値 | 測ったコマンド |
+| ------ | ----------------- | -------------- |
+| 「スクリプトの行」の表の `:124`（core の `graphics` だけの組） | `:96`〜`:97` → `:99`〜`:100` | `grep -n 'features graphics' scripts/build-profiles.sh` |
+| 同じ表の `:125`（`test-support,graphics` の組） | `:98`〜`:99` → `:101`〜`:102` | `grep -n 'features test-support,graphics' scripts/build-profiles.sh` |
+| 同じ表の `:126`（契約の crate の組） | 組の一覧は `:33`〜`:37` → 一覧は `:34`〜`:53`（`graphics` を含む組は `:36`・`:37`）、ビルドの呼び出しは `:81`〜`:85` → `:80`〜`:85` | `sed -n 34,53p scripts/build-profiles.sh`、`grep -n 'cargo build -p "${PKG}"' scripts/build-profiles.sh` |

@@ -269,3 +269,11 @@ python3 が無い場合の終了コード 2 を確かめるケースは無い。
 | 節 | 記録の値 → 今の値 | 測ったコマンド |
 | -- | ----------------- | -------------- |
 | 上の `verify-macos` の make ターゲットの対応表 | 行は `make verify`・`make build-profiles`・`make profile-test-count-check`・`make measure-verify` → `make measure-verify` の次のステップとして `make baseline-verify`（`scripts/baseline-verify.sh`。`deny` と同じ比較基準の別 workspace `baseline-wgpu/` の fmt / clippy / test を macOS で流す。macOS 向けの module をコンパイル・lint する。回帰テストは持たない）が加わる。条件・`continue-on-error` は無く、`timeout-minutes`・check 名・`ci-complete` の `needs` は変えていない | `grep -n "run: make baseline-verify" .github/workflows/ci.yml` |
+
+## 今の値の補い（`verify-macos` の `graphics` 無しの Metal の組）
+
+記録時点の表と既存の節は書き換えない。`verify-macos` の `make verify` は `--all-features` なので `graphics` が常に付き、`graphics` 無しでだけコンパイルされる Metal の試験（`backend_metal_fault.rs` の `#[cfg(not(feature = "graphics"))]` の部分と `backend_metal_request_no_fallback.rs` の graphics 無しの形）が流れなかった。`scripts/build-profiles.sh` の `NATIVE_SETS` に `backend-metal,fault-injection` の組を足し、`verify` と `verify-macos` の `make build-profiles` が build・clippy（`-D warnings`）・test を流す。ジョブ・ステップ・check 名・`ci-complete` の `needs` は変えていない。Linux では Metal の試験は cfg で外れ 0 本になり、本数が流れるのは macOS だけ。
+
+| 節 | 記録の値 → 今の値 | 測ったコマンド |
+| -- | ----------------- | -------------- |
+| 上の `make build-profiles` の行 | `NATIVE_SETS` の組に `backend-metal,fault-injection` が加わる | `grep -n '"backend-metal,fault-injection"' scripts/build-profiles.sh` |

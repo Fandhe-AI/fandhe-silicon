@@ -50,6 +50,7 @@ NATIVE_SETS=(
   "backend-cuda,ext-interop"                                                       # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
   "backend-metal,ext-interop"                                                      # spec TASK-231（BUILD-14。片方の背後実装に ext-interop を足した組）
   "contract-core"                                                                  # spec TASK-2457（cpu-ops を含まない組）
+  "backend-metal,fault-injection"                                                  # spec TASK-158（graphics を付けない形の Metal の試験。verify-macos の --all-features では流れない）
 )
 
 # wasm32 の組
