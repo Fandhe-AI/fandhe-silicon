@@ -8603,9 +8603,13 @@ mod imp {
             )
         }
 
-        /// 空の記録先を 1 つ投入し、印と、投入済みの表にあるコマンドバッファの写しを返す。
+        /// 確定を遅らせて空の記録先を 1 つ投入し、印と、投入済みの表にあるコマンドバッファの写しを返す。
+        ///
+        /// 確定していないので、戻った時点では未完了。破棄の側（`Drop`・`destroy`）が溜めた確定を流して待つ。
         fn submit_one(device: &MetalDevice) -> (SubmitToken, Vec<CommandBuffer>) {
+            device.hold_commits();
             let token = device.submit(device.create_encoder(), &[]).expect("submit");
+            assert_eq!(device.poll(token), CompletionState::Pending);
             let buffers = device
                 .lock_submissions()
                 .pending
@@ -8656,6 +8660,7 @@ mod imp {
             let device = new_device();
             let (_token, buffers) = submit_one(&device);
             assert!(!buffers.is_empty());
+            assert!(!all_completed(&buffers), "completed before the drop");
             drop(device);
             assert!(all_completed(&buffers));
         }
@@ -8667,6 +8672,7 @@ mod imp {
             let device = new_device();
             let (token, _buffers) = submit_one(&device);
             let seen = on_complete_recorder(&device, token);
+            assert!(seen.lock().unwrap().is_empty(), "called before the drop");
             drop(device);
             assert_eq!(*seen.lock().unwrap(), [CompletionState::Complete]);
         }
@@ -8677,6 +8683,7 @@ mod imp {
         fn destroying_right_after_submit_waits_for_the_submission() {
             let device = new_device();
             let (_token, buffers) = submit_one(&device);
+            assert!(!all_completed(&buffers), "completed before the destroy");
             (Box::new(device) as Box<dyn Device>).destroy();
             assert!(all_completed(&buffers));
         }
@@ -8688,6 +8695,7 @@ mod imp {
             let device = new_device();
             let (token, _buffers) = submit_one(&device);
             let seen = on_complete_recorder(&device, token);
+            assert!(seen.lock().unwrap().is_empty(), "called before the destroy");
             (Box::new(device) as Box<dyn Device>).destroy();
             let seen = seen.lock().unwrap();
             assert_eq!(seen.len(), 1);
