@@ -4393,13 +4393,8 @@ mod imp {
             )
         }
 
-        fn destroy_offscreen_target(&self, target: RenderTargetHandle) {
-            // 別の device の handle は無視する。自分の表から外すと、テクスチャは最後の参照が落ちて解放される。
-            if target.__backend_device_id() != self.id {
-                return;
-            }
-            let removed = self.lock_targets().remove(target.__backend_id());
-            drop(removed);
+        fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {
+            // 破棄の形は別の作業で決めるので、ここでは何もしない。描画先は device を破棄するまで表に残る。
         }
 
         fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
