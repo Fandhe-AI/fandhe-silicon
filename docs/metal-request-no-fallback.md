@@ -107,6 +107,23 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - Linux: `cargo test -p fandhe-silicon-contract --features backend-vulkan,backend-cuda,fault-injection --test backend_request_call_count`
 - macOS: `cargo test -p fandhe-silicon-contract --all-features --test backend_request_call_count`
 
+## ほかの背後実装の provider の呼び出しが 0 回であることの試験（4/5）
+
+Metal の `request` の失敗の後に、Vulkan・CUDA の provider の `request` が呼ばれないことを、3/5 の `request_call_count` で照らす。device に触らない入口だけを使う。
+
+| 試験 | 入口 | 入力 | 確かめること |
+| ---- | ---- | ---- | ------------ |
+| `metal_request_failures_call_no_other_backend_provider`（`crates/contract/tests/backend_metal_request_no_other_provider.rs`） | `MetalDefaultDeviceNoneProvider`・`MetalDeviceProvider`・`VulkanDeviceProvider`・`CudaDeviceProvider` | Metal の provider に `Metal`・`Vulkan` の要求（fail-fast の模擬 3 回と縮退の模擬 2 回）、続けて Vulkan・CUDA の provider に `Metal` の要求（検査で拒まれる） | Metal・Vulkan・CUDA の数が `[0, 0, 0]` → `[5, 0, 0]` → `[5, 1, 1]` |
+
+- `[[test]]` の `required-features`: `backend-metal`・`backend-vulkan`・`backend-cuda`・`fault-injection`（`crates/contract/Cargo.toml`）
+- cfg は `target_os = "macos"`。macOS 以外では 0 件
+- 数は値そのもので照らし、エラーの照合は値の種類だけ（`matches!`）
+
+確かめ方。
+
+- macOS: `cargo test -p fandhe-silicon-contract --features backend-metal,backend-vulkan,backend-cuda,fault-injection --test backend_metal_request_no_other_provider`
+- Linux での型検査: `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,backend-vulkan,backend-cuda,fault-injection -- -D warnings`
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -114,3 +131,4 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 1/2 | 組み合わせの検査と失敗の伝播の試験 | #4080 |
 | 2/2 | 完了の条件の確かめ | #4081 |
 | 3/5 | provider の request の呼び出しの数 | #8295 |
+| 4/5 | ほかの背後実装の provider の呼び出しが 0 回であることの試験 | #8296 |

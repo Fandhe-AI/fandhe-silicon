@@ -122,6 +122,10 @@ name = "backend_metal_request_no_fallback"
 required-features = ["backend-metal", "fault-injection"]
 
 [[test]]
+name = "backend_metal_request_no_other_provider"
+required-features = ["backend-metal", "backend-vulkan", "backend-cuda", "fault-injection"]
+
+[[test]]
 name = "backend_request_call_count"
 required-features = ["backend-vulkan", "backend-cuda", "fault-injection"]
 
