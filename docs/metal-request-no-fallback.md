@@ -124,6 +124,47 @@ Metal の `request` の失敗の後に、Vulkan・CUDA の provider の `request
 - macOS: `cargo test -p fandhe-silicon-contract --features backend-metal,backend-vulkan,backend-cuda,fault-injection --test backend_metal_request_no_other_provider`
 - Linux での型検査: `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,backend-vulkan,backend-cuda,fault-injection -- -D warnings`
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-277。ポインタのみ）。
+
+時点のコミット: `e77fd0b`。`docs/spec` の gitlink は `3f9168084bba265e4d9044c513a30e7f2a84243d`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の本数と `#[ignore]` | `grep -c '#\[test\]'` と `grep -c '#\[ignore'` を `crates/contract/tests/backend_request_call_count.rs`・`crates/contract/tests/backend_metal_request_no_other_provider.rs` に | `#[test]` は 1 と 1、`#[ignore` は 0 と 0 |
+| 2 | 数を足す呼び出しの数 | `crates/contract/src/backend_{metal,vulkan,cuda}.rs` に `grep -c 'note_request_call();'` と `grep -c 'pub fn request_call_count'` | `note_request_call();` は Metal 3・Vulkan 2・CUDA 2、`pub fn request_call_count` は各 1 |
+| 3 | macOS の試験の結果 | run `43637442223`（`e77fd0b` の main の push）の job `132577244277` のログを試験の関数名で引く | 下の (3) の出力 |
+| 4 | Linux の試験の結果 | 同じ run の job `132577244200` のログ | 下の (4) の出力 |
+| 5 | 依存・unsafe・`crates/core` | `git diff --stat 177f165..HEAD -- Cargo.lock deps-approved.toml crates/core`、3 つの `src/` のファイルに `grep -c unsafe`（`177f165` と `HEAD`）、`make deps-check` | diff は出力なし。`unsafe` は両方で Metal 13・Vulkan 12・CUDA 3。`make deps-check` は終了コード 0 |
+| 6 | CI | `gh run view 43637442223 --json conclusion,headSha,jobs` | conclusion `success`、headSha `e77fd0bc58f93610c03f982110fa3885a4cc160e`。job `132577244200`・`132577244277`・`132577243884` は `success` |
+
+(5) の `177f165` は、3/5 の 1 つ前のコミット。`2bff942` が 3/5、`e77fd0b` が 4/5 のコミット。
+
+(3) の出力。
+
+```text
+running 1 test
+test metal_request_failures_call_no_other_backend_provider ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+running 1 test
+test each_backend_counts_only_its_own_provider_requests ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(4) の出力。
+
+```text
+Running tests/backend_metal_request_no_other_provider.rs
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+running 1 test
+test each_backend_counts_only_its_own_provider_requests ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -132,3 +173,4 @@ Metal の `request` の失敗の後に、Vulkan・CUDA の provider の `request
 | 2/2 | 完了の条件の確かめ | #4081 |
 | 3/5 | provider の request の呼び出しの数 | #8295 |
 | 4/5 | ほかの背後実装の provider の呼び出しが 0 回であることの試験 | #8296 |
+| 5/5 | 完了の条件の確かめ | #8297 |
