@@ -40,6 +40,7 @@
 //! `on_complete` の登録の表は投入済みの表と同じ錠の中に置き、callback は錠を放してから呼ぶ。
 //! `dispatch_checked`（TASK-436 のポインタ）は、束縛のハンドルを表の項目と照らし、バッファの実際の長さと `limits()` の上限で引数の宣言を照らしてから `dispatch_ex` に委ねる。
 //! 駆動は `submit`・`submit_many`・`poll`・`poll_ex`・`wait_blocking`・`allocate` の中で行い、待ちのスレッドは持たない。
+//! device の `Drop` は、開いている記録先の記録を投入せずに捨て、投入済みの列を全部待ってから、残りの完了の callback を呼び、欄を解放する（TASK-189 のポインタ）。
 //! feature `artifact-inspection` のビルドでは `Device::artifact_hooks()` が `ArtifactHooks` の実装（binary archive の書き出しと読み込み、metallib からのパイプラインの生成）を返す（TASK-492 のポインタ）。
 
 use std::cell::RefCell;
@@ -1105,6 +1106,13 @@ impl<G, C> Submissions<G, C> {
         }
     }
 
+    /// 投入済みの列を、登録の有無に関わらず全部 `wait` で待つ。`Drop` が使う。
+    fn wait_pending(&self, wait: impl Fn(&G)) {
+        for group in self.pending.values() {
+            wait(group);
+        }
+    }
+
     /// 登録を全部外して返す。待ったあとでも `Pending` の番号は `Lost`（起きないはずの経路の fail-closed）。
     ///
     /// 判定を済ませてから外すので、判定が panic しても登録は失われない。
@@ -1265,6 +1273,14 @@ impl OpenEncoders {
     /// 渡された識別子が開いている表にあるかを、表を変えずに返す（0 は表に入らないので偽）。
     fn is_open(&self, id: u64) -> bool {
         self.lock().contains_key(&id)
+    }
+
+    /// 開いている記録先の記録を全部、投入せずに捨てる。`Drop` が使う。
+    ///
+    /// 表は錠の中で取り出し、記録の破棄は錠の外で行う。
+    fn discard_all(&self) {
+        let taken = std::mem::take(&mut *self.lock());
+        drop(taken);
     }
 
     /// 開いている記録先の記録の列の末尾に `record` を積む。
@@ -1451,6 +1467,19 @@ fn finish_table<G, C>(
     if let Some(payload) = run_callbacks(ready, || current_generation, call) {
         discard_panic(payload);
     }
+}
+
+/// `Drop` の待ち。投入済みの列を登録の有無に関わらず全部 `wait` で待ってから、`finish_table` で残りを呼ぶ。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn finish_all<G, C>(
+    subs: &mut Submissions<G, C>,
+    current_generation: u64,
+    wait: impl Fn(&G),
+    classify: impl Fn(&G) -> GroupState + Copy,
+    call: impl Fn(C, CompletionState),
+) {
+    subs.wait_pending(&wait);
+    finish_table(subs, current_generation, wait, classify, call);
 }
 
 /// 終端の状態に寄せる。待ったあとでも `Pending` なら（起きないはずだが）失敗側の `Lost` にする。
@@ -2238,7 +2267,7 @@ mod imp {
         Submissions, check_declared_operands, check_dispatch_args, check_handle_record,
         check_recorded_buffers, check_token_owner, check_unique_slots, classify_pipeline_input,
         classify_reflected_buffer, compile_plan, drive_table, driven_generation, encode_plan,
-        finish_table, group_state_of, missing_required_constants, missing_required_reason,
+        finish_all, group_state_of, missing_required_constants, missing_required_reason,
         precheck_submit, precheck_submit_many, prepare_constants, register_table, remove_issued,
         retire, take_next,
     };
@@ -3224,18 +3253,22 @@ mod imp {
     }
 
     impl Drop for MetalDevice {
-        /// 登録が残っていれば、その列の完了を待ってから、残りの callback を `poll` と同じ判定の値で 1 回ずつ呼ぶ。
+        /// 開いている記録先の記録を投入せずに捨て、投入済みの列を登録の有無に関わらず全部待つ。
         ///
-        /// 登録が無ければ待たない。待ちに上限は無く、確定済みの command buffer が終わるまで戻らない。
-        /// 「確定済みの command buffer は必ず終わる」ことに頼る。待つのは登録のある列だけで、登録の無い確定済みの
-        /// command buffer は、落としても Metal が参照するバッファを保持する。callback の panic は捨てる。本体は `finish_table`。
+        /// そのあと残りの callback を `poll` と同じ判定の値で 1 回ずつ呼び、最後に欄を解放する。
+        /// ロストの通知は呼ばない。待ちに上限は無く、確定済みの command buffer が終わるまで戻らない。
+        /// callback の panic は捨てる。本体は `finish_all`。
         fn drop(&mut self) {
+            // 溜めた確定を先に流す（確定されない列を待たないため）。
+            #[cfg(test)]
+            self.release_held_commits();
+            self.open.discard_all();
             let generation = self.generation.load(Ordering::Acquire);
             let subs = self
                 .submissions
                 .get_mut()
                 .unwrap_or_else(|e| e.into_inner());
-            finish_table(
+            finish_all(
                 subs,
                 generation,
                 |group| {
@@ -11846,5 +11879,104 @@ mod artifact_path_tests {
             read_written_artifact(&target, ARTIFACT_READ_LIMIT).unwrap(),
             vec![1, 2, 3]
         );
+    }
+}
+
+/// 破棄の部品の試験（device に触らない。どの OS でも流れる。TASK-189 のポインタ）。
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU8;
+
+    type Fake = Arc<AtomicU8>;
+
+    fn fake_state(group: &Fake) -> GroupState {
+        match group.load(Ordering::SeqCst) {
+            0 => GroupState::Pending,
+            2 => GroupState::Failed,
+            _ => GroupState::Completed,
+        }
+    }
+
+    type Seen = Arc<Mutex<Vec<(u64, CompletionState)>>>;
+
+    fn recorder(seen: &Seen, tag: u64) -> Callback {
+        let seen = Arc::clone(seen);
+        Box::new(move |state| seen.lock().expect("lock").push((tag, state)))
+    }
+
+    fn fake_table(states: &[u8]) -> (Submissions<Fake>, Vec<Fake>) {
+        let mut subs = Submissions::new();
+        let mut groups = Vec::new();
+        for state in states {
+            let group: Fake = Arc::new(AtomicU8::new(*state));
+            subs.pending.insert(subs.next_sequence, Arc::clone(&group));
+            subs.next_sequence += 1;
+            groups.push(group);
+        }
+        (subs, groups)
+    }
+
+    /// 待つと完了にする（0 なら 1 にする）。
+    fn finish(group: &Fake) {
+        let _ = group.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn finish_all_waits_every_group_without_registrations() {
+        let (mut subs, groups) = fake_table(&[0, 0, 0]);
+        finish_all(
+            &mut subs,
+            0,
+            finish,
+            fake_state,
+            |callback: Callback, state| callback(state),
+        );
+        for group in &groups {
+            assert_eq!(group.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn finish_all_calls_the_registered_callbacks_with_the_polled_state_after_waiting() {
+        let (mut subs, groups) = fake_table(&[0, 0, 0]);
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        subs.callbacks.push((2, 0, recorder(&seen, 2)));
+        subs.callbacks.push((3, 0, recorder(&seen, 3)));
+        // 2 番の列は待ったあとに失敗になる。
+        let wait = |group: &Fake| {
+            if Arc::ptr_eq(group, &groups[1]) {
+                group.store(2, Ordering::SeqCst);
+            } else {
+                finish(group);
+            }
+        };
+        finish_all(
+            &mut subs,
+            0,
+            wait,
+            fake_state,
+            |callback: Callback, state| callback(state),
+        );
+        for group in &groups {
+            assert_ne!(group.load(Ordering::SeqCst), 0);
+        }
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![(2, CompletionState::Lost), (3, CompletionState::Complete)]
+        );
+        assert!(subs.callbacks.is_empty());
+    }
+
+    #[test]
+    fn discard_all_empties_the_open_encoders_and_a_later_close_is_a_no_op() {
+        let open = OpenEncoders::new();
+        open.lock().insert(5, Vec::new());
+        open.lock().insert(6, Vec::new());
+        open.discard_all();
+        assert!(open.lock().is_empty());
+        __BackendSharedEncoderCloser::close(&open, 5);
+        assert!(open.lock().is_empty());
     }
 }
