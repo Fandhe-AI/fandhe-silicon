@@ -37,6 +37,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
     - 深度の作成に失敗したら、色のテクスチャを表から外して 1 回だけ落としてから、深度の形式のバイト数の `AllocationFailed` を返す。外した識別子は再び払い出さない。
     - `depth` の `compare`・`write_enabled`・`clear_value` は作成では使わない。
 - 残りのメソッドのうち `Result` を返すものは、引数を検査せずに `Unsupported { op: <メソッド名>, backend: Metal }` を返す。`RenderEncoder` を返す `create_render_encoder`・`create_render_encoder_with_depth` は、同じ値を `__backend_new_rejected` で載せた記録先を返す。
+- `destroy_offscreen_target(target)` は、この device の識別子を持つ handle の描画先のテクスチャを表から外して解放する。別の device の handle と、表に無い識別子（破棄済みを含む）は何もしない。破棄しない描画先は device を破棄するまで表に残る。
 - feature `graphics` の無い組には、この節のコードは入らない。
 
 ### 確かめ方

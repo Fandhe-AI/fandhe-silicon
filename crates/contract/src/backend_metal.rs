@@ -4393,7 +4393,14 @@ mod imp {
             )
         }
 
-        fn destroy_offscreen_target(&self, _target: RenderTargetHandle) {}
+        fn destroy_offscreen_target(&self, target: RenderTargetHandle) {
+            // 別の device の handle は無視する。自分の表から外すと、テクスチャは最後の参照が落ちて解放される。
+            if target.__backend_device_id() != self.id {
+                return;
+            }
+            let removed = self.lock_targets().remove(target.__backend_id());
+            drop(removed);
+        }
 
         fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
             self.rejected_render_encoder("create_render_encoder")
