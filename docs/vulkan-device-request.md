@@ -80,9 +80,35 @@ device の値:
 | `release_in_order_releases_children_first` | 解放の順 |
 | `absent_loader_is_device_unavailable` | ローダが読めなければ `Entry::load: ` で始まる `DeviceUnavailable`（読めれば `not-run` を出して戻る） |
 
+## 初期化の失敗の差し込み（3/5）
+
+feature `fault-injection` を有効にした `backend-vulkan` のビルド（wasm32 以外）には、初期化の失敗を差し込む 7 個の
+公開の provider がある。どれも `request` で要求の検査（上の表と同じ順）を通した後に、固定の失敗を返す。
+device は作らず、ローダにも物理 device にも触れない。返すのは `DeviceUnavailable` で、
+`failure_class()` は `FailureClass::Initialization`、文字列の末尾は `(injected)`。
+
+| 型 | 返す値の文字列の頭 |
+| -- | ------------------ |
+| `VulkanLoaderMissingProvider` | `Entry::load: ` |
+| `VulkanCreateInstanceFailsProvider` | `create_instance: ` |
+| `VulkanEnumeratePhysicalDevicesFailsProvider` | `enumerate_physical_devices: ` |
+| `VulkanNoPhysicalDeviceProvider` | `enumerate_physical_devices: no physical device` |
+| `VulkanNoQueueFamilyProvider` | `get_physical_device_queue_family_properties: ` |
+| `VulkanCreateDeviceFailsProvider` | `create_device: ` |
+| `VulkanCreateCommandPoolFailsProvider` | `create_command_pool: ` |
+
+試験（`cargo test -p fandhe-silicon-contract --features backend-vulkan,fault-injection --test backend_vulkan_fault`。device に触らない）:
+
+| 試験 | 確かめる内容 |
+| ---- | ------------ |
+| `injected_initialization_failures_are_device_unavailable` | 7 個とも `DeviceUnavailable` で、文字列に `injected` を含み、`Initialization` |
+| `an_injected_failure_is_distinct_from_the_other_kinds` | 差し込みの値が `Timeout`・`CapabilityInsufficient` と値も種類も違い、`RuntimeError`・`Lost` の完了状態の種類とも違う |
+| `injected_providers_check_the_request_first` | Vulkan でない背後実装と `CpuOnly` は 7 個とも `InvalidCombination`（差し込みより先に検査が走る） |
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/5 | request の検査と provider の入口 | #3710 |
 | 2/5 | ash を足して device の取得と診断を実装する | #3711 |
+| 3/5 | 初期化の失敗の差し込みと失敗の種類の試験 | #3712 |

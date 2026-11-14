@@ -116,6 +116,80 @@ impl DeviceProvider for VulkanDeviceProvider {
     }
 }
 
+/// 差し込みの失敗の文字列に載せる印。
+#[cfg(feature = "fault-injection")]
+const INJECTED: &str = "injected";
+
+/// 差し込みの失敗の `DeviceUnavailable` の文字列の末尾に印を足す。ほかの失敗はそのまま返す。
+#[cfg(feature = "fault-injection")]
+fn mark_injected(e: ContractError) -> ContractError {
+    match e {
+        ContractError::DeviceUnavailable(s) => {
+            ContractError::DeviceUnavailable(format!("{s} ({INJECTED})"))
+        }
+        other => other,
+    }
+}
+
+/// 選ぶ関数の結果から失敗側を取り出して印を付ける。成功なら印だけの `DeviceUnavailable` を返す。
+#[cfg(feature = "fault-injection")]
+fn injected_from<T>(r: Result<T, ContractError>) -> ContractError {
+    match r {
+        Err(e) => mark_injected(e),
+        Ok(_) => ContractError::DeviceUnavailable(INJECTED.into()),
+    }
+}
+
+// 初期化の失敗を差し込む provider を作る。各 `request` は検査の後に差し込みの失敗を返し、
+// 実の `request` の経路（`VulkanDeviceProvider`）には触れない。
+macro_rules! injected_provider {
+    ($($(#[$doc:meta])* $name:ident => $failure:expr;)*) => {$(
+        $(#[$doc])*
+        #[cfg(feature = "fault-injection")]
+        #[derive(Debug, Clone, Copy, Default)]
+        pub struct $name;
+
+        #[cfg(feature = "fault-injection")]
+        impl DeviceProvider for $name {
+            fn request(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
+                check_request(&req)?;
+                Err($failure)
+            }
+        }
+    )*};
+}
+
+injected_provider! {
+    /// ローダが読めない失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanLoaderMissingProvider => ContractError::DeviceUnavailable(
+        "Entry::load: Vulkan loader is not loadable (injected)".into(),
+    );
+    /// instance の作成の失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanCreateInstanceFailsProvider => mark_injected(vk_failure(
+        "create_instance",
+        vk::Result::ERROR_INITIALIZATION_FAILED,
+    ));
+    /// 物理 device の列挙の失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanEnumeratePhysicalDevicesFailsProvider => mark_injected(vk_failure(
+        "enumerate_physical_devices",
+        vk::Result::ERROR_INITIALIZATION_FAILED,
+    ));
+    /// 物理 device が 1 つも無い失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanNoPhysicalDeviceProvider => injected_from(first_physical_device::<u8>(&[]));
+    /// 要求を満たす queue family が無い失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanNoQueueFamilyProvider => injected_from(select_queue_family(&[], Profile::ComputeOnly));
+    /// logical device の作成の失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanCreateDeviceFailsProvider => mark_injected(vk_failure(
+        "create_device",
+        vk::Result::ERROR_INITIALIZATION_FAILED,
+    ));
+    /// command pool の作成の失敗を差し込む入口。実際の故障ではなく、feature `fault-injection` の裏にある。
+    VulkanCreateCommandPoolFailsProvider => mark_injected(vk_failure(
+        "create_command_pool",
+        vk::Result::ERROR_OUT_OF_DEVICE_MEMORY,
+    ));
+}
+
 /// Vulkan の呼び出しの失敗を `DeviceUnavailable("<呼び出し>: <エラー>")` にする。
 fn vk_failure(call: &str, result: vk::Result) -> ContractError {
     ContractError::DeviceUnavailable(format!("{call}: {result:?}"))
