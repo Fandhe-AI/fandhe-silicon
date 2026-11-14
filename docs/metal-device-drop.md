@@ -79,9 +79,46 @@ cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targ
 
 上の 2 本はどの OS でも流れる。
 
+## device の要る試験（3/4）
+
+device に触る試験で、どれも `#[ignore]` を付けてあり、既定では流れない（実行の結果の `ignored` の件数に数えられる）。
+
+lib の `backend_metal::imp::teardown_device_tests`（直下の 5 本は `backend-metal` だけで動く）:
+
+| 試験 | 準備 | 確かめること |
+| ---- | ---- | ------------ |
+| `dropping_with_an_open_encoder_submits_nothing_and_empties_the_table` | 記録先を 1 つ開いたまま | 落とすと投入は増えず、記録先の表が空になる |
+| `dropping_right_after_submit_waits_for_the_submission` | 空の記録先を投入 | 落とした後、コマンドバッファが全部完了している |
+| `dropping_right_after_on_complete_calls_it_once_with_complete` | 投入と callback の登録 | 落とすと callback が `Complete` で 1 回だけ呼ばれる |
+| `destroying_right_after_submit_waits_for_the_submission` | 空の記録先を投入 | 明示に破棄した後、コマンドバッファが全部完了している |
+| `destroying_right_after_on_complete_calls_it_once` | 投入と callback の登録 | 明示に破棄すると callback が 1 回だけ、`Pending` 以外で呼ばれる |
+
+同じ module の中の `lost_notify`（`fault-injection` のビルドだけ）:
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `destroy_notifies_destroyed_once` | 明示の破棄でロストの通知が `Destroyed` で 1 回 |
+| `destroy_after_a_simulated_loss_does_not_notify_again` | 模擬のロストの後の破棄は通知を重ねない |
+| `drop_does_not_notify` | `Drop` は通知を呼ばない |
+
+統合試験 `backend_metal_destroy`（公開の口だけを使う。確保の量は同じプロセスで共有するので錠で 1 つずつ流す）:
+
+| 試験 | 準備 | 確かめること |
+| ---- | ---- | ------------ |
+| `dropping_the_device_returns_its_allocations` | 4 MiB のバッファを 4 本確保して 1 本を解放し、空の記録先を投入 | 落とした後の確保の量が、前の量に 4 MiB を足した値より小さい |
+| `destroying_the_device_returns_its_allocations` | 同じ | 明示に破棄した後も同じ |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --lib backend_metal::imp::teardown_device_tests
+cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_destroy
+```
+
+上の 2 本は、実行の結果の `ignored` の件数を見る（macOS 以外では統合試験は 0 件）。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | `Drop` の待ちと記録先の破棄 | #3842 |
 | 2/4 | 明示の破棄 | #3843 |
+| 3/4 | device の要る試験 | #3844 |

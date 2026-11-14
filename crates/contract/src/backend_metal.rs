@@ -8578,6 +8578,171 @@ mod imp {
             }
         }
     }
+
+    /// Metal の device に触る、破棄の試験（TASK-189 のポインタ）。実機の回でだけ流す。
+    #[cfg(test)]
+    mod teardown_device_tests {
+        use super::*;
+        use objc2_metal::MTLCommandBufferStatus;
+
+        fn new_device() -> MetalDevice {
+            // 具体型で数の口を読むため、`request_with` を通さず同じ手順で作る（`device_tests` と同じ形）。
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let queue = device.newCommandQueue().expect("queue");
+            MetalDevice::new(
+                __backend_next_device_id().expect("id"),
+                take_next(&NEXT_GENERATION).expect("generation"),
+                String::new(),
+                LimitsTable {
+                    max_buffer_bytes: 1 << 20,
+                    max_dispatch_dims: [u32::MAX; 3],
+                    max_texture_size: MAX_TEXTURE_SIZE,
+                },
+                device,
+                queue,
+            )
+        }
+
+        /// 空の記録先を 1 つ投入し、印と、投入済みの表にあるコマンドバッファの写しを返す。
+        fn submit_one(device: &MetalDevice) -> (SubmitToken, Vec<CommandBuffer>) {
+            let token = device.submit(device.create_encoder(), &[]).expect("submit");
+            let buffers = device
+                .lock_submissions()
+                .pending
+                .values()
+                .flatten()
+                .cloned()
+                .collect();
+            (token, buffers)
+        }
+
+        fn all_completed(buffers: &[CommandBuffer]) -> bool {
+            buffers
+                .iter()
+                .all(|b| b.status() == MTLCommandBufferStatus::Completed)
+        }
+
+        type Seen = Arc<Mutex<Vec<CompletionState>>>;
+
+        fn on_complete_recorder(device: &MetalDevice, token: SubmitToken) -> Seen {
+            let seen: Seen = Arc::default();
+            let sink = Arc::clone(&seen);
+            device.on_complete(
+                token,
+                Box::new(move |state| sink.lock().unwrap().push(state)),
+            );
+            seen
+        }
+
+        /// DEV-148。開いている記録先を残したまま落としても、投入は増えず、記録先の表は空になる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn dropping_with_an_open_encoder_submits_nothing_and_empties_the_table() {
+            let device = new_device();
+            let open = Arc::clone(&device.open);
+            let encoder = device.create_encoder();
+            assert_eq!(open.lock().len(), 1);
+            assert_eq!(device.test_submitted_count(), 0);
+            drop(device);
+            assert!(open.lock().is_empty());
+            drop(encoder);
+            assert!(open.lock().is_empty());
+        }
+
+        /// DEV-148。登録の無い投入の直後に落としても、戻った時点でコマンドバッファは完了している。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn dropping_right_after_submit_waits_for_the_submission() {
+            let device = new_device();
+            let (_token, buffers) = submit_one(&device);
+            assert!(!buffers.is_empty());
+            drop(device);
+            assert!(all_completed(&buffers));
+        }
+
+        /// DEV-148。登録の直後に落とすと、callback は 1 回だけ `Complete` で呼ばれる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn dropping_right_after_on_complete_calls_it_once_with_complete() {
+            let device = new_device();
+            let (token, _buffers) = submit_one(&device);
+            let seen = on_complete_recorder(&device, token);
+            drop(device);
+            assert_eq!(*seen.lock().unwrap(), [CompletionState::Complete]);
+        }
+
+        /// DEV-151。投入の直後に明示に破棄しても、戻った時点でコマンドバッファは完了している。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn destroying_right_after_submit_waits_for_the_submission() {
+            let device = new_device();
+            let (_token, buffers) = submit_one(&device);
+            (Box::new(device) as Box<dyn Device>).destroy();
+            assert!(all_completed(&buffers));
+        }
+
+        /// DEV-151。登録の直後に明示に破棄すると、callback は 1 回だけ呼ばれ、`Pending` は渡らない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn destroying_right_after_on_complete_calls_it_once() {
+            let device = new_device();
+            let (token, _buffers) = submit_one(&device);
+            let seen = on_complete_recorder(&device, token);
+            (Box::new(device) as Box<dyn Device>).destroy();
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 1);
+            assert_ne!(seen[0], CompletionState::Pending);
+        }
+
+        /// ロストの通知と明示の破棄（`fault-injection` のビルドだけ）。
+        #[cfg(feature = "fault-injection")]
+        mod lost_notify {
+            use super::*;
+            use fandhe_silicon_core::fault::{HookFault, inject};
+
+            fn notified(device: &MetalDevice) -> Arc<Mutex<Vec<DeviceLostReason>>> {
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&seen);
+                DeviceLostNotify::set_lost_callback(
+                    device,
+                    Box::new(move |reason| sink.lock().unwrap().push(reason)),
+                );
+                seen
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn destroy_notifies_destroyed_once() {
+                let device = new_device();
+                let seen = notified(&device);
+                (Box::new(device) as Box<dyn Device>).destroy();
+                assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Destroyed]);
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn destroy_after_a_simulated_loss_does_not_notify_again() {
+                let device = new_device();
+                let seen = notified(&device);
+                inject(
+                    device.fault_hooks(),
+                    HookFault::DeviceLost(DeviceLostReason::Unknown),
+                )
+                .expect("loss");
+                (Box::new(device) as Box<dyn Device>).destroy();
+                assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Unknown]);
+            }
+
+            #[test]
+            #[ignore = "touches the Metal device; run only in a dedicated device session"]
+            fn drop_does_not_notify() {
+                let device = new_device();
+                let seen = notified(&device);
+                drop(device);
+                assert!(seen.lock().unwrap().is_empty());
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
