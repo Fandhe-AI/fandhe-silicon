@@ -203,7 +203,7 @@ fandhe-silicon/
 ├── docs/cuda-device-reach.md  # CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 70ab958）
 ├── docs/cuda-create-pipeline-checked.md  # CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/cuda-upload-download.md  # CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
-├── docs/vulkan-device-request.md  # Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）
+├── docs/vulkan-device-request.md  # Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）
