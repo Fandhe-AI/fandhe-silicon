@@ -142,6 +142,15 @@ const ENCODER_SAFETY: &[(&str, &[&str])] = &[
     ("setThreadgroupMemoryLength_atIndex", &["index", "長さ"]),
 ];
 
+/// 描画先のテクスチャの記述子へ幅と高さを渡す 2 つの呼び出しの印と、それぞれの `// SAFETY:` が含んでいなければならない語句。
+const TARGET_DESCRIPTOR_SAFETY: &[(&str, &[&str])] = &[
+    ("setWidth", &["offscreen_target_plan", "1 以上", "上限以下"]),
+    (
+        "setHeight",
+        &["offscreen_target_plan", "1 以上", "上限以下"],
+    ),
+];
+
 /// コメントの記号と改行を除いてつなぐ（行末の折り返しをまたぐ語句を拾えるようにする）。
 fn flatten(text: &str) -> String {
     text.lines()
@@ -159,6 +168,9 @@ fn backend_metal_contents_safety_comments_state_the_completed_submission_rationa
             !flat.contains(CONSTANT_SAFETY_MARKER)
                 && !flat.contains(DESCRIPTOR_SAFETY_MARKER)
                 && !ENCODER_SAFETY
+                    .iter()
+                    .any(|(marker, _)| flat.contains(marker))
+                && !TARGET_DESCRIPTOR_SAFETY
                     .iter()
                     .any(|(marker, _)| flat.contains(marker))
         })
@@ -225,6 +237,44 @@ fn backend_metal_encoder_safety_comments_state_the_cpu_side_preconditions() {
     assert!(
         misses.is_empty(),
         "the encoder SAFETY comments lost their preconditions:\n{}\n{FIX_HINT}",
+        misses.join("\n")
+    );
+}
+
+#[test]
+fn backend_metal_target_descriptor_safety_comments_state_the_validated_size() {
+    let comments = safety_comments();
+    let mut misses = Vec::new();
+    for (marker, phrases) in TARGET_DESCRIPTOR_SAFETY {
+        let matching: Vec<_> = comments
+            .iter()
+            .filter(|(_, text)| flatten(text).contains(marker))
+            .collect();
+        if matching.len() != 1 {
+            misses.push(format!(
+                "expected exactly one `// SAFETY:` comment for `{marker}`, found {}",
+                matching.len()
+            ));
+            continue;
+        }
+        let (no, text) = matching[0];
+        let flat = flatten(text);
+        if flat.contains("contents()") {
+            misses.push(format!(
+                "src/backend_metal.rs:{no}: the `{marker}` SAFETY must not mention `contents()`"
+            ));
+        }
+        for phrase in *phrases {
+            if !flat.contains(phrase) {
+                misses.push(format!(
+                    "src/backend_metal.rs:{no}: missing `{phrase}` in the `{marker}` SAFETY comment"
+                ));
+            }
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "the target descriptor SAFETY comments lost their preconditions:\n{}",
         misses.join("\n")
     );
 }

@@ -8,6 +8,9 @@
 //! （device に触らない純粋な検査の関数だけが、この段の試験のために置かれている）。
 //! Objective-C のバインディングは `objc2` 系の 4 crate（macOS 向けにだけ宣言。承認の記録は `deps-approved.toml`）。
 //!
+//! feature `graphics` の下では、`Profile::Graphics` で作った device の `Device::graphics()` が描画先の作成の 2 つ
+//! （`create_offscreen_target`・`create_offscreen_target_with_depth`）を持つ（TASK-377 のポインタ）。`ComputeOnly` の device では `None`。
+//!
 //! 公開するのは `MetalDeviceProvider` だけ。device の型 `MetalDevice` は非公開で、上・下-2 は
 //! `request` が返す `Box<dyn Device>` 越しに使う。
 //!
@@ -57,6 +60,8 @@ use fandhe_silicon_core::execution::{
 };
 use fandhe_silicon_core::hash::sha256_u64;
 use fandhe_silicon_core::memory::validate_buffer_range;
+#[cfg(feature = "graphics")]
+use fandhe_silicon_core::render_target::RenderTargetHandle;
 
 /// 部分範囲 `[offset, offset + len)` を確保長 `allocation_len` に照らし、ホストの `usize` の組にして返す。
 ///
@@ -1977,6 +1982,241 @@ fn read_written_artifact(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, 
     }
 }
 
+/// 描画先の表。識別子を 1 から払い出し、資源を識別子で引く。`MetalDevice` の描画先の置き場。
+///
+/// 識別子は再利用しない（`remove` の後も戻さない）。device に触らない純粋な部品なので、Linux でも試験が流れる。
+#[cfg(feature = "graphics")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct TargetTable<T> {
+    /// 次に払い出す識別子。1 から始まる。
+    next_id: u64,
+    /// 識別子から資源への表。
+    map: HashMap<u64, T>,
+}
+
+#[cfg(feature = "graphics")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl<T> TargetTable<T> {
+    /// 空の表を作る。
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            map: HashMap::new(),
+        }
+    }
+
+    /// 資源を入れて識別子を返す。識別子が尽きたときは `None` で、表を変えず、渡した資源は落とす。
+    fn insert(&mut self, resource: T) -> Option<u64> {
+        let id = self.next_id;
+        self.next_id = id.checked_add(1)?;
+        self.map.insert(id, resource);
+        Some(id)
+    }
+
+    /// 識別子の資源を表から外して返す。無ければ `None`。
+    fn remove(&mut self, id: u64) -> Option<T> {
+        self.map.remove(&id)
+    }
+}
+
+/// 描画先の作成の入力を、下位の呼び出しの前に照らし、色と深度のバイト数を返す。
+///
+/// 大きさの検査 `validate_offscreen_target_size`（`docs/offscreen-target-check.md`。TASK-374）、色のバイト数、
+/// 深度があれば深度のバイト数の順に、共通の crate の関数をそのまま呼ぶ。エラーはその値のまま返す。
+/// `create_offscreen_target`・`create_offscreen_target_with_depth` が Metal の呼び出しの前に通す。
+#[cfg(feature = "graphics")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn offscreen_target_plan(
+    width: u32,
+    height: u32,
+    max_texture_size: u32,
+    color: fandhe_silicon_core::graphics::PixelFormat,
+    depth: Option<fandhe_silicon_core::graphics::DepthFormat>,
+) -> Result<(u64, Option<u64>), ContractError> {
+    use fandhe_silicon_core::graphics::{
+        depth_format_bytes, offscreen_target_bytes, pixel_format_bytes,
+        validate_offscreen_target_size,
+    };
+    validate_offscreen_target_size(width, height, max_texture_size)?;
+    let color_bytes = offscreen_target_bytes(width, height, pixel_format_bytes(color))?;
+    let depth_bytes = match depth {
+        Some(format) => Some(offscreen_target_bytes(
+            width,
+            height,
+            depth_format_bytes(format),
+        )?),
+        None => None,
+    };
+    Ok((color_bytes, depth_bytes))
+}
+
+/// 色の描画先を作り、続けて深度の描画先を作る。深度が失敗したら色を片づけてから深度のエラーを返す。
+///
+/// 色が失敗したときは深度の閉包も `release_color` も呼ばない。`release_color` は色の handle を 1 回だけ受ける。
+/// `create_offscreen_target_with_depth` が使い、device に触らないので Linux の試験でも確かめる。
+#[cfg(feature = "graphics")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn create_pair_or_release<E>(
+    create_color: impl FnOnce() -> Result<RenderTargetHandle, E>,
+    create_depth: impl FnOnce(&RenderTargetHandle) -> Result<RenderTargetHandle, E>,
+    release_color: impl FnOnce(RenderTargetHandle),
+) -> Result<(RenderTargetHandle, RenderTargetHandle), E> {
+    let color = create_color()?;
+    match create_depth(&color) {
+        Ok(depth) => Ok((color, depth)),
+        Err(error) => {
+            release_color(color);
+            Err(error)
+        }
+    }
+}
+
+/// 描画先の部品（`TargetTable`・`offscreen_target_plan`・`create_pair_or_release`）の単体試験。device に触らない。
+#[cfg(all(test, feature = "graphics"))]
+mod offscreen_target_tests {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    use super::*;
+    use fandhe_silicon_core::graphics::{DepthFormat, PixelFormat};
+
+    const MAX: u32 = 16384;
+
+    /// `Drop` の回数を数える資源。
+    struct Counted(Rc<Cell<u32>>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    fn handle(id: u64) -> RenderTargetHandle {
+        RenderTargetHandle::__backend_new(1, id, 1)
+    }
+
+    #[test]
+    fn plan_rejects_zero_and_over_limit_sizes() {
+        for (w, h) in [(0, 720), (1280, 0), (MAX + 1, 1), (1, MAX + 1)] {
+            assert!(matches!(
+                offscreen_target_plan(w, h, MAX, PixelFormat::Rgba8Unorm, None),
+                Err(ContractError::InvalidArgument(_))
+            ));
+            assert!(matches!(
+                offscreen_target_plan(
+                    w,
+                    h,
+                    MAX,
+                    PixelFormat::Rgba8Unorm,
+                    Some(DepthFormat::Depth32Float)
+                ),
+                Err(ContractError::InvalidArgument(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn plan_accepts_the_exact_limit_and_returns_byte_counts() {
+        let plan = offscreen_target_plan(
+            MAX,
+            MAX,
+            MAX,
+            PixelFormat::Rgba32Float,
+            Some(DepthFormat::Depth32Float),
+        );
+        assert_eq!(
+            plan.unwrap(),
+            (
+                u64::from(MAX) * u64::from(MAX) * 16,
+                Some(u64::from(MAX) * u64::from(MAX) * 4)
+            )
+        );
+    }
+
+    #[test]
+    fn plan_returns_the_color_bytes_without_depth() {
+        assert_eq!(
+            offscreen_target_plan(1280, 720, MAX, PixelFormat::Rgba8Unorm, None).unwrap(),
+            (3_686_400, None)
+        );
+    }
+
+    #[test]
+    fn table_issues_ids_from_one_and_never_reuses_them() {
+        let mut table = TargetTable::new();
+        assert_eq!(table.insert('a'), Some(1));
+        assert_eq!(table.insert('b'), Some(2));
+        assert_eq!(table.remove(2), Some('b'));
+        assert_eq!(table.remove(2), None);
+        assert_eq!(table.insert('c'), Some(3));
+        assert_eq!(table.map.len(), 2);
+    }
+
+    #[test]
+    fn table_exhaustion_leaves_the_table_unchanged_and_drops_the_resource_once() {
+        let drops = Rc::new(Cell::new(0));
+        let mut table = TargetTable::new();
+        table.next_id = u64::MAX;
+        assert_eq!(table.insert(Counted(drops.clone())), None);
+        assert_eq!(drops.get(), 1);
+        assert!(table.map.is_empty());
+        assert_eq!(table.next_id, u64::MAX);
+    }
+
+    #[test]
+    fn pair_failure_in_depth_releases_the_color_once_and_returns_the_depth_error() {
+        let drops = Rc::new(Cell::new(0));
+        let table = RefCell::new(TargetTable::new());
+        let released = Cell::new(0);
+        let result = create_pair_or_release(
+            || {
+                let id = table.borrow_mut().insert(Counted(drops.clone())).unwrap();
+                Ok(handle(id))
+            },
+            |_color| Err("depth failed"),
+            |color| {
+                released.set(released.get() + 1);
+                table.borrow_mut().remove(color.__backend_id());
+            },
+        );
+        assert_eq!(result.unwrap_err(), "depth failed");
+        assert_eq!(released.get(), 1);
+        assert!(table.borrow().map.is_empty());
+        assert_eq!(drops.get(), 1);
+    }
+
+    #[test]
+    fn pair_failure_in_color_calls_neither_depth_nor_release() {
+        let called = Cell::new(0);
+        let result = create_pair_or_release(
+            || Err("color failed"),
+            |_color| {
+                called.set(called.get() + 1);
+                Ok(handle(2))
+            },
+            |_color| called.set(called.get() + 10),
+        );
+        assert_eq!(result.unwrap_err(), "color failed");
+        assert_eq!(called.get(), 0);
+    }
+
+    #[test]
+    fn pair_success_returns_both_and_does_not_release() {
+        let released = Cell::new(0);
+        let (color, depth) = create_pair_or_release::<&str>(
+            || Ok(handle(1)),
+            |color| {
+                assert_eq!(color.__backend_id(), 1);
+                Ok(handle(2))
+            },
+            |_color| released.set(released.get() + 1),
+        )
+        .unwrap();
+        assert_eq!((color.__backend_id(), depth.__backend_id()), (1, 2));
+        assert_eq!(released.get(), 0);
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
@@ -2006,6 +2246,17 @@ mod imp {
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
         metal_cache_key,
     };
+    #[cfg(feature = "graphics")]
+    use super::{TargetTable, create_pair_or_release, offscreen_target_plan};
+    #[cfg(feature = "graphics")]
+    use fandhe_silicon_core::execution::ConstantBinding;
+    #[cfg(feature = "graphics")]
+    use fandhe_silicon_core::graphics::{
+        DepthConfig, DepthFormat, GraphicsOps, IndexFormat, PixelFormat, RenderEncoder,
+        ScissorRect, Viewport,
+    };
+    #[cfg(feature = "graphics")]
+    use fandhe_silicon_core::render_target::RenderTargetHandle;
 
     #[cfg(feature = "artifact-inspection")]
     use super::{ARTIFACT_READ_LIMIT, artifact_path_str, read_written_artifact};
@@ -2054,6 +2305,11 @@ mod imp {
         MTLComputePipelineReflection, MTLComputePipelineState, MTLCreateSystemDefaultDevice,
         MTLDataType, MTLDevice, MTLFunction, MTLFunctionConstantValues, MTLLibrary,
         MTLMathFloatingPointFunctions, MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
+    };
+    #[cfg(feature = "graphics")]
+    use objc2_metal::{
+        MTLPixelFormat, MTLStorageMode, MTLTexture, MTLTextureDescriptor, MTLTextureType,
+        MTLTextureUsage,
     };
 
     /// 計画をライブラリのコンパイルのオプションにする。`create_pipeline` から呼ばれる。
@@ -2207,14 +2463,14 @@ mod imp {
         };
         let adapter_name = device.name().to_string();
 
-        Ok(Box::new(MetalDevice::new(
-            id,
-            generation,
-            adapter_name,
-            limits,
-            device,
-            queue,
-        )))
+        let created = MetalDevice::new(id, generation, adapter_name, limits, device, queue);
+        #[cfg(feature = "graphics")]
+        let created = {
+            let mut created = created;
+            created.graphics_enabled = matches!(req.profile, Profile::Graphics);
+            created
+        };
+        Ok(Box::new(created))
     }
 
     /// Metal の背後実装で device を作る入口。
@@ -2360,6 +2616,12 @@ mod imp {
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
         submissions: Mutex<Submissions<Vec<CommandBuffer>>>,
+        /// `Profile::Graphics` で作った device だけ `true`。`graphics()` が `Some` を返す条件。
+        #[cfg(feature = "graphics")]
+        graphics_enabled: bool,
+        /// 描画先のテクスチャの表（色と深度）。テクスチャを作る間は錠を握らない。
+        #[cfg(feature = "graphics")]
+        targets: Mutex<TargetTable<Retained<ProtocolObject<dyn MTLTexture>>>>,
         /// 試験専用。`Some` の間は `commit_records` が確定を遅らせ、ここに溜める（`None` なら従来どおり即確定）。
         /// 確定していないコマンドバッファは完了しないので、登録の時点で未完了の状態を決定的に作れる。
         /// 製品のビルドには存在しない。
@@ -2683,6 +2945,10 @@ mod imp {
                 }),
                 open: Arc::new(OpenEncoders::new()),
                 submissions: Mutex::new(Submissions::new()),
+                #[cfg(feature = "graphics")]
+                graphics_enabled: false,
+                #[cfg(feature = "graphics")]
+                targets: Mutex::new(TargetTable::new()),
                 #[cfg(test)]
                 commit_hold: Mutex::new(None),
             }
@@ -3067,6 +3333,12 @@ mod imp {
         /// `create_pipeline` を持つ `ComputeOps` の実装（この型自身）を返す（TASK-2956 のポインタ）。
         fn compute(&self) -> Option<&dyn ComputeOps> {
             Some(self)
+        }
+
+        /// `Profile::Graphics` で作った device だけが描画の口（この型自身）を返す（TASK-377 のポインタ）。
+        #[cfg(feature = "graphics")]
+        fn graphics(&self) -> Option<&dyn GraphicsOps> {
+            self.graphics_enabled.then_some(self as &dyn GraphicsOps)
         }
 
         fn memory(&self) -> &dyn MemoryOps {
@@ -3922,6 +4194,374 @@ mod imp {
                 })?;
             let (state, _reflection) = self.reflect_function(&function)?;
             self.register_pipeline(state, &layout)
+        }
+    }
+
+    /// 色の形式を Metal の形式に写す。写せない値は下位の呼び出しの前に `Unsupported` で返す。
+    #[cfg(feature = "graphics")]
+    fn metal_color_format(
+        format: PixelFormat,
+        op: &'static str,
+    ) -> Result<MTLPixelFormat, ContractError> {
+        match format {
+            PixelFormat::Rgba8Unorm => Ok(MTLPixelFormat::RGBA8Unorm),
+            PixelFormat::Bgra8Unorm => Ok(MTLPixelFormat::BGRA8Unorm),
+            PixelFormat::Rgba32Float => Ok(MTLPixelFormat::RGBA32Float),
+            _ => Err(ContractError::Unsupported {
+                op,
+                backend: BACKEND,
+            }),
+        }
+    }
+
+    /// 深度の形式を Metal の形式に写す。写せない値は下位の呼び出しの前に `Unsupported` で返す。
+    #[cfg(feature = "graphics")]
+    fn metal_depth_format(
+        format: DepthFormat,
+        op: &'static str,
+    ) -> Result<MTLPixelFormat, ContractError> {
+        match format {
+            DepthFormat::Depth32Float => Ok(MTLPixelFormat::Depth32Float),
+            _ => Err(ContractError::Unsupported {
+                op,
+                backend: BACKEND,
+            }),
+        }
+    }
+
+    /// `Unsupported` を返す。`GraphicsOps` の描画・記録の側のメソッドが、引数を検査せずに返す。
+    #[cfg(feature = "graphics")]
+    fn graphics_unsupported<T>(op: &'static str) -> Result<T, ContractError> {
+        Err(ContractError::Unsupported {
+            op,
+            backend: BACKEND,
+        })
+    }
+
+    #[cfg(feature = "graphics")]
+    impl MetalDevice {
+        /// 描画先の表の錠を取る。表は壊れない更新だけなので、汚れていても中身を使う。
+        fn lock_targets(
+            &self,
+        ) -> MutexGuard<'_, TargetTable<Retained<ProtocolObject<dyn MTLTexture>>>> {
+            self.targets.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// テクスチャを表に入れて識別子を返す。識別子が尽きたら `None`（テクスチャは落ちる）。錠は入れる間だけ取る。
+        fn insert_target(&self, texture: Retained<ProtocolObject<dyn MTLTexture>>) -> Option<u64> {
+            self.lock_targets().insert(texture)
+        }
+
+        /// 2 次元・Private・mip 1・サンプル 1 のテクスチャを 1 つ作る。`create_offscreen_target*` が使う。
+        ///
+        /// 幅と高さは呼び出し側が `offscreen_target_plan` で 1 以上・上限以下に照らした値。
+        /// `usize` に収まらない値と、Metal が作れなかった場合は `None`。
+        fn new_target_texture(
+            &self,
+            pixel_format: MTLPixelFormat,
+            width: u32,
+            height: u32,
+            usage: MTLTextureUsage,
+        ) -> Option<Retained<ProtocolObject<dyn MTLTexture>>> {
+            let width = usize::try_from(width).ok()?;
+            let height = usize::try_from(height).ok()?;
+            let descriptor = MTLTextureDescriptor::new();
+            descriptor.setTextureType(MTLTextureType::Type2D);
+            descriptor.setPixelFormat(pixel_format);
+            // SAFETY: `setWidth` だけを呼ぶ。渡す幅は `offscreen_target_plan` を通した値で、1 以上・上限以下である。
+            // 記述子はこの関数の中だけで持つ。
+            unsafe { descriptor.setWidth(width) };
+            // SAFETY: `setHeight` だけを呼ぶ。渡す高さは `offscreen_target_plan` を通した値で、1 以上・上限以下である。
+            // 記述子はこの関数の中だけで持つ。
+            unsafe { descriptor.setHeight(height) };
+            descriptor.setStorageMode(MTLStorageMode::Private);
+            descriptor.setUsage(usage);
+            self.device.newTextureWithDescriptor(&descriptor)
+        }
+
+        /// 記録先を作らない側のメソッドが返す、拒否の値を載せた記録先。
+        fn rejected_render_encoder(&self, op: &'static str) -> RenderEncoder {
+            RenderEncoder::__backend_new_rejected(
+                self.current_generation(),
+                0,
+                self.id,
+                ContractError::Unsupported {
+                    op,
+                    backend: BACKEND,
+                },
+            )
+        }
+    }
+
+    #[cfg(feature = "graphics")]
+    impl GraphicsOps for MetalDevice {
+        fn create_render_pipeline(
+            &self,
+            _vs: PipelineInput<'_>,
+            _fs: PipelineInput<'_>,
+            _layout: &BindingLayout,
+        ) -> Result<PipelineHandle, ContractError> {
+            graphics_unsupported("create_render_pipeline")
+        }
+
+        fn create_render_pipeline_with_depth(
+            &self,
+            _vs: PipelineInput<'_>,
+            _fs: PipelineInput<'_>,
+            _layout: &BindingLayout,
+            _depth_format: DepthFormat,
+        ) -> Result<PipelineHandle, ContractError> {
+            graphics_unsupported("create_render_pipeline_with_depth")
+        }
+
+        /// 色の描画先（2 次元・Private・mip 1・サンプル 1。用途は RenderTarget と ShaderRead）を 1 つ作る。
+        ///
+        /// 幅・高さが 0 または `limits().max_texture_size` 超えは、Metal を呼ぶ前に `InvalidArgument`。
+        /// 未知の形式は `Unsupported`。Metal が作れなかった場合と識別子が尽きた場合は `AllocationFailed`。
+        fn create_offscreen_target(
+            &self,
+            width: u32,
+            height: u32,
+            format: PixelFormat,
+        ) -> Result<RenderTargetHandle, ContractError> {
+            let op = "create_offscreen_target";
+            let generation = self.drive_and_generation();
+            let (color_bytes, _) =
+                offscreen_target_plan(width, height, self.limits.max_texture_size, format, None)?;
+            let pixel_format = metal_color_format(format, op)?;
+            let failed = || ContractError::AllocationFailed {
+                requested_bytes: color_bytes,
+            };
+            let texture = self
+                .new_target_texture(
+                    pixel_format,
+                    width,
+                    height,
+                    MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead,
+                )
+                .ok_or_else(failed)?;
+            let id = self.insert_target(texture).ok_or_else(failed)?;
+            Ok(RenderTargetHandle::__backend_new(generation, id, self.id))
+        }
+
+        /// 色と深度（Private・RenderTarget）の描画先の組を作る。色は `create_offscreen_target` で作る。
+        ///
+        /// 大きさと形式は、どちらの Metal の呼び出しよりも前に照らす。深度の作成に失敗したら、
+        /// 色を表から外してからエラーを返す。
+        fn create_offscreen_target_with_depth(
+            &self,
+            width: u32,
+            height: u32,
+            color_format: PixelFormat,
+            depth: DepthConfig,
+        ) -> Result<(RenderTargetHandle, RenderTargetHandle), ContractError> {
+            let op = "create_offscreen_target_with_depth";
+            let (_, depth_bytes) = offscreen_target_plan(
+                width,
+                height,
+                self.limits.max_texture_size,
+                color_format,
+                Some(depth.format),
+            )?;
+            metal_color_format(color_format, op)?;
+            let depth_pixel_format = metal_depth_format(depth.format, op)?;
+            let depth_failed = || ContractError::AllocationFailed {
+                requested_bytes: depth_bytes.unwrap_or(0),
+            };
+            create_pair_or_release(
+                || GraphicsOps::create_offscreen_target(self, width, height, color_format),
+                |color| {
+                    let texture = self
+                        .new_target_texture(
+                            depth_pixel_format,
+                            width,
+                            height,
+                            MTLTextureUsage::RenderTarget,
+                        )
+                        .ok_or_else(depth_failed)?;
+                    let id = self.insert_target(texture).ok_or_else(depth_failed)?;
+                    Ok(RenderTargetHandle::__backend_new(
+                        color.__backend_generation(),
+                        id,
+                        self.id,
+                    ))
+                },
+                |color| {
+                    let removed = self.lock_targets().remove(color.__backend_id());
+                    drop(removed);
+                },
+            )
+        }
+
+        fn destroy_offscreen_target(&self, target: RenderTargetHandle) {
+            // 別の device の handle は無視する。自分の表から外すと、テクスチャは最後の参照が落ちて解放される。
+            if target.__backend_device_id() != self.id {
+                return;
+            }
+            let removed = self.lock_targets().remove(target.__backend_id());
+            drop(removed);
+        }
+
+        fn create_render_encoder(&self, _target: &RenderTargetHandle) -> RenderEncoder {
+            self.rejected_render_encoder("create_render_encoder")
+        }
+
+        fn create_render_encoder_with_depth(
+            &self,
+            _target: &RenderTargetHandle,
+            _depth_target: &RenderTargetHandle,
+            _clear_color: [f32; 4],
+        ) -> RenderEncoder {
+            self.rejected_render_encoder("create_render_encoder_with_depth")
+        }
+
+        fn draw(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _pipeline: &PipelineHandle,
+            _vertex_buffer: &BufferHandle,
+            _vertex_count: u32,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("draw")
+        }
+
+        fn draw_ex(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _pipeline: &PipelineHandle,
+            _vertex_buffer: &BufferHandle,
+            _vertex_count: u32,
+            _vertex_constants: &[ConstantBinding<'_>],
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("draw_ex")
+        }
+
+        fn set_pipeline(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _pipeline: &PipelineHandle,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_pipeline")
+        }
+
+        fn set_vertex_buffer(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _slot: u32,
+            _buffer: &BufferHandle,
+            _offset: u64,
+            _size: Option<u64>,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_vertex_buffer")
+        }
+
+        fn set_index_buffer(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _buffer: &BufferHandle,
+            _format: IndexFormat,
+            _offset: u64,
+            _size: Option<u64>,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_index_buffer")
+        }
+
+        fn set_immediates(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _offset: u32,
+            _data: &[u8],
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_immediates")
+        }
+
+        fn set_viewport(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _viewport: Viewport,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_viewport")
+        }
+
+        fn set_scissor_rect(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _rect: ScissorRect,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_scissor_rect")
+        }
+
+        fn set_blend_constant(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _color: [f32; 4],
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_blend_constant")
+        }
+
+        fn set_stencil_reference(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _reference: u32,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("set_stencil_reference")
+        }
+
+        fn draw_mesh_tasks(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _group_count: [u32; 3],
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("draw_mesh_tasks")
+        }
+
+        fn draw_mesh_tasks_indirect(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _indirect: &BufferHandle,
+            _indirect_offset: u64,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("draw_mesh_tasks_indirect")
+        }
+
+        fn multi_draw_mesh_tasks_indirect(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _indirect: &BufferHandle,
+            _indirect_offset: u64,
+            _count: u32,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("multi_draw_mesh_tasks_indirect")
+        }
+
+        fn multi_draw_mesh_tasks_indirect_count(
+            &self,
+            _encoder: &mut RenderEncoder,
+            _indirect: &BufferHandle,
+            _indirect_offset: u64,
+            _count_buffer: &BufferHandle,
+            _count_offset: u64,
+            _max_count: u32,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("multi_draw_mesh_tasks_indirect_count")
+        }
+
+        fn submit_render(
+            &self,
+            _encoder: RenderEncoder,
+            _wait: &[ImportedSemaphoreHandle],
+        ) -> Result<SubmitToken, ContractError> {
+            graphics_unsupported("submit_render")
+        }
+
+        fn copy_target_to_buffer(
+            &self,
+            _encoder: &mut CommandEncoder,
+            _target: &RenderTargetHandle,
+            _dst: &BufferHandle,
+            _dst_offset: u64,
+        ) -> Result<(), ContractError> {
+            graphics_unsupported("copy_target_to_buffer")
         }
     }
 
