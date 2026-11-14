@@ -225,7 +225,8 @@ pub enum CompletionState {
     Pending,
     /// 完了した。
     Complete,
-    /// device の喪失で完了しない。
+    /// 完了しない（完了を報告できない）。device の喪失のほか、そのキューが発行していないトークン
+    /// （別の device のトークンを含む）や、背後実装が投入の完了を確かめられないときにも返す。
     Lost,
 }
 
@@ -239,7 +240,7 @@ pub enum CompletionStateEx {
     Complete,
     /// 実行時にエラーが起きた。
     RuntimeError,
-    /// device の喪失で完了しない。
+    /// 完了しない（完了を報告できない）。device の喪失のほか、別の device のトークンにも返す。
     Lost,
     /// 状態が分からない。
     Unknown,
