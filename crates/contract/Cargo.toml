@@ -104,6 +104,10 @@ name = "backend_metal_fault"
 required-features = ["backend-metal", "fault-injection"]
 
 [[test]]
+name = "backend_metal_offscreen_target"
+required-features = ["backend-metal", "graphics"]
+
+[[test]]
 name = "backend_metal_request"
 required-features = ["backend-metal"]
 

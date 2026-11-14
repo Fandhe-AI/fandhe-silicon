@@ -57,8 +57,34 @@ cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targ
 cargo test -p fandhe-silicon-contract --all-features --test backend_metal_unsafe_count --test backend_metal_no_recording
 ```
 
+## device の要る試験（2/3）
+
+どの試験も Metal の device に触るので `#[ignore]` を付けてあり、専用の実機の回でだけ流す。
+
+| 所在 | 試験 | 確かめる動き |
+| ---- | ---- | ------------ |
+| `src/backend_metal.rs` の `imp::offscreen_target_device_tests` | `color_target_has_the_expected_texture_shape` | `create_offscreen_target(1280, 720, Rgba8Unorm)` のテクスチャが、幅 1280・高さ 720・`RGBA8Unorm`・`Private`・`RenderTarget \| ShaderRead`・`Type2D`・mip 1・サンプル 1 |
+| 同上 | `color_and_depth_targets_have_the_expected_texture_shapes` | `create_offscreen_target_with_depth` が 2 つの描画先を返し、深度が幅 1280・高さ 720・`Depth32Float`・`Private`・`RenderTarget`・`Type2D`・mip 1・サンプル 1、色が単独に作った描画先と同じ形で、識別子が違う |
+| `tests/backend_metal_offscreen_target.rs` | `graphics_device_creates_a_target_owned_by_the_same_device` | `Profile::Graphics` の device の `graphics()` が `Some` で、作った handle の device の識別子と世代が、同じ device の `allocate` の handle の値と等しい |
+| 同上 | `graphics_device_creates_color_and_depth_targets_with_distinct_ids` | 深度つきの作成が `Ok((色, 深度))` を返し、識別子が違い、device の識別子と世代が等しい |
+| 同上 | `compute_only_device_has_no_graphics_ops` | `Profile::ComputeOnly` の device の `graphics()` が `None` |
+
+形を読む口は、試験の module の外の `imp` の中にある値の型 `TargetShape` と `MetalDevice::target_shape` で、`#[cfg(all(test, feature = "graphics"))]` の下にだけある。公開の面と製品のビルドには出ない。
+
+### 確かめ方（2/3）
+
+macOS で、device を使わずに数だけ確かめる（`--ignored` は付けない）:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal,graphics --test backend_metal_offscreen_target
+cargo test -p fandhe-silicon-contract --features backend-metal,graphics --lib offscreen_target_device_tests
+```
+
+前者は `3 ignored`、後者は `2 ignored` の形で通る。Linux では統合試験のファイルが 0 件になり、crate の中の module はコンパイルされない。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 描画先の作成と描画の口 | #4581 |
+| 2/3 | device の要る試験 | #4582 |
