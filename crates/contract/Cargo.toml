@@ -114,6 +114,10 @@ name = "backend_metal_request"
 required-features = ["backend-metal"]
 
 [[test]]
+name = "backend_metal_request_no_fallback"
+required-features = ["backend-metal", "fault-injection"]
+
+[[test]]
 name = "backend_vulkan_spirv_operands"
 required-features = ["backend-vulkan", "test-support"]
 
