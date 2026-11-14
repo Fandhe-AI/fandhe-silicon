@@ -24,9 +24,9 @@ fn request(backend: BackendKind) -> DeviceRequest {
 
 /// 3 つの背後実装の数（macOS 以外では Metal の欄は 0 のまま）。
 fn counts() -> [u64; 3] {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "backend-metal"))]
     let metal = fandhe_silicon_contract::backend_metal::request_call_count();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", feature = "backend-metal")))]
     let metal = 0;
     [
         metal,
@@ -118,7 +118,7 @@ fn each_backend_counts_only_its_own_provider_requests() {
         expect_one_more(2, label, call, request(BackendKind::Vulkan));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "backend-metal"))]
     {
         use fandhe_silicon_contract::backend_metal;
         let metal: [(&str, RequestFn); 3] = [
