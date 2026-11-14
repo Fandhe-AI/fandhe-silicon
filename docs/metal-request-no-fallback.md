@@ -24,7 +24,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ---- | ---- | ------------ |
 | `other_backends_with_graphics_or_cpu_only_are_invalid_combinations` | 両方 | `Vulkan`・`Cuda`・`Dx12Compute` と `Graphics`・`CpuOnly`（`ProductIndependent`）の全組 | どれも `InvalidCombination` |
 | `metal_graphics_passes_the_checks_in_a_graphics_build`（feature `graphics`） | `MetalDefaultDeviceNoneProvider` | `Metal`・`Graphics`・`ProductIndependent` | `DeviceUnavailable`（検査を通って device の取得まで進む） |
-| `failures_reach_both_policies_as_is_without_another_backend_request` | 両方 | `Metal`・`ComputeOnly`（差し込み）と `Vulkan`・`ComputeOnly`（検査の失敗） | 失敗の値が 2 つの利用コードの模擬へそのまま届き、試験の中の別の背後実装の provider の呼び出しの数が 0。最後に自分で呼ぶと 1 になる |
+| `failures_reach_both_policies_as_is` | 両方 | `Metal`・`ComputeOnly`（差し込み）と `Vulkan`・`ComputeOnly`（検査の失敗） | 失敗の値が 2 つの利用コードの模擬へそのまま届く（観測するのは返り値のエラーの伝播だけ） |
 | `the_metal_source_names_no_other_backend_provider` | なし | `crates/contract/src/backend_metal.rs` のソース | `VulkanDeviceProvider`・`CudaDeviceProvider`・`backend_vulkan`・`backend_cuda` を含まない |
 
 エラーの照合は値の種類だけ（`matches!`）。

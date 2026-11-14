@@ -5,8 +5,6 @@
 
 #![cfg(target_os = "macos")]
 
-use std::cell::Cell;
-
 use fandhe_silicon_contract::backend_metal::{MetalDefaultDeviceNoneProvider, MetalDeviceProvider};
 use fandhe_silicon_core::capability::BackendKind;
 use fandhe_silicon_core::device::{
@@ -67,25 +65,6 @@ fn metal_graphics_passes_the_checks_in_a_graphics_build() {
     assert!(matches!(e, ContractError::DeviceUnavailable(_)), "{e:?}");
 }
 
-thread_local! {
-    /// 別の背後実装の provider（試験の中の偽物）の `request` が呼ばれた回数。試験ごとのスレッドで数える。
-    static OTHER_REQUESTS: Cell<usize> = const { Cell::new(0) };
-}
-
-/// 別の背後実装を名乗る偽の provider。呼ばれた回数を数え、必ず失敗を返す。
-struct CountingOtherProvider;
-
-impl DeviceProvider for CountingOtherProvider {
-    fn request(_req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
-        OTHER_REQUESTS.with(|n| n.set(n.get() + 1));
-        Err(ContractError::DeviceUnavailable("counting provider".into()))
-    }
-}
-
-fn other_requests() -> usize {
-    OTHER_REQUESTS.with(Cell::get)
-}
-
 /// fail-fast の利用コードの模擬。`request` の `Err` をそのまま返す。
 fn fail_fast<P: DeviceProvider>(req: DeviceRequest) -> Result<Box<dyn Device>, ContractError> {
     P::request(req)
@@ -108,9 +87,9 @@ fn degrade<P: DeviceProvider>(req: DeviceRequest, events: &mut Vec<ContractError
     }
 }
 
-/// ERR-57。差し込みの失敗と検査の失敗は、2 つの利用コードへ値のまま届き、別の背後実装の `request` は呼ばれない。
+/// ERR-57。差し込みの失敗と検査の失敗は、2 つの利用コードへ値のまま届く（観測できるのは返り値のエラーの伝播だけ。別の背後実装を呼ばないことはソースの走査の試験で確かめる）。
 #[test]
-fn failures_reach_both_policies_as_is_without_another_backend_request() {
+fn failures_reach_both_policies_as_is() {
     let unavailable = || request(BackendKind::Metal, Profile::ComputeOnly);
     let mismatch = || request(BackendKind::Vulkan, Profile::ComputeOnly);
 
@@ -133,16 +112,6 @@ fn failures_reach_both_policies_as_is_without_another_backend_request() {
     assert!(matches!(events[0], ContractError::DeviceUnavailable(_)));
     assert!(matches!(events[1], ContractError::InvalidCombination(_)));
     assert_eq!(events.len(), 2);
-
-    assert_eq!(other_requests(), 0);
-
-    // 数える仕組みそのものの確かめ: 利用コードが自分で呼んだときだけ数が増える。
-    let e = expect_err(fail_fast::<CountingOtherProvider>(request(
-        BackendKind::Vulkan,
-        Profile::ComputeOnly,
-    )));
-    assert!(matches!(e, ContractError::DeviceUnavailable(_)), "{e:?}");
-    assert_eq!(other_requests(), 1);
 }
 
 /// ERR-57。Metal の背後実装のソースは、ほかの背後実装の provider と module を名指ししない。
