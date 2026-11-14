@@ -7,7 +7,7 @@ fandhe-silicon は、fandhe-ai・vector-db・fandhe-3d で共用する独立し�
 wgpu を依存関係から外せる状態を目指す。
 
 - 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) 由来（Makefile → `scripts/`・lefthook・CI）
-- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics`・`artifact-inspection` の裏に試験・故障の差し込み・描画・成果物の検査の口の module を持つ）
+- 実装言語は Rust（edition 2024・stable）。workspace は spec D-33 の 3 段 + 共通 crate に対応する 4 crate + wasm32 向けの cdylib `wasm-abi` の骨格（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` と Vulkan の依存 `ash` だけ・全 crate `publish = false`。`core` は条件なしで共通の型の module（`hash`・`execution`・`capability`・`texture_format`・`texture_format_features` など。一覧は構成ツリーの `core/` の行）を公開し、`test-support`・`fault-injection`・`graphics`・`artifact-inspection` の裏に試験・故障の差し込み・描画・成果物の検査の口の module を持つ）
 - 本リポは **public**、仕様・フェーズ文書は **private** の `Fandhe-AI/fandhe-silicon-spec`（`docs/spec` submodule。`update = none`）
 - ライセンスは MIT OR Apache-2.0
 
@@ -23,7 +23,7 @@ fandhe-silicon/
 ├── public-name-check.conf    # public-name-check の語の一覧（`--config` で渡す）
 ├── public-api-webgpu-check.conf  # public-api-webgpu-check の語の一覧と、関数の名前の節 `[submit-token-ops]`（`--config` で渡す）
 ├── deny.toml                 # cargo-deny（ライセンス・ソース・wgpu 系の禁止。baseline-wgpu/deny.toml は禁止を外した別 workspace 用）
-├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。今は 5 件）
+├── deps-approved.toml        # 依存の承認の記録（deps-check が検査。今は 6 件）
 ├── Makefile                  # scripts/ を呼ぶだけの薄い入口（make help）（編集方針: .claude/rules/makefile.md）
 ├── lefthook.yml              # pre-commit / commit-msg（方針: .claude/rules/git-hooks.md）
 ├── skills-lock.json          # エージェントスキルの取得元・ハッシュ（update-external で日次追従）
@@ -203,7 +203,7 @@ fandhe-silicon/
 ├── docs/cuda-device-reach.md  # CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 70ab958）
 ├── docs/cuda-create-pipeline-checked.md  # CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/cuda-upload-download.md  # CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
-├── docs/vulkan-device-request.md  # Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）
+├── docs/vulkan-device-request.md  # Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
 ├── docs/session-record.example.json  # 回ごとの記録のダミーの記入例（session-record-check の回帰テストが合格を確かめる）
 ├── docs/run-record.example.json  # run ごとの記録のダミーの記入例（書き出しの実物とバイト一致。perf-record-check の回帰テストが合格を確かめる）

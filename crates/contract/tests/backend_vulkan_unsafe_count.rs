@@ -12,7 +12,10 @@ const EXPECTED: &[ExpectedFile] = &[
     ExpectedFile {
         path: "src/backend_vulkan.rs",
         source: include_str!("../src/backend_vulkan.rs"),
-        expected: UnsafeCounts::ZERO,
+        expected: UnsafeCounts {
+            block: 11,
+            ..UnsafeCounts::ZERO
+        },
     },
     ExpectedFile {
         path: "src/backend_vulkan/spirv_operands.rs",

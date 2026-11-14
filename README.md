@@ -5,7 +5,7 @@ fandhe-ai・vector-db・fandhe-3d で共用する、独立した低レイヤー�
 Metal・Vulkan・CUDA を背後実装とし、wgpu を依存関係から外せる状態を目指します。
 
 開発基盤は [Fandhe-AI/template-dev](https://github.com/Fandhe-AI/template-dev) から作成しています。
-実装言語は Rust（edition 2024・stable）で、workspace と crate の骨格の上に、共通の型と Metal と CUDA の背後実装の一部を置いています（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` だけ）。
+実装言語は Rust（edition 2024・stable）で、workspace と crate の骨格の上に、共通の型と Metal と CUDA と Vulkan の背後実装の一部を置いています（外部依存は `crates/contract` の macOS 向けの Metal の依存と、wasm32 以外の CUDA の依存 `cudarc` と Vulkan の依存 `ash` だけ）。
 
 ## 仕様（`docs/spec`）
 
@@ -235,7 +235,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-device-reach.md` | CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 70ab958） |
 | `docs/cuda-create-pipeline-checked.md` | CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/cuda-upload-download.md` | CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
-| `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5） |
+| `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
 | `docs/run-record.example.json` | run ごとの記録のダミーの記入例（値はすべてダミー。書き出しの実物と一致） |
 | `docs/spec/` | 仕様・フェーズ文書（private の submodule。前述の「仕様」） |

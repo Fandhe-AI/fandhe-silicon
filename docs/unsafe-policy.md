@@ -226,3 +226,11 @@ worktree のルートで実行する。
 | 前の補い（base ae152fb）の `measure/crates/metal-gemm-arm` の行（表は `src/metal.rs` の 1 行だけで block 15・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 21 行目） | block 15・ほか 0 → block 15・fn 1・ほか 0（`unsafe fn` は `run_g5`。表は今も `src/metal.rs` の 1 行だけ）。`#[allow(unsafe_code)]` は 21 行目 → 25 行目（直後の 26 行目が `mod metal;`）。テストは今も 5 件 | `grep -n 'const EXPECTED' measure/crates/metal-gemm-arm/tests/unsafe_count.rs`、`grep -n 'allow(unsafe_code)' measure/crates/metal-gemm-arm/src/lib.rs`、`cargo test --offline --manifest-path measure/Cargo.toml -p measure-metal-gemm-arm --test unsafe_count`（5 passed） |
 | 前の補い（base 55fd9c1）の「個数テスト」の行の `baseline-wgpu/crates/gemm-arm` の分（表は `src/bridge.rs` の 1 行だけで block 1・ほか 0、`#[allow(unsafe_code)]` は `src/lib.rs` の 10 行目） | block 1・ほか 0 → block 10・fn 2・ほか 0（`unsafe fn` は `run_g2`・`run_g3prime`。表は今も `src/bridge.rs` の 1 行だけ）。`#[allow(unsafe_code)]` は 10 行目 → 17 行目（直後の 18 行目が `mod bridge;`）。テストは今も 7 件 | `sed -n '/^const EXPECTED/,/^)\];/p' baseline-wgpu/crates/gemm-arm/tests/unsafe_count.rs`、`grep -n 'allow(unsafe_code)' baseline-wgpu/crates/gemm-arm/src/lib.rs`、`cargo test --offline --manifest-path baseline-wgpu/Cargo.toml -p baseline-wgpu-gemm-arm --test unsafe_count`（7 passed） |
 | 前の補い（base 55fd9c1）の「`#[allow(unsafe_code)]` は腕の crate ごとに `src/lib.rs` の 1 箇所」 | `src/lib.rs` の 1 箇所 → `src/lib.rs` の 1 箇所に加えて、`unsafe fn` を呼ぶ `#[ignore]` 付きの device の試験ファイルの先頭（8 行目）にも `#![allow(unsafe_code)]` がある。`measure/crates/metal-gemm-arm/tests/gate_g5.rs`・`baseline-wgpu/crates/gemm-arm/tests/gate_external.rs`・`baseline-wgpu/crates/gemm-arm/tests/gate_prime.rs` | `grep -n 'allow(unsafe_code)' measure/crates/metal-gemm-arm/tests/gate_g5.rs baseline-wgpu/crates/gemm-arm/tests/gate_external.rs baseline-wgpu/crates/gemm-arm/tests/gate_prime.rs` |
+
+## 今の値の補い（base 986bbeb）
+
+記録時点の表と既存の節は書き換えない。以下は base `986bbeb` の上で観測した今の値。
+
+| 箇所 | 前の値 → 今の値 |
+| ---- | --------------- |
+| 所在の表の「外部依存」の行 | Metal は macOS 向けに `objc2` 系の 4 件、CUDA は wasm32 以外に `cudarc` の 1 件 → 加えて Vulkan は wasm32 以外に `ash` の 1 件（`deps-approved.toml`）。ほかの crate は 0 件 |
