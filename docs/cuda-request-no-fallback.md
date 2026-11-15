@@ -37,8 +37,26 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 
 2 本を流す。
 
+## ほかの背後実装の provider を呼ばないことの試験（2/3）
+
+CUDA の `request` の失敗の後に、Vulkan の provider（macOS かつ `backend-metal` のビルドでは Metal の provider も）の `request` が呼ばれないことを、`request_call_count`（TASK-277 で足した口）で照らす。device に触らない入口だけを使う。
+
+| 試験 | 入口 | 入力 | 確かめること |
+| ---- | ---- | ---- | ------------ |
+| `cuda_request_failures_call_no_other_backend_provider`（`crates/contract/tests/backend_cuda_request_no_other_provider.rs`） | `CudaDriverMissingProvider`・`CudaDeviceProvider`・`VulkanDeviceProvider`（macOS かつ `backend-metal` では `MetalDeviceProvider`） | CUDA の provider に `Cuda`・`Vulkan` の要求（fail-fast の模擬 3 回と縮退の模擬 2 回）、続けて Vulkan・Metal の provider に `Cuda` の要求（検査で拒まれる） | CUDA・Vulkan の数が `[0, 0]` → `[5, 0]` → `[5, 1]`。macOS かつ `backend-metal` のビルドでは Metal の数が 0 → 0 → 1 |
+
+- `[[test]]` の `required-features`: `backend-cuda`・`backend-vulkan`・`fault-injection`（`crates/contract/Cargo.toml`）
+- cfg は `not(target_arch = "wasm32")`。Metal の数は macOS かつ `backend-metal` のビルドでだけ照らす
+- 数は値そのもので照らし、エラーの照合は値の種類だけ（`matches!`）
+
+確かめ方。
+
+- Linux: `cargo test -p fandhe-silicon-contract --features backend-cuda,backend-vulkan,fault-injection --test backend_cuda_request_no_other_provider`
+- macOS: `cargo test -p fandhe-silicon-contract --all-features --test backend_cuda_request_no_other_provider`
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 組み合わせの検査の試験 | #4148 |
+| 2/3 | ほかの背後実装の provider を呼ばないことの試験 | #4149 |

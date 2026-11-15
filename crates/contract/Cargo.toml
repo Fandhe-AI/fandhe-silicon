@@ -94,6 +94,10 @@ name = "backend_cuda_request_combinations"
 required-features = ["backend-cuda", "fault-injection"]
 
 [[test]]
+name = "backend_cuda_request_no_other_provider"
+required-features = ["backend-cuda", "backend-vulkan", "fault-injection"]
+
+[[test]]
 name = "backend_cuda_submit"
 required-features = ["backend-cuda"]
 
