@@ -2,13 +2,19 @@
 //! `make build-profiles` の `test-support` を含む各組で、背後実装の feature に依らず同じ結果になることも確かめる。
 //! 別 crate からのマクロ・端から端の表・背後実装の feature ごとの宣言も確かめる。
 //! 置き場・feature の説明は docs/test-frame.md の「置き場と有効になる条件」。
-//! 背後実装の feature ごとの試験は、走らせない経路でだけ記録の部品を書き出す（走らせる経路では device に触れないので書かない）。
+//! Metal の宣言の試験は、枠が走らせると決めた経路で device を取って照らし、記録の部品を 1 件書き出す（TASK-2945）。
+//! Vulkan・CUDA の宣言の試験は、走らせない経路でだけ記録の部品を書き出す（走らせる経路では device に触れないので書かない）。
 //! 環境変数 `FANDHE_SILICON_TEST_RECORD_DIR` が未設定なら何も書かず、設定されていれば（`make verify` が渡す）、
 //! 機材の無い環境では宣言した組み合わせごとの「未実施」の部品が書かれる。
 
+#[cfg(feature = "backend-metal")]
+use fandhe_silicon_core::capability::BackendKind;
+use fandhe_silicon_core::device::{Device, DeviceDiagnostics};
+use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::test_frame::{
-    Backend, COMBINATION_ENV, Decision, Declaration, ExportError, MachineCombination, NotRunReason,
-    Outcome, RECORD_DIR_ENV, RunResult, RunSetting, Subject, decide, judge_and_export_with,
+    Backend, COMBINATION_ENV, Decision, Declaration, ExportError, Machine, MachineCombination,
+    NotRunReason, Outcome, RECORD_DIR_ENV, RunResult, RunSetting, Subject, decide,
+    judge_and_export_with, on_acquired_device,
 };
 use std::ffi::OsString;
 
@@ -202,11 +208,7 @@ where
 
 /// 背後実装の feature を持つ組でだけ使う補助。プロセスの環境で `export_when_not_run` を呼ぶ。
 /// 書き出しの失敗は握りつぶさず試験の失敗にする。
-#[cfg(any(
-    feature = "backend-metal",
-    feature = "backend-vulkan",
-    feature = "backend-cuda"
-))]
+#[cfg(any(feature = "backend-vulkan", feature = "backend-cuda"))]
 fn declares_and_exports(test_id: &str, backend: Backend) {
     export_when_not_run(
         |n| std::env::var_os(n),
@@ -217,11 +219,218 @@ fn declares_and_exports(test_id: &str, backend: Backend) {
     .expect("exporting the record parts must succeed");
 }
 
+/// 背後実装の組み合わせだけを宣言し、枠が走らせると決めたら `acquire` で device を取って照らしてから `body` を呼ぶ。
+/// どの経路でも記録の部品を書き出す（走らせない経路は宣言した組み合わせごとに 1 件、走らせる経路は 1 件）。
+fn export_with_device<L, A, M, B>(
+    lookup: L,
+    test_id: &str,
+    backend: Backend,
+    setting: &RunSetting,
+    acquire: A,
+    machine_of: M,
+    body: B,
+) -> Result<Outcome, ExportError>
+where
+    L: Fn(&str) -> Option<OsString>,
+    A: FnOnce(MachineCombination) -> Result<Box<dyn Device>, ContractError>,
+    M: FnOnce(&DeviceDiagnostics) -> Option<Machine>,
+    B: FnOnce(MachineCombination, &dyn Device) -> RunResult,
+{
+    let s = Subject::from_parts(test_id, &["BUILD-54"], &[]).unwrap();
+    let cs: Vec<MachineCombination> = MachineCombination::ALL
+        .into_iter()
+        .filter(|c| c.backend() == backend)
+        .collect();
+    let d = Declaration::from_parts(&cs, &[]).unwrap();
+    judge_and_export_with(lookup, &s, &d, setting, |c| {
+        on_acquired_device(c, acquire, machine_of, body)
+    })
+}
+
+/// 取った device でバッファを確保し、書いたバイト列を読み戻して比べる本体。
+#[cfg(feature = "backend-metal")]
+fn round_trip(_: MachineCombination, device: &dyn Device) -> RunResult {
+    use fandhe_silicon_core::memory::BufferUsage;
+    use fandhe_silicon_core::test_frame::Verdict;
+    let memory = device.memory();
+    let payload: Vec<u8> = (0..64_u8).collect();
+    let usage = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
+    let Ok(handle) = memory.allocate(64, usage) else {
+        return RunResult::Verdict(Verdict::Mismatch);
+    };
+    let matched = memory.upload(&handle, 0, &payload).is_ok() && {
+        let (tx, rx) = std::sync::mpsc::channel();
+        memory.download_async(
+            &handle,
+            0,
+            64,
+            Box::new(move |r| {
+                let _ = tx.send(r);
+            }),
+        );
+        matches!(
+            rx.recv_timeout(std::time::Duration::from_secs(10)),
+            Ok(Ok(back)) if back == payload
+        )
+    };
+    memory.free(handle);
+    RunResult::Verdict(Verdict::from_match(matched))
+}
+
+#[cfg(all(feature = "backend-metal", target_os = "macos"))]
+fn acquire_metal(_: MachineCombination) -> Result<Box<dyn Device>, ContractError> {
+    use fandhe_silicon_contract::backend_metal::MetalDeviceProvider;
+    use fandhe_silicon_core::device::DeviceProvider;
+    MetalDeviceProvider::request(compute_request(BackendKind::Metal))
+}
+
+/// macOS 以外のビルドには Metal の provider が無いので、device は取れない（機材に届かない）。
+#[cfg(all(feature = "backend-metal", not(target_os = "macos")))]
+fn acquire_metal(_: MachineCombination) -> Result<Box<dyn Device>, ContractError> {
+    Err(ContractError::DeviceUnavailable(
+        "metal is not built for this target".into(),
+    ))
+}
+
+/// Metal の device の診断の値を機材の呼び名に写す。
+/// 背後実装の名前と adapter の名前の完全一致だけを写し、ほかの値はどれも `None`（device の食い違い）にする。
+/// adapter の名前 "Apple M4" は機材 `MacMini` の診断値の写しで、機材の adapter の名前が違えば実機の試験は
+/// 失敗でなく判定不能（device-mismatch）になる。機材が変わったらこの写しを直す。
+#[cfg(feature = "backend-metal")]
+fn metal_machine(d: &DeviceDiagnostics) -> Option<Machine> {
+    (d.backend_name == "metal" && d.adapter_name == "Apple M4").then_some(Machine::MacMini)
+}
+
+/// device を取る関数の型（試験の中で差し替える）。
+#[cfg(feature = "backend-metal")]
+type Acquire = fn(MachineCombination) -> Result<Box<dyn Device>, ContractError>;
+
+#[cfg(feature = "backend-metal")]
+fn compute_request(backend: BackendKind) -> fandhe_silicon_core::device::DeviceRequest {
+    use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
+    DeviceRequest {
+        backend,
+        profile: Profile::ComputeOnly,
+        ownership: DeviceOwnership::ProductIndependent,
+    }
+}
+
 #[cfg(feature = "backend-metal")]
 #[test]
 fn metal_test_declares_on_the_frame() {
     declares_and_runs_only_on(Backend::Metal);
-    declares_and_exports(METAL_EXPORT_ID, Backend::Metal);
+    let o = export_with_device(
+        |n| std::env::var_os(n),
+        METAL_EXPORT_ID,
+        Backend::Metal,
+        &RunSetting::from_env(),
+        acquire_metal,
+        metal_machine,
+        round_trip,
+    )
+    .expect("exporting the record parts must succeed");
+    assert!(!o.label().fails_test(), "{:?}", o.label());
+}
+
+/// 本物の試験と同じ口・同じ写しに、試験用の device と取れない device を通す（device には触らない）。
+#[cfg(feature = "backend-metal")]
+#[test]
+fn the_device_path_writes_one_indeterminate_part_when_the_device_does_not_match_or_is_unreachable()
+{
+    use fandhe_silicon_core::device::DeviceProvider;
+    use fandhe_silicon_core::stub_device::StubDeviceProvider;
+    let st = RunSetting::from_lookup(|n| {
+        (n == COMBINATION_ENV).then(|| OsString::from("metal-mac-mini"))
+    });
+    let cases: [(Acquire, &str); 2] = [
+        (
+            |_| StubDeviceProvider::request(compute_request(BackendKind::Metal)),
+            "device-mismatch",
+        ),
+        (
+            |_| Err(ContractError::DeviceUnavailable("none".into())),
+            "machine-unreachable",
+        ),
+    ];
+    for (i, (acquire, reason)) in cases.into_iter().enumerate() {
+        let dir = temp_dir(&format!("device-{i}"));
+        let dir_value = OsString::from(dir.as_os_str());
+        let o = export_with_device(
+            |n| (n == RECORD_DIR_ENV).then(|| dir_value.clone()),
+            "device_path_check",
+            Backend::Metal,
+            &st,
+            acquire,
+            metal_machine,
+            |_, _| unreachable!("the body must not run on a device that does not match"),
+        )
+        .unwrap();
+        assert_eq!(o.ran_on(), Some(MachineCombination::MetalMacMini));
+        assert_eq!(file_count(&dir), 1);
+        let json =
+            std::fs::read_to_string(dir.join("device_path_check.metal-mac-mini.json")).unwrap();
+        assert!(json.contains(r#""label":"indeterminate""#), "{json}");
+        assert!(
+            json.contains(&format!(r#""label_reason":"{reason}""#)),
+            "{json}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[test]
+fn the_device_path_does_not_acquire_when_the_frame_does_not_run() {
+    let dir = temp_dir("device-not-run");
+    let dir_value = OsString::from(dir.as_os_str());
+    let o = export_with_device(
+        |n| (n == RECORD_DIR_ENV).then(|| dir_value.clone()),
+        "device_path_not_run",
+        Backend::Metal,
+        &RunSetting::from_lookup(|_| None),
+        |_| unreachable!("acquire must not run when the frame decided not to run"),
+        |_| unreachable!("the map must not run when the frame decided not to run"),
+        |_, _| unreachable!("the body must not run when the frame decided not to run"),
+    )
+    .unwrap();
+    assert_eq!(o.ran_on(), None);
+    assert_eq!(
+        file_count(&dir),
+        MachineCombination::ALL
+            .into_iter()
+            .filter(|c| c.backend() == Backend::Metal)
+            .count()
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 初期化の失敗を差し込む Metal の provider を通すと、機材に届かない判定不能になる（device には触らない）。
+#[cfg(all(
+    feature = "backend-metal",
+    feature = "fault-injection",
+    target_os = "macos"
+))]
+#[test]
+fn an_injected_metal_request_failure_is_machine_unreachable() {
+    use fandhe_silicon_contract::backend_metal::MetalDefaultDeviceNoneProvider;
+    use fandhe_silicon_core::device::DeviceProvider;
+    use fandhe_silicon_core::test_frame::{IndeterminateReason, Label};
+    let st = RunSetting::from_lookup(|n| {
+        (n == COMBINATION_ENV).then(|| OsString::from("metal-mac-mini"))
+    });
+    let o = export_with_device(
+        |_| None,
+        "device_path_injected",
+        Backend::Metal,
+        &st,
+        |_| MetalDefaultDeviceNoneProvider::request(compute_request(BackendKind::Metal)),
+        metal_machine,
+        |_, _| unreachable!("the body must not run when the device was not acquired"),
+    )
+    .unwrap();
+    assert_eq!(
+        o.label(),
+        &Label::Indeterminate(IndeterminateReason::MachineUnreachable)
+    );
 }
 
 #[cfg(feature = "backend-vulkan")]
@@ -296,7 +505,7 @@ fn backend_tag(b: Backend) -> &'static str {
 
 #[test]
 fn a_run_path_writes_no_record_and_a_not_run_path_writes_one_per_declared_combination() {
-    for backend in [Backend::Metal, Backend::Vulkan, Backend::Cuda] {
+    for backend in [Backend::Vulkan, Backend::Cuda] {
         let declared = MachineCombination::ALL
             .into_iter()
             .filter(|c| c.backend() == backend)
