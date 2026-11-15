@@ -51,16 +51,25 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use fandhe_silicon_core::capability::BackendKind;
+use fandhe_silicon_core::capability::{
+    BackendKind, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
+};
+use fandhe_silicon_core::capability_table::{FeatureRow, UNLISTED_FEATURE_QUERY, query_from_table};
 #[cfg(feature = "fault-injection")]
 use fandhe_silicon_core::device_lost::LostCallback;
 #[cfg(feature = "fault-injection")]
 use fandhe_silicon_core::error::DeviceLostReason;
+use fandhe_silicon_core::error::UnsupportedReason;
 use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
 use fandhe_silicon_core::execution::{
     __BackendSharedEncoderCloser, CacheKey, DType, FunctionConstant, FunctionConstantValue,
     GpuTiming, ImportedSemaphoreHandle, MslFloatFunctions, MslMathMode, OperandBinding,
     OperandConstant, OperandSpec, PipelineInput, SubmitToken, validate_dispatch_operands,
+};
+use fandhe_silicon_core::feature_key::{
+    FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX, FEATURE_MAPPABLE_PRIMARY_BUFFERS, FEATURE_SHADER_F16,
+    FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER,
+    FEATURE_TEXTURE_COMPRESSION_ASTC_HDR, FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
 };
 use fandhe_silicon_core::hash::sha256_u64;
 use fandhe_silicon_core::memory::validate_buffer_range;
@@ -2284,6 +2293,315 @@ mod offscreen_target_tests {
     }
 }
 
+/// 能力の判定の材料。device を作るときに 1 回だけ GPU family を問い合わせて捕捉し、
+/// `query`・`query_ex` は読み直さない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MetalCapabilitySnapshot {
+    /// device が満たす Apple の GPU family の最も高い世代（1〜9）。1 つも満たさないときは `None`。
+    apple_family: Option<u8>,
+}
+
+/// family の行が `S2` にならない device で返す値。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotMet {
+    /// 表に行の無い機能 ID と同じ値（`UNLISTED_FEATURE_QUERY`）。
+    Unlisted,
+    /// `Unsupported`（`NotSupported`・`RuntimeApi`）。
+    NotSupported,
+}
+
+/// Metal の能力の表の行の規則。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MetalRule {
+    /// Apple の GPU family の世代が `min` 以上なら `S2`。Apple の family を持ち `min` に届かなければ `below`、
+    /// Apple の family を持たなければ `without_apple` の値。捕捉に失敗していれば `S0`。
+    AppleFamily {
+        min: u8,
+        below: NotMet,
+        without_apple: NotMet,
+    },
+    /// `Unsupported`・`NoApi`（根拠は `evidence`）。捕捉した値を読まない。
+    NoApi {
+        evidence: Option<CapabilityEvidence>,
+    },
+}
+
+/// Metal の能力の表。行の無い鍵は `UNLISTED_FEATURE_QUERY` になる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static METAL_FEATURE_TABLE: [FeatureRow<MetalRule>; 8] = [
+    FeatureRow {
+        feature: FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX,
+        rule: MetalRule::AppleFamily {
+            min: 7,
+            below: NotMet::NotSupported,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Feature Set Tables",
+    },
+    FeatureRow {
+        feature: FEATURE_SHADER_F16,
+        rule: MetalRule::AppleFamily {
+            min: 1,
+            below: NotMet::Unlisted,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Feature Set Tables",
+    },
+    FeatureRow {
+        feature: FEATURE_SUBGROUP,
+        rule: MetalRule::AppleFamily {
+            min: 7,
+            below: NotMet::Unlisted,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Feature Set Tables",
+    },
+    FeatureRow {
+        feature: FEATURE_SUBGROUP_BARRIER,
+        rule: MetalRule::AppleFamily {
+            min: 4,
+            below: NotMet::Unlisted,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Feature Set Tables",
+    },
+    FeatureRow {
+        feature: FEATURE_SHADER_FLOAT32_ATOMIC,
+        rule: MetalRule::AppleFamily {
+            min: 7,
+            below: NotMet::Unlisted,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Shading Language Specification",
+    },
+    FeatureRow {
+        feature: FEATURE_MAPPABLE_PRIMARY_BUFFERS,
+        rule: MetalRule::AppleFamily {
+            min: 1,
+            below: NotMet::NotSupported,
+            without_apple: NotMet::NotSupported,
+        },
+        source: "Metal Feature Set Tables; MTLDevice.supportsFamily",
+    },
+    FeatureRow {
+        feature: FEATURE_TEXTURE_COMPRESSION_ASTC_HDR,
+        rule: MetalRule::AppleFamily {
+            min: 6,
+            below: NotMet::NotSupported,
+            without_apple: NotMet::Unlisted,
+        },
+        source: "Metal Feature Set Tables",
+    },
+    FeatureRow {
+        feature: FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
+        rule: MetalRule::NoApi {
+            evidence: Some(CapabilityEvidence::RuntimeApi),
+        },
+        source: "Metal API reference",
+    },
+];
+
+/// 根拠が実行時の問合せで、`S2` か `Unsupported`（`NotSupported`）の値。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn metal_runtime_decided(supported: bool) -> CapabilityQuery {
+    if supported {
+        CapabilityQuery {
+            level: CapabilityLevel::S2,
+            unsupported_reason: None,
+            evidence: Some(CapabilityEvidence::RuntimeApi),
+        }
+    } else {
+        CapabilityQuery {
+            level: CapabilityLevel::Unsupported,
+            unsupported_reason: Some(UnsupportedReason::NotSupported),
+            evidence: Some(CapabilityEvidence::RuntimeApi),
+        }
+    }
+}
+
+/// `S2` にならない device の値。`metal_evaluate` から呼ばれる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn not_met(v: NotMet) -> CapabilityQuery {
+    match v {
+        NotMet::Unlisted => UNLISTED_FEATURE_QUERY,
+        NotMet::NotSupported => metal_runtime_decided(false),
+    }
+}
+
+/// 1 つの行の規則を捕捉した値に当てる。`snapshot` が `None`（捕捉の失敗）なら、family の行は `S0`。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn metal_evaluate(rule: &MetalRule, snapshot: Option<&MetalCapabilitySnapshot>) -> CapabilityQuery {
+    match *rule {
+        MetalRule::NoApi { evidence } => CapabilityQuery {
+            level: CapabilityLevel::Unsupported,
+            unsupported_reason: Some(UnsupportedReason::NoApi),
+            evidence,
+        },
+        MetalRule::AppleFamily {
+            min,
+            below,
+            without_apple,
+        } => match snapshot {
+            None => CapabilityQuery {
+                level: CapabilityLevel::S0,
+                unsupported_reason: None,
+                evidence: None,
+            },
+            Some(s) => match s.apple_family {
+                Some(g) if g >= min => metal_runtime_decided(true),
+                Some(_) => not_met(below),
+                None => not_met(without_apple),
+            },
+        },
+    }
+}
+
+/// 捕捉した値と表から 1 つの機能の値を決める純粋な関数。下位の API を呼ばない。
+/// `MetalDevice` の `query`・`query_ex` から呼ばれる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn metal_capability_of(
+    snapshot: Option<&MetalCapabilitySnapshot>,
+    feature: FeatureId,
+) -> CapabilityQuery {
+    query_from_table(&METAL_FEATURE_TABLE, feature, |rule| {
+        metal_evaluate(rule, snapshot)
+    })
+}
+
+#[cfg(test)]
+mod capability_tests {
+    //! 能力の表と純粋な関数の確かめ（TASK-173。どの OS でも流れる）。
+    use super::*;
+    use fandhe_silicon_core::capability_table::find_row;
+    use fandhe_silicon_core::feature_key::{
+        FEATURE_EXPERIMENTAL_MESH_SHADER, FEATURE_MULTI_DRAW_INDIRECT_COUNT, FEATURE_QUERY_KEYS,
+        FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+    };
+
+    fn snap(g: Option<u8>) -> MetalCapabilitySnapshot {
+        MetalCapabilitySnapshot { apple_family: g }
+    }
+
+    /// 捕捉の値 5 つ: 捕捉の失敗・Apple の family なし・世代 1・6・9。
+    fn captures() -> [Option<MetalCapabilitySnapshot>; 5] {
+        [
+            None,
+            Some(snap(None)),
+            Some(snap(Some(1))),
+            Some(snap(Some(6))),
+            Some(snap(Some(9))),
+        ]
+    }
+
+    /// 捕捉の失敗は `S0` を返し `Unsupported` を返さない（DEV-83）。
+    /// 世代・family なしの値は閾値と `not_met` に従い、根拠は `RuntimeApi`（DEV-88）、
+    /// `Unsupported` の理由は `NotSupported`（DEV-87）。
+    #[test]
+    fn family_rows_follow_the_family_and_are_s0_when_not_captured() {
+        for row in &METAL_FEATURE_TABLE {
+            if let MetalRule::AppleFamily {
+                min,
+                below,
+                without_apple,
+            } = row.rule
+            {
+                let f = row.feature;
+                for g in [9, min] {
+                    assert_eq!(
+                        metal_capability_of(Some(&snap(Some(g))), f),
+                        metal_runtime_decided(true)
+                    );
+                }
+                if min > 1 {
+                    for g in [min - 1, 1] {
+                        assert_eq!(metal_capability_of(Some(&snap(Some(g))), f), not_met(below));
+                    }
+                }
+                assert_eq!(
+                    metal_capability_of(Some(&snap(None)), f),
+                    not_met(without_apple)
+                );
+                let q = metal_capability_of(None, f);
+                assert_eq!(q.level, CapabilityLevel::S0);
+                assert_eq!(q.unsupported_reason, None);
+                assert_eq!(q.evidence, None);
+            }
+        }
+    }
+
+    #[test]
+    fn no_api_row_returns_no_api() {
+        for s in captures() {
+            let q = metal_capability_of(s.as_ref(), FEATURE_VULKAN_EXTERNAL_MEMORY_FD);
+            assert_eq!(q.level, CapabilityLevel::Unsupported);
+            assert_eq!(q.unsupported_reason, Some(UnsupportedReason::NoApi));
+            assert_eq!(q.evidence, Some(CapabilityEvidence::RuntimeApi));
+        }
+    }
+
+    #[test]
+    fn no_key_returns_s3_or_above() {
+        for &key in FEATURE_QUERY_KEYS {
+            for s in captures() {
+                let q = metal_capability_of(s.as_ref(), key);
+                assert!(
+                    matches!(
+                        q.level,
+                        CapabilityLevel::S0 | CapabilityLevel::S2 | CapabilityLevel::Unsupported
+                    ),
+                    "{key:?} {s:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keys_without_a_row_are_unlisted() {
+        for &key in FEATURE_QUERY_KEYS {
+            if find_row(&METAL_FEATURE_TABLE, key).is_none() {
+                for s in captures() {
+                    assert_eq!(
+                        metal_capability_of(s.as_ref(), key),
+                        UNLISTED_FEATURE_QUERY,
+                        "{key:?} {s:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn three_keys_have_no_row() {
+        for f in [
+            FEATURE_EXPERIMENTAL_MESH_SHADER,
+            FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            FEATURE_MULTI_DRAW_INDIRECT_COUNT,
+        ] {
+            assert!(find_row(&METAL_FEATURE_TABLE, f).is_none(), "{f:?}");
+            assert_eq!(
+                metal_capability_of(Some(&snap(Some(9))), f),
+                UNLISTED_FEATURE_QUERY
+            );
+        }
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn table_passes_the_common_checks() {
+        use fandhe_silicon_core::capability_rule::check_query;
+        for &key in FEATURE_QUERY_KEYS {
+            for g in [None, Some(None), Some(Some(1)), Some(Some(9))] {
+                let s = g.map(snap);
+                check_query(key, metal_capability_of(s.as_ref(), key))
+                    .unwrap_or_else(|e| panic!("{key:?} {g:?}: {e:?}"));
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::collections::HashMap;
@@ -2313,6 +2631,7 @@ mod imp {
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
         metal_cache_key,
     };
+    use super::{MetalCapabilitySnapshot, metal_capability_of};
     #[cfg(feature = "graphics")]
     use super::{TargetTable, create_pair_or_release, offscreen_target_plan};
     use super::{destroy_in_order, run_callbacks};
@@ -2341,9 +2660,7 @@ mod imp {
     use fandhe_silicon_core::device_lost::{DeviceLostNotify, LostCallback};
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::error::DeviceLostReason;
-    use fandhe_silicon_core::error::{
-        CompletionState, CompletionStateEx, ContractError, UnsupportedReason,
-    };
+    use fandhe_silicon_core::error::{CompletionState, CompletionStateEx, ContractError};
     use fandhe_silicon_core::execution::{
         __BackendSharedEncoderCloser, __backend_next_encoder_id, BindingLayout, CacheKey,
         CommandEncoder, CommandQueue, ComputeOps, GpuTiming, ImportedSemaphoreHandle,
@@ -2371,7 +2688,7 @@ mod imp {
         MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
         MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineDescriptor,
         MTLComputePipelineReflection, MTLComputePipelineState, MTLCreateSystemDefaultDevice,
-        MTLDataType, MTLDevice, MTLFunction, MTLFunctionConstantValues, MTLLibrary,
+        MTLDataType, MTLDevice, MTLFunction, MTLFunctionConstantValues, MTLGPUFamily, MTLLibrary,
         MTLMathFloatingPointFunctions, MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
     };
     #[cfg(feature = "graphics")]
@@ -2444,13 +2761,15 @@ mod imp {
     /// `request` の中の呼び出しの結果を `None` に差し替える指示。
     ///
     /// 本物の `request` は `Faults::default()`（何も差し替えない）で同じ関数を通る。
-    /// feature `fault-injection` の提供型だけが、どちらかを `true` にして呼ぶ。
+    /// feature `fault-injection` の提供型は、`default_device_none`・`command_queue_none` のどちらかを `true` にして呼ぶ。
     #[derive(Clone, Copy, Default)]
     struct Faults {
         /// `MTLCreateSystemDefaultDevice` を呼ばずに、結果を `None` として扱う。
         default_device_none: bool,
         /// `newCommandQueue` の結果を `None` として扱う（device は本物を取る）。
         command_queue_none: bool,
+        /// 能力の判定の材料を捕捉せず、捕捉の失敗として扱う（`query` は family の行で `S0` を返す）。
+        capability_capture_fails: bool,
     }
 
     /// 要求の組み合わせを照らし、device を作って返す。本物の `request` と差し込みの型が共有する。
@@ -2549,7 +2868,10 @@ mod imp {
         };
         let adapter_name = device.name().to_string();
 
-        let created = MetalDevice::new(id, generation, adapter_name, limits, device, queue);
+        let mut created = MetalDevice::new(id, generation, adapter_name, limits, device, queue);
+        if faults.capability_capture_fails {
+            created.capabilities = None;
+        }
         #[cfg(feature = "graphics")]
         let created = {
             let mut created = created;
@@ -2693,6 +3015,8 @@ mod imp {
         adapter_name: String,
         /// 作るときに計算した上限の表。
         limits: LimitsTable,
+        /// 作るときに捕捉した能力の判定の材料。`None` は捕捉の失敗（差し込みでだけ作られる）。
+        capabilities: Option<MetalCapabilitySnapshot>,
         /// 既定の device。
         device: Retained<ProtocolObject<dyn MTLDevice>>,
         /// コマンドキュー。`submit`・`submit_many` がコマンドバッファをここから 1 つ作る。
@@ -3019,6 +3343,7 @@ mod imp {
                 ownership: DeviceOwnership::ProductIndependent,
                 adapter_name,
                 limits,
+                capabilities: Some(capture_capabilities(&device)),
                 device,
                 queue,
                 buffers: Mutex::new(Buffers {
@@ -3342,23 +3667,39 @@ mod imp {
         }
     }
 
+    /// device が満たす Apple の GPU family の最も高い世代を問い合わせる。`MetalDevice::new` が 1 回だけ呼ぶ。
+    fn capture_capabilities(device: &ProtocolObject<dyn MTLDevice>) -> MetalCapabilitySnapshot {
+        const APPLE_FAMILIES: [(MTLGPUFamily, u8); 9] = [
+            (MTLGPUFamily::Apple9, 9),
+            (MTLGPUFamily::Apple8, 8),
+            (MTLGPUFamily::Apple7, 7),
+            (MTLGPUFamily::Apple6, 6),
+            (MTLGPUFamily::Apple5, 5),
+            (MTLGPUFamily::Apple4, 4),
+            (MTLGPUFamily::Apple3, 3),
+            (MTLGPUFamily::Apple2, 2),
+            (MTLGPUFamily::Apple1, 1),
+        ];
+        let apple_family = APPLE_FAMILIES
+            .iter()
+            .find(|(family, _)| device.supportsFamily(*family))
+            .map(|&(_, generation)| generation);
+        MetalCapabilitySnapshot { apple_family }
+    }
+
     impl Capabilities for MetalDevice {
-        /// この段の `query` は、どの機能にも `Unsupported` を返す。
-        fn query(&self, _feature: FeatureId) -> CapabilityLevel {
-            CapabilityLevel::Unsupported
+        /// 捕捉した能力の判定の材料と表から決める。下位の API を呼ばない。
+        fn query(&self, feature: FeatureId) -> CapabilityLevel {
+            metal_capability_of(self.capabilities.as_ref(), feature).level
         }
 
         fn limits(&self) -> &LimitsTable {
             &self.limits
         }
 
-        /// どの機能も未知として、理由 `UnknownFeature` を添えて `Unsupported` を返す。
-        fn query_ex(&self, _feature: FeatureId) -> CapabilityQuery {
-            CapabilityQuery {
-                level: CapabilityLevel::Unsupported,
-                unsupported_reason: Some(UnsupportedReason::UnknownFeature),
-                evidence: None,
-            }
+        /// 捕捉した能力の判定の材料と表から決める。表に行の無い機能 ID は `UNLISTED_FEATURE_QUERY`。
+        fn query_ex(&self, feature: FeatureId) -> CapabilityQuery {
+            metal_capability_of(self.capabilities.as_ref(), feature)
         }
     }
 
