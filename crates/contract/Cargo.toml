@@ -94,6 +94,10 @@ name = "backend_cuda_submit"
 required-features = ["backend-cuda"]
 
 [[test]]
+name = "backend_metal_allocate_sizes"
+required-features = ["backend-metal", "native-blocking-wait"]
+
+[[test]]
 name = "backend_metal_capability"
 required-features = ["backend-metal", "test-support"]
 
