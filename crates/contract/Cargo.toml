@@ -90,6 +90,10 @@ name = "backend_cuda_request"
 required-features = ["backend-cuda"]
 
 [[test]]
+name = "backend_cuda_request_combinations"
+required-features = ["backend-cuda", "fault-injection"]
+
+[[test]]
 name = "backend_cuda_submit"
 required-features = ["backend-cuda"]
 
