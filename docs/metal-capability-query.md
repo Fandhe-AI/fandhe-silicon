@@ -90,9 +90,58 @@ running 0 tests
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ```
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-173。ポインタのみ）。
+
+時点のコミット: `eaa7a56`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 単体の試験（`--all-features`） | `cargo test -p fandhe-silicon-contract --all-features --lib backend_metal::capability_tests` | 下の (1) の行、終了コード 0 |
+| 2 | 単体の試験（`backend-metal` だけ） | `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::capability_tests` | 下の (2) の行、終了コード 0 |
+| 3 | device の要る試験のファイル | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_capability` | 下の (3) の行、終了コード 0 |
+| 4 | macOS の型検査 | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal -- -D warnings`、同じコマンドの `--features backend-metal,test-support`、同じコマンドの `--all-features` | 3 つとも終了コード 0 |
+| 5 | device の要る試験の本数 | `grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs`、`grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_capability.rs` | 下の表 |
+| 6 | 依存 | `make deps-check`、`git diff --stat 2e4bee0 HEAD -- Cargo.lock deps-approved.toml` | `make deps-check` は終了コード 0。差分は 0 行 |
+| 7 | unsafe の個数の試験 | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_unsafe_count` | 下の (7) の行、終了コード 0 |
+
+(1)
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 377 filtered out
+```
+
+(2)
+
+```text
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 167 filtered out
+```
+
+(3)
+
+```text
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+(7)
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+(5) の行頭の `#[ignore` の数:
+
+| ファイル | 数 |
+| -------- | -- |
+| `crates/contract/src/backend_metal.rs` | 98 |
+| `crates/contract/tests/backend_metal_capability.rs` | 2 |
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 能力の判定の材料を捕捉して能力の表から問合せに答える | #3746 |
 | 2/3 | 能力の問合せの device の要る試験を ignore 付きで足す | #3747 |
+| 3/3 | 完了の条件の確かめ | #3748 |
