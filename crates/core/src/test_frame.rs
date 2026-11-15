@@ -2,8 +2,8 @@
 //!
 //! feature `test-support` の裏にだけ公開される（置き場と範囲の説明は `docs/test-frame.md` の「置き場と有効になる条件」）。
 //! 製品の経路（`contract`・`exec`・`upper` の非テストのコード）からは参照しない。
-//! 環境変数から読んだ値はこのモジュールの外へ渡さない。実機の device を取って宣言と照合する経路と、
-//! 複数の試験をまたぐ集計の経路は持たない。
+//! 環境変数から読んだ値はこのモジュールの外へ渡さない。device を取る関数と写しの関数を試験の側から受けて照らす口（`device_check`）を持ち、
+//! device そのものは取らない。複数の試験をまたぐ集計の経路は持たない。
 //!
 //! 試験の側の使い方: 試験の先頭で [`Declaration`] を作り、[`RunSetting::from_env`] で得た設定とともに
 //! [`decide`] へ渡す。[`Decision::NotRun`] なら、その理由を明示して試験を終える（暗黙に成功にしない）。
@@ -15,6 +15,7 @@
 pub mod combination;
 pub mod decision;
 pub mod declaration;
+pub mod device_check;
 pub mod export;
 pub mod identifier;
 pub mod label;
@@ -27,6 +28,7 @@ pub mod threshold;
 pub use combination::{Backend, Machine, MachineCombination};
 pub use decision::{Decision, NotRunReason, ReferenceGap, decide};
 pub use declaration::{Declaration, DeclarationError, Permission, PermissionError};
+pub use device_check::on_acquired_device;
 pub use export::{
     ExportError, RECORD_DIR_ENV, export_from_env, export_from_lookup, export_parts,
     judge_and_export, judge_and_export_with, record_file_name,

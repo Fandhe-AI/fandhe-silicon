@@ -147,6 +147,10 @@ required-features = ["test-support"]
 name = "test_frame_types"
 required-features = ["test-support"]
 
+[[test]]
+name = "test_frame_device_check"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
 
