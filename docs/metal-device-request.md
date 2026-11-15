@@ -206,3 +206,10 @@ test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; f
 | `crates/contract/src/backend_metal.rs` | 85 |
 | `crates/contract/tests/backend_metal_fault.rs` | 3 |
 | `crates/contract/tests/backend_metal_ext_interop.rs` | 3 |
+
+## 今の値の補い（base 2e4bee0）
+
+記録時点の表と既存の節は書き換えない。
+
+`Capabilities` の `query`・`query_ex` は、device を作るときに捕捉した Apple の GPU family と能力の表から答える（詳しくは [metal-capability-query](metal-capability-query.md)、TASK-173）。
+表に行の無い機能 ID（例 `feature:any`）は `Unsupported`・`UnknownFeature`・`None` を返す。
