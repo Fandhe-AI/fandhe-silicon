@@ -7,6 +7,8 @@
 //! 環境変数 `FANDHE_SILICON_TEST_RECORD_DIR` が未設定なら何も書かず、設定されていれば（`make verify` が渡す）、
 //! 機材の無い環境では宣言した組み合わせごとの「未実施」の部品が書かれる。
 
+#[cfg(feature = "backend-metal")]
+use fandhe_silicon_core::capability::BackendKind;
 use fandhe_silicon_core::device::{Device, DeviceDiagnostics};
 use fandhe_silicon_core::error::ContractError;
 use fandhe_silicon_core::test_frame::{
@@ -302,9 +304,6 @@ fn metal_machine(d: &DeviceDiagnostics) -> Option<Machine> {
 type Acquire = fn(MachineCombination) -> Result<Box<dyn Device>, ContractError>;
 
 #[cfg(feature = "backend-metal")]
-use fandhe_silicon_core::capability::BackendKind;
-
-#[cfg(feature = "backend-metal")]
 fn compute_request(backend: BackendKind) -> fandhe_silicon_core::device::DeviceRequest {
     use fandhe_silicon_core::device::{DeviceOwnership, DeviceRequest, Profile};
     DeviceRequest {
@@ -431,6 +430,7 @@ fn an_injected_metal_request_failure_is_machine_unreachable() {
         &Label::Indeterminate(IndeterminateReason::MachineUnreachable)
     );
 }
+
 #[cfg(feature = "backend-vulkan")]
 #[test]
 fn vulkan_test_declares_on_the_frame() {
