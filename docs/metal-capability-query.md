@@ -145,3 +145,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 | 1/3 | 能力の判定の材料を捕捉して能力の表から問合せに答える | #3746 |
 | 2/3 | 能力の問合せの device の要る試験を ignore 付きで足す | #3747 |
 | 3/3 | 完了の条件の確かめ | #3748 |
+
+## 今の値の補い（base c5c2151）
+
+`feature:SURFACE` は 8 行の表の外の 1 行の表 `METAL_SURFACE_TABLE` で答え、`Unsupported`・`NotSupported`・根拠なしを返す。詳しくは `docs/capability-query-list.md` の「Metal の表示先の鍵の行（2/4）」。

@@ -133,7 +133,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/contract-limits-table.md` | 能力の問合せの上限の表（TASK-157）の所在と、本リポの現状の事実・現状の形・対応するテスト・確かめ方・完了の条件の確かめ・今の値の補い（base 48025c6） |
 | `docs/capability-query-rules.md` | 能力の問合せの共通の規則（TASK-273）の所在と、本リポの現状の事実・現状の形（2/6〜5/6）・完了の条件の確かめ（6/6）・今の値の補い（base 48025c6）・今の値の補い（base 3e32680）・今の値の補い（base 1417dc5） |
 | `docs/capability-webgpu-ports.md` | WebGPU の口に当たる能力の問合せの行（TASK-155）の所在と現状の事実 |
-| `docs/capability-query-list.md` | 能力の一覧の問合せと Metal の背後実装の一覧・形式単位・表示先の鍵・上限（TASK-179）の所在と、本リポの現状の事実・鍵の一覧の識別と一覧の問合せ（1/4） |
+| `docs/capability-query-list.md` | 能力の一覧の問合せと Metal の背後実装の一覧・形式単位・表示先の鍵・上限（TASK-179）の所在と、本リポの現状の事実・鍵の一覧の識別と一覧の問合せ（1/4）・Metal の表示先の鍵の行（2/4） |
 | `docs/texture-format-types.md` | テクスチャの形式の型（TASK-1312）の所在と、本リポの現状の事実・現状の形（2/6）・CI への組み込み（3/6）・試験（4/6・5/6）・完了の条件の確かめ（6/6）・既存の 2 型からの変換（7/8）・完了の条件の確かめ（8/8）・今の値の補い（base 2f36d3d） |
 | `docs/texture-types.md` | テクスチャの値・記述子・handle の型の所在と、本リポの現状の事実・現状の形（1/6・2/6・3/6）・試験（4/6）・CI への組み込み（5/6）・完了の条件の確かめ（6/6）（TASK-371） |
 | `docs/texture-descriptor-check.md` | テクスチャの作成の記述子の検査の所在と、本リポの現状の事実・現状の振る舞い（1/6）・形式と次元の組・mip の段数（2/6）・一時的な描画先・マルチサンプル・view_formats（3/6）・操作の時点の用途と view の形式（4/6）・対応するテスト・項目ごとの受理と拒否の入力の試験（5/6）・確かめ方・完了の条件の確かめ（6/6）・段の表（TASK-1942） |
@@ -226,7 +226,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-kernel-accept.md` | 実行時に受けるカーネルの受け付けの道具（measure の crate）と、契約の crate の単体試験の GEMM・GEMM→加算→Relu・バッチの積和と部分 Top-k の device の要る試験（TASK-485）の所在と、本リポの現状・一覧のファイルの形（1/6）・一覧の 1 行の受け付け（2/6）・起動の形と CPU の参照（3/6）・契約の crate の単体試験の所在（4/6）・device の要る試験（4/6）・3/6 の口の移しの補い・バッチの積和と部分 Top-k（5/6）・完了の条件の確かめ（6/6） |
 | `docs/metal-pvrtc-create-check.md` | Metal の device で PVRTC の形式のテクスチャの作成を試みる試験の所在と、本リポの現状の事実・試験の振る舞い・確かめ（2/2）（TASK-1380） |
 | `docs/metal-offscreen-target.md` | Metal の背後実装の描画先の作成（TASK-377）の所在と、本リポの現状の事実・描画先の作成と描画の口（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/metal-capability-query.md` | Metal の背後実装の能力の問合せ（TASK-173）の所在と、本リポの現状の事実・能力の表と問合せ（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
+| `docs/metal-capability-query.md` | Metal の背後実装の能力の問合せ（TASK-173）の所在と、本リポの現状の事実・能力の表と問合せ（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base c5c2151） |
 | `docs/metal-device-drop.md` | Metal の背後実装の device の破棄（TASK-189）の所在と、本リポの現状の事実・`Drop` の待ちと記録先の破棄（1/4）・明示の破棄（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/metal-allocate-sizes.md` | Metal の背後実装の確保と往復の大きさの試験（TASK-314）の所在と、本リポの現状の事実・確保と往復の大きさの試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
