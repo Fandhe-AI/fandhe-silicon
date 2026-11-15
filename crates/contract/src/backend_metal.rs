@@ -54,7 +54,9 @@ use std::sync::{Mutex, MutexGuard};
 use fandhe_silicon_core::capability::{
     BackendKind, CapabilityEvidence, CapabilityLevel, CapabilityQuery, FeatureId,
 };
-use fandhe_silicon_core::capability_table::{FeatureRow, UNLISTED_FEATURE_QUERY, query_from_table};
+use fandhe_silicon_core::capability_table::{
+    FeatureRow, UNLISTED_FEATURE_QUERY, find_row, query_from_table,
+};
 #[cfg(feature = "fault-injection")]
 use fandhe_silicon_core::device_lost::LostCallback;
 #[cfg(feature = "fault-injection")]
@@ -68,7 +70,7 @@ use fandhe_silicon_core::execution::{
 };
 use fandhe_silicon_core::feature_key::{
     FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX, FEATURE_MAPPABLE_PRIMARY_BUFFERS, FEATURE_SHADER_F16,
-    FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER,
+    FEATURE_SHADER_FLOAT32_ATOMIC, FEATURE_SUBGROUP, FEATURE_SUBGROUP_BARRIER, FEATURE_SURFACE,
     FEATURE_TEXTURE_COMPRESSION_ASTC_HDR, FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
 };
 use fandhe_silicon_core::hash::sha256_u64;
@@ -2327,6 +2329,10 @@ enum MetalRule {
     NoApi {
         evidence: Option<CapabilityEvidence>,
     },
+    /// `Unsupported`・`NotSupported`（根拠は `evidence`）。捕捉した値を読まない。
+    NotSupported {
+        evidence: Option<CapabilityEvidence>,
+    },
 }
 
 /// Metal の能力の表。行の無い鍵は `UNLISTED_FEATURE_QUERY` になる。
@@ -2440,6 +2446,11 @@ fn metal_evaluate(rule: &MetalRule, snapshot: Option<&MetalCapabilitySnapshot>) 
             unsupported_reason: Some(UnsupportedReason::NoApi),
             evidence,
         },
+        MetalRule::NotSupported { evidence } => CapabilityQuery {
+            level: CapabilityLevel::Unsupported,
+            unsupported_reason: Some(UnsupportedReason::NotSupported),
+            evidence,
+        },
         MetalRule::AppleFamily {
             min,
             below,
@@ -2459,6 +2470,14 @@ fn metal_evaluate(rule: &MetalRule, snapshot: Option<&MetalCapabilitySnapshot>) 
     }
 }
 
+/// 表示先の鍵の表。`METAL_FEATURE_TABLE` に行の無い鍵のときに引く。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static METAL_SURFACE_TABLE: [FeatureRow<MetalRule>; 1] = [FeatureRow {
+    feature: FEATURE_SURFACE,
+    rule: MetalRule::NotSupported { evidence: None },
+    source: "Metal API reference",
+}];
+
 /// 捕捉した値と表から 1 つの機能の値を決める純粋な関数。下位の API を呼ばない。
 /// `MetalDevice` の `query`・`query_ex` から呼ばれる。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -2466,9 +2485,12 @@ fn metal_capability_of(
     snapshot: Option<&MetalCapabilitySnapshot>,
     feature: FeatureId,
 ) -> CapabilityQuery {
-    query_from_table(&METAL_FEATURE_TABLE, feature, |rule| {
-        metal_evaluate(rule, snapshot)
-    })
+    let table: &[FeatureRow<MetalRule>] = if find_row(&METAL_FEATURE_TABLE, feature).is_some() {
+        &METAL_FEATURE_TABLE
+    } else {
+        &METAL_SURFACE_TABLE
+    };
+    query_from_table(table, feature, |rule| metal_evaluate(rule, snapshot))
 }
 
 #[cfg(test)]
@@ -2585,6 +2607,30 @@ mod capability_tests {
                 metal_capability_of(Some(&snap(Some(9))), f),
                 UNLISTED_FEATURE_QUERY
             );
+        }
+    }
+
+    #[test]
+    fn surface_key_is_not_supported_without_evidence_for_every_capture() {
+        assert!(find_row(&METAL_FEATURE_TABLE, FEATURE_SURFACE).is_none());
+        for s in captures() {
+            let q = metal_capability_of(s.as_ref(), FEATURE_SURFACE);
+            assert_eq!(q.level, CapabilityLevel::Unsupported);
+            assert_eq!(q.unsupported_reason, Some(UnsupportedReason::NotSupported));
+            assert_eq!(q.evidence, None);
+        }
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn surface_key_passes_the_common_checks() {
+        use fandhe_silicon_core::capability_rule::check_query;
+        for s in captures() {
+            check_query(
+                FEATURE_SURFACE,
+                metal_capability_of(s.as_ref(), FEATURE_SURFACE),
+            )
+            .unwrap_or_else(|e| panic!("{s:?}: {e:?}"));
         }
     }
 

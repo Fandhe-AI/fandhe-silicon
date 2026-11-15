@@ -46,8 +46,32 @@ cargo test -p fandhe-silicon-core --all-features --test capability_query_list
 `test result:` の行が 5 passed になる。`--all-features` を付けないと故障の差し込みの包み越しの 1 本が外れ、4 passed になる。
 `KeyList::keys` の doctest は `cargo test -p fandhe-silicon-core --doc capability` で流れる。
 
+## Metal の表示先の鍵の行（2/4）
+
+`metal_capability_of` は `feature:SURFACE`（`FEATURE_SURFACE`）に、どの捕捉の値でも次の値を返す。`MetalDevice` の `query`・`query_ex` はこの関数を呼ぶ。
+
+| 項目 | 値 |
+| ---- | -- |
+| 段 | `Unsupported` |
+| 理由 | `Some(UnsupportedReason::NotSupported)` |
+| 根拠 | `None` |
+
+- 捕捉の失敗・Apple の family なし・family 1・6・9 のどれでも同じ値になる
+- 値は 8 行の表 `METAL_FEATURE_TABLE` とは別の 1 行の表 `METAL_SURFACE_TABLE` が返す。`metal_capability_of` は 8 行の表に行があればその表を、なければ 1 行の表を引く
+- 8 行の表の行と `FEATURE_QUERY_KEYS` の 79 鍵の値は変わらない。どちらの表にも無い鍵は `UNLISTED_FEATURE_QUERY` を返す
+
+確かめ方:
+
+```text
+cargo test -p fandhe-silicon-contract --all-features --lib backend_metal::capability_tests
+cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::capability_tests
+```
+
+`test result:` の行は、1 本目が 8 passed、2 本目が 6 passed になる（共通の規則の検査 2 本は feature `test-support` の裏）。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 鍵の一覧の識別と一覧の問合せ | #3788 |
+| 2/4 | Metal の表示先の鍵の行 | #3789 |
