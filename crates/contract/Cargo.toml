@@ -158,6 +158,10 @@ name = "backend_vulkan_request_combinations"
 required-features = ["backend-vulkan", "fault-injection"]
 
 [[test]]
+name = "backend_vulkan_request_no_other_provider"
+required-features = ["backend-vulkan", "backend-cuda", "fault-injection"]
+
+[[test]]
 name = "backend_vulkan_fault"
 required-features = ["backend-vulkan", "fault-injection"]
 
