@@ -69,9 +69,29 @@ cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_met
 
 `test result:` の行は、1 本目が 8 passed、2 本目が 6 passed になる（共通の規則の検査 2 本は feature `test-support` の裏）。
 
+## device の要る試験（3/4）
+
+`crates/contract/tests/backend_metal_capability_list.rs`（`required-features` は `backend-metal` と `test-support`。`#![cfg(target_os = "macos")]`）に置く。
+どの試験も `#[ignore = "touches the Metal device; run only in a dedicated device session"]` 付きで、既定では流れない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `query_list_matches_query_ex_for_every_list` | `KeyList` の 4 値それぞれで、`query_list` の長さと各要素の鍵が `keys` と同じ並びで、各要素の値が `query_ex` と等しく、`check_query_ex` が通り、段階が `S0` の鍵が 0 件。`list:` の行（鍵の数・`S0` の数・`Unsupported` の数）を標準出力に出す |
+| `texture_format_unit_matches_the_format_key` | `TextureFormat::all()` と `TEXTURE_FORMAT_QUERY_KEYS` の長さが等しく、同じ位置の組ごとに `texture_format_features(format).format_query()` が `query_ex(key)` と等しい |
+| `surface_key_is_not_supported_on_a_requested_device` | `ComputeOnly`（feature `graphics` があれば `Graphics` も）の device で、`FEATURE_SURFACE` が `Unsupported`・`NotSupported`・根拠なし。`query` の段階が `Unsupported`。`surface:` の行を標準出力に出す |
+| `limits_match_the_native_values_and_print_them` | `limits()` の `max_buffer_bytes` が Metal の `maxBufferLength` と等しく、`max_dispatch_dims` が `[u32::MAX; 3]`、`max_texture_size` が 16384。`limits:` の行を標準出力に出す |
+
+確かめ方（device を使わない。macOS 以外では 0 件）: `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_capability_list`
+
+```text
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | 鍵の一覧の識別と一覧の問合せ | #3788 |
 | 2/4 | Metal の表示先の鍵の行 | #3789 |
+| 3/4 | device の要る試験 | #3790 |
