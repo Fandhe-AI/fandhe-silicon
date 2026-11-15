@@ -280,6 +280,9 @@ pub const FEATURE_IMMEDIATES: FeatureId = FeatureId("feature:IMMEDIATES");
 /// `feature:PRIMITIVE_INDEX` の鍵。
 pub const FEATURE_PRIMITIVE_INDEX: FeatureId = FeatureId("feature:PRIMITIVE_INDEX");
 
+/// 表示先が使えるかの問合せの鍵。`FEATURE_QUERY_KEYS` に含めない（TASK-179。ポインタ）。
+pub const FEATURE_SURFACE: FeatureId = FeatureId("feature:SURFACE");
+
 /// 機能の問合せの鍵の一覧。鍵は互いに異なる。
 ///
 /// # Examples

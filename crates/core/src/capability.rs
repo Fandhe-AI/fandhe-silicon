@@ -4,12 +4,17 @@
 //! `error` モジュールの `ContractError` もこれらを参照する。
 //! 定義の持ち主は TASK-136（ポインタ）。上限の表 `LimitsTable` と `Capabilities::limits()` もここに置く（TASK-157・DEV-110・DEV-114・DEV-115。ポインタ）。
 //! 形式ごとの能力の値を返す操作 `texture_format_features` も `Capabilities` にある（TASK-2566。ポインタ）。
+//! 鍵の一覧の識別 `KeyList` と一覧の問合せ `query_list` もここに置く（TASK-179。ポインタ）。
 //! 背後実装（下-1）が値を作り、上・下-2 が受け取って比べる。
 
 use crate::capability_table::UNLISTED_FEATURE_QUERY;
+use crate::downlevel_key::DOWNLEVEL_QUERY_KEYS;
 use crate::error::UnsupportedReason;
+use crate::feature_key::FEATURE_QUERY_KEYS;
+use crate::limit_key::LIMIT_QUERY_KEYS;
 use crate::texture_format::TextureFormat;
 use crate::texture_format_features::{TextureFormatFeatures, format_key};
+use crate::texture_format_key::TEXTURE_FORMAT_QUERY_KEYS;
 
 /// WebGPU の device を取り出す口に当たる行の鍵（DEV-35。ポインタ）。
 ///
@@ -112,6 +117,39 @@ pub struct LimitsTable {
     pub max_texture_size: u32,
 }
 
+/// 共通の crate が持つ問合せの鍵の一覧の識別。`Capabilities::query_list` が受ける（TASK-179。ポインタ）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum KeyList {
+    /// `feature_key::FEATURE_QUERY_KEYS`。
+    Features,
+    /// `downlevel_key::DOWNLEVEL_QUERY_KEYS`。
+    Downlevel,
+    /// `limit_key::LIMIT_QUERY_KEYS`。
+    Limits,
+    /// `texture_format_key::TEXTURE_FORMAT_QUERY_KEYS`。
+    TextureFormats,
+}
+
+impl KeyList {
+    /// 識別が指す鍵の一覧を返す。
+    ///
+    /// ```
+    /// use fandhe_silicon_core::capability::KeyList;
+    /// use fandhe_silicon_core::downlevel_key::DOWNLEVEL_QUERY_KEYS;
+    ///
+    /// assert_eq!(KeyList::Downlevel.keys(), DOWNLEVEL_QUERY_KEYS);
+    /// ```
+    pub fn keys(self) -> &'static [FeatureId] {
+        match self {
+            KeyList::Features => FEATURE_QUERY_KEYS,
+            KeyList::Downlevel => DOWNLEVEL_QUERY_KEYS,
+            KeyList::Limits => LIMIT_QUERY_KEYS,
+            KeyList::TextureFormats => TEXTURE_FORMAT_QUERY_KEYS,
+        }
+    }
+}
+
 /// 能力問合せの口。背後実装が実装し、上・下-2 が呼ぶ。
 ///
 /// `limits()` は必須の操作で、既定の実装は無い（TASK-157。ポインタ）。
@@ -129,6 +167,16 @@ pub trait Capabilities {
             unsupported_reason: None,
             evidence: None,
         }
+    }
+
+    /// 鍵の一覧の順に、鍵とその鍵の `query_ex` の値の組を返す。`S0`・`Unsupported` の鍵も含める。
+    ///
+    /// 既定の実装は一覧の鍵ごとに `query_ex` を 1 回ずつ呼ぶ。
+    fn query_list(&self, list: KeyList) -> Vec<(FeatureId, CapabilityQuery)> {
+        list.keys()
+            .iter()
+            .map(|&key| (key, self.query_ex(key)))
+            .collect()
     }
 
     /// 形式ごとの能力の値を返す。形式の単位は、その形式の `texformat:` の鍵の `query_ex` の値と同じ。
