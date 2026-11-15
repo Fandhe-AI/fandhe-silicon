@@ -202,6 +202,10 @@ worktree のルートで実行する。
 - `make deny`・`make deps-check`: 依存が増えていないこと
 - `make check`: editorconfig-checker と shellcheck
 
+## 今の値の補い（base 2e4bee0）
+
+既存の節は書き換えていない。上の「入れていないもの」の device を取る経路の項に対し、device を取る関数と写しの関数を試験の側から受けて機材の組み合わせと照らす口 `on_acquired_device`（`test_frame::device_check`）がある。`core` は device そのものを取らず、写しの規則も持たない。所在と動きは [test-frame-device-check](./test-frame-device-check.md)。
+
 ## 関連
 
 [artifact-cache-check](./artifact-cache-check.md)・[parity-tool](./parity-tool.md)・[pixel-parity-tool](./pixel-parity-tool.md)（枠から読む比較型）・[ci-job-split](./ci-job-split.md)・[measurement-record](./measurement-record.md)・[unsafe-policy](./unsafe-policy.md)・[workspace-boundary](./workspace-boundary.md)・[spec-confidentiality](../.claude/rules/spec-confidentiality.md)・[dependency-policy](../.claude/rules/dependency-policy.md)・[security](../.claude/rules/security.md)
