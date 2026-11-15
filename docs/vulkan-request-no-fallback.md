@@ -58,9 +58,54 @@ cargo test -p fandhe-silicon-contract --features backend-vulkan,backend-cuda,fau
 cargo test -p fandhe-silicon-contract --all-features --test backend_vulkan_request_no_other_provider
 ```
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-284。ポインタのみ）。
+
+時点のコミット: `b11d035`。`docs/spec` の gitlink は `e380dd445150e39139f92f6fc0ce05484d49ac0b`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の本数と `#[ignore` | `grep -c '#\[test\]'` と `grep -c '#\[ignore'` を `crates/contract/tests/backend_vulkan_request_combinations.rs`・`crates/contract/tests/backend_vulkan_request_no_other_provider.rs` に | `#[test]` は 3 と 1、`#[ignore` は 0 と 0 |
+| 2 | 数を足す呼び出しの数 | `crates/contract/src/backend_{metal,vulkan,cuda}.rs` に `grep -c 'note_request_call();'` と `grep -c 'pub fn request_call_count'` | `note_request_call();` は Metal 3・Vulkan 2・CUDA 2、`pub fn request_call_count` は各 1 |
+| 3 | 組み合わせの入力の受け手 | `crates/contract/tests/` の 3 ファイルに `grep -n '^fn '` | `backend_vulkan_request_combinations.rs` の 3 本（`other_backends_with_graphics_or_cpu_only_are_invalid_combinations`・`vulkan_graphics_passes_the_checks_in_a_graphics_build`・`the_vulkan_source_names_no_other_backend_provider`）。`backend_vulkan_request.rs` の 5 本（`non_vulkan_backend_is_invalid_combination`・`cpu_only_is_invalid_combination`・`graphics_without_feature_is_invalid_combination`・`shared_and_imported_are_unsupported`・`backend_is_checked_before_profile_and_ownership`）。`backend_vulkan_fault.rs` の `injected_providers_check_the_request_first` |
+| 4 | `DeviceUnavailable` の受け手 | `crates/contract/tests/backend_vulkan_fault.rs` の `grep -n '^fn '` | `injected_initialization_failures_are_device_unavailable`・`an_injected_failure_is_distinct_from_the_other_kinds`。どちらも差し込みの provider（feature `fault-injection`）で確かめる |
+| 5 | Linux の試験の結果 | run `43743082637`（`b11d035` の main の push）の job `132900309590` のログを試験の関数名で引く | 下の (5) の出力 |
+| 6 | macOS の試験の結果 | 同じ run の job `132900309818` のログ | 下の (6) の出力 |
+| 7 | 依存と `src/`・`crates/core` の差分 | `git diff --stat 87331dbb HEAD -- Cargo.lock deps-approved.toml crates/contract/src crates/core`、`make deps-check` | diff は出力なし。`make deps-check` は終了コード 0 |
+| 8 | CI | `gh run view 43743082637 --json conclusion,headSha,jobs` | conclusion `success`、headSha `b11d03521349bdcfa349513b94cf6150f71c4b64`。job `132900309590`・`132900309818`・`132900309706` は `success` |
+
+(7) の `87331dbb` は、1/3 の 1 つ前のコミット。`e3f62ba` が 1/3、`b11d035` が 2/3 のコミット。
+
+(5) の出力。
+
+```text
+Running tests/backend_vulkan_request_combinations.rs
+running 3 tests
+test other_backends_with_graphics_or_cpu_only_are_invalid_combinations ... ok
+test vulkan_graphics_passes_the_checks_in_a_graphics_build ... ok
+test the_vulkan_source_names_no_other_backend_provider ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Running tests/backend_vulkan_request_no_other_provider.rs
+running 1 test
+test vulkan_request_failures_call_no_other_backend_provider ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(6) の出力。
+
+```text
+Running tests/backend_vulkan_request_no_other_provider.rs
+running 1 test
+test vulkan_request_failures_call_no_other_backend_provider ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 組み合わせの検査の試験 | #4116 |
 | 2/3 | ほかの背後実装の provider を呼ばないことの試験 | #4117 |
+| 3/3 | 完了の条件の確かめ | #4118 |
