@@ -9177,7 +9177,21 @@ mod imp {
             let device = MTLCreateSystemDefaultDevice().expect("default device");
             let snapshot = capture_capabilities(&device);
             println!("apple_family={:?}", snapshot.apple_family);
-            assert!(snapshot.apple_family.is_some());
+            // Apple の family を持たない device（Intel・AMD の Mac など）では None が正しい値になる。
+            let has_apple_family = [
+                MTLGPUFamily::Apple1,
+                MTLGPUFamily::Apple2,
+                MTLGPUFamily::Apple3,
+                MTLGPUFamily::Apple4,
+                MTLGPUFamily::Apple5,
+                MTLGPUFamily::Apple6,
+                MTLGPUFamily::Apple7,
+                MTLGPUFamily::Apple8,
+                MTLGPUFamily::Apple9,
+            ]
+            .iter()
+            .any(|f| device.supportsFamily(*f));
+            assert_eq!(snapshot.apple_family.is_some(), has_apple_family);
         }
     }
 }

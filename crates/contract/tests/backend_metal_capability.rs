@@ -22,6 +22,18 @@ use fandhe_silicon_core::feature_key::{
     FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES, FEATURE_TEXTURE_COMPRESSION_ASTC_HDR,
     FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
 };
+use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice, MTLGPUFamily};
+
+/// `EXPECTED` は Apple の GPU family 7 以上の device を前提にする。満たさない device（Intel・AMD の Mac など）では
+/// 期待値が成り立たないので、理由を出して試験を飛ばす。
+fn has_apple7_family() -> bool {
+    let supported =
+        MTLCreateSystemDefaultDevice().is_some_and(|d| d.supportsFamily(MTLGPUFamily::Apple7));
+    if !supported {
+        println!("skip: the default device does not support Apple family 7 or later");
+    }
+    supported
+}
 
 fn new_device() -> Box<dyn Device> {
     MetalDeviceProvider::request(DeviceRequest {
@@ -64,6 +76,9 @@ const EXPECTED: [(FeatureId, CapabilityQuery); 11] = [
 #[test]
 #[ignore = "touches the Metal device; run only in a dedicated device session"]
 fn selected_features_return_the_expected_values() {
+    if !has_apple7_family() {
+        return;
+    }
     let device = new_device();
     for (feature, expected) in EXPECTED {
         let q = device.query_ex(feature);
