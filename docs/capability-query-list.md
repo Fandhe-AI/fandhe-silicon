@@ -88,6 +88,66 @@ running 0 tests
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-179。ポインタのみ）。
+
+時点のコミット: `f0c9b16c`
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| 1 | 共通の crate の公開テスト | `cargo test -p fandhe-silicon-core --all-features --test capability_query_list` | 下の (1) の行、終了コード 0 |
+| 2 | 単体の試験（`--all-features`） | `cargo test -p fandhe-silicon-contract --all-features --lib backend_metal::capability_tests` | 下の (2) の行、終了コード 0 |
+| 3 | 単体の試験（`backend-metal` だけ） | `cargo test -p fandhe-silicon-contract --features backend-metal --lib backend_metal::capability_tests` | 下の (3) の行、終了コード 0 |
+| 4 | device の要る試験のファイル | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_capability_list` | 下の (4) の行、終了コード 0 |
+| 5 | macOS の型検査 | `cargo clippy --target aarch64-apple-darwin -p fandhe-silicon-contract --all-targets --features backend-metal -- -D warnings`、同じコマンドの `--features backend-metal,test-support`、`--features backend-metal,test-support,graphics`、`--all-features` | 4 つとも終了コード 0 |
+| 6 | device の要る試験の本数 | `grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs`、`grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_capability_list.rs` | 下の表 |
+| 7 | 依存 | `make deps-check`、`git diff --stat 3a84eed HEAD -- Cargo.lock deps-approved.toml` | `make deps-check` は終了コード 0。差分は 0 行 |
+| 8 | unsafe の個数の試験 | `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_unsafe_count` | 下の (8) の行、終了コード 0 |
+| 9 | 公開 API の検査 | `make public-api-check`、`make public-name-check`、`make public-api-webgpu-check`、`make public-api-sdk-check` | 4 つとも終了コード 0 |
+
+(1)
+
+```text
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(2)
+
+```text
+running 8 tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 377 filtered out; finished in 0.00s
+```
+
+(3)
+
+```text
+running 6 tests
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 167 filtered out; finished in 0.00s
+```
+
+(4)
+
+```text
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+(8)
+
+```text
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+```
+
+(6) の行頭の `#[ignore` の数:
+
+| ファイル | 数 |
+| -------- | -- |
+| `crates/contract/src/backend_metal.rs` | 98 |
+| `crates/contract/tests/backend_metal_capability_list.rs` | 4 |
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -95,3 +155,4 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 | 1/4 | 鍵の一覧の識別と一覧の問合せ | #3788 |
 | 2/4 | Metal の表示先の鍵の行 | #3789 |
 | 3/4 | device の要る試験 | #3790 |
+| 4/4 | 完了の条件の確かめ | #3791 |
