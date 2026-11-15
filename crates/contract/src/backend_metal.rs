@@ -9115,6 +9115,85 @@ mod imp {
             }
         }
     }
+
+    #[cfg(test)]
+    mod capability_device_tests {
+        //! 能力の判定の材料の捕捉と、捕捉の失敗の差し込みの確かめ（TASK-173 のポインタ）。
+        use super::*;
+        use fandhe_silicon_core::capability::CapabilityEvidence;
+        use fandhe_silicon_core::capability_table::UNLISTED_FEATURE_QUERY;
+        use fandhe_silicon_core::error::UnsupportedReason;
+        use fandhe_silicon_core::feature_key::{
+            FEATURE_SHADER_F16, FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
+        };
+
+        fn compute_request() -> DeviceRequest {
+            DeviceRequest {
+                backend: BackendKind::Metal,
+                profile: Profile::ComputeOnly,
+                ownership: DeviceOwnership::ProductIndependent,
+            }
+        }
+
+        /// 捕捉の失敗を差し込んだ device の family の行は、`query` が `S0` を返し `Unsupported` を返さない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn capture_failure_gives_s0_and_not_unsupported() {
+            let device = request_with(
+                compute_request(),
+                Faults {
+                    capability_capture_fails: true,
+                    ..Faults::default()
+                },
+            )
+            .expect("request");
+            assert_eq!(device.query(FEATURE_SHADER_F16), CapabilityLevel::S0);
+            assert_eq!(
+                device.query_ex(FEATURE_SHADER_F16),
+                CapabilityQuery {
+                    level: CapabilityLevel::S0,
+                    unsupported_reason: None,
+                    evidence: None,
+                }
+            );
+            assert_eq!(
+                device.query_ex(FEATURE_VULKAN_EXTERNAL_MEMORY_FD),
+                CapabilityQuery {
+                    level: CapabilityLevel::Unsupported,
+                    unsupported_reason: Some(UnsupportedReason::NoApi),
+                    evidence: Some(CapabilityEvidence::RuntimeApi),
+                }
+            );
+            assert_eq!(
+                device.query_ex(FeatureId("feature:any")),
+                UNLISTED_FEATURE_QUERY
+            );
+        }
+
+        /// 差し込みの無い `request` が使う捕捉は、Apple の family の世代を取り出す。取り出した値を標準出力に出す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn request_captures_the_apple_family() {
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let snapshot = capture_capabilities(&device);
+            println!("apple_family={:?}", snapshot.apple_family);
+            // Apple の family を持たない device（Intel・AMD の Mac など）では None が正しい値になる。
+            let has_apple_family = [
+                MTLGPUFamily::Apple1,
+                MTLGPUFamily::Apple2,
+                MTLGPUFamily::Apple3,
+                MTLGPUFamily::Apple4,
+                MTLGPUFamily::Apple5,
+                MTLGPUFamily::Apple6,
+                MTLGPUFamily::Apple7,
+                MTLGPUFamily::Apple8,
+                MTLGPUFamily::Apple9,
+            ]
+            .iter()
+            .any(|f| device.supportsFamily(*f));
+            assert_eq!(snapshot.apple_family.is_some(), has_apple_family);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
