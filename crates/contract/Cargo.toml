@@ -150,6 +150,10 @@ name = "backend_vulkan_request"
 required-features = ["backend-vulkan"]
 
 [[test]]
+name = "backend_vulkan_request_combinations"
+required-features = ["backend-vulkan", "fault-injection"]
+
+[[test]]
 name = "backend_vulkan_fault"
 required-features = ["backend-vulkan", "fault-injection"]
 
