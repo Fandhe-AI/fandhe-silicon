@@ -71,9 +71,41 @@ Vulkan・CUDA の宣言の試験は、走らせない経路でだけ部品を書
 
 どの試験も記録のディレクトリの環境変数を読まず、自分の一時ディレクトリにだけ書く。
 
+## 完了の条件の確かめ（3/3）
+
+完了の条件の正は private spec 側の記録に従う（ポインタのみ。`docs/spec/05-tasks.md` の TASK-2945）。本節は各試験の所在と流し方のコマンドの形を置く。
+
+| 試験のファイル | 試験 | feature・ビルド |
+| -------------- | ---- | --------------- |
+| `crates/core/tests/test_frame_device_check.rs` | 照らす順と返す値の 7 本（上の「試験との対応」） | `test-support` |
+| `crates/contract/tests/test_support_test_frame.rs` | `metal_test_declares_on_the_frame`・`the_device_path_writes_one_indeterminate_part_when_the_device_does_not_match_or_is_unreachable` | `test-support`・`backend-metal` |
+| 同上 | `the_device_path_does_not_acquire_when_the_frame_does_not_run` | 条件なし |
+| 同上 | `an_injected_metal_request_failure_is_machine_unreachable` | `test-support`・`backend-metal`・`fault-injection`・macOS のビルドだけ |
+
+```sh
+# 共通の crate
+cargo test -p fandhe-silicon-core --features test-support --test test_frame_device_check
+
+# 契約の crate
+cargo test -p fandhe-silicon-contract --features test-support,backend-metal --test test_support_test_frame
+
+# macOS のビルド（差し込みの試験を含む）
+cargo test -p fandhe-silicon-contract --features test-support,backend-metal,fault-injection --test test_support_test_frame
+```
+
+組み合わせの指定と記録のディレクトリを渡して Metal の宣言の試験を流し、集計の表を出す形は次のとおり。記録のディレクトリは空のディレクトリの絶対パスを渡す。
+
+```sh
+FANDHE_SILICON_TEST_MACHINE_COMBINATION=metal-mac-mini \
+FANDHE_SILICON_TEST_RECORD_DIR=<絶対パスの空のディレクトリ> \
+  cargo test -p fandhe-silicon-contract --features test-support,backend-metal,fault-injection --test test_support_test_frame
+scripts/record-summary.sh <同じディレクトリ>
+```
+
 ## 段の表
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 試験の枠に取った device を走らせる組み合わせと照らす口 | #7097 |
 | 2/3 | Metal の宣言の試験を取った device に触る試験にし、判定不能の試験を足す | #7098 |
+| 3/3 | 完了の条件の確かめ | #7099 |
