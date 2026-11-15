@@ -59,7 +59,7 @@ cargo test -p fandhe-silicon-core --features test-support --test test_frame_devi
 
 Vulkan・CUDA の宣言の試験は、走らせない経路でだけ部品を書く形のまま。`a_run_path_writes_no_record_and_a_not_run_path_writes_one_per_declared_combination` の背後実装の列は Vulkan・CUDA の 2 つ。
 
-## 食い違いと取れない device の試験（2/3）
+## 食い違いと取れない device の試験（2/3 の続き）
 
 同じファイルの補助 `export_with_device` と写し `metal_machine` を、本物の試験と同じ形で通す試験。device には触らない。
 
