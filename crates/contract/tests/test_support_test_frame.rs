@@ -294,8 +294,6 @@ fn acquire_metal(_: MachineCombination) -> Result<Box<dyn Device>, ContractError
 
 /// Metal の device の診断の値を機材の呼び名に写す。
 /// 背後実装の名前と adapter の名前の完全一致だけを写し、ほかの値はどれも `None`（device の食い違い）にする。
-/// adapter の名前 "Apple M4" は機材 `MacMini` の診断値の写しで、機材の adapter の名前が違えば実機の試験は
-/// 失敗でなく判定不能（device-mismatch）になる。機材が変わったらこの写しを直す。
 #[cfg(feature = "backend-metal")]
 fn metal_machine(d: &DeviceDiagnostics) -> Option<Machine> {
     (d.backend_name == "metal" && d.adapter_name == "Apple M4").then_some(Machine::MacMini)
