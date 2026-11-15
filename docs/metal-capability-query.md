@@ -70,8 +70,29 @@ device を作るときに、Apple の GPU family（`MTLGPUFamily::Apple9` から
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 377 filtered out
 ```
 
+## device の要る試験（2/3）
+
+`crates/contract/tests/backend_metal_capability.rs`（`required-features` は `backend-metal` と `test-support`）と、`crates/contract/src/backend_metal.rs` の `imp` module の `capability_device_tests`（feature の条件なし）に置く。
+どの試験も `#[ignore = "touches the Metal device; run only in a dedicated device session"]` 付きで、既定では流れない。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `selected_features_return_the_expected_values` | 11 機能が定数の期待どおり。`FEATURE_EXPERIMENTAL_COOPERATIVE_MATRIX`・`FEATURE_SHADER_F16`・`FEATURE_SUBGROUP`・`FEATURE_SUBGROUP_BARRIER`・`FEATURE_SHADER_FLOAT32_ATOMIC`・`FEATURE_MAPPABLE_PRIMARY_BUFFERS`・`FEATURE_TEXTURE_COMPRESSION_ASTC_HDR` が `S2`・理由なし・`RuntimeApi`、`FEATURE_VULKAN_EXTERNAL_MEMORY_FD` が `Unsupported`・`NoApi`・`RuntimeApi`、`FEATURE_TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`・`FEATURE_MULTI_DRAW_INDIRECT_COUNT`・`FEATURE_EXPERIMENTAL_MESH_SHADER` が `UNLISTED_FEATURE_QUERY`。`query` の段階が `query_ex` と等しい。鍵ごとに `query:` の行を標準出力に出す |
+| `every_key_passes_the_common_rules_without_s0` | 鍵の一覧のすべての鍵で `check_query_ex` が通り、段階が `S0` でなく、`query` と `query_ex` の段階が等しい |
+| `capture_failure_gives_s0_and_not_unsupported` | 捕捉の失敗を差し込んだ device で、`FEATURE_SHADER_F16` が `S0`・理由なし・根拠なし、`FEATURE_VULKAN_EXTERNAL_MEMORY_FD` が `Unsupported`・`NoApi`・`RuntimeApi`、表に行の無い鍵が `UNLISTED_FEATURE_QUERY` |
+| `request_captures_the_apple_family` | 捕捉の関数が Apple の family の世代を取り出す（`is_some()`）。`apple_family=` の行を標準出力に出す |
+
+確かめ方（device を使わない。macOS 以外では 0 件）: `cargo test -p fandhe-silicon-contract --all-features --test backend_metal_capability`
+
+```text
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 能力の判定の材料を捕捉して能力の表から問合せに答える | #3746 |
+| 2/3 | 能力の問合せの device の要る試験を ignore 付きで足す | #3747 |
