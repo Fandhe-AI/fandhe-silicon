@@ -29,6 +29,8 @@
 //!
 //! `ext-interop` のビルドでは device の作成で UUID を 1 回読み、`physical_gpu_id` が返す（TASK-197）。
 //!
+//! `CudaDevice` は検証の報告の受け口の登録を受け付けて保持し、報告は出さない（TASK-607）。
+//!
 //! device の世代は書き換えられる値で、照合と払い出しは今の値を読む。`free` は表の項目を払い出したときの世代で照らし、
 //! 完了の callback の登録は登録した印の世代を持つ（TASK-2934）。
 //!
@@ -84,6 +86,7 @@ use fandhe_silicon_core::memory::{
     BufferHandle, BufferUsage, MemoryOps, UsageRole, validate_allocation_size,
     validate_buffer_range, validate_usage_for_role,
 };
+use fandhe_silicon_core::validation::{ValidationCallback, ValidationIntake, ValidationReporter};
 
 /// この provider が受け持つ背後実装。
 const BACKEND: BackendKind = BackendKind::Cuda;
@@ -424,6 +427,7 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             pipelines: Mutex::new(Pipelines::default()),
             open: Arc::new(OpenEncoders::default()),
             submissions: Mutex::new(Submissions::new()),
+            validation: ValidationReporter::new(),
         })
     })
 }
@@ -1335,6 +1339,8 @@ struct CudaDevice {
     pipelines: Mutex<Pipelines>,
     open: Arc<OpenEncoders>,
     submissions: Mutex<Submissions<CudaEvent>>,
+    /// 検証の報告の受け口の登録を置く部品。この背後実装は報告を出さない（TASK-607）。
+    validation: ValidationReporter,
 }
 
 impl Drop for CudaDevice {
@@ -1853,6 +1859,14 @@ impl FaultHooks for CudaDevice {
 impl DeviceLostNotify for CudaDevice {
     fn set_lost_callback(&self, callback: LostCallback) {
         self.lost.set_callback(callback);
+    }
+}
+
+/// 検証の報告の受け口の登録を受け付けて保持し、登録済みなら置き換える。
+/// この背後実装は報告を出さないので、登録した関数は呼ばれない（TASK-607）。
+impl ValidationIntake for CudaDevice {
+    fn set_validation_callback(&self, callback: ValidationCallback) {
+        self.validation.set_callback(callback);
     }
 }
 
@@ -4707,6 +4721,17 @@ mod lost_state_tests {
             .lose(DeviceLostReason::Unknown, &generation, &source)
             .unwrap();
         assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+}
+/// 検証の報告の受け口の登録の試験（device に触らない。TASK-607 のポインタ）。
+#[cfg(test)]
+mod validation_intake_tests {
+    use super::*;
+
+    #[test]
+    fn the_cuda_device_takes_a_validation_callback() {
+        fn takes<T: ValidationIntake + Send + Sync>() {}
+        takes::<CudaDevice>();
     }
 }
 /// 破棄の部品の試験（device に触らない。TASK-191 のポインタ）。
