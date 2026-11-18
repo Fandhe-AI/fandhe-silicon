@@ -19,6 +19,28 @@ use fandhe_silicon_core::memory::{BufferHandle, BufferUsage, MemoryOps};
 struct Stub;
 
 impl MemoryOps for Stub {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         Ok(BufferHandle::__backend_new(0, 1, 1, byte_len, usage))
     }

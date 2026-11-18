@@ -112,13 +112,15 @@ struct Buffers {
 
 /// ホストのメモリで動く `MemoryOps`。`StubDevice` が持つ。
 struct StubMemory {
+    backend: BackendKind,
     id: u64,
     buffers: Mutex<Buffers>,
 }
 
 impl StubMemory {
-    fn new(id: u64) -> Self {
+    fn new(backend: BackendKind, id: u64) -> Self {
         Self {
+            backend,
             id,
             buffers: Mutex::new(Buffers {
                 next_id: 1,
@@ -184,6 +186,34 @@ impl StubMemory {
 }
 
 impl MemoryOps for StubMemory {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "copy_buffer_to_buffer",
+            backend: self.backend,
+        })
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "clear_buffer",
+            backend: self.backend,
+        })
+    }
+
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         validate_allocation_size(byte_len, LIMITS.max_buffer_bytes)?;
         let failed = || ContractError::AllocationFailed {
@@ -1120,7 +1150,7 @@ impl StubDevice {
             ownership: req.ownership,
             profile: req.profile,
             id,
-            memory: StubMemory::new(id),
+            memory: StubMemory::new(req.backend, id),
             queue,
             compute: StubCompute::new(req.backend, id),
             textures: StubTextures::new(req.backend, id),
