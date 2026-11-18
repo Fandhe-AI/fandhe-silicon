@@ -4619,7 +4619,7 @@ mod imp {
             let mut binding_args = Vec::with_capacity(bindings.len());
             for binding in bindings {
                 let buffer_len =
-                    self.with_buffer(binding.buffer, |entry| to_u64(entry.buffer.length()))?;
+                    self.with_buffer(binding.buffer, |entry| Ok(entry.allocation_len))?;
                 binding_args.push(BindingArg {
                     slot: binding.slot,
                     offset: binding.offset,
@@ -4737,7 +4737,7 @@ mod imp {
                         binding.buffer.__backend_generation(),
                         binding.buffer.size(),
                         entry.generation,
-                        to_u64(entry.buffer.length())?,
+                        entry.allocation_len,
                     )
                 })
             };
