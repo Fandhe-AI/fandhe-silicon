@@ -150,6 +150,19 @@ test usage_is_checked_before_the_range ... ignored, touches the Metal device; ru
 test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ```
 
+## 用途で拒むときの下位の API の呼び出し
+
+`upload`・`download_*` は、純粋な関数 `usage_access_range` を、用途・使用中・範囲の順に照らす。使用中の判定は `FnOnce() -> bool` で受け、用途を通ったときにだけ 1 度呼ぶ（`MTLCommandBuffer::status()` に届く `check_not_in_use` は、用途で拒む入力では呼ばれない）。確保の長さは `BufferEntry` の欄 `allocation_len`（`allocate` が受けた `byte_len`）から取り、この 2 つの口は照らしのために `MTLBuffer::length()` を呼ばない。再利用の一覧は同じ長さの項目だけを返すので、再利用しても欄の値は変わらない。
+
+device に触らない試験は、新しい module `usage_reject_without_probe_tests` の 2 本。
+
+| 試験 | 入力 | 照らす値 |
+| ---- | ---- | -------- |
+| `a_usage_rejection_does_not_call_the_in_use_probe` | 用途が `STORAGE` だけで、`upload`・`download_blocking` の役割 | `InvalidArgument`、使用中の判定の呼び出しが 0 回 |
+| `the_in_use_probe_is_called_once_when_the_usage_passes` | 用途が通り、使用中の判定が真を返す | `InvalidArgument`、使用中の判定の呼び出しが 1 回 |
+
+既存の `usage_role_check_tests` の 8 本は、使用中の引数をクロージャにした呼び方だけが変わり、期待は同じ。
+
 ## 段
 
 | 段 | 内容 | Issue |

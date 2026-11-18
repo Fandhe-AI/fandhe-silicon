@@ -127,6 +127,10 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 | `freeing_after_submit_defers_the_release_until_completion` | 確定を止めてコピーを投入し、`src`・`dst` を `free` | `free`・`test_pending_release_count`・`test_pool_len` | 2 つとも解放の保留にあり再利用の一覧は増えず、完了の後に保留が 0 |
 | `copy_and_clear_through_the_public_device_are_recorded_and_submit_is_unsupported` | 公開の `Device` の記録先にコピーとクリア | `Device::memory()`・`Device::queue()` | 別の device のバッファは `DeviceMismatch`、`submit` は `Unsupported { op: "submit", backend: BackendKind::Metal }`、`dst` の読み戻しが投入の前と同じ |
 
+## 用途で拒むときの下位の API の呼び出し
+
+コピーとクリアの記録の時点の `transfer_operand` は、確保の長さを `BufferEntry` の欄 `allocation_len`（`allocate` が受けた `byte_len`）から取り、`MTLBuffer::length()` を呼ばない。照らす順・返す値・投入の門は変わらない。
+
 ## 段
 
 | 段 | 内容 | Issue |
