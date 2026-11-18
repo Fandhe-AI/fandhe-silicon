@@ -131,6 +131,65 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 
 コピーとクリアの記録の時点の `transfer_operand` は、確保の長さを `BufferEntry` の欄 `allocation_len`（`allocate` が受けた `byte_len`）から取り、`MTLBuffer::length()` を呼ばない。照らす順・返す値・投入の門は変わらない。
 
+## 完了の条件の確かめ（4/4）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-610。ポインタのみ）。
+
+時点のコミット: `3951c332`。`docs/spec` の gitlink は `becfefdc2fb47fa610c6ecc914f3bf601910f5f3`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `crates/contract/src/backend_metal.rs` の `copy_clear_device_tests` の範囲で `#[test]` と `^[[:space:]]*#\[ignore` を数える awk、`copy_clear_check_tests` の範囲で `#[test]` を数える awk、`grep -c '#\[test\]'`・`grep -c '^[[:space:]]*#\[ignore'`（`crates/contract/tests/backend_metal_copy_clear.rs`）、`grep -c '#\[test\]'`（`crates/core/tests/memory_copy_clear_stub.rs`）、`grep -c '^[[:space:]]*#\[ignore'`（`backend_metal.rs` 全体） | `copy_clear_device_tests` は `#[test]` 8・`#[ignore` 8。`copy_clear_check_tests` の `#[test]` は 12。`backend_metal_copy_clear.rs` は `#[test]` 1・`#[ignore` 1。`memory_copy_clear_stub.rs` の `#[test]` は 1。`backend_metal.rs` の `#[ignore` は 106 |
+| 2 | 受け手の試験の名前 | 9 本の device の要る試験・core の試験・個数の試験・2 つの module の名前の `git grep -n -E "fn (<名前>)\b\|mod (copy_clear_device_tests\|copy_clear_check_tests)\b" -- crates`、`copy_clear_check_tests` の `#[test]` の次の行の `fn` | 下の (2) の出力 |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-metal --lib copy_clear_check_tests`、`cargo test -p fandhe-silicon-core --features test-support --test memory_copy_clear_stub`、`cargo test -p fandhe-silicon-contract --test backend_metal_no_recording --test backend_metal_unsafe_count` | `test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 183 filtered out`、`test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`、`test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`（`backend_metal_no_recording`）、`test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`（`backend_metal_unsafe_count`） |
+| 4 | macOS の型検査 | `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,native-blocking-wait -- -D warnings`、同じコマンドの `--features backend-metal`、同じコマンドの `--all-features` | 3 組とも終了コード 0 |
+| 5 | CI の macOS のビルド | `gh run view 44297382146 --log --job 134777852217`（`make verify + build-profiles (macos-latest)`）の `backend_metal_copy_clear` の部分。run は `3951c332` の main の push | `test result: ok. 0 passed; 0 failed; 1 ignored`（`make verify` と `make build-profiles` の 2 か所）、run の conclusion `success`、headSha `3951c33210ef89b887170a28e1ebc819b21d8a34` |
+| 6 | 依存 0 | `git diff --stat 912312ce..HEAD -- Cargo.lock deps-approved.toml`、`git diff --word-diff=plain -U0 912312ce..HEAD -- crates/contract/Cargo.toml`、`make deps-check` | 1 つ目は出力なし。2 つ目の `objc2-metal` の行の差は `{+"MTLBlitCommandEncoder",+}` の 1 語（ほかは `[[test]]` の `backend_metal_copy_clear` の 4 行）。`make deps-check` は終了コード 0 |
+| 7 | CI | `gh run view 44297382146 --json conclusion,headSha,jobs` | `make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`、headSha `3951c33210ef89b887170a28e1ebc819b21d8a34` |
+
+(6) の `912312ce` は、1/4 の 1 つ前のコミット。
+
+(2) の出力。
+
+```text
+crates/contract/src/backend_metal.rs:9853:    mod copy_clear_device_tests {
+crates/contract/src/backend_metal.rs:9939:        fn copy_buffer_to_buffer_matches_the_cpu_reference() {
+crates/contract/src/backend_metal.rs:9957:        fn clear_buffer_zeroes_only_the_range() {
+crates/contract/src/backend_metal.rs:9971:        fn a_copy_after_a_dispatch_in_the_same_encoder_sees_the_dispatch_output() {
+crates/contract/src/backend_metal.rs:10002:        fn copy_and_clear_take_effect_in_record_order() {
+crates/contract/src/backend_metal.rs:10032:        fn record_time_rejections_leave_the_encoder_usable() {
+crates/contract/src/backend_metal.rs:10120:        fn zero_length_records_nothing() {
+crates/contract/src/backend_metal.rs:10147:        fn a_buffer_freed_before_submit_rejects_the_submit_and_enqueues_nothing() {
+crates/contract/src/backend_metal.rs:10175:        fn freeing_after_submit_defers_the_release_until_completion() {
+crates/contract/src/backend_metal.rs:12671:mod copy_clear_check_tests {
+crates/contract/tests/backend_metal_copy_clear.rs:36:fn copy_and_clear_through_the_public_device_are_recorded_and_submit_is_unsupported() {
+crates/contract/tests/backend_metal_unsafe_count.rs:21:fn backend_metal_unsafe_count_matches_expected() {
+crates/core/tests/memory_copy_clear_stub.rs:14:fn copy_and_clear_on_the_stub_return_unsupported_and_record_nothing() {
+crates/contract/src/backend_metal.rs:12753:    fn copy_passes_and_records_the_operands() {
+crates/contract/src/backend_metal.rs:12774:    fn clear_passes_and_records_the_operand() {
+crates/contract/src/backend_metal.rs:12790:    fn copy_rejects_each_row() {
+crates/contract/src/backend_metal.rs:12829:    fn clear_rejects_each_row() {
+crates/contract/src/backend_metal.rs:12850:    fn copy_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+crates/contract/src/backend_metal.rs:12888:    fn clear_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+crates/contract/src/backend_metal.rs:12910:    fn u64_overflow_is_rejected() {
+crates/contract/src/backend_metal.rs:12923:    fn zero_length_records_nothing_unless_an_earlier_row_applies() {
+crates/contract/src/backend_metal.rs:12950:    fn usage_rejections_name_the_operation_and_the_missing_usage() {
+crates/contract/src/backend_metal.rs:13006:    fn segments_keep_the_record_order_and_group_the_same_kind() {
+crates/contract/src/backend_metal.rs:13051:    fn recorded_transfers_pass_when_every_buffer_is_alive() {
+crates/contract/src/backend_metal.rs:13065:    fn recorded_transfers_reject_a_freed_or_stale_buffer_in_each_position() {
+```
+
+(5) の出力（`make verify` の 1 か所目）。
+
+```text
+Running tests/backend_metal_copy_clear.rs (target/debug/build/fandhe-silicon-contract/cee4213fcaf5f8fb/out/backend_metal_copy_clear-cee4213fcaf5f8fb)
+
+running 1 test
+test copy_and_clear_through_the_public_device_are_recorded_and_submit_is_unsupported ... ignored, touches the Metal device; run only in a dedicated device session
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -138,3 +197,4 @@ cargo test -p fandhe-silicon-contract --features backend-metal --test backend_me
 | 1/4 | MemoryOps にバッファのコピーとクリアの記録の操作を足す | #5220 |
 | 2/4 | バッファのコピーとクリアを記録して投入で積む | #5221 |
 | 3/4 | バッファのコピーとクリアの device の要る試験を ignore 付きで足す | #5222 |
+| 4/4 | 完了の条件の確かめ | #5223 |
