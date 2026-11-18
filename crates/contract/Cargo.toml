@@ -142,6 +142,10 @@ name = "backend_metal_gpu_timing_lost"
 required-features = ["backend-metal", "native-blocking-wait", "fault-injection"]
 
 [[test]]
+name = "backend_metal_offscreen_formats"
+required-features = ["backend-metal", "graphics"]
+
+[[test]]
 name = "backend_metal_offscreen_target"
 required-features = ["backend-metal", "graphics"]
 
