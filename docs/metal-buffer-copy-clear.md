@@ -11,7 +11,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 | 項目 | 事実 | 確かめ方 |
 | ---- | ---- | -------- |
-| 操作の口 | `crates/core/src/memory/ops.rs` の `MemoryOps` の 2 つのメソッド `copy_buffer_to_buffer`・`clear_buffer` | `grep -n 'fn copy_buffer_to_buffer\|fn clear_buffer' crates/core/src/memory/ops.rs` |
+| 操作の口 | `crates/core/src/memory/ops.rs` の `MemoryOps` の 2 つのメソッド `copy_buffer_to_buffer`・`clear_buffer` | `grep -n 'fn copy_buffer_to_buffer(\|fn clear_buffer(' crates/core/src/memory/ops.rs` |
 | 試験用の device | `crates/core/src/stub_device.rs` の `StubMemory` | 同ファイル |
 | 背後実装 | `crates/contract/src/backend_cuda.rs`・`backend_vulkan.rs`・`backend_metal.rs` の `impl MemoryOps` | 各ファイル |
 | 試験 | `crates/core/tests/memory_copy_clear_stub.rs`（feature `test-support`） | 下の「確かめ方」 |
@@ -189,6 +189,12 @@ test copy_and_clear_through_the_public_device_are_recorded_and_submit_is_unsuppo
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ```
+
+## 今の値の補い（base 925c4f7）
+
+記録時点の表と既存の節は書き換えない。
+
+- 「記録の操作の口（1/4）」の節の、Metal の本体が `Unsupported` を返すという文は 1/4 の時点の事実。今の base では、Metal の `copy_buffer_to_buffer`・`clear_buffer` は記録の時点の検査をして記録先に積む（「Metal の記録と投入（2/4）」の節）。試験用の device・CUDA・Vulkan は今も `Unsupported` を返す。確かめ方: `grep -n 'fn copy_buffer_to_buffer(\|fn clear_buffer(' crates/contract/src/backend_metal.rs crates/contract/src/backend_cuda.rs crates/contract/src/backend_vulkan.rs crates/core/src/stub_device.rs`
 
 ## 段
 
