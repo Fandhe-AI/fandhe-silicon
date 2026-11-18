@@ -60,7 +60,7 @@ cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targ
 
 ## device の要る試験（2/3）
 
-どの試験も Metal の device に触るので `#[ignore]` を付け、専用の実機の回でだけ流す（`--ignored` は付けない）。
+どの試験も Metal の device に触るので `#[ignore]` を付け、通常の確認（下の 1 組目のコマンド）では走らず `ignored` になる。専用の実機の回では `-- --ignored` を付けて流す。
 
 | 試験 | 置き場 | 呼ぶ口 | 照らす値 |
 | ---- | ------ | ------ | -------- |
@@ -75,12 +75,21 @@ cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targ
 | `crates/contract/src/backend_metal.rs` の `imp` の中の `lost_invalidation_device_tests` | `test`・`native-blocking-wait`・`fault-injection`（`backend-metal` 下の macOS） |
 | `crates/contract/tests/backend_metal_device_lost.rs` | `target_os = "macos"`。`[[test]]` の `required-features` は `backend-metal`・`native-blocking-wait`・`fault-injection` |
 
+通常の確認（`#[ignore]` の試験は走らず、macOS では `ignored` になる）:
+
 ```bash
 cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --lib lost_invalidation_device_tests
 cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --test backend_metal_device_lost
 ```
 
-macOS 以外では 0 件、macOS では `ignored` になる。
+専用の実機での実行（`-- --ignored` を付ける）:
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --lib lost_invalidation_device_tests -- --ignored
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --test backend_metal_device_lost -- --ignored
+```
+
+macOS 以外では 0 件になる。
 
 ## 段
 
