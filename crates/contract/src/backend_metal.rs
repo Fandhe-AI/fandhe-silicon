@@ -16,10 +16,11 @@
 //! `request_call_count` も公開する。device の型 `MetalDevice` は非公開で、上・下-2 は
 //! `request` が返す `Box<dyn Device>` 越しに使う。
 //!
-//! `dispatch_ex` は検査に通った引数を、記録先ごとの表に plain な値として積む。投入（`submit`・`submit_many`）は、
-//! 束縛したバッファが投入の時にまだ有効なことを全件確かめ、コマンドバッファを 1 つ作り、記録のある記録先ごとに
-//! compute encoder を 1 つ開いて記録の順に積み、確定する。束縛した各バッファの最後に使った投入は、払い出した
-//! 通し番号になる（確かめと登録は同じ錠の中）。コピー・クリア・待ちセマフォ・実際のロストの検出は持たない。
+//! `dispatch_ex`・`copy_buffer_to_buffer`・`clear_buffer`（TASK-610 のポインタ）は検査に通った引数を、記録先ごとの表に
+//! plain な値として積む。投入（`submit`・`submit_many`）は、記録したバッファが投入の時にまだ有効なことを全件確かめ、
+//! コマンドバッファを 1 つ作り、記録の順に、続く dispatch は compute encoder、続くコピー・クリアは blit encoder に
+//! 1 つずつ開いて積み、確定する。dispatch の束縛、コピーの元と先、クリアの対象の各バッファの最後に使った投入は、
+//! 払い出した通し番号になる（確かめと登録は同じ錠の中）。待ちセマフォ・実際のロストの検出は持たない。
 //! 読み書きの `unsafe` ブロックの同期の根拠は、最後に使った投入が完了していることを確かめてからコピーすることに置く。
 //! ロストは、feature `fault-injection` の模擬（`FaultHooks::simulate_device_lost`）と、device の型の内側の
 //! コールバックの登録（`DeviceLostNotify`）だけがある。
@@ -589,6 +590,269 @@ struct DispatchRecord {
     threadgroup_memory: Vec<(u32, u32)>,
 }
 
+/// 記録したバッファ 1 本。識別子と払い出しの世代で指し、Objective-C の型を持たない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecordedBuffer {
+    buffer_id: u64,
+    generation: u64,
+}
+
+/// 記録したバッファのコピー・クリア 1 件。`copy_buffer_to_buffer`・`clear_buffer` が検査の後に積む。
+///
+/// 長さ 0 は積まないので、`size` は 1 以上。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TransferRecord {
+    Copy {
+        src: RecordedBuffer,
+        src_offset: u64,
+        dst: RecordedBuffer,
+        dst_offset: u64,
+        size: u64,
+    },
+    Clear {
+        buffer: RecordedBuffer,
+        offset: u64,
+        size: u64,
+    },
+}
+
+impl TransferRecord {
+    /// この記録が触るバッファを、投入の時の確かめと `last_submission` の更新のために並べて返す。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn buffers(&self) -> Vec<RecordedBuffer> {
+        match self {
+            TransferRecord::Copy { src, dst, .. } => vec![*src, *dst],
+            TransferRecord::Clear { buffer, .. } => vec![*buffer],
+        }
+    }
+}
+
+/// 記録先の列の 1 件。dispatch とコピー・クリアを、記録の順のまま 1 つの列に持つ。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EncoderRecord {
+    Dispatch(DispatchRecord),
+    Transfer(TransferRecord),
+}
+
+impl From<DispatchRecord> for EncoderRecord {
+    fn from(record: DispatchRecord) -> Self {
+        EncoderRecord::Dispatch(record)
+    }
+}
+
+impl From<TransferRecord> for EncoderRecord {
+    fn from(record: TransferRecord) -> Self {
+        EncoderRecord::Transfer(record)
+    }
+}
+
+#[cfg(test)]
+impl PartialEq<DispatchRecord> for EncoderRecord {
+    fn eq(&self, other: &DispatchRecord) -> bool {
+        matches!(self, EncoderRecord::Dispatch(d) if d == other)
+    }
+}
+
+/// 続く同じ種類の記録を 1 つにまとめた並び。投入の時に、compute encoder と blit encoder へ積み分ける単位。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecordSegment {
+    Compute(Vec<DispatchRecord>),
+    Transfer(Vec<TransferRecord>),
+}
+
+/// 記録先 1 つ分の列を、記録の順のまま、続く同じ種類ごとの並びに分ける。空の列は空を返す。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn split_record_segments(records: Vec<EncoderRecord>) -> Vec<RecordSegment> {
+    let mut segments: Vec<RecordSegment> = Vec::new();
+    for record in records {
+        match (record, segments.last_mut()) {
+            (EncoderRecord::Dispatch(d), Some(RecordSegment::Compute(run))) => run.push(d),
+            (EncoderRecord::Transfer(t), Some(RecordSegment::Transfer(run))) => run.push(t),
+            (EncoderRecord::Dispatch(d), _) => segments.push(RecordSegment::Compute(vec![d])),
+            (EncoderRecord::Transfer(t), _) => segments.push(RecordSegment::Transfer(vec![t])),
+        }
+    }
+    segments
+}
+
+/// コピー・クリアの記録の時点で、表から引いたバッファ 1 本の事実。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct TransferEntry {
+    buffer_id: u64,
+    /// ハンドルの世代。
+    generation: u64,
+    /// ハンドルの世代が今の世代と同じか。
+    generation_matches: bool,
+    /// ハンドルの `size()` が表のバッファの長さと同じか。
+    size_matches: bool,
+    /// 確保のときに記録した用途。
+    usage: BufferUsage,
+    /// 表のバッファの長さ。
+    allocation_len: u64,
+}
+
+/// コピー・クリアの記録の時点で、ハンドル 1 本について引いた事実。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct TransferOperand {
+    /// ハンドルの払い出し元がこの device か。
+    same_device: bool,
+    /// 表に項目があれば、その事実。
+    entry: Option<TransferEntry>,
+}
+
+/// ハンドル 1 本の device・表・世代・大きさを、この順に照らして表の事実を返す。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_transfer_operand(operand: TransferOperand) -> Result<TransferEntry, ContractError> {
+    if !operand.same_device {
+        return Err(ContractError::DeviceMismatch);
+    }
+    let Some(entry) = operand.entry else {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle is not in this device's table".into(),
+        ));
+    };
+    if !entry.generation_matches {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle generation does not match this device".into(),
+        ));
+    }
+    if !entry.size_matches {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle size does not match the buffer length".into(),
+        ));
+    }
+    Ok(entry)
+}
+
+/// コピーの元・先とクリアの対象の offset と長さの整列を照らす。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_transfer_alignment(op: &str, offsets: &[u64], size: u64) -> Result<(), ContractError> {
+    if offsets
+        .iter()
+        .chain(std::iter::once(&size))
+        .any(|value| value % BUFFER_OFFSET_ALIGN != 0)
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "{op}: offset and size must be multiples of {BUFFER_OFFSET_ALIGN}"
+        )));
+    }
+    Ok(())
+}
+
+/// `copy_buffer_to_buffer` の記録の時点の照らし。device に触らない。
+///
+/// 照らす順は、device（`src` → `dst`）・表と世代と大きさ（`src` → `dst`）・用途（`src` → `dst`）・範囲（`src` → `dst`）・
+/// 整列・同じバッファの拒否・長さ 0。各行は全部のバッファに当ててから次の行へ進む。通って長さが 0 なら
+/// `Ok(None)`（何も記録しない）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_copy_record(
+    src: TransferOperand,
+    src_offset: u64,
+    dst: TransferOperand,
+    dst_offset: u64,
+    size: u64,
+) -> Result<Option<TransferRecord>, ContractError> {
+    if !src.same_device || !dst.same_device {
+        return Err(ContractError::DeviceMismatch);
+    }
+    let src_entry = check_transfer_operand(src)?;
+    let dst_entry = check_transfer_operand(dst)?;
+    for (entry, role) in [
+        (src_entry, UsageRole::CopyBufferSource),
+        (dst_entry, UsageRole::CopyBufferDestination),
+    ] {
+        match validate_usage_for_role(entry.usage, role) {
+            Ok(()) => {}
+            Err(ContractError::InvalidArgument(msg)) => {
+                return Err(ContractError::InvalidArgument(format!(
+                    "copy_buffer_to_buffer: {msg}"
+                )));
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    validate_buffer_range(src_offset, size, src_entry.allocation_len)?;
+    validate_buffer_range(dst_offset, size, dst_entry.allocation_len)?;
+    check_transfer_alignment("copy_buffer_to_buffer", &[src_offset, dst_offset], size)?;
+    if src_entry.buffer_id == dst_entry.buffer_id {
+        return Err(ContractError::InvalidArgument(
+            "copy_buffer_to_buffer: source and destination must be different buffers".into(),
+        ));
+    }
+    if size == 0 {
+        return Ok(None);
+    }
+    Ok(Some(TransferRecord::Copy {
+        src: RecordedBuffer {
+            buffer_id: src_entry.buffer_id,
+            generation: src_entry.generation,
+        },
+        src_offset,
+        dst: RecordedBuffer {
+            buffer_id: dst_entry.buffer_id,
+            generation: dst_entry.generation,
+        },
+        dst_offset,
+        size,
+    }))
+}
+
+/// `clear_buffer` の記録の時点の照らし。device に触らない。
+///
+/// 照らす順は、device・表と世代と大きさ・用途（`UPLOAD`）・範囲・整列・長さ 0。通って長さが 0 なら `Ok(None)`。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_clear_record(
+    buffer: TransferOperand,
+    offset: u64,
+    size: u64,
+) -> Result<Option<TransferRecord>, ContractError> {
+    let entry = check_transfer_operand(buffer)?;
+    if !entry.usage.contains(BufferUsage::UPLOAD) {
+        return Err(ContractError::InvalidArgument(
+            "clear_buffer: buffer usage lacks UPLOAD".into(),
+        ));
+    }
+    validate_buffer_range(offset, size, entry.allocation_len)?;
+    check_transfer_alignment("clear_buffer", &[offset], size)?;
+    if size == 0 {
+        return Ok(None);
+    }
+    Ok(Some(TransferRecord::Clear {
+        buffer: RecordedBuffer {
+            buffer_id: entry.buffer_id,
+            generation: entry.generation,
+        },
+        offset,
+        size,
+    }))
+}
+
+/// 投入の時のコピー・クリアのバッファの確かめ。全記録の全バッファを並びの順に見て、最初に外れたものを
+/// `InvalidArgument` で返す。規則は `check_recorded_buffers` と同じ（表に有る・表の世代が記録の世代と同じ・
+/// 記録の世代が今の世代と同じ）。副作用は持たない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn check_recorded_transfers(
+    records: &[TransferRecord],
+    lookup: impl Fn(u64) -> Option<u64>,
+    current_generation: u64,
+) -> Result<(), ContractError> {
+    for buffer in records.iter().flat_map(TransferRecord::buffers) {
+        let alive = buffer.generation == current_generation
+            && lookup(buffer.buffer_id) == Some(buffer.generation);
+        if !alive {
+            return Err(ContractError::InvalidArgument(
+                "a copied or cleared buffer was freed before submit".into(),
+            ));
+        }
+    }
+    Ok(())
+}
 /// 投入の時の束縛のバッファの確かめ。全記録の全束縛を並びの順に見て、最初に外れたものを `InvalidArgument` で返す。
 ///
 /// 外れるのは、識別子が表に無い（`lookup` が `None`）・表の項目の世代が記録の世代と違う・記録の世代が
@@ -1304,12 +1568,12 @@ impl<G, C> Submissions<G, C> {
     }
 }
 
-/// 開いている記録先の識別子と、その記録先に積んだ dispatch の記録の表。`CommandEncoder` の後始末の hook を兼ねる。
+/// 開いている記録先の識別子と、その記録先に積んだ dispatch とバッファのコピー・クリアの記録の表。`CommandEncoder` の後始末の hook を兼ねる。
 ///
 /// 記録は Objective-C の型を持たない plain な値なので `Send + Sync` で、記録先が device より長く生きても安全に使える。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct OpenEncoders {
-    ids: Mutex<HashMap<u64, Vec<DispatchRecord>>>,
+    ids: Mutex<HashMap<u64, Vec<EncoderRecord>>>,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -1321,7 +1585,7 @@ impl OpenEncoders {
     }
 
     /// 表の錠を取る。更新は挿入・積み・削除だけなので、汚れていても中身を使う。
-    fn lock(&self) -> MutexGuard<'_, HashMap<u64, Vec<DispatchRecord>>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<u64, Vec<EncoderRecord>>> {
         self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -1341,10 +1605,10 @@ impl OpenEncoders {
     /// 開いている記録先の記録の列の末尾に `record` を積む。
     ///
     /// 開いていなければ（0 を含む）`InvalidArgument` で、表は変えない（記録先の項目は作らない）。
-    fn record(&self, id: u64, record: DispatchRecord) -> Result<(), ContractError> {
+    fn record(&self, id: u64, record: impl Into<EncoderRecord>) -> Result<(), ContractError> {
         match self.lock().get_mut(&id) {
             Some(records) => {
-                records.push(record);
+                records.push(record.into());
                 Ok(())
             }
             None => Err(ContractError::InvalidArgument(
@@ -1356,7 +1620,7 @@ impl OpenEncoders {
     /// 渡された識別子が全部開いている表にあることを確かめ、あれば表から外して記録の列を渡した順に返す。
     ///
     /// 1 つでも無い（0 を含む）・同じ識別子が重複していれば `InvalidArgument` で、表は変えない。
-    fn claim(&self, ids: &[u64]) -> Result<Vec<Vec<DispatchRecord>>, ContractError> {
+    fn claim(&self, ids: &[u64]) -> Result<Vec<Vec<EncoderRecord>>, ContractError> {
         let mut open = self.lock();
         let mut seen = HashSet::with_capacity(ids.len());
         for id in ids {
@@ -2697,14 +2961,15 @@ mod imp {
     use super::wait_result;
     use super::{BindingArg, ConstantArg, DispatchArgs, ThreadgroupArg};
     use super::{
-        BufState, Callback, CompilePlan, ConstantKind, DispatchRecord, GroupState, OpenEncoders,
-        PendingReleases, PipelineReflection, RecordedBinding, ReflectedDataType, SizePool,
-        Submissions, check_declared_operands, check_dispatch_args, check_handle_record,
-        check_recorded_buffers, check_token_owner, check_unique_slots, classify_pipeline_input,
-        classify_reflected_buffer, compile_plan, drive_table, driven_generation, encode_plan,
-        finish_all, group_state_of, missing_required_constants, missing_required_reason,
-        precheck_submit, precheck_submit_many, prepare_constants, register_table, remove_issued,
-        retire, take_next,
+        BufState, Callback, CompilePlan, ConstantKind, DispatchRecord, EncoderRecord, GroupState,
+        OpenEncoders, PendingReleases, PipelineReflection, RecordSegment, RecordedBinding,
+        RecordedBuffer, ReflectedDataType, SizePool, Submissions, TransferEntry, TransferOperand,
+        TransferRecord, check_clear_record, check_copy_record, check_declared_operands,
+        check_dispatch_args, check_handle_record, check_recorded_buffers, check_recorded_transfers,
+        check_token_owner, check_unique_slots, classify_pipeline_input, classify_reflected_buffer,
+        compile_plan, drive_table, driven_generation, encode_plan, finish_all, group_state_of,
+        missing_required_constants, missing_required_reason, precheck_submit, precheck_submit_many,
+        prepare_constants, register_table, remove_issued, retire, split_record_segments, take_next,
     };
     use super::{
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
@@ -2760,15 +3025,16 @@ mod imp {
     use objc2_core_graphics as _;
     #[cfg(feature = "artifact-inspection")]
     use objc2_foundation::{NSArray, NSURL};
-    use objc2_foundation::{NSProcessInfo, NSString};
+    use objc2_foundation::{NSProcessInfo, NSRange, NSString};
     #[cfg(feature = "artifact-inspection")]
     use objc2_metal::{MTLBinaryArchive, MTLBinaryArchiveDescriptor};
     use objc2_metal::{
-        MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
-        MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineDescriptor,
-        MTLComputePipelineReflection, MTLComputePipelineState, MTLCreateSystemDefaultDevice,
-        MTLDataType, MTLDevice, MTLFunction, MTLFunctionConstantValues, MTLGPUFamily, MTLLibrary,
-        MTLMathFloatingPointFunctions, MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
+        MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus,
+        MTLCommandEncoder, MTLCommandQueue, MTLCompileOptions, MTLComputeCommandEncoder,
+        MTLComputePipelineDescriptor, MTLComputePipelineReflection, MTLComputePipelineState,
+        MTLCreateSystemDefaultDevice, MTLDataType, MTLDevice, MTLFunction,
+        MTLFunctionConstantValues, MTLGPUFamily, MTLLibrary, MTLMathFloatingPointFunctions,
+        MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
     };
     #[cfg(feature = "graphics")]
     use objc2_metal::{
@@ -3106,7 +3372,7 @@ mod imp {
         buffers: Mutex<Buffers>,
         /// パイプラインの表。作成した状態は device が持ち、破棄の口は持たない。
         pipelines: Mutex<Pipelines>,
-        /// 開いている（まだ投入も破棄もされていない）記録先の識別子と、積んだ dispatch の記録の表。hook と共有する。
+        /// 開いている（まだ投入も破棄もされていない）記録先の識別子と、積んだ dispatch とバッファのコピー・クリアの記録の表。hook と共有する。
         open: Arc<OpenEncoders>,
         /// 投入済みの表。Objective-C の型を持つので、この錠の中だけに置く。
         submissions: Mutex<Submissions<Vec<CommandBuffer>>>,
@@ -3160,6 +3426,30 @@ mod imp {
         threadgroup_indices: Vec<u32>,
         grid: MTLSize,
         threads: MTLSize,
+    }
+
+    /// 投入の時に blit encoder へ積む 1 件。記録を、Metal の呼び出しにそのまま渡せる値へ変換したもの。
+    ///
+    /// 変換で失敗しうる処理（`usize` への変換・表の引き直し）は `prepare_transfers` が済ませる。
+    enum PreparedTransfer {
+        Copy {
+            src: MetalBuffer,
+            src_offset: usize,
+            dst: MetalBuffer,
+            dst_offset: usize,
+            size: usize,
+        },
+        Clear {
+            buffer: MetalBuffer,
+            offset: usize,
+            size: usize,
+        },
+    }
+
+    /// 投入の時に command buffer へ順に積む 1 つ分。compute encoder の run の並びか、blit encoder 1 つ分。
+    enum Step {
+        Compute(Vec<Vec<(PreparedDispatch, bool)>>),
+        Blit(Vec<PreparedTransfer>),
     }
 
     /// `NSUInteger` に収まらない値は、切り詰めずに `InvalidArgument` にする。
@@ -3233,6 +3523,89 @@ mod imp {
             groups.push(prepared);
         }
         Ok(groups)
+    }
+
+    /// コピー・クリアの記録を `PreparedTransfer` にする。バッファは表から `Retained` を写す。
+    ///
+    /// 表に無いもの・`usize` に収まらない値は `InvalidArgument`（積み始める前に返る）。
+    fn prepare_transfers(
+        buffers: &Buffers,
+        records: Vec<TransferRecord>,
+    ) -> Result<Vec<PreparedTransfer>, ContractError> {
+        let get = |buffer: RecordedBuffer| -> Result<MetalBuffer, ContractError> {
+            buffers
+                .map
+                .get(&buffer.buffer_id)
+                .map(|entry| entry.buffer.clone())
+                .ok_or_else(|| {
+                    ContractError::InvalidArgument(
+                        "a copied or cleared buffer was freed before submit".into(),
+                    )
+                })
+        };
+        let mut prepared = Vec::with_capacity(records.len());
+        for record in records {
+            prepared.push(match record {
+                TransferRecord::Copy {
+                    src,
+                    src_offset,
+                    dst,
+                    dst_offset,
+                    size,
+                } => PreparedTransfer::Copy {
+                    src: get(src)?,
+                    src_offset: to_usize(src_offset)?,
+                    dst: get(dst)?,
+                    dst_offset: to_usize(dst_offset)?,
+                    size: to_usize(size)?,
+                },
+                TransferRecord::Clear {
+                    buffer,
+                    offset,
+                    size,
+                } => PreparedTransfer::Clear {
+                    buffer: get(buffer)?,
+                    offset: to_usize(offset)?,
+                    size: to_usize(size)?,
+                },
+            });
+        }
+        Ok(prepared)
+    }
+
+    /// 開いた blit encoder 1 つに、コピー・クリアを順に積んで閉じる。失敗しうる処理を持たない。
+    fn encode_transfers(
+        encoder: &ProtocolObject<dyn MTLBlitCommandEncoder>,
+        transfers: Vec<PreparedTransfer>,
+    ) {
+        for transfer in transfers {
+            match transfer {
+                PreparedTransfer::Clear {
+                    buffer,
+                    offset,
+                    size,
+                } => encoder.fillBuffer_range_value(&buffer, NSRange::new(offset, size), 0),
+                PreparedTransfer::Copy {
+                    src,
+                    src_offset,
+                    dst,
+                    dst_offset,
+                    size,
+                } => {
+                    // SAFETY: `copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size` に渡す `src`・`dst` は、
+                    // 投入の時に表から写した `Retained` で、積み込みの間は生きており、command buffer が完了まで参照を保つ。
+                    // 記録の時点に `validate_buffer_range` で、offset と `size` の終端が各バッファの長さ以下であることを確かめ、
+                    // 投入の時点に識別子と世代で記録したバッファと同じバッファであることを確かめた（終端はあふれない）。
+                    // `src` と `dst` は別のバッファであることを記録の時点に確かめた。offset と `size` は 4 の倍数であることを確かめた。
+                    unsafe {
+                        encoder.copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size(
+                            &src, src_offset, &dst, dst_offset, size,
+                        )
+                    };
+                }
+            }
+        }
+        encoder.endEncoding();
     }
 
     /// 開いた compute encoder 1 つに、run の記録を順に積んで閉じる。失敗しうる処理を持たない。
@@ -3318,13 +3691,14 @@ mod imp {
             self.submissions.lock().unwrap_or_else(|e| e.into_inner())
         }
 
-        /// 記録を束縛のバッファの確かめ・積み・確定・登録の順で投入し、通し番号の印を返す。
+        /// 記録を、バッファの確かめ・積み・確定・登録の順で投入し、通し番号の印を返す。
         ///
         /// `submit`・`submit_many` が共有する。`records` は記録先ごとの記録の列（渡した順）。
-        /// バッファの表の錠を取ったまま、全束縛のバッファが有効なことを確かめ（外れれば `InvalidArgument` で
-        /// command buffer も通し番号も作らない）、command buffer を 1 つ作り、記録のある記録先ごとに
-        /// compute encoder を 1 つ開いて記録の順に積んで閉じ、確定し、束縛した各バッファの最後に使った投入を
-        /// 払い出した通し番号にする。記録がまったく無いときは encoder を開かず、空の command buffer を確定する。
+        /// バッファの表の錠を取ったまま、全記録のバッファ（dispatch の束縛、コピーの元と先、クリアの対象）が有効なことを
+        /// 確かめ（外れれば `InvalidArgument` で command buffer も通し番号も作らない）、command buffer を 1 つ作り、
+        /// 記録の順に、続く dispatch は compute encoder、続くコピー・クリアは blit encoder を 1 つ開いて積んで閉じ、確定し、
+        /// 使った各バッファの最後に使った投入を払い出した通し番号にする。記録がまったく無いときは encoder を開かず、
+        /// 空の command buffer を確定する。
         /// 錠の順は バッファの表 -> パイプラインの表 -> 投入済みの表 -> `commit_hold`。
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
         /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
@@ -3332,15 +3706,24 @@ mod imp {
         fn commit_records(
             &self,
             generation: u64,
-            records: Vec<Vec<DispatchRecord>>,
+            records: Vec<Vec<EncoderRecord>>,
         ) -> Result<SubmitToken, ContractError> {
             let mut buffers = self.lock_buffers();
-            check_recorded_buffers(
-                &records,
-                |id| buffers.map.get(&id).map(|entry| entry.generation),
-                self.current_generation(),
-            )?;
-            // 任意の MSL がカーネルのアクセス範囲を保証されないまま走るのを防ぐ。dispatch を含む投入は、
+            let records: Vec<Vec<RecordSegment>> =
+                records.into_iter().map(split_record_segments).collect();
+            let current = self.current_generation();
+            let lookup = |id: u64| buffers.map.get(&id).map(|entry| entry.generation);
+            for segment in records.iter().flatten() {
+                match segment {
+                    RecordSegment::Compute(dispatches) => {
+                        check_recorded_buffers(std::slice::from_ref(dispatches), lookup, current)?
+                    }
+                    RecordSegment::Transfer(transfers) => {
+                        check_recorded_transfers(transfers, lookup, current)?
+                    }
+                }
+            }
+            // 任意の MSL がカーネルのアクセス範囲を保証されないまま走るのを防ぐ。記録を含む投入は、
             // 範囲の保証が入るまで製品のビルドでは何も積まず確定せずに拒む（fail-closed）。
             if !DISPATCH_EXECUTION_ENABLED && records.iter().any(|group| !group.is_empty()) {
                 return Err(ContractError::Unsupported {
@@ -3348,21 +3731,41 @@ mod imp {
                     backend: BackendKind::Metal,
                 });
             }
-            let bound_ids: Vec<u64> = records
+            let touched_ids: Vec<u64> = records
                 .iter()
                 .flatten()
-                .flat_map(|record| record.bindings.iter().map(|binding| binding.buffer_id))
+                .flat_map(|segment| match segment {
+                    RecordSegment::Compute(dispatches) => dispatches
+                        .iter()
+                        .flat_map(|record| record.bindings.iter().map(|binding| binding.buffer_id))
+                        .collect::<Vec<u64>>(),
+                    RecordSegment::Transfer(transfers) => transfers
+                        .iter()
+                        .flat_map(TransferRecord::buffers)
+                        .map(|buffer| buffer.buffer_id)
+                        .collect::<Vec<u64>>(),
+                })
                 .collect();
             // encoder を開く前に、失敗しうる変換と表の引き直しを済ませる。
-            let groups = {
+            let mut steps: Vec<Step> = Vec::new();
+            {
                 let pipelines = self.lock_pipelines();
-                prepare_groups(&buffers, &pipelines, records)?
-            };
-            let runs = encode_plan(
-                groups,
-                |dispatch| dispatch.pipeline_id,
-                |dispatch| dispatch.threadgroup_indices.as_slice(),
-            );
+                for segment in records.into_iter().flatten() {
+                    match segment {
+                        RecordSegment::Compute(dispatches) => {
+                            let groups = prepare_groups(&buffers, &pipelines, vec![dispatches])?;
+                            steps.push(Step::Compute(encode_plan(
+                                groups,
+                                |dispatch| dispatch.pipeline_id,
+                                |dispatch| dispatch.threadgroup_indices.as_slice(),
+                            )));
+                        }
+                        RecordSegment::Transfer(transfers) => {
+                            steps.push(Step::Blit(prepare_transfers(&buffers, transfers)?));
+                        }
+                    }
+                }
+            }
 
             let mut subs = self.lock_submissions();
             subs.reclaim(group_state);
@@ -3382,16 +3785,33 @@ mod imp {
                         backend: BACKEND,
                         detail: "commandBuffer returned None".into(),
                     })?;
-            for run in runs {
-                let Some(encoder) = buffer.computeCommandEncoder() else {
-                    // 確定せずに落とす。通し番号も登録も進めない。
-                    return Err(ContractError::BackendFailure {
-                        op: "submit",
-                        backend: BACKEND,
-                        detail: "computeCommandEncoder returned None".into(),
-                    });
-                };
-                encode_run(&encoder, run);
+            for step in steps {
+                match step {
+                    Step::Compute(runs) => {
+                        for run in runs {
+                            let Some(encoder) = buffer.computeCommandEncoder() else {
+                                // 確定せずに落とす。通し番号も登録も進めない。
+                                return Err(ContractError::BackendFailure {
+                                    op: "submit",
+                                    backend: BACKEND,
+                                    detail: "computeCommandEncoder returned None".into(),
+                                });
+                            };
+                            encode_run(&encoder, run);
+                        }
+                    }
+                    Step::Blit(transfers) => {
+                        let Some(encoder) = buffer.blitCommandEncoder() else {
+                            // 確定せずに落とす。通し番号も登録も進めない。
+                            return Err(ContractError::BackendFailure {
+                                op: "submit",
+                                backend: BACKEND,
+                                detail: "blitCommandEncoder returned None".into(),
+                            });
+                        };
+                        encode_transfers(&encoder, transfers);
+                    }
+                }
             }
             #[cfg(not(test))]
             buffer.commit();
@@ -3399,7 +3819,7 @@ mod imp {
             self.commit_or_hold(&buffer);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
-            for id in bound_ids {
+            for id in touched_ids {
                 if let Some(entry) = buffers.map.get_mut(&id) {
                     entry.last_submission = Some(sequence);
                 }
@@ -3651,6 +4071,36 @@ mod imp {
                 ));
             }
             Ok(())
+        }
+
+        /// 記録先がこの device の開いている表にあることを確かめる。無ければ（0 を含む）`InvalidArgument`。
+        fn ensure_encoder_open(&self, encoder: &CommandEncoder) -> Result<(), ContractError> {
+            if self.open.is_open(encoder.__backend_id()) {
+                Ok(())
+            } else {
+                Err(ContractError::InvalidArgument(
+                    "encoder is not open on this device".into(),
+                ))
+            }
+        }
+
+        /// ハンドル 1 本について、記録の時点の照らしに渡す事実を表から引く。表は変えない。
+        fn transfer_operand(&self, buffers: &Buffers, handle: &BufferHandle) -> TransferOperand {
+            let entry = buffers.map.get(&handle.__backend_id()).map(|entry| {
+                let allocation_len = u64::try_from(entry.buffer.length()).unwrap_or(u64::MAX);
+                TransferEntry {
+                    buffer_id: handle.__backend_id(),
+                    generation: handle.__backend_generation(),
+                    generation_matches: handle.__backend_generation() == self.current_generation(),
+                    size_matches: handle.size() == allocation_len,
+                    usage: entry.usage,
+                    allocation_len,
+                }
+            });
+            TransferOperand {
+                same_device: handle.__backend_device_id() == self.id,
+                entry,
+            }
         }
 
         /// ハンドルを照合し、この device のバッファの表の項目を `&mut` で借りて `f` を呼ぶ。`f` の間は表の錠を持つ。
@@ -3942,12 +4392,12 @@ mod imp {
             }
         }
 
-        /// 記録先に積んだ dispatch を、コマンドバッファ 1 つの compute encoder に積んで確定する。
+        /// 記録先に積んだ記録を、コマンドバッファ 1 つの compute encoder と blit encoder に積んで確定する。
         ///
         /// 空でない `wait` は何も投入せず `Unsupported`。記録先がこの device の開いている表に無ければ
         /// `InvalidArgument`（別の device の記録先を含む）で、何も投入しない。記録先は取り出した時点で消費され、
-        /// 束縛のバッファが投入の前に解放されていた場合（COMP-39）も `InvalidArgument` で、何も積まず通し番号も払い出さない。
-        /// 積めたら、束縛した各バッファの最後に使った投入が、払い出した通し番号になる。記録が無いときは空のコマンドバッファを確定する。
+        /// 記録したバッファが投入の前に解放されていた場合（COMP-39）も `InvalidArgument` で、何も積まず通し番号も払い出さない。
+        /// 積めたら、使った各バッファの最後に使った投入が、払い出した通し番号になる。記録が無いときは空のコマンドバッファを確定する。
         fn submit(
             &self,
             mut commands: CommandEncoder,
@@ -3967,7 +4417,7 @@ mod imp {
         /// 順は、`after` の照合（別 device は `DeviceMismatch`、世代違いは `DeviceLost`）、
         /// 空の列（`InvalidArgument`）、`wait`（`Unsupported`）、記録先の所属（`InvalidArgument`）、
         /// 束縛のバッファの確かめ（`InvalidArgument`）。検査に当たると何も投入しない。
-        /// コマンドバッファは 1 つで、記録のある記録先ごとに compute encoder を渡した順に積む（記録の無い記録先は開かない）。
+        /// コマンドバッファは 1 つで、記録のある記録先ごとに、記録の順に compute encoder と blit encoder を渡した順に積む（記録の無い記録先は開かない）。
         /// 単一の列でコマンドバッファは投入順に完了するので、`after` は照合だけで追加の待ちは入れない。
         fn submit_many(
             &self,
@@ -5134,32 +5584,59 @@ mod imp {
     }
 
     impl MemoryOps for MetalDevice {
+        /// 記録先にバッファ間のコピーを積む。投入が blit encoder に積む。
+        ///
+        /// 照らす順は、記録先（この device の開いている表）・device・表と世代と大きさ・用途・範囲・整列・
+        /// 同じバッファの拒否・長さ 0。長さ 0 は何も記録せず `Ok(())`。拒否は記録先・表・バッファを変えない。
         fn copy_buffer_to_buffer(
             &self,
-            _encoder: &mut CommandEncoder,
-            _src: &BufferHandle,
-            _src_offset: u64,
-            _dst: &BufferHandle,
-            _dst_offset: u64,
-            _size: u64,
+            encoder: &mut CommandEncoder,
+            src: &BufferHandle,
+            src_offset: u64,
+            dst: &BufferHandle,
+            dst_offset: u64,
+            size: u64,
         ) -> Result<(), ContractError> {
-            Err(ContractError::Unsupported {
-                op: "copy_buffer_to_buffer",
-                backend: BACKEND,
-            })
+            self.ensure_encoder_open(encoder)?;
+            let (src_operand, dst_operand) = {
+                let buffers = self.lock_buffers();
+                (
+                    self.transfer_operand(&buffers, src),
+                    self.transfer_operand(&buffers, dst),
+                )
+            };
+            let Some(record) =
+                check_copy_record(src_operand, src_offset, dst_operand, dst_offset, size)?
+            else {
+                return Ok(());
+            };
+            self.open.record(encoder.__backend_id(), record)?;
+            encoder.__backend_record();
+            Ok(())
         }
 
+        /// 記録先にバッファの 0 埋めを積む。投入が blit encoder に積む。
+        ///
+        /// 照らす順は、記録先・device・表と世代と大きさ・用途（`UPLOAD`）・範囲・整列・長さ 0。
+        /// 長さ 0 は何も記録せず `Ok(())`。拒否は記録先・表・バッファを変えない。
         fn clear_buffer(
             &self,
-            _encoder: &mut CommandEncoder,
-            _buffer: &BufferHandle,
-            _offset: u64,
-            _size: u64,
+            encoder: &mut CommandEncoder,
+            buffer: &BufferHandle,
+            offset: u64,
+            size: u64,
         ) -> Result<(), ContractError> {
-            Err(ContractError::Unsupported {
-                op: "clear_buffer",
-                backend: BACKEND,
-            })
+            self.ensure_encoder_open(encoder)?;
+            let operand = {
+                let buffers = self.lock_buffers();
+                self.transfer_operand(&buffers, buffer)
+            };
+            let Some(record) = check_clear_record(operand, offset, size)? else {
+                return Ok(());
+            };
+            self.open.record(encoder.__backend_id(), record)?;
+            encoder.__backend_record();
+            Ok(())
         }
 
         /// shared の storage でバッファを確保する。
@@ -10369,9 +10846,9 @@ mod precheck_tests {
     fn claim_returns_the_records_in_the_given_order_and_removes_them() {
         let open = OpenEncoders::new();
         open.lock().extend([
-            (5, vec![record_of(1)]),
+            (5, vec![record_of(1).into()]),
             (6, Vec::new()),
-            (7, vec![record_of(3)]),
+            (7, vec![record_of(3).into()]),
         ]);
         let claimed = open.claim(&[7, 5, 6]).expect("claim");
         assert_eq!(
@@ -10585,7 +11062,7 @@ mod precheck_tests {
     #[test]
     fn closing_removes_the_id_and_is_harmless_twice() {
         let open = OpenEncoders::new();
-        open.lock().insert(9, vec![record_of(1)]);
+        open.lock().insert(9, vec![record_of(1).into()]);
         open.close(9);
         open.close(9);
         assert!(open.lock().is_empty());
@@ -11823,6 +12300,430 @@ mod precheck_tests {
     }
 }
 
+#[cfg(test)]
+mod copy_clear_check_tests {
+    //! バッファのコピー・クリアの記録の時点の照らしと、投入の時点の並びの切り方・確かめの固定
+    //! （device に触らない。どの OS でも流れる）。TASK-610 のポインタ。
+    //!
+    //! 確かめるのは純粋な関数 `check_copy_record`・`check_clear_record`・`split_record_segments`・
+    //! `check_recorded_transfers`。エラーは variant と、操作の名前・用途の値の名前などの語の `contains` だけで照らす。
+    use super::*;
+
+    const LEN: u64 = 64;
+    const GEN: u64 = 1;
+
+    /// 引き直しに成功した、表の項目のあるハンドル（世代と大きさが合い、同じ device）。
+    fn operand(buffer_id: u64, usage: BufferUsage) -> TransferOperand {
+        TransferOperand {
+            same_device: true,
+            entry: Some(TransferEntry {
+                buffer_id,
+                generation: GEN,
+                generation_matches: true,
+                size_matches: true,
+                usage,
+                allocation_len: LEN,
+            }),
+        }
+    }
+
+    fn src() -> TransferOperand {
+        operand(1, BufferUsage::DOWNLOAD)
+    }
+
+    fn dst() -> TransferOperand {
+        operand(2, BufferUsage::UPLOAD)
+    }
+
+    fn other_device(mut o: TransferOperand) -> TransferOperand {
+        o.same_device = false;
+        o
+    }
+
+    fn without_entry(mut o: TransferOperand) -> TransferOperand {
+        o.entry = None;
+        o
+    }
+
+    fn stale_generation(mut o: TransferOperand) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.generation_matches = false;
+        }
+        o
+    }
+
+    fn wrong_size(mut o: TransferOperand) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.size_matches = false;
+        }
+        o
+    }
+
+    fn with_usage(mut o: TransferOperand, usage: BufferUsage) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.usage = usage;
+        }
+        o
+    }
+
+    fn assert_invalid<T: std::fmt::Debug>(result: Result<T, ContractError>, needle: &str) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => {
+                assert!(msg.contains(needle), "{msg:?} lacks {needle:?}")
+            }
+            other => panic!("expected InvalidArgument containing {needle:?}, got {other:?}"),
+        }
+    }
+
+    fn assert_mismatch<T: std::fmt::Debug>(result: Result<T, ContractError>) {
+        assert!(
+            matches!(result, Err(ContractError::DeviceMismatch)),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn copy_passes_and_records_the_operands() {
+        let record = check_copy_record(src(), 4, dst(), 8, 16).expect("copy");
+        assert_eq!(
+            record,
+            Some(TransferRecord::Copy {
+                src: RecordedBuffer {
+                    buffer_id: 1,
+                    generation: GEN
+                },
+                src_offset: 4,
+                dst: RecordedBuffer {
+                    buffer_id: 2,
+                    generation: GEN
+                },
+                dst_offset: 8,
+                size: 16,
+            })
+        );
+    }
+
+    #[test]
+    fn clear_passes_and_records_the_operand() {
+        let record = check_clear_record(dst(), 4, 16).expect("clear");
+        assert_eq!(
+            record,
+            Some(TransferRecord::Clear {
+                buffer: RecordedBuffer {
+                    buffer_id: 2,
+                    generation: GEN
+                },
+                offset: 4,
+                size: 16,
+            })
+        );
+    }
+
+    #[test]
+    fn copy_rejects_each_row() {
+        assert_mismatch(check_copy_record(other_device(src()), 0, dst(), 0, 4));
+        assert_mismatch(check_copy_record(src(), 0, other_device(dst()), 0, 4));
+        assert_invalid(
+            check_copy_record(without_entry(src()), 0, dst(), 0, 4),
+            "table",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, stale_generation(dst()), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_copy_record(wrong_size(src()), 0, dst(), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 4),
+            "DOWNLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+            "UPLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), LEN, dst(), 0, 4),
+            "buffer range end",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, dst(), LEN - 4, 8),
+            "buffer range end",
+        );
+        assert_invalid(check_copy_record(src(), 2, dst(), 0, 4), "multiples");
+        assert_invalid(check_copy_record(src(), 0, dst(), 6, 4), "multiples");
+        assert_invalid(check_copy_record(src(), 0, dst(), 0, 6), "multiples");
+        let same = operand(1, BufferUsage::DOWNLOAD | BufferUsage::UPLOAD);
+        assert_invalid(check_copy_record(same, 0, same, 32, 4), "different buffers");
+    }
+
+    #[test]
+    fn clear_rejects_each_row() {
+        assert_mismatch(check_clear_record(other_device(dst()), 0, 4));
+        assert_invalid(check_clear_record(without_entry(dst()), 0, 4), "table");
+        assert_invalid(
+            check_clear_record(stale_generation(dst()), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_clear_record(wrong_size(dst()), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+            "UPLOAD",
+        );
+        assert_invalid(check_clear_record(dst(), LEN, 4), "buffer range end");
+        assert_invalid(check_clear_record(dst(), 2, 4), "multiples");
+        assert_invalid(check_clear_record(dst(), 0, 6), "multiples");
+    }
+
+    #[test]
+    fn copy_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+        // 2 と 3: 元の表に無く、先は別の device。
+        assert_mismatch(check_copy_record(
+            without_entry(src()),
+            0,
+            other_device(dst()),
+            0,
+            4,
+        ));
+        // 3 と 4: 先の表に無く、元の用途が足りない。
+        assert_invalid(
+            check_copy_record(
+                with_usage(src(), BufferUsage::UPLOAD),
+                0,
+                without_entry(dst()),
+                0,
+                4,
+            ),
+            "table",
+        );
+        // 4 と 5: 用途が足りず、範囲の外。
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), LEN, dst(), 0, 4),
+            "DOWNLOAD",
+        );
+        // 5 と 6: 範囲の外で、整列もしていない。
+        assert_invalid(
+            check_copy_record(src(), LEN + 1, dst(), 0, 4),
+            "buffer range end",
+        );
+        // 6 と 7: 整列しておらず、同じバッファ。
+        let same = operand(1, BufferUsage::DOWNLOAD | BufferUsage::UPLOAD);
+        assert_invalid(check_copy_record(same, 2, same, 2, 4), "multiples");
+        // 7 と 8: 同じバッファで、長さ 0。
+        assert_invalid(check_copy_record(same, 0, same, 0, 0), "different buffers");
+    }
+
+    #[test]
+    fn clear_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+        // 2 と 3。
+        assert_mismatch(check_clear_record(other_device(without_entry(dst())), 0, 4));
+        // 3 と 4。
+        assert_invalid(
+            check_clear_record(
+                without_entry(with_usage(dst(), BufferUsage::DOWNLOAD)),
+                0,
+                4,
+            ),
+            "table",
+        );
+        // 4 と 5。
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), LEN, 4),
+            "UPLOAD",
+        );
+        // 5 と 6。
+        assert_invalid(check_clear_record(dst(), LEN + 1, 4), "buffer range end");
+    }
+
+    #[test]
+    fn u64_overflow_is_rejected() {
+        assert_invalid(
+            check_copy_record(src(), u64::MAX - 3, dst(), 0, 8),
+            "overflows",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, dst(), u64::MAX - 3, 8),
+            "overflows",
+        );
+        assert_invalid(check_clear_record(dst(), u64::MAX - 3, 8), "overflows");
+    }
+
+    #[test]
+    fn zero_length_records_nothing_unless_an_earlier_row_applies() {
+        assert_eq!(check_copy_record(src(), 0, dst(), 0, 0).unwrap(), None);
+        assert_eq!(check_copy_record(src(), LEN, dst(), 0, 0).unwrap(), None);
+        assert_eq!(check_clear_record(dst(), 0, 0).unwrap(), None);
+        assert_mismatch(check_copy_record(other_device(src()), 0, dst(), 0, 0));
+        assert_invalid(
+            check_copy_record(without_entry(src()), 0, dst(), 0, 0),
+            "table",
+        );
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 0),
+            "DOWNLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), LEN + 4, dst(), 0, 0),
+            "buffer range end",
+        );
+        assert_invalid(check_copy_record(src(), 2, dst(), 0, 0), "multiples");
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 0),
+            "UPLOAD",
+        );
+        assert_invalid(check_clear_record(dst(), LEN + 4, 0), "buffer range end");
+        assert_invalid(check_clear_record(dst(), 2, 0), "multiples");
+    }
+
+    #[test]
+    fn usage_rejections_name_the_operation_and_the_missing_usage() {
+        for (result, usage) in [
+            (
+                check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 4),
+                "DOWNLOAD",
+            ),
+            (
+                check_copy_record(src(), 0, with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+                "UPLOAD",
+            ),
+        ] {
+            assert_invalid(result.clone(), "copy_buffer_to_buffer");
+            assert_invalid(result, usage);
+        }
+        let cleared = check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4);
+        assert_invalid(cleared.clone(), "clear_buffer");
+        assert_invalid(cleared, "UPLOAD");
+    }
+
+    fn dispatch(pipeline: u64) -> EncoderRecord {
+        EncoderRecord::Dispatch(DispatchRecord {
+            pipeline,
+            bindings: Vec::new(),
+            constants: Vec::new(),
+            dispatch_dims: [1, 1, 1],
+            threads_per_threadgroup: [1, 1, 1],
+            threadgroup_memory: Vec::new(),
+        })
+    }
+
+    fn clear(buffer_id: u64) -> EncoderRecord {
+        EncoderRecord::Transfer(TransferRecord::Clear {
+            buffer: RecordedBuffer {
+                buffer_id,
+                generation: GEN,
+            },
+            offset: 0,
+            size: 4,
+        })
+    }
+
+    fn as_dispatch(record: &EncoderRecord) -> DispatchRecord {
+        match record {
+            EncoderRecord::Dispatch(d) => d.clone(),
+            other => panic!("expected a dispatch, got {other:?}"),
+        }
+    }
+
+    fn as_transfer(record: &EncoderRecord) -> TransferRecord {
+        match record {
+            EncoderRecord::Transfer(t) => t.clone(),
+            other => panic!("expected a transfer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segments_keep_the_record_order_and_group_the_same_kind() {
+        assert!(split_record_segments(Vec::new()).is_empty());
+        let records = vec![
+            clear(1),
+            clear(2),
+            dispatch(1),
+            dispatch(2),
+            dispatch(3),
+            clear(3),
+            dispatch(4),
+        ];
+        let segments = split_record_segments(records.clone());
+        assert_eq!(
+            segments,
+            vec![
+                RecordSegment::Transfer(vec![as_transfer(&records[0]), as_transfer(&records[1])]),
+                RecordSegment::Compute(vec![
+                    as_dispatch(&records[2]),
+                    as_dispatch(&records[3]),
+                    as_dispatch(&records[4]),
+                ]),
+                RecordSegment::Transfer(vec![as_transfer(&records[5])]),
+                RecordSegment::Compute(vec![as_dispatch(&records[6])]),
+            ]
+        );
+    }
+
+    fn recorded(buffer_id: u64, generation: u64) -> RecordedBuffer {
+        RecordedBuffer {
+            buffer_id,
+            generation,
+        }
+    }
+
+    fn copy_of(src: RecordedBuffer, dst: RecordedBuffer) -> TransferRecord {
+        TransferRecord::Copy {
+            src,
+            src_offset: 0,
+            dst,
+            dst_offset: 0,
+            size: 4,
+        }
+    }
+
+    #[test]
+    fn recorded_transfers_pass_when_every_buffer_is_alive() {
+        let records = [
+            copy_of(recorded(1, GEN), recorded(2, GEN)),
+            TransferRecord::Clear {
+                buffer: recorded(3, GEN),
+                offset: 0,
+                size: 4,
+            },
+        ];
+        let alive = |id: u64| (1..=3).contains(&id).then_some(GEN);
+        assert!(check_recorded_transfers(&records, alive, GEN).is_ok());
+    }
+
+    #[test]
+    fn recorded_transfers_reject_a_freed_or_stale_buffer_in_each_position() {
+        let alive = |id: u64| (1..=3).contains(&id).then_some(GEN);
+        let freed_src = [copy_of(recorded(9, GEN), recorded(2, GEN))];
+        let freed_dst = [copy_of(recorded(1, GEN), recorded(9, GEN))];
+        let freed_clear = [TransferRecord::Clear {
+            buffer: recorded(9, GEN),
+            offset: 0,
+            size: 4,
+        }];
+        for records in [&freed_src[..], &freed_dst[..], &freed_clear[..]] {
+            assert_invalid(
+                check_recorded_transfers(records, alive, GEN),
+                "freed before submit",
+            );
+        }
+        // 表の項目の世代が記録の世代と違う。
+        let reissued = |id: u64| (1..=3).contains(&id).then_some(GEN + 1);
+        let live = [copy_of(recorded(1, GEN), recorded(2, GEN))];
+        assert_invalid(
+            check_recorded_transfers(&live, reissued, GEN),
+            "freed before submit",
+        );
+        // 記録の世代が今の世代と違う。
+        assert_invalid(
+            check_recorded_transfers(&live, alive, GEN + 1),
+            "freed before submit",
+        );
+    }
+}
 #[cfg(test)]
 mod usage_role_check_tests {
     //! `upload`・`download_*` の用途・使用中・範囲の照らしの固定（device に触らない。どの OS でも流れる）。

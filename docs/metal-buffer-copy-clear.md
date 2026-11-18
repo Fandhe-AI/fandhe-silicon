@@ -51,8 +51,63 @@ fn clear_buffer(
 cargo test -p fandhe-silicon-core --features test-support --test memory_copy_clear_stub
 ```
 
+## Metal の記録と投入（2/4）
+
+`crates/contract/src/backend_metal.rs` の `impl MemoryOps for MetalDevice` の 2 つの本体は、記録先の列に plain な値（バッファの識別子・世代・offset・長さ）を積む。
+記録先の列は dispatch の記録とコピー・クリアの記録を記録の順に持つ。Metal の API は記録の時点では呼ばない。
+
+### 記録の時点の照らす順
+
+各行は、全部のバッファに当ててから次の行へ進む（コピーはどの行でも `src` → `dst`）。1 行でも当たれば、その行の値を返して以降の行は見ない。
+
+| 順 | 照らすもの | 返す値 |
+| -- | ---------- | ------ |
+| 1 | 記録先がこの device の開いている表にある（`0` は無い） | `InvalidArgument`（`encoder is not open on this device`） |
+| 2 | バッファのハンドルの払い出し元がこの device | `DeviceMismatch` |
+| 3 | 表に有る・ハンドルの世代が今の世代と同じ・ハンドルの `size()` が表のバッファの長さと同じ | `InvalidArgument` |
+| 4 | 用途（コピーの `src` は `DOWNLOAD`、`dst` は `UPLOAD`。クリアは `UPLOAD`）。表の項目の用途で判定する | `InvalidArgument`（操作の名前と足りない用途の名前を含む） |
+| 5 | `validate_buffer_range`（`offset + size` が確保長以下。`u64` のあふれを含む） | `InvalidArgument` |
+| 6 | offset（コピーは 2 つ）と `size` が 4 の倍数 | `InvalidArgument` |
+| 7 | （コピーだけ）`src` と `dst` が別のバッファ | `InvalidArgument` |
+| 8 | `size` が 0 でない | `Ok(())`（何も記録しない） |
+
+通ったときは記録先の列の末尾に積み、記録先に記録があることを印す。長さ 0 は 3〜7 に当たらなければ記録せず、当たれば拒む。
+拒否したときは、記録先の列・バッファの内容・表を変えず、記録先は有効のまま続けて記録し投入できる。
+
+### 投入の時点
+
+`submit`・`submit_many` は、記録の順を保ち、続く dispatch の並びを compute encoder に、続くコピー・クリアの並びを blit encoder 1 つに積んで commit する。
+
+- 積む前に、全部の記録先の全部の記録のバッファ（dispatch の束縛、コピーの `src`・`dst`、クリアの対象）が、表にあり、表の項目の世代が記録の世代と同じで、記録の世代が今の世代と同じことを、バッファの表の錠の中で確かめる。1 件でも外れれば何も積まず、通し番号も払い出さずに `InvalidArgument` を返す。
+- クリアは `fillBuffer_range_value`（値 0）、コピーは `copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size` で積む。`blitCommandEncoder()` が `None` ならcommit せずに `BackendFailure`（`op` は `submit`）を返す。
+- commit したら、dispatch の束縛・コピーの `src`・`dst`・クリアの対象の各バッファの最後に使った投入を、払い出した通し番号にする。
+- fence・event は足さない。
+- 記録を含む投入は、製品のビルドでは何も積まず commit せず `Unsupported` を返す（`DISPATCH_EXECUTION_ENABLED`。コピーとクリアだけの投入も同じ）。積み込みの形は単体試験のビルドだけが確かめる。
+- 記録の後・投入の前に `free` したバッファを含む投入は `InvalidArgument`。投入の後の `free` は、投入の完了まで解放を保留する。
+
+### device に触らない試験
+
+`backend_metal.rs` の `copy_clear_check_tests`（どの OS でも流れる）。
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `copy_passes_and_records_the_operands`・`clear_passes_and_records_the_operand` | 通った入力が記録の値になる |
+| `copy_rejects_each_row`・`clear_rejects_each_row` | 3〜7 の各行の拒否 |
+| `copy_reports_the_earlier_row_when_two_adjacent_rows_apply`・`clear_reports_the_earlier_row_when_two_adjacent_rows_apply` | 隣り合う 2 行に同時に当たる入力が前の行の値を返す |
+| `u64_overflow_is_rejected` | offset と `size` の和のあふれの拒否 |
+| `zero_length_records_nothing_unless_an_earlier_row_applies` | 長さ 0 の扱い |
+| `usage_rejections_name_the_operation_and_the_missing_usage` | 用途の拒否の文字列 |
+| `segments_keep_the_record_order_and_group_the_same_kind` | 並びの切り方 |
+| `recorded_transfers_pass_when_every_buffer_is_alive`・`recorded_transfers_reject_a_freed_or_stale_buffer_in_each_position` | 投入の時点の確かめ |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal --lib copy_clear_check_tests
+cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_unsafe_count --test backend_metal_no_recording
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | MemoryOps にバッファのコピーとクリアの記録の操作を足す | #5220 |
+| 2/4 | バッファのコピーとクリアを記録して投入で積む | #5221 |
