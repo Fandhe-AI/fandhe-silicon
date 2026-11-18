@@ -6329,18 +6329,28 @@ mod imp {
         #[ignore = "touches the Metal device; run only in a dedicated device session"]
         fn a_freed_handle_does_not_alias_the_reused_buffer() {
             let device = new_device();
-            let first = device.allocate(64, BufferUsage::empty()).expect("allocate");
+            let first = device
+                .allocate(
+                    64,
+                    BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                )
+                .expect("allocate");
             let stale = BufferHandle::__backend_new(
                 first.__backend_generation(),
                 first.__backend_id(),
                 first.__backend_device_id(),
                 64,
-                BufferUsage::empty(),
+                BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
             );
             let first_slot = device.test_slot_of(&first).expect("slot");
             device.free(first);
             assert_eq!(device.test_pending_release_count(), 0);
-            let second = device.allocate(64, BufferUsage::empty()).expect("allocate");
+            let second = device
+                .allocate(
+                    64,
+                    BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                )
+                .expect("allocate");
             assert_ne!(stale.__backend_id(), second.__backend_id());
             assert_eq!(device.test_pool_reuse_count(), 1);
             assert_eq!(device.test_slot_of(&second), Some(first_slot));
@@ -9210,7 +9220,12 @@ mod imp {
             #[ignore = "touches the Metal device; run only in a dedicated device session"]
             fn a_handle_from_before_the_loss_can_still_be_freed_once() {
                 let device = new_device();
-                let handle = device.allocate(64, BufferUsage::empty()).expect("allocate");
+                let handle = device
+                    .allocate(
+                        64,
+                        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                    )
+                    .expect("allocate");
                 inject(
                     device.fault_hooks(),
                     HookFault::DeviceLost(DeviceLostReason::Unknown),
@@ -9225,7 +9240,7 @@ mod imp {
                     handle.__backend_id(),
                     handle.__backend_device_id(),
                     64,
-                    BufferUsage::empty(),
+                    BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
                 );
                 device.free(handle);
                 assert_eq!(device.lock_buffers().map.len(), 0);
