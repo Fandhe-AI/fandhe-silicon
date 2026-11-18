@@ -50,6 +50,28 @@ impl PassThroughOps {
 }
 
 impl MemoryOps for PassThroughOps {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         self.calls.set(self.calls.get() + 1);
         let id = u64::from(self.calls.get());

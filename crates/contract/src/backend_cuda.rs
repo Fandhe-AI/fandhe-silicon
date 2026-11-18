@@ -1857,6 +1857,34 @@ impl DeviceLostNotify for CudaDevice {
 }
 
 impl MemoryOps for CudaDevice {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "copy_buffer_to_buffer",
+            backend: BACKEND,
+        })
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(ContractError::Unsupported {
+            op: "clear_buffer",
+            backend: BACKEND,
+        })
+    }
+
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         if byte_len == 0 {
             return Err(ContractError::InvalidArgument(

@@ -5,6 +5,7 @@
 
 use super::{BufferHandle, BufferUsage};
 use crate::error::ContractError;
+use crate::execution::CommandEncoder;
 
 /// バッファの確保・書き込み・読み出し・解放の口。
 pub trait MemoryOps {
@@ -70,6 +71,26 @@ pub trait MemoryOps {
 
     /// ハンドルを値で受け取って解放する。呼んだ後に同じハンドルは使えない。
     fn free(&self, buffer: BufferHandle);
+
+    /// `src` の `src_offset` から `size` バイトを `dst` の `dst_offset` へ写す操作を `encoder` に記録する。記録は投入まで効かない。
+    fn copy_buffer_to_buffer(
+        &self,
+        encoder: &mut CommandEncoder,
+        src: &BufferHandle,
+        src_offset: u64,
+        dst: &BufferHandle,
+        dst_offset: u64,
+        size: u64,
+    ) -> Result<(), ContractError>;
+
+    /// `buffer` の `offset` から `size` バイトを 0 で埋める操作を `encoder` に記録する。記録は投入まで効かない。
+    fn clear_buffer(
+        &self,
+        encoder: &mut CommandEncoder,
+        buffer: &BufferHandle,
+        offset: u64,
+        size: u64,
+    ) -> Result<(), ContractError>;
 
     /// 解放待ちの個数。観測できない背後実装は既定の `None` を返す（MEM-82 のポインタ）。
     fn pending_release_count(&self) -> Option<u64> {

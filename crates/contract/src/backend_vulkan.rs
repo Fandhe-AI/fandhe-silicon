@@ -505,6 +505,28 @@ fn unsupported(op: &'static str) -> ContractError {
 }
 
 impl MemoryOps for VulkanDevice {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(unsupported("copy_buffer_to_buffer"))
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Err(unsupported("clear_buffer"))
+    }
+
     fn allocate(&self, _byte_len: u64, _usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         Err(unsupported("allocate"))
     }

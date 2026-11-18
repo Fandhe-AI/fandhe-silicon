@@ -21,6 +21,28 @@ impl Stub {
 }
 
 impl MemoryOps for Stub {
+    fn copy_buffer_to_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _src: &BufferHandle,
+        _src_offset: u64,
+        _dst: &BufferHandle,
+        _dst_offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
+    fn clear_buffer(
+        &self,
+        _encoder: &mut fandhe_silicon_core::execution::CommandEncoder,
+        _buffer: &BufferHandle,
+        _offset: u64,
+        _size: u64,
+    ) -> Result<(), ContractError> {
+        Ok(())
+    }
+
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
         let id = self.store.borrow().len() as u64 + 1;
         self.store

@@ -414,6 +414,10 @@ required-features = ["test-support"]
 name = "ptx_search"
 required-features = ["test-support"]
 
+[[test]]
+name = "memory_copy_clear_stub"
+required-features = ["test-support"]
+
 [[example]]
 name = "ptx_search_lines"
 required-features = ["test-support"]
