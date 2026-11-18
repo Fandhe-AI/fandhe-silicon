@@ -10329,6 +10329,284 @@ mod imp {
             assert_eq!(device.test_pending_release_count(), 0);
         }
     }
+
+    /// ロストの後の操作の拒否と、作り直した device の動きの device の要る試験（TASK-186 の 2/3）。
+    /// ロストの通知・世代の進み方・13 の操作の拒否・自動で作り直さないこと・新しい `request` の device での
+    /// 確保から読み戻しまでを、具体型の device と公開の `request` の戻りで照らす。
+    #[cfg(all(test, feature = "native-blocking-wait", feature = "fault-injection"))]
+    mod lost_invalidation_device_tests {
+        use super::*;
+        use fandhe_silicon_core::execution::{Binding, DType};
+        use fandhe_silicon_core::fault::{HookFault, inject};
+        use std::time::{Duration, Instant};
+
+        /// `download_async` の callback が受けた結果を溜める入れ物。
+        type Received = Arc<Mutex<Vec<Result<Vec<u8>, ContractError>>>>;
+
+        const SCALE_KERNEL: &str = "#include <metal_stdlib>\n\
+            using namespace metal;\n\
+            kernel void scale(device const uint* src [[buffer(0)]],\n\
+                device uint* dst [[buffer(1)]],\n\
+                uint gid [[thread_position_in_grid]]) {\n\
+                dst[gid] = src[gid] * 3 + 5;\n\
+            }\n";
+
+        const LEN: u64 = 64;
+
+        fn new_device() -> MetalDevice {
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let queue = device.newCommandQueue().expect("queue");
+            MetalDevice::new(
+                __backend_next_device_id().expect("id"),
+                take_next(&NEXT_GENERATION).expect("generation"),
+                String::new(),
+                LimitsTable {
+                    max_buffer_bytes: 1 << 20,
+                    max_dispatch_dims: [u32::MAX; 3],
+                    max_texture_size: MAX_TEXTURE_SIZE,
+                },
+                device,
+                queue,
+            )
+        }
+
+        fn rw() -> BufferUsage {
+            BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+        }
+
+        fn seen_by(device: &MetalDevice) -> Arc<Mutex<Vec<DeviceLostReason>>> {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            DeviceLostNotify::set_lost_callback(
+                device,
+                Box::new(move |reason| sink.lock().unwrap().push(reason)),
+            );
+            seen
+        }
+
+        fn lose(device: &dyn Device) {
+            inject(
+                device.fault_hooks(),
+                HookFault::DeviceLost(DeviceLostReason::Unknown),
+            )
+            .expect("loss");
+        }
+
+        fn scale_pipeline(compute: &dyn ComputeOps) -> PipelineHandle {
+            compute
+                .create_pipeline(
+                    PipelineInput::Msl {
+                        source: SCALE_KERNEL,
+                        entry_point: "scale",
+                    },
+                    &BindingLayout::new(vec![0, 1]),
+                )
+                .expect("create_pipeline")
+        }
+
+        fn input_bytes() -> Vec<u8> {
+            (0..LEN as u32 / 4).flat_map(|i| i.to_le_bytes()).collect()
+        }
+
+        fn expected_bytes() -> Vec<u8> {
+            (0..LEN as u32 / 4)
+                .flat_map(|i| (i * 3 + 5).to_le_bytes())
+                .collect()
+        }
+
+        /// DEV-137・DEV-140 のポインタ。2 回のロストでも通知は 1 回で、世代は 1 回だけ進む。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn two_losses_call_the_callback_once_and_move_the_generation_once() {
+            let device = new_device();
+            let seen = seen_by(&device);
+            let before = device.generation();
+            lose(&device);
+            let after = device.generation();
+            lose(&device);
+            assert_eq!(*seen.lock().unwrap(), [DeviceLostReason::Unknown]);
+            assert!(after > before);
+            assert_eq!(device.generation(), after);
+        }
+
+        /// DEV-141 のポインタ。ロストの後は、一覧の操作が何も起こさずに `DeviceLost` を返し、2 回繰り返しても同じ。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn the_listed_operations_issue_nothing_after_the_loss() {
+            let device = new_device();
+            let a = device.allocate(LEN, rw()).expect("allocate a");
+            let b = device.allocate(LEN, rw()).expect("allocate b");
+            device.upload(&a, 0, &input_bytes()).expect("upload");
+            let issued = device.submit(device.create_encoder(), &[]).expect("submit");
+            device.wait_blocking(issued, None).expect("wait_blocking");
+            let pipeline = scale_pipeline(&device);
+            let recorded = |count: usize| -> Vec<CommandEncoder> {
+                (0..count)
+                    .map(|_| {
+                        let mut enc = device.create_encoder();
+                        device
+                            .dispatch(
+                                &mut enc,
+                                &pipeline,
+                                &[Binding::new(0, &a, 0), Binding::new(1, &b, 0)],
+                                [4, 1, 1],
+                            )
+                            .expect("dispatch");
+                        enc
+                    })
+                    .collect()
+            };
+            let mut recorded_for_submit = recorded(2);
+            let mut recorded_for_many = recorded(2);
+            let mut empties = [device.create_encoder(), device.create_encoder()];
+
+            let buffers_before = {
+                let guard = device.lock_buffers();
+                (guard.map.len(), guard.next_id)
+            };
+            let sequence_before = device.lock_submissions().next_sequence;
+            lose(&device);
+            let generation = device.generation();
+            let lost = || Err(ContractError::DeviceLost { generation });
+
+            for empty in &mut empties {
+                assert_eq!(device.allocate(LEN, rw()).map(|_| ()), lost());
+                assert_eq!(device.upload(&a, 0, &input_bytes()), lost());
+                assert_eq!(device.download_blocking(&a, 0, LEN).map(|_| ()), lost());
+                let started = Instant::now();
+                assert_eq!(
+                    device.wait_blocking(issued, Some(Duration::from_secs(5))),
+                    lost()
+                );
+                assert!(started.elapsed() < Duration::from_secs(5));
+                assert_eq!(
+                    device.dispatch(
+                        empty,
+                        &pipeline,
+                        &[Binding::new(0, &a, 0), Binding::new(1, &b, 0)],
+                        [4, 1, 1],
+                    ),
+                    lost()
+                );
+                assert_eq!(
+                    device
+                        .submit(recorded_for_submit.remove(0), &[])
+                        .map(|_| ()),
+                    lost()
+                );
+
+                let got: Received = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&got);
+                device.download_async(&a, 0, LEN, Box::new(move |r| sink.lock().unwrap().push(r)));
+                assert_eq!(
+                    *got.lock().unwrap(),
+                    [Err(ContractError::DeviceLost { generation })]
+                );
+                assert_eq!(
+                    device
+                        .submit_many(vec![recorded_for_many.remove(0)], &[], &[])
+                        .map(|_| ()),
+                    lost()
+                );
+                let shape = [16_u64];
+                let stride = [1_i64];
+                let declared = [
+                    OperandSpec {
+                        slot: 0,
+                        dtype: DType::U32,
+                        shape: &shape,
+                        stride: &stride,
+                        alignment: 4,
+                    },
+                    OperandSpec {
+                        slot: 1,
+                        dtype: DType::U32,
+                        shape: &shape,
+                        stride: &stride,
+                        alignment: 4,
+                    },
+                ];
+                assert_eq!(
+                    device.dispatch_checked(
+                        empty,
+                        &pipeline,
+                        &[Binding::new(0, &a, 0), Binding::new(1, &b, 0)],
+                        &[],
+                        &declared,
+                        [4, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    lost()
+                );
+                assert_eq!(
+                    device.copy_buffer_to_buffer(empty, &a, 0, &b, 0, LEN),
+                    lost()
+                );
+                assert_eq!(device.clear_buffer(empty, &a, 0, LEN), lost());
+                assert_eq!(device.poll(issued), CompletionState::Lost);
+                assert_eq!(device.poll_ex(issued), CompletionStateEx::Lost);
+                assert_eq!(device.generation(), generation);
+            }
+
+            {
+                let guard = device.lock_buffers();
+                assert_eq!((guard.map.len(), guard.next_id), buffers_before);
+            }
+            assert_eq!(device.lock_submissions().next_sequence, sequence_before);
+            device.free(a);
+            assert_eq!(device.lock_buffers().map.len(), buffers_before.0 - 1);
+        }
+
+        /// DEV-147 のポインタ。ロストの後に `request` で得た新しい device は、確保・upload・投入・読み戻しが通る。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back() {
+            let lost_device = new_device();
+            let before = lost_device.generation();
+            lose(&lost_device);
+            let after = lost_device.generation();
+
+            let fresh = MetalDeviceProvider::request(DeviceRequest {
+                backend: BackendKind::Metal,
+                profile: Profile::ComputeOnly,
+                ownership: DeviceOwnership::ProductIndependent,
+            })
+            .expect("request");
+            assert!(fresh.generation() > before);
+            assert!(fresh.generation() > after);
+
+            let memory = fresh.memory();
+            let src = memory.allocate(LEN, rw()).expect("allocate src");
+            let dst = memory.allocate(LEN, rw()).expect("allocate dst");
+            memory.upload(&src, 0, &input_bytes()).expect("upload");
+            let pipeline = scale_pipeline(fresh.compute().expect("compute"));
+            let queue = fresh.queue();
+            let mut enc = queue.create_encoder();
+            queue
+                .dispatch(
+                    &mut enc,
+                    &pipeline,
+                    &[Binding::new(0, &src, 0), Binding::new(1, &dst, 0)],
+                    [16, 1, 1],
+                )
+                .expect("dispatch");
+            let token = queue.submit(enc, &[]).expect("submit");
+            queue
+                .wait_blocking(token, Some(Duration::from_secs(10)))
+                .expect("wait_blocking");
+            assert_eq!(
+                memory.download_blocking(&dst, 0, LEN).expect("download"),
+                expected_bytes()
+            );
+            assert_eq!(
+                lost_device.allocate(LEN, rw()).map(|_| ()),
+                Err(ContractError::DeviceLost {
+                    generation: lost_device.generation()
+                })
+            );
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
