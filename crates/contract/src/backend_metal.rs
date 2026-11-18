@@ -11800,7 +11800,7 @@ mod precheck_tests {
 mod usage_role_check_tests {
     //! `upload`・`download_*` の用途・使用中・範囲の照らしの固定（device に触らない。どの OS でも流れる）。
     //!
-    //! 確かめるのは純粋な関数 `usage_access_range`。TASK-316 のポインタ。
+    //! 確かめるのは純粋な関数 `usage_access_range`。MEM-109。
     use super::*;
 
     const LEN: u64 = 16;
