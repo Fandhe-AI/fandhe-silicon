@@ -1378,12 +1378,8 @@ fn dispatch_through_the_public_device_is_recorded_and_submit_is_unsupported() {
     let device = new_device();
     let pipeline = copy_pipeline(device.as_ref());
     let memory = device.memory();
-    let src = memory
-        .allocate(16, BufferUsage::empty())
-        .expect("allocate src");
-    let dst = memory
-        .allocate(16, BufferUsage::empty())
-        .expect("allocate dst");
+    let src = memory.allocate(16, usage()).expect("allocate src");
+    let dst = memory.allocate(16, usage()).expect("allocate dst");
     memory.upload(&src, 0, &[7; 16]).expect("upload");
 
     let queue = device.queue();

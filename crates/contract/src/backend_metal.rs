@@ -74,7 +74,9 @@ use fandhe_silicon_core::feature_key::{
     FEATURE_TEXTURE_COMPRESSION_ASTC_HDR, FEATURE_VULKAN_EXTERNAL_MEMORY_FD,
 };
 use fandhe_silicon_core::hash::sha256_u64;
-use fandhe_silicon_core::memory::validate_buffer_range;
+use fandhe_silicon_core::memory::{
+    BufferUsage, UsageRole, validate_buffer_range, validate_usage_for_role,
+};
 #[cfg(feature = "graphics")]
 use fandhe_silicon_core::render_target::RenderTargetHandle;
 
@@ -93,6 +95,37 @@ fn host_range(offset: u64, len: u64, allocation_len: u64) -> Result<(usize, usiz
             "buffer range does not fit usize".into(),
         )),
     }
+}
+
+/// `upload` の宛先と `download_*` の元を、記録した用途・使用中・範囲の順に照らす。
+///
+/// 用途は `validate_usage_for_role` に委ね、拒否の文言の先頭に操作の名前 `op` を付けた
+/// `InvalidArgument` にして返す（ほかの失敗はそのまま返す）。用途を通ったあと、`in_use` なら
+/// 使用中の `InvalidArgument` を返し、最後に `host_range` で範囲を照らして `usize` の組にする。
+/// 長さ 0 の入力も同じ順で照らす。device に触らず、バッファの内容も変えない。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn usage_access_range(
+    op: &'static str,
+    role: UsageRole,
+    recorded: BufferUsage,
+    in_use: bool,
+    offset: u64,
+    len: u64,
+    allocation_len: u64,
+) -> Result<(usize, usize), ContractError> {
+    match validate_usage_for_role(recorded, role) {
+        Ok(()) => {}
+        Err(ContractError::InvalidArgument(msg)) => {
+            return Err(ContractError::InvalidArgument(format!("{op}: {msg}")));
+        }
+        Err(other) => return Err(other),
+    }
+    if in_use {
+        return Err(ContractError::InvalidArgument(
+            "buffer is in use by an unfinished submission".into(),
+        ));
+    }
+    host_range(offset, len, allocation_len)
 }
 
 /// 源から次の値を取る。あふれたら `None` を返し、源は動かさない。
@@ -2675,7 +2708,7 @@ mod imp {
     };
     use super::{
         DISPATCH_EXECUTION_ENABLED, MAX_FUNCTION_CONSTANT_INDEX, cache_key_version, host_range,
-        metal_cache_key,
+        metal_cache_key, usage_access_range,
     };
     use super::{MetalCapabilitySnapshot, metal_capability_of};
     #[cfg(feature = "graphics")]
@@ -2717,7 +2750,7 @@ mod imp {
     #[cfg(feature = "fault-injection")]
     use fandhe_silicon_core::fault::FaultHooks;
     use fandhe_silicon_core::memory::{
-        BufferHandle, BufferUsage, MemoryOps, validate_allocation_size,
+        BufferHandle, BufferUsage, MemoryOps, UsageRole, validate_allocation_size,
     };
     use objc2::rc::Retained;
     use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -3008,6 +3041,8 @@ mod imp {
         generation: u64,
         /// このバッファを最後に使った投入の通し番号。使った投入が無ければ `None`。
         last_submission: Option<u64>,
+        /// 確保のときに受けた用途。読み書きの用途の検査はこの値で判定する。
+        usage: BufferUsage,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -3569,6 +3604,7 @@ mod imp {
                         slot,
                         generation,
                         last_submission,
+                        usage,
                     } = entry;
                     self.lock_buffers()
                         .pool
@@ -3578,6 +3614,7 @@ mod imp {
                             slot,
                             generation,
                             last_submission,
+                            usage,
                         })
                 },
             );
@@ -3642,21 +3679,32 @@ mod imp {
             f(entry)
         }
 
-        /// 範囲を検査してから `[offset, offset + len)` を読み出す。`download_*` が共有する。
+        /// 用途・使用中・範囲を照らしてから `[offset, offset + len)` を読み出す。`download_*` が共有する。
+        ///
+        /// 用途は確保のときに記録した値で判定する（`ReadbackSource`）。`op` は拒否の文言に入る操作の名前。
         fn read_range(
             &self,
+            op: &'static str,
             src: &BufferHandle,
             src_offset: u64,
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
             self.with_buffer(src, |entry| {
-                self.check_not_in_use(entry)?;
+                let in_use = self.check_not_in_use(entry).is_err();
                 let buffer = &entry.buffer;
                 let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
                     ContractError::InvalidArgument("buffer length does not fit u64".into())
                 })?;
-                // `host_range` が検査と `usize` への変換を行い、収まらなければ `InvalidArgument` を返す。
-                let (offset, len) = host_range(src_offset, byte_len, allocation_len)?;
+                // 用途・使用中・範囲の順に照らす。範囲は `host_range` が検査と `usize` への変換を行う。
+                let (offset, len) = usage_access_range(
+                    op,
+                    UsageRole::ReadbackSource,
+                    entry.usage,
+                    in_use,
+                    src_offset,
+                    byte_len,
+                    allocation_len,
+                )?;
                 // 確保できなければ abort せず `AllocationFailed` で返す。
                 let mut out: Vec<u8> = Vec::new();
                 out.try_reserve_exact(len)
@@ -5132,6 +5180,7 @@ mod imp {
                     slot,
                     generation,
                     last_submission: None,
+                    usage,
                 },
             );
             Ok(BufferHandle::__backend_new(
@@ -5141,7 +5190,8 @@ mod imp {
 
         /// `bytes` を `dst` の `dst_offset` から書き込む。範囲の検査に当たると、バッファの内容を変えずに返す。
         ///
-        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` で、内容を変えない。
+        /// 記録した用途に `UPLOAD` が無いバッファ（長さ 0 の書き込みを含む）は `InvalidArgument` で、内容を変えない。
+        /// 最後に使った投入が終わっていないバッファも `InvalidArgument` で、内容を変えない。
         fn upload(
             &self,
             dst: &BufferHandle,
@@ -5149,14 +5199,31 @@ mod imp {
             bytes: &[u8],
         ) -> Result<(), ContractError> {
             self.with_buffer(dst, |entry| {
-                self.check_not_in_use(entry)?;
+                let in_use = self.check_not_in_use(entry).is_err();
+                let len = u64::try_from(bytes.len()).map_err(|_| {
+                    ContractError::InvalidArgument("data length does not fit u64".into())
+                })?;
+                let allocation_len = u64::try_from(entry.buffer.length()).map_err(|_| {
+                    ContractError::InvalidArgument("buffer length does not fit u64".into())
+                })?;
+                // 用途・使用中・範囲の順に照らし、通れば書く（範囲は書く側でも照らす）。
+                usage_access_range(
+                    "upload",
+                    UsageRole::UploadDestination,
+                    entry.usage,
+                    in_use,
+                    dst_offset,
+                    len,
+                    allocation_len,
+                )?;
                 write_range(entry, dst_offset, bytes)
             })
         }
 
         /// `src` の `src_offset` から `byte_len` バイトを読み出す。待たずに返る。
         ///
-        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` で、読まない。
+        /// 記録した用途に `DOWNLOAD` が無いバッファ（長さ 0 の読み出しを含む）は `InvalidArgument` で、読まない。
+        /// 最後に使った投入が終わっていないバッファも `InvalidArgument` で、読まない。
         #[cfg(feature = "native-blocking-wait")]
         fn download_blocking(
             &self,
@@ -5164,12 +5231,13 @@ mod imp {
             src_offset: u64,
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
-            self.read_range(src, src_offset, byte_len)
+            self.read_range("download_blocking", src, src_offset, byte_len)
         }
 
         /// 読み出してから、その場で `callback` を 1 回だけ呼ぶ。失敗も `callback` に渡す。
         ///
-        /// 最後に使った投入が終わっていないバッファは `InvalidArgument` を渡し、読まない。
+        /// 記録した用途に `DOWNLOAD` が無いバッファ（長さ 0 の読み出しを含む）は `InvalidArgument` を渡し、読まない。
+        /// 最後に使った投入が終わっていないバッファも `InvalidArgument` を渡し、読まない。
         fn download_async(
             &self,
             src: &BufferHandle,
@@ -5177,7 +5245,7 @@ mod imp {
             byte_len: u64,
             callback: Box<dyn FnOnce(Result<Vec<u8>, ContractError>) + Send>,
         ) {
-            callback(self.read_range(src, src_offset, byte_len));
+            callback(self.read_range("download_async", src, src_offset, byte_len));
         }
 
         /// この device のハンドルなら、表から外す。最後に使った投入が終わっていれば（使った投入が無い場合を含む）、
@@ -5694,9 +5762,14 @@ mod imp {
             let device = new_device();
             for len in [1_u64, 4096, 4097, 65_536] {
                 let h = device
-                    .allocate(len, BufferUsage::empty())
+                    .allocate(
+                        len,
+                        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                    )
                     .expect("allocate");
-                let bytes = device.read_range(&h, 0, len).expect("read");
+                let bytes = device
+                    .read_range("download_blocking", &h, 0, len)
+                    .expect("read");
                 assert_eq!(bytes.len() as u64, len);
                 assert_eq!(bytes.iter().filter(|b| **b != 0).count(), 0, "len={len}");
             }
@@ -5711,7 +5784,10 @@ mod imp {
             const LEN: u64 = 4097;
             let device = new_device();
             let mut handle = device
-                .allocate(LEN, BufferUsage::empty())
+                .allocate(
+                    LEN,
+                    BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                )
                 .expect("allocate");
             let mut seen_slot = device.test_slot_of(&handle).expect("slot");
             for round in 0..1000_u32 {
@@ -5721,9 +5797,14 @@ mod imp {
                     .expect("upload");
                 device.free(handle);
                 handle = device
-                    .allocate(LEN, BufferUsage::empty())
+                    .allocate(
+                        LEN,
+                        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                    )
                     .expect("allocate");
-                let bytes = device.read_range(&handle, 0, LEN).expect("read");
+                let bytes = device
+                    .read_range("download_blocking", &handle, 0, LEN)
+                    .expect("read");
                 let nonzero = bytes.iter().filter(|b| **b != 0).count();
                 assert_eq!(nonzero, 0, "round={round}");
                 let slot = device.test_slot_of(&handle).expect("slot");
@@ -6559,7 +6640,10 @@ mod imp {
 
             fn buffer_of(device: &MetalDevice, values: &[u32]) -> BufferHandle {
                 let h = device
-                    .allocate(values.len() as u64 * 4, BufferUsage::empty())
+                    .allocate(
+                        values.len() as u64 * 4,
+                        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                    )
                     .expect("allocate");
                 device.upload(&h, 0, &to_bytes(values)).expect("upload");
                 h
@@ -6567,12 +6651,17 @@ mod imp {
 
             fn zeroed(device: &MetalDevice, words: u64) -> BufferHandle {
                 device
-                    .allocate(words * 4, BufferUsage::empty())
+                    .allocate(
+                        words * 4,
+                        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD,
+                    )
                     .expect("allocate")
             }
 
             fn read_u32s(device: &MetalDevice, h: &BufferHandle, words: u64) -> Vec<u32> {
-                let bytes = device.read_range(h, 0, words * 4).expect("read_range");
+                let bytes = device
+                    .read_range("download_blocking", h, 0, words * 4)
+                    .expect("read_range");
                 bytes
                     .as_chunks::<4>()
                     .0
@@ -6808,8 +6897,12 @@ mod imp {
                     .expect("dispatch_ex");
                 submit_and_wait(&device, a);
                 submit_and_wait(&device, b);
-                let simple = device.read_range(&simple_out, 0, 32).expect("read");
-                let ex = device.read_range(&ex_out, 0, 32).expect("read");
+                let simple = device
+                    .read_range("download_blocking", &simple_out, 0, 32)
+                    .expect("read");
+                let ex = device
+                    .read_range("download_blocking", &ex_out, 0, 32)
+                    .expect("read");
                 assert_eq!(simple, ex);
                 let expected: Vec<u32> = input.iter().map(|v| v + 1).collect();
                 assert_eq!(simple, to_bytes(&expected));
@@ -7022,14 +7115,16 @@ mod imp {
                         calls[0]
                     );
                 }
-                let r = device.read_range(&dst, 0, 16);
+                let r = device.read_range("download_blocking", &dst, 0, 16);
                 assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
                 held.release();
                 wait_done(&device, token);
                 assert_eq!(read_u32s(&device, &dst, 4), input);
                 device.upload(&dst, 0, &[0xAB; 16]).expect("upload");
                 assert_eq!(
-                    device.read_range(&dst, 0, 16).expect("read"),
+                    device
+                        .read_range("download_blocking", &dst, 0, 16)
+                        .expect("read"),
                     vec![0xAB; 16]
                 );
             }
@@ -11697,6 +11792,138 @@ mod precheck_tests {
             cache_key_version("os", "gpu2")
         );
         assert_ne!(cache_key_version("a", "bc"), cache_key_version("ab", "c"));
+    }
+}
+
+#[cfg(test)]
+mod usage_role_check_tests {
+    //! `upload`・`download_*` の用途・使用中・範囲の照らしの固定（device に触らない。どの OS でも流れる）。
+    //!
+    //! 確かめるのは純粋な関数 `usage_access_range`。MEM-109。
+    use super::*;
+
+    const LEN: u64 = 16;
+
+    const ROLES: [(&str, UsageRole, &str); 2] = [
+        ("upload", UsageRole::UploadDestination, "UPLOAD"),
+        ("download_blocking", UsageRole::ReadbackSource, "DOWNLOAD"),
+    ];
+
+    /// 読み書きに足りる用途。
+    fn full_usage() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    fn invalid(r: Result<(usize, usize), ContractError>) -> String {
+        match r {
+            Err(ContractError::InvalidArgument(msg)) => msg,
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_usage_without_the_required_value_is_rejected_with_op_and_value_names() {
+        for (op, role, name) in ROLES {
+            let msg = invalid(usage_access_range(
+                op,
+                role,
+                BufferUsage::STORAGE,
+                false,
+                0,
+                4,
+                LEN,
+            ));
+            assert!(msg.contains(op), "{msg}");
+            assert!(msg.contains(name), "{msg}");
+        }
+    }
+
+    #[test]
+    fn an_empty_usage_is_rejected_even_for_zero_length() {
+        for (op, role, _) in ROLES {
+            invalid(usage_access_range(
+                op,
+                role,
+                BufferUsage::empty(),
+                false,
+                0,
+                0,
+                LEN,
+            ));
+        }
+    }
+
+    #[test]
+    fn the_full_usage_passes_both_roles() {
+        for (op, role, _) in ROLES {
+            assert!(usage_access_range(op, role, full_usage(), false, 0, LEN, LEN).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_usage_rejection_wins_over_a_range_rejection() {
+        for (op, role, name) in ROLES {
+            let msg = invalid(usage_access_range(
+                op,
+                role,
+                BufferUsage::STORAGE,
+                false,
+                8,
+                16,
+                LEN,
+            ));
+            assert!(msg.contains(name), "{msg}");
+        }
+    }
+
+    #[test]
+    fn a_usage_rejection_wins_over_an_in_use_rejection() {
+        for (op, role, name) in ROLES {
+            let msg = invalid(usage_access_range(
+                op,
+                role,
+                BufferUsage::STORAGE,
+                true,
+                0,
+                4,
+                LEN,
+            ));
+            assert!(msg.contains(name), "{msg}");
+            assert!(!msg.contains("in use"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn in_use_is_rejected_when_the_usage_passes() {
+        for (op, role, _) in ROLES {
+            let msg = invalid(usage_access_range(op, role, full_usage(), true, 0, 4, LEN));
+            assert!(
+                msg.contains("buffer is in use by an unfinished submission"),
+                "{msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_out_of_range_input_is_rejected_by_the_range_check() {
+        for (op, role, _) in ROLES {
+            let got = usage_access_range(op, role, full_usage(), false, 8, 16, LEN);
+            let want = host_range(8, 16, LEN);
+            assert!(matches!(got, Err(ContractError::InvalidArgument(_))));
+            assert_eq!(format!("{got:?}"), format!("{want:?}"));
+        }
+    }
+
+    #[test]
+    fn a_passing_input_returns_the_host_range() {
+        for (op, role, _) in ROLES {
+            for (offset, len) in [(0, 16), (8, 8), (16, 0)] {
+                assert_eq!(
+                    usage_access_range(op, role, full_usage(), false, offset, len, LEN).unwrap(),
+                    host_range(offset, len, LEN).unwrap()
+                );
+            }
+        }
     }
 }
 
