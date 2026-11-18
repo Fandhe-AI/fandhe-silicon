@@ -134,6 +134,10 @@ name = "backend_metal_offscreen_target"
 required-features = ["backend-metal", "graphics"]
 
 [[test]]
+name = "backend_metal_poll_lost"
+required-features = ["backend-metal", "native-blocking-wait", "fault-injection"]
+
+[[test]]
 name = "backend_metal_request"
 required-features = ["backend-metal"]
 
