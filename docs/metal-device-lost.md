@@ -125,6 +125,21 @@ crates/contract/tests/backend_metal_device_lost.rs:79:fn the_listed_operations_a
 crates/contract/tests/backend_metal_device_lost.rs:189:fn a_new_request_after_the_loss_round_trips_through_an_empty_submit() {
 ```
 
+## 今の値の補い（base c1cf679）
+
+記録時点の表と既存の節は書き換えない。
+
+- 「device の要る試験（2/3）」の表の `the_listed_operations_issue_nothing_after_the_loss` の行の「呼ぶ口」の「具体型の device の 13 の操作と `poll`・`poll_ex`」は、今の試験と違う。試験が呼ぶのは 13 で、`Result` を返す 10 の操作（`allocate`・`upload`・`download_blocking`・`wait_blocking`・`dispatch`（既定の本体が `dispatch_ex` を呼ぶ）・`submit`・`submit_many`・`dispatch_checked`・`copy_buffer_to_buffer`・`clear_buffer`）、callback に結果を渡す `download_async`、`poll`・`poll_ex`。ほかに `free` と `generation()` を呼ぶ
+- 「変えない操作の今の値」の表の `gpu_timing` の今の値は、ロストの後の同じ印で `GpuTiming::Unavailable`。確かめる試験は `crates/contract/tests/backend_metal_gpu_timing_lost.rs` の `gpu_timing_is_unavailable_after_the_simulated_loss`（`#[ignore]` 付きの device の試験。所在は [metal-gpu-timing-lost](metal-gpu-timing-lost.md)）
+- 同じ表の `on_complete` の今の値は、ロストの前に登録した未完了の投入の callback が、ロストの時点で `CompletionState::Lost` を 1 回だけ受け取り、その後に完了させて駆動を重ねても `Complete` は届かず、二重にも呼ばれない。確かめる試験は `crates/contract/src/backend_metal.rs` の `a_pending_completion_callback_gets_lost_once_after_the_loss`（`#[ignore]` 付きの device の試験）。ロストの後に登録した場合の値は、この TASK では変えていない
+- 確かめ方:
+
+```bash
+grep -n 'fn the_listed_operations_issue_nothing_after_the_loss' crates/contract/src/backend_metal.rs
+grep -n 'fn a_pending_completion_callback_gets_lost_once_after_the_loss' crates/contract/src/backend_metal.rs
+grep -n 'fn gpu_timing_is_unavailable_after_the_simulated_loss' crates/contract/tests/backend_metal_gpu_timing_lost.rs
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
