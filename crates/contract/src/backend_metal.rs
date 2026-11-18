@@ -2595,6 +2595,27 @@ mod offscreen_target_tests {
     }
 }
 
+/// `Bgra8Unorm`・`Rgba32Float` の描画先の作成の前の計画が返すバイト数の試験（TASK-380）。device に触らない。
+#[cfg(all(test, feature = "graphics"))]
+mod offscreen_format_plan_tests {
+    use super::*;
+    use fandhe_silicon_core::graphics::PixelFormat;
+
+    #[test]
+    fn plan_counts_four_and_sixteen_bytes_per_pixel() {
+        for (format, bytes) in [(PixelFormat::Bgra8Unorm, 4), (PixelFormat::Rgba32Float, 16)] {
+            assert_eq!(
+                offscreen_target_plan(1, 1, 16384, format, None),
+                Ok((bytes, None))
+            );
+            assert_eq!(
+                offscreen_target_plan(1280, 720, 16384, format, None),
+                Ok((1280 * 720 * bytes, None))
+            );
+        }
+    }
+}
+
 /// 能力の判定の材料。device を作るときに 1 回だけ GPU family を問い合わせて捕捉し、
 /// `query`・`query_ex` は読み直さない。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -9538,6 +9559,72 @@ mod imp {
                 .create_offscreen_target(1280, 720, PixelFormat::Rgba8Unorm)
                 .expect("create color target alone");
             assert_eq!(device.target_shape(&color), device.target_shape(&alone));
+        }
+    }
+
+    /// `Bgra8Unorm`・`Rgba32Float` の描画先の作成の後に、テクスチャの形と 1 画素のバイト数を読む試験（TASK-380）。
+    #[cfg(all(test, feature = "graphics"))]
+    mod offscreen_format_device_tests {
+        use super::*;
+        use fandhe_silicon_core::graphics::{GraphicsOps, PixelFormat};
+
+        fn new_graphics_device() -> MetalDevice {
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let queue = device.newCommandQueue().expect("queue");
+            let mut created = MetalDevice::new(
+                __backend_next_device_id().expect("id"),
+                take_next(&NEXT_GENERATION).expect("generation"),
+                String::new(),
+                LimitsTable {
+                    max_buffer_bytes: 1 << 20,
+                    max_dispatch_dims: [u32::MAX; 3],
+                    max_texture_size: MAX_TEXTURE_SIZE,
+                },
+                device,
+                queue,
+            );
+            created.graphics_enabled = true;
+            created
+        }
+
+        fn check(format: PixelFormat, metal: MTLPixelFormat, bytes_per_pixel: u64) {
+            let device = new_graphics_device();
+            for (w, h) in [(1u32, 1u32), (1280, 720)] {
+                let target = device
+                    .create_offscreen_target(w, h, format)
+                    .expect("create color target");
+                assert_eq!(
+                    device.target_shape(&target),
+                    Some(TargetShape {
+                        width: w as usize,
+                        height: h as usize,
+                        pixel_format: metal,
+                        storage_mode: MTLStorageMode::Private,
+                        usage: MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead,
+                        texture_type: MTLTextureType::Type2D,
+                        mipmap_level_count: 1,
+                        sample_count: 1,
+                    })
+                );
+                assert_eq!(
+                    offscreen_target_plan(w, h, device.limits.max_texture_size, format, None),
+                    Ok((u64::from(w) * u64::from(h) * bytes_per_pixel, None))
+                );
+            }
+        }
+
+        /// TEX-7: `Bgra8Unorm` の描画先が `BGRA8Unorm` で作られ、1 画素 4 バイトで数えられる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn bgra8unorm_target_is_bgra8_with_four_bytes_per_pixel() {
+            check(PixelFormat::Bgra8Unorm, MTLPixelFormat::BGRA8Unorm, 4);
+        }
+
+        /// `Rgba32Float` の描画先が `RGBA32Float` で作られ、1 画素 16 バイトで数えられる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn rgba32float_target_is_rgba32float_with_sixteen_bytes_per_pixel() {
+            check(PixelFormat::Rgba32Float, MTLPixelFormat::RGBA32Float, 16);
         }
     }
 
