@@ -5280,8 +5280,10 @@ mod on_complete_device_tests {
     #[ignore = "requires a CUDA device"]
     fn the_validation_callback_is_not_called_by_normal_operations() {
         let d = device();
+        let mut counts: Vec<Arc<AtomicU64>> = Vec::new();
         for _ in 0..2 {
             let count = Arc::new(AtomicU64::new(0));
+            counts.push(Arc::clone(&count));
             let c = Arc::clone(&count);
             let callback: ValidationCallback = Box::new(move |_| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -5295,7 +5297,9 @@ mod on_complete_device_tests {
             let (_rec, cb) = recorder();
             d.on_complete(copy_of(&t), cb);
             d.free(h);
-            assert_eq!(count.load(Ordering::SeqCst), 0);
+            for c in &counts {
+                assert_eq!(c.load(Ordering::SeqCst), 0);
+            }
             assert_eq!(d.validation.delivered_count(), 0);
             assert_eq!(d.validation.undelivered_count(), 0);
         }
