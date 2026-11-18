@@ -3315,6 +3315,7 @@ mod imp {
         /// 確保のときに `newBufferWithLength_options` へ渡した長さ（`allocate` が受けた `byte_len`）。
         /// 再利用の一覧は同じ長さの項目だけを返すので、再利用しても値は変わらない。
         /// 用途・範囲・コピーの照らしは `MTLBuffer::length()` を呼ばずにこの値を使う。
+        /// 値は `MTLBuffer::length()` を超えない。`read_range` などの unsafe の範囲の根拠になる。
         allocation_len: u64,
     }
 
@@ -4171,8 +4172,12 @@ mod imp {
                 if len > 0 {
                     let base = buffer.contents().as_ptr().cast::<u8>().cast_const();
                     // SAFETY: バッファは shared の storage なので `contents()` は CPU から読める
-                    // `buffer.length()` バイトの領域を指す。`host_range`（`validate_buffer_range` を呼ぶ）が
-                    // `offset + len <= length()` を保証している。GPU の書き込みと重ならないことは、
+                    // `buffer.length()` バイトの領域を指す。範囲は `entry.allocation_len` に照らして
+                    // `host_range`（`validate_buffer_range` を呼ぶ）が `offset + len <= allocation_len` を保証する。
+                    // 新規の確保では `allocation_len` は `newBufferWithLength_options` に渡した長さで、
+                    // Metal はその長さ以上のバッファを返す。再利用は実際の長さを鍵にして同じ長さの項目だけを
+                    // 返すので、`allocation_len` は `length()` を超えない。よって `offset + len <= length()`。
+                    // GPU の書き込みと重ならないことは、
                     // 最後に使った投入が完了していることを、表の錠と投入の錠の中で
                     // `check_not_in_use` が確かめてからコピーすることに根拠を置く。
                     // `with_buffer` が表の錠を持ったまま
@@ -4804,6 +4809,7 @@ mod imp {
             // SAFETY: バッファは shared の storage なので `contents()` は CPU から書ける
             // `buffer.length()` バイトの領域を指し、`entry` が `Retained` を持つので書き込みの間は生きている。
             // `host_range`（`validate_buffer_range` を呼ぶ）が `offset + bytes.len() <= length()` を保証している。
+            // `upload` の経路では先に `entry.allocation_len` で範囲を照らし、ここで実長でも照らす（両方で照らす）。
             // `&mut BufferEntry` を受けているので、この領域を CPU 側で読み書きする他の参照は同時に存在しない
             // （表の項目は表の錠の中で、または表から外して単独で所有した状態でしか借りられない）。
             // GPU の読み書きと重ならないことは、最後に使った投入が完了していることの確かめに根拠を置く。
