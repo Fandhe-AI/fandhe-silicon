@@ -5121,3 +5121,183 @@ mod checked_pipeline_device_tests {
         assert_eq!(table_len(&d), before + 1);
     }
 }
+/// CUDA の device に触る、`on_complete` と検証の報告の受け口の試験（TASK-607 のポインタ）。
+#[cfg(test)]
+mod on_complete_device_tests {
+    use super::*;
+    use std::thread::ThreadId;
+    use std::time::{Duration, Instant};
+
+    /// callback が受けた状態と、呼ばれたスレッドの記録。
+    struct Recorded {
+        states: Arc<Mutex<Vec<CompletionState>>>,
+        threads: Arc<Mutex<Vec<ThreadId>>>,
+    }
+
+    impl Recorded {
+        fn states(&self) -> Vec<CompletionState> {
+            self.states.lock().unwrap().clone()
+        }
+
+        fn threads(&self) -> Vec<ThreadId> {
+            self.threads.lock().unwrap().clone()
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// `SubmitToken` は `Clone` を持たないので、同じ値で作り直した写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// 空の記録先を投入して印を返す。
+    fn submit_empty(d: &CudaDevice) -> SubmitToken {
+        d.submit(d.create_encoder(), &[]).expect("submit")
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// 受けた状態と呼ばれたスレッドを積む callback と、その記録を返す。
+    fn recorder() -> (Recorded, Box<dyn FnOnce(CompletionState) + Send>) {
+        let states = Arc::new(Mutex::new(Vec::new()));
+        let threads = Arc::new(Mutex::new(Vec::new()));
+        let (s, t) = (Arc::clone(&states), Arc::clone(&threads));
+        let callback = Box::new(move |state| {
+            s.lock().unwrap().push(state);
+            t.lock().unwrap().push(std::thread::current().id());
+        });
+        (Recorded { states, threads }, callback)
+    }
+
+    /// 登録の表の件数。
+    fn registered(d: &CudaDevice) -> usize {
+        d.lock_submissions().callbacks.len()
+    }
+
+    // CMD-33
+    /// 回収済みの印は、登録の呼び出しの中で `Complete` を 1 回渡し、登録しない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_reclaimed_token_calls_back_complete_once_inside_the_call() {
+        let d = device();
+        let t = submit_empty(&d);
+        poll_until_complete(&d, &t);
+        let (rec, cb) = recorder();
+        d.on_complete(copy_of(&t), cb);
+        assert_eq!(rec.states(), vec![CompletionState::Complete]);
+        assert_eq!(rec.threads(), vec![std::thread::current().id()]);
+        assert_eq!(registered(&d), 0);
+        d.poll(copy_of(&t));
+        d.poll(copy_of(&t));
+        assert_eq!(rec.states().len(), 1);
+    }
+
+    // CMD-33
+    /// 別 device の印は、登録の呼び出しの中で `Lost` を 1 回渡し、登録しない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_foreign_token_calls_back_lost_once_without_registering() {
+        let a = device();
+        let b = device();
+        let ta = submit_empty(&a);
+        let before = b.test_submitted_count();
+        let (rec, cb) = recorder();
+        b.on_complete(copy_of(&ta), cb);
+        assert_eq!(rec.states(), vec![CompletionState::Lost]);
+        assert_eq!(registered(&b), 0);
+        assert_eq!(b.test_submitted_count(), before);
+        let tb = submit_empty(&b);
+        poll_until_complete(&b, &tb);
+        assert_eq!(rec.states().len(), 1);
+        poll_until_complete(&a, &ta);
+    }
+
+    // CMD-33
+    /// 払い出していない番号の印は、登録の呼び出しの中で `Lost` を 1 回渡し、登録しない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn an_unissued_sequence_calls_back_lost_once_without_registering() {
+        let d = device();
+        let t = submit_empty(&d);
+        let unissued =
+            SubmitToken::__backend_new(t.generation, t.sequence + 1, t.__backend_device_id());
+        let (rec, cb) = recorder();
+        d.on_complete(unissued, cb);
+        assert_eq!(rec.states(), vec![CompletionState::Lost]);
+        assert_eq!(registered(&d), 0);
+        let t2 = submit_empty(&d);
+        poll_until_complete(&d, &t2);
+        assert_eq!(rec.states().len(), 1);
+        poll_until_complete(&d, &t);
+    }
+
+    // CMD-32
+    /// 投入した印の callback は `Complete` をちょうど 1 回受け、`Pending` を受けない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_submitted_token_calls_back_complete_exactly_once_and_never_pending() {
+        let d = device();
+        let t1 = submit_empty(&d);
+        let (rec1, cb1) = recorder();
+        d.on_complete(copy_of(&t1), cb1);
+        poll_until_complete(&d, &t1);
+        d.poll(copy_of(&t1));
+        let t2 = submit_empty(&d);
+        let (_rec2, cb2) = recorder();
+        d.on_complete(copy_of(&t2), cb2);
+        poll_until_complete(&d, &t2);
+        assert_eq!(rec1.states(), vec![CompletionState::Complete]);
+        assert_eq!(rec1.threads(), vec![std::thread::current().id()]);
+        assert_eq!(registered(&d), 0);
+    }
+
+    // CMD-85
+    /// 通常の操作では、登録した検証の報告の関数は呼ばれない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_validation_callback_is_not_called_by_normal_operations() {
+        let d = device();
+        for _ in 0..2 {
+            let count = Arc::new(AtomicU64::new(0));
+            let c = Arc::clone(&count);
+            let callback: ValidationCallback = Box::new(move |_| {
+                c.fetch_add(1, Ordering::SeqCst);
+            });
+            ValidationIntake::set_validation_callback(&d, callback);
+            let usage = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
+            let h = d.allocate(16, usage).expect("allocate");
+            d.upload(&h, 0, &[0u8; 16]).expect("upload");
+            let t = submit_empty(&d);
+            poll_until_complete(&d, &t);
+            let (_rec, cb) = recorder();
+            d.on_complete(copy_of(&t), cb);
+            d.free(h);
+            assert_eq!(count.load(Ordering::SeqCst), 0);
+            assert_eq!(d.validation.delivered_count(), 0);
+            assert_eq!(d.validation.undelivered_count(), 0);
+        }
+    }
+}
