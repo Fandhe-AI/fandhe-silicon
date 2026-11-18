@@ -24,6 +24,9 @@
 //! 読み書きの `unsafe` ブロックの同期の根拠は、最後に使った投入が完了していることを確かめてからコピーすることに置く。
 //! ロストは、feature `fault-injection` の模擬（`FaultHooks::simulate_device_lost`）と、device の型の内側の
 //! コールバックの登録（`DeviceLostNotify`）だけがある。
+//! 模擬のロスト済みの device では、`allocate`・`upload`・`download_*`・`dispatch_ex`・`dispatch_checked`・コピー・クリア・
+//! `submit`・`submit_many`・`wait_blocking` は、ほかの照らしより前に、呼んだ時点の `generation()` を載せた `DeviceLost` を返し、
+//! `poll`・`poll_ex` は `Lost` を返す（TASK-186）。
 //!
 //! 製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が
 //! 入るまで、safe な経路から任意の MSL を走らせない。積み込みの形は単体試験のビルドだけが確かめる。
@@ -1082,8 +1085,7 @@ impl LostState {
         drop(old);
     }
 
-    /// 模擬のロストが起きたか。単体の試験だけが読む。
-    #[cfg(test)]
+    /// 模擬のロストが起きたか。device の操作の照らしと単体の試験が読む。
     fn is_lost(&self) -> bool {
         self.lock().reason.is_some()
     }
@@ -1842,7 +1844,7 @@ fn terminal_state(state: CompletionState) -> CompletionState {
 
 /// `wait_blocking` が待ったあとの `poll` の値を結果に写す。
 ///
-/// 失敗した投入は `DeviceLost` ではなく `BackendFailure`（この背後実装は device のロストを返さない）。
+/// 失敗した投入は `DeviceLost` ではなく `BackendFailure`（この関数は `DeviceLost` を返さない。`wait_blocking` の `DeviceLost` は待つ前の照らしが返す）。
 #[cfg(any(test, feature = "native-blocking-wait"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn wait_result(state: CompletionState) -> Result<(), ContractError> {
@@ -1892,6 +1894,17 @@ fn check_token_owner(
         return Err(ContractError::DeviceLost {
             generation: token.generation,
         });
+    }
+    Ok(())
+}
+
+/// ロスト済みなら、呼んだ時点の世代を載せた `DeviceLost` を返す。device に触らない。
+///
+/// `MetalDevice::check_not_lost` が device の状態を渡して呼び、操作の先頭の照らしになる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn lost_result(lost: bool, generation: u64) -> Result<(), ContractError> {
+    if lost {
+        return Err(ContractError::DeviceLost { generation });
     }
     Ok(())
 }
@@ -3705,6 +3718,17 @@ mod imp {
             self.generation.load(Ordering::Acquire)
         }
 
+        /// 模擬のロスト済みなら、呼んだ時点の `generation()` を載せた `DeviceLost` を返す。
+        ///
+        /// 操作の先頭（ほかの照らしより前）で呼ぶ。`fault-injection` の無いビルドでは常に通る。
+        fn check_not_lost(&self) -> Result<(), ContractError> {
+            #[cfg(feature = "fault-injection")]
+            let lost = self.lost.is_lost();
+            #[cfg(not(feature = "fault-injection"))]
+            let lost = false;
+            super::lost_result(lost, self.current_generation())
+        }
+
         /// 表の錠を取る。他のスレッドが panic して錠が汚れていても、表は壊れない更新だけなので中身を使う。
         fn lock_buffers(&self) -> MutexGuard<'_, Buffers> {
             self.buffers.lock().unwrap_or_else(|e| e.into_inner())
@@ -4170,6 +4194,7 @@ mod imp {
             src_offset: u64,
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
+            self.check_not_lost()?;
             self.with_buffer(src, |entry| {
                 let buffer = &entry.buffer;
                 // 用途・使用中・範囲の順に照らす。使用中の判定は用途を通ったときだけ呼ぶ。
@@ -4435,8 +4460,10 @@ mod imp {
             mut commands: CommandEncoder,
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
+            self.check_not_lost()?;
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
             let generation = self.drive_and_generation();
+            self.check_not_lost()?;
             self.release_finished();
             precheck_submit(wait)?;
             let records = self.open.claim(&[commands.__backend_id()])?;
@@ -4457,9 +4484,11 @@ mod imp {
             after: &[SubmitToken],
             wait: &[ImportedSemaphoreHandle],
         ) -> Result<SubmitToken, ContractError> {
+            self.check_not_lost()?;
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。
             // `after` の照合と印の払い出しには、駆動の後に読んだ同じ値を使う。
             let generation = self.drive_and_generation();
+            self.check_not_lost()?;
             self.release_finished();
             precheck_submit_many(commands.len(), after, wait, self.id, generation)?;
             let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
@@ -4476,6 +4505,9 @@ mod imp {
         ///
         /// 回収のあとで、終端になった登録済みの callback を呼ぶ（呼び出しが戻る前、このスレッドで）。
         fn poll(&self, token: SubmitToken) -> CompletionState {
+            if self.check_not_lost().is_err() {
+                return CompletionState::Lost;
+            }
             let generation = self.current_generation();
             if check_token_owner(&token, self.id, generation).is_err() {
                 return CompletionState::Lost;
@@ -4498,6 +4530,9 @@ mod imp {
         ///
         /// 回収のあとで、終端になった登録済みの callback を呼ぶ（`poll` と同じく、錠を放してからこのスレッドで）。
         fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
+            if self.check_not_lost().is_err() {
+                return CompletionStateEx::Lost;
+            }
             let generation = self.current_generation();
             if check_token_owner(&token, self.id, generation).is_err() {
                 return CompletionStateEx::Lost;
@@ -4562,6 +4597,7 @@ mod imp {
             token: SubmitToken,
             timeout: Option<std::time::Duration>,
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             check_token_owner(&token, self.id, self.current_generation())?;
             match timeout {
                 None => wait_result(self.wait_for_completion(token, true)),
@@ -4619,6 +4655,7 @@ mod imp {
             threads_per_threadgroup: [u32; 3],
             threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             if !self.open.is_open(encoder.__backend_id()) {
                 return Err(ContractError::InvalidArgument(
                     "encoder is not open on this device".into(),
@@ -4738,6 +4775,7 @@ mod imp {
             threads_per_threadgroup: [u32; 3],
             threadgroup_memory: &[fandhe_silicon_core::execution::ThreadgroupMemory],
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             let operand_bindings: Vec<OperandBinding> = bindings
                 .iter()
                 .map(|b| OperandBinding {
@@ -5630,6 +5668,7 @@ mod imp {
             dst_offset: u64,
             size: u64,
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             self.ensure_encoder_open(encoder)?;
             let (src_operand, dst_operand) = {
                 let buffers = self.lock_buffers();
@@ -5659,6 +5698,7 @@ mod imp {
             offset: u64,
             size: u64,
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             self.ensure_encoder_open(encoder)?;
             let operand = {
                 let buffers = self.lock_buffers();
@@ -5681,8 +5721,10 @@ mod imp {
             byte_len: u64,
             usage: BufferUsage,
         ) -> Result<BufferHandle, ContractError> {
+            self.check_not_lost()?;
             // 駆動は利用者の callback を呼ぶので、再入のロストで世代が動き得る。払い出しの世代は駆動の後に読む。
             let generation = self.drive_and_generation();
+            self.check_not_lost()?;
             self.release_finished();
             validate_allocation_request(byte_len, self.limits.max_buffer_bytes)?;
             let failed = || ContractError::AllocationFailed {
@@ -5737,6 +5779,7 @@ mod imp {
             dst_offset: u64,
             bytes: &[u8],
         ) -> Result<(), ContractError> {
+            self.check_not_lost()?;
             self.with_buffer(dst, |entry| {
                 let len = u64::try_from(bytes.len()).map_err(|_| {
                     ContractError::InvalidArgument("data length does not fit u64".into())
@@ -14507,5 +14550,46 @@ mod cache_key_specialization_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lost_check_tests {
+    //! ロストの後の操作の照らし `lost_result` と、ロストの状態の読み出しの固定（device に触らない。TASK-186）。
+    use super::*;
+
+    #[test]
+    fn lost_result_passes_when_not_lost() {
+        for g in [1_u64, 7, u64::MAX] {
+            assert_eq!(lost_result(false, g), Ok(()));
+        }
+    }
+
+    #[test]
+    fn lost_result_carries_the_given_generation_when_lost() {
+        for g in [1_u64, 7, u64::MAX] {
+            assert_eq!(
+                lost_result(true, g),
+                Err(ContractError::DeviceLost { generation: g })
+            );
+        }
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn is_lost_turns_true_after_the_first_lose_and_stays_true() {
+        let state = LostState::default();
+        let (generation, source) = (AtomicU64::new(1), AtomicU64::new(5));
+        assert!(!state.is_lost());
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Ok(true)
+        );
+        assert!(state.is_lost());
+        assert_eq!(
+            state.lose(DeviceLostReason::Unknown, &generation, &source),
+            Ok(false)
+        );
+        assert!(state.is_lost());
     }
 }
