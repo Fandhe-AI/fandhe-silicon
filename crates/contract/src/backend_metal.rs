@@ -4307,7 +4307,7 @@ mod imp {
     /// 模擬のロストだけを持つ故障の差し込みの口。実際の故障ではない。
     ///
     /// `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
-    /// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否はここでは持たない。
+    /// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否は `Device` の各操作の先頭の `check_not_lost` が持つ。
     #[cfg(feature = "fault-injection")]
     impl FaultHooks for MetalDevice {
         /// 1 回目は理由を記録し、世代を取り直し、登録されたコールバックを錠の外で 1 回呼ぶ。2 回目以降は何もせず `Ok`。

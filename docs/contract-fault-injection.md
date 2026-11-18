@@ -320,3 +320,11 @@ feature `fault-injection` の下で、3 つの背後実装の module（`backend_
 | 試験 | 3 つの数が互いに独立に増えることを照らす 1 本 | `crates/contract/tests/backend_request_call_count.rs` |
 
 確かめ方: `cargo test -p fandhe-silicon-contract --features backend-vulkan,backend-cuda,fault-injection --test backend_request_call_count`
+
+## 今の値の補い（base 1c25605）
+
+記録時点の表と既存の節は書き換えない。
+
+- 「Metal の `fault_hooks`（TASK-2932）」の節の「ロストの後の操作の拒否はこの段では持たない」は、今のコードと違う。今の Metal の背後実装は、模擬のロストの後に、`allocate`・`upload`・`download_*`・`dispatch_ex`・`dispatch_checked`・コピー・クリア・`submit`・`submit_many`・`wait_blocking` を、ほかの照らしより前に、呼んだ時点の `generation()` を載せた `DeviceLost` で拒み、`poll`・`poll_ex` は `Lost` を返す。`free` はこの照らしを持たない。所在と試験は [metal-device-lost](metal-device-lost.md)
+- 同じ節の `free` の項（ロスト前のハンドルで 1 回だけ表から外れる）と、`upload`・`download_*` がロスト前のハンドルを拒む項は、今も変わらない（拒む値は `DeviceLost`）
+- 確かめ方: `grep -n 'self.check_not_lost()' crates/contract/src/backend_metal.rs`（15 行）、`grep -n 'fn check_not_lost' crates/contract/src/backend_metal.rs`（1 行）
