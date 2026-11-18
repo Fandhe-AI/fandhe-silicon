@@ -58,8 +58,33 @@ cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection -
 cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,fault-injection -- -D warnings
 ```
 
+## device の要る試験（2/3）
+
+どの試験も Metal の device に触るので `#[ignore]` を付け、専用の実機の回でだけ流す（`--ignored` は付けない）。
+
+| 試験 | 置き場 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | ------ | -------- |
+| `two_losses_call_the_callback_once_and_move_the_generation_once` | `lost_invalidation_device_tests` | 具体型の device の `set_lost_callback` と `fault_hooks` | 通知の列が `[Unknown]` の 1 件。1 回目の後に世代が進み、2 回目の後は同じ値 |
+| `the_listed_operations_issue_nothing_after_the_loss` | `lost_invalidation_device_tests` | 具体型の device の 13 の操作と `poll`・`poll_ex` | どの操作も `Err(DeviceLost { generation: device.generation() })`、`poll`・`poll_ex` は `Lost`。2 回繰り返しても同じで、バッファの表の件数・次の識別子・投入済みの表の次の通し番号は変わらない。ロスト前のバッファの `free` は表から外れる |
+| `a_new_request_after_the_loss_runs_a_dispatch_and_reads_back` | `lost_invalidation_device_tests` | `MetalDeviceProvider::request` の新しい device | 世代がロストの前後のどちらよりも大きい。確保・`upload`・dispatch の投入・読み戻しが期待と全バイト一致。ロストした device の `allocate` は `DeviceLost` のまま |
+| `the_listed_operations_are_lost_through_the_public_device` | `crates/contract/tests/backend_metal_device_lost.rs` | 公開の `Device` の `memory()`・`queue()`・`compute()` | 上の 2 本目と同じ操作が `DeviceLost`。dispatch を記録した記録先の `submit` も `Unsupported` ではなく `DeviceLost` |
+| `a_new_request_after_the_loss_round_trips_through_an_empty_submit` | `crates/contract/tests/backend_metal_device_lost.rs` | 公開の `Device` | 世代がロストした device の後の値より大きい。確保・`upload`・空の記録先の `submit`・読み戻しが一致。ロストした device の `allocate` は `DeviceLost` のまま |
+
+| 置き場 | cfg・feature |
+| ------ | ------------ |
+| `crates/contract/src/backend_metal.rs` の `imp` の中の `lost_invalidation_device_tests` | `test`・`native-blocking-wait`・`fault-injection`（`backend-metal` 下の macOS） |
+| `crates/contract/tests/backend_metal_device_lost.rs` | `target_os = "macos"`。`[[test]]` の `required-features` は `backend-metal`・`native-blocking-wait`・`fault-injection` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --lib lost_invalidation_device_tests
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait,fault-injection --test backend_metal_device_lost
+```
+
+macOS 以外では 0 件、macOS では `ignored` になる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 模擬のロストの後の操作を `DeviceLost` で拒む | #3818 |
+| 2/3 | ロストの後の操作と作り直しの device の要る試験を ignore 付きで足す | #3819 |
