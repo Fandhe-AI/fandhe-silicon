@@ -91,9 +91,44 @@ cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-w
 
 macOS 以外では 0 件になる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-186。ポインタのみ）。
+
+時点のコミット: `3e9bb6d8`。`docs/spec` の gitlink は `becfefdc2fb47fa610c6ecc914f3bf601910f5f3`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `crates/contract/src/backend_metal.rs` の `lost_invalidation_device_tests`（字下げ 4）の範囲で `#[test]` と `^[[:space:]]*#\[ignore` を数える awk、`lost_check_tests`（字下げ 0）の範囲で `#[test]` を数える awk、`grep -c '#\[test\]'`・`grep -c '^[[:space:]]*#\[ignore'`（`crates/contract/tests/backend_metal_device_lost.rs`） | `lost_invalidation_device_tests` は `#[test]` 3・`#[ignore` 3。`lost_check_tests` の `#[test]` は 3。`backend_metal_device_lost.rs` は `#[test]` 2・`#[ignore` 2 |
+| 2 | 受け手の試験の名前 | 5 本の device の要る試験・3 本の device に触らない試験・2 つの module の名前の `git grep -n -E "fn (<名前>)\b\|mod (lost_invalidation_device_tests\|lost_check_tests)\b" -- crates` | 下の (2) の出力 |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-metal,fault-injection --lib lost_check_tests`、同じコマンドの `--lib lost_state_tests`、`cargo test -p fandhe-silicon-contract --test backend_metal_no_recording --test backend_metal_unsafe_count` | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out`、`test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 200 filtered out`、`test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`（`backend_metal_no_recording`）、`test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`（`backend_metal_unsafe_count`） |
+| 4 | macOS の型検査 | `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features <組> -- -D warnings`。`<組>` は `backend-metal`・`backend-metal,native-blocking-wait`・`backend-metal,fault-injection`・`backend-metal,native-blocking-wait,fault-injection`。5 組目は `--features` の代わりに `--all-features` | 5 組とも終了コード 0 |
+| 5 | CI の macOS のビルド | `gh run view 44387608503 --log --job 135096317902`（`make verify + build-profiles (macos-latest)`）の `backend_metal_device_lost` の部分。run は `3e9bb6d8` の main の push | `test result: ok. 0 passed; 0 failed; 2 ignored`（`make verify` と `make build-profiles` の 2 か所）、run の conclusion `success`、headSha `3e9bb6d82bb0dc6c029abc23fae8d6c39472fc86` |
+| 6 | 依存・unsafe 0 | `git diff --stat 8f628ec2..HEAD -- Cargo.lock deps-approved.toml crates/contract/tests/backend_metal_unsafe_count.rs`、`make deps-check` | 1 つ目は出力なし。`make deps-check` は終了コード 0 |
+| 7 | 門の字句 | `git grep -c -F 'const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);' -- crates/contract/src/backend_metal.rs`、`git grep -c -F 'if !DISPATCH_EXECUTION_ENABLED && records.iter().any(\|group\| !group.is_empty())' -- crates/contract/src/backend_metal.rs` | どちらも 1 |
+| 8 | CI | `gh run view 44387608503 --json conclusion,headSha,jobs` | `make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`、headSha `3e9bb6d82bb0dc6c029abc23fae8d6c39472fc86` |
+
+(6) の `8f628ec2` は、1/3 の 1 つ前のコミット。
+
+(2) の出力。
+
+```text
+crates/contract/src/backend_metal.rs:10337:    mod lost_invalidation_device_tests {
+crates/contract/src/backend_metal.rs:10420:        fn two_losses_call_the_callback_once_and_move_the_generation_once() {
+crates/contract/src/backend_metal.rs:10435:        fn the_listed_operations_issue_nothing_after_the_loss() {
+crates/contract/src/backend_metal.rs:10564:        fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back() {
+crates/contract/src/backend_metal.rs:14835:mod lost_check_tests {
+crates/contract/src/backend_metal.rs:14840:    fn lost_result_passes_when_not_lost() {
+crates/contract/src/backend_metal.rs:14847:    fn lost_result_carries_the_given_generation_when_lost() {
+crates/contract/src/backend_metal.rs:14858:    fn is_lost_turns_true_after_the_first_lose_and_stays_true() {
+crates/contract/tests/backend_metal_device_lost.rs:79:fn the_listed_operations_are_lost_through_the_public_device() {
+crates/contract/tests/backend_metal_device_lost.rs:189:fn a_new_request_after_the_loss_round_trips_through_an_empty_submit() {
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 模擬のロストの後の操作を `DeviceLost` で拒む | #3818 |
 | 2/3 | ロストの後の操作と作り直しの device の要る試験を ignore 付きで足す | #3819 |
+| 3/3 | 完了の条件の確かめ | #3820 |

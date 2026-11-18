@@ -235,7 +235,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-upload-download.md` | Metal の背後実装の `upload`・`download_*` の用途の検査（TASK-316）の所在と、本リポの現状の事実・`upload`・`download_*` の用途の検査（1/3）・用途の検査の device の要る試験（2/3）・完了の条件の確かめ（3/3）・用途で拒むときの下位の API の呼び出し |
 | `docs/metal-buffer-copy-clear.md` | バッファのコピーとクリアの記録の操作と Metal の背後実装（TASK-610）の所在と、本リポの現状の事実・記録の操作の口（1/4）・Metal の記録と投入（2/4）・device の要る試験（3/4）・用途で拒むときの下位の API の呼び出し・完了の条件の確かめ（4/4）・今の値の補い（base 925c4f7） |
 | `docs/metal-cache-key-fields.md` | Metal のキャッシュキーの function constant の値と版の欄の試験（TASK-502）の所在と、本リポの現状の事実・キャッシュキーの function constant の値と版の欄の試験（1/2）・完了の条件の確かめ（2/2） |
-| `docs/metal-device-lost.md` | Metal の背後実装の模擬のロストの後の操作の拒否と作り直し（TASK-186）の所在と、本リポの現状の事実・ロストの後の操作の拒否（1/3） |・device の要る試験（2/3）
+| `docs/metal-device-lost.md` | Metal の背後実装の模擬のロストの後の操作の拒否と作り直し（TASK-186）の所在と、本リポの現状の事実・ロストの後の操作の拒否（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-device-request.md` | CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-request-no-fallback.md` | CUDA の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-290）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-command-submit.md` | CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
