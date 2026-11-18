@@ -15,6 +15,8 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 試験用の device | `crates/core/src/stub_device.rs` の `StubMemory` | 同ファイル |
 | 背後実装 | `crates/contract/src/backend_cuda.rs`・`backend_vulkan.rs`・`backend_metal.rs` の `impl MemoryOps` | 各ファイル |
 | 試験 | `crates/core/tests/memory_copy_clear_stub.rs`（feature `test-support`） | 下の「確かめ方」 |
+| device の要る試験（lib） | `crates/contract/src/backend_metal.rs` の `imp::copy_clear_device_tests`（cfg は `all(test, feature = "native-blocking-wait")`。macOS だけ） | 下の「確かめ方」 |
+| device の要る試験（公開の口） | `crates/contract/tests/backend_metal_copy_clear.rs`（`required-features = ["backend-metal", "native-blocking-wait"]`、`#![cfg(target_os = "macos")]`） | 下の「確かめ方」 |
 
 ## 記録の操作の口（1/4）
 
@@ -49,7 +51,11 @@ fn clear_buffer(
 
 ```bash
 cargo test -p fandhe-silicon-core --features test-support --test memory_copy_clear_stub
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --lib copy_clear_device_tests
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_copy_clear
 ```
+
+下の 2 本の `cargo test` は、macOS 以外では 0 件、macOS では `ignored` になる。
 
 ## Metal の記録と投入（2/4）
 
@@ -105,9 +111,26 @@ cargo test -p fandhe-silicon-contract --features backend-metal --lib copy_clear_
 cargo test -p fandhe-silicon-contract --features backend-metal --test backend_metal_unsafe_count --test backend_metal_no_recording
 ```
 
+## device の要る試験（3/4）
+
+9 本の試験は、どれも `#[ignore]` 付きで、device のある環境でだけ流れる。lib の 8 本は単体試験のビルドで投入が開くので、投入の後の内容を読み戻す。公開の口の 1 本は製品のビルドの動きを確かめる。
+
+| 試験 | 記録 | 呼ぶ口 | 照らす値 |
+| ---- | ---- | ------ | -------- |
+| `copy_buffer_to_buffer_matches_the_cpu_reference` | 64 バイトの `src`（0..64）から、`dst`（0xEE で埋めた 64 バイト）の `[16, 48)` へ 32 バイトのコピー | `MetalDevice` の `copy_buffer_to_buffer`・`submit`・`wait_blocking`・`download_blocking` | 読み戻しが host で作った期待と全バイト一致 |
+| `clear_buffer_zeroes_only_the_range` | 0xEE で埋めた 64 バイトの `[12, 32)` のクリア | `clear_buffer` | `[12, 32)` だけ 0、ほかは 0xEE |
+| `a_copy_after_a_dispatch_in_the_same_encoder_sees_the_dispatch_output` | 同じ記録先に dispatch の後にコピー | `dispatch`・`copy_buffer_to_buffer` | コピーの先が dispatch の出力と一致 |
+| `copy_and_clear_take_effect_in_record_order` | 「コピー → 同じ範囲のクリア」と「クリア → 同じ範囲へのコピー」 | `copy_buffer_to_buffer`・`clear_buffer` | 前者の後は 0、後者の後はコピーの元の値 |
+| `record_time_rejections_leave_the_encoder_usable` | 範囲の超過・`u64` のあふれ・整列・同じバッファ・用途の欠け 3 種・別の device のバッファと記録先 | 同上 | 拒否の variant、記録の件数が 0 のまま、続けて記録した 1 件のコピーだけが結果に出る |
+| `zero_length_records_nothing` | 長さ 0 のコピーとクリア、用途の無いバッファへの長さ 0 のクリア | 同上 | `Ok` と件数 0、内容が変わらない、用途の無い側は `InvalidArgument` |
+| `a_buffer_freed_before_submit_rejects_the_submit_and_enqueues_nothing` | 記録の後に `dst`（クリアは対象）を `free` | `free`・`submit` | `InvalidArgument`、通し番号が進まない |
+| `freeing_after_submit_defers_the_release_until_completion` | 確定を止めてコピーを投入し、`src`・`dst` を `free` | `free`・`test_pending_release_count`・`test_pool_len` | 2 つとも解放の保留にあり再利用の一覧は増えず、完了の後に保留が 0 |
+| `copy_and_clear_through_the_public_device_are_recorded_and_submit_is_unsupported` | 公開の `Device` の記録先にコピーとクリア | `Device::memory()`・`Device::queue()` | 別の device のバッファは `DeviceMismatch`、`submit` は `Unsupported { op: "submit", backend: BackendKind::Metal }`、`dst` の読み戻しが投入の前と同じ |
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | MemoryOps にバッファのコピーとクリアの記録の操作を足す | #5220 |
 | 2/4 | バッファのコピーとクリアを記録して投入で積む | #5221 |
+| 3/4 | バッファのコピーとクリアの device の要る試験を ignore 付きで足す | #5222 |

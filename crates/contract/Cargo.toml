@@ -114,6 +114,10 @@ name = "backend_metal_capability_list"
 required-features = ["backend-metal", "test-support"]
 
 [[test]]
+name = "backend_metal_copy_clear"
+required-features = ["backend-metal", "native-blocking-wait"]
+
+[[test]]
 name = "backend_metal_destroy"
 required-features = ["backend-metal"]
 

@@ -9826,6 +9826,354 @@ mod imp {
             assert!(snapshot.apple_family.is_some());
         }
     }
+
+    /// バッファのコピーとクリアの記録と、投入の後の内容・解放の扱いの device の要る確かめ（TASK-610 のポインタ）。
+    ///
+    /// 投入は単体試験のビルドで開くので、結果は `download_blocking` の読み戻しを host で作った期待と全バイトで比べる。
+    #[cfg(all(test, feature = "native-blocking-wait"))]
+    mod copy_clear_device_tests {
+        use super::*;
+        use fandhe_silicon_core::execution::Binding;
+
+        const FILL_KERNEL: &str = "#include <metal_stdlib>\n\
+            using namespace metal;\n\
+            kernel void fill(device uint* a [[buffer(0)]],\n\
+                            uint gid [[thread_position_in_grid]]) {\n\
+                a[gid] = gid * 3 + 5;\n\
+            }\n";
+
+        const LEN: u64 = 64;
+
+        fn new_device() -> MetalDevice {
+            let device = MTLCreateSystemDefaultDevice().expect("default device");
+            let queue = device.newCommandQueue().expect("queue");
+            MetalDevice::new(
+                __backend_next_device_id().expect("id"),
+                take_next(&NEXT_GENERATION).expect("generation"),
+                String::new(),
+                LimitsTable {
+                    max_buffer_bytes: 1 << 20,
+                    max_dispatch_dims: [u32::MAX; 3],
+                    max_texture_size: MAX_TEXTURE_SIZE,
+                },
+                device,
+                queue,
+            )
+        }
+
+        fn rw() -> BufferUsage {
+            BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+        }
+
+        fn buffer_with(device: &MetalDevice, bytes: &[u8]) -> BufferHandle {
+            let handle = device.allocate(bytes.len() as u64, rw()).expect("allocate");
+            device.upload(&handle, 0, bytes).expect("upload");
+            handle
+        }
+
+        fn ramp() -> Vec<u8> {
+            (0..LEN as u8).collect()
+        }
+
+        fn read_all(device: &MetalDevice, handle: &BufferHandle) -> Vec<u8> {
+            device
+                .download_blocking(handle, 0, handle.size())
+                .expect("download")
+        }
+
+        fn record_count(device: &MetalDevice, id: u64) -> Option<usize> {
+            device.open.lock().get(&id).map(Vec::len)
+        }
+
+        fn submit_and_wait(device: &MetalDevice, encoder: CommandEncoder) {
+            let token = device.submit(encoder, &[]).expect("submit");
+            device.wait_blocking(token, None).expect("wait_blocking");
+        }
+
+        /// 試験専用。確定を遅らせる間の guard。落とすと必ず確定し、巻き戻りでも完了待ちで止まらない。
+        struct HeldCommits<'a>(&'a MetalDevice);
+
+        impl<'a> HeldCommits<'a> {
+            fn new(device: &'a MetalDevice) -> Self {
+                device.hold_commits();
+                Self(device)
+            }
+
+            fn release(&self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        impl Drop for HeldCommits<'_> {
+            fn drop(&mut self) {
+                self.0.release_held_commits();
+            }
+        }
+
+        fn is_invalid(r: &Result<(), ContractError>) -> bool {
+            matches!(r, Err(ContractError::InvalidArgument(_)))
+        }
+
+        /// CMD-61 のポインタ。コピーの後の読み戻しが、host で作った期待と全バイト一致する。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn copy_buffer_to_buffer_matches_the_cpu_reference() {
+            let device = new_device();
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 8, &dst, 16, 32)
+                .expect("copy");
+            submit_and_wait(&device, enc);
+            let mut expected = vec![0xEE_u8; LEN as usize];
+            expected[16..48].copy_from_slice(&ramp()[8..40]);
+            assert_eq!(read_all(&device, &dst), expected);
+            assert_eq!(read_all(&device, &src), ramp());
+        }
+
+        /// CMD-94 のポインタ。クリアの後は範囲の中だけ 0 で、範囲の外は元のまま。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn clear_buffer_zeroes_only_the_range() {
+            let device = new_device();
+            let buf = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device.clear_buffer(&mut enc, &buf, 12, 20).expect("clear");
+            submit_and_wait(&device, enc);
+            let mut expected = vec![0xEE_u8; LEN as usize];
+            expected[12..32].fill(0);
+            assert_eq!(read_all(&device, &buf), expected);
+        }
+
+        /// 同じ記録先で dispatch の後に記録したコピーは、dispatch の出力を写す。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn a_copy_after_a_dispatch_in_the_same_encoder_sees_the_dispatch_output() {
+            let device = new_device();
+            let pipeline = device
+                .create_pipeline(
+                    PipelineInput::Msl {
+                        source: FILL_KERNEL,
+                        entry_point: "fill",
+                    },
+                    &BindingLayout::new(vec![0]),
+                )
+                .expect("create_pipeline");
+            let a = buffer_with(&device, &[0; LEN as usize]);
+            let b = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device
+                .dispatch(&mut enc, &pipeline, &[Binding::new(0, &a, 0)], [16, 1, 1])
+                .expect("dispatch");
+            device
+                .copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, LEN)
+                .expect("copy");
+            submit_and_wait(&device, enc);
+            let expected: Vec<u8> = (0..16_u32)
+                .flat_map(|i| (i * 3 + 5).to_le_bytes())
+                .collect();
+            assert_eq!(read_all(&device, &a), expected);
+            assert_eq!(read_all(&device, &b), expected);
+        }
+
+        /// コピーとクリアの結果は記録の順で決まる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn copy_and_clear_take_effect_in_record_order() {
+            let device = new_device();
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+
+            let mut enc = device.create_encoder();
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 32)
+                .expect("copy");
+            device.clear_buffer(&mut enc, &dst, 0, 32).expect("clear");
+            submit_and_wait(&device, enc);
+            let mut expected = vec![0xEE_u8; LEN as usize];
+            expected[0..32].fill(0);
+            assert_eq!(read_all(&device, &dst), expected);
+
+            let mut enc = device.create_encoder();
+            device.clear_buffer(&mut enc, &dst, 0, 32).expect("clear");
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 32)
+                .expect("copy");
+            submit_and_wait(&device, enc);
+            let mut expected = vec![0xEE_u8; LEN as usize];
+            expected[0..32].copy_from_slice(&ramp()[0..32]);
+            expected[32..].fill(0xEE);
+            assert_eq!(read_all(&device, &dst), expected);
+        }
+
+        /// 記録の時点の拒否はどれも記録先の件数を変えず、その後の正しい記録と投入が通る。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn record_time_rejections_leave_the_encoder_usable() {
+            let device = new_device();
+            let other = new_device();
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+            let weak_src = device
+                .allocate(LEN, BufferUsage::STORAGE | BufferUsage::UPLOAD)
+                .expect("allocate");
+            let weak_dst = device
+                .allocate(LEN, BufferUsage::STORAGE | BufferUsage::DOWNLOAD)
+                .expect("allocate");
+            let foreign = other.allocate(LEN, rw()).expect("allocate");
+            let mut foreign_enc = other.create_encoder();
+
+            let mut enc = device.create_encoder();
+            let id = enc.__backend_id();
+            assert_eq!(record_count(&device, id), Some(0));
+
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 36, &dst, 0, 32);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, u64::MAX - 3, &dst, 0, 8);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.clear_buffer(&mut enc, &dst, u64::MAX - 3, 8);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 2, &dst, 0, 8);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 6);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.clear_buffer(&mut enc, &dst, 2, 8);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.clear_buffer(&mut enc, &dst, 0, 6);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 0, &src, 32, 16);
+            assert!(is_invalid(&r), "{r:?}");
+
+            let r = device.copy_buffer_to_buffer(&mut enc, &weak_src, 0, &dst, 0, 16);
+            match r {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert!(msg.contains("copy_buffer_to_buffer"), "{msg}");
+                    assert!(msg.contains("DOWNLOAD"), "{msg}");
+                }
+                other => panic!("{other:?}"),
+            }
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 0, &weak_dst, 0, 16);
+            match r {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert!(msg.contains("copy_buffer_to_buffer"), "{msg}");
+                    assert!(msg.contains("UPLOAD"), "{msg}");
+                }
+                other => panic!("{other:?}"),
+            }
+            let r = device.clear_buffer(&mut enc, &weak_dst, 0, 16);
+            match r {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert!(msg.contains("clear_buffer"), "{msg}");
+                    assert!(msg.contains("UPLOAD"), "{msg}");
+                }
+                other => panic!("{other:?}"),
+            }
+
+            let r = device.copy_buffer_to_buffer(&mut enc, &foreign, 0, &dst, 0, 16);
+            assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+            let r = device.copy_buffer_to_buffer(&mut enc, &src, 0, &foreign, 0, 16);
+            assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+            let r = device.clear_buffer(&mut enc, &foreign, 0, 16);
+            assert!(matches!(r, Err(ContractError::DeviceMismatch)), "{r:?}");
+
+            let r = device.copy_buffer_to_buffer(&mut foreign_enc, &src, 0, &dst, 0, 16);
+            assert!(is_invalid(&r), "{r:?}");
+            let r = device.clear_buffer(&mut foreign_enc, &dst, 0, 16);
+            assert!(is_invalid(&r), "{r:?}");
+
+            assert_eq!(record_count(&device, id), Some(0));
+
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 8, &dst, 16, 16)
+                .expect("copy");
+            assert_eq!(record_count(&device, id), Some(1));
+            submit_and_wait(&device, enc);
+            let mut expected = vec![0xEE_u8; LEN as usize];
+            expected[16..32].copy_from_slice(&ramp()[8..24]);
+            assert_eq!(read_all(&device, &dst), expected);
+            assert_eq!(read_all(&device, &src), ramp());
+        }
+
+        /// 長さ 0 のコピーとクリアは何も記録せず、内容も変えない。用途の無いバッファへのクリアは拒む。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn zero_length_records_nothing() {
+            let device = new_device();
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+            let bare = device
+                .allocate(LEN, BufferUsage::empty())
+                .expect("allocate");
+            let mut enc = device.create_encoder();
+            let id = enc.__backend_id();
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 0)
+                .expect("zero copy");
+            device
+                .clear_buffer(&mut enc, &dst, 0, 0)
+                .expect("zero clear");
+            assert_eq!(record_count(&device, id), Some(0));
+            let r = device.clear_buffer(&mut enc, &bare, 0, 0);
+            assert!(is_invalid(&r), "{r:?}");
+            assert_eq!(record_count(&device, id), Some(0));
+            submit_and_wait(&device, enc);
+            assert_eq!(read_all(&device, &dst), vec![0xEE_u8; LEN as usize]);
+            assert_eq!(read_all(&device, &src), ramp());
+        }
+
+        /// 記録の後・投入の前に解放したバッファがあると、投入は `InvalidArgument` で通し番号は進まない。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn a_buffer_freed_before_submit_rejects_the_submit_and_enqueues_nothing() {
+            let device = new_device();
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 16)
+                .expect("copy");
+            device.free(dst);
+            let before = device.lock_submissions().next_sequence;
+            let r = device.submit(enc, &[]);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            assert_eq!(device.lock_submissions().next_sequence, before);
+
+            let target = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device
+                .clear_buffer(&mut enc, &target, 0, 16)
+                .expect("clear");
+            device.free(target);
+            let r = device.submit(enc, &[]);
+            assert!(matches!(r, Err(ContractError::InvalidArgument(_))), "{r:?}");
+            assert_eq!(device.lock_submissions().next_sequence, before);
+        }
+
+        /// 投入の後・完了の前の解放は保留に置かれ、再利用の一覧へは回らず、完了の後に保留から外れる。
+        #[test]
+        #[ignore = "touches the Metal device; run only in a dedicated device session"]
+        fn freeing_after_submit_defers_the_release_until_completion() {
+            let device = new_device();
+            let held = HeldCommits::new(&device);
+            let src = buffer_with(&device, &ramp());
+            let dst = buffer_with(&device, &[0xEE; LEN as usize]);
+            let mut enc = device.create_encoder();
+            device
+                .copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, 16)
+                .expect("copy");
+            let token = device.submit(enc, &[]).expect("submit");
+            let pool_before = device.test_pool_len();
+            device.free(src);
+            device.free(dst);
+            assert_eq!(device.test_pending_release_count(), 2);
+            assert_eq!(device.test_pool_len(), pool_before);
+            held.release();
+            device.wait_blocking(token, None).expect("wait_blocking");
+            assert_eq!(device.poll(token), CompletionState::Complete);
+            assert_eq!(device.test_pending_release_count(), 0);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
