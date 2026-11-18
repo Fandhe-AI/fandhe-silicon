@@ -104,12 +104,15 @@ fn host_range(offset: u64, len: u64, allocation_len: u64) -> Result<(usize, usiz
 /// `InvalidArgument` にして返す（ほかの失敗はそのまま返す）。用途を通ったあと、`in_use` なら
 /// 使用中の `InvalidArgument` を返し、最後に `host_range` で範囲を照らして `usize` の組にする。
 /// 長さ 0 の入力も同じ順で照らす。device に触らず、バッファの内容も変えない。
+///
+/// 使用中の判定 `in_use` は、用途を通ったときにだけ 1 度呼ぶ。投入の完了状態の問い合わせ
+/// （`MTLCommandBuffer::status()` に届くもの）を、用途で拒む入力で呼ばないための遅らせた形。
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn usage_access_range(
     op: &'static str,
     role: UsageRole,
     recorded: BufferUsage,
-    in_use: bool,
+    in_use: impl FnOnce() -> bool,
     offset: u64,
     len: u64,
     allocation_len: u64,
@@ -121,7 +124,7 @@ fn usage_access_range(
         }
         Err(other) => return Err(other),
     }
-    if in_use {
+    if in_use() {
         return Err(ContractError::InvalidArgument(
             "buffer is in use by an unfinished submission".into(),
         ));
@@ -3309,6 +3312,10 @@ mod imp {
         last_submission: Option<u64>,
         /// 確保のときに受けた用途。読み書きの用途の検査はこの値で判定する。
         usage: BufferUsage,
+        /// 確保のときに `newBufferWithLength_options` へ渡した長さ（`allocate` が受けた `byte_len`）。
+        /// 再利用の一覧は同じ長さの項目だけを返すので、再利用しても値は変わらない。
+        /// 用途・範囲・コピーの照らしは `MTLBuffer::length()` を呼ばずにこの値を使う。
+        allocation_len: u64,
     }
 
     /// device のバッファの表。識別子は device ごとに 1 から払い出す。
@@ -4025,6 +4032,7 @@ mod imp {
                         generation,
                         last_submission,
                         usage,
+                        allocation_len,
                     } = entry;
                     self.lock_buffers()
                         .pool
@@ -4035,6 +4043,7 @@ mod imp {
                             generation,
                             last_submission,
                             usage,
+                            allocation_len,
                         })
                 },
             );
@@ -4087,7 +4096,7 @@ mod imp {
         /// ハンドル 1 本について、記録の時点の照らしに渡す事実を表から引く。表は変えない。
         fn transfer_operand(&self, buffers: &Buffers, handle: &BufferHandle) -> TransferOperand {
             let entry = buffers.map.get(&handle.__backend_id()).map(|entry| {
-                let allocation_len = u64::try_from(entry.buffer.length()).unwrap_or(u64::MAX);
+                let allocation_len = entry.allocation_len;
                 TransferEntry {
                     buffer_id: handle.__backend_id(),
                     generation: handle.__backend_generation(),
@@ -4140,20 +4149,17 @@ mod imp {
             byte_len: u64,
         ) -> Result<Vec<u8>, ContractError> {
             self.with_buffer(src, |entry| {
-                let in_use = self.check_not_in_use(entry).is_err();
                 let buffer = &entry.buffer;
-                let allocation_len = u64::try_from(buffer.length()).map_err(|_| {
-                    ContractError::InvalidArgument("buffer length does not fit u64".into())
-                })?;
-                // 用途・使用中・範囲の順に照らす。範囲は `host_range` が検査と `usize` への変換を行う。
+                // 用途・使用中・範囲の順に照らす。使用中の判定は用途を通ったときだけ呼ぶ。
+                // 範囲は `host_range` が検査と `usize` への変換を行う。
                 let (offset, len) = usage_access_range(
                     op,
                     UsageRole::ReadbackSource,
                     entry.usage,
-                    in_use,
+                    || self.check_not_in_use(entry).is_err(),
                     src_offset,
                     byte_len,
-                    allocation_len,
+                    entry.allocation_len,
                 )?;
                 // 確保できなければ abort せず `AllocationFailed` で返す。
                 let mut out: Vec<u8> = Vec::new();
@@ -5686,6 +5692,7 @@ mod imp {
                     generation,
                     last_submission: None,
                     usage,
+                    allocation_len: byte_len,
                 },
             );
             Ok(BufferHandle::__backend_new(
@@ -5704,22 +5711,19 @@ mod imp {
             bytes: &[u8],
         ) -> Result<(), ContractError> {
             self.with_buffer(dst, |entry| {
-                let in_use = self.check_not_in_use(entry).is_err();
                 let len = u64::try_from(bytes.len()).map_err(|_| {
                     ContractError::InvalidArgument("data length does not fit u64".into())
                 })?;
-                let allocation_len = u64::try_from(entry.buffer.length()).map_err(|_| {
-                    ContractError::InvalidArgument("buffer length does not fit u64".into())
-                })?;
                 // 用途・使用中・範囲の順に照らし、通れば書く（範囲は書く側でも照らす）。
+                // 使用中の判定は用途を通ったときだけ呼ぶ。
                 usage_access_range(
                     "upload",
                     UsageRole::UploadDestination,
                     entry.usage,
-                    in_use,
+                    || self.check_not_in_use(entry).is_err(),
                     dst_offset,
                     len,
-                    allocation_len,
+                    entry.allocation_len,
                 )?;
                 write_range(entry, dst_offset, bytes)
             })
@@ -13105,7 +13109,7 @@ mod usage_role_check_tests {
                 op,
                 role,
                 BufferUsage::STORAGE,
-                false,
+                || false,
                 0,
                 4,
                 LEN,
@@ -13122,7 +13126,7 @@ mod usage_role_check_tests {
                 op,
                 role,
                 BufferUsage::empty(),
-                false,
+                || false,
                 0,
                 0,
                 LEN,
@@ -13133,7 +13137,7 @@ mod usage_role_check_tests {
     #[test]
     fn the_full_usage_passes_both_roles() {
         for (op, role, _) in ROLES {
-            assert!(usage_access_range(op, role, full_usage(), false, 0, LEN, LEN).is_ok());
+            assert!(usage_access_range(op, role, full_usage(), || false, 0, LEN, LEN).is_ok());
         }
     }
 
@@ -13144,7 +13148,7 @@ mod usage_role_check_tests {
                 op,
                 role,
                 BufferUsage::STORAGE,
-                false,
+                || false,
                 8,
                 16,
                 LEN,
@@ -13160,7 +13164,7 @@ mod usage_role_check_tests {
                 op,
                 role,
                 BufferUsage::STORAGE,
-                true,
+                || true,
                 0,
                 4,
                 LEN,
@@ -13173,7 +13177,15 @@ mod usage_role_check_tests {
     #[test]
     fn in_use_is_rejected_when_the_usage_passes() {
         for (op, role, _) in ROLES {
-            let msg = invalid(usage_access_range(op, role, full_usage(), true, 0, 4, LEN));
+            let msg = invalid(usage_access_range(
+                op,
+                role,
+                full_usage(),
+                || true,
+                0,
+                4,
+                LEN,
+            ));
             assert!(
                 msg.contains("buffer is in use by an unfinished submission"),
                 "{msg}"
@@ -13184,7 +13196,7 @@ mod usage_role_check_tests {
     #[test]
     fn an_out_of_range_input_is_rejected_by_the_range_check() {
         for (op, role, _) in ROLES {
-            let got = usage_access_range(op, role, full_usage(), false, 8, 16, LEN);
+            let got = usage_access_range(op, role, full_usage(), || false, 8, 16, LEN);
             let want = host_range(8, 16, LEN);
             assert!(matches!(got, Err(ContractError::InvalidArgument(_))));
             assert_eq!(format!("{got:?}"), format!("{want:?}"));
@@ -13196,10 +13208,68 @@ mod usage_role_check_tests {
         for (op, role, _) in ROLES {
             for (offset, len) in [(0, 16), (8, 8), (16, 0)] {
                 assert_eq!(
-                    usage_access_range(op, role, full_usage(), false, offset, len, LEN).unwrap(),
+                    usage_access_range(op, role, full_usage(), || false, offset, len, LEN).unwrap(),
                     host_range(offset, len, LEN).unwrap()
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod usage_reject_without_probe_tests {
+    //! 用途で拒む入力では、使用中の判定（投入の完了状態の問い合わせに届くもの）を呼ばないことの固定
+    //! （device に触らない。どの OS でも流れる）。確かめるのは純粋な関数 `usage_access_range`。
+    use super::*;
+    use std::cell::Cell;
+
+    const LEN: u64 = 16;
+
+    const ROLES: [(&str, UsageRole); 2] = [
+        ("upload", UsageRole::UploadDestination),
+        ("download_blocking", UsageRole::ReadbackSource),
+    ];
+
+    #[test]
+    fn a_usage_rejection_does_not_call_the_in_use_probe() {
+        for (op, role) in ROLES {
+            let calls = Cell::new(0_u32);
+            let result = usage_access_range(
+                op,
+                role,
+                BufferUsage::STORAGE,
+                || {
+                    calls.set(calls.get() + 1);
+                    false
+                },
+                0,
+                4,
+                LEN,
+            );
+            assert!(matches!(result, Err(ContractError::InvalidArgument(_))));
+            assert_eq!(calls.get(), 0, "{op}");
+        }
+    }
+
+    #[test]
+    fn the_in_use_probe_is_called_once_when_the_usage_passes() {
+        let usage = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
+        for (op, role) in ROLES {
+            let calls = Cell::new(0_u32);
+            let result = usage_access_range(
+                op,
+                role,
+                usage,
+                || {
+                    calls.set(calls.get() + 1);
+                    true
+                },
+                0,
+                4,
+                LEN,
+            );
+            assert!(matches!(result, Err(ContractError::InvalidArgument(_))));
+            assert_eq!(calls.get(), 1, "{op}");
         }
     }
 }
