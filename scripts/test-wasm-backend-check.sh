@@ -102,13 +102,13 @@ expect() {
   for word in "$@"; do
     case "${word}" in
       '!'*)
-        if cat "${OUT_F}" "${ERR_F}" | grep -q -F -e "${word#!}"; then
+        if grep -q -F -e "${word#!}" -- "${OUT_F}" "${ERR_F}"; then
           ok=0
           echo "FAIL ${name}: unexpected: ${word#!}" >&2
         fi
         ;;
       *)
-        if ! cat "${OUT_F}" "${ERR_F}" | grep -q -F -e "${word}"; then
+        if ! grep -q -F -e "${word}" -- "${OUT_F}" "${ERR_F}"; then
           ok=0
           echo "FAIL ${name}: missing: ${word}" >&2
         fi
@@ -369,7 +369,7 @@ expect "real-all-match" 0 "check: feature=backend-metal target=wasm32-unknown-un
   "deps: feature=backend-cuda name=cudarc wasm32_n=0 native_n=1 result=match" \
   "record: commit=" "check=3/3 module=3/3 sdk_wasm32_total=0 sdk_native_total=3" "ok:" "!violation:"
 # ホストの絶対パスが出力に出ない。
-if cat "${OUT_F}" "${ERR_F}" | grep -q -F -e "${work}"; then
+if grep -q -F -e "${work}" -- "${OUT_F}" "${ERR_F}"; then
   failed=$((failed + 1))
   echo "FAIL real-no-host-path: the work directory appears in the output" >&2
 else
