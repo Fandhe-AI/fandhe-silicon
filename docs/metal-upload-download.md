@@ -18,6 +18,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | 試験 | 同ファイルの `usage_role_check_tests` module。device に触らない | `cargo test -p fandhe-silicon-contract --features backend-metal --lib usage_role_check_tests` |
 | device の取得・確保 | [metal-device-request.md](./metal-device-request.md)（TASK-158） | 同頁 |
 | 用途と操作の対応 | [buffer-usage-check.md](./buffer-usage-check.md)（TASK-1796） | 同頁 |
+| device の要る試験 | `crates/contract/tests/backend_metal_usage_role.rs`。`[[test]]` の feature は `backend-metal`・`native-blocking-wait`（`crates/contract/Cargo.toml`）、cfg は `target_os = "macos"`（macOS 以外では 0 件） | 下の「確かめ方」 |
 
 ## `upload`・`download_*` の用途の検査（1/3）
 
@@ -65,17 +66,34 @@ device に触らない試験:
 - `imp::device_tests::dispatch` の補助 `buffer_of`・`zeroed`
 - `dispatch_through_the_public_device_is_recorded_and_submit_is_unsupported`（`crates/contract/tests/backend_metal_device.rs`）
 
+## 用途の検査の device の要る試験（2/3）
+
+入口は `MetalDeviceProvider::request`（`Metal`・`ComputeOnly`・`ProductIndependent`）で作った device の `Device::memory()` の `allocate`・`upload`・`download_blocking`・`download_async`。6 本とも `#[ignore]` が付く。
+
+| # | 試験 | 確保の用途 | 呼ぶ口 | 返る値 |
+| - | ---- | ---------- | ------ | ------ |
+| 1 | `upload_without_upload_usage_is_rejected_and_leaves_the_contents_unchanged` | `STORAGE \| DOWNLOAD`（対照は `STORAGE \| UPLOAD \| DOWNLOAD`） | `upload` | `InvalidArgument`（`upload`・`UPLOAD` を含む）。読み戻しは全バイト 0。対照は `Ok` で書いたバイト列と一致 |
+| 2 | `download_blocking_without_download_usage_is_rejected` | `STORAGE \| UPLOAD` | `download_blocking` | `InvalidArgument`（`download_blocking`・`DOWNLOAD` を含む） |
+| 3 | `download_async_without_download_usage_delivers_one_invalid_argument` | `STORAGE \| UPLOAD` | `download_async` | コールバックが 1 回、`InvalidArgument`（`download_async`・`DOWNLOAD` を含む） |
+| 4 | `an_empty_usage_rejects_upload_and_download_even_for_zero_length` | 空 | 長さ 0 の `upload`・`download_blocking` | どちらも `InvalidArgument` |
+| 5 | `the_recorded_usage_decides_even_if_the_handle_claims_more` | `STORAGE \| DOWNLOAD` | 用途を多く名乗るハンドルへの `upload` | `InvalidArgument`（`UPLOAD` を含む）。元のハンドルの読み戻しは全バイト 0 |
+| 6 | `usage_is_checked_before_the_range` | `STORAGE \| DOWNLOAD`・`STORAGE \| UPLOAD`（16 バイト） | 範囲の外の `upload`・`download_blocking` | 用途の拒否の文字列で返る |
+
 ## 確かめ方
 
 ```sh
 cargo test -p fandhe-silicon-contract --features backend-metal --lib usage_role_check_tests
+cargo test -p fandhe-silicon-contract --features backend-metal,native-blocking-wait --test backend_metal_usage_role
 cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,native-blocking-wait -- -D warnings
 cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal -- -D warnings
 cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --all-features -- -D warnings
 ```
+
+`backend_metal_usage_role` は macOS 以外では `running 0 tests`、macOS では `ignored` の件数が 6 になる。
 
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | upload・download から用途の検査を呼ぶ | #4323 |
+| 2/3 | 用途の検査の device の要る試験を ignore 付きで足す | #4324 |
