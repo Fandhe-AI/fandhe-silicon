@@ -227,6 +227,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-pvrtc-create-check.md` | Metal の device で PVRTC の形式のテクスチャの作成を試みる試験の所在と、本リポの現状の事実・試験の振る舞い・確かめ（2/2）（TASK-1380） |
 | `docs/metal-offscreen-target.md` | Metal の背後実装の描画先の作成（TASK-377）の所在と、本リポの現状の事実・描画先の作成と描画の口（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/metal-capability-query.md` | Metal の背後実装の能力の問合せ（TASK-173）の所在と、本リポの現状の事実・能力の表と問合せ（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base c5c2151） |
+| `docs/metal-poll-lost.md` | Metal の背後実装の模擬のロストの後の `poll`・`poll_ex` の試験（TASK-593）の所在と、本リポの現状の事実・模擬のロストの後の `poll`・`poll_ex` の device の要る試験（1/2） |
 | `docs/metal-device-drop.md` | Metal の背後実装の device の破棄（TASK-189）の所在と、本リポの現状の事実・`Drop` の待ちと記録先の破棄（1/4）・明示の破棄（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/metal-allocate-sizes.md` | Metal の背後実装の確保と往復の大きさの試験（TASK-314）の所在と、本リポの現状の事実・確保と往復の大きさの試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/metal-gpu-timing-lost.md` | Metal の背後実装の模擬のロストの後の `gpu_timing` の試験（TASK-596）の所在と、本リポの現状の事実・模擬のロストの後の `gpu_timing` の device の要る試験（1/2） |
