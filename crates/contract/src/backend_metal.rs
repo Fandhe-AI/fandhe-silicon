@@ -8705,8 +8705,7 @@ mod imp {
             #[ignore = "touches the Metal device; run only in a dedicated device session"]
             fn a_handle_from_before_the_loss_can_still_be_freed_once() {
                 let device = new_device();
-                let usage = BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD;
-                let handle = device.allocate(64, usage).expect("allocate");
+                let handle = device.allocate(64, BufferUsage::empty()).expect("allocate");
                 inject(
                     device.fault_hooks(),
                     HookFault::DeviceLost(DeviceLostReason::Unknown),
@@ -8721,7 +8720,7 @@ mod imp {
                     handle.__backend_id(),
                     handle.__backend_device_id(),
                     64,
-                    usage,
+                    BufferUsage::empty(),
                 );
                 device.free(handle);
                 assert_eq!(device.lock_buffers().map.len(), 0);
