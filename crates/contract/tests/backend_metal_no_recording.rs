@@ -1,8 +1,9 @@
 //! Metal の背後実装（`src/backend_metal.rs`）が持つ記録の操作の範囲を、ソースの文字列で機械的に守る
 //! （TASK-775 のポインタ）。
 //!
-//! 持つのは compute の dispatch の記録（compute encoder の生成・バッファ・定数・共有メモリの設定・dispatch）だけ。
-//! コピー・クリア・描画・イベント・完了ハンドラに当たる呼び出しがコード本体に現れたら落とす。
+//! 持つのは compute の dispatch の記録（compute encoder の生成・バッファ・定数・共有メモリの設定・dispatch）と、
+//! バッファのコピー・クリアの記録（blit encoder の生成・バッファ間のコピー・0 埋め）。
+//! 描画・イベント・完了ハンドラに当たる呼び出しがコード本体に現れたら落とす。
 //! `contents()` 越しの `copy_nonoverlapping` による読み書きの 2 つの `// SAFETY:` は、最後に使った投入が
 //! 完了していることの確かめに根拠を置く。compute encoder へ設定する 3 つの `unsafe` ブロックの `// SAFETY:` は、
 //! 呼ぶメソッドごとに 1 つずつあり、CPU 側で確かめた前提の語句を保つ。関数の定数の設定の SAFETY
@@ -13,14 +14,12 @@
 
 const SOURCE: &str = include_str!("../src/backend_metal.rs");
 
-/// compute の dispatch の記録を超える操作（描画・コピー・クリア・イベント・完了ハンドラなど）に当たる語。部分一致で見る。
+/// dispatch とバッファのコピー・クリアの記録を超える操作（描画・イベント・完了ハンドラなど）に当たる語。部分一致で見る。
 /// 追加するときは、同期の根拠を書き直す変更と同じ PR の中で表も直す。
 const FORBIDDEN_WORDS: &[&str] = &[
-    "blitCommandEncoder",
     "renderCommandEncoder",
     "dispatchThreads",
     "addCompletedHandler",
-    "MTLBlitCommandEncoder",
     "RenderCommandEncoder",
     "parallelRenderCommandEncoder",
     "resourceStateCommandEncoder",
@@ -30,13 +29,10 @@ const FORBIDDEN_WORDS: &[&str] = &[
     "useResource",
     "addScheduledHandler",
     "presentDrawable",
-    "copyFromBuffer",
-    "fillBuffer",
 ];
 
 /// objc2-metal の feature に入っていてはならない、encoder 系の header 名。
 const FORBIDDEN_FEATURES: &[&str] = &[
-    "MTLBlitCommandEncoder",
     "MTLRenderCommandEncoder",
     "MTLBlitPass",
     "MTLComputePass",
@@ -57,7 +53,7 @@ fn code_lines() -> impl Iterator<Item = (usize, &'static str)> {
         .filter(|(_, line)| !line.trim_start().starts_with("//"))
 }
 
-const FIX_HINT: &str = "If you are adding copy or clear operations (or other encoders) to the Metal backend, \
+const FIX_HINT: &str = "If you are adding operations beyond dispatch and buffer copy/clear recording (or other encoders) to the Metal backend, \
 write the synchronization rationale of the `// SAFETY:` comments around `contents()` and of the encoder \
 setters in src/backend_metal.rs (and the module-level comment) first, then update the tables in this test. \
 Also revisit how `free` and `release_finished` hand buffers to the reuse pool (release only when the last \
@@ -78,7 +74,7 @@ fn backend_metal_code_has_no_words_beyond_compute_dispatch() {
     }
     assert!(
         hits.is_empty(),
-        "backend_metal.rs must only record compute dispatches:\n{}\n{FIX_HINT}",
+        "backend_metal.rs must only record compute dispatches and buffer copy/clear:\n{}\n{FIX_HINT}",
         hits.join("\n")
     );
 }
@@ -140,6 +136,15 @@ const ENCODER_SAFETY: &[(&str, &[&str])] = &[
     ("setBuffer_offset_atIndex", &["Retained", "offset", "index"]),
     ("setBytes_length_atIndex", &["index", "長さ"]),
     ("setThreadgroupMemoryLength_atIndex", &["index", "長さ"]),
+    (
+        "copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size",
+        &[
+            "Retained",
+            "validate_buffer_range",
+            "別のバッファ",
+            "4 の倍数",
+        ],
+    ),
 ];
 
 /// 描画先のテクスチャの記述子へ幅と高さを渡す 2 つの呼び出しの印と、それぞれの `// SAFETY:` が含んでいなければならない語句。
