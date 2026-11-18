@@ -226,7 +226,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/metal-kernel-accept.md` | 実行時に受けるカーネルの受け付けの道具（measure の crate）と、契約の crate の単体試験の GEMM・GEMM→加算→Relu・バッチの積和と部分 Top-k の device の要る試験（TASK-485）の所在と、本リポの現状・一覧のファイルの形（1/6）・一覧の 1 行の受け付け（2/6）・起動の形と CPU の参照（3/6）・契約の crate の単体試験の所在（4/6）・device の要る試験（4/6）・3/6 の口の移しの補い・バッチの積和と部分 Top-k（5/6）・完了の条件の確かめ（6/6） |
 | `docs/metal-pvrtc-create-check.md` | Metal の device で PVRTC の形式のテクスチャの作成を試みる試験の所在と、本リポの現状の事実・試験の振る舞い・確かめ（2/2）（TASK-1380） |
 | `docs/metal-offscreen-target.md` | Metal の背後実装の描画先の作成（TASK-377）の所在と、本リポの現状の事実・描画先の作成と描画の口（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/metal-offscreen-target-formats.md` | Metal の背後実装の `Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（TASK-380）の所在と、本リポの現状の事実・`Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（1/2） |
+| `docs/metal-offscreen-target-formats.md` | Metal の背後実装の `Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（TASK-380）の所在と、本リポの現状の事実・`Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/metal-capability-query.md` | Metal の背後実装の能力の問合せ（TASK-173）の所在と、本リポの現状の事実・能力の表と問合せ（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base c5c2151） |
 | `docs/metal-poll-lost.md` | Metal の背後実装の模擬のロストの後の `poll`・`poll_ex` の試験（TASK-593）の所在と、本リポの現状の事実・模擬のロストの後の `poll`・`poll_ex` の device の要る試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/metal-device-drop.md` | Metal の背後実装の device の破棄（TASK-189）の所在と、本リポの現状の事実・`Drop` の待ちと記録先の破棄（1/4）・明示の破棄（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |

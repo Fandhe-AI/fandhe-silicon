@@ -42,8 +42,47 @@ cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targ
 - 1 本目は 1 件が通る。
 - 2 本目の device の要る試験と 3 本目は、macOS 以外では 0 件。macOS では `ignored` になる。
 
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-380。ポインタのみ）。
+
+時点のコミット: `597f292e`。`docs/spec` の gitlink は `becfefdc2fb47fa610c6ecc914f3bf601910f5f3`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `offscreen_format_device_tests`・`offscreen_format_plan_tests` の `#[test]`・`#[ignore` の数は `awk` で module を切り出して `grep -c`。`crates/contract/tests/backend_metal_offscreen_formats.rs` の `grep -c '#\[test\]'`、`grep -c '^[[:space:]]*#\[ignore'` | `offscreen_format_device_tests` の `#[test]` は 2、`#[ignore` は 2。`offscreen_format_plan_tests` の `#[test]` は 1。ファイルの `#[test]` は 1、`#[ignore` は 1 |
+| 2 | 受け手の試験の名前 | 下の (2) の `git grep` | 下の (2) の出力（4 行） |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-metal,graphics --lib offscreen_format_plan_tests` | `test result: ok. 1 passed; 0 failed` |
+| 4 | macOS の型検査 | `cargo clippy -p fandhe-silicon-contract --target aarch64-apple-darwin --all-targets --features backend-metal,graphics -- -D warnings`、同じコマンドの `--features backend-metal,native-blocking-wait`、`--all-features` | 3 組とも終了コード 0 |
+| 5 | CI の macOS のビルド | `gh run view 44365345054 --log --job 135017462641`（`make verify + build-profiles (macos-latest)`）の `backend_metal_offscreen_formats` の部分。run は `597f292e` の main の push | `Running tests/backend_metal_offscreen_formats.rs` の行は 2 か所。`make verify` の部分は `test result: ok. 0 passed; 0 failed; 1 ignored`。run の conclusion `success`、headSha `597f292ee979a7106af245993f5897dd742b7ae8` |
+| 6 | 依存 0・unsafe 0 | `git diff --stat 597f292e^..HEAD -- Cargo.lock deps-approved.toml crates/core crates/contract/tests/backend_metal_unsafe_count.rs`、`make deps-check`、`cargo test -p fandhe-silicon-contract --test backend_metal_unsafe_count` | 1 つ目は出力なし、`make deps-check` は終了コード 0、`test result: ok. 1 passed; 0 failed` |
+| 7 | CI | `gh run view 44365345054 --json conclusion,headSha,jobs` | `make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`、headSha `597f292ee979a7106af245993f5897dd742b7ae8` |
+
+(6) の `597f292e^` は、1/2 の 1 つ前のコミット。
+
+(2) の出力（`git grep -n "fn plan_counts_four_and_sixteen_bytes_per_pixel\|fn bgra8unorm_target_is_bgra8_with_four_bytes_per_pixel\|fn rgba32float_target_is_rgba32float_with_sixteen_bytes_per_pixel\|fn graphics_device_creates_bgra8unorm_and_rgba32float_targets" -- crates/contract`）。
+
+```text
+crates/contract/src/backend_metal.rs:2605:    fn plan_counts_four_and_sixteen_bytes_per_pixel() {
+crates/contract/src/backend_metal.rs:9619:        fn bgra8unorm_target_is_bgra8_with_four_bytes_per_pixel() {
+crates/contract/src/backend_metal.rs:9626:        fn rgba32float_target_is_rgba32float_with_sixteen_bytes_per_pixel() {
+crates/contract/tests/backend_metal_offscreen_formats.rs:17:fn graphics_device_creates_bgra8unorm_and_rgba32float_targets() {
+```
+
+(5) の出力（`make verify` の部分）。
+
+```text
+Running tests/backend_metal_offscreen_formats.rs (target/debug/build/fandhe-silicon-contract/dfa1df1c7d95369b/out/backend_metal_offscreen_formats-dfa1df1c7d95369b)
+
+running 1 test
+test graphics_device_creates_bgra8unorm_and_rgba32float_targets ... ignored, touches the Metal device; run only in a dedicated device session
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | `Bgra8Unorm` と `Rgba32Float` の描画先の作成の試験 | #4595 |
+| 2/2 | 完了の条件の確かめ | #4596 |
