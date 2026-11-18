@@ -14354,3 +14354,71 @@ mod teardown_tests {
         assert!(out.expect("payload").is::<u16>());
     }
 }
+
+#[cfg(test)]
+mod cache_key_specialization_tests {
+    //! function constant の値だけを変えたキーの固定（device に触らない。どの OS でも流れる）。TASK-502 のポインタ。
+    use super::*;
+
+    const SRC: &str = "kernel void k() {}";
+    const VERSION: u64 = 0x0123_4567_89ab_cdef;
+
+    /// `MslSpecialized`・`MslSpecializedWithOptions` で、定数の値だけを変えると `specialization_hash` だけが変わる。
+    #[test]
+    fn changing_only_a_function_constant_value_changes_only_the_specialization_hash() {
+        let pairs = [
+            (FunctionConstantValue::U32(4), FunctionConstantValue::U32(5)),
+            (
+                FunctionConstantValue::Bool(true),
+                FunctionConstantValue::Bool(false),
+            ),
+        ];
+        for (a, b) in pairs {
+            let ca = [FunctionConstant { index: 0, value: a }];
+            let cb = [FunctionConstant { index: 0, value: b }];
+            let inputs = [
+                (
+                    PipelineInput::MslSpecialized {
+                        source: SRC,
+                        entry_point: "k",
+                        function_constants: &ca,
+                    },
+                    PipelineInput::MslSpecialized {
+                        source: SRC,
+                        entry_point: "k",
+                        function_constants: &cb,
+                    },
+                ),
+                (
+                    PipelineInput::MslSpecializedWithOptions {
+                        source: SRC,
+                        entry_point: "k",
+                        function_constants: &ca,
+                        math_mode: MslMathMode::Safe,
+                        float_functions: MslFloatFunctions::Precise,
+                    },
+                    PipelineInput::MslSpecializedWithOptions {
+                        source: SRC,
+                        entry_point: "k",
+                        function_constants: &cb,
+                        math_mode: MslMathMode::Safe,
+                        float_functions: MslFloatFunctions::Precise,
+                    },
+                ),
+            ];
+            for (x, y) in &inputs {
+                let kx = metal_cache_key(x, false, VERSION).expect("x");
+                let ky = metal_cache_key(y, false, VERSION).expect("y");
+                assert_ne!(kx.specialization_hash, ky.specialization_hash, "{x:?}");
+                assert_eq!(
+                    CacheKey {
+                        specialization_hash: kx.specialization_hash,
+                        ..ky
+                    },
+                    kx,
+                    "{x:?}"
+                );
+            }
+        }
+    }
+}
