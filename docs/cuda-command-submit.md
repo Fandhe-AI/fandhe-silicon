@@ -234,7 +234,7 @@ record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_item
 
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
-| 「記録先の集合と submit（1/5）」の `submit` の表の、開いていない記録先の行の後 | 開いていない記録先の次は通し番号が尽きた行 → 開いていない記録先の次に、記録したコピー・クリアのバッファが解放済みなら `InvalidArgument`（何も積まず番号を消費しない）の行が入る。通れば記録の順に stream へ積んでから event を記録する。積む途中の失敗は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、番号を消費しない。1 本でも積んだ後の失敗は、返す前に stream の完了を待つ | `grep -n 'fn plan_transfers\|fn launch_transfers\|fn release_finished' crates/contract/src/backend_cuda.rs` |
+| 「記録先の集合と submit（1/5）」の `submit` の表の、開いていない記録先の行の後 | 開いていない記録先の次は通し番号が尽きた行 → 開いていない記録先の次に、記録したコピー・クリアのバッファが解放済みなら `InvalidArgument`（何も積まず番号を消費しない）の行が入る。通れば記録の順に stream へ積んでから event を記録する。積む途中の失敗は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、番号を消費しない。1 本でも積んだ後の失敗は、返す前に stream の完了を待ち、待ちを確かめられなければ対象のバッファを `free` でも解放しない | `grep -n 'fn plan_transfers\|fn launch_transfers\|fn release_finished' crates/contract/src/backend_cuda.rs` |
 | 「一括投入（3/5）」の「通れば全記録先を集合から外し、event を 1 つ記録して印を 1 つ返す」 | 全記録先を集合から外し、event を 1 つ記録する → 渡した記録先の順に各記録先の記録を積んでから、event を 1 つ記録する | 同上 |
 | 「回収は `submit`・`submit_many`・`poll`・`on_complete` の中で行う」 | その 4 つ → 加えて、コピー・クリアで使ったバッファの `free` と、解放を保留したバッファがあるときの `submit`・`submit_many`・`poll`・`allocate` も投入済みの表を回収する | 同上 |
 | 「完了の条件の確かめ（5/5）」の (1) の行と出力 | `57 passed; 0 failed; 19 ignored`（`running 76 tests`）→ `80 passed; 0 failed; 24 ignored; 0 measured; 13 filtered out`（`running 104 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |

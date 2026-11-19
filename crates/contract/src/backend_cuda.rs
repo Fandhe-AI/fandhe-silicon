@@ -1731,6 +1731,8 @@ struct BufferEntry {
     generation: u64,
     /// コピー・クリアで最後に使った投入の通し番号。使っていなければ `None`。
     last_submission: Option<u64>,
+    /// 積んだ後の失敗で stream の完了を確かめられなかったバッファ。`free` は解放も再利用もせず保持する。
+    unconfirmed: bool,
 }
 
 /// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
@@ -2124,7 +2126,15 @@ impl CudaDevice {
                     // 門を開けて stream の完了を待ち、使用中のまま `free` されて解放・再利用される経路を残さない。
                     #[cfg(feature = "fault-injection")]
                     self.gate.open_all();
-                    let _ = sync_confirmed(|| self.stream.synchronize());
+                    let synced = sync_confirmed(|| self.stream.synchronize());
+                    if !synced {
+                        // 完了を確かめられない間は、対象のバッファを解放・再利用へ回さない（`Drop` の保持と同じ流儀）。
+                        for id in jobs.iter().flat_map(TransferJob::buffer_ids) {
+                            if let Some(entry) = map.get_mut(&id) {
+                                entry.unconfirmed = true;
+                            }
+                        }
+                    }
                 }
                 return Err(error);
             }
@@ -2758,6 +2768,7 @@ impl MemoryOps for CudaDevice {
                 usage,
                 generation,
                 last_submission: None,
+                unconfirmed: false,
             },
         );
         Ok(BufferHandle::__backend_new(
@@ -2836,6 +2847,11 @@ impl MemoryOps for CudaDevice {
             let Some(entry) = removed else {
                 return;
             };
+            if entry.unconfirmed {
+                // 積んだ処理の完了を確かめられていないので、解放せず手放す。
+                std::mem::forget(entry);
+                return;
+            }
             match entry.last_submission {
                 // コピー・クリアで使っていないバッファは、投入済みの表に触らない。
                 None => Some(entry),

@@ -48,7 +48,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ------------ |
 | 記録したコピー・クリアのバッファが解放済み・世代違い | `InvalidArgument`。何も積まず、番号を消費しない |
 | 通る | 門（`fault-injection` のビルドで仕込んであるとき）、記録の順のコピー・クリア、event の順に stream へ積み、番号を払い出す。`submit_many` は渡した記録先の順に積む |
-| 積む途中の失敗 | `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）。番号を消費せず、最後に使った投入を変えない。1 本でも積んだ後の失敗は、返す前に stream の完了を待つ（`fault-injection` では門を全部開けてから）ので、使用中のまま `free` されて解放・再利用されることはない |
+| 積む途中の失敗 | `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）。番号を消費せず、最後に使った投入を変えない。1 本でも積んだ後の失敗は、返す前に stream の完了を待つ（`fault-injection` では門を全部開けてから）ので、使用中のまま `free` されて解放・再利用されることはない。その待ちが失敗・panic で確かめられなかったときは、対象のバッファに印を付け、`free` は解放も再利用もせず保持する（device の `Drop` が同期を確かめられないときに保持するのと同じ流儀） |
 | 通ったとき | 触ったバッファの最後に使った投入を、この番号にする |
 
 ### free
