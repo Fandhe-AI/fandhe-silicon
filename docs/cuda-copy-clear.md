@@ -81,8 +81,51 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib copy_clear_t
 cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_unsafe_count
 ```
 
+## device の要る試験（2/3）
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `a_recorded_copy_takes_effect_only_after_submit` | `copy_buffer_to_buffer` を記録して `submit` し、`poll` と読み戻しを呼ぶ | 投入の前の読み戻しは元の値（全 0）、完了の後は CPU の参照と全バイト一致、元は変わらない |
+| `a_recorded_clear_zeroes_only_the_range` | `clear_buffer` を記録して `submit` する | 投入の前は元の値、完了の後は範囲だけ 0 にした CPU の参照と全バイト一致 |
+| `records_take_effect_in_record_order` | 1 つの記録先に a→b のコピー、b のクリア、b→c のコピーを記録して `submit` する | b と c が CPU の参照と一致 |
+| `submit_many_runs_each_encoder_in_the_given_order` | 2 つの記録先を `submit_many` で投入する | c が CPU の参照と一致 |
+| `a_rejected_record_leaves_the_encoder_usable` | 用途・範囲・整列・同じバッファのコピーと、用途・範囲・整列のクリアを記録する | 7 つとも `InvalidArgument`。続く正しいコピーの投入が効き、拒まれた先は全 0 のまま |
+| `a_zero_length_record_changes_nothing` | 長さ 0 のコピーとクリアを記録して `submit` する | どちらも `Ok(())`。投入の後も元と先は変わらない |
+| `freeing_a_recorded_buffer_before_submit_rejects_the_submit` | 記録の後に元を `free` して `submit` する | `InvalidArgument`。`test_submitted_count()` は変わらず、次の空の投入の `sequence` は前の数 + 1、先は全 0 のまま |
+| `freeing_a_buffer_right_after_submit_keeps_the_result` | 投入の直後に元を `free` する | 完了の後に先が CPU の参照と一致。同じ長さの次の確保の読み戻しは全 0 |
+| `buffers_freed_while_their_copy_is_gated_are_held_until_completion` | 門を仕込んでコピーを投入し、バッファを `free` していき、門を開ける | 解放の保留の数が、コピーに使っていないバッファの `free` で 0、元の `free` で 1、先の `free` で 2。完了の後に `Complete` が続き、数は 0 |
+| `held_buffers_are_released_at_each_recovery_point` | 門で止めたコピーの元を `free` し、門を開けてから `allocate`・`submit`・`submit_many`・`poll` を 1 つずつ呼ぶ | 保留の数は呼ぶ前に 1、呼んだ後に 0 |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `copy_clear_device_tests`（`crates/contract/src/backend_cuda.rs`）。試験 8 本 |
+| `cfg` | `#[cfg(all(test, feature = "native-blocking-wait"))]` |
+| module | `copy_clear_gate_device_tests`（同ファイル）。試験 2 本 |
+| `cfg` | `#[cfg(all(test, feature = "fault-injection"))]` |
+| `#[ignore]` | どちらも `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib copy_clear_device_tests
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib copy_clear_gate_device_tests
+```
+
+1 本目で 8 件、2 本目で 2 件が `ignored` と数えられる。
+
+### 振る舞いと照らす試験
+
+| 振る舞い | 照らす試験 |
+| -------- | ---------- |
+| 記録の時点では stream に何も積まず、投入の前の読み戻しは元の値のまま | `a_recorded_copy_takes_effect_only_after_submit`・`a_recorded_clear_zeroes_only_the_range` |
+| 1 つの記録先の記録は記録の順に効く | `records_take_effect_in_record_order` |
+| `submit_many` は渡した記録先の順に効く | `submit_many_runs_each_encoder_in_the_given_order` |
+| 記録した後に元を `free` すると `submit` は `InvalidArgument` で、投入の数と次の通し番号は変わらず、先は変わらない | `freeing_a_recorded_buffer_before_submit_rejects_the_submit` |
+| 投入の直後に元を `free` しても結果は保たれ、同じ長さの次の確保の読み戻しは全 0 | `freeing_a_buffer_right_after_submit_keeps_the_result` |
+| コピーに使っていないバッファの `free` は保留されず、コピーに使ったバッファの `free` は投入の完了まで保留される | `buffers_freed_while_their_copy_is_gated_are_held_until_completion` |
+| 保留したバッファは `allocate`・`submit`・`submit_many`・`poll` のどれを呼んでも、投入が終わっていれば解放される | `held_buffers_are_released_at_each_recovery_point` |
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | バッファのコピーとクリアを記録して投入で積み、使用中のバッファの解放を保留する | #5250 |
+| 2/3 | バッファのコピーとクリアの device の要る試験を ignore 付きで足す | #5251 |
