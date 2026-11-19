@@ -175,6 +175,23 @@ $ gh run view 44431952063 --job 135251249191 --log | grep 'gate_device_tests' | 
       2 test backend_cuda::gate_device_tests::opening_before_the_submission_leaves_it_ungated ... ignored, requires a CUDA device
 ```
 
+## 解放の保留の数（4/6）
+
+| 項目 | 事実 | 確かめ方 |
+| ---- | ---- | -------- |
+| 口 | `impl MemoryOps for CudaDevice` の `pending_release_count`。既定の `None` を上書きする | `git grep -n "fn pending_release_count" -- crates/contract/src/backend_cuda.rs` |
+| 試験 | `pending_release_count_tests`（`crates/contract/src/backend_cuda.rs`。`#[cfg(test)]`） | 下のコマンド |
+
+device に触らない試験 1 本が、解放を保留するバッファの一覧の数え方を照らす。
+
+| 試験 | 照らす値 |
+| ---- | -------- |
+| `each_held_buffer_counts_once_even_for_the_same_submission` | 同じ投入の番号で積んだ 2 つと別の番号の 1 つで数が 3。終わった番号の 2 つを外すと 1 |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_release_count_tests
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -182,3 +199,4 @@ $ gh run view 44431952063 --job 135251249191 --log | grep 'gate_device_tests' | 
 | 1/3 | 試験用の門の仕込みと開け | #4455 |
 | 2/3 | 門で止めた投入の device の要る試験 | #4456 |
 | 3/3 | 完了の条件の確かめ | #4457 |
+| 4/6 | 解放を保留しているバッファの数を CUDA の device で返す | #4458 |
