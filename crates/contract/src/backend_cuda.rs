@@ -7910,3 +7910,204 @@ mod wait_blocking_tests {
         assert!(!slept.get());
     }
 }
+
+/// 解放の保留の数・投入済みの表の件数・ゼロ化の完了待ちの、CUDA の device に触る試験。device の無い環境では流さない（TASK-346 のポインタ）。
+#[cfg(all(test, feature = "fault-injection"))]
+mod release_backlog_device_tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const LEN: u64 = 64;
+
+    /// 同時に未完了にしておく投入の数。
+    const WINDOW: usize = 8;
+
+    /// 各回の後の 2 つの数の上限。
+    const BOUND: u64 = WINDOW as u64 + 1;
+
+    /// くり返しの回数。
+    const ROUNDS: usize = 10_000;
+
+    /// くり返しの試験の上限。本体も各回の初めにこの上限を照らす。
+    const ROUNDS_LIMIT: Duration = Duration::from_secs(120);
+
+    /// ほかの試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// `body` を別のスレッドで流し、`limit` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(limit: Duration, body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(limit) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {limit:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 印の写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    /// `pending_release_count` の値。`None` なら失敗とする。
+    fn held(d: &CudaDevice) -> u64 {
+        match d.pending_release_count() {
+            Some(n) => n,
+            None => panic!("pending_release_count returned None"),
+        }
+    }
+
+    /// 投入済みの表の件数。
+    fn submitted(d: &CudaDevice) -> u64 {
+        u64::try_from(d.lock_submissions().pending.len()).unwrap_or(u64::MAX)
+    }
+
+    /// 再利用の一覧でゼロ化の完了を待つバッファの数。
+    fn zeroing(d: &CudaDevice) -> usize {
+        d.lock().pool.zeroing.len()
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// `buffer` 全体の 0 埋めを記録して投入する。
+    fn submit_clear(d: &CudaDevice, buffer: &BufferHandle) -> SubmitToken {
+        let mut enc = d.create_encoder();
+        assert_eq!(d.clear_buffer(&mut enc, buffer, 0, LEN), Ok(()));
+        d.submit(enc, &[]).expect("submit")
+    }
+
+    // MEM-11
+    /// 未完了の投入を 8 件までに保ち、確保・0 埋めの投入・`free` を 10,000 回くり返すと、各回の後の解放の保留の数と
+    /// 投入済みの表の件数はどちらも 9 以下。全部の印を `poll` で `Complete` まで待ち、もう 1 回 `poll` を呼ぶと、どちらも 0。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_backlog_stays_within_nine_over_ten_thousand_rounds_and_ends_at_zero() {
+        within(ROUNDS_LIMIT, || {
+            let start = Instant::now();
+            let d = device();
+            let mut window = VecDeque::with_capacity(WINDOW + 1);
+            let mut max_held = 0;
+            let mut max_submitted = 0;
+            for round in 0..ROUNDS {
+                assert!(
+                    start.elapsed() < ROUNDS_LIMIT,
+                    "round {round} started after {ROUNDS_LIMIT:?}"
+                );
+                if window.len() == WINDOW
+                    && let Some(oldest) = window.pop_front()
+                {
+                    poll_until_complete(&d, &oldest);
+                }
+                let buffer = d.allocate(LEN, usage()).expect("allocate");
+                let token = submit_clear(&d, &buffer);
+                d.free(buffer);
+                window.push_back(token);
+                let now_held = held(&d);
+                let now_submitted = submitted(&d);
+                assert!(
+                    now_held <= BOUND,
+                    "round {round}: pending_release_count={now_held}"
+                );
+                assert!(
+                    now_submitted <= BOUND,
+                    "round {round}: submissions={now_submitted}"
+                );
+                max_held = max_held.max(now_held);
+                max_submitted = max_submitted.max(now_submitted);
+            }
+            println!("max_pending_release_count={max_held} max_submissions={max_submitted}");
+            let last = match window.back() {
+                Some(t) => copy_of(t),
+                None => panic!("no token is left in the window"),
+            };
+            for token in window.drain(..) {
+                poll_until_complete(&d, &token);
+            }
+            assert_eq!(d.poll(last), CompletionState::Complete);
+            assert_eq!(d.pending_release_count(), Some(0));
+            assert_eq!(submitted(&d), 0);
+        });
+    }
+
+    // MEM-13
+    /// 解放の保留から外れてゼロ化の完了を待つバッファは、`pending_release_count` に数えない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn buffers_waiting_for_zeroing_are_not_counted() {
+        within(LIMIT, || {
+            let d = device();
+            let buffer = d.allocate(LEN, usage()).expect("allocate");
+            let sync = d.allocate(LEN, usage()).expect("allocate");
+            assert_eq!(d.arm_gate(), Ok(()));
+            let first = submit_clear(&d, &buffer);
+            d.free(buffer);
+            assert_eq!(d.pending_release_count(), Some(1));
+            assert_eq!(zeroing(&d), 0);
+            assert_eq!(d.open_gate(), Ok(()));
+            // 4 バイトの書き込みは stream を同期するが、保留の回収はしない。
+            assert_eq!(d.upload(&sync, 0, &[1u8; 4]), Ok(()));
+            assert_eq!(d.pending_release_count(), Some(1));
+            assert_eq!(d.arm_gate(), Ok(()));
+            let start = Instant::now();
+            // 空の投入の中で保留が外れ、そのバッファの 0 埋めは門の後ろに積まれる。
+            let second = d.submit(d.create_encoder(), &[]).expect("submit");
+            assert_eq!(d.pending_release_count(), Some(0));
+            assert_eq!(zeroing(&d), 1);
+            assert_eq!(d.poll(copy_of(&second)), CompletionState::Pending);
+            assert_eq!(d.poll(copy_of(&first)), CompletionState::Complete);
+            assert_eq!(d.pending_release_count(), Some(0));
+            assert!(start.elapsed() < GATE_EXPIRY / 2);
+            assert_eq!(d.open_gate(), Ok(()));
+            poll_until_complete(&d, &second);
+            assert_eq!(d.upload(&sync, 0, &[2u8; 4]), Ok(()));
+            let again = d.allocate(LEN, usage()).expect("allocate");
+            assert_eq!(zeroing(&d), 0);
+            assert_eq!(d.pending_release_count(), Some(0));
+            d.free(again);
+            d.free(sync);
+        });
+    }
+}
