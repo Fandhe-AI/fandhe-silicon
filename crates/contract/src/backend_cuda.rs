@@ -5347,7 +5347,7 @@ mod on_complete_device_tests {
         .expect("CUDA device")
     }
 
-    /// `SubmitToken` は `Clone` を持たないので、同じ値で作り直した写しを返す。
+    /// 印の写しを返す。
     fn copy_of(t: &SubmitToken) -> SubmitToken {
         SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
     }
@@ -5654,7 +5654,7 @@ mod gate_device_tests {
         .expect("CUDA device")
     }
 
-    /// `SubmitToken` は `Clone` を持たないので、同じ値で作り直した写しを返す。
+    /// 印の写しを返す。
     fn copy_of(t: &SubmitToken) -> SubmitToken {
         SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
     }

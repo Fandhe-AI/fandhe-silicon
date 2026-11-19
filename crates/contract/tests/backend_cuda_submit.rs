@@ -23,7 +23,7 @@ fn new_device() -> Box<dyn Device> {
     }
 }
 
-/// `SubmitToken` は `Clone` を持たないので、同じ値で作り直した写しを返す。
+/// 印の写しを返す。
 fn copy_of(token: &SubmitToken) -> SubmitToken {
     SubmitToken::__backend_new(
         token.generation,
