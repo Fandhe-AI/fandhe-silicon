@@ -5635,3 +5635,129 @@ mod gate_tests {
         opener.join().expect("opener thread");
     }
 }
+
+/// 門で止めた投入の、CUDA の device に触る試験（TASK-345 のポインタ）。
+#[cfg(all(test, feature = "fault-injection"))]
+mod gate_device_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// 門を仕込んだ後、`poll` が `Pending` を返す側へ寄せるための待ち。
+    const SETTLE: Duration = Duration::from_millis(50);
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// `SubmitToken` は `Clone` を持たないので、同じ値で作り直した写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// 空の記録先を投入して印を返す。
+    fn submit_empty(d: &CudaDevice) -> SubmitToken {
+        d.submit(d.create_encoder(), &[]).expect("submit")
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// 門で止めた投入は、開けるまで `Pending` のまま。開けると上限より早く完了する。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_gated_submission_stays_pending_until_the_gate_opens() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let t = submit_empty(&d);
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Pending);
+        let start = Instant::now();
+        assert_eq!(d.open_gate(), Ok(()));
+        poll_until_complete(&d, &t);
+        assert!(start.elapsed() < GATE_EXPIRY / 2);
+        assert_eq!(d.open_gate(), Ok(()));
+    }
+
+    /// 門で止めた投入の後ろの投入も、門が開くまで `Pending` のまま。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_later_submission_waits_behind_the_gate() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let first = submit_empty(&d);
+        let second = submit_empty(&d);
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&second)), CompletionState::Pending);
+        assert_eq!(d.open_gate(), Ok(()));
+        poll_until_complete(&d, &first);
+        poll_until_complete(&d, &second);
+    }
+
+    /// 開けない門は上限が過ぎると戻り、投入は完了する。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_closed_gate_expires_and_the_submission_completes() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let t = submit_empty(&d);
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Pending);
+        poll_until_complete(&d, &t);
+    }
+
+    /// 投入の前に開けた門は積まれず、投入は上限を待たずに完了する。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn opening_before_the_submission_leaves_it_ungated() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        assert_eq!(d.open_gate(), Ok(()));
+        let start = Instant::now();
+        let t = submit_empty(&d);
+        poll_until_complete(&d, &t);
+        assert!(start.elapsed() < GATE_EXPIRY / 2);
+    }
+
+    /// 閉じた門を積んだままの `Drop` は、上限を待たずに戻る。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dropping_with_a_closed_gate_returns_before_the_expiry() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let _token = submit_empty(&d);
+        let start = Instant::now();
+        drop(d);
+        assert!(start.elapsed() < GATE_EXPIRY / 2);
+    }
+
+    /// 閉じた門を積んだままの `destroy` は、上限を待たずに戻る。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn destroying_with_a_closed_gate_returns_before_the_expiry() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let _token = submit_empty(&d);
+        let start = Instant::now();
+        Box::new(d).destroy();
+        assert!(start.elapsed() < GATE_EXPIRY / 2);
+    }
+}
