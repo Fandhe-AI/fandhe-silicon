@@ -21,11 +21,11 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 ### 記録の時点
 
-`copy_buffer_to_buffer`・`clear_buffer` の記録の時点の照らす順と返す値は次のとおり。どれも記録先を変えない。
+`copy_buffer_to_buffer`・`clear_buffer` の記録の時点の照らしと返す値は次のとおり。2〜9 は照らしの関数 `check_copy_record`・`check_clear_record` がこの順に照らす。照らしの関数は記録先を変えない。
 
 | 順 | 条件 | 返す値 |
 | -- | ---- | ------ |
-| 1 | この device で開いていない記録先 | `InvalidArgument` |
+| 1 | この device で開いていない記録先（記録先の口 `OpenEncoders` の照らし） | `InvalidArgument` |
 | 2 | 別の device のバッファ（元 → 先） | `DeviceMismatch` |
 | 3 | ハンドルの世代が device の今の世代と違う | `InvalidArgument` |
 | 4 | 表に無い・払い出しの世代がハンドルの世代と違う | `InvalidArgument` |
