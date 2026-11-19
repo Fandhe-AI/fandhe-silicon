@@ -5919,6 +5919,7 @@ mod checked_pipeline_device_tests {
         assert_eq!(table_len(&d), before + 1);
     }
 }
+
 /// CUDA の device に触る、`on_complete` と検証の報告の受け口の試験（TASK-607 のポインタ）。
 #[cfg(test)]
 mod on_complete_device_tests {
@@ -6496,6 +6497,7 @@ mod on_complete_gate_device_tests {
         assert_eq!(rec.states(), vec![CompletionState::Lost]);
     }
 }
+
 /// バッファのコピー・クリアの記録の時点の照らし・投入の時点の組み立て・解放の保留の部品の、device に触らない試験（TASK-624 のポインタ）。
 #[cfg(test)]
 mod copy_clear_tests {
@@ -7084,6 +7086,7 @@ mod copy_clear_tests {
         assert!(!subs.is_unfinished(5));
     }
 }
+
 /// バッファのコピーとクリアの記録と投入の、CUDA の device に触る試験。device の無い環境では流さない（TASK-624 のポインタ）。
 #[cfg(all(test, feature = "native-blocking-wait"))]
 mod copy_clear_device_tests {
