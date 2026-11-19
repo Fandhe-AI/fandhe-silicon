@@ -20,9 +20,10 @@
 //! `free` したバッファは stream にゼロ化を積んでから再利用の一覧の待つ側に入り、`allocate` の入口で
 //! 完了を確かめたものだけが、同じ長さ・同じ用途の確保に再利用される（TASK-340 のポインタ）。
 //! 一覧の上限は件数と大きさの合計で、入れられないバッファは解放する。新規の確保は全バイトを 0 にし終えてから返す。
-//! 記録先に命令を記録する口（`dispatch_ex`）は `Unsupported` を返し、投入（`submit`・`submit_many`）は
-//! stream に event を記録するだけでバッファを参照しないので、`free` したバッファを参照する未完了の投入は無い。
-//! バッファを参照する記録を足す変更では、`free` から一覧への回し方を見直すこと。
+//! `copy_buffer_to_buffer`・`clear_buffer` は記録の時点に照らして記録先に積み、投入（`submit`・`submit_many`）が
+//! 記録の順に stream へ積んでから event を記録する。投入はコピー・クリアの各バッファに最後に使った投入の番号を付け、
+//! その投入が投入済みの表に残っている間の `free` は解放を保留し、`submit`・`submit_many`・`poll`・`allocate` の中で
+//! 投入済みの表から外れたものを再利用の一覧へ回す（TASK-624）。`dispatch_ex` は `Unsupported` を返す。
 //!
 //! `query`・`query_ex` は、`request` の時点で捕捉した compute capability とホストメモリのマップの可否の属性と、
 //! 能力の表から答える（TASK-175）。
@@ -569,6 +570,7 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             },
             stream,
             buffers: Mutex::new(Buffers::default()),
+            held: std::sync::atomic::AtomicUsize::new(0),
             pipelines: Mutex::new(Pipelines::default()),
             open: Arc::new(OpenEncoders::default()),
             submissions: Mutex::new(Submissions::new()),
@@ -1131,6 +1133,13 @@ impl<G> Submissions<G> {
         Ok(sequence)
     }
 
+    /// 通し番号が投入済みの表に残っているか。呼ぶ前に `reclaim` しておく。
+    ///
+    /// 回収が先頭で止まった後ろの番号は、完了していても真になる。
+    fn is_unfinished(&self, sequence: u64) -> bool {
+        self.pending.contains_key(&sequence)
+    }
+
     /// 通し番号の昇順に、決着した先頭から表を外して watermark を進め、止まった先頭の番号を返す。
     ///
     /// 先頭が未完了なら後ろが完了していても回収しない。失敗は失敗の集合に移す。
@@ -1157,44 +1166,372 @@ impl<G> Submissions<G> {
     }
 }
 
-/// 開いている記録先の識別子の集合。`CommandEncoder` の破棄の hook を兼ねる。
+/// コピー・クリアの offset と長さが守る倍数。
+const BUFFER_TRANSFER_ALIGN: u64 = 4;
+
+/// 記録したバッファ 1 本。識別子と払い出しの世代で指し、driver の型を持たない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecordedBuffer {
+    buffer_id: u64,
+    generation: u64,
+}
+
+/// 記録先に積んだバッファのコピー・クリア 1 件。`copy_buffer_to_buffer`・`clear_buffer` が照らしの後に積む。
+///
+/// 長さ 0 は積まないので、`size` は 1 以上。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TransferRecord {
+    Copy {
+        src: RecordedBuffer,
+        src_offset: u64,
+        dst: RecordedBuffer,
+        dst_offset: u64,
+        size: u64,
+    },
+    Clear {
+        buffer: RecordedBuffer,
+        offset: u64,
+        size: u64,
+    },
+}
+
+impl TransferRecord {
+    /// この記録が触るバッファを並びの順に返す。投入の時の確かめと、最後に使った投入の更新に使う。
+    fn buffers(&self) -> Vec<RecordedBuffer> {
+        match self {
+            TransferRecord::Copy { src, dst, .. } => vec![*src, *dst],
+            TransferRecord::Clear { buffer, .. } => vec![*buffer],
+        }
+    }
+}
+
+/// コピー・クリアの記録の時点で、表から引いたバッファ 1 本の事実。
+#[derive(Debug, Clone, Copy)]
+struct TransferEntry {
+    buffer_id: u64,
+    /// ハンドルの世代。
+    generation: u64,
+    /// 表の項目を払い出したときの世代が、ハンドルの世代と同じか。
+    issued_matches: bool,
+    /// ハンドルの `size()` が表のバッファの長さと同じか。
+    size_matches: bool,
+    /// 確保のときに記録した用途。
+    usage: BufferUsage,
+    /// 表のバッファの長さ。
+    allocation_len: u64,
+}
+
+/// コピー・クリアの記録の時点で、ハンドル 1 本について引いた事実。
+#[derive(Debug, Clone, Copy)]
+struct TransferOperand {
+    /// ハンドルの払い出し元がこの device か。
+    same_device: bool,
+    /// ハンドルの世代が今の世代と同じか。
+    generation_current: bool,
+    /// 表に項目があれば、その事実。
+    entry: Option<TransferEntry>,
+}
+
+/// ハンドル 1 本の device・世代・表・大きさを、この順に照らして表の事実を返す。device に触らない。
+fn check_transfer_operand(operand: TransferOperand) -> Result<TransferEntry, ContractError> {
+    if !operand.same_device {
+        return Err(ContractError::DeviceMismatch);
+    }
+    if !operand.generation_current {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle generation does not match the device".into(),
+        ));
+    }
+    let Some(entry) = operand.entry.filter(|entry| entry.issued_matches) else {
+        return Err(ContractError::InvalidArgument(
+            "unknown buffer handle".into(),
+        ));
+    };
+    if !entry.size_matches {
+        return Err(ContractError::InvalidArgument(
+            "buffer handle size does not match the buffer length".into(),
+        ));
+    }
+    Ok(entry)
+}
+
+/// 記録した用途が役割を満たすかを照らす。拒否は `op` を前置した `InvalidArgument`。
+fn check_transfer_usage(
+    op: &str,
+    usage: BufferUsage,
+    role: UsageRole,
+) -> Result<(), ContractError> {
+    match validate_usage_for_role(usage, role) {
+        Ok(()) => Ok(()),
+        Err(ContractError::InvalidArgument(msg)) => {
+            Err(ContractError::InvalidArgument(format!("{op}: {msg}")))
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// コピーの元・先とクリアの対象の offset と長さの整列を照らす。
+fn check_transfer_alignment(op: &str, offsets: &[u64], size: u64) -> Result<(), ContractError> {
+    if offsets
+        .iter()
+        .chain(std::iter::once(&size))
+        .any(|value| value % BUFFER_TRANSFER_ALIGN != 0)
+    {
+        return Err(ContractError::InvalidArgument(format!(
+            "{op}: offset and size must be multiples of {BUFFER_TRANSFER_ALIGN}"
+        )));
+    }
+    Ok(())
+}
+
+/// `copy_buffer_to_buffer` の記録の時点の照らし。device に触らない。
+///
+/// 照らす順は、device（元 → 先）・世代と表と大きさ（元 → 先）・用途（元 → 先）・範囲（元 → 先）・整列・
+/// 同じバッファの拒否・長さ 0。各行は両方のバッファに当ててから次の行へ進む。通って長さが 0 なら `Ok(None)`
+/// （何も記録しない）。
+fn check_copy_record(
+    src: TransferOperand,
+    src_offset: u64,
+    dst: TransferOperand,
+    dst_offset: u64,
+    size: u64,
+) -> Result<Option<TransferRecord>, ContractError> {
+    if !src.same_device || !dst.same_device {
+        return Err(ContractError::DeviceMismatch);
+    }
+    let src_entry = check_transfer_operand(src)?;
+    let dst_entry = check_transfer_operand(dst)?;
+    check_transfer_usage(
+        "copy_buffer_to_buffer",
+        src_entry.usage,
+        UsageRole::CopyBufferSource,
+    )?;
+    check_transfer_usage(
+        "copy_buffer_to_buffer",
+        dst_entry.usage,
+        UsageRole::CopyBufferDestination,
+    )?;
+    validate_buffer_range(src_offset, size, src_entry.allocation_len)?;
+    validate_buffer_range(dst_offset, size, dst_entry.allocation_len)?;
+    check_transfer_alignment("copy_buffer_to_buffer", &[src_offset, dst_offset], size)?;
+    if src_entry.buffer_id == dst_entry.buffer_id {
+        return Err(ContractError::InvalidArgument(
+            "copy_buffer_to_buffer: source and destination must be different buffers".into(),
+        ));
+    }
+    if size == 0 {
+        return Ok(None);
+    }
+    Ok(Some(TransferRecord::Copy {
+        src: RecordedBuffer {
+            buffer_id: src_entry.buffer_id,
+            generation: src_entry.generation,
+        },
+        src_offset,
+        dst: RecordedBuffer {
+            buffer_id: dst_entry.buffer_id,
+            generation: dst_entry.generation,
+        },
+        dst_offset,
+        size,
+    }))
+}
+
+/// `clear_buffer` の記録の時点の照らし。device に触らない。
+///
+/// 照らす順は、device・世代と表と大きさ・用途（`UPLOAD`）・範囲・整列・長さ 0。通って長さが 0 なら `Ok(None)`。
+fn check_clear_record(
+    buffer: TransferOperand,
+    offset: u64,
+    size: u64,
+) -> Result<Option<TransferRecord>, ContractError> {
+    let entry = check_transfer_operand(buffer)?;
+    if !entry.usage.contains(BufferUsage::UPLOAD) {
+        return Err(ContractError::InvalidArgument(
+            "clear_buffer: buffer usage lacks UPLOAD".into(),
+        ));
+    }
+    validate_buffer_range(offset, size, entry.allocation_len)?;
+    check_transfer_alignment("clear_buffer", &[offset], size)?;
+    if size == 0 {
+        return Ok(None);
+    }
+    Ok(Some(TransferRecord::Clear {
+        buffer: RecordedBuffer {
+            buffer_id: entry.buffer_id,
+            generation: entry.generation,
+        },
+        offset,
+        size,
+    }))
+}
+
+/// 投入の時に stream へ積む 1 件。バッファは識別子で指し、範囲は表の長さで照らし直した `usize` の `[start, end)`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransferJob {
+    Copy {
+        src: u64,
+        src_range: (usize, usize),
+        dst: u64,
+        dst_range: (usize, usize),
+    },
+    Clear {
+        buffer: u64,
+        range: (usize, usize),
+    },
+}
+
+impl TransferJob {
+    /// この件が触るバッファの識別子を並びの順に返す。
+    fn buffer_ids(&self) -> Vec<u64> {
+        match self {
+            TransferJob::Copy { src, dst, .. } => vec![*src, *dst],
+            TransferJob::Clear { buffer, .. } => vec![*buffer],
+        }
+    }
+}
+
+/// `[offset, offset + size)` がバッファの長さ `len` に収まるかをあふれなく照らし、`usize` の範囲に直す。
+fn transfer_range(offset: u64, size: u64, len: u64) -> Result<(usize, usize), ContractError> {
+    let exceeds =
+        || ContractError::InvalidArgument("recorded transfer range exceeds the buffer".into());
+    let end = offset
+        .checked_add(size)
+        .filter(|end| *end <= len)
+        .ok_or_else(exceeds)?;
+    let start = usize::try_from(offset).map_err(|_| exceeds())?;
+    let end = usize::try_from(end).map_err(|_| exceeds())?;
+    Ok((start, end))
+}
+
+/// 投入の時に、記録の列を stream に積む件の列へ組み立てる。device に触らない。
+///
+/// `lookup` は識別子から（払い出しの世代, 長さ）を引く。先に全記録の全バッファを並びの順に見て、表に無い・表の世代が
+/// 記録の世代と違う・記録の世代が今の世代と違うものがあれば、範囲を見ずに `InvalidArgument`。通れば各記録の範囲を
+/// 表の長さで照らし直す。
+fn plan_transfers(
+    records: &[TransferRecord],
+    lookup: impl Fn(u64) -> Option<(u64, u64)>,
+    current_generation: u64,
+) -> Result<Vec<TransferJob>, ContractError> {
+    for buffer in records.iter().flat_map(TransferRecord::buffers) {
+        let alive = buffer.generation == current_generation
+            && lookup(buffer.buffer_id).map(|(generation, _)| generation)
+                == Some(buffer.generation);
+        if !alive {
+            return Err(ContractError::InvalidArgument(
+                "a copied or cleared buffer was freed before submit".into(),
+            ));
+        }
+    }
+    let length_of = |id: u64| {
+        lookup(id)
+            .map(|(_, len)| len)
+            .ok_or_else(|| ContractError::InvalidArgument("unknown buffer handle".into()))
+    };
+    records
+        .iter()
+        .map(|record| match record {
+            TransferRecord::Copy {
+                src,
+                src_offset,
+                dst,
+                dst_offset,
+                size,
+            } => Ok(TransferJob::Copy {
+                src: src.buffer_id,
+                src_range: transfer_range(*src_offset, *size, length_of(src.buffer_id)?)?,
+                dst: dst.buffer_id,
+                dst_range: transfer_range(*dst_offset, *size, length_of(dst.buffer_id)?)?,
+            }),
+            TransferRecord::Clear {
+                buffer,
+                offset,
+                size,
+            } => Ok(TransferJob::Clear {
+                buffer: buffer.buffer_id,
+                range: transfer_range(*offset, *size, length_of(buffer.buffer_id)?)?,
+            }),
+        })
+        .collect()
+}
+
+/// 表から識別子の異なる 2 項目を同時に借りる。`shared` は共有、`unique` は排他。同じ識別子・どちらかが無ければ `None`。
+fn pair_mut<T>(map: &mut BTreeMap<u64, T>, shared: u64, unique: u64) -> Option<(&T, &mut T)> {
+    if shared == unique {
+        return None;
+    }
+    let mut first = None;
+    let mut second = None;
+    for (id, value) in map.iter_mut() {
+        if *id == shared {
+            first = Some(&*value);
+        } else if *id == unique {
+            second = Some(value);
+        }
+    }
+    Some((first?, second?))
+}
+
+/// 開いている記録先の識別子と、その記録先に積んだコピー・クリアの列。`CommandEncoder` の破棄の hook を兼ねる。
 #[derive(Default)]
 struct OpenEncoders {
-    ids: Mutex<BTreeSet<u64>>,
+    ids: Mutex<BTreeMap<u64, Vec<TransferRecord>>>,
 }
 
 impl OpenEncoders {
-    /// 集合の錠を取る。poison されていても中身を使う。
-    fn lock(&self) -> MutexGuard<'_, BTreeSet<u64>> {
+    /// 表の錠を取る。poison されていても中身を使う。
+    fn lock(&self) -> MutexGuard<'_, BTreeMap<u64, Vec<TransferRecord>>> {
         self.ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// 識別子を集合に入れる。0 は入れない。
+    /// 識別子を空の列で表に入れる。0 は入れない。
     fn open(&self, id: u64) {
         if id != 0 {
-            self.lock().insert(id);
+            self.lock().entry(id).or_default();
         }
     }
 
-    /// 渡された識別子が全部開いていれば集合から外す。
+    /// 識別子が開いているか。
+    fn is_open(&self, id: u64) -> bool {
+        self.lock().contains_key(&id)
+    }
+
+    /// 開いている記録先の列の末尾に記録を足す。開いていなければ `InvalidArgument` で何も足さない。
+    fn record(&self, id: u64, record: TransferRecord) -> Result<(), ContractError> {
+        match self.lock().get_mut(&id) {
+            Some(records) => {
+                records.push(record);
+                Ok(())
+            }
+            None => Err(ContractError::InvalidArgument(
+                "encoder is not open on this device".into(),
+            )),
+        }
+    }
+
+    /// 渡された識別子が全部開いていれば表から外し、各記録先の列を渡された順につないで返す。
     ///
-    /// 1 つでも無い（0 を含む）・重複していれば `InvalidArgument` で、集合は変えない。
-    fn claim(&self, ids: &[u64]) -> Result<(), ContractError> {
+    /// 1 つでも無い（0 を含む）・重複していれば `InvalidArgument` で、表は変えない。
+    fn claim(&self, ids: &[u64]) -> Result<Vec<TransferRecord>, ContractError> {
         let mut open = self.lock();
         let mut seen = BTreeSet::new();
         for id in ids {
-            if !open.contains(id) || !seen.insert(*id) {
+            if !open.contains_key(id) || !seen.insert(*id) {
                 return Err(ContractError::InvalidArgument(
                     "encoder is not open on this device".into(),
                 ));
             }
         }
+        let mut records = Vec::new();
         for id in ids {
-            open.remove(id);
+            if let Some(mut list) = open.remove(id) {
+                records.append(&mut list);
+            }
         }
-        Ok(())
+        Ok(records)
     }
 }
 
@@ -1392,6 +1729,8 @@ struct BufferEntry {
     usage: BufferUsage,
     /// 払い出したときの device の世代。
     generation: u64,
+    /// コピー・クリアで最後に使った投入の通し番号。使っていなければ `None`。
+    last_submission: Option<u64>,
 }
 
 /// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
@@ -1438,13 +1777,74 @@ fn access_range(
     Ok((start, end))
 }
 
-/// device が持つバッファの表と再利用の一覧。ハンドルの id から `BufferEntry` を引く。
+/// device が持つバッファの表と再利用の一覧と解放の保留。ハンドルの id から `BufferEntry` を引く。
 #[derive(Default)]
 struct Buffers {
     next_id: u64,
     next_slot: u64,
     map: BTreeMap<u64, BufferEntry>,
     pool: ReusePool<CudaSlice<u8>, CudaEvent>,
+    /// 表から外したが、最後に使った投入が投入済みの表に残っているバッファ。
+    pending: PendingReleases<BufferEntry>,
+}
+
+/// 表から外したが、最後に使った投入が終わっていないバッファの列。バッファの表の錠の中に置く。
+///
+/// 項目は通し番号と一緒に積んだ順に持つ。ゼロ化も再利用の一覧への回しもこの部品は行わず、
+/// 終わった項目を外して返す（続きは呼び出し側が錠の外で行う）。
+struct PendingReleases<B> {
+    items: Vec<(u64, B)>,
+}
+
+impl<B> Default for PendingReleases<B> {
+    fn default() -> Self {
+        Self { items: Vec::new() }
+    }
+}
+
+impl<B> PendingReleases<B> {
+    /// 通し番号つきで末尾へ積む。
+    fn push(&mut self, sequence: u64, item: B) {
+        self.items.push((sequence, item));
+    }
+
+    /// `unfinished` が偽の通し番号の項目を積んだ順に外して返す。真の項目は相対の順を保って残す（先頭で止めない）。
+    fn take_finished(&mut self, unfinished: impl Fn(u64) -> bool) -> Vec<B> {
+        let mut finished = Vec::new();
+        let mut kept = Vec::new();
+        for (sequence, item) in self.items.drain(..) {
+            if unfinished(sequence) {
+                kept.push((sequence, item));
+            } else {
+                finished.push(item);
+            }
+        }
+        self.items = kept;
+        finished
+    }
+
+    /// 積んである件数。
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
+/// 表から外したバッファを、保留に入れるか解放へ回すかを決める。解放へ回すものを返し、保留に入れたら `None`。
+///
+/// 最後に使った投入が `Some(sequence)` で `unfinished(sequence)` が真のときだけ、保留に入れる。
+fn hold_or_release<B>(
+    item: B,
+    last_submission: Option<u64>,
+    unfinished: impl Fn(u64) -> bool,
+    pending: &mut PendingReleases<B>,
+) -> Option<B> {
+    match last_submission {
+        Some(sequence) if unfinished(sequence) => {
+            pending.push(sequence, item);
+            None
+        }
+        _ => Some(item),
+    }
 }
 
 /// device が持つパイプラインの表。識別子は device ごとに 1 から払い出し、関数と配置の写しを引く。
@@ -1484,6 +1884,8 @@ struct CudaDevice {
     capabilities: CapabilitySnapshot,
     stream: Arc<CudaStream>,
     buffers: Mutex<Buffers>,
+    /// 解放を保留しているバッファの数。バッファの表の錠の中で書き、回収の点は錠を取らずに 0 かを読む。
+    held: std::sync::atomic::AtomicUsize,
     pipelines: Mutex<Pipelines>,
     open: Arc<OpenEncoders>,
     submissions: Mutex<Submissions<CudaEvent>>,
@@ -1687,28 +2089,198 @@ impl CudaDevice {
             .map(|entry| entry.slot)
     }
 
-    /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
+    /// 記録先の列を stream に積んでから event を記録し、通し番号を払い出して印を返す。呼ぶ側がバッファの表と投入済みの表の錠を持つ。
     ///
-    /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
+    /// `jobs` を記録の順に積み、通れば各バッファの最後に使った投入をこの番号にする。積む途中と event の記録の失敗は
+    /// `BackendFailure` で、番号を消費せず最後に使った投入を変えない。完了は待たない。
     /// `fault-injection` のビルドで門を仕込んであれば、event の前に門を積む。積めなければ `BackendFailure`
     /// （`op` は `launch_host_function`）で仕込みを残す。門を積んだ後に event の記録が失敗したら、門は積んだまま残り `open_gate` で開く。
     fn issue_event(
         &self,
         subs: &mut Submissions<CudaEvent>,
         generation: u64,
+        map: &mut BTreeMap<u64, BufferEntry>,
+        jobs: &[TransferJob],
     ) -> Result<SubmitToken, ContractError> {
         let sequence = subs.issue(|| {
             #[cfg(feature = "fault-injection")]
             self.gate.attach_with(|latch| {
                 guard_memory_panic("launch_host_function", || self.launch_gate(latch))
             })?;
+            self.launch_transfers(map, jobs)?;
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
                     .map_err(|e| backend_failure("record_event", e))
             })
         })?;
+        for id in jobs.iter().flat_map(TransferJob::buffer_ids) {
+            if let Some(entry) = map.get_mut(&id) {
+                entry.last_submission = Some(sequence);
+            }
+        }
         Ok(SubmitToken::__backend_new(generation, sequence, self.id))
+    }
+
+    /// 記録の順に、コピー・クリアを stream へ積む。host は待たない。
+    ///
+    /// 範囲は積む前に `try_slice`・`try_slice_mut` で切り、外れれば何も積まずに `InvalidArgument`。
+    /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
+    fn launch_transfers(
+        &self,
+        map: &mut BTreeMap<u64, BufferEntry>,
+        jobs: &[TransferJob],
+    ) -> Result<(), ContractError> {
+        let unknown = || ContractError::InvalidArgument("unknown buffer handle".into());
+        for job in jobs {
+            match *job {
+                TransferJob::Copy {
+                    src,
+                    src_range,
+                    dst,
+                    dst_range,
+                } => {
+                    let (src_entry, dst_entry) = pair_mut(map, src, dst).ok_or_else(unknown)?;
+                    let view = src_entry
+                        .slice
+                        .try_slice(src_range.0..src_range.1)
+                        .ok_or_else(unknown)?;
+                    let mut target = dst_entry
+                        .slice
+                        .try_slice_mut(dst_range.0..dst_range.1)
+                        .ok_or_else(unknown)?;
+                    guard_memory_panic("memcpy_dtod", || {
+                        self.stream
+                            .memcpy_dtod(&view, &mut target)
+                            .map_err(|e| backend_failure("memcpy_dtod", e))
+                    })?;
+                }
+                TransferJob::Clear { buffer, range } => {
+                    let entry = map.get_mut(&buffer).ok_or_else(unknown)?;
+                    let mut target = entry
+                        .slice
+                        .try_slice_mut(range.0..range.1)
+                        .ok_or_else(unknown)?;
+                    guard_memory_panic("memset_zeros", || {
+                        self.stream
+                            .memset_zeros(&mut target)
+                            .map_err(|e| backend_failure("memset_zeros", e))
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// ハンドル 1 本について、記録の時点の照らしに渡す事実を表から引く。driver を呼ばない。
+    fn transfer_operand(&self, buffers: &Buffers, handle: &BufferHandle) -> TransferOperand {
+        let generation = handle.__backend_generation();
+        let entry = buffers
+            .map
+            .get(&handle.__backend_id())
+            .map(|entry| TransferEntry {
+                buffer_id: handle.__backend_id(),
+                generation,
+                issued_matches: entry.generation == generation,
+                size_matches: handle.size() == entry.slice.len() as u64,
+                usage: entry.usage,
+                allocation_len: entry.slice.len() as u64,
+            });
+        TransferOperand {
+            same_device: handle.__backend_device_id() == self.id,
+            generation_current: generation == self.current_generation(),
+            entry,
+        }
+    }
+
+    /// 照らしを通った記録を、開いている記録先の列の末尾に足して記録の件数を 1 つ増やす。`Ok(None)` は何もしない。
+    fn record_transfer(
+        &self,
+        encoder: &mut CommandEncoder,
+        checked: Result<Option<TransferRecord>, ContractError>,
+    ) -> Result<(), ContractError> {
+        if let Some(record) = checked? {
+            self.open.record(encoder.__backend_id(), record)?;
+            encoder.__backend_record();
+        }
+        Ok(())
+    }
+
+    /// 記録先がこの device の開いている集合に無ければ `InvalidArgument`。
+    fn ensure_encoder_open(&self, encoder: &CommandEncoder) -> Result<(), ContractError> {
+        if self.open.is_open(encoder.__backend_id()) {
+            Ok(())
+        } else {
+            Err(ContractError::InvalidArgument(
+                "encoder is not open on this device".into(),
+            ))
+        }
+    }
+
+    /// 記録の列を、表の（世代・長さ）と今の世代に照らして stream に積む件の列へ組み立てる。呼ぶ側がバッファの表の錠を持つ。
+    fn plan(
+        &self,
+        map: &BTreeMap<u64, BufferEntry>,
+        records: &[TransferRecord],
+    ) -> Result<Vec<TransferJob>, ContractError> {
+        plan_transfers(
+            records,
+            |id| {
+                map.get(&id)
+                    .map(|entry| (entry.generation, entry.slice.len() as u64))
+            },
+            self.current_generation(),
+        )
+    }
+
+    /// 解放を保留したバッファのうち、最後に使った投入が投入済みの表から外れたものを再利用の一覧へ回す。
+    ///
+    /// 保留が無ければ錠を取らずに戻る。錠は「バッファの表 → 投入済みの表」の順に取り、解放と一覧への回しは錠を放してから行う。
+    fn release_finished(&self) {
+        if self.held.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        let finished = catch_unwind(AssertUnwindSafe(|| {
+            let mut buffers = self.lock();
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            let finished = buffers
+                .pending
+                .take_finished(|sequence| subs.is_unfinished(sequence));
+            self.held.store(buffers.pending.len(), Ordering::Release);
+            finished
+        }))
+        .unwrap_or_default();
+        for entry in finished {
+            self.retire_entry(entry);
+        }
+    }
+
+    /// 表から外したバッファを、ゼロ化を積んで再利用の一覧へ回す。一覧に入れられなければ解放する。錠を持たずに呼ぶ。
+    ///
+    /// ゼロ化は stream に積むだけで host は待たない。ドライバへの解放は錠の外で呼び、panic も外へ出さない。
+    fn retire_entry(&self, entry: BufferEntry) {
+        // 鍵は表の項目から決める。
+        let BufferEntry {
+            slice, slot, usage, ..
+        } = entry;
+        let byte_len = slice.len() as u64;
+        let key = (byte_len, usage.bits());
+        let rejected = catch_unwind(AssertUnwindSafe(|| {
+            retire_flow(
+                byte_len,
+                slice,
+                |len| self.lock().pool.would_accept(len),
+                |slice| {
+                    self.stream.memset_zeros(slice)?;
+                    self.stream.record_event(None)
+                },
+                |slice, done| self.lock().pool.retire(key, slot, slice, done),
+            )
+        }));
+        if let Ok(Some(slice)) = rejected {
+            let _ = catch_unwind(AssertUnwindSafe(move || drop(slice)));
+        }
     }
 
     /// 門を待つ host の関数を stream に積む。門の参照を 1 つ `Arc::into_raw` で渡し、取り戻さない。
@@ -2065,32 +2637,49 @@ impl ValidationIntake for CudaDevice {
 }
 
 impl MemoryOps for CudaDevice {
+    /// バッファの範囲を別のバッファへコピーする命令を、記録の時点に照らしてから記録先に積む。
+    ///
+    /// 開いていない記録先・別の device・世代・表・大きさ・用途・範囲・整列・同じバッファは `InvalidArgument`
+    /// （別の device は `DeviceMismatch`）で、記録先を変えない。長さ 0 は何も記録せず `Ok(())`。stream へ積むのは投入の時（TASK-624）。
     fn copy_buffer_to_buffer(
         &self,
-        _encoder: &mut CommandEncoder,
-        _src: &BufferHandle,
-        _src_offset: u64,
-        _dst: &BufferHandle,
-        _dst_offset: u64,
-        _size: u64,
+        encoder: &mut CommandEncoder,
+        src: &BufferHandle,
+        src_offset: u64,
+        dst: &BufferHandle,
+        dst_offset: u64,
+        size: u64,
     ) -> Result<(), ContractError> {
-        Err(ContractError::Unsupported {
-            op: "copy_buffer_to_buffer",
-            backend: BACKEND,
-        })
+        self.ensure_encoder_open(encoder)?;
+        let (src_operand, dst_operand) = {
+            let buffers = self.lock();
+            (
+                self.transfer_operand(&buffers, src),
+                self.transfer_operand(&buffers, dst),
+            )
+        };
+        self.record_transfer(
+            encoder,
+            check_copy_record(src_operand, src_offset, dst_operand, dst_offset, size),
+        )
     }
 
+    /// バッファの範囲を 0 で埋める命令を、記録の時点に照らしてから記録先に積む。
+    ///
+    /// 照らしと拒否の扱いは `copy_buffer_to_buffer` と同じで、用途は `UPLOAD` を要る。stream へ積むのは投入の時（TASK-624）。
     fn clear_buffer(
         &self,
-        _encoder: &mut CommandEncoder,
-        _buffer: &BufferHandle,
-        _offset: u64,
-        _size: u64,
+        encoder: &mut CommandEncoder,
+        buffer: &BufferHandle,
+        offset: u64,
+        size: u64,
     ) -> Result<(), ContractError> {
-        Err(ContractError::Unsupported {
-            op: "clear_buffer",
-            backend: BACKEND,
-        })
+        self.ensure_encoder_open(encoder)?;
+        let operand = {
+            let buffers = self.lock();
+            self.transfer_operand(&buffers, buffer)
+        };
+        self.record_transfer(encoder, check_clear_record(operand, offset, size))
     }
 
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
@@ -2102,6 +2691,7 @@ impl MemoryOps for CudaDevice {
         validate_allocation_size(byte_len, self.limits.max_buffer_bytes)?;
         let len = usize::try_from(byte_len)
             .map_err(|_| ContractError::InvalidArgument("length exceeds usize".into()))?;
+        self.release_finished();
         self.settle_pool();
         // id は確保の前に払い出す。尽きたときに device のメモリを確保しない。
         // 一覧からの取り出しは id の払い出しの後に行い、id が尽きたときに一覧のバッファを減らさない。
@@ -2148,6 +2738,7 @@ impl MemoryOps for CudaDevice {
                 slot,
                 usage,
                 generation,
+                last_submission: None,
             },
         );
         Ok(BufferHandle::__backend_new(
@@ -2207,40 +2798,44 @@ impl MemoryOps for CudaDevice {
         callback(self.read("download_async", src, src_offset, byte_len));
     }
 
+    /// 表から外したバッファを、再利用の一覧へ回すか、解放を保留する。
+    ///
+    /// コピー・クリアで最後に使った投入が投入済みの表に残っていれば、stream に何も積まずに保留して戻る。
+    /// 保留したバッファは `submit`・`submit_many`・`poll`・`allocate` の中で、投入済みの表から外れた後に一覧へ回る（TASK-624）。
     fn free(&self, buffer: BufferHandle) {
         if buffer.__backend_device_id() != self.id {
             return;
         }
-        let removed = remove_issued(
-            &mut self.lock().map,
-            buffer.__backend_id(),
-            buffer.__backend_generation(),
-            |entry| entry.generation,
-        );
-        let Some(entry) = removed else {
-            return;
+        let release = {
+            let mut buffers = self.lock();
+            let removed = remove_issued(
+                &mut buffers.map,
+                buffer.__backend_id(),
+                buffer.__backend_generation(),
+                |entry| entry.generation,
+            );
+            let Some(entry) = removed else {
+                return;
+            };
+            match entry.last_submission {
+                // コピー・クリアで使っていないバッファは、投入済みの表に触らない。
+                None => Some(entry),
+                Some(sequence) => {
+                    let mut subs = self.lock_submissions();
+                    subs.reclaim(event_state);
+                    let released = hold_or_release(
+                        entry,
+                        Some(sequence),
+                        |sequence| subs.is_unfinished(sequence),
+                        &mut buffers.pending,
+                    );
+                    self.held.store(buffers.pending.len(), Ordering::Release);
+                    released
+                }
+            }
         };
-        // 鍵は表の項目から決める。ゼロ化は stream に積むだけで host は待たない。
-        let BufferEntry {
-            slice, slot, usage, ..
-        } = entry;
-        let byte_len = slice.len() as u64;
-        let key = (byte_len, usage.bits());
-        // ドライバへの解放はロックの外で呼ぶ。`free` は値を返さないので panic も外へ出さない。
-        let rejected = catch_unwind(AssertUnwindSafe(|| {
-            retire_flow(
-                byte_len,
-                slice,
-                |len| self.lock().pool.would_accept(len),
-                |slice| {
-                    self.stream.memset_zeros(slice)?;
-                    self.stream.record_event(None)
-                },
-                |slice, done| self.lock().pool.retire(key, slot, slice, done),
-            )
-        }));
-        if let Ok(Some(slice)) = rejected {
-            let _ = catch_unwind(AssertUnwindSafe(move || drop(slice)));
+        if let Some(entry) = release {
+            self.retire_entry(entry);
         }
     }
 }
@@ -2323,23 +2918,27 @@ impl CommandQueue for CudaDevice {
     /// 記録先を投入し、完了を待たずに印を返す。
     ///
     /// 最初に投入済みの表を回収する。空でない `wait` は `Unsupported`、記録先がこの device の
-    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。通れば stream に event を 1 つ記録する。
+    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。記録したコピー・クリアのバッファが
+    /// 解放済みなら `InvalidArgument` で、何も積まず番号を消費しない。通れば記録の順に stream へ積んでから event を 1 つ記録する。
     fn submit(
         &self,
         mut commands: CommandEncoder,
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
         let result = {
+            let mut buffers = self.lock();
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
             let generation = self.current_generation();
             reject_wait("submit(wait)", wait)
                 .and_then(|()| self.open.claim(&[commands.__backend_id()]))
-                .and_then(|()| {
+                .and_then(|records| self.plan(&buffers.map, &records))
+                .and_then(|jobs| {
                     commands.__backend_disarm_closer();
-                    self.issue_event(&mut subs, generation)
+                    self.issue_event(&mut subs, generation, &mut buffers.map, &jobs)
                 })
         };
+        self.release_finished();
         self.drive_callbacks();
         result
     }
@@ -2347,8 +2946,9 @@ impl CommandQueue for CudaDevice {
     ///
     /// 最初に投入済みの表を回収する。検査の順は、`after` の各印（別 device は `DeviceMismatch`、
     /// 世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、全記録先の所属
-    /// （`InvalidArgument`）。検査に当たると何も投入しない。1 つの stream に順に積むので、`after` は照合だけで
-    /// 追加の待ちは入れない。通れば、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）。
+    /// （`InvalidArgument`）、記録したコピー・クリアのバッファの解放済みの確かめ（`InvalidArgument`）。検査に当たると何も投入しない。
+    /// 1 つの stream に順に積むので、`after` は照合だけで追加の待ちは入れない。通れば、渡した記録先の順に各記録先の記録を積んでから
+    /// event を 1 つ記録し、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）。
     fn submit_many(
         &self,
         mut commands: Vec<CommandEncoder>,
@@ -2356,6 +2956,7 @@ impl CommandQueue for CudaDevice {
         wait: &[ImportedSemaphoreHandle],
     ) -> Result<SubmitToken, ContractError> {
         let result = {
+            let mut buffers = self.lock();
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
             let generation = self.current_generation();
@@ -2364,13 +2965,15 @@ impl CommandQueue for CudaDevice {
                     let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
                     self.open.claim(&ids)
                 })
-                .and_then(|()| {
+                .and_then(|records| self.plan(&buffers.map, &records))
+                .and_then(|jobs| {
                     for command in &mut commands {
                         command.__backend_disarm_closer();
                     }
-                    self.issue_event(&mut subs, generation)
+                    self.issue_event(&mut subs, generation, &mut buffers.map, &jobs)
                 })
         };
+        self.release_finished();
         self.drive_callbacks();
         result
     }
@@ -2379,6 +2982,7 @@ impl CommandQueue for CudaDevice {
     /// 別 device・世代違いの印、払い出していない番号、失敗した列は `Lost`。
     /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
     fn poll(&self, token: SubmitToken) -> CompletionState {
+        self.release_finished();
         if check_token_owner(&token, self.id, self.current_generation()).is_err() {
             return CompletionState::Lost;
         }
@@ -5890,5 +6494,593 @@ mod on_complete_gate_device_tests {
         assert_eq!(d.poll(copy_of(&t)), CompletionState::Lost);
         drop(d);
         assert_eq!(rec.states(), vec![CompletionState::Lost]);
+    }
+}
+/// バッファのコピー・クリアの記録の時点の照らし・投入の時点の組み立て・解放の保留の部品の、device に触らない試験（TASK-624 のポインタ）。
+#[cfg(test)]
+mod copy_clear_tests {
+    use super::*;
+
+    const LEN: u64 = 64;
+    const GEN: u64 = 1;
+
+    /// 表に項目があり、世代・払い出しの世代・大きさが合う、同じ device のハンドル。
+    fn operand(buffer_id: u64, usage: BufferUsage) -> TransferOperand {
+        TransferOperand {
+            same_device: true,
+            generation_current: true,
+            entry: Some(TransferEntry {
+                buffer_id,
+                generation: GEN,
+                issued_matches: true,
+                size_matches: true,
+                usage,
+                allocation_len: LEN,
+            }),
+        }
+    }
+
+    fn src() -> TransferOperand {
+        operand(1, BufferUsage::DOWNLOAD)
+    }
+
+    fn dst() -> TransferOperand {
+        operand(2, BufferUsage::UPLOAD)
+    }
+
+    fn other_device(mut o: TransferOperand) -> TransferOperand {
+        o.same_device = false;
+        o
+    }
+
+    fn stale_generation(mut o: TransferOperand) -> TransferOperand {
+        o.generation_current = false;
+        o
+    }
+
+    fn without_entry(mut o: TransferOperand) -> TransferOperand {
+        o.entry = None;
+        o
+    }
+
+    fn other_issue(mut o: TransferOperand) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.issued_matches = false;
+        }
+        o
+    }
+
+    fn wrong_size(mut o: TransferOperand) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.size_matches = false;
+        }
+        o
+    }
+
+    fn with_usage(mut o: TransferOperand, usage: BufferUsage) -> TransferOperand {
+        if let Some(entry) = o.entry.as_mut() {
+            entry.usage = usage;
+        }
+        o
+    }
+
+    fn assert_invalid<T: std::fmt::Debug>(result: Result<T, ContractError>, needle: &str) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => {
+                assert!(msg.contains(needle), "{msg:?} lacks {needle:?}");
+            }
+            other => panic!("expected InvalidArgument containing {needle:?}, got {other:?}"),
+        }
+    }
+
+    fn assert_mismatch<T: std::fmt::Debug>(result: Result<T, ContractError>) {
+        assert!(
+            matches!(result, Err(ContractError::DeviceMismatch)),
+            "{result:?}"
+        );
+    }
+
+    fn recorded(buffer_id: u64) -> RecordedBuffer {
+        RecordedBuffer {
+            buffer_id,
+            generation: GEN,
+        }
+    }
+
+    #[test]
+    fn copy_passes_and_records_the_operands() {
+        let record = check_copy_record(src(), 4, dst(), 8, 16).expect("copy");
+        assert_eq!(
+            record,
+            Some(TransferRecord::Copy {
+                src: recorded(1),
+                src_offset: 4,
+                dst: recorded(2),
+                dst_offset: 8,
+                size: 16,
+            })
+        );
+    }
+
+    #[test]
+    fn clear_passes_and_records_the_operand() {
+        let record = check_clear_record(dst(), 4, 16).expect("clear");
+        assert_eq!(
+            record,
+            Some(TransferRecord::Clear {
+                buffer: recorded(2),
+                offset: 4,
+                size: 16,
+            })
+        );
+    }
+
+    #[test]
+    fn copy_rejects_each_row() {
+        assert_mismatch(check_copy_record(other_device(src()), 0, dst(), 0, 4));
+        assert_mismatch(check_copy_record(src(), 0, other_device(dst()), 0, 4));
+        assert_invalid(
+            check_copy_record(stale_generation(src()), 0, dst(), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, stale_generation(dst()), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_copy_record(without_entry(src()), 0, dst(), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, without_entry(dst()), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_copy_record(other_issue(src()), 0, dst(), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, other_issue(dst()), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_copy_record(wrong_size(src()), 0, dst(), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, wrong_size(dst()), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 4),
+            "DOWNLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+            "UPLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), LEN, dst(), 0, 4),
+            "buffer range end",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, dst(), LEN - 4, 8),
+            "buffer range end",
+        );
+        assert_invalid(check_copy_record(src(), 2, dst(), 0, 4), "multiples");
+        assert_invalid(check_copy_record(src(), 0, dst(), 6, 4), "multiples");
+        assert_invalid(check_copy_record(src(), 0, dst(), 0, 6), "multiples");
+        let same = operand(1, BufferUsage::DOWNLOAD | BufferUsage::UPLOAD);
+        assert_invalid(check_copy_record(same, 0, same, 32, 4), "different buffers");
+    }
+
+    #[test]
+    fn clear_rejects_each_row() {
+        assert_mismatch(check_clear_record(other_device(dst()), 0, 4));
+        assert_invalid(
+            check_clear_record(stale_generation(dst()), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_clear_record(without_entry(dst()), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_clear_record(other_issue(dst()), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_clear_record(wrong_size(dst()), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+            "UPLOAD",
+        );
+        assert_invalid(check_clear_record(dst(), LEN, 4), "buffer range end");
+        assert_invalid(check_clear_record(dst(), 2, 4), "multiples");
+        assert_invalid(check_clear_record(dst(), 0, 6), "multiples");
+    }
+
+    #[test]
+    fn copy_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+        // device と世代。
+        assert_mismatch(check_copy_record(
+            other_device(stale_generation(src())),
+            0,
+            dst(),
+            0,
+            4,
+        ));
+        // 世代と表。
+        assert_invalid(
+            check_copy_record(stale_generation(without_entry(src())), 0, dst(), 0, 4),
+            "generation",
+        );
+        // 表と大きさ。
+        assert_invalid(
+            check_copy_record(other_issue(wrong_size(src())), 0, dst(), 0, 4),
+            "unknown buffer handle",
+        );
+        // 大きさと用途。
+        assert_invalid(
+            check_copy_record(
+                wrong_size(with_usage(src(), BufferUsage::UPLOAD)),
+                0,
+                dst(),
+                0,
+                4,
+            ),
+            "size does not match",
+        );
+        // 用途と範囲。
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), LEN, dst(), 0, 4),
+            "DOWNLOAD",
+        );
+        // 範囲と整列。
+        assert_invalid(
+            check_copy_record(src(), LEN + 1, dst(), 0, 4),
+            "buffer range end",
+        );
+        // 整列と同じバッファ。
+        let same = operand(1, BufferUsage::DOWNLOAD | BufferUsage::UPLOAD);
+        assert_invalid(check_copy_record(same, 2, same, 2, 4), "multiples");
+        // 同じバッファと長さ 0。
+        assert_invalid(check_copy_record(same, 0, same, 0, 0), "different buffers");
+        // 行の中は元が先: 元の表に無く、先の世代が古い。
+        assert_invalid(
+            check_copy_record(without_entry(src()), 0, stale_generation(dst()), 0, 4),
+            "unknown buffer handle",
+        );
+        // 行の中は元が先: 元の用途が足りず、先の用途も足りない。
+        assert_invalid(
+            check_copy_record(
+                with_usage(src(), BufferUsage::UPLOAD),
+                0,
+                with_usage(dst(), BufferUsage::DOWNLOAD),
+                0,
+                4,
+            ),
+            "DOWNLOAD",
+        );
+    }
+
+    #[test]
+    fn clear_reports_the_earlier_row_when_two_adjacent_rows_apply() {
+        assert_mismatch(check_clear_record(
+            other_device(stale_generation(dst())),
+            0,
+            4,
+        ));
+        assert_invalid(
+            check_clear_record(stale_generation(without_entry(dst())), 0, 4),
+            "generation",
+        );
+        assert_invalid(
+            check_clear_record(other_issue(wrong_size(dst())), 0, 4),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_clear_record(wrong_size(with_usage(dst(), BufferUsage::DOWNLOAD)), 0, 4),
+            "size does not match",
+        );
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), LEN, 4),
+            "UPLOAD",
+        );
+        assert_invalid(check_clear_record(dst(), LEN + 1, 4), "buffer range end");
+        assert_invalid(check_clear_record(dst(), LEN - 2, 0), "multiples");
+    }
+
+    #[test]
+    fn u64_overflow_is_rejected() {
+        assert_invalid(
+            check_copy_record(src(), u64::MAX - 3, dst(), 0, 8),
+            "overflows",
+        );
+        assert_invalid(
+            check_copy_record(src(), 0, dst(), u64::MAX - 3, 8),
+            "overflows",
+        );
+        assert_invalid(check_clear_record(dst(), u64::MAX - 3, 8), "overflows");
+    }
+
+    #[test]
+    fn zero_length_records_nothing_unless_an_earlier_row_applies() {
+        assert_eq!(check_copy_record(src(), 0, dst(), 0, 0).unwrap(), None);
+        assert_eq!(check_copy_record(src(), LEN, dst(), 0, 0).unwrap(), None);
+        assert_eq!(check_clear_record(dst(), 0, 0).unwrap(), None);
+        assert_mismatch(check_copy_record(other_device(src()), 0, dst(), 0, 0));
+        assert_invalid(
+            check_copy_record(without_entry(src()), 0, dst(), 0, 0),
+            "unknown buffer handle",
+        );
+        assert_invalid(
+            check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 0),
+            "DOWNLOAD",
+        );
+        assert_invalid(
+            check_copy_record(src(), LEN + 4, dst(), 0, 0),
+            "buffer range end",
+        );
+        assert_invalid(check_copy_record(src(), 2, dst(), 0, 0), "multiples");
+        assert_invalid(
+            check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 0),
+            "UPLOAD",
+        );
+        assert_invalid(check_clear_record(dst(), LEN + 4, 0), "buffer range end");
+        assert_invalid(check_clear_record(dst(), 2, 0), "multiples");
+    }
+
+    #[test]
+    fn usage_rejections_name_the_operation_and_the_missing_usage() {
+        for (result, usage) in [
+            (
+                check_copy_record(with_usage(src(), BufferUsage::UPLOAD), 0, dst(), 0, 4),
+                "DOWNLOAD",
+            ),
+            (
+                check_copy_record(src(), 0, with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4),
+                "UPLOAD",
+            ),
+        ] {
+            assert_invalid(result.clone(), "copy_buffer_to_buffer");
+            assert_invalid(result, usage);
+        }
+        let cleared = check_clear_record(with_usage(dst(), BufferUsage::DOWNLOAD), 0, 4);
+        assert_invalid(cleared.clone(), "clear_buffer");
+        assert_invalid(cleared, "UPLOAD");
+    }
+
+    fn copy_record(src: u64, dst: u64) -> TransferRecord {
+        TransferRecord::Copy {
+            src: recorded(src),
+            src_offset: 4,
+            dst: recorded(dst),
+            dst_offset: 8,
+            size: 16,
+        }
+    }
+
+    fn clear_record(buffer: u64, offset: u64, size: u64) -> TransferRecord {
+        TransferRecord::Clear {
+            buffer: recorded(buffer),
+            offset,
+            size,
+        }
+    }
+
+    /// 識別子 1〜3 が世代 `GEN`・長さ `LEN` で表にある。
+    fn table(id: u64) -> Option<(u64, u64)> {
+        (1..=3).contains(&id).then_some((GEN, LEN))
+    }
+
+    #[test]
+    fn plan_keeps_the_record_order_and_converts_the_ranges() {
+        let records = [copy_record(1, 2), clear_record(3, 0, 4), copy_record(2, 1)];
+        let jobs = plan_transfers(&records, table, GEN).expect("plan");
+        assert_eq!(
+            jobs,
+            vec![
+                TransferJob::Copy {
+                    src: 1,
+                    src_range: (4, 20),
+                    dst: 2,
+                    dst_range: (8, 24),
+                },
+                TransferJob::Clear {
+                    buffer: 3,
+                    range: (0, 4),
+                },
+                TransferJob::Copy {
+                    src: 2,
+                    src_range: (4, 20),
+                    dst: 1,
+                    dst_range: (8, 24),
+                },
+            ]
+        );
+        assert_eq!(plan_transfers(&[], table, GEN).expect("empty"), vec![]);
+    }
+
+    #[test]
+    fn plan_rejects_a_freed_or_stale_buffer_before_any_range() {
+        let freed = "freed before submit";
+        for records in [
+            vec![copy_record(9, 2)],
+            vec![copy_record(1, 9)],
+            vec![clear_record(9, 0, 4)],
+        ] {
+            assert_invalid(plan_transfers(&records, table, GEN), freed);
+        }
+        // 表の項目の払い出しの世代が記録の世代と違う。
+        let reissued = |id: u64| (1..=3).contains(&id).then_some((GEN + 1, LEN));
+        assert_invalid(plan_transfers(&[copy_record(1, 2)], reissued, GEN), freed);
+        // 記録の世代が今の世代と違う。
+        assert_invalid(plan_transfers(&[copy_record(1, 2)], table, GEN + 1), freed);
+        // 前の記録の範囲が外れていても、後ろの解放済みを先に返す。
+        assert_invalid(
+            plan_transfers(
+                &[clear_record(1, LEN, 4), clear_record(9, 0, 4)],
+                table,
+                GEN,
+            ),
+            freed,
+        );
+        // 解放済みが無ければ、表の長さで範囲を照らし直す。
+        assert_invalid(
+            plan_transfers(&[clear_record(1, LEN, 4)], table, GEN),
+            "exceeds the buffer",
+        );
+        let short = |id: u64| (1..=3).contains(&id).then_some((GEN, 8));
+        assert_invalid(
+            plan_transfers(&[copy_record(1, 2)], short, GEN),
+            "exceeds the buffer",
+        );
+        // あふれる範囲は拒む。
+        assert_invalid(
+            plan_transfers(&[clear_record(1, u64::MAX - 3, 8)], table, GEN),
+            "exceeds the buffer",
+        );
+    }
+
+    #[test]
+    fn jobs_name_the_buffers_they_touch() {
+        let copy = TransferJob::Copy {
+            src: 1,
+            src_range: (0, 4),
+            dst: 2,
+            dst_range: (0, 4),
+        };
+        let clear = TransferJob::Clear {
+            buffer: 3,
+            range: (0, 4),
+        };
+        assert_eq!(copy.buffer_ids(), vec![1, 2]);
+        assert_eq!(clear.buffer_ids(), vec![3]);
+        assert_eq!(copy_record(1, 2).buffers(), vec![recorded(1), recorded(2)]);
+        assert_eq!(clear_record(3, 0, 4).buffers(), vec![recorded(3)]);
+    }
+
+    #[test]
+    fn open_encoders_record_only_to_open_ids_and_claim_returns_the_records_in_order() {
+        let open = OpenEncoders::default();
+        open.open(0);
+        assert!(!open.is_open(0));
+        assert!(matches!(
+            open.record(0, clear_record(1, 0, 4)),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            open.record(7, clear_record(1, 0, 4)),
+            Err(ContractError::InvalidArgument(_))
+        ));
+        assert!(open.lock().is_empty());
+        open.open(5);
+        open.open(6);
+        assert_eq!(open.record(5, clear_record(1, 0, 4)), Ok(()));
+        assert_eq!(open.record(6, clear_record(2, 0, 4)), Ok(()));
+        assert_eq!(open.record(5, clear_record(3, 0, 4)), Ok(()));
+        for ids in [&[0_u64][..], &[7], &[5, 5], &[5, 7]] {
+            assert!(matches!(
+                open.claim(ids),
+                Err(ContractError::InvalidArgument(_))
+            ));
+            assert_eq!(open.lock().len(), 2);
+            assert!(open.is_open(5) && open.is_open(6));
+        }
+        assert_eq!(
+            open.claim(&[6, 5]),
+            Ok(vec![
+                clear_record(2, 0, 4),
+                clear_record(1, 0, 4),
+                clear_record(3, 0, 4),
+            ])
+        );
+        assert!(open.lock().is_empty());
+        // 破棄された記録先は、記録ごと表から外れる。
+        open.open(9);
+        assert_eq!(open.record(9, clear_record(1, 0, 4)), Ok(()));
+        open.close(9);
+        assert!(!open.is_open(9));
+        assert!(matches!(
+            open.record(9, clear_record(1, 0, 4)),
+            Err(ContractError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn pair_mut_borrows_two_distinct_entries() {
+        let mut map: BTreeMap<u64, i32> = BTreeMap::from([(1, 10), (2, 20), (3, 30)]);
+        {
+            let (shared, unique) = pair_mut(&mut map, 3, 1).expect("pair");
+            assert_eq!(*shared, 30);
+            *unique += *shared;
+        }
+        assert_eq!(map[&1], 40);
+        assert_eq!(map[&3], 30);
+        assert!(pair_mut(&mut map, 2, 2).is_none());
+        assert!(pair_mut(&mut map, 9, 1).is_none());
+        assert!(pair_mut(&mut map, 1, 9).is_none());
+    }
+
+    #[test]
+    fn hold_or_release_holds_only_while_the_last_submission_is_unfinished() {
+        let mut pending = PendingReleases::<u32>::default();
+        let unfinished = |sequence: u64| sequence == 5;
+        assert_eq!(hold_or_release(1, None, unfinished, &mut pending), Some(1));
+        assert_eq!(pending.len(), 0);
+        assert_eq!(hold_or_release(2, Some(5), unfinished, &mut pending), None);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            hold_or_release(3, Some(6), unfinished, &mut pending),
+            Some(3)
+        );
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            hold_or_release(4, Some(5), |_| false, &mut pending),
+            Some(4)
+        );
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[test]
+    fn pending_releases_take_finished_keeps_the_unfinished_in_order() {
+        let mut pending = PendingReleases::<char>::default();
+        pending.push(3, 'a');
+        pending.push(1, 'b');
+        pending.push(2, 'c');
+        pending.push(4, 'd');
+        assert_eq!(pending.len(), 4);
+        let finished = pending.take_finished(|sequence| sequence == 3 || sequence == 4);
+        assert_eq!(finished, vec!['b', 'c']);
+        assert_eq!(pending.len(), 2);
+        assert!(pending.take_finished(|_| true).is_empty());
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending.take_finished(|_| false), vec!['a', 'd']);
+        assert_eq!(pending.len(), 0);
+    }
+
+    #[test]
+    fn a_sequence_stays_unfinished_until_reclaim_removes_it() {
+        let mut subs = Submissions::<GroupState>::new();
+        for state in [
+            GroupState::Completed,
+            GroupState::Failed,
+            GroupState::Pending,
+            GroupState::Completed,
+        ] {
+            subs.issue(|| Ok(state)).expect("issue");
+        }
+        assert!((1..=4).all(|sequence| subs.is_unfinished(sequence)));
+        subs.reclaim(|state| *state);
+        assert!(!subs.is_unfinished(1));
+        assert!(!subs.is_unfinished(2));
+        assert!(subs.is_unfinished(3));
+        // 先頭が未完了で止まっているので、完了していても残る。
+        assert!(subs.is_unfinished(4));
+        assert!(!subs.is_unfinished(0));
+        assert!(!subs.is_unfinished(5));
     }
 }

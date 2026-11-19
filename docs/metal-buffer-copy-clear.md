@@ -196,6 +196,14 @@ test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; fini
 
 - 「記録の操作の口（1/4）」の節の、Metal の本体が `Unsupported` を返すという文は 1/4 の時点の事実。今の base では、Metal の `copy_buffer_to_buffer`・`clear_buffer` は記録の時点の検査をして記録先に積む（「Metal の記録と投入（2/4）」の節）。試験用の device・CUDA・Vulkan は今も `Unsupported` を返す。確かめ方: `grep -n 'fn copy_buffer_to_buffer(\|fn clear_buffer(' crates/contract/src/backend_metal.rs crates/contract/src/backend_cuda.rs crates/contract/src/backend_vulkan.rs crates/core/src/stub_device.rs`
 
+## 今の値の補い（base 5b71dda）
+
+記録時点の表と既存の節は書き換えない。以下は base `5b71dda` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「記録の操作の口（1/4）」の CUDA の文と「今の値の補い（base 925c4f7）」の「試験用の device・CUDA・Vulkan は今も `Unsupported` を返す」 | CUDA も `Unsupported` を返す → CUDA の `copy_buffer_to_buffer`・`clear_buffer` は記録の時点に照らして記録先に積む（所在は [cuda-copy-clear](cuda-copy-clear.md)）。試験用の device・Vulkan は `Unsupported` を返す | `grep -n 'fn copy_buffer_to_buffer(\|fn clear_buffer(' crates/contract/src/backend_metal.rs crates/contract/src/backend_cuda.rs crates/contract/src/backend_vulkan.rs crates/core/src/stub_device.rs` |
+
 ## 段
 
 | 段 | 内容 | Issue |
