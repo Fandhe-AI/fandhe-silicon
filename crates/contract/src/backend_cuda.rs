@@ -5761,3 +5761,134 @@ mod gate_device_tests {
         assert!(start.elapsed() < GATE_EXPIRY / 2);
     }
 }
+
+/// 門で止めた投入に登録した完了の callback の、CUDA の device に触る試験。device の無い環境では流さない（TASK-607 のポインタ）。
+#[cfg(all(test, feature = "fault-injection"))]
+mod on_complete_gate_device_tests {
+    use super::*;
+    use std::thread::ThreadId;
+    use std::time::{Duration, Instant};
+
+    /// 門を仕込んだ後、`poll` が `Pending` を返す側へ寄せるための待ち。
+    const SETTLE: Duration = Duration::from_millis(50);
+
+    /// callback が受けた状態と、呼ばれたスレッドの記録。
+    struct Recorded {
+        states: Arc<Mutex<Vec<CompletionState>>>,
+        threads: Arc<Mutex<Vec<ThreadId>>>,
+    }
+
+    impl Recorded {
+        fn states(&self) -> Vec<CompletionState> {
+            self.states.lock().unwrap().clone()
+        }
+
+        fn threads(&self) -> Vec<ThreadId> {
+            self.threads.lock().unwrap().clone()
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 印の写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// 空の記録先を投入して印を返す。
+    fn submit_empty(d: &CudaDevice) -> SubmitToken {
+        d.submit(d.create_encoder(), &[]).expect("submit")
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// 受けた状態と呼ばれたスレッドを積む callback と、その記録を返す。
+    fn recorder() -> (Recorded, Box<dyn FnOnce(CompletionState) + Send>) {
+        let states = Arc::new(Mutex::new(Vec::new()));
+        let threads = Arc::new(Mutex::new(Vec::new()));
+        let (s, t) = (Arc::clone(&states), Arc::clone(&threads));
+        let callback = Box::new(move |state| {
+            s.lock().unwrap().push(state);
+            t.lock().unwrap().push(std::thread::current().id());
+        });
+        (Recorded { states, threads }, callback)
+    }
+
+    /// 登録の表の件数。
+    fn registered(d: &CudaDevice) -> usize {
+        d.lock_submissions().callbacks.len()
+    }
+
+    // CMD-32
+    /// 門で止めた投入に登録した callback は、登録・`poll`・門の開けでは呼ばれず、完了の後の `poll` の中で `Complete` を 1 回受ける。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_callback_registered_on_a_gated_token_is_called_complete_once_by_a_later_poll() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let t = submit_empty(&d);
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Pending);
+        let (rec, cb) = recorder();
+        d.on_complete(copy_of(&t), cb);
+        assert_eq!(rec.states(), Vec::<CompletionState>::new());
+        assert_eq!(registered(&d), 1);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Pending);
+        assert_eq!(rec.states(), Vec::<CompletionState>::new());
+        assert_eq!(d.open_gate(), Ok(()));
+        assert_eq!(rec.states(), Vec::<CompletionState>::new());
+        poll_until_complete(&d, &t);
+        assert_eq!(rec.states(), vec![CompletionState::Complete]);
+        assert_eq!(rec.threads(), vec![std::thread::current().id()]);
+        assert_eq!(registered(&d), 0);
+        d.poll(copy_of(&t));
+        assert_eq!(rec.states().len(), 1);
+    }
+
+    // CMD-34
+    /// 門で止めた投入に登録した callback は、模擬のロストの呼び出しの中で `Lost` を 1 回受け、門を開けた後も破棄の後も再び呼ばれない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_callback_registered_on_a_gated_token_is_called_lost_once_by_a_simulated_loss() {
+        let d = device();
+        assert_eq!(d.arm_gate(), Ok(()));
+        let t = submit_empty(&d);
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Pending);
+        let (rec, cb) = recorder();
+        d.on_complete(copy_of(&t), cb);
+        assert_eq!(rec.states(), Vec::<CompletionState>::new());
+        assert_eq!(registered(&d), 1);
+        assert_eq!(d.simulate_device_lost(DeviceLostReason::Unknown), Ok(()));
+        assert_eq!(rec.states(), vec![CompletionState::Lost]);
+        assert_eq!(rec.threads(), vec![std::thread::current().id()]);
+        assert_eq!(registered(&d), 0);
+        assert_eq!(d.open_gate(), Ok(()));
+        std::thread::sleep(SETTLE);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Lost);
+        drop(d);
+        assert_eq!(rec.states(), vec![CompletionState::Lost]);
+    }
+}
