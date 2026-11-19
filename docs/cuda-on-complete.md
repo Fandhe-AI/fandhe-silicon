@@ -153,6 +153,53 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 
 2 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-607。ポインタのみ）。
+
+時点のコミット: `599ae9b7`。`docs/spec` の gitlink は `bfc545a1462bd69953ff876a1ff231348d3352f8`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `on_complete_gate_device_tests` の module の中の `#[test]`・`#[ignore` の行の数（awk と `grep -c`） | `#[test]` が 2、`#[ignore` が 2 |
+| 2 | 受け手の試験の名前 | 試験の名前ごとの `git grep -n "fn <名前>" -- crates` | 下の出力 |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib on_complete_gate_device_tests`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | `0 passed; 0 failed; 2 ignored`、`1 passed; 0 failed; 0 ignored` |
+| 4 | 依存 0・unsafe 0 | `git diff --stat ed97ee62..HEAD -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml crates/contract/tests/backend_cuda_unsafe_count.rs`、`make deps-check` | diff は出力なし、`make deps-check` は終了コード 0 |
+| 5 | 変えない本体 | `git diff --numstat ed97ee62..HEAD -- crates/contract/src/backend_cuda.rs` の 2 列目 | 追加 131、削除 0 |
+| 6 | CI | `gh run view 44444207390 --json conclusion,headSha,jobs`（`599ae9b7` の main の push の run）、`verify` のジョブのログの `on_complete_gate_device_tests` の行 | conclusion `success`、headSha `599ae9b746cc2eb9d19c1b7490eae8b2641d11e1`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`。ログの行は下の出力 |
+
+(4)・(5) の `ed97ee62` は、4/5 の 1 つ前のコミット。
+
+(2) の出力。
+
+```text
+$ git grep -n "fn a_callback_registered_on_a_gated_token_is_called_complete_once_by_a_later_poll" -- crates
+crates/contract/src/backend_cuda.rs:5848:    fn a_callback_registered_on_a_gated_token_is_called_complete_once_by_a_later_poll() {
+$ git grep -n "fn take_ready_keeps_pending_callbacks_and_releases_terminal_ones" -- crates
+crates/contract/src/backend_cuda.rs:3383:    fn take_ready_keeps_pending_callbacks_and_releases_terminal_ones() {
+$ git grep -n "fn a_callback_registered_on_a_gated_token_is_called_lost_once_by_a_simulated_loss" -- crates
+crates/contract/src/backend_cuda.rs:5874:    fn a_callback_registered_on_a_gated_token_is_called_lost_once_by_a_simulated_loss() {
+$ git grep -n "fn take_stale_returns_older_registrations_as_lost_once" -- crates
+crates/contract/src/backend_cuda.rs:3494:    fn take_stale_returns_older_registrations_as_lost_once() {
+```
+
+(3) の出力。
+
+```text
+running 2 tests
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 133 filtered out; finished in 0.00s
+
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+(6) の出力（`gh run view 44444207390 --job 135292247738 --log | grep 'on_complete_gate_device_tests' | sed 's/^.*Z //' | sort | uniq -c`）。
+
+```text
+      2 test backend_cuda::on_complete_gate_device_tests::a_callback_registered_on_a_gated_token_is_called_complete_once_by_a_later_poll ... ignored, requires a CUDA device
+      2 test backend_cuda::on_complete_gate_device_tests::a_callback_registered_on_a_gated_token_is_called_lost_once_by_a_simulated_loss ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -161,3 +208,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 | 2/3 | on_complete と検証の報告の受け口の device の要る試験を ignore 付きで足す | #5207 |
 | 3/3 | 完了の条件の確かめ | #5208 |
 | 4/5 | 門で止めた投入に登録した完了の callback の device の要る試験を ignore 付きで足す | #5209 |
+| 5/5 | 完了の条件の確かめ | #5210 |
