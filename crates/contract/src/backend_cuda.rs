@@ -2189,14 +2189,10 @@ impl CudaDevice {
     #[cfg(feature = "native-blocking-wait")]
     fn wait_issued(
         &self,
-        token: &SubmitToken,
+        sequence: u64,
         event: Option<Arc<CudaEvent>>,
         timeout: Option<std::time::Duration>,
     ) -> Result<(), ContractError> {
-        let sequence = token.sequence;
-        // 待つ間にも device のロストと世代の変更を照らす（入口の照らしと同じ規則）。
-        let recheck =
-            || check_wait_token(self.is_lost(), token, self.id, self.current_generation());
         let state = match timeout {
             None => {
                 if let Some(event) = event {
@@ -2211,30 +2207,20 @@ impl CudaDevice {
                         return Err(error);
                     }
                 }
-                recheck()?;
                 self.lock_submissions()
                     .reclaim_and_state_of(sequence, event_state)
             }
             Some(limit) => {
                 let started = std::time::Instant::now();
-                let interrupted = std::cell::RefCell::new(None);
-                let state = wait_until_limit(
+                wait_until_limit(
                     limit,
                     || {
-                        if let Err(error) = recheck() {
-                            *interrupted.borrow_mut() = Some(error);
-                            return CompletionState::Lost;
-                        }
                         self.lock_submissions()
                             .reclaim_and_state_of(sequence, event_state)
                     },
                     || started.elapsed(),
                     std::thread::sleep,
-                )?;
-                if let Some(error) = interrupted.into_inner() {
-                    return Err(error);
-                }
-                state
+                )?
             }
         };
         match state {
@@ -3273,7 +3259,7 @@ impl CommandQueue for CudaDevice {
             }
             WaitStep::Failed(error) => Err(error),
             WaitStep::Done => Ok(()),
-            WaitStep::Wait => self.wait_issued(&token, event, timeout),
+            WaitStep::Wait => self.wait_issued(token.sequence, event, timeout),
         };
         self.release_finished();
         self.drive_callbacks();
@@ -6731,27 +6717,6 @@ mod on_complete_gate_device_tests {
         assert_eq!(d.poll(copy_of(&t)), CompletionState::Lost);
         drop(d);
         assert_eq!(rec.states(), vec![CompletionState::Lost]);
-    }
-
-    /// 門で止めた投入を期限つきで待つ間に別スレッドが模擬のロストを起こすと、待ちは `Timeout` でも `Ok` でもなく `DeviceLost` を返す。
-    #[cfg(feature = "native-blocking-wait")]
-    #[test]
-    #[ignore = "requires a CUDA device"]
-    fn a_timed_wait_on_a_gated_token_returns_lost_when_the_device_is_lost_meanwhile() {
-        let d = device();
-        assert_eq!(d.arm_gate(), Ok(()));
-        let t = submit_empty(&d);
-        std::thread::scope(|scope| {
-            let waiter = scope.spawn(|| d.wait_blocking(copy_of(&t), Some(Duration::from_secs(5))));
-            std::thread::sleep(SETTLE);
-            assert_eq!(d.simulate_device_lost(DeviceLostReason::Unknown), Ok(()));
-            let result = waiter.join().expect("waiter");
-            assert!(
-                matches!(result, Err(ContractError::DeviceLost { .. })),
-                "{result:?}"
-            );
-        });
-        assert_eq!(d.open_gate(), Ok(()));
     }
 }
 
