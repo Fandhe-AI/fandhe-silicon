@@ -192,6 +192,28 @@ device に触らない試験 1 本が、解放を保留するバッファの一�
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_release_count_tests
 ```
 
+## 解放の保留の数の device の要る試験（5/6）
+
+公開の口（`Device::memory`・`Device::queue`・`Device::fault_hooks`）だけを呼ぶ統合の試験。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `a_freed_copy_source_is_counted_until_the_gated_copy_completes` | 門を仕込んでコピーを投入し、コピーに使っていないバッファとコピーの元を `free` し、門を開けて `Complete` まで `poll` し、空の投入をしてから、コピーの先を `download_blocking` で読む | 数は始めに `Some(0)`、使っていないバッファの `free` の後も `Some(0)`、元の `free` の後に `Some(1)`。門を開ける前の `poll` は `Pending` で数は `Some(1)` のまま。`Complete` の後の空の投入の後に `Some(0)`。読んだ内容は元に書いた内容と同じ |
+| `reading_the_count_does_not_release_held_buffers` | 門で止めたコピーの元を `free` し、門を開け、別のバッファへの `upload` の後に数を 2 回読み、`poll` を呼ぶ | 2 回とも `Some(1)`。`poll` が `Complete` を返した後に `Some(0)` |
+| `freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission` | 門を仕込んでから使っていないバッファを `free` し、別のバッファへ `upload` し、空の投入をして `poll` と `open_gate` を呼ぶ | `upload` は 250 ms より早く戻る。投入の後の `poll` は `Pending`。門を開けると `Complete` |
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/contract/tests/backend_cuda_pending_release.rs` |
+| `required-features` | `backend-cuda`・`fault-injection`・`native-blocking-wait`（`crates/contract/Cargo.toml` の `[[test]]`） |
+| `#[ignore]` | `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_pending_release
+```
+
+3 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -200,3 +222,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_rele
 | 2/3 | 門で止めた投入の device の要る試験 | #4456 |
 | 3/3 | 完了の条件の確かめ | #4457 |
 | 4/6 | 解放を保留しているバッファの数を CUDA の device で返す | #4458 |
+| 5/6 | 解放の保留の数の device の要る試験を ignore 付きで足す | #4459 |
