@@ -2124,7 +2124,7 @@ impl CudaDevice {
 
     /// 記録の順に、コピー・クリアを stream へ積む。host は待たない。
     ///
-    /// 範囲は積む前に `try_slice`・`try_slice_mut` で切り、外れれば何も積まずに `InvalidArgument`。
+    /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
     fn launch_transfers(
         &self,
