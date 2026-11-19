@@ -222,7 +222,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 
 | # | 確かめる項目 | 方法 | 結果 |
 | - | ------------ | ---- | ---- |
-| 1 | 試験の宣言 | `pending_release_count_tests` の module と `backend_cuda_pending_release.rs` の `#[test]`・`#[ignore` の行の数（awk と `grep -c`） | `pending_release_count_tests` は `#[test]` が 1、`#[ignore` が 0。`backend_cuda_pending_release.rs` は `#[test]` が 3、`#[ignore` が 3 |
+| 1 | 試験の宣言 | `pending_release_count_tests` の module と `backend_cuda_pending_release.rs` の `#[test]`・`#[ignore` の行頭の属性の行の数（awk と `grep -c '^#\[ignore'`。行頭を限らないと `//!` のコメントの言及まで当たって 4 になる） | `pending_release_count_tests` は `#[test]` が 1、`#[ignore` が 0。`backend_cuda_pending_release.rs` は `#[test]` が 3、`#[ignore` が 3 |
 | 2 | 受け手の試験の名前 | 試験の名前ごとの `git grep -n "fn <名前>" -- crates`、ファイルは `git ls-files` | 下の出力 |
 | 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_release_count_tests`、`cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_pending_release`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 下の出力 |
 | 4 | 依存 0 と `[[test]]` の 1 節 | `git diff --stat 050a99cc..HEAD -- Cargo.lock deps-approved.toml Cargo.toml`、`git diff -U0 050a99cc..HEAD -- crates/contract/Cargo.toml` の追加・削除の行、`make deps-check` | 前の diff は出力なし。`crates/contract/Cargo.toml` は追加 4 行（`[[test]]`・`name`・`required-features`・空行）で削除 0。`make deps-check` は終了コード 0 |
