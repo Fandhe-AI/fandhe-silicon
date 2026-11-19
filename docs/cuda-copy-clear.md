@@ -276,3 +276,11 @@ $ gh run view 44471705850 --job 135382504656 --log | grep -E 'backend_cuda::copy
 | 1/3 | バッファのコピーとクリアを記録して投入で積み、使用中のバッファの解放を保留する | #5250 |
 | 2/3 | バッファのコピーとクリアの device の要る試験を ignore 付きで足す | #5251 |
 | 3/3 | 完了の条件の確かめ | #5252 |
+
+## 今の値の補い（base 25769d1）
+
+記録時点の表と既存の節は書き換えない。以下は base `25769d1` に対するこの変更の後の今の値。所在は [cuda-wait-blocking](cuda-wait-blocking.md) の 1/3 と 2/3 の節（TASK-606）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「device の要る試験（2/3）」と「振る舞いと照らす試験」の、保留したバッファを解放する呼び出しの列挙（`allocate`・`submit`・`submit_many`・`poll`） | その 4 つ → feature `native-blocking-wait` のビルドでは `wait_blocking` も、待った投入が終わっていれば保留したバッファを解放する | `the_wait_releases_held_buffers_and_calls_registered_callbacks`（device の要る試験） |

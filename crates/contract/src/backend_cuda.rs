@@ -22,8 +22,9 @@
 //! 一覧の上限は件数と大きさの合計で、入れられないバッファは解放する。新規の確保は全バイトを 0 にし終えてから返す。
 //! `copy_buffer_to_buffer`・`clear_buffer` は記録の時点に照らして記録先に積み、投入（`submit`・`submit_many`）が
 //! 記録の順に stream へ積んでから event を記録する。投入はコピー・クリアの各バッファに最後に使った投入の番号を付け、
-//! その投入が投入済みの表に残っている間の `free` は解放を保留し、`submit`・`submit_many`・`poll`・`allocate` の中で
-//! 投入済みの表から外れたものを再利用の一覧へ回す（TASK-624）。`dispatch_ex` は `Unsupported` を返す。
+//! その投入が投入済みの表に残っている間の `free` は解放を保留し、`submit`・`submit_many`・`poll`・`allocate`・
+//! `wait_blocking`（feature `native-blocking-wait` の下）の中で投入済みの表から外れたものを再利用の一覧へ回す
+//! （TASK-624・TASK-606）。`dispatch_ex` は `Unsupported` を返す。
 //!
 //! `query`・`query_ex` は、`request` の時点で捕捉した compute capability とホストメモリのマップの可否の属性と、
 //! 能力の表から答える（TASK-175）。
@@ -2989,7 +2990,8 @@ impl MemoryOps for CudaDevice {
     /// 表から外したバッファを、再利用の一覧へ回すか、解放を保留する。
     ///
     /// コピー・クリアで最後に使った投入が投入済みの表に残っていれば、stream に何も積まずに保留して戻る。
-    /// 保留したバッファは `submit`・`submit_many`・`poll`・`allocate` の中で、投入済みの表から外れた後に一覧へ回る（TASK-624）。
+    /// 保留したバッファは `submit`・`submit_many`・`poll`・`allocate`・`wait_blocking`（feature `native-blocking-wait` の下）の中で、
+    /// 投入済みの表から外れた後に一覧へ回る（TASK-624・TASK-606）。
     fn free(&self, buffer: BufferHandle) {
         if buffer.__backend_device_id() != self.id {
             return;
@@ -3191,8 +3193,8 @@ impl CommandQueue for CudaDevice {
     }
     /// 終端の状態で `callback` をちょうど 1 回呼ぶ。待たない。
     ///
-    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`submit_many`・`poll`・`poll_ex`・`on_complete` の
-    /// どれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
+    /// 終端ならこの呼び出しの中で呼ぶ。未完了なら登録して戻り、`submit`・`submit_many`・`poll`・`poll_ex`・`on_complete`・
+    /// `wait_blocking`（feature `native-blocking-wait` の下）のどれかの中で終端と分かった時に、その呼び出しを行ったスレッドで呼ぶ。
     fn on_complete(&self, token: SubmitToken, callback: Box<dyn FnOnce(CompletionState) + Send>) {
         if check_token_owner(&token, self.id, self.current_generation()).is_err() {
             callback(CompletionState::Lost);

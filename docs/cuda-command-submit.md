@@ -244,3 +244,11 @@ record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_item
 | ------ | --------------- | ---------- |
 | 「記録先の集合と submit（1/5）」の `submit` の表 | 記録したコピー・クリアの扱いの記述なし → 記録の後に元を `free` すると `InvalidArgument` で、投入の数と次の通し番号は変わらない。1 つの記録先の記録は記録の順に効く | `freeing_a_recorded_buffer_before_submit_rejects_the_submit`・`records_take_effect_in_record_order` |
 | 「一括投入（3/5）」 | 記録したコピー・クリアの扱いの記述なし → 渡した記録先の順に効く | `submit_many_runs_each_encoder_in_the_given_order` |
+
+## 今の値の補い（base 25769d1）
+
+記録時点の表と既存の節は書き換えない。以下は base `25769d1` に対するこの変更の後の今の値。所在は [cuda-wait-blocking](cuda-wait-blocking.md) の 1/3 と 2/3 の節（TASK-606）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「一括投入（3/5）」の、投入済みの表を回収する場所の列挙（`submit`・`submit_many`・`poll`・`on_complete`） | その 4 つ → feature `native-blocking-wait` のビルドでは `wait_blocking` も、待つ前と待った後に投入済みの表を回収し、待った後に終端になった登録済みの callback を呼ぶ | `the_wait_releases_held_buffers_and_calls_registered_callbacks`（device の要る試験） |
