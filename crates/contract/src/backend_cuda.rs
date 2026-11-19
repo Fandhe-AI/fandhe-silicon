@@ -2093,6 +2093,7 @@ impl CudaDevice {
     ///
     /// `jobs` を記録の順に積み、通れば各バッファの最後に使った投入をこの番号にする。積む途中と event の記録の失敗は
     /// `BackendFailure` で、番号を消費せず最後に使った投入を変えない。完了は待たない。
+    /// ただし 1 本でも積んだ後に失敗したときは、完了印を作れないので、失敗を返す前に stream の完了を待つ（`fault-injection` では門を全部開けてから）。
     /// `fault-injection` のビルドで門を仕込んであれば、event の前に門を積む。積めなければ `BackendFailure`
     /// （`op` は `launch_host_function`）で仕込みを残す。門を積んだ後に event の記録が失敗したら、門は積んだまま残り `open_gate` で開く。
     fn issue_event(
@@ -2102,18 +2103,32 @@ impl CudaDevice {
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
     ) -> Result<SubmitToken, ContractError> {
-        let sequence = subs.issue(|| {
+        let enqueued = std::cell::Cell::new(false);
+        let issued = subs.issue(|| {
             #[cfg(feature = "fault-injection")]
             self.gate.attach_with(|latch| {
                 guard_memory_panic("launch_host_function", || self.launch_gate(latch))
             })?;
-            self.launch_transfers(map, jobs)?;
+            self.launch_transfers(map, jobs, &enqueued)?;
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
                     .map_err(|e| backend_failure("record_event", e))
             })
-        })?;
+        });
+        let sequence = match issued {
+            Ok(sequence) => sequence,
+            Err(error) => {
+                if enqueued.get() {
+                    // 1 本でも積んだ後の失敗は、積んだ分が stream 上で走り続けうる。完了印を作れないので、
+                    // 門を開けて stream の完了を待ち、使用中のまま `free` されて解放・再利用される経路を残さない。
+                    #[cfg(feature = "fault-injection")]
+                    self.gate.open_all();
+                    let _ = sync_confirmed(|| self.stream.synchronize());
+                }
+                return Err(error);
+            }
+        };
         for id in jobs.iter().flat_map(TransferJob::buffer_ids) {
             if let Some(entry) = map.get_mut(&id) {
                 entry.last_submission = Some(sequence);
@@ -2126,10 +2141,12 @@ impl CudaDevice {
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
+    /// 1 件でも積めたら `enqueued` を真にし、呼ぶ側が失敗の前に stream の完了を待てるようにする。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
+        enqueued: &std::cell::Cell<bool>,
     ) -> Result<(), ContractError> {
         let unknown = || ContractError::InvalidArgument("unknown buffer handle".into());
         for job in jobs {
@@ -2154,6 +2171,7 @@ impl CudaDevice {
                             .memcpy_dtod(&view, &mut target)
                             .map_err(|e| backend_failure("memcpy_dtod", e))
                     })?;
+                    enqueued.set(true);
                 }
                 TransferJob::Clear { buffer, range } => {
                     let entry = map.get_mut(&buffer).ok_or_else(unknown)?;
@@ -2166,6 +2184,7 @@ impl CudaDevice {
                             .memset_zeros(&mut target)
                             .map_err(|e| backend_failure("memset_zeros", e))
                     })?;
+                    enqueued.set(true);
                 }
             }
         }
