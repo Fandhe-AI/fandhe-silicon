@@ -168,7 +168,5 @@ record: commit=6ec43df8046efae3e65048d4abeb85f6c3e42058 documents=10 public_item
 
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
-| 「再利用の一覧とゼロ化（1/4）」の `free` の表の 1 の後 | 表から項目を外した次は一覧に入れられるかの確かめ → 項目を外した後、コピー・クリアで最後に使った投入が投入済みの表に残っていれば解放を保留して戻る（stream に何も積まない）行が入る。保留したバッファは `submit`・`submit_many`・`poll`・`allocate` の中で 2 から 4 へ回る | `grep -n 'fn hold_or_release\|fn release_finished\|fn retire_entry' crates/contract/src/backend_cuda.rs` |
-| 同じ節の `allocate` の表の 2 の前 | 今までの検査の次は待つ側の完了の問い合わせ（`settle_pool`） → 今までの検査の次、`settle_pool` の前に、保留の回収が入る | 同上 |
 | 「device を使わない」確かめ方と (2) の行と出力（`backend-cuda,native-blocking-wait --lib backend_cuda`） | `57 passed; 0 failed; 25 ignored`（`running 82 tests`）→ `80 passed; 0 failed; 38 ignored; 0 measured; 13 filtered out`（`running 118 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` |
 | (1) の行と出力（`--features backend-cuda --lib backend_cuda`） | `57 passed; 0 failed; 19 ignored`（`running 76 tests`）→ `80 passed; 0 failed; 24 ignored; 0 measured; 13 filtered out`（`running 104 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
