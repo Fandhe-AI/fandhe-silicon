@@ -132,6 +132,27 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
       6 test backend_cuda::on_complete_device_tests::the_validation_callback_is_not_called_by_normal_operations ... ignored, requires a CUDA device
 ```
 
+## 門で止めた投入に登録した callback の device の要る試験（4/5）
+
+門の口（`arm_gate`・`open_gate`）の所在は [cuda-fault-gate](cuda-fault-gate.md) を引く（TASK-345 のポインタ）。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `a_callback_registered_on_a_gated_token_is_called_complete_once_by_a_later_poll` | 門で止めた投入の印を `on_complete` に渡し、`poll`・`open_gate` を呼んでから完了まで `poll` を続ける | 登録の直後・`Pending` の間の `poll` の後・`open_gate` の後は受けた列が空で登録の表の件数は 1。完了の後の `poll` の中で `Complete` を 1 回、呼ばれたスレッドは試験のスレッド、登録の表の件数は 0、続けて `poll` を呼んでも 1 件のまま |
+| `a_callback_registered_on_a_gated_token_is_called_lost_once_by_a_simulated_loss` | 門で止めた投入の印を `on_complete` に渡し、`simulate_device_lost` を呼ぶ | 登録の直後は受けた列が空で登録の表の件数は 1。`simulate_device_lost` が戻った直後に `Lost` を 1 回、呼ばれたスレッドは試験のスレッド、登録の表の件数は 0。`open_gate`・`poll`（`Lost`）・`drop` の後も 1 件のまま |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `on_complete_gate_device_tests`（`crates/contract/src/backend_cuda.rs`） |
+| `cfg` | `#[cfg(all(test, feature = "fault-injection"))]` |
+| `#[ignore]` | `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib on_complete_gate_device_tests
+```
+
+2 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -139,3 +160,4 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 1/3 | 検証の報告の受け口の登録を CUDA の device で受け付ける | #5206 |
 | 2/3 | on_complete と検証の報告の受け口の device の要る試験を ignore 付きで足す | #5207 |
 | 3/3 | 完了の条件の確かめ | #5208 |
+| 4/5 | 門で止めた投入に登録した完了の callback の device の要る試験を ignore 付きで足す | #5209 |
