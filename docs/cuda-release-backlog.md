@@ -38,8 +38,30 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 
 2 件が `ignored` と数えられる。
 
+## device の要る試験（2/3）
+
+公開の口（`Device::memory`・`Device::queue`・`Device::fault_hooks`）だけを呼ぶ統合の試験。どの試験も本体を別のスレッドで流し、30 秒で打ち切る。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `more_than_nine_unfinished_submissions_are_held_without_waiting` | 32 個のバッファを確保してから門を仕込み、バッファごとに 0 埋めを記録して投入し、`free` する。全部の印に `poll` を呼び、門を開けて全部の印を `poll` で `Complete` まで待ち、最後の印にもう 1 回 `poll` を呼ぶ | 門を仕込む前は `Some(0)`。32 回の投入と `free` は 250 ms より早く終わり、どの投入も成功する。その後は `Some(32)` で、どの印の `poll` も `Pending`、その後も `Some(32)` で、門を仕込んでからここまでは 250 ms より早く終わる。最後の `poll` は `Complete` で、その後は `Some(0)` |
+| `held_buffers_are_released_by_each_of_the_five_calls` | `submit`・`poll`・`poll_ex`・`wait_blocking`（上限 10 秒）・`allocate` の 5 通りに、門を仕込んで 0 埋めを投入し、そのバッファを `free` して門を開け、別のバッファへ `upload` して 50 ms 待ってから、その 1 つを呼ぶ | `free` の後は `Some(1)`。`upload` と 50 ms の後も `Some(1)`。`poll` は `Complete`、`poll_ex` は `Complete`、`wait_blocking` は `Ok(())`。呼んだ後は 5 通りとも `Some(0)` |
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/contract/tests/backend_cuda_release_backlog.rs` |
+| `required-features` | `backend-cuda`・`fault-injection`・`native-blocking-wait`（`crates/contract/Cargo.toml` の `[[test]]`） |
+| `#[ignore]` | `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_release_backlog
+```
+
+2 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 解放の保留の数とゼロ化の完了待ちの device の要る試験を ignore 付きで足す | #4463 |
+| 2/3 | 上限を超える負荷と回収の点の device の要る試験を ignore 付きで足す | #4464 |
