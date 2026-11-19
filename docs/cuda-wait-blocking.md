@@ -98,9 +98,106 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 
 8 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-606。ポインタのみ）。
+
+時点のコミット: `f8594be1`。`docs/spec` の gitlink は `bfc545a1462bd69953ff876a1ff231348d3352f8`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `wait_blocking_tests` の module と `backend_cuda_wait_blocking.rs` の `#[test]`・`#[ignore` の行頭の属性の行の数（awk と `grep -c '^[[:space:]]*#\[test\]'`・`grep -c '^[[:space:]]*#\[ignore'`） | `wait_blocking_tests` は `#[test]` が 7、`#[ignore` が 0。`backend_cuda_wait_blocking.rs` は `#[test]` が 8、`#[ignore` が 8 |
+| 2 | 受け手の試験の名前 | 試験の名前ごとの `git grep -n "fn <名前>" -- crates`、ファイルは `git ls-files` | 下の出力 |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib wait_blocking_tests`、`cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_wait_blocking`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` の `running` と `test result:` の行 | 下の出力 |
+| 4 | 依存 0 と `[[test]]` の 1 節 | `git diff --stat a9e8400f..HEAD -- Cargo.lock deps-approved.toml Cargo.toml`、`git diff -U0 a9e8400f..HEAD -- crates/contract/Cargo.toml` の追加・削除の行、`make deps-check` | 前の diff は出力なし。`crates/contract/Cargo.toml` は追加 4 行（`[[test]]`・`name`・`required-features`・空行）で削除 0。`make deps-check` は終了コード 0 |
+| 5 | unsafe の数 | `git diff --stat a9e8400f..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs`、`a9e8400f` と `HEAD` の `crates/contract/src/backend_cuda.rs` の `grep -c unsafe`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 下の出力 |
+| 6 | 変えた本体の行 | `git diff --numstat a9e8400f..HEAD -- crates/contract/src/backend_cuda.rs` の 1 列目・2 列目 | 追加 420、削除 13 |
+| 7 | CI | `gh run view 44524938088 --json conclusion,headSha,jobs`（`f8594be1` の main の push の run）、`verify` のジョブのログの 8 本の統合の試験の行 | conclusion `success`、headSha `f8594be1aa9cb4ae49ca73d44f33ec34198cf2fb`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`。ログの行は下の出力 |
+
+(4)・(5)・(6) の `a9e8400f` は、1/3 の 1 つ前のコミット。
+
+(2) の出力。
+
+```text
+$ git grep -n "fn lost_is_checked_before_the_owner_and_the_generation" -- crates
+crates/contract/src/backend_cuda.rs:7746:    fn lost_is_checked_before_the_owner_and_the_generation() {
+$ git grep -n "fn unissued_sequences_are_rejected_without_changing_the_table" -- crates
+crates/contract/src/backend_cuda.rs:7765:    fn unissued_sequences_are_rejected_without_changing_the_table() {
+$ git grep -n "fn the_unissued_error_names_the_operation_and_both_sequences" -- crates
+crates/contract/src/backend_cuda.rs:7792:    fn the_unissued_error_names_the_operation_and_both_sequences() {
+$ git grep -n "fn issued_sequences_map_to_done_wait_or_failed" -- crates
+crates/contract/src/backend_cuda.rs:7803:    fn issued_sequences_map_to_done_wait_or_failed() {
+$ git grep -n "fn a_marked_sequence_keeps_its_first_error_and_stays_unfinished" -- crates
+crates/contract/src/backend_cuda.rs:7822:    fn a_marked_sequence_keeps_its_first_error_and_stays_unfinished() {
+$ git grep -n "fn the_limited_wait_stops_on_a_terminal_state_or_at_the_limit" -- crates
+crates/contract/src/backend_cuda.rs:7840:    fn the_limited_wait_stops_on_a_terminal_state_or_at_the_limit() {
+$ git grep -n "fn a_zero_limit_probes_once_and_never_sleeps" -- crates
+crates/contract/src/backend_cuda.rs:7888:    fn a_zero_limit_probes_once_and_never_sleeps() {
+$ git grep -n "fn a_gated_copy_times_out_and_completes_after_the_gate_opens" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:134:fn a_gated_copy_times_out_and_completes_after_the_gate_opens() {
+$ git grep -n "fn a_limited_wait_returns_timeout_at_the_limit" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:163:fn a_limited_wait_returns_timeout_at_the_limit() {
+$ git grep -n "fn an_unlimited_wait_returns_after_the_copy_and_the_clear" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:199:fn an_unlimited_wait_returns_after_the_copy_and_the_clear() {
+$ git grep -n "fn the_wait_releases_held_buffers_and_calls_registered_callbacks" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:237:fn the_wait_releases_held_buffers_and_calls_registered_callbacks() {
+$ git grep -n "fn a_reclaimed_submission_returns_ok" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:268:fn a_reclaimed_submission_returns_ok() {
+$ git grep -n "fn an_unissued_sequence_is_rejected_without_waiting" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:289:fn an_unissued_sequence_is_rejected_without_waiting() {
+$ git grep -n "fn a_token_of_another_device_is_a_mismatch" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:317:fn a_token_of_another_device_is_a_mismatch() {
+$ git grep -n "fn a_lost_device_returns_device_lost_before_the_owner_check" -- crates
+crates/contract/tests/backend_cuda_wait_blocking.rs:336:fn a_lost_device_returns_device_lost_before_the_owner_check() {
+$ git ls-files crates/contract/tests/backend_cuda_wait_blocking.rs
+crates/contract/tests/backend_cuda_wait_blocking.rs
+```
+
+(3) の出力。
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib wait_blocking_tests
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 118 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_wait_blocking
+running 8 tests
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+(5) の出力。
+
+```text
+$ git diff --stat a9e8400f..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs
+$ git show a9e8400f:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+(7) の出力。
+
+```text
+$ gh run view 44524938088 --job 135562881216 --log | grep -E 'test (a_gated_copy_times_out_and_completes_after_the_gate_opens|a_limited_wait_returns_timeout_at_the_limit|an_unlimited_wait_returns_after_the_copy_and_the_clear|the_wait_releases_held_buffers_and_calls_registered_callbacks|a_reclaimed_submission_returns_ok|an_unissued_sequence_is_rejected_without_waiting|a_token_of_another_device_is_a_mismatch|a_lost_device_returns_device_lost_before_the_owner_check) \.\.\. ignored, requires a CUDA device' | sed 's/^.*Z //' | sort | uniq -c
+      2 test a_gated_copy_times_out_and_completes_after_the_gate_opens ... ignored, requires a CUDA device
+      2 test a_limited_wait_returns_timeout_at_the_limit ... ignored, requires a CUDA device
+      2 test a_lost_device_returns_device_lost_before_the_owner_check ... ignored, requires a CUDA device
+      2 test a_reclaimed_submission_returns_ok ... ignored, requires a CUDA device
+      2 test a_token_of_another_device_is_a_mismatch ... ignored, requires a CUDA device
+      2 test an_unissued_sequence_is_rejected_without_waiting ... ignored, requires a CUDA device
+      2 test an_unlimited_wait_returns_after_the_copy_and_the_clear ... ignored, requires a CUDA device
+      2 test the_wait_releases_held_buffers_and_calls_registered_callbacks ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | CUDA の device の wait_blocking を event の同期と期限つきの確かめで実装する | #5198 |
 | 2/3 | wait_blocking の device の要る試験を ignore 付きで足す | #5199 |
+| 3/3 | 完了の条件の確かめ | #5200 |
