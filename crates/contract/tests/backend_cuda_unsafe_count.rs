@@ -12,7 +12,8 @@ const EXPECTED: &[ExpectedFile] = &[ExpectedFile {
     path: "src/backend_cuda.rs",
     source: include_str!("../src/backend_cuda.rs"),
     expected: UnsafeCounts {
-        block: 2,
+        block: 4,
+        func: 1,
         ..UnsafeCounts::ZERO
     },
 }];

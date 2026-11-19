@@ -167,3 +167,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（4/4）」の (1) の行と出力（`--features backend-cuda,ext-interop --lib backend_cuda`） | `52 passed; 0 failed; 11 ignored`（`running 63 tests`）→ `59 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 78 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,ext-interop --lib backend_cuda` |
+
+## 今の値の補い（base 283f144）
+
+記録時点の表と既存の節は書き換えない。以下は base `283f144` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「相互運用と故障の差し込みの口（2/4）」の `FaultHooks` の文 | `simulate_device_lost` だけを上書きし、ほかの 4 操作は既定の本体のまま → `simulate_device_lost`・`arm_gate`・`open_gate` を上書きし、`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま（所在は [cuda-fault-gate](cuda-fault-gate.md)） | `grep -n 'fn arm_gate\|fn open_gate\|fn simulate_device_lost' crates/contract/src/backend_cuda.rs` |
+| 同じ節の対応する試験の文 | `arm_gate` が既定の本体を返すこと → `arm_gate`・`open_gate` が `Ok(())`、`simulate_runtime_error` が既定の本体を返すこと | `grep -n 'hooks\.' crates/contract/tests/backend_cuda_ext_interop.rs` |

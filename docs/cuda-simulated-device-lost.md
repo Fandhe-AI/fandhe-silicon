@@ -201,3 +201,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 「模擬のロスト（2/4）」の確かめ方と「3/4」の `ignored` の文（`--no-default-features --features backend-cuda,fault-injection --lib backend_cuda`） | `62 passed; 0 failed; 15 ignored`（`running 77 tests`）→ `69 passed; 0 failed; 26 ignored; 0 measured; 0 filtered out`（`running 95 tests`） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda` |
 | (2) の出力（`lost_state_tests`・`take_stale`） | `12 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out`・`1 passed; 76 filtered out` → `83 filtered out`・`94 filtered out`（passed は同じ 12・1） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::lost_state_tests`、同じ組で `--lib backend_cuda::tests::take_stale` |
 | (3) の出力（`device_tests::lost`） | `0 passed; 0 failed; 3 ignored; 0 measured; 74 filtered out` → `92 filtered out`（ignored は同じ 3） | `cargo test -p fandhe-silicon-contract --no-default-features --features backend-cuda,fault-injection --lib backend_cuda::device_tests::lost` |
+
+## 今の値の補い（base 283f144）
+
+記録時点の表と既存の節は書き換えない。以下は base `283f144` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「模擬のロスト（2/4）」の `FaultHooks` の行 | `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま → `arm_gate`・`open_gate` は上書き（[cuda-fault-gate](cuda-fault-gate.md)）、`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま | `grep -n 'fn arm_gate\|fn open_gate\|fn simulate_device_lost' crates/contract/src/backend_cuda.rs` |
