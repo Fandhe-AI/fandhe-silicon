@@ -1731,8 +1731,6 @@ struct BufferEntry {
     generation: u64,
     /// コピー・クリアで最後に使った投入の通し番号。使っていなければ `None`。
     last_submission: Option<u64>,
-    /// 積んだ後の失敗で stream の完了を確かめられなかったバッファ。`free` は解放も再利用もせず保持する。
-    unconfirmed: bool,
 }
 
 /// 表から、識別子が `id` で払い出しの世代が `generation` の項目だけを外して返す。
@@ -1788,8 +1786,6 @@ struct Buffers {
     pool: ReusePool<CudaSlice<u8>, CudaEvent>,
     /// 表から外したが、最後に使った投入が投入済みの表に残っているバッファ。
     pending: PendingReleases<BufferEntry>,
-    /// `free` されたが stream の完了を確かめられなかったバッファ。`Drop` が同期を確かめたときだけ解放する。
-    retained: Vec<BufferEntry>,
 }
 
 /// 表から外したが、最後に使った投入が終わっていないバッファの列。バッファの表の錠の中に置く。
@@ -2097,7 +2093,6 @@ impl CudaDevice {
     ///
     /// `jobs` を記録の順に積み、通れば各バッファの最後に使った投入をこの番号にする。積む途中と event の記録の失敗は
     /// `BackendFailure` で、番号を消費せず最後に使った投入を変えない。完了は待たない。
-    /// ただし 1 本でも積んだ後に失敗したときは、完了印を作れないので、失敗を返す前に stream の完了を待つ（`fault-injection` では門を全部開けてから）。
     /// `fault-injection` のビルドで門を仕込んであれば、event の前に門を積む。積めなければ `BackendFailure`
     /// （`op` は `launch_host_function`）で仕込みを残す。門を積んだ後に event の記録が失敗したら、門は積んだまま残り `open_gate` で開く。
     fn issue_event(
@@ -2107,40 +2102,18 @@ impl CudaDevice {
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
     ) -> Result<SubmitToken, ContractError> {
-        let enqueued = std::cell::Cell::new(false);
-        let issued = subs.issue(|| {
+        let sequence = subs.issue(|| {
             #[cfg(feature = "fault-injection")]
             self.gate.attach_with(|latch| {
                 guard_memory_panic("launch_host_function", || self.launch_gate(latch))
             })?;
-            self.launch_transfers(map, jobs, &enqueued)?;
+            self.launch_transfers(map, jobs)?;
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
                     .map_err(|e| backend_failure("record_event", e))
             })
-        });
-        let sequence = match issued {
-            Ok(sequence) => sequence,
-            Err(error) => {
-                if enqueued.get() {
-                    // 1 本でも積んだ後の失敗は、積んだ分が stream 上で走り続けうる。完了印を作れないので、
-                    // 門を開けて stream の完了を待ち、使用中のまま `free` されて解放・再利用される経路を残さない。
-                    #[cfg(feature = "fault-injection")]
-                    self.gate.open_all();
-                    let synced = sync_confirmed(|| self.stream.synchronize());
-                    if !synced {
-                        // 完了を確かめられない間は、対象のバッファを解放・再利用へ回さない（`Drop` の保持と同じ流儀）。
-                        for id in jobs.iter().flat_map(TransferJob::buffer_ids) {
-                            if let Some(entry) = map.get_mut(&id) {
-                                entry.unconfirmed = true;
-                            }
-                        }
-                    }
-                }
-                return Err(error);
-            }
-        };
+        })?;
         for id in jobs.iter().flat_map(TransferJob::buffer_ids) {
             if let Some(entry) = map.get_mut(&id) {
                 entry.last_submission = Some(sequence);
@@ -2153,12 +2126,10 @@ impl CudaDevice {
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
-    /// 1 件でも積めたら `enqueued` を真にし、呼ぶ側が失敗の前に stream の完了を待てるようにする。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
-        enqueued: &std::cell::Cell<bool>,
     ) -> Result<(), ContractError> {
         let unknown = || ContractError::InvalidArgument("unknown buffer handle".into());
         for job in jobs {
@@ -2183,7 +2154,6 @@ impl CudaDevice {
                             .memcpy_dtod(&view, &mut target)
                             .map_err(|e| backend_failure("memcpy_dtod", e))
                     })?;
-                    enqueued.set(true);
                 }
                 TransferJob::Clear { buffer, range } => {
                     let entry = map.get_mut(&buffer).ok_or_else(unknown)?;
@@ -2196,7 +2166,6 @@ impl CudaDevice {
                             .memset_zeros(&mut target)
                             .map_err(|e| backend_failure("memset_zeros", e))
                     })?;
-                    enqueued.set(true);
                 }
             }
         }
@@ -2770,7 +2739,6 @@ impl MemoryOps for CudaDevice {
                 usage,
                 generation,
                 last_submission: None,
-                unconfirmed: false,
             },
         );
         Ok(BufferHandle::__backend_new(
@@ -2849,17 +2817,6 @@ impl MemoryOps for CudaDevice {
             let Some(entry) = removed else {
                 return;
             };
-            let mut entry = entry;
-            if entry.unconfirmed {
-                // もう一度 stream の完了を確かめる。確かめられれば通常の解放の経路へ進む。
-                if sync_confirmed(|| self.stream.synchronize()) {
-                    entry.unconfirmed = false;
-                } else {
-                    // 確かめられない間は解放せず device の保持の一覧へ移し、`Drop` が同期を確かめたときに解放する。
-                    buffers.retained.push(entry);
-                    return;
-                }
-            }
             match entry.last_submission {
                 // コピー・クリアで使っていないバッファは、投入済みの表に触らない。
                 None => Some(entry),
