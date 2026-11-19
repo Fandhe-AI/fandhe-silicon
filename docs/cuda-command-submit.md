@@ -235,3 +235,12 @@ record: commit=371a82d97296979a98969bbc84e0838b81bd7b9c documents=10 public_item
 | 表の行 | 前の値 → 今の値 | 測ったコマンド |
 | ------ | --------------- | -------------- |
 | 「完了の条件の確かめ（5/5）」の (1) の行と出力 | `57 passed; 0 failed; 19 ignored`（`running 76 tests`）→ `80 passed; 0 failed; 24 ignored; 0 measured; 13 filtered out`（`running 104 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+
+## 今の値の補い（base 90b8b4e）
+
+記録時点の表と既存の節は書き換えない。以下は base `90b8b4e` に対するこの変更の後の今の値。所在は [cuda-copy-clear](cuda-copy-clear.md) の 2/3 の節（TASK-624）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「記録先の集合と submit（1/5）」の `submit` の表 | 記録したコピー・クリアの扱いの記述なし → 記録の後に元を `free` すると `InvalidArgument` で、投入の数と次の通し番号は変わらない。1 つの記録先の記録は記録の順に効く | `freeing_a_recorded_buffer_before_submit_rejects_the_submit`・`records_take_effect_in_record_order` |
+| 「一括投入（3/5）」 | 記録したコピー・クリアの扱いの記述なし → 渡した記録先の順に効く | `submit_many_runs_each_encoder_in_the_given_order` |

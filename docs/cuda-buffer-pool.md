@@ -170,3 +170,12 @@ record: commit=6ec43df8046efae3e65048d4abeb85f6c3e42058 documents=10 public_item
 | ------ | --------------- | -------------- |
 | 「device を使わない」確かめ方と (2) の行と出力（`backend-cuda,native-blocking-wait --lib backend_cuda`） | `57 passed; 0 failed; 25 ignored`（`running 82 tests`）→ `80 passed; 0 failed; 38 ignored; 0 measured; 13 filtered out`（`running 118 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda` |
 | (1) の行と出力（`--features backend-cuda --lib backend_cuda`） | `57 passed; 0 failed; 19 ignored`（`running 76 tests`）→ `80 passed; 0 failed; 24 ignored; 0 measured; 13 filtered out`（`running 104 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+
+## 今の値の補い（base 90b8b4e）
+
+記録時点の表と既存の節は書き換えない。以下は base `90b8b4e` に対するこの変更の後の今の値。所在は [cuda-copy-clear](cuda-copy-clear.md) の 2/3 の節（TASK-624）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「再利用の一覧とゼロ化（1/4）」の `free` の表 | コピーに使っていないバッファの `free` は保留されない → 加えて、コピーに使ったバッファの `free` は投入の完了まで保留される | `buffers_freed_while_their_copy_is_gated_are_held_until_completion` |
+| 同上 | 保留の解き方の記述なし → 保留したバッファは `allocate`・`submit`・`submit_many`・`poll` のどれを呼んでも、投入が終わっていれば解かれる | `held_buffers_are_released_at_each_recovery_point` |

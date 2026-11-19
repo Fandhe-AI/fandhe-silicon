@@ -7084,3 +7084,385 @@ mod copy_clear_tests {
         assert!(!subs.is_unfinished(5));
     }
 }
+/// バッファのコピーとクリアの記録と投入の、CUDA の device に触る試験。device の無い環境では流さない（TASK-624 のポインタ）。
+#[cfg(all(test, feature = "native-blocking-wait"))]
+mod copy_clear_device_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const LEN: u64 = 64;
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 印の写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// 読み書きの両方を許す用途。
+    fn both() -> BufferUsage {
+        BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    /// 0 でない値が並ぶ長さ `LEN` の列。`seed` で並びを変える。
+    fn pattern(seed: u8) -> Vec<u8> {
+        (0..LEN)
+            .map(|i| u8::try_from(i % 200).unwrap_or(0).wrapping_add(seed) | 1)
+            .collect()
+    }
+
+    /// 確保して `bytes` を先頭から書く。
+    fn filled(d: &CudaDevice, bytes: &[u8]) -> BufferHandle {
+        let h = d.allocate(LEN, both()).expect("allocate");
+        d.upload(&h, 0, bytes).expect("upload");
+        h
+    }
+
+    /// バッファ全体の読み戻し。
+    fn read(d: &CudaDevice, h: &BufferHandle) -> Vec<u8> {
+        d.download_blocking(h, 0, LEN).expect("download")
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// CPU の参照。`dst` の `dst_offset` へ、`src` の `src_offset` からの `size` バイトを写した列。
+    fn copied(
+        dst: &[u8],
+        src: &[u8],
+        src_offset: usize,
+        dst_offset: usize,
+        size: usize,
+    ) -> Vec<u8> {
+        let mut out = dst.to_vec();
+        out[dst_offset..dst_offset + size].copy_from_slice(&src[src_offset..src_offset + size]);
+        out
+    }
+
+    /// CPU の参照。`bytes` の `offset` からの `size` バイトを 0 にした列。
+    fn cleared(bytes: &[u8], offset: usize, size: usize) -> Vec<u8> {
+        let mut out = bytes.to_vec();
+        out[offset..offset + size].fill(0);
+        out
+    }
+
+    /// 記録の後・投入の前の読み戻しは元の値のまま。投入の完了の後に写しが現れる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_recorded_copy_takes_effect_only_after_submit() {
+        let d = device();
+        let src_bytes = pattern(1);
+        let zeros = vec![0u8; LEN as usize];
+        let src = filled(&d, &src_bytes);
+        let dst = d.allocate(LEN, both()).expect("allocate");
+        let mut enc = d.create_encoder();
+        assert_eq!(
+            d.copy_buffer_to_buffer(&mut enc, &src, 8, &dst, 16, 32),
+            Ok(())
+        );
+        assert_eq!(read(&d, &dst), zeros);
+        let t = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &dst), copied(&zeros, &src_bytes, 8, 16, 32));
+        assert_eq!(read(&d, &src), src_bytes);
+    }
+
+    /// クリアは範囲だけを 0 にし、効くのは投入の完了の後。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_recorded_clear_zeroes_only_the_range() {
+        let d = device();
+        let bytes = pattern(2);
+        let buf = filled(&d, &bytes);
+        let mut enc = d.create_encoder();
+        assert_eq!(d.clear_buffer(&mut enc, &buf, 4, 32), Ok(()));
+        assert_eq!(read(&d, &buf), bytes);
+        let t = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &buf), cleared(&bytes, 4, 32));
+    }
+
+    /// 1 つの記録先の記録は、記録の順に効く。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn records_take_effect_in_record_order() {
+        let d = device();
+        let bytes = pattern(3);
+        let a = filled(&d, &bytes);
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let c = d.allocate(LEN, both()).expect("allocate");
+        let mut enc = d.create_encoder();
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, LEN), Ok(()));
+        assert_eq!(d.clear_buffer(&mut enc, &b, 0, 16), Ok(()));
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &b, 0, &c, 0, LEN), Ok(()));
+        let t = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &t);
+        let expected = cleared(&bytes, 0, 16);
+        assert_eq!(read(&d, &b), expected);
+        assert_eq!(read(&d, &c), expected);
+    }
+
+    /// `submit_many` は渡した記録先の順に効く。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn submit_many_runs_each_encoder_in_the_given_order() {
+        let d = device();
+        let bytes = pattern(4);
+        let a = filled(&d, &bytes);
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let c = d.allocate(LEN, both()).expect("allocate");
+        let mut first = d.create_encoder();
+        let mut second = d.create_encoder();
+        assert_eq!(
+            d.copy_buffer_to_buffer(&mut first, &a, 0, &b, 0, LEN),
+            Ok(())
+        );
+        assert_eq!(
+            d.copy_buffer_to_buffer(&mut second, &b, 0, &c, 0, LEN),
+            Ok(())
+        );
+        let t = d
+            .submit_many(vec![first, second], &[], &[])
+            .expect("submit_many");
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &c), bytes);
+    }
+
+    /// 拒まれた記録は記録先を変えず、続く正しい記録は投入で効く。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_rejected_record_leaves_the_encoder_usable() {
+        let d = device();
+        let bytes = pattern(5);
+        let a = filled(&d, &bytes);
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let download_only = d.allocate(LEN, BufferUsage::DOWNLOAD).expect("allocate");
+        let mut enc = d.create_encoder();
+        let rejected = [
+            // コピーの用途: 先に `UPLOAD` が無い。
+            d.copy_buffer_to_buffer(&mut enc, &a, 0, &download_only, 0, 4),
+            // コピーの範囲: 元の範囲が終わりを越える。
+            d.copy_buffer_to_buffer(&mut enc, &a, 4, &b, 0, LEN),
+            // コピーの整列: 長さが 4 の倍数でない。
+            d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, 3),
+            // コピーの元と先が同じバッファ。
+            d.copy_buffer_to_buffer(&mut enc, &a, 0, &a, 0, 4),
+            // クリアの用途: `UPLOAD` が無い。
+            d.clear_buffer(&mut enc, &download_only, 0, 4),
+            // クリアの範囲。
+            d.clear_buffer(&mut enc, &a, 0, LEN + 4),
+            // クリアの整列: offset が 4 の倍数でない。
+            d.clear_buffer(&mut enc, &a, 2, 4),
+        ];
+        for (index, result) in rejected.iter().enumerate() {
+            assert!(
+                matches!(result, Err(ContractError::InvalidArgument(_))),
+                "record {index}: {result:?}"
+            );
+        }
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, LEN), Ok(()));
+        let t = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &b), bytes);
+        assert_eq!(read(&d, &download_only), vec![0u8; LEN as usize]);
+    }
+
+    /// 長さ 0 のコピーとクリアは `Ok(())` で、何も変えない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_zero_length_record_changes_nothing() {
+        let d = device();
+        let bytes = pattern(6);
+        let a = filled(&d, &bytes);
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let mut enc = d.create_encoder();
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, 0), Ok(()));
+        assert_eq!(d.clear_buffer(&mut enc, &a, 0, 0), Ok(()));
+        let t = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &a), bytes);
+        assert_eq!(read(&d, &b), vec![0u8; LEN as usize]);
+    }
+
+    /// 記録の後に元を `free` すると `submit` は拒まれ、投入の数も次の通し番号も進まない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn freeing_a_recorded_buffer_before_submit_rejects_the_submit() {
+        let d = device();
+        let a = filled(&d, &pattern(7));
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let mut enc = d.create_encoder();
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, LEN), Ok(()));
+        d.free(a);
+        let before = d.test_submitted_count();
+        let rejected = d.submit(enc, &[]);
+        assert!(
+            matches!(rejected, Err(ContractError::InvalidArgument(_))),
+            "{rejected:?}"
+        );
+        assert_eq!(d.test_submitted_count(), before);
+        let next = d.submit(d.create_encoder(), &[]).expect("submit");
+        assert_eq!(next.sequence, before + 1);
+        poll_until_complete(&d, &next);
+        assert_eq!(read(&d, &b), vec![0u8; LEN as usize]);
+    }
+
+    /// 投入の直後に元を `free` しても結果は保たれ、同じ長さの次の確保は全 0。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn freeing_a_buffer_right_after_submit_keeps_the_result() {
+        let d = device();
+        let bytes = pattern(8);
+        let a = filled(&d, &bytes);
+        let b = d.allocate(LEN, both()).expect("allocate");
+        let mut enc = d.create_encoder();
+        assert_eq!(d.copy_buffer_to_buffer(&mut enc, &a, 0, &b, 0, LEN), Ok(()));
+        let t = d.submit(enc, &[]).expect("submit");
+        d.free(a);
+        poll_until_complete(&d, &t);
+        assert_eq!(read(&d, &b), bytes);
+        let next = d.allocate(LEN, both()).expect("allocate");
+        assert_eq!(read(&d, &next), vec![0u8; LEN as usize]);
+    }
+}
+
+/// 門で止めたコピーに使ったバッファの解放の保留と回収の、CUDA の device に触る試験。device の無い環境では流さない（TASK-624 のポインタ）。
+#[cfg(all(test, feature = "fault-injection"))]
+mod copy_clear_gate_device_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const LEN: u64 = 64;
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    /// 印の写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// `poll` を 1 ms 間隔で繰り返し、`Complete` になるまで待つ。10 秒で失敗とする。
+    fn poll_until_complete(d: &CudaDevice, t: &SubmitToken) {
+        let start = Instant::now();
+        loop {
+            match d.poll(copy_of(t)) {
+                CompletionState::Complete => return,
+                CompletionState::Pending => {}
+                other => panic!("unexpected state: {other:?}"),
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the token did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// 解放を保留しているバッファの数。
+    fn held(d: &CudaDevice) -> usize {
+        d.lock().pending.len()
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    /// コピーに使ったバッファの `free` だけが投入の完了まで保留され、完了の後に解かれる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn buffers_freed_while_their_copy_is_gated_are_held_until_completion() {
+        let d = device();
+        let src = d.allocate(LEN, usage()).expect("allocate");
+        let dst = d.allocate(LEN, usage()).expect("allocate");
+        let unused = d.allocate(LEN, usage()).expect("allocate");
+        d.upload(&src, 0, &[1u8; 64]).expect("upload");
+        assert_eq!(d.arm_gate(), Ok(()));
+        let mut enc = d.create_encoder();
+        assert_eq!(
+            d.copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, LEN),
+            Ok(())
+        );
+        let t = d.submit(enc, &[]).expect("submit");
+        d.free(unused);
+        assert_eq!(held(&d), 0);
+        d.free(src);
+        assert_eq!(held(&d), 1);
+        d.free(dst);
+        assert_eq!(held(&d), 2);
+        assert_eq!(d.open_gate(), Ok(()));
+        poll_until_complete(&d, &t);
+        assert_eq!(d.poll(copy_of(&t)), CompletionState::Complete);
+        assert_eq!(held(&d), 0);
+    }
+
+    /// 保留したバッファは、`allocate`・`submit`・`submit_many`・`poll` のどれを呼んでも、投入が終わっていれば解かれる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn held_buffers_are_released_at_each_recovery_point() {
+        let d = device();
+        for point in ["allocate", "submit", "submit_many", "poll"] {
+            let src = d.allocate(LEN, usage()).expect("allocate");
+            let dst = d.allocate(LEN, usage()).expect("allocate");
+            let sync = d.allocate(LEN, usage()).expect("allocate");
+            d.upload(&src, 0, &[1u8; 64]).expect("upload");
+            assert_eq!(d.arm_gate(), Ok(()));
+            let mut enc = d.create_encoder();
+            assert_eq!(
+                d.copy_buffer_to_buffer(&mut enc, &src, 0, &dst, 0, LEN),
+                Ok(())
+            );
+            let t = d.submit(enc, &[]).expect("submit");
+            d.free(src);
+            assert_eq!(held(&d), 1, "{point}: before opening");
+            assert_eq!(d.open_gate(), Ok(()));
+            // 4 バイトの書き込みは stream を同期するが、保留の回収はしない。
+            d.upload(&sync, 0, &[2u8; 4]).expect("upload");
+            assert_eq!(held(&d), 1, "{point}: after syncing");
+            match point {
+                "allocate" => {
+                    let h = d.allocate(LEN, usage()).expect("allocate");
+                    d.free(h);
+                }
+                "submit" => {
+                    d.submit(d.create_encoder(), &[]).expect("submit");
+                }
+                "submit_many" => {
+                    d.submit_many(vec![d.create_encoder()], &[], &[])
+                        .expect("submit_many");
+                }
+                _ => assert_eq!(d.poll(copy_of(&t)), CompletionState::Complete),
+            }
+            assert_eq!(held(&d), 0, "{point}: after the recovery point");
+            d.free(dst);
+            d.free(sync);
+        }
+    }
+}
