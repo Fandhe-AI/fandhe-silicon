@@ -47,8 +47,32 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
 ```
 
+## device の要る試験（2/3）
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `a_gated_submission_stays_pending_until_the_gate_opens` | 門を仕込んで空の投入をし、`poll` と `open_gate` を呼ぶ | 開けるまで `Pending`、開けると上限の半分より早く `Complete`、もう一度開けても `Ok(())` |
+| `a_later_submission_waits_behind_the_gate` | 門を仕込んで空の投入を 2 つする | 2 つ目も開けるまで `Pending`、開けると 2 つとも `Complete` |
+| `a_closed_gate_expires_and_the_submission_completes` | 門を仕込んで空の投入をし、開けない | 先に `Pending`、上限が過ぎると `Complete` |
+| `opening_before_the_submission_leaves_it_ungated` | 門を仕込んで開けてから空の投入をする | 上限の半分より早く `Complete` |
+| `dropping_with_a_closed_gate_returns_before_the_expiry` | 閉じた門を積んだまま `drop` する | 上限の半分より早く戻る |
+| `destroying_with_a_closed_gate_returns_before_the_expiry` | 閉じた門を積んだまま `destroy` する | 上限の半分より早く戻る |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `gate_device_tests`（`crates/contract/src/backend_cuda.rs`） |
+| `cfg` | `#[cfg(all(test, feature = "fault-injection"))]` |
+| `#[ignore]` | `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --lib gate_device_tests
+```
+
+6 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 試験用の門の仕込みと開け | #4455 |
+| 2/3 | 門で止めた投入の device の要る試験 | #4456 |
