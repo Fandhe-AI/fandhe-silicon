@@ -43,8 +43,107 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 
 5 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-605。ポインタのみ）。
+
+時点のコミット: `1fc50468`。`docs/spec` の gitlink は `bfc545a1462bd69953ff876a1ff231348d3352f8`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `crates/contract/tests/backend_cuda_poll.rs` の行頭の `#[test]`・`#[ignore` を `grep -c` で数える | `#[test]` 5・`#[ignore` 5 |
+| (2) | 受け手の試験の名前 | 5 本の関数を 1 つずつ `git grep -n "fn <名前>" -- crates` で引き、`git ls-files` で試験のファイルを引く | 下の出力 (2) |
+| (3) | `poll_ex` の本体の所在 | `git grep -n "fn poll_ex"` を `crates/contract/src/backend_cuda.rs` と `crates/core/src/execution/submit.rs` に当てる | 下の出力 (3) |
+| (4) | device に触らない試験 | `--test backend_cuda_poll`（`backend-cuda,fault-injection`）・core の `--test poll_ex_default`・`--test backend_cuda_unsafe_count` を流す | 下の出力 (4) |
+| (5) | 依存 0 と `[[test]]` の 1 節 | `85c5b226` から HEAD までの `Cargo.lock`・`deps-approved.toml`・`Cargo.toml` の差分、`crates/contract/Cargo.toml` の差分の行、`make deps-check` | 下の出力 (5) |
+| (6) | unsafe の数と本体の差 | `85c5b226` から HEAD までの `backend_cuda_unsafe_count.rs`・`crates/contract/src`・`crates/core` の差分と、`backend_cuda.rs` の `unsafe` の行数 | 下の出力 (6) |
+| (7) | CI | 時点のコミットの main の push の run のジョブの conclusion と headSha、`verify` のログの 5 本の `ignored` の行 | 下の出力 (7) |
+
+(5)・(6) の `85c5b226` は、1/2 の 1 つ前のコミット。
+
+出力 (2):
+
+```text
+$ git grep -n "fn a_gated_submission_polls_pending_without_blocking" -- crates
+crates/contract/tests/backend_cuda_poll.rs:121:fn a_gated_submission_polls_pending_without_blocking() {
+$ git grep -n "fn a_finished_submission_polls_complete_through_both_calls" -- crates
+crates/contract/tests/backend_cuda_poll.rs:144:fn a_finished_submission_polls_complete_through_both_calls() {
+$ git grep -n "fn a_reclaimed_token_polls_complete_while_a_later_one_is_gated" -- crates
+crates/contract/tests/backend_cuda_poll.rs:162:fn a_reclaimed_token_polls_complete_while_a_later_one_is_gated() {
+$ git grep -n "fn tokens_from_before_a_simulated_loss_poll_lost" -- crates
+crates/contract/tests/backend_cuda_poll.rs:184:fn tokens_from_before_a_simulated_loss_poll_lost() {
+$ git grep -n "fn unissued_sequences_poll_lost" -- crates
+crates/contract/tests/backend_cuda_poll.rs:217:fn unissued_sequences_poll_lost() {
+$ git ls-files crates/contract/tests/backend_cuda_poll.rs
+crates/contract/tests/backend_cuda_poll.rs
+```
+
+出力 (3):
+
+```text
+$ git grep -n "fn poll_ex" -- crates/contract/src/backend_cuda.rs | wc -l
+0
+$ git grep -n "fn poll_ex" -- crates/core/src/execution/submit.rs
+crates/core/src/execution/submit.rs:339:    fn poll_ex(&self, token: SubmitToken) -> CompletionStateEx {
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_poll
+running 5 tests
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-core --test poll_ex_default
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat 85c5b226..HEAD -- Cargo.lock deps-approved.toml Cargo.toml
+$ git diff -U0 85c5b226..HEAD -- crates/contract/Cargo.toml | grep '^[-+]' | grep -v -e '^+++ ' -e '^--- '
++[[test]]
++name = "backend_cuda_poll"
++required-features = ["backend-cuda", "fault-injection"]
++
+$ make deps-check
+終了コード 0
+```
+
+出力 (6):
+
+```text
+$ git diff --stat 85c5b226..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs crates/contract/src crates/core
+$ git show 85c5b226:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+```
+
+出力 (7):
+
+```text
+$ gh run view 44592557580 --json conclusion,headSha,jobs
+conclusion: success
+headSha: 1fc504680d26d423e96e367508a17ad01d84dca9
+make verify (fmt + clippy + test): success
+make verify + build-profiles (macos-latest): success
+make deny (cargo-deny): success
+$ gh run view 44592557580 --job <verify のジョブ> --log | grep -E 'test <5 本の名前> \.\.\. ignored, requires a CUDA device' | sort | uniq -c
+      2 test a_finished_submission_polls_complete_through_both_calls ... ignored, requires a CUDA device
+      2 test a_gated_submission_polls_pending_without_blocking ... ignored, requires a CUDA device
+      2 test a_reclaimed_token_polls_complete_while_a_later_one_is_gated ... ignored, requires a CUDA device
+      2 test tokens_from_before_a_simulated_loss_poll_lost ... ignored, requires a CUDA device
+      2 test unissued_sequences_poll_lost ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | poll・poll_ex の device の要る試験を ignore 付きで足す | #5192 |
+| 2/2 | 完了の条件の確かめ | #5193 |
