@@ -214,6 +214,87 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 
 3 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（6/6）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-345。ポインタのみ）。
+
+時点のコミット: `32a1f32a`。`docs/spec` の gitlink は `bfc545a1462bd69953ff876a1ff231348d3352f8`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `pending_release_count_tests` の module と `backend_cuda_pending_release.rs` の `#[test]`・`#[ignore` の行頭の属性の行の数（awk と `grep -c '^#\[ignore'`。行頭を限らないと `//!` のコメントの言及まで当たって 4 になる） | `pending_release_count_tests` は `#[test]` が 1、`#[ignore` が 0。`backend_cuda_pending_release.rs` は `#[test]` が 3、`#[ignore` が 3 |
+| 2 | 受け手の試験の名前 | 試験の名前ごとの `git grep -n "fn <名前>" -- crates`、ファイルは `git ls-files` | 下の出力 |
+| 3 | device に触らない試験 | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_release_count_tests`、`cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_pending_release`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 下の出力 |
+| 4 | 依存 0 と `[[test]]` の 1 節 | `git diff --stat 050a99cc..HEAD -- Cargo.lock deps-approved.toml Cargo.toml`、`git diff -U0 050a99cc..HEAD -- crates/contract/Cargo.toml` の追加・削除の行、`make deps-check` | 前の diff は出力なし。`crates/contract/Cargo.toml` は追加 4 行（`[[test]]`・`name`・`required-features`・空行）で削除 0。`make deps-check` は終了コード 0 |
+| 5 | unsafe の数 | `git diff --stat 050a99cc..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs`、`050a99cc` と `HEAD` の `crates/contract/src/backend_cuda.rs` の `grep -c unsafe`、`cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count` | 下の出力 |
+| 6 | 変えない本体 | `git diff --numstat 050a99cc..HEAD -- crates/contract/src/backend_cuda.rs` の 2 列目 | 追加 32、削除 0 |
+| 7 | CI | `gh run view 44494391417 --json conclusion,headSha,jobs`（`32a1f32a` の main の push の run）、`verify` のジョブのログの 3 つの統合の試験の行 | conclusion `success`、headSha `32a1f32ac8536ea256eff0d3878259402df6f2b3`。`make verify (fmt + clippy + test)`・`make verify + build-profiles (macos-latest)`・`make deny (cargo-deny)` が `success`。ログの行は下の出力 |
+| 8 | 1/3 の表の行と照らす試験 | `free` の中の stream の記録の行を照らす試験の名前、`launch_host_function` の失敗の写しと `self.gate.attach_with` の呼び出しの `git grep -n` | 下の出力。`launch_host_function` の失敗の写し 2 行と `attach_with` の呼び出し 1 行を照らす試験は、`gate_tests`・`gate_device_tests`・`pending_release_count_tests`・`backend_cuda_pending_release` に無い |
+
+(4)・(5)・(6) の `050a99cc` は、4/6 の 1 つ前のコミット。
+
+(2) の出力。
+
+```text
+$ git grep -n "fn each_held_buffer_counts_once_even_for_the_same_submission" -- crates
+crates/contract/src/backend_cuda.rs:7491:    fn each_held_buffer_counts_once_even_for_the_same_submission() {
+$ git grep -n "fn a_freed_copy_source_is_counted_until_the_gated_copy_completes" -- crates
+crates/contract/tests/backend_cuda_pending_release.rs:96:fn a_freed_copy_source_is_counted_until_the_gated_copy_completes() {
+$ git grep -n "fn reading_the_count_does_not_release_held_buffers" -- crates
+crates/contract/tests/backend_cuda_pending_release.rs:130:fn reading_the_count_does_not_release_held_buffers() {
+$ git grep -n "fn freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission" -- crates
+crates/contract/tests/backend_cuda_pending_release.rs:154:fn freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission() {
+$ git ls-files crates/contract/tests/backend_cuda_pending_release.rs
+crates/contract/tests/backend_cuda_pending_release.rs
+```
+
+(3) の出力。
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib pending_release_count_tests
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 117 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_pending_release
+running 3 tests
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+(5) の出力。
+
+```text
+$ git diff --stat 050a99cc..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs
+$ git show 050a99cc:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+(7) の出力。
+
+```text
+$ gh run view 44494391417 --job 135457771791 --log | grep -e 'a_freed_copy_source_is_counted_until_the_gated_copy_completes' -e 'reading_the_count_does_not_release_held_buffers' -e 'freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission' | grep 'ignored, requires a CUDA device' | sed 's/^.*Z //' | sort | uniq -c
+      2 test a_freed_copy_source_is_counted_until_the_gated_copy_completes ... ignored, requires a CUDA device
+      2 test freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission ... ignored, requires a CUDA device
+      2 test reading_the_count_does_not_release_held_buffers ... ignored, requires a CUDA device
+```
+
+(8) の出力。
+
+```text
+$ git grep -n "fn freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission" -- crates
+crates/contract/tests/backend_cuda_pending_release.rs:154:fn freeing_a_buffer_leaves_the_armed_gate_for_the_next_submission() {
+$ git grep -n 'backend_failure("launch_host_function"' -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:2294:            .map_err(|e| backend_failure("launch_host_function", e))?;
+crates/contract/src/backend_cuda.rs:2307:        .map_err(|e| backend_failure("launch_host_function", e))
+$ git grep -n 'self.gate.attach_with' -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:2109:            self.gate.attach_with(|latch| {
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -223,3 +304,4 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 | 3/3 | 完了の条件の確かめ | #4457 |
 | 4/6 | 解放を保留しているバッファの数を CUDA の device で返す | #4458 |
 | 5/6 | 解放の保留の数の device の要る試験を ignore 付きで足す | #4459 |
+| 6/6 | 完了の条件の確かめ | #4460 |
