@@ -48,6 +48,8 @@
 //! `fault-injection` のビルドでは `arm_gate` が門を仕込み、次に成功する投入の event の前に stream へ門を待つ host の関数を積む。
 //! `open_gate` が門を開け、門の待ちには上限があって、過ぎると門は開かずに stream が先へ進む。
 //! `Drop`・`Device::destroy` は同期の前に門を開ける（TASK-345）。
+//!
+//! `pending_release_count` は `free` が解放を保留しているバッファの数を返し、読むだけで回収はしない（TASK-345）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(feature = "fault-injection")]
@@ -2837,6 +2839,14 @@ impl MemoryOps for CudaDevice {
         if let Some(entry) = release {
             self.retire_entry(entry);
         }
+    }
+
+    /// 解放を保留しているバッファの数を返す。
+    ///
+    /// 数えるのは `free` が保留したバッファだけで、再利用の一覧で 0 にし終えるのを待つバッファは数えない。
+    /// 読むだけで回収はしない（TASK-345）。
+    fn pending_release_count(&self) -> Option<u64> {
+        Some(u64::try_from(self.held.load(Ordering::Acquire)).unwrap_or(u64::MAX))
     }
 }
 
@@ -7467,5 +7477,27 @@ mod copy_clear_gate_device_tests {
             d.free(dst);
             d.free(sync);
         }
+    }
+}
+
+/// 解放の保留の数の数え方の、device に触らない試験（TASK-345 のポインタ）。
+#[cfg(test)]
+mod pending_release_count_tests {
+    use super::*;
+
+    // MEM-12
+    /// 同じ投入に使ったバッファも 1 つずつ数え、終わった投入の分だけ減る。
+    #[test]
+    fn each_held_buffer_counts_once_even_for_the_same_submission() {
+        let mut pending = PendingReleases::<char>::default();
+        pending.push(7, 'a');
+        pending.push(7, 'b');
+        pending.push(8, 'c');
+        assert_eq!(pending.len(), 3);
+        assert_eq!(
+            pending.take_finished(|sequence| sequence == 8),
+            vec!['a', 'b']
+        );
+        assert_eq!(pending.len(), 1);
     }
 }
