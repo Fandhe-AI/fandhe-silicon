@@ -252,7 +252,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-on-complete.md` | CUDA の背後実装の完了の通知と検証の報告の受け口（TASK-607）の所在と、本リポの現状の事実・検証の報告の受け口の登録（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・門で止めた投入に登録した callback の device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/cuda-fault-gate.md` | CUDA の背後実装の試験用の門（TASK-345）の所在と、本リポの現状の事実・門の仕込みと開け（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・解放の保留の数（4/6）・解放の保留の数の device の要る試験（5/6）・完了の条件の確かめ（6/6） |
 | `docs/cuda-copy-clear.md` | CUDA の背後実装のバッファのコピーとクリアの記録（TASK-624）の所在と、本リポの現状の事実・記録と投入と解放の保留（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-wait-blocking.md` | CUDA の背後実装の `wait_blocking`（TASK-606）の所在と、本リポの現状の事実・待つ前の照らしと待ちの部品（1/3）・device の要る試験（2/3） |
+| `docs/cuda-wait-blocking.md` | CUDA の背後実装の `wait_blocking`（TASK-606）の所在と、本リポの現状の事実・待つ前の照らしと待ちの部品（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/vulkan-request-no-fallback.md` | Vulkan の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-284）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
