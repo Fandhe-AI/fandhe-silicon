@@ -50,6 +50,10 @@
 //! `Drop`・`Device::destroy` は同期の前に門を開ける（TASK-345）。
 //!
 //! `pending_release_count` は `free` が解放を保留しているバッファの数を返し、読むだけで回収はしない（TASK-345）。
+//!
+//! feature `native-blocking-wait` のビルドの `wait_blocking` は、照らしの後に投入済みの表から待つかを決め、表の錠を放してから
+//! `None` は投入の event を同期し、`Some` は期限まで event の完了を確かめ直す。戻る前に `submit` と同じく、解放を保留した
+//! バッファを回し、終端になった登録済みの callback を呼ぶ（TASK-606）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(feature = "fault-injection")]
@@ -312,8 +316,8 @@ impl LostState {
         drop(old);
     }
 
-    /// 模擬のロストが起きたか。単体の試験だけが読む。
-    #[cfg(test)]
+    /// 模擬のロストが起きたか。単体の試験と `wait_blocking` が読む。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
     fn is_lost(&self) -> bool {
         self.lock().reason.is_some()
     }
@@ -987,7 +991,10 @@ enum GroupState {
 }
 
 /// event の完了を待たずに問い合わせる。問合せの失敗と panic は `Failed`。
-fn event_state(event: &CudaEvent) -> GroupState {
+///
+/// 投入済みの表は event を `Arc` で持ち、再利用の一覧は値で持つので、どちらからも呼べる形にする。
+fn event_state<E: std::borrow::Borrow<CudaEvent>>(event: &E) -> GroupState {
+    let event: &CudaEvent = event.borrow();
     match catch_unwind(AssertUnwindSafe(|| event.try_is_complete())) {
         Ok(Ok(true)) => GroupState::Completed,
         Ok(Ok(false)) => GroupState::Pending,
@@ -1012,6 +1019,8 @@ struct Submissions<G> {
     callbacks: Vec<(u64, u64, CompletionCallback)>,
     /// 直近の `reclaim` で未完了のまま止まった先頭の番号。同じ錠の間はその判定を使い、再び問い合わせない。
     stalled: Option<u64>,
+    /// `wait_blocking` の待ちが失敗した通し番号と、その呼び出しが返した値。
+    wait_failures: BTreeMap<u64, ContractError>,
 }
 
 /// `on_complete` に渡された callback。
@@ -1027,6 +1036,7 @@ impl<G> Submissions<G> {
             failed: BTreeSet::new(),
             callbacks: Vec::new(),
             stalled: None,
+            wait_failures: BTreeMap::new(),
         }
     }
 
@@ -1037,7 +1047,11 @@ impl<G> Submissions<G> {
     ///
     /// 表にあれば列の状態、失敗の集合にある番号と払い出していない番号（0 を含む）は `Lost`、
     /// 回収済みの他は `Complete`。
+    /// `wait_blocking` の待ちが失敗した番号は、表にあっても `Lost`。
     fn state_of(&self, sequence: u64, classify: impl Fn(&G) -> GroupState) -> CompletionState {
+        if self.wait_failures.contains_key(&sequence) {
+            return CompletionState::Lost;
+        }
         if let Some(group) = self.pending.get(&sequence) {
             if self.stalled == Some(sequence) {
                 return CompletionState::Pending;
@@ -1138,8 +1152,39 @@ impl<G> Submissions<G> {
     /// 通し番号が投入済みの表に残っているか。呼ぶ前に `reclaim` しておく。
     ///
     /// 回収が先頭で止まった後ろの番号は、完了していても真になる。
+    /// `wait_blocking` の待ちが失敗した番号は、表から外れても真。
     fn is_unfinished(&self, sequence: u64) -> bool {
-        self.pending.contains_key(&sequence)
+        self.pending.contains_key(&sequence) || self.wait_failures.contains_key(&sequence)
+    }
+
+    /// `wait_blocking` が待つ前に、通し番号から次の一歩を決める。呼ぶ前に `reclaim` しておく。表を変えない。
+    ///
+    /// 払い出していない番号（0 を含む）は `Unissued`、待ちが失敗した番号はその値、失敗の集合にある番号は
+    /// `BackendFailure`、表にあれば `Wait`、回収済みの他は `Done`。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
+    fn wait_step(&self, sequence: u64) -> WaitStep {
+        if sequence == 0 || sequence >= self.next_sequence {
+            return WaitStep::Unissued {
+                last: self.next_sequence.saturating_sub(1),
+            };
+        }
+        if let Some(error) = self.wait_failures.get(&sequence) {
+            return WaitStep::Failed(error.clone());
+        }
+        if self.failed.contains(&sequence) {
+            return WaitStep::Failed(failed_wait_error());
+        }
+        if self.pending.contains_key(&sequence) {
+            WaitStep::Wait
+        } else {
+            WaitStep::Done
+        }
+    }
+
+    /// `wait_blocking` の待ちが失敗した番号に印を付ける。印を付けた番号には、最初に付けた値を持ち続ける。
+    #[cfg(any(test, feature = "native-blocking-wait"))]
+    fn mark_wait_failure(&mut self, sequence: u64, error: ContractError) {
+        self.wait_failures.entry(sequence).or_insert(error);
     }
 
     /// 通し番号の昇順に、決着した先頭から表を外して watermark を進め、止まった先頭の番号を返す。
@@ -1165,6 +1210,80 @@ impl<G> Submissions<G> {
             self.watermark = sequence;
         }
         None
+    }
+}
+
+/// `wait_blocking` が待つ前に投入済みの表から決める次の一歩。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WaitStep {
+    /// 投入の記録の無い番号。`last` は最後に払い出した番号（無ければ 0）。
+    Unissued { last: u64 },
+    /// 失敗した投入。値はそのまま返す。
+    Failed(ContractError),
+    /// 投入して回収済み。
+    Done,
+    /// 投入済みの表にあり、待つ。
+    Wait,
+}
+
+/// 失敗の集合にある番号に `wait_blocking` が返す値。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+fn failed_wait_error() -> ContractError {
+    ContractError::BackendFailure {
+        op: "wait_blocking",
+        backend: BACKEND,
+        detail: "the submission ended with an error".into(),
+    }
+}
+
+/// 投入の記録の無い番号に `wait_blocking` が返す値。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+fn unissued_wait_error(requested: u64, last: u64) -> ContractError {
+    ContractError::InvalidArgument(format!(
+        "wait_blocking: sequence {requested} was not returned by submit on this device (last returned: {last})"
+    ))
+}
+
+/// `wait_blocking` の待つ前の照らし。順は、ロスト済み（今の世代の `DeviceLost`）、別 device の印（`DeviceMismatch`）、
+/// 世代違いの印（印の世代の `DeviceLost`）。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+fn check_wait_token(
+    lost: bool,
+    token: &SubmitToken,
+    device_id: u64,
+    generation: u64,
+) -> Result<(), ContractError> {
+    if lost {
+        return Err(ContractError::DeviceLost { generation });
+    }
+    check_token_owner(token, device_id, generation)
+}
+
+/// 期限つきの待ちで、event の完了を確かめ直す間に挟む時間の上限。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+const WAIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_micros(200);
+
+/// 期限つきの待ち。`probe` が `Pending` の間、`sleep` を挟んで確かめ直し、`elapsed` が `limit` に届いたら `Timeout`。
+///
+/// 1 回目の確かめは期限によらず行う。挟む時間は残りと `WAIT_POLL_INTERVAL` の短い方。
+#[cfg(any(test, feature = "native-blocking-wait"))]
+fn wait_until_limit(
+    limit: std::time::Duration,
+    mut probe: impl FnMut() -> CompletionState,
+    mut elapsed: impl FnMut() -> std::time::Duration,
+    mut sleep: impl FnMut(std::time::Duration),
+) -> Result<CompletionState, ContractError> {
+    loop {
+        match probe() {
+            CompletionState::Pending => {}
+            done => return Ok(done),
+        }
+        let spent = elapsed();
+        if spent >= limit {
+            return Err(ContractError::Timeout);
+        }
+        sleep((limit - spent).min(WAIT_POLL_INTERVAL));
     }
 }
 
@@ -1890,7 +2009,7 @@ struct CudaDevice {
     held: std::sync::atomic::AtomicUsize,
     pipelines: Mutex<Pipelines>,
     open: Arc<OpenEncoders>,
-    submissions: Mutex<Submissions<CudaEvent>>,
+    submissions: Mutex<Submissions<Arc<CudaEvent>>>,
     /// 検証の報告の受け口の登録を置く部品。この背後実装は報告を出さない（TASK-607）。
     validation: ValidationReporter,
 }
@@ -2046,10 +2165,76 @@ impl CudaDevice {
     }
 
     /// 投入済みの表の錠を取る。poison されていても中身を使う。
-    fn lock_submissions(&self) -> MutexGuard<'_, Submissions<CudaEvent>> {
+    fn lock_submissions(&self) -> MutexGuard<'_, Submissions<Arc<CudaEvent>>> {
         self.submissions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 模擬のロスト済みか。`fault-injection` の無いビルドでは常に偽。
+    #[cfg(feature = "native-blocking-wait")]
+    fn is_lost(&self) -> bool {
+        #[cfg(feature = "fault-injection")]
+        let lost = self.lost.is_lost();
+        #[cfg(not(feature = "fault-injection"))]
+        let lost = false;
+        lost
+    }
+
+    /// 投入済みの表にある通し番号の完了を待つ。錠を持たずに呼ぶ。`wait_blocking` から呼ばれる。
+    ///
+    /// `None` は `event` を同期し、失敗は `BackendFailure`（`op` は `event_synchronize`）で番号に印を付ける。
+    /// `Some(limit)` は表の錠を確かめのたびに取り直して完了を確かめ、届かなければ `Timeout`（印は付けない）。
+    /// 待った後の状態が `Lost` なら番号に返す値、`Pending` なら `BackendFailure`。
+    #[cfg(feature = "native-blocking-wait")]
+    fn wait_issued(
+        &self,
+        sequence: u64,
+        event: Option<Arc<CudaEvent>>,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(), ContractError> {
+        let state = match timeout {
+            None => {
+                if let Some(event) = event {
+                    let synced = guard_memory_panic("event_synchronize", || {
+                        event
+                            .synchronize()
+                            .map_err(|e| backend_failure("event_synchronize", e))
+                    });
+                    if let Err(error) = synced {
+                        self.lock_submissions()
+                            .mark_wait_failure(sequence, error.clone());
+                        return Err(error);
+                    }
+                }
+                self.lock_submissions()
+                    .reclaim_and_state_of(sequence, event_state)
+            }
+            Some(limit) => {
+                let started = std::time::Instant::now();
+                wait_until_limit(
+                    limit,
+                    || {
+                        self.lock_submissions()
+                            .reclaim_and_state_of(sequence, event_state)
+                    },
+                    || started.elapsed(),
+                    std::thread::sleep,
+                )?
+            }
+        };
+        match state {
+            CompletionState::Complete => Ok(()),
+            CompletionState::Lost => Err(match self.lock_submissions().wait_step(sequence) {
+                WaitStep::Failed(error) => error,
+                _ => failed_wait_error(),
+            }),
+            CompletionState::Pending => Err(ContractError::BackendFailure {
+                op: "wait_blocking",
+                backend: BACKEND,
+                detail: "submission is still pending after the wait".into(),
+            }),
+        }
     }
 
     /// 試験専用。投入に成功した回数の通算。
@@ -2099,7 +2284,7 @@ impl CudaDevice {
     /// （`op` は `launch_host_function`）で仕込みを残す。門を積んだ後に event の記録が失敗したら、門は積んだまま残り `open_gate` で開く。
     fn issue_event(
         &self,
-        subs: &mut Submissions<CudaEvent>,
+        subs: &mut Submissions<Arc<CudaEvent>>,
         generation: u64,
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
@@ -2113,6 +2298,7 @@ impl CudaDevice {
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
+                    .map(Arc::new)
                     .map_err(|e| backend_failure("record_event", e))
             })
         })?;
@@ -3042,16 +3228,42 @@ impl CommandQueue for CudaDevice {
             std::panic::resume_unwind(payload);
         }
     }
+    /// 投入の完了まで呼び出し元のスレッドで待つ。待つ間は錠を持たない。
+    ///
+    /// 最初に `poll` と同じく解放を保留したバッファを回す。照らす順は、ロスト済み（`DeviceLost`）、別 device の印（`DeviceMismatch`）、世代違いの印（`DeviceLost`）、
+    /// 投入の記録の無い番号（0 を含む。`InvalidArgument`。`timeout` によらず待たない）、
+    /// 失敗した投入（`BackendFailure`）、回収済み（`Ok(())`）、待つ、の順。`None` は event を同期し、`Some` は期限まで
+    /// 完了を確かめ直して届かなければ `Timeout`。失敗した投入・回収済み・待った後は、戻る前に解放を保留した
+    /// バッファを回し、終端になった登録済みの callback を錠の外で呼ぶ。
     #[cfg(feature = "native-blocking-wait")]
     fn wait_blocking(
         &self,
-        _token: SubmitToken,
-        _timeout: Option<std::time::Duration>,
+        token: SubmitToken,
+        timeout: Option<std::time::Duration>,
     ) -> Result<(), ContractError> {
-        Err(ContractError::Unsupported {
-            op: "wait_blocking",
-            backend: BACKEND,
-        })
+        self.release_finished();
+        check_wait_token(self.is_lost(), &token, self.id, self.current_generation())?;
+        let (step, event) = {
+            let mut subs = self.lock_submissions();
+            subs.reclaim(event_state);
+            let step = subs.wait_step(token.sequence);
+            let event = match step {
+                WaitStep::Wait => subs.pending.get(&token.sequence).cloned(),
+                _ => None,
+            };
+            (step, event)
+        };
+        let result = match step {
+            WaitStep::Unissued { last } => {
+                return Err(unissued_wait_error(token.sequence, last));
+            }
+            WaitStep::Failed(error) => Err(error),
+            WaitStep::Done => Ok(()),
+            WaitStep::Wait => self.wait_issued(token.sequence, event, timeout),
+        };
+        self.release_finished();
+        self.drive_callbacks();
+        result
     }
     fn dispatch_ex(
         &self,
@@ -7499,5 +7711,200 @@ mod pending_release_count_tests {
             vec!['a', 'b']
         );
         assert_eq!(pending.len(), 1);
+    }
+}
+
+/// `wait_blocking` の照らしの順と待ちの部品の、device に触らない試験（TASK-606 のポインタ）。
+#[cfg(test)]
+mod wait_blocking_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    fn token(sequence: u64, device_id: u64, generation: u64) -> SubmitToken {
+        SubmitToken::__backend_new(generation, sequence, device_id)
+    }
+
+    /// 完了・失敗・未完了・完了の 4 つを払い出し、回収した表。1 は回収済み、2 は失敗、3・4 は表に残る。
+    fn table() -> Submissions<GroupState> {
+        let mut t = Submissions::<GroupState>::new();
+        for g in [
+            GroupState::Completed,
+            GroupState::Failed,
+            GroupState::Pending,
+            GroupState::Completed,
+        ] {
+            let _ = t.issue(|| Ok(g));
+        }
+        t.reclaim(|g| *g);
+        t
+    }
+
+    // CMD-78
+    /// ロスト済みは別 device の印より先に今の世代の `DeviceLost`、次に別 device、次に世代違い。
+    #[test]
+    fn lost_is_checked_before_the_owner_and_the_generation() {
+        assert_eq!(
+            check_wait_token(true, &token(1, 9, 1), 7, 2),
+            Err(ContractError::DeviceLost { generation: 2 })
+        );
+        assert_eq!(
+            check_wait_token(false, &token(1, 9, 1), 7, 2),
+            Err(ContractError::DeviceMismatch)
+        );
+        assert_eq!(
+            check_wait_token(false, &token(1, 7, 1), 7, 2),
+            Err(ContractError::DeviceLost { generation: 1 })
+        );
+        assert_eq!(check_wait_token(false, &token(1, 7, 2), 7, 2), Ok(()));
+    }
+
+    // CMD-82
+    /// 払い出していない番号（0 と最後の番号より大きいもの）は待たずに `Unissued`。表は変わらない。
+    #[test]
+    fn unissued_sequences_are_rejected_without_changing_the_table() {
+        let t = table();
+        let before = (
+            t.next_sequence,
+            t.watermark,
+            t.pending.len(),
+            t.failed.len(),
+        );
+        assert_eq!(t.wait_step(0), WaitStep::Unissued { last: 4 });
+        assert_eq!(t.wait_step(5), WaitStep::Unissued { last: 4 });
+        assert_eq!(t.wait_step(u64::MAX), WaitStep::Unissued { last: 4 });
+        assert_eq!(
+            (
+                t.next_sequence,
+                t.watermark,
+                t.pending.len(),
+                t.failed.len()
+            ),
+            before
+        );
+        let empty = Submissions::<GroupState>::new();
+        assert_eq!(empty.wait_step(1), WaitStep::Unissued { last: 0 });
+    }
+
+    // CMD-82
+    /// 払い出していない番号の値は `InvalidArgument` で、操作名・要求した番号・最後の番号を載せる。
+    #[test]
+    fn the_unissued_error_names_the_operation_and_both_sequences() {
+        let ContractError::InvalidArgument(text) = unissued_wait_error(9, 4) else {
+            panic!("expected InvalidArgument");
+        };
+        assert!(text.contains("wait_blocking"), "{text}");
+        assert!(text.contains('9'), "{text}");
+        assert!(text.contains('4'), "{text}");
+    }
+
+    /// 回収済みは `Done`、表に残る番号は `Wait`、失敗の集合の番号は `BackendFailure`。
+    #[test]
+    fn issued_sequences_map_to_done_wait_or_failed() {
+        let t = table();
+        assert_eq!(t.wait_step(1), WaitStep::Done);
+        assert_eq!(t.wait_step(2), WaitStep::Failed(failed_wait_error()));
+        assert_eq!(t.wait_step(3), WaitStep::Wait);
+        assert_eq!(t.wait_step(4), WaitStep::Wait);
+        assert!(matches!(
+            failed_wait_error(),
+            ContractError::BackendFailure {
+                op: "wait_blocking",
+                backend: BackendKind::Cuda,
+                ..
+            }
+        ));
+    }
+
+    // CMD-84
+    /// 待ちの失敗の印は最初の値を持ち続け、失敗した投入の値より先に返る。`state_of` は `Lost`、表から外れても完了とみなさない。
+    #[test]
+    fn a_marked_sequence_keeps_its_first_error_and_stays_unfinished() {
+        let mut t = table();
+        let first = backend_failure("event_synchronize", "first");
+        t.mark_wait_failure(3, first.clone());
+        t.mark_wait_failure(3, backend_failure("event_synchronize", "second"));
+        assert_eq!(t.wait_step(3), WaitStep::Failed(first));
+        let failed = backend_failure("event_synchronize", "failed");
+        t.mark_wait_failure(2, failed.clone());
+        assert_eq!(t.wait_step(2), WaitStep::Failed(failed));
+        assert_eq!(t.state_of(3, |g| *g), CompletionState::Lost);
+        t.pending.remove(&3);
+        assert!(t.is_unfinished(3));
+        assert!(!t.is_unfinished(1));
+    }
+
+    // CMD-40
+    /// 期限つきの待ちは、確かめが終端を返せば止まり、期限に届けば `Timeout`。挟む時間は残りと上限の短い方。
+    #[test]
+    fn the_limited_wait_stops_on_a_terminal_state_or_at_the_limit() {
+        let now = Cell::new(Duration::ZERO);
+        let slept = std::cell::RefCell::new(Vec::new());
+        let probes = Cell::new(0);
+        let r = wait_until_limit(
+            Duration::from_micros(500),
+            || {
+                probes.set(probes.get() + 1);
+                CompletionState::Pending
+            },
+            || now.get(),
+            |d| {
+                slept.borrow_mut().push(d);
+                now.set(now.get() + d);
+            },
+        );
+        assert_eq!(r, Err(ContractError::Timeout));
+        assert_eq!(
+            *slept.borrow(),
+            vec![
+                Duration::from_micros(200),
+                Duration::from_micros(200),
+                Duration::from_micros(100)
+            ]
+        );
+        assert_eq!(probes.get(), 4);
+
+        let calls = Cell::new(0);
+        let r = wait_until_limit(
+            Duration::from_secs(1),
+            || {
+                calls.set(calls.get() + 1);
+                if calls.get() < 3 {
+                    CompletionState::Pending
+                } else {
+                    CompletionState::Complete
+                }
+            },
+            || Duration::ZERO,
+            |_| {},
+        );
+        assert_eq!(r, Ok(CompletionState::Complete));
+        assert_eq!(calls.get(), 3);
+    }
+
+    // CMD-40
+    /// 期限 0 でも 1 回は確かめ、終端なら値を返し、未完了なら眠らずに `Timeout`。
+    #[test]
+    fn a_zero_limit_probes_once_and_never_sleeps() {
+        let slept = Cell::new(false);
+        assert_eq!(
+            wait_until_limit(
+                Duration::ZERO,
+                || CompletionState::Lost,
+                || Duration::ZERO,
+                |_| slept.set(true)
+            ),
+            Ok(CompletionState::Lost)
+        );
+        assert_eq!(
+            wait_until_limit(
+                Duration::ZERO,
+                || CompletionState::Pending,
+                || Duration::ZERO,
+                |_| slept.set(true)
+            ),
+            Err(ContractError::Timeout)
+        );
+        assert!(!slept.get());
     }
 }
