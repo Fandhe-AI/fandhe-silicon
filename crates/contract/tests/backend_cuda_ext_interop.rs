@@ -99,9 +99,13 @@ fn extension_ops_keep_the_trait_defaults() {
 fn fault_hooks_are_present_with_default_bodies() {
     let device = new_device();
     let hooks = device.fault_hooks().expect("fault_hooks");
+    assert_eq!(hooks.arm_gate(), Ok(()));
+    assert_eq!(hooks.open_gate(), Ok(()));
     assert_eq!(
-        hooks.arm_gate().unwrap_err(),
-        ContractError::UnsupportedExtensionDefault { op: "arm_gate" }
+        hooks.simulate_runtime_error(String::new()).unwrap_err(),
+        ContractError::UnsupportedExtensionDefault {
+            op: "simulate_runtime_error"
+        }
     );
 }
 

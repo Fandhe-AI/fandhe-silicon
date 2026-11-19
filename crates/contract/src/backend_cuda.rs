@@ -43,11 +43,21 @@
 //! `upload` は確保のときの用途に `UPLOAD` が無ければ、`download_blocking`・`download_async` は `DOWNLOAD` が無ければ、
 //! 範囲を見ずに `InvalidArgument` で拒み、下位の API を呼ばない。照らす順は別の device、世代、表に無いハンドル、用途、範囲で、
 //! 判定には表に記録した用途を使いハンドルの申告は使わない（TASK-342）。
+//!
+//! `fault-injection` のビルドでは `arm_gate` が門を仕込み、次に成功する投入の event の前に stream へ門を待つ host の関数を積む。
+//! `open_gate` が門を開け、門の待ちには上限があって、過ぎると門は開かずに stream が先へ進む。
+//! `Drop`・`Device::destroy` は同期の前に門を開ける（TASK-345）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+#[cfg(feature = "fault-injection")]
+use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+#[cfg(feature = "fault-injection")]
+use std::sync::{Condvar, PoisonError};
+#[cfg(feature = "fault-injection")]
+use std::time::Duration;
 
 use cudarc::driver::{
     CudaContext, CudaEvent, CudaFunction, CudaModule, CudaSlice, CudaStream, DriverError,
@@ -131,6 +141,139 @@ fn take_next(counter: &AtomicU64) -> Option<u64> {
 #[cfg(feature = "fault-injection")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GenerationExhausted;
+
+/// 門の待ちの上限。過ぎると門が閉じたままでも `gate_host_fn` が戻り、stream が先へ進む。
+#[cfg(feature = "fault-injection")]
+const GATE_EXPIRY: Duration = Duration::from_millis(500);
+
+/// 門 1 つの開閉の印。`gate_host_fn` が待ち、`open` が開ける。
+///
+/// device に触らない純粋な型で、`GateState` が仕込みと積んだ門として持つ（TASK-345）。
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct GateLatch {
+    opened: Mutex<bool>,
+    wake: Condvar,
+}
+
+#[cfg(feature = "fault-injection")]
+impl GateLatch {
+    /// 門を開けて、待っているものを全部起こす。何度呼んでもよい。
+    fn open(&self) {
+        let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        *opened = true;
+        self.wake.notify_all();
+    }
+
+    /// 門が開いているか。
+    fn is_open(&self) -> bool {
+        *self.opened.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// 門が開くか `limit` が過ぎるまで待つ。開いていれば `true`、上限が過ぎたら `false`。
+    fn wait_open(&self, limit: Duration) -> bool {
+        let guard = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        let (guard, _) = self
+            .wake
+            .wait_timeout_while(guard, limit, |opened| !*opened)
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard
+    }
+}
+
+/// 試験用の門の状態。仕込んだ門と、stream に積んだ門を錠の中に持つ。
+///
+/// `CudaDevice` が 1 つ持ち、`FaultHooks::arm_gate`・`open_gate` と `issue_event`・`Drop`・`Device::destroy` が使う。
+/// device に触らない純粋な型なので、積む手段は呼び出し側が渡す（TASK-345）。
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct GateState {
+    inner: Mutex<GateInner>,
+}
+
+#[cfg(feature = "fault-injection")]
+#[derive(Default)]
+struct GateInner {
+    /// 仕込んだ門。次に成功する投入が積んで空になる。
+    armed: Option<Arc<GateLatch>>,
+    /// 積んだ門。`open_all` が開けて空にする。
+    issued: Vec<Arc<GateLatch>>,
+}
+
+#[cfg(feature = "fault-injection")]
+impl GateState {
+    /// 錠を取る。poison されていても中身を使う。
+    fn lock(&self) -> MutexGuard<'_, GateInner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// 門を仕込む。仕込み済みなら何もしない。
+    fn arm(&self) {
+        let mut inner = self.lock();
+        if inner.armed.is_none() {
+            inner.armed = Some(Arc::new(GateLatch::default()));
+        }
+    }
+
+    /// 仕込んだ門と積んだ門を全部開ける。錠は開ける前に放す。何度呼んでもよい。
+    fn open_all(&self) {
+        let (armed, issued) = {
+            let mut inner = self.lock();
+            (inner.armed.take(), std::mem::take(&mut inner.issued))
+        };
+        for latch in armed.iter().chain(issued.iter()) {
+            latch.open();
+        }
+    }
+
+    /// 仕込んだ門があれば `launch` に渡して積む。仕込みが無ければ何もしない。
+    ///
+    /// `launch` が `Ok` のときだけ仕込みを消費して積んだ門の一覧に移し、開いた門は一覧から外す。
+    /// `Err` のときは仕込みを残して返す。
+    fn attach_with<E>(
+        &self,
+        launch: impl FnOnce(&Arc<GateLatch>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut inner = self.lock();
+        let Some(latch) = inner.armed.clone() else {
+            return Ok(());
+        };
+        launch(&latch)?;
+        inner.armed = None;
+        inner.issued.retain(|issued| !issued.is_open());
+        inner.issued.push(latch);
+        Ok(())
+    }
+
+    /// 試験専用。門が仕込まれているか。
+    #[cfg(test)]
+    fn is_armed(&self) -> bool {
+        self.lock().armed.is_some()
+    }
+
+    /// 試験専用。積んだ門の数。
+    #[cfg(test)]
+    fn issued_len(&self) -> usize {
+        self.lock().issued.len()
+    }
+}
+
+/// stream に積む host の関数。門が開くか `GATE_EXPIRY` が過ぎるまで待つ。
+///
+/// CUDA の API を呼ばない。panic しない。`arg` の参照は借りるだけで、落とさない。
+///
+/// # Safety
+///
+/// `arg` は `CudaDevice::launch_gate` が `Arc::<GateLatch>::into_raw` で作ったポインタで、その参照はどこでも
+/// 取り戻さないこと（指す `GateLatch` はプロセスの終わりまで生きる）。
+#[cfg(feature = "fault-injection")]
+unsafe extern "C" fn gate_host_fn(arg: *mut c_void) {
+    // SAFETY: `arg` は `launch_gate` が `Arc::into_raw` で作ったポインタで、その参照はどこでも取り戻さない
+    // （上の `# Safety`）。指す `GateLatch` は解放されないので、ここで借りる参照は呼ばれた回数に依らず有効。
+    // `GateLatch` は `Sync` で、ここでは共有の参照だけを作る。
+    let latch = unsafe { &*arg.cast_const().cast::<GateLatch>() };
+    let _ = latch.wait_open(GATE_EXPIRY);
+}
 
 /// 模擬のロストの状態。最初のロストの理由と、登録されたコールバック 1 つを錠の中に持つ。
 ///
@@ -408,6 +551,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             generation: AtomicU64::new(generation),
             #[cfg(feature = "fault-injection")]
             lost: LostState::default(),
+            #[cfg(feature = "fault-injection")]
+            gate: GateState::default(),
             ownership: DeviceOwnership::ProductIndependent,
             adapter_name: attributes.adapter_name,
             limits: LimitsTable {
@@ -1325,6 +1470,9 @@ struct CudaDevice {
     /// 模擬のロストの状態。
     #[cfg(feature = "fault-injection")]
     lost: LostState,
+    /// 試験用の門の状態。
+    #[cfg(feature = "fault-injection")]
+    gate: GateState,
     ownership: DeviceOwnership,
     adapter_name: String,
     limits: LimitsTable,
@@ -1347,7 +1495,10 @@ impl Drop for CudaDevice {
     /// stream を同期してから、登録済みの完了の callback を呼び、再利用の一覧・確保済みのバッファ・
     /// パイプライン・投入の表を解放する。同期を確かめられないときは、それらと stream を解放しない。
     /// ロストの通知は呼ばない。`Drop` から panic は外へ出さない。
+    /// `fault-injection` のビルドでは、同期の前に門を全部開ける。
     fn drop(&mut self) {
+        #[cfg(feature = "fault-injection")]
+        self.gate.open_all();
         let synced = sync_confirmed(|| self.stream.synchronize());
         let generation = self.current_generation();
         // `get_mut` は錠を取らない。callback は表から外した後に呼ぶ。
@@ -1539,12 +1690,18 @@ impl CudaDevice {
     /// stream に event を記録して通し番号を払い出し、印を返す。呼ぶ側が投入済みの表の錠を持つ。
     ///
     /// 記録の失敗は `BackendFailure` で、番号を消費せず表を変えない。完了は待たない。
+    /// `fault-injection` のビルドで門を仕込んであれば、event の前に門を積む。積めなければ `BackendFailure`
+    /// （`op` は `launch_host_function`）で仕込みを残す。門を積んだ後に event の記録が失敗したら、門は積んだまま残り `open_gate` で開く。
     fn issue_event(
         &self,
         subs: &mut Submissions<CudaEvent>,
         generation: u64,
     ) -> Result<SubmitToken, ContractError> {
         let sequence = subs.issue(|| {
+            #[cfg(feature = "fault-injection")]
+            self.gate.attach_with(|latch| {
+                guard_memory_panic("launch_host_function", || self.launch_gate(latch))
+            })?;
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
@@ -1552,6 +1709,28 @@ impl CudaDevice {
             })
         })?;
         Ok(SubmitToken::__backend_new(generation, sequence, self.id))
+    }
+
+    /// 門を待つ host の関数を stream に積む。門の参照を 1 つ `Arc::into_raw` で渡し、取り戻さない。
+    #[cfg(feature = "fault-injection")]
+    fn launch_gate(&self, latch: &Arc<GateLatch>) -> Result<(), ContractError> {
+        self.stream
+            .context()
+            .bind_to_thread()
+            .map_err(|e| backend_failure("launch_host_function", e))?;
+        let arg = Arc::into_raw(Arc::clone(latch)).cast_mut().cast::<c_void>();
+        // SAFETY: stream は `self` が `Arc<CudaStream>` で持ち、ここでは破棄しない。context は直前でこのスレッドに結んだ。
+        // `gate_host_fn` の署名は `launch_host_function` が受ける関数の型と同じで、CUDA の API を呼ばない。
+        // `arg` は `Arc::into_raw` で作り、どこでも取り戻さないので、`gate_host_fn` が呼ばれる回数と、
+        // 積めなかったときの driver の動きに依らず、指す先は有効なまま（`gate_host_fn` の `# Safety` を満たす）。
+        unsafe {
+            cudarc::driver::result::stream::launch_host_function(
+                self.stream.cu_stream(),
+                gate_host_fn,
+                arg,
+            )
+        }
+        .map_err(|e| backend_failure("launch_host_function", e))
     }
 
     /// 回収してから、終端になった登録済みの callback を錠の外で呼ぶ。
@@ -1747,6 +1926,7 @@ impl Device for CudaDevice {
     }
     /// 登録済みの完了の callback を待たずに `Lost` で呼び切り、stream を同期し、`fault-injection` のビルドでは
     /// ロストの通知を `Destroyed` で 1 回呼んでから解放する。最初の panic は解放の後に再送出する。
+    /// `fault-injection` のビルドでは、同期の前に門を全部開ける。
     fn destroy(self: Box<Self>) {
         let flush = |d: &Self| {
             let callbacks = d.lock_submissions().take_all_callbacks();
@@ -1758,6 +1938,8 @@ impl Device for CudaDevice {
             )
         };
         let sync = |d: &Self| {
+            #[cfg(feature = "fault-injection")]
+            d.gate.open_all();
             let _ = sync_confirmed(|| d.stream.synchronize());
         };
         #[cfg(feature = "fault-injection")]
@@ -1815,9 +1997,9 @@ impl ExternalInterop for CudaDevice {
     }
 }
 
-/// 模擬のロストだけを持つ故障の差し込みの口。実際の故障ではない。
+/// 模擬のロストと試験用の門を持つ故障の差し込みの口。実際の故障ではない。
 ///
-/// `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
+/// `simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
 /// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否はここでは持たない。
 #[cfg(feature = "fault-injection")]
 impl FaultHooks for CudaDevice {
@@ -1850,6 +2032,18 @@ impl FaultHooks for CudaDevice {
                 std::panic::resume_unwind(payload);
             }
         }
+        Ok(())
+    }
+
+    /// 次に成功する投入の event の前に積む門を仕込む。仕込み済みなら何もしない。常に `Ok`。
+    fn arm_gate(&self) -> Result<(), ContractError> {
+        self.gate.arm();
+        Ok(())
+    }
+
+    /// 仕込んだ門と積んだ門を全部開ける。何度呼んでもよい。常に `Ok`。
+    fn open_gate(&self) -> Result<(), ContractError> {
+        self.gate.open_all();
         Ok(())
     }
 }
@@ -5303,5 +5497,141 @@ mod on_complete_device_tests {
             assert_eq!(d.validation.delivered_count(), 0);
             assert_eq!(d.validation.undelivered_count(), 0);
         }
+    }
+}
+
+/// 門の部品（`GateLatch`・`GateState`）の device に触らない試験（TASK-345）。
+#[cfg(all(test, feature = "fault-injection"))]
+mod gate_tests {
+    use std::cell::{Cell, RefCell};
+
+    use super::*;
+
+    /// 積む手段の代わり。呼ばれた回数を数え、渡された門を写す。
+    fn recording<'a>(
+        calls: &'a Cell<u32>,
+        seen: &'a RefCell<Vec<Arc<GateLatch>>>,
+    ) -> impl FnOnce(&Arc<GateLatch>) -> Result<(), ()> + 'a {
+        move |latch| {
+            calls.set(calls.get() + 1);
+            seen.borrow_mut().push(Arc::clone(latch));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn attaching_without_an_armed_gate_launches_nothing() {
+        let state = GateState::default();
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        assert_eq!(calls.get(), 0);
+        assert_eq!(state.issued_len(), 0);
+    }
+
+    #[test]
+    fn arming_twice_launches_one_gate_for_the_next_submission_only() {
+        let state = GateState::default();
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        state.arm();
+        state.arm();
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        assert_eq!(calls.get(), 1);
+        assert!(!state.is_armed());
+        assert_eq!(state.issued_len(), 1);
+        assert!(!seen.borrow()[0].is_open());
+    }
+
+    #[test]
+    fn opening_before_the_submission_clears_the_armed_gate() {
+        let state = GateState::default();
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        state.arm();
+        state.open_all();
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        assert_eq!(calls.get(), 0);
+        assert!(!state.is_armed());
+    }
+
+    #[test]
+    fn a_failed_launch_keeps_the_armed_gate() {
+        let state = GateState::default();
+        let failed: RefCell<Vec<Arc<GateLatch>>> = RefCell::new(Vec::new());
+        state.arm();
+        let result = state.attach_with(|latch| {
+            failed.borrow_mut().push(Arc::clone(latch));
+            Err("launch failed")
+        });
+        assert_eq!(result, Err("launch failed"));
+        assert!(state.is_armed());
+        assert_eq!(state.issued_len(), 0);
+
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        let retried: Result<(), &str> = state.attach_with(|latch| {
+            calls.set(calls.get() + 1);
+            seen.borrow_mut().push(Arc::clone(latch));
+            Ok(())
+        });
+        assert_eq!(retried, Ok(()));
+        assert_eq!(calls.get(), 1);
+        assert!(Arc::ptr_eq(&failed.borrow()[0], &seen.borrow()[0]));
+
+        state.open_all();
+        assert!(failed.borrow()[0].is_open());
+    }
+
+    #[test]
+    fn opening_opens_every_issued_gate_and_is_idempotent() {
+        let state = GateState::default();
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        for _ in 0..2 {
+            state.arm();
+            assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        }
+        assert_eq!(state.issued_len(), 2);
+        state.open_all();
+        assert!(seen.borrow().iter().all(|latch| latch.is_open()));
+        assert_eq!(state.issued_len(), 0);
+        state.open_all();
+        assert!(seen.borrow().iter().all(|latch| latch.is_open()));
+    }
+
+    #[test]
+    fn an_opened_gate_is_dropped_from_the_issued_list_on_the_next_attach() {
+        let state = GateState::default();
+        let calls = Cell::new(0);
+        let seen = RefCell::new(Vec::new());
+        state.arm();
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        seen.borrow()[0].open();
+        state.arm();
+        assert_eq!(state.attach_with(recording(&calls, &seen)), Ok(()));
+        assert_eq!(state.issued_len(), 1);
+    }
+
+    #[test]
+    fn waiting_on_a_closed_gate_returns_false_after_the_limit() {
+        let latch = GateLatch::default();
+        assert!(!latch.wait_open(Duration::from_millis(10)));
+        assert!(!latch.is_open());
+    }
+
+    #[test]
+    fn waiting_returns_true_once_another_thread_opens_the_gate() {
+        let latch = Arc::new(GateLatch::default());
+        let opener = {
+            let latch = Arc::clone(&latch);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                latch.open();
+            })
+        };
+        assert!(latch.wait_open(Duration::from_secs(10)));
+        opener.join().expect("opener thread");
     }
 }

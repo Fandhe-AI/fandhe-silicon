@@ -242,14 +242,15 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-create-pipeline.md` | CUDA の背後実装のパイプラインの生成（TASK-803）の所在と、本リポの現状の事実・入力の分類と配置の検査（1/4）・NVRTC のコンパイルとパイプラインの表（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-buffer-pool.md` | CUDA の背後実装のバッファの再利用の一覧とゼロ化（TASK-340）の所在と、本リポの現状の事実・再利用の一覧とゼロ化（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
 | `docs/cuda-capability-query.md` | CUDA の背後実装の能力の問合せ（TASK-175）の所在と、本リポの現状の事実・能力の表と問合せ（1/4）・能力の表の共通の規則の検査（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
-| `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
-| `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958） |
+| `docs/cuda-ext-accessors.md` | CUDA の背後実装の拡張アクセサ（TASK-197）の所在と、本リポの現状の事実・物理 GPU の識別子（1/4）・相互運用と故障の差し込みの口（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）・今の値の補い（base 283f144） |
+| `docs/cuda-simulated-device-lost.md` | CUDA の背後実装の模擬のロスト（TASK-2934）の所在と、本リポの現状の事実・世代の読み方と `free` の照合（1/4）・模擬のロスト（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）・今の値の補い（base 283f144） |
 | `docs/cuda-profile-returns.md` | CUDA の背後実装の `CpuOnly`・`Graphics` の要求と鍵の一覧の外の機能 ID の返し（TASK-169）の所在と、本リポの現状の事実・プロファイルと所有形態の組の拒否と一覧の外の機能 ID（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-device-drop.md` | CUDA の背後実装の device の破棄（TASK-191）の所在と、本リポの現状の事実・device の明示の破棄の口（1/5）・`Drop` の同期と解放（2/5）・明示の破棄（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 70ab958） |
 | `docs/cuda-device-reach.md` | CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 70ab958） |
 | `docs/cuda-create-pipeline-checked.md` | CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/cuda-upload-download.md` | CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/cuda-on-complete.md` | CUDA の背後実装の完了の通知と検証の報告の受け口（TASK-607）の所在と、本リポの現状の事実・検証の報告の受け口の登録（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
+| `docs/cuda-fault-gate.md` | CUDA の背後実装の試験用の門（TASK-345）の所在と、本リポの現状の事実・門の仕込みと開け（1/3） |
 | `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/vulkan-request-no-fallback.md` | Vulkan の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-284）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
