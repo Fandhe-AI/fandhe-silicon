@@ -7970,10 +7970,11 @@ mod copy_clear_device_tests {
     #[ignore = "requires a CUDA device"]
     fn a_dispatch_after_a_clear_is_rejected_by_submit_and_submit_many_without_the_clear() {
         let d = device();
-        let kernel = "extern \"C\" __global__ void k(float* out) { out[0] = 1.0f; }";
+        // NVRTC を経由しないよう、手書きの PTX で試験用のパイプラインを作る。
+        let kernel = ".version 7.0\n.target sm_50\n.address_size 64\n.visible .entry k(.param .u64 out)\n{\n\tret;\n}\n";
         let pipeline = d
             .create_pipeline(
-                PipelineInput::CudaC {
+                PipelineInput::Ptx {
                     source: kernel,
                     entry_point: "k",
                 },
