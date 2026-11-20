@@ -381,15 +381,15 @@ def wr(fn, words):
 for name in sys.argv[2:]:
     if name.startswith("order-gemm-"):
         # 和の順の確かめの種類の合成のケース（TASK-2447）: m=2・k=3・n=2（a 6 語・b 6 語・出力 4 語）。参照は 1.0・2.0・3.0・4.0。
-        # CPU 参照と和の順の参照はネイティブの参照と同じ語で、名前に cpudiff を含めば CPU 参照の語 1 だけ（manifest の照らしで
-        # 拒まれる入力）、orderdiff を含めば和の順の参照の語 0・語 2 を 1 ulp 上げる（偽の node はネイティブの参照の写しを返すので、
-        # 同梱の入力の行はそのまま一致する）。
+        # CPU 参照はネイティブの参照と同じ語で、名前に cpudiff を含めば語 1 だけ 1 ulp 上げる（manifest の照らしで拒まれる入力）。
+        # 和の順の参照はネイティブの参照の語 0・語 2 を 1 ulp 上げた語で、名前に ordersame を含めばネイティブの参照と同じ語
+        # （manifest の照らしで拒まれる入力）。
         nat = [0x3f800000, 0x40000000, 0x40400000, 0x40800000]
         cpu = list(nat)
         if "cpudiff" in name:
             cpu[1] = 0x40000001
         order = list(nat)
-        if "orderdiff" in name:
+        if "ordersame" not in name:
             order[0], order[2] = 0x3f800001, 0x40400001
         cases.append({
             "name": name, "kind": "gemm-order", "m": 2, "k": 3, "n": 2,
@@ -546,6 +546,16 @@ print(" ".join(sorted({r["case"] for r in json.load(open(sys.argv[1]))["rows"] i
     add_neon_ref "${fix}/hf-${name}" "${nc}"
   done
   export FAKE_HOST_FIXTURE="${fix}/hf-${name}" FAKE_ROW_MAP="${fix}/rowmap-${name}"
+  # 和の順の確かめの種類の simd128 の gemm_simd の行は、和の順の参照の写しを結果に置く（TASK-2447）。
+  rm -rf "${fix}/outs-${name}"
+  mkdir -p "${fix}/outs-${name}"
+  python3 -I -c 'import json,shutil,sys
+for r in json.load(open(sys.argv[1]))["rows"]:
+    if str(r.get("case", "")).startswith("order-gemm-") and (r.get("export"), r.get("build")) == ("gemm_simd", "simd128"):
+        shutil.copy(sys.argv[2] + "/" + r["case"] + ".simd128-order.bin", sys.argv[3] + "/" + r["id"] + ".bin")' "${cf}" "${fix}/hf-${name}" "${fix}/outs-${name}"
+  if [ -n "$(ls -A "${fix}/outs-${name}")" ]; then
+    export FAKE_OUTPUTS="${fix}/outs-${name}"
+  fi
   w --wasm "${dummy_wasm}" --wasm-simd128 "${dummy_wasm}" --cases "${cf}"
   reset_gen
   expect "22 ${name}" 0 "summary: rows=${n} match=${n} mismatch=0 not-run=0"
@@ -562,10 +572,11 @@ bundled_check bundled "${fix}/bundled-real.json"
 check "22 bundled cases table names exactly the cases the generated rows use" "$(python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if {c["name"] for c in d["cases"]} == {r["case"] for r in d["rows"] if "case" in r} and len(d["cases"]) == len({c["name"] for c in d["cases"]}) else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
-# 実物の生成の行（export が gemm_ で始まる行）は 17 ケース × 4 組の 68 行にちょうど等しい（ほかの種類の行は数えない）（TASK-999）
-check "22 bundled generated rows are exactly 17 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd)" "$(python3 -I -c 'import json,sys
+# 実物の生成の行（export が gemm_ で始まる行）は 17 ケース × 4 組の 68 行と、和の順の確かめの 3 ケース × 3 組の 9 行に
+# ちょうど等しい（ほかの種類の行は数えない）（TASK-999・TASK-2447）
+check "22 bundled generated rows are exactly 17 cases x (scalar gemm_scalar, scalar gemm_simd, simd128 gemm_scalar, simd128 gemm_simd) and 3 order cases x (simd128 gemm_simd, scalar gemm_simd, scalar gemm_scalar)" "$(python3 -I -c 'import json,sys
 rows = [r for r in json.load(open(sys.argv[1]))["rows"] if str(r.get("export", "")).startswith("gemm_") and r.get("reference_source") == "native-scalar"]
-want = sorted((c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53", "special-gemm-g-01", "special-gemm-g-02", "special-gemm-g-03", "special-gemm-g-04", "special-gemm-g-05", "special-gemm-g-06", "special-gemm-g-07", "special-gemm-g-08", "special-gemm-g-09", "special-gemm-g-10", "special-gemm-g-11", "special-gemm-g-12", "special-gemm-g-13", "special-gemm-e-1") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128")))
+want = sorted([(c, e, b) for c in ("gemm-64", "gemm-256", "gemm-37x41x53", "special-gemm-g-01", "special-gemm-g-02", "special-gemm-g-03", "special-gemm-g-04", "special-gemm-g-05", "special-gemm-g-06", "special-gemm-g-07", "special-gemm-g-08", "special-gemm-g-09", "special-gemm-g-10", "special-gemm-g-11", "special-gemm-g-12", "special-gemm-g-13", "special-gemm-e-1") for e, b in (("gemm_scalar", "scalar"), ("gemm_simd", "scalar"), ("gemm_scalar", "simd128"), ("gemm_simd", "simd128"))] + [(c, e, b) for c in ("order-gemm-64", "order-gemm-256", "order-gemm-37x41x53") for e, b in (("gemm_simd", "simd128"), ("gemm_simd", "scalar"), ("gemm_scalar", "scalar"))])
 got = sorted((r.get("case"), r.get("export"), r.get("build")) for r in rows)
 sys.exit(0 if got == want else 1)' "${CASES_REAL}" && echo 0 || echo 1)"
 # 実物の部分 Top-k の行（export が topk_ で始まる行）は 42 組にちょうど等しい（TASK-996・TASK-2451・TASK-999）

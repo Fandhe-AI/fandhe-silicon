@@ -54,8 +54,67 @@ make test-wasm-node-check
 
 観測した結果は `passed: 720, failed: 0`。
 
+## 和の順の参照と 9 行（2/3）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2447。親 Issue は #1068、この節（2/3）は #6941。
+
+### 所在
+
+| 項目 | 内容 |
+| ---- | ---- |
+| host 側の道具 | `wasm/crates/parity-host/src/lib.rs` の `GEMM_ORDER_CASES`・`build_order_cases`・`simd128_order`・`gemm_cpu_reference`、`GemmCaseSource::SquareFrom`。`wasm-parity-host gen <dir>` が 3 ケースの `.a.bin`・`.b.bin`・`.native-scalar.bin`・`.cpu-reference.bin`・`.simd128-order.bin` と manifest の 3 要素（種類 `gemm-order`）を書く |
+| 試験 | `wasm/crates/parity-host/tests/gemm_order.rs`（10 本）、`wasm/crates/parity-host/tests/recount_expected.rs` の `order_simd_rows_equal_to_native_reference_fail` |
+| 照合の入力 | `wasm/node/cases.json` の行 9 行と `cases` の欄の 3 要素 |
+
+### 3 ケース
+
+| ケース | m・k・n | 入力 |
+| ------ | ------- | ---- |
+| `order-gemm-64` | 64・64・64 | 生成器の位置 0 から `a`、続けて `b`（`gemm-64` と同じ入力） |
+| `order-gemm-256` | 256・256・256 | 生成器の位置 `2 * 64 * 64` から `a`、続けて `b` |
+| `order-gemm-37x41x53` | 37・53・41 | `GemmGateRow::Odd37x41x53`（`gemm-37x41x53` と同じ入力） |
+
+`simd128_order` は各出力を、k を 4 つずつ 4 レーンの積と和（別の演算）で積み、4 レーンを先頭から順に足し、端数の k は昇順の `f32::mul_add` で足した値にする。`gemm_cpu_reference` は `reference_gemm_f32` の出力。
+
+### 9 行
+
+| 行 | export | build | 語ごとのビットで比べる参照 |
+| -- | ------ | ----- | -------------------------- |
+| `order-gemm-<n>-simd128-gemm-simd` | `gemm_simd` | `simd128` | `simd128-order` |
+| `order-gemm-<n>-scalar-gemm-simd` | `gemm_simd` | `scalar` | `cpu-reference` |
+| `order-gemm-<n>-scalar-gemm-scalar` | `gemm_scalar` | `scalar` | `cpu-reference` |
+
+（`<n>` は `64`・`256`・`37x41x53`。9 行とも `reference_source` は `native-scalar`。）
+
+### 試験
+
+| 試験 | 期待 |
+| ---- | ---- |
+| `order_cases_follow_generator_positions` | 3 ケースの名前・寸法と、入力が生成器の位置 0・`2 * 64 * 64` と `GemmGateRow::Odd37x41x53` の値 |
+| `order_cases_share_inputs_with_existing_cases_except_256` | 64³ と 37×41×53 の入力が `build_cases` の同じケースと同じ、256³ は違う |
+| `simd128_order_hand_case` | m=1・k=6・n=1、`a` が `1.0e8`・`3.0` × 5、`b` が `1.0` × 6 で `simd128_order` が `1.0e8`。4 レーンの和を 3 番から足す式は `100000008.0`。`a` が `1.0e8`・`0.0` × 3・`4.0`・`5.0` で `100000008.0`。m=1・k=5・n=1、`a` が `-1.0`・`0.0` × 3・1 + 2^-12、`b` が `1.0` × 4・1 + 2^-12 で 2^-11 + 2^-24 |
+| `simd128_order_rejects_bad_lengths` | `a` の長さが m×k でなければ `Err` |
+| `simd128_order_rejects_unallocatable_output` | m=`usize::MAX`・k=0・n=1（`a`・`b` は空）で `simd128_order` が `Err(GenError::InputFailed)` |
+| `square_from_rejects_unallocatable_inputs` | 1 辺の 2 乗は `usize` に収まり f32 のバイト数が `isize::MAX` を超える `GemmCaseSource::SquareFrom` で `build_case` が `Err(GenError::InputFailed)` |
+| `cpu_reference_matches_core_and_default_scalar` | `gemm_cpu_reference` が `reference_gemm_f32` と `DefaultCpuOps::gemm_scalar` とビットまで同じ |
+| `simd128_order_differs_from_cpu_reference_within_t1` | 3 ケースとも `simd128_order` は `gemm_cpu_reference` とビットの違う語を持ち、`compare_f32(.., T1)` は `is_match()` |
+| `variants_differ_from_simd128_order_by_bits` | レーンの積和を `mul_add` にした式・4 レーンを 3 番から足す式・(0 番 + 1 番) + (2 番 + 3 番) の式は 3 ケースとも `simd128_order` とビットの違う語を持つ。端数を足さない式は k が 4 の倍数のケースで同じ、37×41×53 で全語違う |
+| `order_manifest_entries_match_files` | manifest の 3 要素の鍵の並び・値・ファイル名と、5 つのファイルの中身と sha256 |
+| `order_simd_rows_equal_to_native_reference_fail` | 保存の形の simd128 の 3 行の出力をネイティブの参照の写しにすると、`--recount --expect-cases` が終了コード 1 で、3 行の `recount-bits:` が 0 でない |
+
+### 確かめ方
+
+```sh
+cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test gemm_order
+cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test recount_expected
+make test-wasm-node-check
+```
+
+観測した結果は `10 passed; 0 failed; 0 ignored`・`5 passed; 0 failed; 0 ignored`・`passed: 720, failed: 0`。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | Node での照合に語ごとのビットで直に比べる参照の種類を足す | #6940 |
+| 2/3 | 行列積の simd128 版の和の順の参照と 9 行を照合の入力に足す | #6941 |

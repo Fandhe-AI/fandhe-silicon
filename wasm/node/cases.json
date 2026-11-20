@@ -988,6 +988,69 @@
       "build": "scalar",
       "case": "elementwise-add-scalar-c-0-1",
       "reference_source": "native-neon"
+    },
+    {
+      "id": "order-gemm-64-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "order-gemm-64",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-64-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "order-gemm-64",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-64-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "order-gemm-64",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-256-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "order-gemm-256",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-256-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "order-gemm-256",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-256-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "order-gemm-256",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-37x41x53-simd128-gemm-simd",
+      "export": "gemm_simd",
+      "build": "simd128",
+      "case": "order-gemm-37x41x53",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-37x41x53-scalar-gemm-simd",
+      "export": "gemm_simd",
+      "build": "scalar",
+      "case": "order-gemm-37x41x53",
+      "reference_source": "native-scalar"
+    },
+    {
+      "id": "order-gemm-37x41x53-scalar-gemm-scalar",
+      "export": "gemm_scalar",
+      "build": "scalar",
+      "case": "order-gemm-37x41x53",
+      "reference_source": "native-scalar"
     }
   ],
   "cases": [
@@ -1023,6 +1086,9 @@
     {"name": "special-elementwise-relu-e-2", "kind": "elementwise-special", "dims": {"n": 37}},
     {"name": "special-elementwise-add-scalar-e-2", "kind": "elementwise-special", "dims": {"n": 37}},
     {"name": "topk-e-3", "kind": "topk", "dims": {"n": 37, "k": 5}},
-    {"name": "topk-pad-after-one-finite", "kind": "topk", "dims": {"n": 2, "k": 3}}
+    {"name": "topk-pad-after-one-finite", "kind": "topk", "dims": {"n": 2, "k": 3}},
+    {"name": "order-gemm-64", "kind": "gemm-order", "dims": {"m": 64, "k": 64, "n": 64}},
+    {"name": "order-gemm-256", "kind": "gemm-order", "dims": {"m": 256, "k": 256, "n": 256}},
+    {"name": "order-gemm-37x41x53", "kind": "gemm-order", "dims": {"m": 37, "k": 53, "n": 41}}
   ]
 }

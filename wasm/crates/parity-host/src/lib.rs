@@ -22,6 +22,8 @@
 //! （f32 のリトルエンディアン。最後は `Relu` が core の CPU 参照、`AddScalar` が入力に定数を足した式の列）と、
 //! `topk-e-3`（core の `CaseId::E3` の入力）の `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
 //! `topk-pad-after-one-finite`（core の `PAD_POSITION_INPUTS` の入力）の `.scores.bin`・`.native-scalar.bin`（部分 Top-k の 3 ケースと同じ形）と、
+//! 行列積の和の順の確かめの 3 ケース（`order-gemm-*`）それぞれの `.a.bin`・`.b.bin`・`.native-scalar.bin`・`.cpu-reference.bin`・
+//! `.simd128-order.bin`（f32 のリトルエンディアン。4 つ目は core の CPU 参照、5 つ目は [`simd128_order`] の出力。spec TASK-2447 のポインタ）と、
 //! 各ファイルの sha256 を持つ `manifest.json`。既存のファイルは上書きしない。
 
 use std::ffi::OsString;
@@ -33,6 +35,7 @@ use std::path::{Path, PathBuf};
 use fandhe_silicon_contract::cpu_ops::{CpuOps, DefaultCpuOps, UnaryElementwiseOp};
 use fandhe_silicon_core::hash::sha256_bytes;
 use fandhe_silicon_core::parity::case_inputs::{CaseId, CaseInput, additional_topk_inputs};
+use fandhe_silicon_core::parity::cpu_reference::reference_gemm_f32;
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
 };
@@ -45,6 +48,8 @@ pub enum GemmCaseSource {
     Square(usize),
     /// 生成器の行から作るケース。
     GateRow(GemmGateRow),
+    /// 1 辺が `usize` の正方のケース。新しい生成器を `u64` の数だけ進めてから `a`、続けて `b` を取る。
+    SquareFrom(usize, u64),
 }
 
 /// ケースの表の 1 行。
@@ -146,6 +151,16 @@ fn square_values(rng: &mut SplitMix64, len: usize) -> Vec<f32> {
     (0..len).map(|_| rng.next_signed_unit_f32()).collect()
 }
 
+/// 生成器から `len` 個の値を取る。確保できなければ入力を作れないものとして扱う。
+fn try_square_values(rng: &mut SplitMix64, len: usize) -> Result<Vec<f32>, GenError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(len)
+        .map_err(|_| GenError::InputFailed)?;
+    values.extend((0..len).map(|_| rng.next_signed_unit_f32()));
+    Ok(values)
+}
+
 /// 表の 1 行から入力を作る。
 pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
     match spec.source {
@@ -154,6 +169,21 @@ pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
             let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
             let a = square_values(&mut rng, len);
             let b = square_values(&mut rng, len);
+            Ok(GemmCase {
+                name: spec.name,
+                m: size,
+                k: size,
+                n: size,
+                a,
+                b,
+            })
+        }
+        GemmCaseSource::SquareFrom(size, skip) => {
+            let len = checked_len(size, size)?;
+            let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
+            rng.skip(skip);
+            let a = try_square_values(&mut rng, len)?;
+            let b = try_square_values(&mut rng, len)?;
             Ok(GemmCase {
                 name: spec.name,
                 m: size,
@@ -180,6 +210,68 @@ pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
 /// 3 ケースの入力を作る。
 pub fn build_cases() -> Result<Vec<GemmCase>, GenError> {
     GEMM_CASES.iter().map(build_case).collect()
+}
+
+/// 行列積の和の順の確かめの 3 ケース（64³・256³・37×41×53。spec TASK-2447 のポインタ）。256³ は生成器の
+/// `2 * 64 * 64` 語の後から取る。
+pub const GEMM_ORDER_CASES: [GemmCaseSpec; 3] = [
+    GemmCaseSpec {
+        name: "order-gemm-64",
+        source: GemmCaseSource::Square(64),
+    },
+    GemmCaseSpec {
+        name: "order-gemm-256",
+        source: GemmCaseSource::SquareFrom(256, 2 * 64 * 64),
+    },
+    GemmCaseSpec {
+        name: "order-gemm-37x41x53",
+        source: GemmCaseSource::GateRow(GemmGateRow::Odd37x41x53),
+    },
+];
+
+/// 行列積の和の順の確かめの 3 ケースの入力を作る。
+pub fn build_order_cases() -> Result<Vec<GemmCase>, GenError> {
+    GEMM_ORDER_CASES.iter().map(build_case).collect()
+}
+
+/// 各出力を、k を 4 つずつ 4 レーンの積と和（別の演算）で積み、4 レーンを先頭から順に足し、端数の k は昇順の
+/// `f32::mul_add` で足した値（m×n）を host で返す（spec TASK-2447 のポインタ）。
+/// 製品の `cpu_ops` を呼ばずに書いた式で、wasm32 の simd128 のビルドの `gemm_simd` の出力と語ごとのビットで比べる参照。
+/// 長さが合わない入力は `Err`、出力を確保できない寸法は `Err(GenError::InputFailed)`。
+pub fn simd128_order(case: &GemmCase) -> Result<Vec<f32>, GenError> {
+    let (m, k, n) = (case.m, case.k, case.n);
+    let out_len = checked_len(m, n)?;
+    if case.a.len() != checked_len(m, k)? || case.b.len() != checked_len(k, n)? {
+        return Err(GenError::InputFailed);
+    }
+    let k4 = k - k % 4;
+    let mut out = Vec::new();
+    out.try_reserve_exact(out_len)
+        .map_err(|_| GenError::InputFailed)?;
+    out.resize(out_len, 0.0f32);
+    for i in 0..m {
+        for j in 0..n {
+            let mut lanes = [0.0f32; 4];
+            for p in (0..k4).step_by(4) {
+                for (q, lane) in lanes.iter_mut().enumerate() {
+                    let product = case.a[i * k + p + q] * case.b[(p + q) * n + j];
+                    *lane += product;
+                }
+            }
+            let mut sum = ((lanes[0] + lanes[1]) + lanes[2]) + lanes[3];
+            for p in k4..k {
+                sum = case.a[i * k + p].mul_add(case.b[p * n + j], sum);
+            }
+            out[i * n + j] = sum;
+        }
+    }
+    Ok(out)
+}
+
+/// core の CPU 参照（`reference_gemm_f32`）の出力（m×n）を返す。`Err` は `CpuReferenceFailed`。
+pub fn gemm_cpu_reference(case: &GemmCase) -> Result<Vec<f32>, GenError> {
+    reference_gemm_f32(&case.a, &case.b, case.m, case.k, case.n)
+        .map_err(|_| GenError::CpuReferenceFailed)
 }
 
 /// `DefaultCpuOps::gemm_scalar` の出力（m×n）を返す。
@@ -958,6 +1050,76 @@ fn gemm_special_case_output(spec: &GemmSpecialCaseSpec) -> Result<CaseOutput, Ge
     })
 }
 
+fn gemm_order_case_output(case: &GemmCase) -> Result<CaseOutput, GenError> {
+    let native = native_scalar(case)?;
+    let reference = gemm_cpu_reference(case)?;
+    let order = simd128_order(case)?;
+    let a_file = format!("{}.a.bin", case.name);
+    let b_file = format!("{}.b.bin", case.name);
+    let n_file = format!("{}.native-scalar.bin", case.name);
+    let r_file = format!("{}.cpu-reference.bin", case.name);
+    let o_file = format!("{}.simd128-order.bin", case.name);
+    let a_bytes = f32_le_bytes(&case.a);
+    let b_bytes = f32_le_bytes(&case.b);
+    let n_bytes = f32_le_bytes(&native);
+    let r_bytes = f32_le_bytes(&reference);
+    let o_bytes = f32_le_bytes(&order);
+    let entry = [
+        "    {".to_string(),
+        format!("      \"name\": \"{}\",", case.name),
+        "      \"kind\": \"gemm-order\",".to_string(),
+        format!("      \"m\": {},", case.m),
+        format!("      \"k\": {},", case.k),
+        format!("      \"n\": {},", case.n),
+        format!("      \"a_file\": \"{a_file}\","),
+        format!("      \"b_file\": \"{b_file}\","),
+        format!("      \"native_scalar_file\": \"{n_file}\","),
+        format!("      \"cpu_reference_file\": \"{r_file}\","),
+        format!("      \"simd128_order_file\": \"{o_file}\","),
+        format!("      \"a_sha256\": \"{}\",", hex(&sha256_bytes(&a_bytes))),
+        format!("      \"b_sha256\": \"{}\",", hex(&sha256_bytes(&b_bytes))),
+        format!(
+            "      \"native_scalar_sha256\": \"{}\",",
+            hex(&sha256_bytes(&n_bytes))
+        ),
+        format!(
+            "      \"cpu_reference_sha256\": \"{}\",",
+            hex(&sha256_bytes(&r_bytes))
+        ),
+        format!(
+            "      \"simd128_order_sha256\": \"{}\"",
+            hex(&sha256_bytes(&o_bytes))
+        ),
+        "    }".to_string(),
+    ]
+    .join("\n");
+    Ok(CaseOutput {
+        files: vec![
+            OutFile {
+                name: a_file,
+                bytes: a_bytes,
+            },
+            OutFile {
+                name: b_file,
+                bytes: b_bytes,
+            },
+            OutFile {
+                name: n_file,
+                bytes: n_bytes,
+            },
+            OutFile {
+                name: r_file,
+                bytes: r_bytes,
+            },
+            OutFile {
+                name: o_file,
+                bytes: o_bytes,
+            },
+        ],
+        manifest_entry: entry,
+    })
+}
+
 fn topk_case_output(case: &TopkCase) -> Result<CaseOutput, GenError> {
     let native = native_topk(case)?;
     let scores_file = format!("{}.scores.bin", case.name);
@@ -1125,7 +1287,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), GenError> {
     file.write_all(bytes).map_err(|_| GenError::WriteFailed)
 }
 
-/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 6 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケースの入力・参照・`manifest.json` を書く。
+/// `dir` に GEMM と部分 Top-k の 3 ケースずつ、要素ごと演算の 3 ケース、-0.0 を含む部分 Top-k の 6 ケース、特殊値の GEMM の 14 ケース、特殊値の要素ごと演算の 2 ケース、`topk-e-3` と番兵が出る部分 Top-k の 1 ケース、行列積の和の順の確かめの 3 ケースの入力・参照・`manifest.json` を書く。
 ///
 /// 入力と参照を全部作ってから、書く名前の不在を確かめ、`.bin`、最後に `manifest.json` の順に書く。
 pub fn generate(dir: &Path) -> Result<(), GenError> {
@@ -1156,6 +1318,9 @@ pub fn generate(dir: &Path) -> Result<(), GenError> {
     }
     for case in &build_topk_sentinel_cases()? {
         outputs.push(topk_case_output(case)?);
+    }
+    for case in &build_order_cases()? {
+        outputs.push(gemm_order_case_output(case)?);
     }
 
     let manifest = format!(

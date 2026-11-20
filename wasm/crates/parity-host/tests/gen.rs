@@ -16,7 +16,9 @@ use fandhe_silicon_core::hash::sha256_bytes;
 use fandhe_silicon_core::parity::gemm_inputs::{
     GEMM_INPUT_SEED, GemmGateRow, SplitMix64, generate_f32,
 };
-use wasm_parity_host::{GEMM_CASES, GenError, build_cases, f32_le_bytes, generate, run};
+use wasm_parity_host::{
+    GEMM_CASES, GEMM_ORDER_CASES, GenError, build_cases, f32_le_bytes, generate, run,
+};
 
 /// 試験ごとの一時ディレクトリ。破棄で消す。
 struct TempDir(PathBuf);
@@ -128,6 +130,7 @@ fn manifest_hashes_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     for (i, case) in cases.iter().enumerate() {
         assert_eq!(names[i], case.name);
@@ -460,6 +463,7 @@ fn topk_manifest_entries_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     let mut want = [
         "name",
@@ -659,6 +663,7 @@ fn elementwise_manifest_entries_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     let mut want = vec![
         "name",
@@ -918,6 +923,7 @@ fn signed_zero_manifest_entries_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     let mut want = [
         "name",
@@ -1176,6 +1182,7 @@ fn gemm_special_manifest_entries_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     let mut want = [
         "name",
@@ -1430,6 +1437,7 @@ fn elementwise_special_manifest_entries_match_files() {
             + ELEMENTWISE_SPECIAL_CASES.len()
             + TOPK_E3_CASES.len()
             + TOPK_SENTINEL_CASES.len()
+            + GEMM_ORDER_CASES.len()
     );
     let mut want = [
         "name",
@@ -1585,7 +1593,7 @@ fn topk_e3_manifest_entry_matches_files() {
         + ELEMENTWISE_SPECIAL_CASES.len();
     assert_eq!(
         keys.len(),
-        all_before + TOPK_E3_CASES.len() + TOPK_SENTINEL_CASES.len()
+        all_before + TOPK_E3_CASES.len() + TOPK_SENTINEL_CASES.len() + GEMM_ORDER_CASES.len()
     );
     let mut want = [
         "name",
