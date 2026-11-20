@@ -584,6 +584,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             pipelines: Mutex::new(Pipelines::default()),
             #[cfg(test)]
             nvrtc_calls: AtomicU64::new(0),
+            #[cfg(test)]
+            pipeline_driver_calls: AtomicU64::new(0),
             open: Arc::new(OpenEncoders::default()),
             submissions: Mutex::new(Submissions::new()),
             validation: ValidationReporter::new(),
@@ -2093,6 +2095,10 @@ struct CudaDevice {
     /// `compile_with_nvrtc` に入った回数。試験のビルドだけで数える。
     #[cfg(test)]
     nvrtc_calls: AtomicU64,
+    /// `create_pipeline` が `bind_to_thread`・モジュールの読み込み・関数の取り出しを呼ぶ前に 1 ずつ足す回数。
+    /// 試験のビルドだけで数える。
+    #[cfg(test)]
+    pipeline_driver_calls: AtomicU64,
     open: Arc<OpenEncoders>,
     submissions: Mutex<Submissions<Arc<CudaEvent>>>,
     /// 検証の報告の受け口の登録を置く部品。この背後実装は報告を出さない（TASK-607）。
@@ -3146,8 +3152,12 @@ impl ComputeOps for CudaDevice {
         let (ptx, entry_point) = module_input(accepted, |source| self.compile_with_nvrtc(source))?;
         let ctx = self.stream.context();
         let (module, function) = guard_pipeline_panic(|| {
+            #[cfg(test)]
+            self.pipeline_driver_calls.fetch_add(1, Ordering::SeqCst);
             ctx.bind_to_thread()
                 .map_err(|e| backend_failure("bind_to_thread", e))?;
+            #[cfg(test)]
+            self.pipeline_driver_calls.fetch_add(1, Ordering::SeqCst);
             let module = ctx.load_module(ptx).map_err(|e| {
                 artifact_failure(
                     "module",
@@ -3156,6 +3166,8 @@ impl ComputeOps for CudaDevice {
                     e,
                 )
             })?;
+            #[cfg(test)]
+            self.pipeline_driver_calls.fetch_add(1, Ordering::SeqCst);
             let function = module.load_function(entry_point).map_err(|e| {
                 artifact_failure(
                     "function",
@@ -8733,5 +8745,299 @@ mod pipeline_error_tests {
                 detail,
             }
         );
+    }
+}
+
+/// `create_pipeline` の受け付けない入力と成果物の生成の失敗の、CUDA の device に触る試験。
+/// device の無い環境では流さない（TASK-291 のポインタ）。
+#[cfg(test)]
+mod pipeline_error_device_tests {
+    use super::*;
+    use fandhe_silicon_core::execution::{
+        FunctionConstant, FunctionConstantValue, MslFloatFunctions, MslMathMode,
+    };
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 要素に 1 を足す小さなカーネル。
+    const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
+
+    /// 入口 `k` の MSL。Metal の背後実装の試験の `KERNEL` と同じ文字列。
+    const MSL_KERNEL: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        kernel void k(device float* out [[buffer(0)]], uint tid [[thread_position_in_grid]]) {\n\
+            out[tid] = 1.0;\n\
+        }\n";
+
+    /// function constant の 0 番（`uint`）と 1 番（`bool`）を持つ入口 `k` の MSL。Metal の背後実装の試験の `SPECIALIZED_KERNEL` と同じ文字列。
+    const MSL_SPECIALIZED_KERNEL: &str = "#include <metal_stdlib>\n\
+        using namespace metal;\n\
+        constant uint N [[function_constant(0)]];\n\
+        constant bool B [[function_constant(1)]];\n\
+        kernel void k(device uint* out [[buffer(0)]]) {\n\
+            out[0] = N;\n\
+            if (B) { out[1] = 1; }\n\
+        }\n";
+
+    /// 公開の SPIR-V の仕様のバイナリ形式で組んだ、何もしない compute の入口 `k` の語の列
+    /// （`Shader`・`Logical GLSL450`・`GLCompute`・`LocalSize 1 1 1`）。
+    const SPIRV_WORDS: [u32; 34] = [
+        0x0723_0203,
+        0x0001_0000,
+        0,
+        5,
+        0,
+        0x0002_0011,
+        1,
+        0x0003_000E,
+        0,
+        1,
+        0x0004_000F,
+        5,
+        3,
+        0x0000_006B,
+        0x0006_0010,
+        3,
+        17,
+        1,
+        1,
+        1,
+        0x0002_0013,
+        1,
+        0x0003_0021,
+        2,
+        1,
+        0x0005_0036,
+        1,
+        3,
+        0,
+        2,
+        0x0002_00F8,
+        4,
+        0x0001_00FD,
+        0x0001_0038,
+    ];
+
+    /// DXBC のコンテナの見出しだけの 32 バイト（`DXBC`・0 の digest・版 1.0・全体の長さ 32・部の数 0）。
+    const DXBC_HEADER: [u8; 32] = [
+        0x44, 0x58, 0x42, 0x43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x00,
+        0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn table_len(d: &CudaDevice) -> usize {
+        d.pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .len()
+    }
+
+    /// device の NVRTC の呼び出し口に入った回数。
+    fn nvrtc_calls(d: &CudaDevice) -> u64 {
+        d.nvrtc_calls.load(Ordering::SeqCst)
+    }
+
+    /// `create_pipeline` が `bind_to_thread`・モジュールの読み込み・関数の取り出しの前に数えた回数。
+    fn driver_calls(d: &CudaDevice) -> u64 {
+        d.pipeline_driver_calls.load(Ordering::SeqCst)
+    }
+
+    // ERR-7
+    /// 受け付けない 6 つの入力は `unsupported-input` で、理由に受け取った variant と `CudaC`・`Ptx` を載せ、
+    /// `Metal` の語は `MslSpecializedWithOptions` の理由だけに載る。表に足さず、NVRTC の呼び出し口にも
+    /// 下位の API の呼び出しにも入らない。続く `CudaC` の生成は NVRTC に 1 回、下位の API に 3 回入る。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn unsupported_inputs_are_rejected_without_entering_nvrtc_or_the_driver() {
+        within(|| {
+            let d = device();
+            let layout = BindingLayout::new(vec![0]);
+            let constants = [
+                FunctionConstant {
+                    index: 0,
+                    value: FunctionConstantValue::U32(4),
+                },
+                FunctionConstant {
+                    index: 1,
+                    value: FunctionConstantValue::Bool(true),
+                },
+            ];
+            let before = table_len(&d);
+            let cases = [
+                (
+                    PipelineInput::Msl {
+                        source: MSL_KERNEL,
+                        entry_point: "k",
+                    },
+                    "Msl",
+                    false,
+                ),
+                (
+                    PipelineInput::MslSpecialized {
+                        source: MSL_SPECIALIZED_KERNEL,
+                        entry_point: "k",
+                        function_constants: &constants,
+                    },
+                    "MslSpecialized",
+                    false,
+                ),
+                (
+                    PipelineInput::MslWithOptions {
+                        source: MSL_KERNEL,
+                        entry_point: "k",
+                        math_mode: MslMathMode::Safe,
+                    },
+                    "MslWithOptions",
+                    false,
+                ),
+                (
+                    PipelineInput::MslSpecializedWithOptions {
+                        source: MSL_SPECIALIZED_KERNEL,
+                        entry_point: "k",
+                        function_constants: &constants,
+                        math_mode: MslMathMode::Safe,
+                        float_functions: MslFloatFunctions::Precise,
+                    },
+                    "MslSpecializedWithOptions",
+                    true,
+                ),
+                (
+                    PipelineInput::SpirV {
+                        words: &SPIRV_WORDS,
+                        entry_point: "k",
+                    },
+                    "SpirV",
+                    false,
+                ),
+                (
+                    PipelineInput::Dxil {
+                        bytes: &DXBC_HEADER,
+                        entry_point: "k",
+                    },
+                    "Dxil",
+                    false,
+                ),
+            ];
+            for (input, variant, metal_only) in cases {
+                match d.create_pipeline(input, &layout) {
+                    Err(ContractError::ArtifactRejected { kind, reason }) => {
+                        assert_eq!(kind, "unsupported-input", "{variant}");
+                        assert!(reason.contains(variant), "{variant}: {reason}");
+                        assert!(reason.contains("CudaC"), "{variant}: {reason}");
+                        assert!(reason.contains("Ptx"), "{variant}: {reason}");
+                        assert_eq!(reason.contains("Metal"), metal_only, "{variant}: {reason}");
+                        assert!(!reason.contains("metal_stdlib"), "{variant}: {reason}");
+                    }
+                    other => panic!("{variant}: {other:?}"),
+                }
+                assert_eq!(table_len(&d), before, "{variant}");
+                assert_eq!(nvrtc_calls(&d), 0, "{variant}");
+                assert_eq!(driver_calls(&d), 0, "{variant}");
+            }
+            d.create_pipeline(
+                PipelineInput::CudaC {
+                    source: ADD_ONE,
+                    entry_point: "add_one",
+                },
+                &BindingLayout::new(vec![0, 1, 2]),
+            )
+            .expect("cuda c pipeline");
+            assert_eq!(nvrtc_calls(&d), 1);
+            assert_eq!(driver_calls(&d), 3);
+            assert_eq!(table_len(&d), before + 1);
+        });
+    }
+
+    // ERR-63
+    /// コンパイルできない `CudaC` は `cuda-c`、無い入口名は `function`、読み込めない `Ptx` は `module` で、
+    /// 理由は失敗した呼び出しの名前で始まる。どれも表に足さない。NVRTC の呼び出し口と下位の API に入った回数は、
+    /// 失敗した呼び出しまでの分だけ増える。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn artifact_failures_name_the_failed_call_and_add_no_pipeline() {
+        within(|| {
+            let d = device();
+            let layout = BindingLayout::new(vec![0, 1, 2]);
+            let before = table_len(&d);
+            let cases = [
+                (
+                    PipelineInput::CudaC {
+                        source: "this is not CUDA C",
+                        entry_point: "add_one",
+                    },
+                    "cuda-c",
+                    "nvrtcCompileProgram: ",
+                    1,
+                    0,
+                ),
+                (
+                    PipelineInput::CudaC {
+                        source: ADD_ONE,
+                        entry_point: "absent",
+                    },
+                    "function",
+                    "cuModuleGetFunction: ",
+                    2,
+                    3,
+                ),
+                (
+                    PipelineInput::Ptx {
+                        source: "this is not PTX",
+                        entry_point: "add_one",
+                    },
+                    "module",
+                    "cuModuleLoadData: ",
+                    2,
+                    5,
+                ),
+            ];
+            for (input, expected_kind, call, nvrtc, driver) in cases {
+                match d.create_pipeline(input, &layout) {
+                    Err(ContractError::ArtifactRejected { kind, reason }) => {
+                        assert_eq!(kind, expected_kind, "{call}");
+                        assert!(reason.starts_with(call), "{call}: {reason}");
+                    }
+                    other => panic!("{call}: {other:?}"),
+                }
+                assert_eq!(table_len(&d), before, "{call}");
+                assert_eq!(nvrtc_calls(&d), nvrtc, "{call}");
+                assert_eq!(driver_calls(&d), driver, "{call}");
+            }
+        });
     }
 }
