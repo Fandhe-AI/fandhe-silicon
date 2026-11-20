@@ -3,6 +3,11 @@
 TASK-803 の作業のうち、CUDA の背後実装の `ComputeOps::create_pipeline` の所在と、本リポで観測できる事実を置く。
 spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
+> 注記: 本書は `Ptx` を `Unsupported` とした時点の記録として残す。今の `Ptx` の扱い（NVRTC を呼ばずにテキストを読み込む）と、
+> それに伴い名前を変えた試験（`only_cuda_c_is_accepted_and_other_inputs_are_classified` は
+> `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified`、`ptx_is_unsupported_and_msl_is_unsupported_input` は
+> `wgsl_is_unsupported_and_msl_is_unsupported_input`）は [cuda-create-pipeline-ptx.md](cuda-create-pipeline-ptx.md)（TASK-804）を参照する。
+
 ## 記録の所在
 
 記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-803。ポインタのみ）。内容・理由・経緯は本書に置かない。

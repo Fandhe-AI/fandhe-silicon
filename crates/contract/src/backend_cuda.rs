@@ -4920,6 +4920,25 @@ mod device_tests {
         assert_eq!(p.__backend_device_id(), d.id);
     }
 
+    /// 正しい PTX は NVRTC を呼ばずに読み込まれ、この device のパイプラインが作られる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn valid_ptx_creates_a_pipeline_without_calling_nvrtc() {
+        let d = device();
+        let before = d.nvrtc_calls.load(Ordering::SeqCst);
+        let p = d
+            .create_pipeline(
+                PipelineInput::Ptx {
+                    source: ".version 7.0\n.target sm_75\n.address_size 64\n.visible .entry k()\n{\n    ret;\n}\n",
+                    entry_point: "k",
+                },
+                &BindingLayout::new(vec![]),
+            )
+            .expect("pipeline");
+        assert_eq!(p.__backend_device_id(), d.id);
+        assert_eq!(d.nvrtc_calls.load(Ordering::SeqCst), before);
+    }
+
     /// 同じ device で 2 回作ると、識別子が異なる。
     #[test]
     #[ignore = "requires a CUDA device"]

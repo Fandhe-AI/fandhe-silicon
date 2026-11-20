@@ -44,6 +44,12 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 テキストと入口名の両方に NUL のバイトがある `Ptx` は `module`（テキストを先に見る）。
 
+device の要る試験（`#[ignore = "requires a CUDA device"]`）:
+
+| 試験 | 確かめること |
+| ---- | ------------ |
+| `valid_ptx_creates_a_pipeline_without_calling_nvrtc` | 正しい PTX から、この device のパイプラインが作られ、NVRTC の呼び出しの数が増えない |
+
 ## 確かめ方
 
 ```sh
