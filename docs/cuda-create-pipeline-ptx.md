@@ -199,3 +199,13 @@ $ gh run view 44660780805 --log --job "$JOB" | grep -oE 'test backend_cuda::ptx_
 | 1/3 | PTX の入力を NVRTC を呼ばずに読み込む形と NVRTC の呼び出し口を実装する | #5721 |
 | 2/3 | PTX の入力のパイプラインの生成の device の要る試験を ignore 付きで足す | #5722 |
 | 3/3 | 完了の条件の確かめ | #5723 |
+
+## 今の値の補い（base 3dd568de）
+
+記録時点の表と既存の節は書き換えない。以下は base `3dd568de` で確かめた今の値。所在は [cuda-error-mapping](cuda-error-mapping.md) の 1/3 の節（TASK-291）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「PTX の入力の受け付けと NVRTC の呼び出し口（1/3）」の `Msl` と `MslSpecializedWithOptions` の理由の文 | 2 つとも `pipeline input <variant> is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx` → `Msl` はそのまま。`MslSpecializedWithOptions` は `pipeline input MslSpecializedWithOptions is Metal-only and is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx` | `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified`・`unsupported_inputs_name_the_variant_and_the_accepted_inputs` |
+
+「完了の条件の確かめ（3/3）」の節の出力（行番号・`filtered out` の数）は時点のコミット `b745ad06` の記録で、この節では補わない。
