@@ -175,9 +175,20 @@ fn reading_an_unallocatable_count_returns_an_error_instead_of_panicking() {
 #[test]
 fn wall_clock_going_backwards_is_invalid_time() {
     use measure_clock_resolution::check_time_order;
-    assert_eq!(check_time_order(10, 10), Ok(()));
-    assert_eq!(check_time_order(10, 11), Ok(()));
-    assert_eq!(check_time_order(11, 10), Err(ResolutionError::InvalidTime));
+    use std::time::Duration;
+    let d = |s: u64, ms: u32| Duration::new(s, ms * 1_000_000);
+    assert_eq!(check_time_order(d(10, 0), d(10, 0)), Ok(()));
+    assert_eq!(check_time_order(d(10, 0), d(11, 0)), Ok(()));
+    assert_eq!(check_time_order(d(10, 500), d(10, 600)), Ok(()));
+    assert_eq!(
+        check_time_order(d(11, 0), d(10, 0)),
+        Err(ResolutionError::InvalidTime)
+    );
+    // 同じ UNIX 秒の中の逆行。
+    assert_eq!(
+        check_time_order(d(10, 600), d(10, 500)),
+        Err(ResolutionError::InvalidTime)
+    );
 }
 
 #[cfg(unix)]
