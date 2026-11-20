@@ -379,6 +379,28 @@ def wr(fn, words):
         f.write(data)
     return hashlib.sha256(data).hexdigest()
 for name in sys.argv[2:]:
+    if name.startswith("order-gemm-"):
+        # 和の順の確かめの種類の合成のケース（TASK-2447）: m=2・k=3・n=2（a 6 語・b 6 語・出力 4 語）。参照は 1.0・2.0・3.0・4.0。
+        # CPU 参照と和の順の参照はネイティブの参照と同じ語で、名前に cpudiff を含めば CPU 参照の語 1 だけ（manifest の照らしで
+        # 拒まれる入力）、orderdiff を含めば和の順の参照の語 0・語 2 を 1 ulp 上げる（偽の node はネイティブの参照の写しを返すので、
+        # 同梱の入力の行はそのまま一致する）。
+        nat = [0x3f800000, 0x40000000, 0x40400000, 0x40800000]
+        cpu = list(nat)
+        if "cpudiff" in name:
+            cpu[1] = 0x40000001
+        order = list(nat)
+        if "orderdiff" in name:
+            order[0], order[2] = 0x3f800001, 0x40400001
+        cases.append({
+            "name": name, "kind": "gemm-order", "m": 2, "k": 3, "n": 2,
+            "a_file": name + ".a.bin", "b_file": name + ".b.bin", "native_scalar_file": name + ".native-scalar.bin",
+            "cpu_reference_file": name + ".cpu-reference.bin", "simd128_order_file": name + ".simd128-order.bin",
+            "a_sha256": wr(name + ".a.bin", [0x3f800000] * 6), "b_sha256": wr(name + ".b.bin", [0x3f800000] * 6),
+            "native_scalar_sha256": wr(name + ".native-scalar.bin", nat),
+            "cpu_reference_sha256": wr(name + ".cpu-reference.bin", cpu),
+            "simd128_order_sha256": wr(name + ".simd128-order.bin", order),
+        })
+        continue
     if name.startswith("special-gemm-") or name.startswith("special-elementwise-"):
         # 特殊値の入力の種類の合成のケース（TASK-999）: 参照の 8 語は添字の順に 1000.0・1024.0・2^-20・+0・1.0・NaN・+Inf・-Inf。
         # gemm は m=2・k=3・n=4（a 6 語・b 12 語・出力 8 語）、elementwise は n=8（入力は NaN・±Inf・±0 を含む）。
@@ -3485,6 +3507,208 @@ t1_out n-neon.bin 4=40000000
 export FAKE_OUTPUTS="${fix}/outs"
 gw --cases "${fix}/n1.json"
 expect "129 a gemm native-neon row has no neon-count" 0 "row: n-neon match" "!neon-count:"
+reset_gen
+rm -rf "${fix}/outs"
+res_ok
+
+# ---- 和の順の参照の語ごとのビットの比べ（TASK-2447 の 1/3） ----
+
+# od_rows <出力のファイル> <行の接頭辞> <ケース>: 3 組（simd128 の gemm_simd・scalar の gemm_simd・scalar の gemm_scalar）の行の入力を書く。
+od_rows() {
+  python3 -I - "$@" <<'PY'
+import json, sys
+dst, pre, case = sys.argv[1:4]
+rows = []
+for exp, build in (("simd", "simd128"), ("simd", "scalar"), ("scalar", "scalar")):
+    rows.append({"id": "%s-%s-%s" % (pre, exp, build), "export": "gemm_%s" % exp, "build": build, "case": case, "reference_source": "native-scalar"})
+json.dump({"rows": rows}, open(dst, "w"))
+PY
+}
+# od_out <ケース> <行の id> <order|scalar> [添字=語...]: 参照の写し（和の順の参照かネイティブの参照）の語を置き換えた出力を ${fix}/outs に書く。
+od_out() {
+  local src="native-scalar"
+  mkdir -p "${fix}/outs"
+  [ "$3" = "order" ] && src="simd128-order"
+  python3 -I - "${fix}/hf/$1.${src}.bin" "${fix}/outs/$2.bin" "${@:4}" <<'PY'
+import sys
+b = bytearray(open(sys.argv[1], "rb").read())
+for a in sys.argv[3:]:
+    i, w = a.split("=")
+    b[int(i) * 4:int(i) * 4 + 4] = int(w, 16).to_bytes(4, "little")
+open(sys.argv[2], "wb").write(bytes(b))
+PY
+  export FAKE_OUTPUTS="${fix}/outs"
+}
+OD="${fix}/od.json"
+od_rows "${OD}" od order-gemm-orderdiff-a
+OD_CD="${fix}/od-cd.json"
+od_rows "${OD_CD}" od order-gemm-orderdiff-cpudiff
+
+# 130. simd128 の gemm_simd が和の順の参照と、scalar の 2 行が CPU 参照と語ごとのビットで同じなら一致
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+gw --cases "${OD}"
+expect "130 gemm-order rows match" 0 "row: od-simd-simd128 match" "row: od-simd-scalar match" "row: od-scalar-scalar match" "bits-count: od-simd-simd128 mismatches=0 n=4" "bits-count: od-simd-scalar mismatches=0 n=4" "bits-count: od-scalar-scalar mismatches=0 n=4" "cpu-count: od-simd-simd128 mismatches=0 n=4" "t1: od-simd-simd128 " "sha256: order-gemm-orderdiff-a.simd128-order " "sha256: order-gemm-orderdiff-a.cpu-reference " "recount-bits: od-simd-simd128 mismatches=0 n=4" "recount-summary: rows=3 zero=3 nonzero=0 uncompared=0" "summary: rows=3 match=3 mismatch=0 not-run=0"
+check "130 bits-count follows cpu-count and precedes sha256" "$(python3 -I -c 'import sys
+L = open(sys.argv[1]).read().splitlines()
+def first(prefix):
+    return next(i for i, l in enumerate(L) if l.startswith(prefix))
+a = "od-simd-simd128"
+ok = first("count: " + a) < first("cpu-count: " + a) < first("bits-count: " + a) < first("sha256: " + a + " ") < first("t1: " + a)
+ok = ok and first("recount: " + a) < first("recount-cpu: " + a) < first("recount-bits: " + a) < first("recount-summary:")
+sys.exit(0 if ok else 1)' "${OUT_F}" && echo 0 || echo 1)"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 131. simd128 の gemm_simd がネイティブの参照と同じなら、閾値と CPU 参照の比べは通っても不一致
+sp_prep "${OD}" order-gemm-orderdiff-a
+gw --cases "${OD}"
+expect "131 a simd128 output equal to the native reference is a mismatch" 1 "row: od-simd-simd128 mismatch (bits-reference mismatches 2/4)" "count: od-simd-simd128 mismatches=0 n=4" "cpu-count: od-simd-simd128 mismatches=0 n=4" "bits-count: od-simd-simd128 mismatches=2 n=4" "row: od-simd-scalar match" "summary: rows=3 match=2 mismatch=1 not-run=0"
+reset_gen
+
+# 132. 和の順の参照と 1 語だけ違う simd128 の出力は、閾値の内でも不一致
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order 3=40800001
+gw --cases "${OD}"
+expect "132 one word off the order reference is a mismatch" 1 "row: od-simd-simd128 mismatch (bits-reference mismatches 1/4)" "bits-count: od-simd-simd128 mismatches=1 n=4" "recount-bits: od-simd-simd128 mismatches=1 n=4" "recount-summary: rows=3 zero=2 nonzero=1 uncompared=0"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 133. CPU 参照がネイティブの参照と違う manifest は照合の前に終了コード 2
+sp_prep "${OD_CD}" order-gemm-orderdiff-cpudiff
+od_out order-gemm-orderdiff-cpudiff od-simd-simd128 order
+gw --cases "${OD_CD}"
+expect "133 a cpu reference that differs from the native reference stops the run" 2 "error: manifest bits reference differs from the native-scalar reference" "!row:" "!bits-count:"
+reset_gen
+rm -rf "${fix}/outs"
+# 数え直しも同じ照らしを通る（保存の形の CPU 参照の 1 語を書き換え、manifest の sha256 も書き換え後の値に更新する）
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+newdir out133
+gw --cases "${OD}" --output-dir "${work}/out133"
+expect "133 a gemm-order run is saved" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+python3 -I - "${work}/out133" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+fp = os.path.join(d, c["cpu_reference_file"])
+b = bytearray(open(fp, "rb").read())
+b[4:8] = (0x40000001).to_bytes(4, "little")
+open(fp, "wb").write(bytes(b))
+c["cpu_reference_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+w --recount "${work}/out133"
+expect "133 the recount stops on a cpu reference that differs from the native reference" 2 "error: manifest bits reference differs from the native-scalar reference" "!recount-bits:" "!recount-summary:"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 134. 番兵が残った語（書かれない語）は不一致
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order 3=7fc0dead
+gw --cases "${OD}"
+expect "134 an unwritten word is a mismatch" 1 "row: od-simd-simd128 mismatch (mismatches 1/4)" "bits-count: od-simd-simd128 mismatches=1 n=4" "cpu-count: od-simd-simd128 mismatches=1 n=4"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 135. manifest の和の順の参照の鍵・sha256・長さの不正は終了コード 2
+for mode in dropkey badsha shortfile; do
+  sp_prep "${OD}" order-gemm-orderdiff-a
+  python3 -I - "${fix}/hf" "${mode}" <<'PY'
+import hashlib, json, os, sys
+d, mode = sys.argv[1:3]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+fp = os.path.join(d, c["simd128_order_file"])
+if mode == "dropkey":
+    del c["simd128_order_file"]
+elif mode == "badsha":
+    c["simd128_order_sha256"] = "0" * 64
+else:
+    b = open(fp, "rb").read()[:-4]
+    open(fp, "wb").write(b)
+    c["simd128_order_sha256"] = hashlib.sha256(b).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+  gw --cases "${OD}"
+  case "${mode}" in
+    dropkey) want="error: manifest case has missing or unknown keys" ;;
+    badsha) want="error: manifest sha256 mismatch" ;;
+    *) want="error: manifest file length mismatch" ;;
+  esac
+  expect "135 ${mode} of the order reference stops the run" 2 "${want}" "!row:"
+  reset_gen
+done
+
+# 136. 保存の形の和の順の参照を書き換えると、数え直しが不一致を数える
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+newdir out136
+gw --cases "${OD}" --output-dir "${work}/out136"
+expect "136 a gemm-order run is saved" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+python3 -I - "${work}/out136" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+fp = os.path.join(d, c["simd128_order_file"])
+b = bytearray(open(fp, "rb").read())
+b[12:16] = (0x40800001).to_bytes(4, "little")
+open(fp, "wb").write(bytes(b))
+c["simd128_order_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+w --recount "${work}/out136"
+expect "136 the recount sees the changed order reference" 1 "recount-bits: od-simd-simd128 mismatches=1 n=4" "recount-bits: od-simd-scalar mismatches=0 n=4" "recount-summary: rows=3 zero=2 nonzero=1 uncompared=0"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 137. bits の欄を持たない種類の行は bits-count を出さない
+sp_rows "${fix}/od-old.json" old gemm special-gemm-a
+sp_prep "${fix}/od-old.json" special-gemm-a
+gw --cases "${fix}/od-old.json"
+expect "137 rows of kinds without bits have no bits-count" 0 "summary: rows=4 match=4" "!bits-count:" "!recount-bits:"
+reset_gen
+
+# 138. scalar のビルドの行の 1 語だけを 1 ulp 動かすと、通常の参照の比べとビットの比べの両方が数え、括弧は mismatches
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+od_out order-gemm-orderdiff-a od-scalar-scalar scalar 1=40000001
+gw --cases "${OD}"
+expect "138 one word off in a scalar row is a mismatch" 1 "row: od-scalar-scalar mismatch (mismatches 1/4)" "count: od-scalar-scalar mismatches=1 n=4" "cpu-count: od-scalar-scalar mismatches=0 n=4" "bits-count: od-scalar-scalar mismatches=1 n=4" "recount-bits: od-scalar-scalar mismatches=1 n=4" "row: od-simd-simd128 match" "row: od-simd-scalar match" "summary: rows=3 match=2 mismatch=1 not-run=0"
+reset_gen
+rm -rf "${fix}/outs"
+
+# 139. 和の順の参照がネイティブの参照と同じ manifest は照合の前に終了コード 2
+OD_S="${fix}/od-s.json"
+od_rows "${OD_S}" od order-gemm-ordersame
+sp_prep "${OD_S}" order-gemm-ordersame
+gw --cases "${OD_S}"
+expect "139 an order reference equal to the native reference stops the run" 2 "error: manifest bits reference equals the native-scalar reference" "!row:" "!bits-count:"
+reset_gen
+# 数え直しも同じ照らしを通る（保存の形の和の順の参照をネイティブの参照の写しにし、manifest の sha256 も更新する）
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+newdir out139
+gw --cases "${OD}" --output-dir "${work}/out139"
+expect "139 a gemm-order run is saved" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+python3 -I - "${work}/out139" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+b = open(os.path.join(d, c["native_scalar_file"]), "rb").read()
+open(os.path.join(d, c["simd128_order_file"]), "wb").write(b)
+c["simd128_order_sha256"] = hashlib.sha256(b).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+w --recount "${work}/out139"
+expect "139 the recount stops on an order reference equal to the native reference" 2 "error: manifest bits reference equals the native-scalar reference" "!recount-bits:" "!recount-summary:"
 reset_gen
 rm -rf "${fix}/outs"
 res_ok
