@@ -9564,4 +9564,11 @@ mod dispatch_record_tests {
         let clear_only = plan_transfers(&[clear], table, GEN).expect("plan");
         assert_eq!(check_dispatch_gate(&clear_only, false), Ok(()));
     }
+
+    /// 門の定数がどのビルドでも閉じたままであることを、定数を直に照らして守る。
+    /// 開けるときは、カーネルが触る範囲を保証する仕組みと試験を同じ変更で入れる。
+    #[test]
+    fn dispatch_execution_gate_const_stays_closed() {
+        assert!(!std::hint::black_box(DISPATCH_EXECUTION_ENABLED));
+    }
 }
