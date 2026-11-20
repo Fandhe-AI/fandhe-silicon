@@ -159,6 +159,7 @@ fandhe-silicon/
 ├── docs/cpu-ops-elementwise-special.md  # 要素ごとの演算の NaN・±Inf・±0 の確かめの所在・NaN・±Inf・±0 の入力を当てる試験（1/2）・完了の条件の確かめ（2/2）・今の値の補い（base fbbd70d）・今の値の補い（base 2f35b9e）（TASK-2456）
 ├── docs/cpu-ops-gemm-scalar-rules.md  # 行列積の scalar 版の積和の順と特殊値の確かめの所在・積和の順と特殊値の入力の試験（1/2）・完了の条件の確かめ（2/2）（TASK-2445）
 ├── docs/cpu-ops-gemm-wasm-rules.md  # wasm32 の行列積の和の順の確かめの所在・語ごとのビットで比べる参照の種類（1/3）・和の順の参照と 9 行（2/3）・完了の条件の確かめ（3/3）（TASK-2447）
+├── docs/cpu-ops-gemm-neon-rules.md  # 行列積の aarch64 の neon 版の和の順と k の端数の確かめの所在・和の順と k の端数の試験（1/2）（TASK-2446）
 ├── docs/test-frame.md       # 共通の試験の枠の所在と、本リポの現状の事実・置き場と有効になる条件・公開面・振る舞い・振る舞いとテストの対応・入れていないもの・確かめ方（TASK-23）
 ├── docs/test-frame-device-check.md  # 試験の枠が取った device を照らす口（TASK-2945）の所在と、本リポの現状の事実・照らす順と返す値（1/3）・Metal の宣言の試験（2/3）・食い違いと取れない device の試験（2/3 の続き）・完了の条件の確かめ（3/3）・段の表
 ├── docs/rerun-frame.md      # 流し直しの枠と前の記録と比べる道具の所在・振る舞い・対応するテスト・確かめ方・完了の条件の確かめ（8/8）・今の値の補い（base 5ea11ff）・今の値の補い（base 42731d8）・今の値の補い（base e416527）・今の値の補い（base 0f8b01c）・今の値の補い（base 3e32680）（TASK-29）
