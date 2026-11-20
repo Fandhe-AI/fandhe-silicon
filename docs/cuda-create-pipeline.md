@@ -195,3 +195,15 @@ make deny (cargo-deny): success
 | 「今の値の補い（base 1417dc5）」の (1) の行と出力（`backend_cuda::tests`） | `50 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out` → `50 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out`（passed の数は同じ） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::tests` |
 | (2) の行と出力（`backend_cuda::device_tests`） | `0 passed; 0 failed; 11 ignored; 0 measured; 63 filtered out` → `78 filtered out`（ignored は同じ 11） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::device_tests` |
 | `--features backend-cuda --lib backend_cuda` | `57 passed; 0 failed; 19 ignored; 0 measured; 13 filtered out`（`running 76 tests`） | `cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda` |
+
+## 今の値の補い（base 85bc0dbc）
+
+記録時点の表と既存の節は書き換えない。以下は base `85bc0dbc` に対するこの変更の後の今の値。所在は [cuda-create-pipeline-ptx](cuda-create-pipeline-ptx.md) の 1/3 の節（TASK-804）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「入力ごとの返す値と試験」の `Ptx` の行（`Ptx`・`Wgsl`・知らない variant） | `Ptx` は `Unsupported` → `Ptx` は通る（`AcceptedInput::Ptx`）。`Wgsl`・知らない variant は `Unsupported { op: "create_pipeline", backend: Cuda }` のまま | `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified` |
+| 同じ表の `CudaC` の行・`Msl` などの行の試験の名前 | `only_cuda_c_is_accepted_and_other_inputs_are_classified` → `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified` | 同上 |
+| 「device の要る試験（3/4）」の表の `ptx_is_unsupported_and_msl_is_unsupported_input` の行 | `ptx_is_unsupported_and_msl_is_unsupported_input`（PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`）→ `wgsl_is_unsupported_and_msl_is_unsupported_input`（WGSL は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`） | `wgsl_is_unsupported_and_msl_is_unsupported_input`（device の要る試験） |
+| 「入力の分類と配置の検査（1/4）」の順 3（ソースと入口名の NUL のバイト） | `check_no_nul` → `module_input` が `CudaC` では `check_no_nul`、`Ptx` では `check_ptx_no_nul` を呼ぶ（`Ptx` のテキストの NUL は `ArtifactRejected { kind: "module" }`） | `nul_bytes_are_rejected_before_compilation`・`nul_bytes_are_rejected_before_the_module_text_is_made` |
+| 「NVRTC のコンパイルとパイプラインの表（2/4）」の順 4（`CudaC` のソースを PTX にコンパイルする） | `compile_cuda_c` を呼ぶ → `CudaC` は device の `compile_with_nvrtc`（中で `compile_cuda_c`）を 1 回呼ぶ。`Ptx` はこの手順を通らず、テキストをそのまま PTX にして順 5 へ進む | `cuda_c_input_calls_the_compiler_once_with_the_source`・`ptx_input_becomes_the_module_text_without_calling_the_compiler` |
