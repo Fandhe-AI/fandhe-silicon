@@ -3388,8 +3388,9 @@ impl CommandQueue for CudaDevice {
     /// 記録先を投入し、完了を待たずに印を返す。
     ///
     /// 最初に投入済みの表を回収する。空でない `wait` は `Unsupported`、記録先がこの device の
-    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。記録したコピー・クリアのバッファが
-    /// 解放済みなら `InvalidArgument` で、何も積まず番号を消費しない。通れば記録の順に stream へ積んでから event を 1 つ記録する。
+    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。記録したコピー・クリア・dispatch の束縛の
+    /// バッファが解放済みなら `InvalidArgument` で、何も積まず番号を消費しない。この束縛バッファの検査は dispatch を拒む門より先に行う。
+    /// dispatch を含む記録先は、検査が通っても全体が投入されず `Unsupported` を返す（先行するクリア・コピーも反映しない）。通れば記録の順に stream へ積んでから event を 1 つ記録する。
     fn submit(
         &self,
         mut commands: CommandEncoder,
@@ -3416,7 +3417,8 @@ impl CommandQueue for CudaDevice {
     ///
     /// 最初に投入済みの表を回収する。検査の順は、`after` の各印（別 device は `DeviceMismatch`、
     /// 世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、全記録先の所属
-    /// （`InvalidArgument`）、記録したコピー・クリアのバッファの解放済みの確かめ（`InvalidArgument`）。検査に当たると何も投入しない。
+    /// （`InvalidArgument`）、記録したコピー・クリア・dispatch の束縛のバッファの解放済みの確かめ（`InvalidArgument`。dispatch を拒む門より先）、
+    /// dispatch を含む記録先があれば全体を `Unsupported`（どの記録先も反映しない）。検査に当たると何も投入しない。
     /// 1 つの stream に順に積むので、`after` は照合だけで追加の待ちは入れない。通れば、渡した記録先の順に各記録先の記録を積んでから
     /// event を 1 つ記録し、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）。
     fn submit_many(
@@ -8024,6 +8026,66 @@ mod copy_clear_device_tests {
         );
         assert_eq!(read(&d, &first), pattern(3));
         assert_eq!(read(&d, &second), pattern(4));
+    }
+
+    /// 別の device のパイプラインと解放済みのバッファを `dispatch_ex` が拒み、拒否の後も同じ記録先でクリアを記録・投入できる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_rejections_leave_the_encoder_usable_for_a_clear() {
+        let d = device();
+        let other = device();
+        let kernel = ".version 7.0\n.target sm_50\n.address_size 64\n.visible .entry k(.param .u64 out)\n{\n\tret;\n}\n";
+        let make = |dev: &CudaDevice| {
+            dev.create_pipeline(
+                PipelineInput::Ptx {
+                    source: kernel,
+                    entry_point: "k",
+                },
+                &BindingLayout::new(vec![0]),
+            )
+            .expect("pipeline")
+        };
+        let own = make(&d);
+        let foreign = make(&other);
+        let target = filled(&d, &pattern(5));
+        let freed = filled(&d, &pattern(6));
+        let freed_view = BufferHandle::__backend_new(
+            freed.__backend_generation(),
+            freed.__backend_id(),
+            freed.__backend_device_id(),
+            freed.size(),
+            freed.usage(),
+        );
+        d.free(freed);
+        let mut enc = d.create_encoder();
+        let rejected = d.dispatch_ex(
+            &mut enc,
+            &foreign,
+            &[Binding::new(0, &target, 0)],
+            &[],
+            [1, 1, 1],
+            [1, 1, 1],
+            &[],
+        );
+        assert_eq!(rejected, Err(ContractError::DeviceMismatch));
+        let rejected = d.dispatch_ex(
+            &mut enc,
+            &own,
+            &[Binding::new(0, &freed_view, 0)],
+            &[],
+            [1, 1, 1],
+            [1, 1, 1],
+            &[],
+        );
+        assert!(
+            matches!(rejected, Err(ContractError::InvalidArgument(_))),
+            "{rejected:?}"
+        );
+        // 拒否は記録先を変えていないので、クリアだけの記録先として投入が通り、反映される。
+        assert_eq!(d.clear_buffer(&mut enc, &target, 0, LEN), Ok(()));
+        let token = d.submit(enc, &[]).expect("submit");
+        poll_until_complete(&d, &token);
+        assert_eq!(read(&d, &target), vec![0u8; LEN as usize]);
     }
 }
 
