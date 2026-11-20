@@ -6,18 +6,17 @@
 //! 差の分布（差の値 → 回数）を出す。結果は 1 行の JSON にして標準出力へ書き、ファイルは作らない。
 //! 差の計算・最小の値・分布・秒の区間から整数 ns への丸めは、device に触れない純粋な関数として置く。
 //! 値を 0 で埋めず、0 でない差が無いとき・時刻が戻ったとき・有限でないときは [`ResolutionError`] を返す。
-//! 読んだ回数に比例する列は `try_reserve_exact` で確保し、確保できないときは panic せずに
-//! [`ResolutionError::Allocation`] を返す。時刻の順は隣り合う値どうしで比べ、壁時計は秒未満まで比べる。
+//! 読んだ回数・値の数に比例する領域は `try_reserve_exact` で確保した列だけにし、確保できないときは panic せずに
+//! [`ResolutionError::Allocation`] を返す。分布は確保した列を並べて連なりを数え、JSON は出力へ直に書く。
+//! 時刻の順は隣り合う値どうしで比べ、壁時計は秒未満まで比べる。
 //!
 //! spec との対応: `docs/spec/05-tasks.md` の TASK-2950（ポインタのみ）。
 
-use measure_perf::json;
 use measure_perf::record::{CommitSha, Id, RecordError, SessionRef, UtcTime};
 use measure_perf::sample::duration_to_ns;
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
-use std::io::Write;
+use std::io::{self, Write};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// 出力の `task_id` に載せるタスクの ID。
@@ -77,6 +76,14 @@ impl std::error::Error for ResolutionError {}
 /// 値が前より小さい（時刻が戻った）なら [`ResolutionError::InvalidTime`]、
 /// 列の領域を確保できなければ [`ResolutionError::Allocation`]。
 pub fn adjacent_differences(readings_ns: &[u64]) -> Result<Vec<u64>, ResolutionError> {
+    adjacent_differences_in(readings_ns, reserve)
+}
+
+/// [`adjacent_differences`] の本体。差の列の領域を `reserve` で確保し、失敗はそのまま返す。
+fn adjacent_differences_in(
+    readings_ns: &[u64],
+    reserve: impl FnOnce(usize) -> Result<Vec<u64>, ResolutionError>,
+) -> Result<Vec<u64>, ResolutionError> {
     if readings_ns.len() < 2 {
         return Err(ResolutionError::Empty);
     }
@@ -114,13 +121,32 @@ pub fn min_nonzero(values: &[u64]) -> Result<u64, ResolutionError> {
         .ok_or(ResolutionError::NoNonzeroDifference)
 }
 
-/// 値 → 回数の表（値の昇順）を返す。
-pub fn histogram(values: &[u64]) -> BTreeMap<u64, u64> {
-    let mut out = BTreeMap::new();
-    for v in values {
-        *out.entry(*v).or_insert(0) += 1;
+/// `values` をその場で昇順に並べ、値 → 回数（値の昇順）を [`runs`] で返す。新しい領域を確保しない。
+pub fn histogram(values: &mut [u64]) -> Runs<'_> {
+    values.sort_unstable();
+    runs(values)
+}
+
+/// 昇順に並べた列の、同じ値の連なりを `(値, 回数)` で先頭から順に返す。新しい領域を確保しない。
+pub fn runs(sorted: &[u64]) -> Runs<'_> {
+    Runs { rest: sorted }
+}
+
+/// [`runs`] が返す反復子。
+#[derive(Debug, Clone)]
+pub struct Runs<'a> {
+    rest: &'a [u64],
+}
+
+impl Iterator for Runs<'_> {
+    type Item = (u64, usize);
+
+    fn next(&mut self) -> Option<(u64, usize)> {
+        let value = *self.rest.first()?;
+        let count = self.rest.iter().take_while(|v| **v == value).count();
+        self.rest = &self.rest[count..];
+        Some((value, count))
     }
-    out
 }
 
 /// 異なる値を昇順に並べたときの、隣り合う値の差の列を返す（異なる値が 2 つ未満なら空）。
@@ -221,31 +247,27 @@ pub struct Resolution {
     pub readings: u64,
     /// 0 でない最小の差（ns）。
     pub resolution_ns: u64,
-    /// 差の値（ns）→ 回数。
-    pub differences: BTreeMap<u64, u64>,
+    /// 差の値（ns）を昇順に並べた列。分布（差の値 → 回数）は [`runs`] で数える。
+    pub differences: Vec<u64>,
 }
 
 /// 続けて読んだ時刻（先頭からの ns）から、CPU の時計の分解能と差の分布を作る。
 ///
-/// 差の列を作らず、隣り合う値の差を順に数える。入力が 2 つ未満なら [`ResolutionError::Empty`]、
+/// 差の列を [`adjacent_differences`] で作り、その場で昇順に並べる。入力が 2 つ未満なら [`ResolutionError::Empty`]、
 /// 値が前より小さいなら [`ResolutionError::InvalidTime`]、0 でない差が無ければ
-/// [`ResolutionError::NoNonzeroDifference`]。
+/// [`ResolutionError::NoNonzeroDifference`]、列の領域を確保できなければ [`ResolutionError::Allocation`]。
 pub fn cpu_resolution(readings_ns: &[u64]) -> Result<Resolution, ResolutionError> {
-    if readings_ns.len() < 2 {
-        return Err(ResolutionError::Empty);
-    }
-    let mut differences = BTreeMap::new();
-    let mut resolution_ns: Option<u64> = None;
-    for w in readings_ns.windows(2) {
-        let d = gap(w[0], w[1])?;
-        *differences.entry(d).or_insert(0) += 1;
-        if d != 0 && resolution_ns.is_none_or(|m| d < m) {
-            resolution_ns = Some(d);
-        }
-    }
+    let mut differences = adjacent_differences(readings_ns)?;
+    differences.sort_unstable();
+    let readings = u64::try_from(readings_ns.len()).map_err(|_| ResolutionError::Overflow)?;
+    let resolution_ns = differences
+        .iter()
+        .copied()
+        .find(|d| *d != 0)
+        .ok_or(ResolutionError::NoNonzeroDifference)?;
     Ok(Resolution {
-        readings: u64::try_from(readings_ns.len()).map_err(|_| ResolutionError::Overflow)?,
-        resolution_ns: resolution_ns.ok_or(ResolutionError::NoNonzeroDifference)?,
+        readings,
+        resolution_ns,
         differences,
     })
 }
@@ -262,87 +284,138 @@ pub struct Config {
 }
 
 /// OS から受けた引数（プログラム名を除く）を文字列にする。UTF-8 でない引数は
-/// [`ResolutionError::Usage`]（`invalid value`）。
-pub fn args_from_os(
-    args: impl IntoIterator<Item = OsString>,
-) -> Result<Vec<String>, ResolutionError> {
-    args.into_iter()
-        .map(|a| {
+/// [`ResolutionError::Usage`]（`invalid value`）、列の領域を確保できなければ [`ResolutionError::Allocation`]。
+pub fn args_from_os<I>(args: I) -> Result<Vec<String>, ResolutionError>
+where
+    I: IntoIterator<Item = OsString>,
+    I::IntoIter: ExactSizeIterator,
+{
+    let args = args.into_iter();
+    let mut out = reserve(args.len())?;
+    for a in args {
+        out.push(
             a.into_string()
-                .map_err(|_| ResolutionError::Usage("invalid value"))
-        })
-        .collect()
+                .map_err(|_| ResolutionError::Usage("invalid value"))?,
+        );
+    }
+    Ok(out)
+}
+
+/// 引数の列を、`keys` の並びの値の配列にする。未知の引数・値の欠け・重複は `Err`（[`ResolutionError::Usage`] の文言）。
+fn parse_keys<'a, const N: usize>(
+    args: &'a [String],
+    keys: &[&str; N],
+) -> Result<[Option<&'a str>; N], &'static str> {
+    let mut values = [None; N];
+    let mut it = args.iter();
+    while let Some(key) = it.next() {
+        let slot = keys
+            .iter()
+            .position(|k| *k == key.as_str())
+            .and_then(|i| values.get_mut(i))
+            .ok_or("unknown argument")?;
+        let value = it.next().ok_or("missing value")?;
+        if slot.replace(value.as_str()).is_some() {
+            return Err("duplicate argument");
+        }
+    }
+    Ok(values)
+}
+
+/// `--run-id`・`--session-ref`・`--repo-commit` の値から設定を作る。`--run-id` が無い・形に合わない値は `Err`。
+fn parse_base(
+    run_id: Option<&str>,
+    session_ref: Option<&str>,
+    repo_commit: Option<&str>,
+) -> Result<Config, ResolutionError> {
+    let bad = |_: RecordError| ResolutionError::Usage("invalid value");
+    let run_id = run_id.ok_or(ResolutionError::Usage("--run-id is required"))?;
+    Ok(Config {
+        run_id: Id::parse(run_id).map_err(bad)?,
+        session_ref: match session_ref {
+            Some(v) => SessionRef::Session(Id::parse(v).map_err(bad)?),
+            None => SessionRef::NoSession,
+        },
+        repo_commit: repo_commit.map(CommitSha::parse).transpose().map_err(bad)?,
+    })
 }
 
 /// 引数（プログラム名を除く）を解析する。未知の引数・重複・値の欠け・不正な値は `Err`。必須は `--run-id`。
 pub fn parse_args(args: &[String]) -> Result<Config, ResolutionError> {
     const KEYS: [&str; 3] = ["--run-id", "--session-ref", "--repo-commit"];
-    let mut values: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut it = args.iter();
-    while let Some(key) = it.next() {
-        let key = KEYS
-            .iter()
-            .find(|k| **k == key.as_str())
-            .ok_or(ResolutionError::Usage("unknown argument"))?;
-        let value = it.next().ok_or(ResolutionError::Usage("missing value"))?;
-        if values.insert(key, value).is_some() {
-            return Err(ResolutionError::Usage("duplicate argument"));
-        }
-    }
-    let bad = |_: RecordError| ResolutionError::Usage("invalid value");
-    let run_id = values
-        .get("--run-id")
-        .ok_or(ResolutionError::Usage("--run-id is required"))?;
-    Ok(Config {
-        run_id: Id::parse(run_id).map_err(bad)?,
-        session_ref: match values.get("--session-ref") {
-            Some(v) => SessionRef::Session(Id::parse(v).map_err(bad)?),
-            None => SessionRef::NoSession,
-        },
-        repo_commit: values
-            .get("--repo-commit")
-            .map(|v| CommitSha::parse(v))
-            .transpose()
-            .map_err(bad)?,
-    })
+    let [run_id, session_ref, repo_commit] =
+        parse_keys(args, &KEYS).map_err(ResolutionError::Usage)?;
+    parse_base(run_id, session_ref, repo_commit)
 }
 
-/// 結果の 1 行の JSON（ASCII・欄の順は固定・末尾の改行なし）を作る。
-pub fn summary_json(
+/// 結果の 1 行の JSON（ASCII・欄の順は固定・末尾の改行なし）を `out` に直に書く。文字列を組み立てない。
+///
+/// 書けなければ、その誤りをそのまま返す。
+pub fn write_summary_json(
+    out: &mut impl Write,
     config: &Config,
     started: &UtcTime,
     ended: &UtcTime,
     clock: &str,
     r: &Resolution,
-) -> String {
-    let mut out = String::from("{\"task_id\":");
-    json::push_string(&mut out, TASK_ID);
-    let field = |out: &mut String, key: &str, value: &str| {
-        out.push_str(&format!(",\"{key}\":"));
-        json::push_string(out, value);
-    };
-    field(&mut out, "run_id", config.run_id.as_str());
-    field(&mut out, "session_ref", config.session_ref.as_str());
-    field(&mut out, "started_utc", started.as_str());
-    field(&mut out, "ended_utc", ended.as_str());
-    out.push_str(",\"repo_commit\":");
-    match &config.repo_commit {
-        Some(c) => json::push_string(&mut out, c.as_str()),
-        None => out.push_str("null"),
+) -> io::Result<()> {
+    out.write_all(b"{\"task_id\":")?;
+    write_json_string(out, TASK_ID)?;
+    for (key, value) in [
+        ("run_id", config.run_id.as_str()),
+        ("session_ref", config.session_ref.as_str()),
+        ("started_utc", started.as_str()),
+        ("ended_utc", ended.as_str()),
+    ] {
+        write!(out, ",\"{key}\":")?;
+        write_json_string(out, value)?;
     }
-    field(&mut out, "clock", clock);
-    out.push_str(&format!(
+    out.write_all(b",\"repo_commit\":")?;
+    match &config.repo_commit {
+        Some(c) => write_json_string(out, c.as_str())?,
+        None => out.write_all(b"null")?,
+    }
+    out.write_all(b",\"clock\":")?;
+    write_json_string(out, clock)?;
+    write!(
+        out,
         ",\"readings\":{},\"resolution_ns\":{},\"differences\":[",
         r.readings, r.resolution_ns
-    ));
-    for (i, (value, count)) in r.differences.iter().enumerate() {
+    )?;
+    for (i, (value, count)) in runs(&r.differences).enumerate() {
         if i > 0 {
-            out.push(',');
+            out.write_all(b",")?;
         }
-        out.push_str(&format!("[{value},{count}]"));
+        write!(out, "[{value},{count}]")?;
     }
-    out.push_str("]}");
-    out
+    out.write_all(b"]}")
+}
+
+/// JSON の文字列リテラル（引用符つき）を `out` に直に書く。`measure_perf::json::push_string` と同じバイトを出す。
+///
+/// `"`・`\`・制御文字・非 ASCII をエスケープし、BMP の外の文字はサロゲート対で出す。
+fn write_json_string(out: &mut impl Write, s: &str) -> io::Result<()> {
+    out.write_all(b"\"")?;
+    for c in s.chars() {
+        match c {
+            '"' => out.write_all(b"\\\"")?,
+            '\\' => out.write_all(b"\\\\")?,
+            '\n' => out.write_all(b"\\n")?,
+            '\r' => out.write_all(b"\\r")?,
+            '\t' => out.write_all(b"\\t")?,
+            c if c.is_ascii() && !c.is_ascii_control() => {
+                let mut buf = [0u8; 4];
+                out.write_all(c.encode_utf8(&mut buf).as_bytes())?;
+            }
+            c => {
+                let mut buf = [0u16; 2];
+                for unit in c.encode_utf16(&mut buf) {
+                    write!(out, "\\u{unit:04x}")?;
+                }
+            }
+        }
+    }
+    out.write_all(b"\"")
 }
 
 /// 壁時計の今の時刻（UNIX 時刻からの経過。秒未満を含む）。
@@ -379,14 +452,10 @@ pub fn write_summary(
 ) -> Result<(), ResolutionError> {
     check_time_order(started, ended)?;
     let r = cpu_resolution(readings_ns)?;
-    let line = summary_json(
-        config,
-        &utc_secs(started)?,
-        &utc_secs(ended)?,
-        CLOCK_CPU,
-        &r,
-    );
-    writeln!(out, "{line}").map_err(|_| ResolutionError::Output)?;
+    let (started, ended) = (utc_secs(started)?, utc_secs(ended)?);
+    write_summary_json(out, config, &started, &ended, CLOCK_CPU, &r)
+        .and_then(|()| out.write_all(b"\n"))
+        .map_err(|_| ResolutionError::Output)?;
     out.flush().map_err(|_| ResolutionError::Output)
 }
 
@@ -400,7 +469,37 @@ pub fn run(config: &Config, out: &mut impl Write) -> Result<(), ResolutionError>
 
 #[cfg(test)]
 mod tests {
-    use super::{ResolutionError, distinct_differences_in, reserve};
+    use super::{
+        ResolutionError, adjacent_differences_in, distinct_differences_in, reserve,
+        write_json_string,
+    };
+
+    #[test]
+    fn adjacent_differences_return_a_failure_to_allocate_the_differences() {
+        let mut lengths = Vec::new();
+        let got = adjacent_differences_in(&[0, 41, 83], |len| {
+            lengths.push(len);
+            Err(ResolutionError::Allocation)
+        });
+        assert_eq!(got, Err(ResolutionError::Allocation));
+        assert_eq!(lengths, [2]);
+    }
+
+    #[test]
+    fn json_strings_are_written_with_the_same_bytes_as_push_string() {
+        for s in [
+            "cpu-instant",
+            "",
+            "q\"b\\s\n\r\t\u{1}\u{7f}",
+            "\u{e9}\u{1f600}",
+        ] {
+            let mut expected = String::new();
+            measure_perf::json::push_string(&mut expected, s);
+            let mut got = Vec::new();
+            write_json_string(&mut got, s).unwrap();
+            assert_eq!(got, expected.as_bytes());
+        }
+    }
 
     #[test]
     fn distinct_differences_return_a_failure_to_allocate_the_copy() {

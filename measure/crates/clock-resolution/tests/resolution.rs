@@ -1,11 +1,13 @@
 //! 時刻の分解能の純粋な関数と、CPU の時計の測定・出力の形の試験（TASK-2950 のポインタ）。device に触れない。
 
+use fandhe_silicon_core::hash::sha256_bytes;
 use measure_clock_resolution::{
     CPU_READINGS, Config, ResolutionError, adjacent_differences, args_from_os, check_time_order,
     cpu_resolution, distinct_differences, elapsed_ns, histogram, min_distinct_difference,
-    min_nonzero, parse_args, read_cpu_clock, seconds_span_to_ns, summary_json, write_summary,
+    min_nonzero, parse_args, read_cpu_clock, runs, seconds_span_to_ns, write_summary,
+    write_summary_json,
 };
-use measure_perf::record::{Id, SessionRef, UtcTime};
+use measure_perf::record::{CommitSha, Id, SessionRef, UtcTime};
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -39,11 +41,13 @@ fn min_nonzero_skips_zero_and_rejects_all_zero() {
 
 #[test]
 fn histogram_counts_each_value_in_ascending_order() {
-    let h = histogram(&[41, 0, 41, 42, 0, 0]);
+    let mut values = [41, 0, 41, 42, 0, 0];
     assert_eq!(
-        h.into_iter().collect::<Vec<_>>(),
+        histogram(&mut values).collect::<Vec<_>>(),
         vec![(0, 3), (41, 2), (42, 1)]
     );
+    assert_eq!(values, [0, 0, 0, 41, 41, 42]);
+    assert_eq!(runs(&[]).next(), None);
 }
 
 #[test]
@@ -95,8 +99,9 @@ fn cpu_resolution_reports_min_nonzero_and_distribution() {
     let r = cpu_resolution(&[0, 0, 41, 83, 83, 125]).unwrap();
     assert_eq!(r.readings, 6);
     assert_eq!(r.resolution_ns, 41);
+    assert_eq!(r.differences, vec![0, 0, 41, 42, 42]);
     assert_eq!(
-        r.differences.into_iter().collect::<Vec<_>>(),
+        runs(&r.differences).collect::<Vec<_>>(),
         vec![(0, 2), (41, 1), (42, 2)]
     );
     assert_eq!(
@@ -152,8 +157,10 @@ fn summary_json_has_fixed_fields_and_order() {
     };
     let t = UtcTime::parse("2026-11-20T00:00:00Z").unwrap();
     let r = cpu_resolution(&[0, 41, 41]).unwrap();
+    let mut out = Vec::new();
+    write_summary_json(&mut out, &config, &t, &t, "cpu-instant", &r).unwrap();
     assert_eq!(
-        summary_json(&config, &t, &t, "cpu-instant", &r),
+        String::from_utf8(out).unwrap(),
         "{\"task_id\":\"TASK-2950\",\"run_id\":\"r1\",\"session_ref\":\"s-1\",\"started_utc\":\"2026-11-20T00:00:00Z\",\"ended_utc\":\"2026-11-20T00:00:00Z\",\"repo_commit\":null,\"clock\":\"cpu-instant\",\"readings\":3,\"resolution_ns\":41,\"differences\":[[0,1],[41,1]]}"
     );
 }
@@ -280,4 +287,57 @@ fn a_non_utf8_argument_is_a_usage_error_with_exit_code_2() {
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
     assert_eq!(out.stderr, b"error: usage: invalid value\n");
+}
+
+/// 1 万個の読みの固定の列（差は 0〜1002 ns の 30 通り）。
+fn fixed_readings() -> Vec<u64> {
+    let steps = [0_u64, 41, 42, 83, 41, 125, 0, 42, 1000, 41];
+    let mut readings = vec![0_u64];
+    for i in 1..10_000_u64 {
+        let last = readings[readings.len() - 1];
+        readings.push(last + steps[(i % 10) as usize] + i % 3);
+    }
+    readings
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[test]
+fn the_summary_line_of_fixed_readings_has_fixed_bytes() {
+    let config = Config {
+        run_id: Id::parse("run-2950-a").unwrap(),
+        session_ref: SessionRef::Session(Id::parse("s-20261120-01").unwrap()),
+        repo_commit: Some(CommitSha::parse("0123456789abcdef0123456789abcdef01234567").unwrap()),
+    };
+    let start = Duration::new(1_795_132_800, 600_000_000);
+    let end = Duration::new(1_795_132_861, 250_000_000);
+    let mut out = Sink::default();
+    write_summary(&config, start, end, &fixed_readings(), &mut out).unwrap();
+    assert_eq!(out.bytes.len(), 431);
+    assert_eq!(
+        hex(&sha256_bytes(&out.bytes)),
+        "4bbbcf2b2dacedbc34881cc84d283c20bd3800673dd4d25ef79711b803b93680"
+    );
+}
+
+/// 長さだけを大きく名乗る、空の引数の列。
+struct HugeArgs;
+
+impl Iterator for HugeArgs {
+    type Item = std::ffi::OsString;
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (usize::MAX, Some(usize::MAX))
+    }
+}
+
+impl ExactSizeIterator for HugeArgs {}
+
+#[test]
+fn an_unallocatable_argument_count_is_an_allocation_error() {
+    assert_eq!(args_from_os(HugeArgs), Err(ResolutionError::Allocation));
 }
