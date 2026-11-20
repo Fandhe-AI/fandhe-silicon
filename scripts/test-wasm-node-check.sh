@@ -3682,6 +3682,35 @@ gw --cases "${OD}"
 expect "138 one word off in a scalar row is a mismatch" 1 "row: od-scalar-scalar mismatch (mismatches 1/4)" "count: od-scalar-scalar mismatches=1 n=4" "cpu-count: od-scalar-scalar mismatches=0 n=4" "bits-count: od-scalar-scalar mismatches=1 n=4" "recount-bits: od-scalar-scalar mismatches=1 n=4" "row: od-simd-simd128 match" "row: od-simd-scalar match" "summary: rows=3 match=2 mismatch=1 not-run=0"
 reset_gen
 rm -rf "${fix}/outs"
+
+# 139. 和の順の参照がネイティブの参照と同じ manifest は照合の前に終了コード 2
+OD_S="${fix}/od-s.json"
+od_rows "${OD_S}" od order-gemm-ordersame
+sp_prep "${OD_S}" order-gemm-ordersame
+gw --cases "${OD_S}"
+expect "139 an order reference equal to the native reference stops the run" 2 "error: manifest bits reference equals the native-scalar reference" "!row:" "!bits-count:"
+reset_gen
+# 数え直しも同じ照らしを通る（保存の形の和の順の参照をネイティブの参照の写しにし、manifest の sha256 も更新する）
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+newdir out139
+gw --cases "${OD}" --output-dir "${work}/out139"
+expect "139 a gemm-order run is saved" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+python3 -I - "${work}/out139" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+b = open(os.path.join(d, c["native_scalar_file"]), "rb").read()
+open(os.path.join(d, c["simd128_order_file"]), "wb").write(b)
+c["simd128_order_sha256"] = hashlib.sha256(b).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+w --recount "${work}/out139"
+expect "139 the recount stops on an order reference equal to the native reference" 2 "error: manifest bits reference equals the native-scalar reference" "!recount-bits:" "!recount-summary:"
+reset_gen
+rm -rf "${fix}/outs"
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"
