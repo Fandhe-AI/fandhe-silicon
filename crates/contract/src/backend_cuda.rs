@@ -24,7 +24,7 @@
 //! 記録の順に stream へ積んでから event を記録する。投入はコピー・クリアの各バッファに最後に使った投入の番号を付け、
 //! その投入が投入済みの表に残っている間の `free` は解放を保留し、`submit`・`submit_many`・`poll`・`allocate`・
 //! `wait_blocking`（feature `native-blocking-wait` の下）の中で投入済みの表から外れたものを再利用の一覧へ回す
-//! （TASK-624・TASK-606）。`dispatch_ex` は `Unsupported` を返す。
+//! （TASK-624・TASK-606）。
 //!
 //! `query`・`query_ex` は、`request` の時点で捕捉した compute capability とホストメモリのマップの可否の属性と、
 //! 能力の表から答える（TASK-175）。
@@ -58,6 +58,11 @@
 //!
 //! `create_pipeline` は `Ptx` の入力を NVRTC に渡さず、テキストをそのままモジュールとして読み込む。`CudaC` の入力だけを
 //! device の NVRTC の呼び出し口 `compile_with_nvrtc` に渡し、試験のビルドの device はその呼び出し口に入った回数を持つ（TASK-804）。
+//!
+//! `dispatch_ex`（簡易版の `dispatch` を含む）は記録の時点に記録先・パイプライン・束縛のバッファ・slot・定数・共有メモリの合計を
+//! 照らして記録先に積み、束縛のポインタは投入の時に解決する。投入は記録したバッファの解放済みの確かめの後に、利用者のカーネルを
+//! 走らせる門（`DISPATCH_EXECUTION_ENABLED`）に照らし、閉じていれば dispatch の記録を含む記録先を `Unsupported` で拒んで
+//! 何も積まない（TASK-805）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(feature = "fault-injection")]
@@ -1398,6 +1403,8 @@ enum TransferRecord {
         offset: u64,
         size: u64,
     },
+    /// `dispatch_ex` が照らしの後に積む dispatch 1 件（TASK-805）。
+    Dispatch(DispatchRecord),
 }
 
 impl TransferRecord {
@@ -1406,8 +1413,117 @@ impl TransferRecord {
         match self {
             TransferRecord::Copy { src, dst, .. } => vec![*src, *dst],
             TransferRecord::Clear { buffer, .. } => vec![*buffer],
+            TransferRecord::Dispatch(dispatch) => dispatch
+                .args
+                .iter()
+                .filter_map(|arg| match arg {
+                    RecordedArg::Buffer { buffer, .. } => Some(*buffer),
+                    RecordedArg::Constant { .. } => None,
+                })
+                .collect(),
         }
     }
+}
+
+/// 記録した dispatch の引数 1 件。カーネルの引数の並びの 1 つに当たり、driver の型を持たない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecordedArg {
+    /// 束縛のバッファ。ポインタは投入の時に表から解決し、`offset` を足す。
+    Buffer {
+        slot: u32,
+        buffer: RecordedBuffer,
+        offset: u64,
+    },
+    /// 定数。bytes は記録の時点の写し。
+    Constant { slot: u32, bytes: Vec<u8> },
+}
+
+/// 記録した dispatch 1 件。引数は束縛と定数をあわせて slot の昇順に並べ、パイプラインは表の識別子で指す。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DispatchRecord {
+    pipeline: u64,
+    args: Vec<RecordedArg>,
+    grid: [u32; 3],
+    block: [u32; 3],
+    /// `ThreadgroupMemory` の各 `bytes` の合計（動的な共有メモリのバイト数）。
+    shared_mem_bytes: u32,
+}
+
+/// `check_dispatch_record` に渡す束縛 1 件の事実。表の照らしを通った後の値。
+#[derive(Debug, Clone, Copy)]
+struct DispatchBufferArg {
+    slot: u32,
+    buffer: RecordedBuffer,
+    offset: u64,
+}
+
+/// `dispatch_ex` の記録の時点の、slot・定数・共有メモリの照らし。device に触らない。
+///
+/// 照らす順は、slot（束縛・定数の順に slot ごとに重なり・配置に無い、その後で配置にあって渡されない）、定数の空、共有メモリの合計の
+/// あふれ。最初に当たったものを
+/// `dispatch_ex: ` を前置した `InvalidArgument` で返す。通れば、束縛と定数を slot の昇順に並べた記録を返す。
+/// `offset` はバッファの長さと比べない。
+fn check_dispatch_record(
+    pipeline: u64,
+    layout_slots: &[u32],
+    bindings: &[DispatchBufferArg],
+    consts: &[(u32, &[u8])],
+    dispatch_dims: [u32; 3],
+    threads_per_threadgroup: [u32; 3],
+    threadgroup_memory: &[u32],
+) -> Result<DispatchRecord, ContractError> {
+    let invalid = |msg: String| {
+        Err(ContractError::InvalidArgument(format!(
+            "dispatch_ex: {msg}"
+        )))
+    };
+    let mut used = BTreeSet::new();
+    for slot in bindings
+        .iter()
+        .map(|b| b.slot)
+        .chain(consts.iter().map(|(slot, _)| *slot))
+    {
+        if !used.insert(slot) {
+            return invalid(format!("duplicate slot in dispatch: {slot}"));
+        }
+        if !layout_slots.contains(&slot) {
+            return invalid(format!("slot {slot} is not in the binding layout"));
+        }
+    }
+    if let Some(slot) = layout_slots.iter().find(|slot| !used.contains(slot)) {
+        return invalid(format!("slot {slot} of the binding layout is not provided"));
+    }
+    if let Some((slot, _)) = consts.iter().find(|(_, bytes)| bytes.is_empty()) {
+        return invalid(format!("constant slot {slot} is empty"));
+    }
+    let Some(shared_mem_bytes) = threadgroup_memory
+        .iter()
+        .try_fold(0_u32, |total, bytes| total.checked_add(*bytes))
+    else {
+        return invalid("threadgroup memory total overflows".into());
+    };
+    let mut args: Vec<RecordedArg> = bindings
+        .iter()
+        .map(|b| RecordedArg::Buffer {
+            slot: b.slot,
+            buffer: b.buffer,
+            offset: b.offset,
+        })
+        .chain(consts.iter().map(|(slot, bytes)| RecordedArg::Constant {
+            slot: *slot,
+            bytes: bytes.to_vec(),
+        }))
+        .collect();
+    args.sort_by_key(|arg| match arg {
+        RecordedArg::Buffer { slot, .. } | RecordedArg::Constant { slot, .. } => *slot,
+    });
+    Ok(DispatchRecord {
+        pipeline,
+        args,
+        grid: dispatch_dims,
+        block: threads_per_threadgroup,
+        shared_mem_bytes,
+    })
 }
 
 /// コピー・クリアの記録の時点で、表から引いたバッファ 1 本の事実。
@@ -1572,7 +1688,7 @@ fn check_clear_record(
 }
 
 /// 投入の時に stream へ積む 1 件。バッファは識別子で指し、範囲は表の長さで照らし直した `usize` の `[start, end)`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TransferJob {
     Copy {
         src: u64,
@@ -1584,6 +1700,8 @@ enum TransferJob {
         buffer: u64,
         range: (usize, usize),
     },
+    /// 照らしを通った dispatch 1 件。門が閉じているので、stream には積まない。
+    Dispatch(DispatchRecord),
 }
 
 impl TransferJob {
@@ -1592,8 +1710,36 @@ impl TransferJob {
         match self {
             TransferJob::Copy { src, dst, .. } => vec![*src, *dst],
             TransferJob::Clear { buffer, .. } => vec![*buffer],
+            TransferJob::Dispatch(dispatch) => dispatch
+                .args
+                .iter()
+                .filter_map(|arg| match arg {
+                    RecordedArg::Buffer { buffer, .. } => Some(buffer.buffer_id),
+                    RecordedArg::Constant { .. } => None,
+                })
+                .collect(),
         }
     }
+}
+
+/// 利用者のカーネルを走らせる門。どのビルドでも閉じ、dispatch の記録を含む投入を `Unsupported` で拒む。
+const DISPATCH_EXECUTION_ENABLED: bool = false;
+
+/// dispatch の記録を含む記録先の列を、カーネルを走らせる門に照らす。門が閉じていれば `Unsupported`（`op` は `submit`）。
+///
+/// 解放済みの確かめと範囲の照らし（`plan_transfers`）の後に呼ぶ。コピー・クリアだけの列は門に関わらず通す。
+fn check_dispatch_gate(jobs: &[TransferJob], enabled: bool) -> Result<(), ContractError> {
+    if !enabled
+        && jobs
+            .iter()
+            .any(|job| matches!(job, TransferJob::Dispatch(_)))
+    {
+        return Err(ContractError::Unsupported {
+            op: "submit",
+            backend: BACKEND,
+        });
+    }
+    Ok(())
 }
 
 /// `[offset, offset + size)` がバッファの長さ `len` に収まるかをあふれなく照らし、`usize` の範囲に直す。
@@ -1613,17 +1759,28 @@ fn transfer_range(offset: u64, size: u64, len: u64) -> Result<(usize, usize), Co
 ///
 /// `lookup` は識別子から（払い出しの世代, 長さ）を引く。先に全記録の全バッファを並びの順に見て、表に無い・表の世代が
 /// 記録の世代と違う・記録の世代が今の世代と違うものがあれば、範囲を見ずに `InvalidArgument`。通れば各記録の範囲を
-/// 表の長さで照らし直す。
+/// 表の長さで照らし直す。dispatch の束縛の解放済みは、文に束縛の slot を載せる。dispatch の記録はそのまま件にする。
 fn plan_transfers(
     records: &[TransferRecord],
     lookup: impl Fn(u64) -> Option<(u64, u64)>,
     current_generation: u64,
 ) -> Result<Vec<TransferJob>, ContractError> {
-    for buffer in records.iter().flat_map(TransferRecord::buffers) {
-        let alive = buffer.generation == current_generation
-            && lookup(buffer.buffer_id).map(|(generation, _)| generation)
-                == Some(buffer.generation);
-        if !alive {
+    let alive = |buffer: &RecordedBuffer| {
+        buffer.generation == current_generation
+            && lookup(buffer.buffer_id).map(|(generation, _)| generation) == Some(buffer.generation)
+    };
+    for record in records {
+        if let TransferRecord::Dispatch(dispatch) = record {
+            for arg in &dispatch.args {
+                if let RecordedArg::Buffer { slot, buffer, .. } = arg
+                    && !alive(buffer)
+                {
+                    return Err(ContractError::InvalidArgument(format!(
+                        "a bound buffer was freed before submit (binding slot {slot})"
+                    )));
+                }
+            }
+        } else if !record.buffers().iter().all(alive) {
             return Err(ContractError::InvalidArgument(
                 "a copied or cleared buffer was freed before submit".into(),
             ));
@@ -1657,6 +1814,7 @@ fn plan_transfers(
                 buffer: buffer.buffer_id,
                 range: transfer_range(*offset, *size, length_of(buffer.buffer_id)?)?,
             }),
+            TransferRecord::Dispatch(dispatch) => Ok(TransferJob::Dispatch(dispatch.clone())),
         })
         .collect()
 }
@@ -2413,6 +2571,7 @@ impl CudaDevice {
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
+    /// dispatch の件は門（`check_dispatch_gate`）が手前で拒むので、ここに来れば何も積まずに `Unsupported`。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
@@ -2453,6 +2612,12 @@ impl CudaDevice {
                             .memset_zeros(&mut target)
                             .map_err(|e| backend_failure("memset_zeros", e))
                     })?;
+                }
+                TransferJob::Dispatch(_) => {
+                    return Err(ContractError::Unsupported {
+                        op: "submit",
+                        backend: BACKEND,
+                    });
                 }
             }
         }
@@ -2510,14 +2675,16 @@ impl CudaDevice {
         map: &BTreeMap<u64, BufferEntry>,
         records: &[TransferRecord],
     ) -> Result<Vec<TransferJob>, ContractError> {
-        plan_transfers(
+        let jobs = plan_transfers(
             records,
             |id| {
                 map.get(&id)
                     .map(|entry| (entry.generation, entry.slice.len() as u64))
             },
             self.current_generation(),
-        )
+        )?;
+        check_dispatch_gate(&jobs, DISPATCH_EXECUTION_ENABLED)?;
+        Ok(jobs)
     }
 
     /// 解放を保留したバッファのうち、最後に使った投入が投入済みの表から外れたものを再利用の一覧へ回す。
@@ -3371,20 +3538,73 @@ impl CommandQueue for CudaDevice {
         self.drive_callbacks();
         result
     }
+    /// dispatch 1 件を、記録の時点に照らしてから記録先に積む。stream へ積むのは投入の時。
+    ///
+    /// 照らす順は、記録先（開いていなければ `InvalidArgument`）、パイプライン（別の device は `DeviceMismatch`、
+    /// 表に無ければ `InvalidArgument`）、束縛の各バッファ（`copy_buffer_to_buffer` と同じ device・世代・表・大きさ）、
+    /// slot・定数・共有メモリ（`check_dispatch_record`）。拒否は記録先を変えない。定数の bytes は記録の時点に写す。
     fn dispatch_ex(
         &self,
-        _encoder: &mut CommandEncoder,
-        _pipeline: &PipelineHandle,
-        _bindings: &[Binding<'_>],
-        _consts: &[ConstantBinding<'_>],
-        _dispatch_dims: [u32; 3],
-        _threads_per_threadgroup: [u32; 3],
-        _threadgroup_memory: &[ThreadgroupMemory],
+        encoder: &mut CommandEncoder,
+        pipeline: &PipelineHandle,
+        bindings: &[Binding<'_>],
+        consts: &[ConstantBinding<'_>],
+        dispatch_dims: [u32; 3],
+        threads_per_threadgroup: [u32; 3],
+        threadgroup_memory: &[ThreadgroupMemory],
     ) -> Result<(), ContractError> {
-        Err(ContractError::Unsupported {
-            op: "dispatch_ex",
-            backend: BACKEND,
-        })
+        self.ensure_encoder_open(encoder)?;
+        if pipeline.__backend_device_id() != self.id {
+            return Err(ContractError::DeviceMismatch);
+        }
+        let layout_slots = {
+            let pipelines = self
+                .pipelines
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            pipelines
+                .map
+                .get(&pipeline.__backend_id())
+                .map(|entry| entry._layout.slots.clone())
+                .ok_or_else(|| {
+                    ContractError::InvalidArgument("dispatch_ex: unknown pipeline".into())
+                })?
+        };
+        let buffer_args = {
+            let buffers = self.lock();
+            bindings
+                .iter()
+                .map(|binding| {
+                    check_transfer_operand(self.transfer_operand(&buffers, binding.buffer))
+                        .map(|entry| DispatchBufferArg {
+                            slot: binding.slot,
+                            buffer: RecordedBuffer {
+                                buffer_id: entry.buffer_id,
+                                generation: entry.generation,
+                            },
+                            offset: binding.offset,
+                        })
+                        .map_err(|e| match e {
+                            ContractError::InvalidArgument(msg) => {
+                                ContractError::InvalidArgument(format!("dispatch_ex: {msg}"))
+                            }
+                            other => other,
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let const_args: Vec<(u32, &[u8])> = consts.iter().map(|c| (c.slot, c.bytes)).collect();
+        let memory: Vec<u32> = threadgroup_memory.iter().map(|m| m.bytes).collect();
+        let record = check_dispatch_record(
+            pipeline.__backend_id(),
+            &layout_slots,
+            &buffer_args,
+            &const_args,
+            dispatch_dims,
+            threads_per_threadgroup,
+            &memory,
+        )?;
+        self.record_transfer(encoder, Ok(Some(TransferRecord::Dispatch(record))))
     }
     /// `limits()` の `max_buffer_bytes` と同じ値を返す。
     fn max_buffer_bytes(&self) -> u64 {
@@ -9042,5 +9262,306 @@ mod pipeline_error_device_tests {
                 assert_eq!(driver_calls(&d), driver, "{call}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod dispatch_record_tests {
+    use super::*;
+
+    /// 試験の記録が使う世代。
+    const GEN: u64 = 7;
+
+    fn recorded(id: u64) -> RecordedBuffer {
+        RecordedBuffer {
+            buffer_id: id,
+            generation: GEN,
+        }
+    }
+
+    fn arg(slot: u32, id: u64, offset: u64) -> DispatchBufferArg {
+        DispatchBufferArg {
+            slot,
+            buffer: recorded(id),
+            offset,
+        }
+    }
+
+    /// `InvalidArgument` で、理由の文が `expected` と全文で同じことを照らす。
+    fn assert_invalid<T: std::fmt::Debug>(result: Result<T, ContractError>, expected: &str) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => assert_eq!(msg, expected),
+            other => panic!("expected InvalidArgument {expected:?}, got {other:?}"),
+        }
+    }
+
+    // COMP-3
+    // COMP-4
+    // COMP-5
+    // BIND-9
+    /// 束縛と定数を slot の昇順に並べ、定数の bytes を写し、共有メモリの合計を持つ。`index` は使わない。
+    #[test]
+    fn record_orders_buffers_and_constants_by_slot_and_sums_shared_memory() {
+        let bytes = [1_u8, 2, 3, 4];
+        let record = check_dispatch_record(
+            5,
+            &[0, 1, 2],
+            &[arg(2, 3, 16), arg(0, 1, 0)],
+            &[(1, &bytes[..])],
+            [4, 2, 1],
+            [32, 1, 1],
+            &[64, 128],
+        )
+        .expect("record");
+        assert_eq!(
+            record,
+            DispatchRecord {
+                pipeline: 5,
+                args: vec![
+                    RecordedArg::Buffer {
+                        slot: 0,
+                        buffer: recorded(1),
+                        offset: 0,
+                    },
+                    RecordedArg::Constant {
+                        slot: 1,
+                        bytes: vec![1, 2, 3, 4],
+                    },
+                    RecordedArg::Buffer {
+                        slot: 2,
+                        buffer: recorded(3),
+                        offset: 16,
+                    },
+                ],
+                grid: [4, 2, 1],
+                block: [32, 1, 1],
+                shared_mem_bytes: 192,
+            }
+        );
+        assert_eq!(
+            TransferRecord::Dispatch(record).buffers(),
+            vec![recorded(1), recorded(3)]
+        );
+    }
+
+    // COMP-88
+    /// `offset` はバッファの長さと比べず、そのまま記録する。
+    #[test]
+    fn record_keeps_the_offset_without_an_upper_check() {
+        let record = check_dispatch_record(
+            1,
+            &[0],
+            &[arg(0, 1, u64::MAX)],
+            &[],
+            [1, 1, 1],
+            [1, 1, 1],
+            &[],
+        )
+        .expect("record");
+        assert_eq!(
+            record.args,
+            vec![RecordedArg::Buffer {
+                slot: 0,
+                buffer: recorded(1),
+                offset: u64::MAX,
+            }]
+        );
+    }
+
+    // COMP-29
+    /// 空の定数は、slot を含む `InvalidArgument`。配置にあって渡されない slot は、空の定数より先に当たる。
+    #[test]
+    fn record_rejects_an_empty_constant_with_its_slot() {
+        let empty: &[u8] = &[];
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0, 3],
+                &[arg(0, 1, 0)],
+                &[(3, empty)],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: constant slot 3 is empty",
+        );
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0, 3, 5],
+                &[arg(0, 1, 0)],
+                &[(3, empty)],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: slot 5 of the binding layout is not provided",
+        );
+    }
+
+    // BIND-3
+    // COMP-35
+    /// slot ごとの重なり・配置に無い slot と、その後の配置にあって渡されない slot を拒む。
+    #[test]
+    fn record_rejects_duplicate_unknown_and_missing_slots_in_this_order() {
+        let four = [0_u8; 4];
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0],
+                &[arg(0, 1, 0)],
+                &[(0, &four[..])],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: duplicate slot in dispatch: 0",
+        );
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0],
+                &[arg(0, 1, 0), arg(9, 2, 0)],
+                &[],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: slot 9 is not in the binding layout",
+        );
+        assert_invalid(
+            check_dispatch_record(1, &[0, 1], &[arg(0, 1, 0)], &[], [1, 1, 1], [1, 1, 1], &[]),
+            "dispatch_ex: slot 1 of the binding layout is not provided",
+        );
+        // 束縛を定数より先に見るので、束縛の配置に無い slot が、定数の配置に無い slot より先に当たる。
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0],
+                &[arg(9, 1, 0)],
+                &[(8, &four[..])],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: slot 9 is not in the binding layout",
+        );
+        // slot ごとに重なり・配置に無いの順で見るので、配置に無い slot の 2 回目より先に、1 回目の配置に無いが当たる。
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0],
+                &[arg(9, 1, 0), arg(9, 2, 0)],
+                &[],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            ),
+            "dispatch_ex: slot 9 is not in the binding layout",
+        );
+    }
+
+    /// 共有メモリの合計が `u32` をあふれると `InvalidArgument`。空の定数は、合計のあふれより先に当たる。
+    #[test]
+    fn record_rejects_a_shared_memory_total_that_overflows() {
+        assert_invalid(
+            check_dispatch_record(1, &[], &[], &[], [1, 1, 1], [1, 1, 1], &[u32::MAX, 1]),
+            "dispatch_ex: threadgroup memory total overflows",
+        );
+        let empty: &[u8] = &[];
+        assert_invalid(
+            check_dispatch_record(
+                1,
+                &[0],
+                &[],
+                &[(0, empty)],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[u32::MAX, 1],
+            ),
+            "dispatch_ex: constant slot 0 is empty",
+        );
+        let record = check_dispatch_record(1, &[], &[], &[], [1, 1, 1], [1, 1, 1], &[u32::MAX, 0])
+            .expect("record");
+        assert_eq!(record.shared_mem_bytes, u32::MAX);
+    }
+
+    fn dispatch_record(slot: u32, id: u64) -> TransferRecord {
+        TransferRecord::Dispatch(
+            check_dispatch_record(
+                1,
+                &[slot],
+                &[arg(slot, id, 0)],
+                &[],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            )
+            .expect("record"),
+        )
+    }
+
+    fn table(id: u64) -> Option<(u64, u64)> {
+        (1..=3).contains(&id).then_some((GEN, 64))
+    }
+
+    // COMP-39
+    /// 束縛のバッファの解放済みは、範囲を見ずに slot を載せた `InvalidArgument`。前のコピー・クリアの記録より先に、全記録を見る。
+    #[test]
+    fn plan_rejects_a_freed_bound_buffer_with_its_slot() {
+        assert_invalid(
+            plan_transfers(&[dispatch_record(4, 9)], table, GEN),
+            "a bound buffer was freed before submit (binding slot 4)",
+        );
+        assert_invalid(
+            plan_transfers(&[dispatch_record(4, 1)], table, GEN + 1),
+            "a bound buffer was freed before submit (binding slot 4)",
+        );
+        let clear = TransferRecord::Clear {
+            buffer: recorded(1),
+            offset: 64,
+            size: 4,
+        };
+        assert_invalid(
+            plan_transfers(&[clear, dispatch_record(2, 9)], table, GEN),
+            "a bound buffer was freed before submit (binding slot 2)",
+        );
+    }
+
+    /// dispatch の記録はそのまま件になり、門が閉じていれば dispatch の件を含む列は `Unsupported`（`op` は `submit`）。
+    /// コピー・クリアだけの列と、開いた門は通す。
+    #[test]
+    fn gate_rejects_lists_with_a_dispatch_only_when_closed() {
+        let dispatch = dispatch_record(0, 1);
+        let clear = TransferRecord::Clear {
+            buffer: recorded(2),
+            offset: 0,
+            size: 4,
+        };
+        let jobs = plan_transfers(&[clear.clone(), dispatch.clone()], table, GEN).expect("plan");
+        let TransferRecord::Dispatch(record) = dispatch else {
+            unreachable!()
+        };
+        assert_eq!(
+            jobs,
+            vec![
+                TransferJob::Clear {
+                    buffer: 2,
+                    range: (0, 4),
+                },
+                TransferJob::Dispatch(record),
+            ]
+        );
+        assert_eq!(jobs[1].buffer_ids(), vec![1]);
+        assert_eq!(
+            check_dispatch_gate(&jobs, false),
+            Err(ContractError::Unsupported {
+                op: "submit",
+                backend: BACKEND,
+            })
+        );
+        assert_eq!(check_dispatch_gate(&jobs, true), Ok(()));
+        let clear_only = plan_transfers(&[clear], table, GEN).expect("plan");
+        assert_eq!(check_dispatch_gate(&clear_only, false), Ok(()));
     }
 }
