@@ -395,15 +395,20 @@ pub fn build_topk_case(spec: &TopkCaseSpec) -> Result<TopkCase, GenError> {
     let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
     let mut scores: Vec<f32> = match spec.input {
         TopkInput::Batch | TopkInput::NonFinite => try_square_values(&mut rng, spec.len)?,
-        TopkInput::Ties => (0..spec.len)
-            .map(|i| {
-                if i % 10 == 3 {
+        TopkInput::Ties => {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(spec.len)
+                .map_err(|_| GenError::InputFailed)?;
+            for i in 0..spec.len {
+                values.push(if i % 10 == 3 {
                     0.0
                 } else {
                     ((rng.next_u64() >> 61) as f32) + 1.0
-                }
-            })
-            .collect(),
+                });
+            }
+            values
+        }
     };
     if spec.input == TopkInput::NonFinite {
         for (index, word) in NON_FINITE_SLOTS {
@@ -835,7 +840,13 @@ pub fn elementwise_special_cpu_reference(
                 .map(<[f32]>::to_vec)
                 .ok_or(GenError::CpuReferenceFailed)
         }
-        UnaryElementwiseOp::AddScalar(c) => Ok(input.iter().map(|&x| x + c).collect()),
+        UnaryElementwiseOp::AddScalar(c) => {
+            let mut out = Vec::new();
+            out.try_reserve_exact(input.len())
+                .map_err(|_| GenError::CpuReferenceFailed)?;
+            out.extend(input.iter().map(|&x| x + c));
+            Ok(out)
+        }
         _ => Err(GenError::CpuReferenceFailed),
     }
 }
@@ -910,16 +921,18 @@ pub fn build_topk_sentinel_cases() -> Result<Vec<TopkCase>, GenError> {
 
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
 /// リトルエンディアンのバイト列にする。
-pub fn topk_record_bytes(records: &[(u32, f32)]) -> Vec<u8> {
-    records
-        .iter()
-        .flat_map(|(slot, score)| {
-            let mut record = [0u8; 8];
-            record[..4].copy_from_slice(&slot.to_le_bytes());
-            record[4..].copy_from_slice(&score.to_bits().to_le_bytes());
-            record
-        })
-        .collect()
+/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::InputFailed)`。
+pub fn topk_record_bytes(records: &[(u32, f32)]) -> Result<Vec<u8>, GenError> {
+    let len = checked_len(records.len(), 8)?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(len)
+        .map_err(|_| GenError::InputFailed)?;
+    for (slot, score) in records {
+        bytes.extend_from_slice(&slot.to_le_bytes());
+        bytes.extend_from_slice(&score.to_bits().to_le_bytes());
+    }
+    Ok(bytes)
 }
 
 /// f32 の列を、添字の順のリトルエンディアンのバイト列にする。
@@ -1147,7 +1160,7 @@ fn topk_case_output(case: &TopkCase) -> Result<CaseOutput, GenError> {
     let scores_file = format!("{}.scores.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
     let scores_bytes = f32_le_bytes(&case.scores)?;
-    let n_bytes = topk_record_bytes(&native);
+    let n_bytes = topk_record_bytes(&native)?;
     let entry = [
         "    {".to_string(),
         format!("      \"name\": \"{}\",", case.name),

@@ -404,7 +404,7 @@ fn native_topk_has_no_non_finite_slots() {
 
 #[test]
 fn topk_record_layout() {
-    let bytes = topk_record_bytes(&[(0x0102_0304, 1.5), (7, -0.0)]);
+    let bytes = topk_record_bytes(&[(0x0102_0304, 1.5), (7, -0.0)]).unwrap();
     assert_eq!(bytes.len(), 16);
     assert_eq!(&bytes[..4], &[0x04, 0x03, 0x02, 0x01]);
     assert_eq!(&bytes[4..8], &1.5f32.to_bits().to_le_bytes());
@@ -426,7 +426,7 @@ fn differing_records(a: &[u8], b: &[u8]) -> usize {
 fn record_compare_agrees_with_compare_topk() {
     for case in build_topk_cases().unwrap() {
         let native = native_topk(&case).unwrap();
-        let base_bytes = topk_record_bytes(&native);
+        let base_bytes = topk_record_bytes(&native).unwrap();
         let reference = pairs_to_entries(&native);
         for flip_slot in [true, false] {
             let mut changed = native.clone();
@@ -438,7 +438,7 @@ fn record_compare_agrees_with_compare_topk() {
             let cmp = compare_topk(&reference, &pairs_to_entries(&changed)).unwrap();
             assert_eq!(cmp.mismatched(), 1, "{}", case.name);
             assert_eq!(
-                differing_records(&base_bytes, &topk_record_bytes(&changed)),
+                differing_records(&base_bytes, &topk_record_bytes(&changed).unwrap()),
                 1,
                 "{}",
                 case.name
@@ -842,7 +842,7 @@ fn ieee_order_record_bytes(scores: &[f32], k: usize) -> Vec<u8> {
         .take(k)
         .map(|i| (*i as u32, scores[*i]))
         .collect();
-    topk_record_bytes(&picked)
+    topk_record_bytes(&picked).unwrap()
 }
 
 #[test]
