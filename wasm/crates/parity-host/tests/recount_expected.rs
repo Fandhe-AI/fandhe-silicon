@@ -124,10 +124,19 @@ fn outputs_json(rows: &[(Row, Vec<u8>)]) -> String {
 }
 
 /// 行ごとの出力。参照の写しを基本にし、別の和の順を期待した行は `exact` が偽なら最初の語を 1 ビット動かす。
+/// 和の順の確かめのケース（`order-gemm-*`）の simd128 版の gemm_simd の行は、和の順の参照の写しにする（spec TASK-2447 のポインタ）。
 fn row_outputs(dir: &Path, rows: &[Row], exact: bool) -> Outputs {
     rows.iter()
         .map(|r| {
-            let mut bytes = fs::read(dir.join(format!("{}.native-scalar.bin", r.case))).unwrap();
+            let reference = if r.case.starts_with("order-gemm-")
+                && r.export == "gemm_simd"
+                && r.build == "simd128"
+            {
+                "simd128-order"
+            } else {
+                "native-scalar"
+            };
+            let mut bytes = fs::read(dir.join(format!("{}.{reference}.bin", r.case))).unwrap();
             if r.expects_other_order() && !exact {
                 bytes[0] ^= 1;
             }
@@ -251,4 +260,35 @@ fn simd_rows_identical_to_scalar_reference_fail() {
         assert!(flat.contains(&id.as_str()), "{id}: {out}");
     }
     assert!(out.contains("nonzero=3"), "{out}");
+}
+
+#[test]
+fn order_simd_rows_equal_to_native_reference_fail() {
+    // 和の順の確かめのケースの simd128 版の gemm_simd の 3 行がネイティブの参照の写しなら、閾値の内でも
+    // 語ごとのビットの比べで失敗にする（spec TASK-2447 のポインタ）。
+    let dir = TempDir::new("order-native");
+    generate(dir.path()).unwrap();
+    let rows: Outputs = row_outputs(dir.path(), &expected_rows(), false)
+        .into_iter()
+        .map(|(r, bytes)| {
+            if r.case.starts_with("order-gemm-") && r.build == "simd128" {
+                let native = fs::read(dir.path().join(format!("{}.native-scalar.bin", r.case)));
+                (r, native.unwrap())
+            } else {
+                (r, bytes)
+            }
+        })
+        .collect();
+    write_form(dir.path(), &rows);
+    let (code, out, err) = recount(dir.path());
+    assert_eq!(code, 1, "{out}{err}");
+    let nonzero: Vec<&str> = out
+        .lines()
+        .filter(|l| l.starts_with("recount-bits: ") && !l.contains(" mismatches=0 "))
+        .collect();
+    assert_eq!(nonzero.len(), 3, "{out}");
+    for case in ["order-gemm-64", "order-gemm-256", "order-gemm-37x41x53"] {
+        let id = format!("recount-bits: {case}-simd128-gemm-simd mismatches=");
+        assert!(nonzero.iter().any(|l| l.starts_with(&id)), "{case}: {out}");
+    }
 }
