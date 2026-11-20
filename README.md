@@ -257,7 +257,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-release-backlog.md` | CUDA の背後実装の解放の保留の数・ゼロ化の完了待ち・回収の点（TASK-346）の所在と、本リポの現状の事実・device の要る試験（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/cuda-handle-check.md` | CUDA の背後実装のハンドルの検証と `free` の無視（TASK-343）の所在と、本リポの現状の事実・device の要る試験（1/2）・完了の条件の確かめ（2/2） |
 | `docs/cuda-create-pipeline-ptx.md` | CUDA の背後実装の PTX の入力のパイプラインの生成（TASK-804）の所在と、本リポの現状の事実・PTX の入力の受け付けと NVRTC の呼び出し口（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-lost-release.md` | CUDA の背後実装の模擬のロストの後の解放の保留と回収（TASK-348）の所在と、本リポの現状の事実・device の要る試験（1/2）・完了の条件の確かめ（2/2）・device の要る試験の強め（3/4） |
+| `docs/cuda-lost-release.md` | CUDA の背後実装の模擬のロストの後の解放の保留と回収（TASK-348）の所在と、本リポの現状の事実・device の要る試験（1/2）・完了の条件の確かめ（2/2）・device の要る試験の強め（3/4）・完了の条件の確かめ（4/4） |
 | `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/vulkan-request-no-fallback.md` | Vulkan の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-284）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |
