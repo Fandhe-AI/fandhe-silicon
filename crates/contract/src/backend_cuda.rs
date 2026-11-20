@@ -1477,6 +1477,7 @@ fn check_dispatch_record(
             "dispatch_ex: {msg}"
         )))
     };
+    let layout_set: BTreeSet<u32> = layout_slots.iter().copied().collect();
     let mut used = BTreeSet::new();
     for slot in bindings
         .iter()
@@ -1486,7 +1487,7 @@ fn check_dispatch_record(
         if !used.insert(slot) {
             return invalid(format!("duplicate slot in dispatch: {slot}"));
         }
-        if !layout_slots.contains(&slot) {
+        if !layout_set.contains(&slot) {
             return invalid(format!("slot {slot} is not in the binding layout"));
         }
     }
@@ -2569,7 +2570,9 @@ impl CudaDevice {
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
-    /// dispatch の件は門（`check_dispatch_gate`）が手前で拒むので、ここに来れば何も積まずに `Unsupported`。
+    /// dispatch の件は記録の順に処理するので、この関数の中で拒む分岐に当たる前に、先行するコピー・クリアが積まれていることがある。
+    /// 現行の経路で列全体を何も積まずに拒めるのは、呼び出し元が実行の前に `check_dispatch_gate` で列全体を検査するため。
+    /// この関数の dispatch の分岐は、その検査をすり抜けた場合の最後の防御で、原子性は保証しない。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
@@ -8007,6 +8010,19 @@ mod copy_clear_device_tests {
         let enc = record(&d, &many);
         assert_eq!(d.submit_many(vec![enc], &[], &[]).map(|_| ()), expected);
         assert_eq!(read(&d, &many), pattern(2));
+        // 先頭にクリアだけのエンコーダー、後続に dispatch のエンコーダーを置いても、先頭のクリアは反映されない。
+        let first = filled(&d, &pattern(3));
+        let mut clear_only = d.create_encoder();
+        assert_eq!(d.clear_buffer(&mut clear_only, &first, 0, LEN), Ok(()));
+        let second = filled(&d, &pattern(4));
+        let with_dispatch = record(&d, &second);
+        assert_eq!(
+            d.submit_many(vec![clear_only, with_dispatch], &[], &[])
+                .map(|_| ()),
+            expected
+        );
+        assert_eq!(read(&d, &first), pattern(3));
+        assert_eq!(read(&d, &second), pattern(4));
     }
 }
 
