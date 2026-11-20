@@ -381,8 +381,9 @@ def wr(fn, words):
 for name in sys.argv[2:]:
     if name.startswith("order-gemm-"):
         # 和の順の確かめの種類の合成のケース（TASK-2447）: m=2・k=3・n=2（a 6 語・b 6 語・出力 4 語）。参照は 1.0・2.0・3.0・4.0。
-        # CPU 参照と和の順の参照はネイティブの参照と同じ語で、名前に cpudiff を含めば CPU 参照の語 1 だけ、orderdiff を含めば
-        # 和の順の参照の語 0・語 2 を 1 ulp 上げる（偽の node はネイティブの参照の写しを返すので、同梱の入力の行はそのまま一致する）。
+        # CPU 参照と和の順の参照はネイティブの参照と同じ語で、名前に cpudiff を含めば CPU 参照の語 1 だけ（manifest の照らしで
+        # 拒まれる入力）、orderdiff を含めば和の順の参照の語 0・語 2 を 1 ulp 上げる（偽の node はネイティブの参照の写しを返すので、
+        # 同梱の入力の行はそのまま一致する）。
         nat = [0x3f800000, 0x40000000, 0x40400000, 0x40800000]
         cpu = list(nat)
         if "cpudiff" in name:
@@ -3573,11 +3574,34 @@ expect "132 one word off the order reference is a mismatch" 1 "row: od-simd-simd
 reset_gen
 rm -rf "${fix}/outs"
 
-# 133. scalar のビルドの 2 行は CPU 参照とビットで比べる（ネイティブの参照と同じでも、CPU 参照と違えば不一致）
+# 133. CPU 参照がネイティブの参照と違う manifest は照合の前に終了コード 2
 sp_prep "${OD_CD}" order-gemm-orderdiff-cpudiff
 od_out order-gemm-orderdiff-cpudiff od-simd-simd128 order
 gw --cases "${OD_CD}"
-expect "133 scalar rows are compared with the cpu reference by bits" 1 "row: od-simd-scalar mismatch (bits-reference mismatches 1/4)" "row: od-scalar-scalar mismatch (bits-reference mismatches 1/4)" "cpu-count: od-simd-scalar mismatches=0 n=4" "row: od-simd-simd128 match" "summary: rows=3 match=1 mismatch=2 not-run=0"
+expect "133 a cpu reference that differs from the native reference stops the run" 2 "error: manifest bits reference differs from the native-scalar reference" "!row:" "!bits-count:"
+reset_gen
+rm -rf "${fix}/outs"
+# 数え直しも同じ照らしを通る（保存の形の CPU 参照の 1 語を書き換え、manifest の sha256 も書き換え後の値に更新する）
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+newdir out133
+gw --cases "${OD}" --output-dir "${work}/out133"
+expect "133 a gemm-order run is saved" 0 "summary: rows=3 match=3 mismatch=0 not-run=0"
+python3 -I - "${work}/out133" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[1]
+mp = os.path.join(d, "manifest.json")
+m = json.load(open(mp))
+c = m["cases"][0]
+fp = os.path.join(d, c["cpu_reference_file"])
+b = bytearray(open(fp, "rb").read())
+b[4:8] = (0x40000001).to_bytes(4, "little")
+open(fp, "wb").write(bytes(b))
+c["cpu_reference_sha256"] = hashlib.sha256(bytes(b)).hexdigest()
+json.dump(m, open(mp, "w"))
+PY
+w --recount "${work}/out133"
+expect "133 the recount stops on a cpu reference that differs from the native reference" 2 "error: manifest bits reference differs from the native-scalar reference" "!recount-bits:" "!recount-summary:"
 reset_gen
 rm -rf "${fix}/outs"
 
@@ -3649,6 +3673,15 @@ sp_prep "${fix}/od-old.json" special-gemm-a
 gw --cases "${fix}/od-old.json"
 expect "137 rows of kinds without bits have no bits-count" 0 "summary: rows=4 match=4" "!bits-count:" "!recount-bits:"
 reset_gen
+
+# 138. scalar のビルドの行の 1 語だけを 1 ulp 動かすと、通常の参照の比べとビットの比べの両方が数え、括弧は mismatches
+sp_prep "${OD}" order-gemm-orderdiff-a
+od_out order-gemm-orderdiff-a od-simd-simd128 order
+od_out order-gemm-orderdiff-a od-scalar-scalar scalar 1=40000001
+gw --cases "${OD}"
+expect "138 one word off in a scalar row is a mismatch" 1 "row: od-scalar-scalar mismatch (mismatches 1/4)" "count: od-scalar-scalar mismatches=1 n=4" "cpu-count: od-scalar-scalar mismatches=0 n=4" "bits-count: od-scalar-scalar mismatches=1 n=4" "recount-bits: od-scalar-scalar mismatches=1 n=4" "row: od-simd-simd128 match" "row: od-simd-scalar match" "summary: rows=3 match=2 mismatch=1 not-run=0"
+reset_gen
+rm -rf "${fix}/outs"
 res_ok
 
 echo "passed: ${passed}, failed: ${failed}"

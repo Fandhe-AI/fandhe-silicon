@@ -9,7 +9,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 項目 | 内容 |
 | ---- | ---- |
 | 照合のスクリプト | `scripts/wasm-node-check.sh`（`KINDS` の種類 `gemm-order` と、各種類の欄 `bits`。関数 `bits_count`） |
-| 回帰テスト | `scripts/test-wasm-node-check.sh` の項目 130〜137（合成のケース `order-gemm-orderdiff-a`・`order-gemm-orderdiff-cpudiff`） |
+| 回帰テスト | `scripts/test-wasm-node-check.sh` の項目 130〜138（合成のケース `order-gemm-orderdiff-a`・`order-gemm-orderdiff-cpudiff`） |
 | 関連の頁 | `docs/wasm32-native-parity.md`（TASK-994・TASK-995 のポインタ） |
 
 ### 種類 `gemm-order`
@@ -23,9 +23,11 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | CPU 参照の比べ（`cpu-count:` の行） | 全部の行 |
 | 欄 `bits` | simd128 のビルドの `gemm_simd` は `simd128_order_file`、scalar のビルドの `gemm_simd`・`gemm_scalar` は `cpu_reference_file` |
 
-欄 `bits` に (export, build) の組を持つ行は、wasm の出力をその参照と 4 バイトの語ごとのビットで比べ、`bits-count: <行> mismatches=<件数> n=<語数>` の行を `cpu-count:` の行の後に出す。件数が 0 でなければ行は `mismatch` になる。`row:` の行の括弧の中は優先順で決まり、通常の参照の比べ・CPU 参照の比べの不一致があればその件数（`mismatches <件数>/<語数>`）が先に出て、それらが 0 のときだけ `bits-reference mismatches <件数>/<語数>` になる。ビットの不一致の件数は常に `bits-count:` の行で確かめられる。保存の形の数え直しは `recount-bits:` の行を `recount-cpu:` の行の後に出し、件数が 0 でない行を `recount-summary:` の `nonzero` に数える。ほかの 5 つの種類の欄 `bits` は空で、`bits-count:`・`recount-bits:` の行を出さない。
+欄 `bits` に (export, build) の組を持つ行は、wasm の出力をその参照と 4 バイトの語ごとのビットで比べ、`bits-count: <行> mismatches=<件数> n=<語数>` の行を `cpu-count:` の行の後に出す。件数が 0 でなければ行は `mismatch` になる。種類 `gemm-order` の行の `row:` の括弧は、通常の参照の比べに不一致があれば `mismatches <件数>/<語数>`、無くてビットの比べに不一致があれば `bits-reference mismatches <件数>/<語数>` になる。CPU 参照は下の照らしで `native-scalar` とバイトで同じなので、通常の参照の比べに不一致が無い行は CPU 参照の比べにも不一致が無く、括弧に `cpu-reference mismatches` は出ない。比べた行では、ビットの不一致の件数を `bits-count:` の行で確かめられる。保存の形の数え直しは `recount-bits:` の行を `recount-cpu:` の行の後に出し、件数が 0 でない行を `recount-summary:` の `nonzero` に数える。ほかの 5 つの種類の欄 `bits` は空で、`bits-count:`・`recount-bits:` の行を出さない。
 
-この段で足したのは照合側の対応だけで、`wasm-parity-host gen` はまだ種類 `gemm-order` の manifest を出力しない。そのため通常の `wasm-node-check.sh --cases` の経路にはこの種類の行は現れず、回帰テストは合成の manifest で流す。
+閾値で比べない組（scalar のビルドの `gemm_simd`・`gemm_scalar`）の欄 `bits` の参照 `cpu-reference` は、`native-scalar` とバイトで同じでなければならない。違えば照合の前に `error: manifest bits reference differs from the native-scalar reference` で終了コード 2 になり、`row:` の行を出さない。保存の形の数え直し（`--recount`）も同じ照らしで終了コード 2 になり、`recount-bits:` の行を出さない。そのため scalar のビルドの行の括弧は `mismatches` で、`bits-reference mismatches` は simd128 のビルドの `gemm_simd` の行に出る。
+
+1/3 の差分は照合側だけで、`wasm-parity-host gen` を変えない（1/3 の時点の `gen` は種類 `gemm-order` の manifest を出力せず、通常の `wasm-node-check.sh --cases` の経路にこの種類の行は現れない）。回帰テストは合成の manifest で流す。
 
 ### 回帰テスト
 
@@ -34,11 +36,12 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 130 | 3 行の出力が欄 `bits` の参照の写し | 3 行とも `match`、`bits-count:` が 3 行とも `mismatches=0 n=4`、`recount-summary: rows=3 zero=3 nonzero=0 uncompared=0`。行の順は `count:`・`cpu-count:`・`bits-count:`・`sha256:`・`t1:`、数え直しは `recount:`・`recount-cpu:`・`recount-bits:` |
 | 131 | simd128 の `gemm_simd` の出力がネイティブの参照の写し | `count:`・`cpu-count:` は `mismatches=0` のまま、行は `mismatch (bits-reference mismatches 2/4)` |
 | 132 | 和の順の参照から 1 語だけ 1 ulp 動かした出力 | `mismatch (bits-reference mismatches 1/4)`、`recount-bits:` も 1 |
-| 133 | CPU 参照の 1 語だけがネイティブの参照と違うケース | scalar のビルドの 2 行が `mismatch (bits-reference mismatches 1/4)`、`cpu-count:` は 0 |
+| 133 | CPU 参照の 1 語だけがネイティブの参照と違うケース。保存の形の `cpu-reference` のファイルの 1 語を書き換え、manifest の `cpu_reference_sha256` も更新した数え直し | どちらも終了コード 2 で `error: manifest bits reference differs from the native-scalar reference`、`row:`・`recount-bits:` の行を出さない |
 | 134 | 1 語に番兵 `7fc0dead` が残った出力 | `mismatch (mismatches 1/4)`、`bits-count:`・`cpu-count:` も 1 |
 | 135 | manifest の `simd128_order_file` の鍵を消す・sha256 を変える・ファイルを 1 語縮める | 終了コード 2、`row:` の行を出さない |
 | 136 | 保存の形の `simd128-order` のファイルの 1 語を書き換え、manifest の `simd128_order_sha256` も書き換え後の値に更新する（更新しないと SHA-256 の照合で終了コード 2 になり `recount-bits:` を出さない） | 数え直しの `recount-bits:` が 1、終了コード 1 |
 | 137 | 種類 `gemm-special` の行 | `bits-count:`・`recount-bits:` の行を出さない |
+| 138 | scalar のビルドの `gemm_scalar` の出力の 1 語を 1 ulp 動かす | `mismatch (mismatches 1/4)`、`count:`・`bits-count:`・`recount-bits:` が 1、`cpu-count:` は 0 |
 
 ### 確かめ方
 
@@ -46,7 +49,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 make test-wasm-node-check
 ```
 
-観測した結果は `passed: 714, failed: 0`。
+観測した結果は `passed: 717, failed: 0`。
 
 ## 段
 

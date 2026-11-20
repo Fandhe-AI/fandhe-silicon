@@ -40,8 +40,11 @@
 # （`row:` の detail は `cpu-reference mismatches <件数>/<n>`）。`cpu-count: <行> mismatches=… n=…` と、数え直しの
 # `recount-cpu:` の行を出す（TASK-999）。
 # KINDS の bits の欄（(export, build) の組と参照のファイルの鍵）を持つ種類は、その組の行の wasm の出力を、その参照と語ごとの
-# ビットで直に比べ、不一致があれば行は mismatch（`row:` の detail は `bits-reference mismatches <件数>/<n>`）。
-# `bits-count: <行> mismatches=… n=…` と、数え直しの `recount-bits:` の行を出す（TASK-2447）。
+# ビットで直に比べ、不一致があれば行は mismatch。`row:` の detail は優先順で 1 つだけ出し、通常の参照の比べの不一致
+# （`mismatches <件数>/<n>`）、CPU 参照の比べの不一致（`cpu-reference mismatches <件数>/<n>`）の後で、どちらも 0 のときだけ
+# `bits-reference mismatches <件数>/<n>`。`bits-count: <行> mismatches=… n=…` と、数え直しの `recount-bits:` の行を出す。
+# T1 の閾値で比べない組の bits の参照は native-scalar の参照とバイトで同じでなければならず、違えば manifest の不正として
+# 終了コード 2（数え直しも同じ照らしを通る）（TASK-2447）。
 # topk のケースがあるときは `nonfinite: <ケース> input=<件数> output=<件数>` の行を出す（指数部が全部 1 の語の数。
 # 出すだけで判定と終了コードには関わらない）。
 # elementwise・elementwise-special のケースがあるときは `input-special: <ケース> nan=<件数> inf=<件数> zero=<件数>` の行を出す（入力の語の
@@ -116,7 +119,8 @@ T1_ABSOLUTE = 1e-5
 # t1: 完全一致でなく T1 の閾値で比べる (export, build) の組の列（TASK-995。判定は uses_t1 が引く。無ければ ()）/
 # cpu: CPU 参照のファイルの鍵（無ければ None。TASK-999）/
 # neon_bits: 真の種類は native-neon の参照を native-scalar の参照と語ごとのビットで直に比べ、`neon-count:` の行を出す（TASK-997。gemm は偽）/
-# bits: 語ごとのビットで直に比べる ((export, build), 参照のファイルの鍵) の組の列（TASK-2447。判定は bits_count が引く。無ければ ()）/
+# bits: 語ごとのビットで直に比べる ((export, build), 参照のファイルの鍵) の組の列（TASK-2447。判定は bits_count が引く。t1 に無い組の
+# 参照は native-scalar の参照とバイトで同じであることを load_manifest が照らす。無ければ ()）/
 # optional: manifest に在るときだけ読む任意の組（(ファイルの鍵, sha256 の鍵, バイト数の式, `sha256:` の接尾辞) の列。2 つの鍵は両方在るか両方無いかのどちらか。無ければ ()。TASK-995）。
 KINDS = {
     "gemm": {
@@ -597,6 +601,7 @@ def load_manifest(dirpath, rows, expect=None):
             if not ok(c[key]):
                 die("manifest case field is invalid")
         files = {}
+        blobs = {}
         for fk, hk, size, _suffix in case_files(c, spec):
             fname, want = c[fk], c[hk]
             if not name_ok(fname) or not isinstance(want, str) or not SHA.match(want):
@@ -615,6 +620,11 @@ def load_manifest(dirpath, rows, expect=None):
             if len(data) != size(dims):
                 die("manifest file length mismatch")
             files[fk] = (full, want)
+            blobs[fk] = data
+        # 完全一致で native-scalar の参照と比べる組の bits の参照は、native-scalar の参照とバイトで同じであること（TASK-2447）。
+        for pair, fk in spec["bits"]:
+            if pair not in spec["t1"] and fk != "native_scalar_file" and blobs[fk] != blobs["native_scalar_file"]:
+                die("manifest bits reference differs from the native-scalar reference")
         cases[name] = {"kind": kind, "dims": dims, "files": files}
     for r in rows:
         if r["gen"]:

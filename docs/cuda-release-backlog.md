@@ -155,13 +155,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 出力 (7):
 
 ```text
-$ gh run view 44618302645 --json conclusion,headSha,jobs
-conclusion: success
-headSha: 88b8312c2d96f17288c9afa0d8a988141f6a6d6f
-make verify (fmt + clippy + test): success
-make verify + build-profiles (macos-latest): success
-make deny (cargo-deny): success
-$ gh run view 44618302645 --job <verify のジョブ> --log | grep -E 'test ([a-z_]+::)*(<4 本の名前>) \.\.\. ignored, requires a CUDA device' | sed 's/^.*Z //' | sort | uniq -c
+$ gh run view 44618302645 --json conclusion,headSha,jobs --jq '"\(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make verify + build-profiles (macos-latest)" or .name=="make deny (cargo-deny)")|"\(.name) \(.conclusion)")'
+success 88b8312c2d96f17288c9afa0d8a988141f6a6d6f
+make verify + build-profiles (macos-latest) success
+make verify (fmt + clippy + test) success
+make deny (cargo-deny) success
+$ gh run view 44618302645 --job 135892813656 --log | grep -oE 'test ([a-z_]+::)*(buffers_waiting_for_zeroing_are_not_counted|the_backlog_stays_within_nine_over_ten_thousand_rounds_and_ends_at_zero|held_buffers_are_released_by_each_of_the_five_calls|more_than_nine_unfinished_submissions_are_held_without_waiting) \.\.\. ignored, requires a CUDA device' | sort | uniq -c
       2 test backend_cuda::release_backlog_device_tests::buffers_waiting_for_zeroing_are_not_counted ... ignored, requires a CUDA device
       2 test backend_cuda::release_backlog_device_tests::the_backlog_stays_within_nine_over_ten_thousand_rounds_and_ends_at_zero ... ignored, requires a CUDA device
       2 test held_buffers_are_released_by_each_of_the_five_calls ... ignored, requires a CUDA device
