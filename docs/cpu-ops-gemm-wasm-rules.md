@@ -112,9 +112,129 @@ make test-wasm-node-check
 
 観測した結果は `10 passed; 0 failed; 0 ignored`・`5 passed; 0 failed; 0 ignored`・`passed: 720, failed: 0`。
 
+## 完了の条件の確かめ（3/3）
+
+private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks.md` の TASK-2447。親 Issue は #1068、この節（3/3）は #6942。
+
+本リポで観測できる事実を、コマンドと出力だけで記録する（TASK-2447）。
+
+時点のコミット: `f054a6b`（2/3 のマージ）。(1)〜(5) は、このコミットの main への push で流れた CI の run `44698987095` から取る（event `push`・conclusion `success`・headSha は `f054a6b03694d87c2a59658b5717e3e558031339`）。`docs/spec` の gitlink は `96476a8254c0c1fba240acf062644b4433123e99`。
+
+| # | 確かめ | コマンド | 結果 |
+| - | ------ | -------- | ---- |
+| (1) | simd128 のビルドの `gemm_simd` の 3 行 | ジョブ `136162519995` のログの `make wasm-node-check` の段の `order-gemm-*-simd128-gemm-simd` の行 | 3 行とも `row:` は `match`、`count:`・`cpu-count:`・`bits-count:` は `mismatches=0`。`sha256:`・`t1:` の行は下のコードブロック |
+| (2) | scalar のビルドの 6 行 | 同じ段の `order-gemm-*-scalar-gemm-simd`・`order-gemm-*-scalar-gemm-scalar` の行 | 6 行とも `row:` は `match`、`bits-count:` は `mismatches=0`。`sha256:` の行は下のコードブロック |
+| (3) | 37×41×53 の 3 行 | 同じ段の `order-gemm-37x41x53-*` の `bits-count:`・`sha256:` の行 | 3 行とも `mismatches=0 n=1517`。`sha256:` の行は下のコードブロック |
+| (4) | 保存の形の数え直し | 同じ段の `recount-bits:` の 9 行と `recount-summary:`・`summary:` の行 | 9 行とも `mismatches=0`。`recount-summary:` は `rows=139 zero=139 nonzero=0 uncompared=0`、`summary:` は `rows=150 match=150 mismatch=0 not-run=0` |
+| (5) | Node の版と回のジョブ | 同じ段の `node:` の行と `gh run view 44698987095 -R Fandhe-AI/fandhe-silicon --json conclusion,headSha,jobs` | ジョブ `wasm32 build + size + node (macos-latest)` は `success`、run の conclusion は `success`、headSha は `f054a6b03694d87c2a59658b5717e3e558031339`。`node:` の行は下のコードブロック |
+| (6) | 依存 0・unsafe 0・`crates/` の差 0 | `git diff --stat`・`git diff`・`grep -c`（下のコードブロック） | stat は 2 つとも空、`grep -c` は 2 つとも `0` |
+
+ログの行は `ジョブ名<TAB>段の名前<TAB>時刻 本文` の形で、下のコマンドは段の名前で絞って時刻までを落とす。
+
+(1) の出力。
+
+```console
+$ gh run view -R Fandhe-AI/fandhe-silicon --job 136162519995 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(row|count|cpu-count|bits-count|sha256|t1): order-gemm-[0-9x]+-simd128-gemm-simd( |$)'
+row: order-gemm-64-simd128-gemm-simd match
+row: order-gemm-256-simd128-gemm-simd match
+row: order-gemm-37x41x53-simd128-gemm-simd match
+count: order-gemm-64-simd128-gemm-simd mismatches=0 n=4096
+cpu-count: order-gemm-64-simd128-gemm-simd mismatches=0 n=4096
+bits-count: order-gemm-64-simd128-gemm-simd mismatches=0 n=4096
+sha256: order-gemm-64-simd128-gemm-simd df0ff87ae22cf6956ae71aa4abd2579c95ce09a8b732aa13a4689ce080bba9e4
+t1: order-gemm-64-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=1063 max-rel=0.0005874369857257919 max-rel-at=1828 abs-over=0 rel-over=0
+count: order-gemm-256-simd128-gemm-simd mismatches=0 n=65536
+cpu-count: order-gemm-256-simd128-gemm-simd mismatches=0 n=65536
+bits-count: order-gemm-256-simd128-gemm-simd mismatches=0 n=65536
+sha256: order-gemm-256-simd128-gemm-simd 7212dba5ad4d1725ccf0cad2161d90b4e855b3f347148ad999bc140a516ca8ab
+t1: order-gemm-256-simd128-gemm-simd max-abs=1.52587890625e-05 max-abs-at=17692 max-rel=0.0079753913565706 max-rel-at=25670 abs-over=27 rel-over=6
+count: order-gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+cpu-count: order-gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+bits-count: order-gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+sha256: order-gemm-37x41x53-simd128-gemm-simd dcd8a97f3e4925ef029b8f5f28ee208f6ccbda62675f5220b82df94ee6e7e7a9
+t1: order-gemm-37x41x53-simd128-gemm-simd max-abs=2.86102294921875e-06 max-abs-at=60 max-rel=0.0002225181404437151 max-rel-at=1292 abs-over=0 rel-over=0
+```
+
+
+(2) の出力。
+
+```console
+$ gh run view -R Fandhe-AI/fandhe-silicon --job 136162519995 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(row|bits-count|sha256): order-gemm-[0-9x]+-scalar-gemm-(simd|scalar)( |$)'
+row: order-gemm-64-scalar-gemm-simd match
+row: order-gemm-64-scalar-gemm-scalar match
+row: order-gemm-256-scalar-gemm-simd match
+row: order-gemm-256-scalar-gemm-scalar match
+row: order-gemm-37x41x53-scalar-gemm-simd match
+row: order-gemm-37x41x53-scalar-gemm-scalar match
+bits-count: order-gemm-64-scalar-gemm-simd mismatches=0 n=4096
+sha256: order-gemm-64-scalar-gemm-simd 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+bits-count: order-gemm-64-scalar-gemm-scalar mismatches=0 n=4096
+sha256: order-gemm-64-scalar-gemm-scalar 25db4c0dde78a6a12cf5449e4c79542e7be1f742993c243a42a31519e8fa6f11
+bits-count: order-gemm-256-scalar-gemm-simd mismatches=0 n=65536
+sha256: order-gemm-256-scalar-gemm-simd 97e3a7b60343592b16869c775e45323ea7d33cee01baec3bbd75f83c1de9179c
+bits-count: order-gemm-256-scalar-gemm-scalar mismatches=0 n=65536
+sha256: order-gemm-256-scalar-gemm-scalar 97e3a7b60343592b16869c775e45323ea7d33cee01baec3bbd75f83c1de9179c
+bits-count: order-gemm-37x41x53-scalar-gemm-simd mismatches=0 n=1517
+sha256: order-gemm-37x41x53-scalar-gemm-simd a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+bits-count: order-gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+sha256: order-gemm-37x41x53-scalar-gemm-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+```
+
+
+(3) の出力。
+
+```console
+$ gh run view -R Fandhe-AI/fandhe-silicon --job 136162519995 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(bits-count|sha256): order-gemm-37x41x53-(simd128|scalar)-gemm-(simd|scalar)( |$)'
+bits-count: order-gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+sha256: order-gemm-37x41x53-simd128-gemm-simd dcd8a97f3e4925ef029b8f5f28ee208f6ccbda62675f5220b82df94ee6e7e7a9
+bits-count: order-gemm-37x41x53-scalar-gemm-simd mismatches=0 n=1517
+sha256: order-gemm-37x41x53-scalar-gemm-simd a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+bits-count: order-gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+sha256: order-gemm-37x41x53-scalar-gemm-scalar a0bb2a40eeebf8093a0236ffac4f9c053d7c8fca2267c1e08a3cdd40a5551d2b
+```
+
+
+(4) の出力。
+
+```console
+$ gh run view -R Fandhe-AI/fandhe-silicon --job 136162519995 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^(recount-bits: order-gemm-|recount-summary:|summary:)'
+recount-bits: order-gemm-64-simd128-gemm-simd mismatches=0 n=4096
+recount-bits: order-gemm-64-scalar-gemm-simd mismatches=0 n=4096
+recount-bits: order-gemm-64-scalar-gemm-scalar mismatches=0 n=4096
+recount-bits: order-gemm-256-simd128-gemm-simd mismatches=0 n=65536
+recount-bits: order-gemm-256-scalar-gemm-simd mismatches=0 n=65536
+recount-bits: order-gemm-256-scalar-gemm-scalar mismatches=0 n=65536
+recount-bits: order-gemm-37x41x53-simd128-gemm-simd mismatches=0 n=1517
+recount-bits: order-gemm-37x41x53-scalar-gemm-simd mismatches=0 n=1517
+recount-bits: order-gemm-37x41x53-scalar-gemm-scalar mismatches=0 n=1517
+recount-summary: rows=139 zero=139 nonzero=0 uncompared=0
+summary: rows=150 match=150 mismatch=0 not-run=0
+```
+
+
+(5) の出力。
+
+```console
+$ gh run view -R Fandhe-AI/fandhe-silicon --job 136162519995 --log | awk -F'\t' '$2=="make wasm-node-check"' | sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //' | grep -E '^node:'
+node: v24.13.0
+```
+
+
+(6) の出力。1/3 の squash のコミット `8fe25ce1` と 2/3 の squash のコミット `f054a6b0` を、それぞれ親との差で取る。
+
+```console
+$ git diff --stat 8fe25ce1^ 8fe25ce1 -- crates Cargo.lock deps-approved.toml Cargo.toml wasm/Cargo.toml wasm/crates/parity-host/Cargo.toml
+$ git diff --stat f054a6b0^ f054a6b0 -- crates Cargo.lock deps-approved.toml Cargo.toml wasm/Cargo.toml wasm/crates/parity-host/Cargo.toml
+$ git diff 8fe25ce1^ 8fe25ce1 | grep -c '^[-+].*unsafe'
+0
+$ git diff f054a6b0^ f054a6b0 | grep -c '^[-+].*unsafe'
+0
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | Node での照合に語ごとのビットで直に比べる参照の種類を足す | #6940 |
 | 2/3 | 行列積の simd128 版の和の順の参照と 9 行を照合の入力に足す | #6941 |
+| 3/3 | 完了の条件の確かめ | #6942 |
