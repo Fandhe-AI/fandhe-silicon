@@ -38,8 +38,108 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 
 1 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-348。ポインタのみ）。
+
+時点のコミット: `e45dc446`。`docs/spec` の gitlink は `96476a8254c0c1fba240acf062644b4433123e99`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `crates/contract/tests/backend_cuda_lost_release.rs` に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | `git grep -n "fn <名前>" -- crates` で引き、`git ls-files` で置き場を引く | 出力 (2) |
+| (3) | 照らしの口の所在 | `git grep -n` で `free`・`hold_or_release`・`release_finished`・`poll`・`simulate_device_lost` を 1 つずつ引く | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 2 つの実行 | 出力 (4) |
+| (5) | 依存と `[[test]]` の 1 節 | `e45dc446` の親から HEAD までの差と `make deps-check` | 出力 (5) |
+| (6) | unsafe の数と本体の差 | `e45dc446` の親から HEAD までの差と `unsafe` の行の数 | 出力 (6) |
+| (7) | CI | 1/2 のマージの後の main の push の run | 出力 (7) |
+
+(5)・(6) の `e45dc446` の親は `5809c267`。1/2 の 1 つ前のコミット。
+
+出力 (1):
+
+```text
+$ grep -c '^[[:space:]]*#\[test\]' crates/contract/tests/backend_cuda_lost_release.rs
+1
+$ grep -c '^[[:space:]]*#\[ignore' crates/contract/tests/backend_cuda_lost_release.rs
+1
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes" -- crates
+crates/contract/tests/backend_cuda_lost_release.rs:131:fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes() {
+$ git ls-files crates/contract/tests/backend_cuda_lost_release.rs
+crates/contract/tests/backend_cuda_lost_release.rs
+```
+
+出力 (3):
+
+```text
+$ git grep -n "fn free(" -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:3083:    fn free(&self, buffer: BufferHandle) {
+$ git grep -n "fn hold_or_release" -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:2034:fn hold_or_release<B>(
+crates/contract/src/backend_cuda.rs:7410:    fn hold_or_release_holds_only_while_the_last_submission_is_unfinished() {
+$ git grep -n "fn release_finished" -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:2516:    fn release_finished(&self) {
+$ git grep -n "fn poll(" -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:3270:    fn poll(&self, token: SubmitToken) -> CompletionState {
+$ git grep -n "fn simulate_device_lost" -- crates/contract/src/backend_cuda.rs
+crates/contract/src/backend_cuda.rs:2858:    fn simulate_device_lost(&self, reason: DeviceLostReason) -> Result<(), ContractError> {
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --test backend_cuda_lost_release
+running 1 test
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat 5809c267..HEAD -- Cargo.lock deps-approved.toml Cargo.toml
+$ git diff -U0 5809c267..HEAD -- crates/contract/Cargo.toml | grep '^[-+]' | grep -v -e '^+++ ' -e '^--- '
++[[test]]
++name = "backend_cuda_lost_release"
++required-features = ["backend-cuda", "fault-injection"]
++
+$ make deps-check
+終了コード 0
+```
+
+出力 (6):
+
+```text
+$ git diff --stat 5809c267..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs crates/contract/src crates/core
+$ git show 5809c267:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+```
+
+出力 (7):
+
+```text
+$ gh run view 44675328056 --json conclusion,headSha,jobs
+conclusion: success
+headSha: e45dc446d1bfe96e7c1049a27accd8aa141fd7ef
+make verify (fmt + clippy + test): success
+make verify + build-profiles (macos-latest): success
+make deny (cargo-deny): success
+$ gh run view 44675328056 --job <verify のジョブ> --log | grep -E 'test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes \.\.\. ignored, requires a CUDA device' | sort | uniq -c
+      2 test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | 模擬のロストの後の解放の保留と回収の device の要る試験を ignore 付きで足す | #4475 |
+| 2/2 | 完了の条件の確かめ | #4476 |
