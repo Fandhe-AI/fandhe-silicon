@@ -53,8 +53,33 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 1 つ目は 3 件、2 つ目は 1 件が通る。
 
+## device の要る試験（2/3）
+
+device に触る試験は `crates/contract/src/backend_cuda.rs` の `ptx_pipeline_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、30 秒で打ち切る。試験のビルドの device は `compile_with_nvrtc` に入った回数を持ち、試験はその回数を読む。PTX のテキストは、試験が CUDA C のカーネルを、`--gpu-architecture=compute_<major><minor>` と `--frandom-seed=0x5eed` を付けて NVRTC で作る（device の `compile_with_nvrtc` を通らない）。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `nvrtc_ptx_text_creates_a_pipeline_of_this_device` | `Ptx` の入力で `create_pipeline` を 2 回 | 2 回とも通り、その device の識別子を持つ。2 つの識別子は異なる。表の件数は 1 回ごとに 1 増える |
+| `ptx_creation_does_not_enter_the_nvrtc_call_site` | `Ptx` の入力で `create_pipeline` を 2 回、続けて同じカーネルの `CudaC` の入力で 1 回 | `Ptx` の 2 回の後も `compile_with_nvrtc` に入った回数は 0。`CudaC` の 1 回の後は 1 |
+| `ptx_load_failures_are_artifact_rejected_without_entering_the_nvrtc_call_site` | 読めないテキスト・NUL のバイトを含むテキスト・無い入口名・NUL のバイトを含む入口名の `Ptx` の入力で `create_pipeline`、続けて `CudaC` の入力で 1 回 | 読めないテキストと NUL のバイトを含むテキストは `ArtifactRejected { kind: "module" }`、無い入口名と NUL のバイトを含む入口名は `ArtifactRejected { kind: "function" }`。表の件数は増えない。4 つの後も `compile_with_nvrtc` に入った回数は 0。`CudaC` の 1 回の後は 1 |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `crates/contract/src/backend_cuda.rs` の `ptx_pipeline_device_tests` |
+| feature | `backend-cuda` |
+| `#[ignore]` | `requires a CUDA device` |
+
+確かめ:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::ptx_pipeline_device_tests
+```
+
+3 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | PTX の入力を NVRTC を呼ばずに読み込む形と NVRTC の呼び出し口を実装する | #5721 |
+| 2/3 | PTX の入力のパイプラインの生成の device の要る試験を ignore 付きで足す | #5722 |

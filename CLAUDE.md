@@ -224,7 +224,7 @@ fandhe-silicon/
 ├── docs/cuda-poll.md  # CUDA の背後実装の `poll`・`poll_ex`（TASK-605）の所在と、本リポの現状の事実・device の要る試験（1/2）・完了の条件の確かめ（2/2）
 ├── docs/cuda-release-backlog.md  # CUDA の背後実装の解放の保留の数・ゼロ化の完了待ち・回収の点（TASK-346）の所在と、本リポの現状の事実・device の要る試験（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/cuda-handle-check.md  # CUDA の背後実装のハンドルの検証と `free` の無視（TASK-343）の所在と、本リポの現状の事実・device の要る試験（1/2）・完了の条件の確かめ（2/2）
-├── docs/cuda-create-pipeline-ptx.md  # CUDA の背後実装の PTX の入力のパイプラインの生成（TASK-804）の所在と、本リポの現状の事実・PTX の入力の受け付けと NVRTC の呼び出し口（1/3）
+├── docs/cuda-create-pipeline-ptx.md  # CUDA の背後実装の PTX の入力のパイプラインの生成（TASK-804）の所在と、本リポの現状の事実・PTX の入力の受け付けと NVRTC の呼び出し口（1/3）・device の要る試験（2/3）
 ├── docs/vulkan-device-request.md  # Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）
 ├── docs/vulkan-request-no-fallback.md  # Vulkan の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-284）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/metal-run-procedure.md  # Metal の実機での試験の実行手順と、手順のスクリプト（metal-session.sh）の振る舞い・回帰テストとの対応（TASK-19）
