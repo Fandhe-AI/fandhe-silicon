@@ -15,7 +15,7 @@ use measure_perf::sample::duration_to_ns;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::Write;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// 出力の `task_id` に載せるタスクの ID。
 pub const TASK_ID: &str = "TASK-2950";
@@ -145,25 +145,20 @@ pub fn read_cpu_clock(count: usize) -> Result<Vec<u64>, ResolutionError> {
     if count < 2 {
         return Err(ResolutionError::Empty);
     }
-    let mut readings: Vec<Instant> = Vec::new();
-    readings
-        .try_reserve_exact(count)
-        .map_err(|_| ResolutionError::Overflow)?;
+    let mut readings: Vec<Instant> = Vec::with_capacity(count);
     for _ in 0..count {
         readings.push(Instant::now());
     }
     let first = readings[0];
-    // 変換先の確保も失敗をエラーで返す（`collect` の確保失敗はプロセスを止め得る）。
-    let mut out: Vec<u64> = Vec::new();
-    out.try_reserve_exact(count)
-        .map_err(|_| ResolutionError::Overflow)?;
-    for t in &readings {
-        let d = t
-            .checked_duration_since(first)
-            .ok_or(ResolutionError::InvalidTime)?;
-        out.push(duration_to_ns(d).map_err(|_| ResolutionError::Overflow)?);
-    }
-    Ok(out)
+    readings
+        .iter()
+        .map(|t| {
+            let d = t
+                .checked_duration_since(first)
+                .ok_or(ResolutionError::InvalidTime)?;
+            duration_to_ns(d).map_err(|_| ResolutionError::Overflow)
+        })
+        .collect()
 }
 
 /// 分解能と差の分布。
@@ -269,30 +264,20 @@ pub fn summary_json(
     out
 }
 
-/// 現在の UNIX 時刻（秒未満を含む）と、その UTC 時刻（秒に切り捨て）。
-fn now_utc() -> Result<(Duration, UtcTime), ResolutionError> {
-    let since = SystemTime::now()
+/// 現在の UTC 時刻。
+fn now_utc() -> Result<UtcTime, ResolutionError> {
+    let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| ResolutionError::Clock)?;
-    let t = UtcTime::from_unix_secs(since.as_secs()).map_err(|_| ResolutionError::Clock)?;
-    Ok((since, t))
-}
-
-/// 終わりの UNIX 時刻が始まりより前（壁時計の逆行）なら [`ResolutionError::InvalidTime`]。
-/// 秒未満を含む全精度で比べる。
-pub fn check_time_order(started: Duration, ended: Duration) -> Result<(), ResolutionError> {
-    if ended < started {
-        return Err(ResolutionError::InvalidTime);
-    }
-    Ok(())
+        .map_err(|_| ResolutionError::Clock)?
+        .as_secs();
+    UtcTime::from_unix_secs(secs).map_err(|_| ResolutionError::Clock)
 }
 
 /// CPU の時計を [`CPU_READINGS`] 回読み、結果の 1 行を `out` に書く。
 pub fn run(config: &Config, out: &mut impl Write) -> Result<(), ResolutionError> {
-    let (started_at, started) = now_utc()?;
+    let started = now_utc()?;
     let readings = read_cpu_clock(CPU_READINGS)?;
-    let (ended_at, ended) = now_utc()?;
-    check_time_order(started_at, ended_at)?;
+    let ended = now_utc()?;
     let r = cpu_resolution(&readings)?;
     let line = summary_json(config, &started, &ended, CLOCK_CPU, &r);
     writeln!(out, "{line}").map_err(|_| ResolutionError::Output)

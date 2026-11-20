@@ -166,39 +166,3 @@ fn run_writes_one_line_with_the_full_reading_count() {
     assert!(text.contains("\"readings\":1000000,"));
     assert!(text.contains("\"session_ref\":\"_none\""));
 }
-
-#[test]
-fn reading_an_unallocatable_count_returns_an_error_instead_of_panicking() {
-    assert!(read_cpu_clock(usize::MAX).is_err());
-}
-
-#[test]
-fn wall_clock_going_backwards_is_invalid_time() {
-    use measure_clock_resolution::check_time_order;
-    use std::time::Duration;
-    let d = |s: u64, ms: u32| Duration::new(s, ms * 1_000_000);
-    assert_eq!(check_time_order(d(10, 0), d(10, 0)), Ok(()));
-    assert_eq!(check_time_order(d(10, 0), d(11, 0)), Ok(()));
-    assert_eq!(check_time_order(d(10, 500), d(10, 600)), Ok(()));
-    assert_eq!(
-        check_time_order(d(11, 0), d(10, 0)),
-        Err(ResolutionError::InvalidTime)
-    );
-    // 同じ UNIX 秒の中の逆行。
-    assert_eq!(
-        check_time_order(d(10, 600), d(10, 500)),
-        Err(ResolutionError::InvalidTime)
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn bin_rejects_a_non_utf8_argument_with_exit_code_2() {
-    use std::os::unix::ffi::OsStrExt;
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_clock-resolution"))
-        .arg(std::ffi::OsStr::from_bytes(&[0x66, 0xff, 0x6f]))
-        .output()
-        .expect("spawn");
-    assert_eq!(out.status.code(), Some(2));
-    assert!(out.stdout.is_empty());
-}

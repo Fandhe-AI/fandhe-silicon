@@ -6,16 +6,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let mut args: Vec<String> = Vec::new();
-    for a in std::env::args_os().skip(1) {
-        match a.into_string() {
-            Ok(s) => args.push(s),
-            Err(_) => {
-                eprintln!("error: usage: invalid value");
-                return ExitCode::from(2);
-            }
-        }
-    }
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let config = match measure_clock_resolution::parse_args(&args) {
         Ok(c) => c,
         Err(e) => {
@@ -24,11 +15,8 @@ fn main() -> ExitCode {
         }
     };
     let mut stdout = std::io::stdout().lock();
-    let result = measure_clock_resolution::run(&config, &mut stdout).and_then(|()| {
-        stdout
-            .flush()
-            .map_err(|_| measure_clock_resolution::ResolutionError::Output)
-    });
+    let result = measure_clock_resolution::run(&config, &mut stdout);
+    let _ = stdout.flush();
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

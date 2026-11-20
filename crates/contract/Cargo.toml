@@ -82,6 +82,10 @@ name = "backend_cuda_handle_check"
 required-features = ["backend-cuda", "native-blocking-wait"]
 
 [[test]]
+name = "backend_cuda_lost_release"
+required-features = ["backend-cuda", "fault-injection"]
+
+[[test]]
 name = "backend_cuda_pending_release"
 required-features = ["backend-cuda", "fault-injection", "native-blocking-wait"]
 
