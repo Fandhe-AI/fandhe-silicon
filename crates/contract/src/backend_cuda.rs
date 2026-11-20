@@ -8957,7 +8957,10 @@ mod pipeline_error_device_tests {
                 match d.create_pipeline(input, &layout) {
                     Err(ContractError::ArtifactRejected { kind, reason }) => {
                         assert_eq!(kind, "unsupported-input", "{variant}");
-                        assert!(reason.contains(variant), "{variant}: {reason}");
+                        assert!(
+                            reason.starts_with(&format!("pipeline input {variant} ")),
+                            "{variant}: {reason}"
+                        );
                         assert!(reason.contains("CudaC"), "{variant}: {reason}");
                         assert!(reason.contains("Ptx"), "{variant}: {reason}");
                         assert_eq!(reason.contains("Metal"), metal_only, "{variant}: {reason}");
