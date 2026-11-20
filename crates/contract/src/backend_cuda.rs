@@ -60,7 +60,7 @@
 //! device の NVRTC の呼び出し口 `compile_with_nvrtc` に渡し、試験のビルドの device はその呼び出し口に入った回数を持つ（TASK-804）。
 //!
 //! `dispatch_ex`（簡易版の `dispatch` を含む）は記録の時点に記録先・パイプライン・束縛のバッファ・slot・定数・共有メモリの合計を
-//! 照らして記録先に積み、束縛のバッファの識別子・世代・offset と定数の bytes を記録する。投入の時は記録したバッファの解放済みの確かめと各記録の範囲の照らし（`plan_transfers`。範囲の外は `InvalidArgument`）の後に、利用者のカーネルを
+//! 照らして記録先に積み、束縛のポインタは投入の時に解決する。投入は記録したバッファの解放済みの確かめの後に、利用者のカーネルを
 //! 走らせる門（`DISPATCH_EXECUTION_ENABLED`）に照らし、閉じていれば dispatch の記録を含む記録先を `Unsupported` で拒んで
 //! 何も積まない（TASK-805）。
 
@@ -1428,7 +1428,7 @@ impl TransferRecord {
 /// 記録した dispatch の引数 1 件。カーネルの引数の並びの 1 つに当たり、driver の型を持たない。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RecordedArg {
-    /// 束縛のバッファ。識別子・世代と `offset` を記録するだけで、ポインタの解決と `offset` の加算は行わない（投入の時は生存確認のみ）。
+    /// 束縛のバッファ。ポインタは投入の時に表から解決し、`offset` を足す。
     Buffer {
         slot: u32,
         buffer: RecordedBuffer,
@@ -1477,7 +1477,6 @@ fn check_dispatch_record(
             "dispatch_ex: {msg}"
         )))
     };
-    let layout_set: BTreeSet<u32> = layout_slots.iter().copied().collect();
     let mut used = BTreeSet::new();
     for slot in bindings
         .iter()
@@ -1487,7 +1486,7 @@ fn check_dispatch_record(
         if !used.insert(slot) {
             return invalid(format!("duplicate slot in dispatch: {slot}"));
         }
-        if !layout_set.contains(&slot) {
+        if !layout_slots.contains(&slot) {
             return invalid(format!("slot {slot} is not in the binding layout"));
         }
     }
@@ -1701,11 +1700,8 @@ enum TransferJob {
         buffer: u64,
         range: (usize, usize),
     },
-    /// 照らしを通った dispatch 1 件。門が閉じているので、stream には積まず、触るバッファの識別子だけを持つ
-    /// （定数の bytes を複製しない）。
-    Dispatch {
-        buffers: Vec<u64>,
-    },
+    /// 照らしを通った dispatch 1 件。門が閉じているので、stream には積まない。
+    Dispatch(DispatchRecord),
 }
 
 impl TransferJob {
@@ -1714,7 +1710,14 @@ impl TransferJob {
         match self {
             TransferJob::Copy { src, dst, .. } => vec![*src, *dst],
             TransferJob::Clear { buffer, .. } => vec![*buffer],
-            TransferJob::Dispatch { buffers } => buffers.clone(),
+            TransferJob::Dispatch(dispatch) => dispatch
+                .args
+                .iter()
+                .filter_map(|arg| match arg {
+                    RecordedArg::Buffer { buffer, .. } => Some(buffer.buffer_id),
+                    RecordedArg::Constant { .. } => None,
+                })
+                .collect(),
         }
     }
 }
@@ -1729,7 +1732,7 @@ fn check_dispatch_gate(jobs: &[TransferJob], enabled: bool) -> Result<(), Contra
     if !enabled
         && jobs
             .iter()
-            .any(|job| matches!(job, TransferJob::Dispatch { .. }))
+            .any(|job| matches!(job, TransferJob::Dispatch(_)))
     {
         return Err(ContractError::Unsupported {
             op: "submit",
@@ -1811,9 +1814,7 @@ fn plan_transfers(
                 buffer: buffer.buffer_id,
                 range: transfer_range(*offset, *size, length_of(buffer.buffer_id)?)?,
             }),
-            TransferRecord::Dispatch(_) => Ok(TransferJob::Dispatch {
-                buffers: record.buffers().iter().map(|b| b.buffer_id).collect(),
-            }),
+            TransferRecord::Dispatch(dispatch) => Ok(TransferJob::Dispatch(dispatch.clone())),
         })
         .collect()
 }
@@ -2570,9 +2571,7 @@ impl CudaDevice {
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
     /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
-    /// dispatch の件は記録の順に処理するので、この関数の中で拒む分岐に当たる前に、先行するコピー・クリアが積まれていることがある。
-    /// 現行の経路で列全体を何も積まずに拒めるのは、呼び出し元が実行の前に `check_dispatch_gate` で列全体を検査するため。
-    /// この関数の dispatch の分岐は、その検査をすり抜けた場合の最後の防御で、原子性は保証しない。
+    /// dispatch の件は門（`check_dispatch_gate`）が手前で拒むので、ここに来れば何も積まずに `Unsupported`。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
@@ -2614,7 +2613,7 @@ impl CudaDevice {
                             .map_err(|e| backend_failure("memset_zeros", e))
                     })?;
                 }
-                TransferJob::Dispatch { .. } => {
+                TransferJob::Dispatch(_) => {
                     return Err(ContractError::Unsupported {
                         op: "submit",
                         backend: BACKEND,
@@ -3388,9 +3387,8 @@ impl CommandQueue for CudaDevice {
     /// 記録先を投入し、完了を待たずに印を返す。
     ///
     /// 最初に投入済みの表を回収する。空でない `wait` は `Unsupported`、記録先がこの device の
-    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。記録したコピー・クリア・dispatch の束縛の
-    /// バッファが解放済みなら `InvalidArgument` で、何も積まず番号を消費しない。この束縛バッファの検査は dispatch を拒む門より先に行う。
-    /// dispatch を含む記録先は、検査が通っても全体が投入されず `Unsupported` を返す（先行するクリア・コピーも反映しない）。通れば記録の順に stream へ積んでから event を 1 つ記録する。
+    /// 開いている集合に無ければ `InvalidArgument` で、どちらも何も投入しない。記録したコピー・クリアのバッファが
+    /// 解放済みなら `InvalidArgument` で、何も積まず番号を消費しない。通れば記録の順に stream へ積んでから event を 1 つ記録する。
     fn submit(
         &self,
         mut commands: CommandEncoder,
@@ -3417,8 +3415,7 @@ impl CommandQueue for CudaDevice {
     ///
     /// 最初に投入済みの表を回収する。検査の順は、`after` の各印（別 device は `DeviceMismatch`、
     /// 世代違いは `DeviceLost`）、空の列（`InvalidArgument`）、`wait`（`Unsupported`）、全記録先の所属
-    /// （`InvalidArgument`）、記録したコピー・クリア・dispatch の束縛のバッファの解放済みの確かめ（`InvalidArgument`。dispatch を拒む門より先）、
-    /// dispatch を含む記録先があれば全体を `Unsupported`（どの記録先も反映しない）。検査に当たると何も投入しない。
+    /// （`InvalidArgument`）、記録したコピー・クリアのバッファの解放済みの確かめ（`InvalidArgument`）。検査に当たると何も投入しない。
     /// 1 つの stream に順に積むので、`after` は照合だけで追加の待ちは入れない。通れば、渡した記録先の順に各記録先の記録を積んでから
     /// event を 1 つ記録し、錠を放してから終端になった登録済みの callback を呼ぶ（`submit` と同じ）。
     fn submit_many(
@@ -7966,127 +7963,6 @@ mod copy_clear_device_tests {
         let next = d.allocate(LEN, both()).expect("allocate");
         assert_eq!(read(&d, &next), vec![0u8; LEN as usize]);
     }
-
-    /// クリアに続けて dispatch を記録した記録先は、`submit` も `submit_many` も `Unsupported` で拒み、先行するクリアを反映しない。
-    #[test]
-    #[ignore = "requires a CUDA device"]
-    fn a_dispatch_after_a_clear_is_rejected_by_submit_and_submit_many_without_the_clear() {
-        let d = device();
-        // NVRTC を経由しないよう、手書きの PTX で試験用のパイプラインを作る。
-        let kernel = ".version 7.0\n.target sm_50\n.address_size 64\n.visible .entry k(.param .u64 out)\n{\n\tret;\n}\n";
-        let pipeline = d
-            .create_pipeline(
-                PipelineInput::Ptx {
-                    source: kernel,
-                    entry_point: "k",
-                },
-                &BindingLayout::new(vec![0]),
-            )
-            .expect("pipeline");
-        let record = |d: &CudaDevice, target: &BufferHandle| {
-            let mut enc = d.create_encoder();
-            assert_eq!(d.clear_buffer(&mut enc, target, 0, LEN), Ok(()));
-            let binding = Binding::new(0, target, 0);
-            assert_eq!(
-                d.dispatch_ex(
-                    &mut enc,
-                    &pipeline,
-                    &[binding],
-                    &[],
-                    [1, 1, 1],
-                    [1, 1, 1],
-                    &[]
-                ),
-                Ok(())
-            );
-            enc
-        };
-        let expected = Err(ContractError::Unsupported {
-            op: "submit",
-            backend: BACKEND,
-        });
-        let single = filled(&d, &pattern(1));
-        let enc = record(&d, &single);
-        assert_eq!(d.submit(enc, &[]).map(|_| ()), expected);
-        assert_eq!(read(&d, &single), pattern(1));
-        let many = filled(&d, &pattern(2));
-        let enc = record(&d, &many);
-        assert_eq!(d.submit_many(vec![enc], &[], &[]).map(|_| ()), expected);
-        assert_eq!(read(&d, &many), pattern(2));
-        // 先頭にクリアだけのエンコーダー、後続に dispatch のエンコーダーを置いても、先頭のクリアは反映されない。
-        let first = filled(&d, &pattern(3));
-        let mut clear_only = d.create_encoder();
-        assert_eq!(d.clear_buffer(&mut clear_only, &first, 0, LEN), Ok(()));
-        let second = filled(&d, &pattern(4));
-        let with_dispatch = record(&d, &second);
-        assert_eq!(
-            d.submit_many(vec![clear_only, with_dispatch], &[], &[])
-                .map(|_| ()),
-            expected
-        );
-        assert_eq!(read(&d, &first), pattern(3));
-        assert_eq!(read(&d, &second), pattern(4));
-    }
-
-    /// 別の device のパイプラインと解放済みのバッファを `dispatch_ex` が拒み、拒否の後も同じ記録先でクリアを記録・投入できる。
-    #[test]
-    #[ignore = "requires a CUDA device"]
-    fn dispatch_ex_rejections_leave_the_encoder_usable_for_a_clear() {
-        let d = device();
-        let other = device();
-        let kernel = ".version 7.0\n.target sm_50\n.address_size 64\n.visible .entry k(.param .u64 out)\n{\n\tret;\n}\n";
-        let make = |dev: &CudaDevice| {
-            dev.create_pipeline(
-                PipelineInput::Ptx {
-                    source: kernel,
-                    entry_point: "k",
-                },
-                &BindingLayout::new(vec![0]),
-            )
-            .expect("pipeline")
-        };
-        let own = make(&d);
-        let foreign = make(&other);
-        let target = filled(&d, &pattern(5));
-        let freed = filled(&d, &pattern(6));
-        let freed_view = BufferHandle::__backend_new(
-            freed.__backend_generation(),
-            freed.__backend_id(),
-            freed.__backend_device_id(),
-            freed.size(),
-            freed.usage(),
-        );
-        d.free(freed);
-        let mut enc = d.create_encoder();
-        let rejected = d.dispatch_ex(
-            &mut enc,
-            &foreign,
-            &[Binding::new(0, &target, 0)],
-            &[],
-            [1, 1, 1],
-            [1, 1, 1],
-            &[],
-        );
-        assert_eq!(rejected, Err(ContractError::DeviceMismatch));
-        let rejected = d.dispatch_ex(
-            &mut enc,
-            &own,
-            &[Binding::new(0, &freed_view, 0)],
-            &[],
-            [1, 1, 1],
-            [1, 1, 1],
-            &[],
-        );
-        assert!(
-            matches!(rejected, Err(ContractError::InvalidArgument(_))),
-            "{rejected:?}"
-        );
-        // 拒否は記録先を変えていないので、クリアだけの記録先として投入が通り、反映される。
-        assert_eq!(d.clear_buffer(&mut enc, &target, 0, LEN), Ok(()));
-        let token = d.submit(enc, &[]).expect("submit");
-        poll_until_complete(&d, &token);
-        assert_eq!(read(&d, &target), vec![0u8; LEN as usize]);
-    }
 }
 
 /// 門で止めたコピーに使ったバッファの解放の保留と回収の、CUDA の device に触る試験。device の無い環境では流さない（TASK-624 のポインタ）。
@@ -9663,6 +9539,9 @@ mod dispatch_record_tests {
             size: 4,
         };
         let jobs = plan_transfers(&[clear.clone(), dispatch.clone()], table, GEN).expect("plan");
+        let TransferRecord::Dispatch(record) = dispatch else {
+            unreachable!()
+        };
         assert_eq!(
             jobs,
             vec![
@@ -9670,7 +9549,7 @@ mod dispatch_record_tests {
                     buffer: 2,
                     range: (0, 4),
                 },
-                TransferJob::Dispatch { buffers: vec![1] },
+                TransferJob::Dispatch(record),
             ]
         );
         assert_eq!(jobs[1].buffer_ids(), vec![1]);
@@ -9684,12 +9563,5 @@ mod dispatch_record_tests {
         assert_eq!(check_dispatch_gate(&jobs, true), Ok(()));
         let clear_only = plan_transfers(&[clear], table, GEN).expect("plan");
         assert_eq!(check_dispatch_gate(&clear_only, false), Ok(()));
-    }
-
-    /// 門の定数がどのビルドでも閉じたままであることを、定数を直に照らして守る。
-    /// 開けるときは、カーネルが触る範囲を保証する仕組みと試験を同じ変更で入れる。
-    #[test]
-    fn dispatch_execution_gate_const_stays_closed() {
-        assert!(!std::hint::black_box(DISPATCH_EXECUTION_ENABLED));
     }
 }

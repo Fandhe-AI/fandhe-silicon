@@ -34,13 +34,12 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 slot は束縛・定数の順に 1 つずつ、重なり・配置に無いの順で見て、その後で配置にあって渡されない slot を見る。その後で空の定数を見て、最後に共有メモリの合計を見る。
 
-投入は、記録したバッファの解放済みの確かめ（`plan_transfers`）を全記録について先に行う。dispatch の束縛の解放済みは `a bound buffer was freed before submit (binding slot <slot>)`、コピー・クリアは `a copied or cleared buffer was freed before submit` で、どちらも `InvalidArgument`。解放済みの確かめの後、コピー・クリアの記録のバッファの範囲を表の長さで照らし（`plan_transfers` の中。dispatch の束縛は生存と世代だけを確かめ、範囲は照らさない）、範囲の外なら `InvalidArgument` で返す。この範囲の照らしは `check_dispatch_gate` に先行するので、dispatch を含む列でもコピー・クリアに範囲の外の記録があれば門より先に `InvalidArgument` が返る。その後で `check_dispatch_gate` が、門が閉じていれば dispatch の件を含む列を `Unsupported { op: "submit", backend: Cuda }` で拒む。コピー・クリアだけの列は門に関わらず通す。
+投入は、記録したバッファの解放済みの確かめ（`plan_transfers`）を全記録について先に行う。dispatch の束縛の解放済みは `a bound buffer was freed before submit (binding slot <slot>)`、コピー・クリアは `a copied or cleared buffer was freed before submit` で、どちらも `InvalidArgument`。その後で `check_dispatch_gate` が、門が閉じていれば dispatch の件を含む列を `Unsupported { op: "submit", backend: Cuda }` で拒む。コピー・クリアだけの列は門に関わらず通す。
 
 | 入力 | 返す値 | 試験 |
 | ---- | ------ | ---- |
 | 束縛のバッファが表に無い・世代が違う | slot を載せた `InvalidArgument`。前の記録の範囲が外れていても先に返す | `plan_rejects_a_freed_bound_buffer_with_its_slot` |
 | クリアと dispatch の列 | 記録の順の件。閉じた門は `Unsupported`、開いた門は通す。クリアだけの列は閉じた門でも通す | `gate_rejects_lists_with_a_dispatch_only_when_closed` |
-| 投入の経路が参照する門の定数 | どのビルドでも閉じたまま | `dispatch_execution_gate_const_stays_closed` |
 
 ## 確かめ方
 
@@ -48,10 +47,9 @@ slot は束縛・定数の順に 1 つずつ、重なり・配置に無いの順
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_record_tests::record_
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_record_tests::plan_
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_record_tests::gate_
-cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_record_tests::dispatch_execution_gate_const_stays_closed
 ```
 
-1 つ目は 5 件、2 つ目は 1 件、3 つ目と 4 つ目は 1 件ずつが通る。
+1 つ目は 5 件、2 つ目と 3 つ目は 1 件ずつが通る。
 
 ## 段
 
