@@ -192,3 +192,16 @@ $ gh run view 44722531593 --job 136241642998 --log | awk -F'\t' '$2=="make verif
 | -- | ---- | ----- |
 | 1/2 | 和の順と k の端数の試験 | #6936 |
 | 2/2 | 完了の条件の確かめ | #6937 |
+
+## 今の値の補い（base 8a43647a）
+
+記録時点の表と既存の節は書き換えない。以下は base `8a43647a` で確かめた今の値。
+
+「完了の条件の確かめ（2/2）」の節の表 (9) の「`crates` の差」「差は空」が比べた範囲は、コードブロック (9) の 1 本目のコマンドの対象のパス `crates/contract/src`・`crates/core`・`crates/contract/tests/cpu_ops_reference.rs`・`crates/contract/tests/cpu_ops_neon_unsafe_count.rs` の 4 つ。`crates` 全体の差は次のとおりで、`crates/contract/Cargo.toml` と新しい試験のファイルだけ。
+
+```console
+$ git diff --stat 939f83f332c362929b6b261a89d904591c5a3206 a05f0dc119b8538969477cef5e2c9764e01568a6 -- crates | cut -c2-
+crates/contract/Cargo.toml                       |   4 +
+crates/contract/tests/cpu_ops_gemm_neon_rules.rs | 211 +++++++++++++++++++++++
+2 files changed, 215 insertions(+)
+```
