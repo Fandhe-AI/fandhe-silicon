@@ -114,3 +114,11 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 2/4 | 次元数の照らしと作成の失敗の受け渡しの試験を足す | #4852 |
 | 3/4 | device の要る宣言の照らしの試験を ignore 付きで足す | #4853 |
 | 4/4 | 完了の条件の確かめ | #4854 |
+
+## 今の値の補い（base 85bc0dbc）
+
+記録時点の表と既存の節は書き換えない。以下は base `85bc0dbc` で確かめた今の値。所在は [cuda-create-pipeline-ptx](cuda-create-pipeline-ptx.md) の 1/3 の節（TASK-804）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| `rejection_comes_before_the_input_is_classified` の入力の欄 | `Ptx` の入力・`slots` 2 件・宣言 1 件 → `Wgsl` の入力・`slots` 2 件・宣言 1 件（`Ptx` は分類を通るようになった。確かめることは同じで、先頭が `C1` の `InvalidArgument`） | `rejection_comes_before_the_input_is_classified`（device の要る試験） |
