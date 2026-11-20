@@ -136,9 +136,26 @@ $ gh run view 44675328056 --job 136085675961 --log | grep -oE 'test buffers_free
       2 test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes ... ignored, requires a CUDA device
 ```
 
+## device の要る試験の強め（3/4）
+
+上の「device の要る試験（1/2）」の節の表と文は記録時点の値で、書き換えていない。3/4 の後の試験の形は次のとおり。公開の口（`Device::memory`・`Device::queue`・`Device::fault_hooks`）だけを呼び、印は `submit` が返した値をそのまま `poll` に渡す。本体を別のスレッドで流し、30 秒で打ち切る。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes` | 3 つ確保して 1 つ目に書き、門を仕込んで 1 つ目から 2 つ目へのコピーを投入し、`simulate_device_lost` の後に 3 つ目・1 つ目・2 つ目を `free` してそれぞれの後に `pending_release_count` を読み、ロストの前の印で `poll` を呼び、`open_gate` の後に `poll` を繰り返す | `simulate_device_lost` は `Ok(())`。`free` ごとの数は `Some(0)`・`Some(1)`・`Some(2)`。`poll` は `Lost` で、その後も `Some(2)`。`open_gate` の後の `poll` はどの回も `Lost` で、数は `Some(0)` になる。門を仕込む前からの経過は、3 つ目の `free` の後の数の読みの後、`poll` の後の数の読みの後、`open_gate` の後の数の読みのたび（`Some(0)` を読んだ回を含む）に 250 ms より短い |
+
+| 項目 | 値 |
+| ---- | -- |
+| ファイル | `crates/contract/tests/backend_cuda_lost_release.rs` |
+| `required-features` | `backend-cuda`・`fault-injection`（`crates/contract/Cargo.toml` の `[[test]]`） |
+| `#[ignore]` | `requires a CUDA device` |
+
+確かめのコマンドは上の「確かめ方」と同じで、1 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | 模擬のロストの後の解放の保留と回収の device の要る試験を ignore 付きで足す | #4475 |
 | 2/2 | 完了の条件の確かめ | #4476 |
+| 3/4 | 模擬のロストの後の解放の保留と回収の device の要る試験を強める | #8407 |
