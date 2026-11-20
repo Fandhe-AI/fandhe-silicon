@@ -3376,6 +3376,35 @@ impl CommandQueue for CudaDevice {
     }
 }
 
+/// device の要る試験の共通の上限。
+#[cfg(test)]
+const TEST_BODY_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `body` を別のスレッドで流し、`TEST_BODY_LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+#[cfg(test)]
+fn within(body: impl FnOnce() + Send + 'static) {
+    use std::sync::mpsc;
+    let (sender, receiver) = mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        body();
+        let _ = sender.send(());
+    });
+    match receiver.recv_timeout(TEST_BODY_LIMIT) {
+        Ok(()) => {
+            let _ = handle.join();
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            if let Err(payload) = handle.join() {
+                std::panic::resume_unwind(payload);
+            }
+            panic!("the test body ended without reporting");
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            panic!("the test body did not end within {TEST_BODY_LIMIT:?}")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6238,32 +6267,6 @@ mod checked_pipeline_device_tests {
         assert_eq!(table_len(&d), before + 1);
     }
 
-    /// `within` の上限。
-    const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
-    fn within(body: impl FnOnce() + Send + 'static) {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            body();
-            let _ = sender.send(());
-        });
-        match receiver.recv_timeout(LIMIT) {
-            Ok(()) => {
-                let _ = handle.join();
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                if let Err(payload) = handle.join() {
-                    std::panic::resume_unwind(payload);
-                }
-                panic!("the test body ended without reporting");
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                panic!("the test body did not end within {LIMIT:?}")
-            }
-        }
-    }
-
     /// `ADD_ONE` を `compile_cuda_c` で PTX のテキストにする。device の NVRTC の呼び出し口を通らない。
     fn add_one_ptx(d: &CudaDevice) -> String {
         compile_cuda_c(ADD_ONE, d.compute_capability)
@@ -8394,37 +8397,9 @@ mod ptx_input_tests {
 #[cfg(test)]
 mod ptx_pipeline_device_tests {
     use super::*;
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    /// 各試験の上限。
-    const LIMIT: Duration = Duration::from_secs(30);
 
     /// 要素に 1 を足す小さなカーネル。
     const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
-
-    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
-    fn within(body: impl FnOnce() + Send + 'static) {
-        let (sender, receiver) = mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            body();
-            let _ = sender.send(());
-        });
-        match receiver.recv_timeout(LIMIT) {
-            Ok(()) => {
-                let _ = handle.join();
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                if let Err(payload) = handle.join() {
-                    std::panic::resume_unwind(payload);
-                }
-                panic!("the test body ended without reporting");
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                panic!("the test body did not end within {LIMIT:?}")
-            }
-        }
-    }
 
     fn device() -> CudaDevice {
         open_device(DeviceRequest {
