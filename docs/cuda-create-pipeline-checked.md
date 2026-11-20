@@ -106,6 +106,26 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 [deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
 ```
 
+## PTX の入力で宣言の照らしを通る device の要る試験（5/6）
+
+試験は `crates/contract/src/backend_cuda.rs` の `checked_pipeline_device_tests` module にある。`#[ignore = "requires a CUDA device"]` で既定では流れない。`CudaDevice` で `create_pipeline_checked` を呼ぶ。本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。
+
+| 試験 | 入力 | 確かめること |
+| ---- | ---- | ------------ |
+| `matching_declaration_with_ptx_input_creates_a_pipeline_of_this_device` | `Ptx` の入力（CUDA C の `add_one` を `compile_cuda_c` で PTX にしたテキスト。`.entry add_one` を含む）・`slots` 3 件・宣言 3 件 | `Ok`。handle の device の識別子がこの device と同じ。表の件数が 1 増える |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `checked_pipeline_device_tests`（`crates/contract/src/backend_cuda.rs`） |
+| `cfg` | `#[cfg(test)]` |
+| `#[ignore]` | `requires a CUDA device` |
+
+```bash
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::checked_pipeline_device_tests
+```
+
+5 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -114,6 +134,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | 2/4 | 次元数の照らしと作成の失敗の受け渡しの試験を足す | #4852 |
 | 3/4 | device の要る宣言の照らしの試験を ignore 付きで足す | #4853 |
 | 4/4 | 完了の条件の確かめ | #4854 |
+| 5/6 | PTX の入力で宣言の照らしを通る device の要る試験を ignore 付きで足す | #8397 |
 
 ## 今の値の補い（base 85bc0dbc）
 
