@@ -138,20 +138,23 @@ fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes() {
         let unused = allocate(memory);
         assert_eq!(memory.upload(&src, 0, &[0x5A; LEN as usize]), Ok(()));
         assert_eq!(memory.pending_release_count(), Some(0));
-        let token = submit_gated_copy(d, &src, &dst);
+        // 門の自動解除より前に確認が収まったことを示すため、門を仕込む前から計る。
         let submitted = Instant::now();
+        let token = submit_gated_copy(d, &src, &dst);
         assert_eq!(
             hooks(d).simulate_device_lost(DeviceLostReason::Unknown),
             Ok(())
         );
         memory.free(unused);
+        assert_eq!(memory.pending_release_count(), Some(0));
         memory.free(src);
+        assert_eq!(memory.pending_release_count(), Some(1));
         memory.free(dst);
+        assert_eq!(memory.pending_release_count(), Some(2));
         assert!(
             submitted.elapsed() < WINDOW,
             "the loss and the frees took too long"
         );
-        assert_eq!(memory.pending_release_count(), Some(2));
         assert_eq!(d.queue().poll(copy_of(&token)), CompletionState::Lost);
         assert_eq!(memory.pending_release_count(), Some(2));
         assert!(
