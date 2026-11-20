@@ -55,6 +55,9 @@
 //! feature `native-blocking-wait` のビルドの `wait_blocking` は、照らしの後に投入済みの表から待つかを決め、表の錠を放してから
 //! `None` は投入の event を同期し、`Some` は期限まで event の完了を確かめ直す。戻る前に `submit` と同じく、解放を保留した
 //! バッファを回し、終端になった登録済みの callback を呼ぶ（TASK-606）。
+//!
+//! `create_pipeline` は `Ptx` の入力を NVRTC に渡さず、テキストをそのままモジュールとして読み込む。`CudaC` の入力だけを
+//! device の NVRTC の呼び出し口 `compile_with_nvrtc` に渡し、試験のビルドの device はその呼び出し口に入った回数を持つ（TASK-804）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(feature = "fault-injection")]
@@ -579,6 +582,8 @@ fn open_device(req: DeviceRequest) -> Result<CudaDevice, ContractError> {
             buffers: Mutex::new(Buffers::default()),
             held: std::sync::atomic::AtomicUsize::new(0),
             pipelines: Mutex::new(Pipelines::default()),
+            #[cfg(test)]
+            nvrtc_calls: AtomicU64::new(0),
             open: Arc::new(OpenEncoders::default()),
             submissions: Mutex::new(Submissions::new()),
             validation: ValidationReporter::new(),
@@ -804,17 +809,46 @@ fn guard_memory_panic<T>(
     })
 }
 
-/// `create_pipeline` の入力を分類し、受け付ける CUDA C のソースと入口名を返す。
+/// `create_pipeline` が受け付けた入力。`classify_pipeline_input` が返し、`module_input` が読み込む PTX にする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptedInput<'a> {
+    /// NVRTC で PTX にする CUDA C のソースと入口名。
+    CudaC {
+        source: &'a str,
+        entry_point: &'a str,
+    },
+    /// NVRTC に渡さずにそのまま読み込む PTX のテキストと入口名。
+    Ptx {
+        source: &'a str,
+        entry_point: &'a str,
+    },
+}
+
+/// `create_pipeline` の入力を分類し、受け付ける `CudaC`・`Ptx` の入力を返す。
 /// device にも下位の API にも触らない。`ComputeOps::create_pipeline` から最初に呼ばれる。
 fn classify_pipeline_input<'a>(
     input: &PipelineInput<'a>,
-) -> Result<(&'a str, &'a str), ContractError> {
+) -> Result<AcceptedInput<'a>, ContractError> {
     let variant = match input {
         PipelineInput::CudaC {
             source,
             entry_point,
-        } => return Ok((source, entry_point)),
-        PipelineInput::Ptx { .. } | PipelineInput::Wgsl { .. } => {
+        } => {
+            return Ok(AcceptedInput::CudaC {
+                source,
+                entry_point,
+            });
+        }
+        PipelineInput::Ptx {
+            source,
+            entry_point,
+        } => {
+            return Ok(AcceptedInput::Ptx {
+                source,
+                entry_point,
+            });
+        }
+        PipelineInput::Wgsl { .. } => {
             return Err(ContractError::Unsupported {
                 op: "create_pipeline",
                 backend: BACKEND,
@@ -836,7 +870,7 @@ fn classify_pipeline_input<'a>(
     Err(ContractError::ArtifactRejected {
         kind: "unsupported-input",
         reason: format!(
-            "pipeline input {variant} is not accepted by the CUDA backend; accepted input is CudaC"
+            "pipeline input {variant} is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
         ),
     })
 }
@@ -856,12 +890,30 @@ fn check_unique_slots(slots: &[u32]) -> Result<(), ContractError> {
 }
 
 /// ソースと入口名に NUL のバイトが無いことを照らす。下位の API へ文字列を渡す前の検査で、
-/// `create_pipeline` が最後に呼ぶ。ソースを先に見る。
+/// `module_input` が `CudaC` の入力でコンパイルの前に呼ぶ。ソースを先に見る。
 fn check_no_nul(source: &str, entry_point: &str) -> Result<(), ContractError> {
     if source.contains('\0') {
         return Err(ContractError::ArtifactRejected {
             kind: "cuda-c",
             reason: "CUDA C source contains a NUL byte".to_string(),
+        });
+    }
+    if entry_point.contains('\0') {
+        return Err(ContractError::ArtifactRejected {
+            kind: "function",
+            reason: "entry point contains a NUL byte".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// PTX のテキストと入口名に NUL のバイトが無いことを照らす。下位の API へ文字列を渡す前の検査で、
+/// `module_input` が `Ptx` の入力で読み込む PTX を作る前に呼ぶ。テキストを先に見る。
+fn check_ptx_no_nul(source: &str, entry_point: &str) -> Result<(), ContractError> {
+    if source.contains('\0') {
+        return Err(ContractError::ArtifactRejected {
+            kind: "module",
+            reason: "PTX source contains a NUL byte".to_string(),
         });
     }
     if entry_point.contains('\0') {
@@ -969,7 +1021,7 @@ fn guard_pipeline_panic<T>(
 }
 
 /// CUDA C のソースを NVRTC で PTX にする。NVRTC を呼ぶのはこの関数だけ。
-/// ライブラリが無ければ `Unsupported`。`ComputeOps::create_pipeline` から呼ばれる。
+/// ライブラリが無ければ `Unsupported`。`CudaDevice::compile_with_nvrtc` から呼ばれる。
 fn compile_cuda_c(source: &str, capability: (i32, i32)) -> Result<Ptx, ContractError> {
     let options = compile_options(capability)?;
     if !nvrtc_library_present() {
@@ -981,6 +1033,31 @@ fn compile_cuda_c(source: &str, capability: (i32, i32)) -> Result<Ptx, ContractE
     guard_pipeline_panic(|| {
         cudarc::nvrtc::compile_ptx_with_opts(source, options).map_err(nvrtc_failure)
     })
+}
+
+/// 受け付けた入力から、読み込む PTX と入口名を作る。`CudaC` はソースと入口名の NUL のバイトを照らしてから
+/// `compile` を 1 回呼ぶ。`Ptx` はテキストと入口名の NUL のバイトを照らし、`compile` を呼ばずにテキストを
+/// そのまま PTX にする。`ComputeOps::create_pipeline` が device の NVRTC の呼び出し口を `compile` に渡して呼ぶ。
+fn module_input<'a>(
+    accepted: AcceptedInput<'a>,
+    compile: impl FnOnce(&str) -> Result<Ptx, ContractError>,
+) -> Result<(Ptx, &'a str), ContractError> {
+    match accepted {
+        AcceptedInput::CudaC {
+            source,
+            entry_point,
+        } => {
+            check_no_nul(source, entry_point)?;
+            Ok((compile(source)?, entry_point))
+        }
+        AcceptedInput::Ptx {
+            source,
+            entry_point,
+        } => {
+            check_ptx_no_nul(source, entry_point)?;
+            Ok((Ptx::from_src(source), entry_point))
+        }
+    }
 }
 
 /// 投入済みの表の 1 件の状態。
@@ -2009,6 +2086,9 @@ struct CudaDevice {
     /// 解放を保留しているバッファの数。バッファの表の錠の中で書き、回収の点は錠を取らずに 0 かを読む。
     held: std::sync::atomic::AtomicUsize,
     pipelines: Mutex<Pipelines>,
+    /// `compile_with_nvrtc` に入った回数。試験のビルドだけで数える。
+    #[cfg(test)]
+    nvrtc_calls: AtomicU64,
     open: Arc<OpenEncoders>,
     submissions: Mutex<Submissions<Arc<CudaEvent>>>,
     /// 検証の報告の受け口の登録を置く部品。この背後実装は報告を出さない（TASK-607）。
@@ -2163,6 +2243,14 @@ impl CudaDevice {
     /// 今の世代。
     fn current_generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// この device の NVRTC の呼び出し口。試験のビルドでは入った回数を 1 足してから `compile_cuda_c` を呼ぶ。
+    /// `create_pipeline` が `CudaC` の入力のときだけ `module_input` を通して呼ぶ。
+    fn compile_with_nvrtc(&self, source: &str) -> Result<Ptx, ContractError> {
+        #[cfg(test)]
+        self.nvrtc_calls.fetch_add(1, Ordering::SeqCst);
+        compile_cuda_c(source, self.compute_capability)
     }
 
     /// 投入済みの表の錠を取る。poison されていても中身を使う。
@@ -3043,15 +3131,15 @@ impl ComputeOps for CudaDevice {
     /// 通った `CudaC` は NVRTC で PTX にし、モジュールの読み込みと関数の取得を経て、
     /// 関数と配置の写しを device のパイプラインの表に登録してハンドルを返す。
     /// NVRTC のライブラリが無ければ `Unsupported`。
+    /// 通った `Ptx` はテキストをそのまま読み込み、NVRTC の呼び出し口を通らない。
     fn create_pipeline(
         &self,
         input: PipelineInput<'_>,
         layout: &BindingLayout,
     ) -> Result<PipelineHandle, ContractError> {
-        let (source, entry_point) = classify_pipeline_input(&input)?;
+        let accepted = classify_pipeline_input(&input)?;
         check_unique_slots(&layout.slots)?;
-        check_no_nul(source, entry_point)?;
-        let ptx = compile_cuda_c(source, self.compute_capability)?;
+        let (ptx, entry_point) = module_input(accepted, |source| self.compile_with_nvrtc(source))?;
         let ctx = self.stream.context();
         let (module, function) = guard_pipeline_panic(|| {
             ctx.bind_to_thread()
@@ -4604,33 +4692,40 @@ mod tests {
         ));
     }
 
-    /// 入力の分類: `CudaC` だけが通り、ほかは `Unsupported` か `ArtifactRejected` になる。
+    /// 入力の分類: `CudaC`・`Ptx` が通り、ほかは `Unsupported` か `ArtifactRejected` になる。
     #[test]
-    fn only_cuda_c_is_accepted_and_other_inputs_are_classified() {
+    fn cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified() {
         use fandhe_silicon_core::execution::{MslFloatFunctions, MslMathMode};
-        let ok = classify_pipeline_input(&PipelineInput::CudaC {
-            source: "s",
-            entry_point: "e",
-        });
-        assert!(matches!(ok, Ok(("s", "e"))));
-        for input in [
-            PipelineInput::Ptx {
+        assert_eq!(
+            classify_pipeline_input(&PipelineInput::CudaC {
+                source: "s",
+                entry_point: "e",
+            }),
+            Ok(AcceptedInput::CudaC {
+                source: "s",
+                entry_point: "e",
+            })
+        );
+        assert_eq!(
+            classify_pipeline_input(&PipelineInput::Ptx {
                 source: "p",
                 entry_point: "e",
-            },
-            PipelineInput::Wgsl {
+            }),
+            Ok(AcceptedInput::Ptx {
+                source: "p",
+                entry_point: "e",
+            })
+        );
+        assert!(matches!(
+            classify_pipeline_input(&PipelineInput::Wgsl {
                 source: "w",
                 entry_point: "e",
-            },
-        ] {
-            assert!(matches!(
-                classify_pipeline_input(&input),
-                Err(ContractError::Unsupported {
-                    op: "create_pipeline",
-                    backend: BackendKind::Cuda
-                })
-            ));
-        }
+            }),
+            Err(ContractError::Unsupported {
+                op: "create_pipeline",
+                backend: BackendKind::Cuda
+            })
+        ));
         for input in [
             PipelineInput::Msl {
                 source: "m",
@@ -4681,7 +4776,7 @@ mod tests {
         };
         assert_eq!(
             reason,
-            "pipeline input Msl is not accepted by the CUDA backend; accepted input is CudaC"
+            "pipeline input Msl is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
         );
         let Err(ContractError::ArtifactRejected { reason, .. }) =
             classify_pipeline_input(&PipelineInput::MslSpecializedWithOptions {
@@ -4696,7 +4791,7 @@ mod tests {
         };
         assert_eq!(
             reason,
-            "pipeline input MslSpecializedWithOptions is not accepted by the CUDA backend; accepted input is CudaC"
+            "pipeline input MslSpecializedWithOptions is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
         );
     }
 
@@ -4913,21 +5008,21 @@ mod device_tests {
         ));
     }
 
-    /// PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`。
+    /// WGSL は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`。
     #[test]
     #[ignore = "requires a CUDA device"]
-    fn ptx_is_unsupported_and_msl_is_unsupported_input() {
+    fn wgsl_is_unsupported_and_msl_is_unsupported_input() {
         let d = device();
         let layout = BindingLayout::new(vec![0]);
-        let ptx = d.create_pipeline(
-            PipelineInput::Ptx {
-                source: ".version 7.0",
+        let wgsl = d.create_pipeline(
+            PipelineInput::Wgsl {
+                source: "@compute @workgroup_size(1) fn k() {}",
                 entry_point: "k",
             },
             &layout,
         );
         assert!(matches!(
-            ptx,
+            wgsl,
             Err(ContractError::Unsupported {
                 op: "create_pipeline",
                 backend: BackendKind::Cuda,
@@ -6108,14 +6203,14 @@ mod checked_pipeline_device_tests {
     }
 
     // BIND-60
-    /// 照らしは入力の分類より先に走る。`Ptx` の入力でも先頭が `C1` で返る。
+    /// 照らしは入力の分類より先に走る。`Wgsl` の入力でも先頭が `C1` で返る。
     #[test]
     #[ignore = "requires a CUDA device"]
     fn rejection_comes_before_the_input_is_classified() {
         let d = device();
         let before = table_len(&d);
         let declared = [spec(0, DType::F32, &[4], &[1])];
-        let input = PipelineInput::Ptx {
+        let input = PipelineInput::Wgsl {
             source: "",
             entry_point: "k",
         };
@@ -8109,5 +8204,127 @@ mod release_backlog_device_tests {
             d.free(again);
             d.free(sync);
         });
+    }
+}
+
+/// `Ptx` の入力の分類と、読み込む PTX を作るときに NVRTC の呼び出し口を呼ぶかの、device に触らない試験（TASK-804 のポインタ）。
+#[cfg(test)]
+mod ptx_input_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// `module_input` に渡す呼び出し口の代わり。受けたソースを `seen` に積み、`result` を返す。
+    fn recording<'s>(
+        seen: &'s RefCell<Vec<String>>,
+        result: Result<&'static str, ContractError>,
+    ) -> impl FnOnce(&str) -> Result<Ptx, ContractError> + 's {
+        move |source| {
+            seen.borrow_mut().push(source.to_string());
+            result.map(Ptx::from_src)
+        }
+    }
+
+    // COMP-91
+    /// `Ptx` の入力は呼び出し口を呼ばずに、テキストがそのまま読み込む PTX になる。
+    #[test]
+    fn ptx_input_becomes_the_module_text_without_calling_the_compiler() {
+        let seen = RefCell::new(Vec::new());
+        let text =
+            ".version 8.0\n.target sm_80\n.address_size 64\n.visible .entry k()\n{\n\tret;\n}\n";
+        let (ptx, entry_point) = module_input(
+            AcceptedInput::Ptx {
+                source: text,
+                entry_point: "k",
+            },
+            recording(&seen, Ok("compiled")),
+        )
+        .expect("ptx");
+        assert_eq!(ptx.to_src(), text);
+        assert_eq!(entry_point, "k");
+        assert_eq!(seen.borrow().len(), 0);
+    }
+
+    /// `CudaC` の入力は呼び出し口を 1 回だけ呼び、その結果を読み込む PTX にする。呼び出し口の失敗はそのまま返る。
+    #[test]
+    fn cuda_c_input_calls_the_compiler_once_with_the_source() {
+        let seen = RefCell::new(Vec::new());
+        let (ptx, entry_point) = module_input(
+            AcceptedInput::CudaC {
+                source: "s",
+                entry_point: "e",
+            },
+            recording(&seen, Ok("compiled")),
+        )
+        .expect("cuda c");
+        assert_eq!(ptx.to_src(), "compiled");
+        assert_eq!(entry_point, "e");
+        assert_eq!(*seen.borrow(), vec!["s".to_string()]);
+
+        let seen = RefCell::new(Vec::new());
+        let failure = ContractError::ArtifactRejected {
+            kind: "cuda-c",
+            reason: "x".into(),
+        };
+        let r = module_input(
+            AcceptedInput::CudaC {
+                source: "s",
+                entry_point: "e",
+            },
+            recording(&seen, Err(failure.clone())),
+        );
+        assert_eq!(r.map(|(ptx, e)| (ptx.to_src(), e)), Err(failure));
+        assert_eq!(seen.borrow().len(), 1);
+    }
+
+    /// NUL のバイトは呼び出し口を呼ぶ前に拒む。`Ptx` のテキストは `module`、`CudaC` のソースは `cuda-c`、
+    /// 入口名はどちらも `function`。
+    #[test]
+    fn nul_bytes_are_rejected_before_the_module_text_is_made() {
+        let cases = [
+            (
+                AcceptedInput::Ptx {
+                    source: "a\0b",
+                    entry_point: "k",
+                },
+                "module",
+            ),
+            (
+                AcceptedInput::Ptx {
+                    source: "p",
+                    entry_point: "k\0",
+                },
+                "function",
+            ),
+            (
+                AcceptedInput::Ptx {
+                    source: "a\0b",
+                    entry_point: "k\0",
+                },
+                "module",
+            ),
+            (
+                AcceptedInput::CudaC {
+                    source: "a\0b",
+                    entry_point: "k",
+                },
+                "cuda-c",
+            ),
+            (
+                AcceptedInput::CudaC {
+                    source: "s",
+                    entry_point: "k\0",
+                },
+                "function",
+            ),
+        ];
+        for (input, expected) in cases {
+            let seen = RefCell::new(Vec::new());
+            let r = module_input(input, recording(&seen, Ok("compiled")));
+            assert!(
+                matches!(&r, Err(ContractError::ArtifactRejected { kind, .. }) if *kind == expected),
+                "{input:?}"
+            );
+            assert_eq!(seen.borrow().len(), 0, "{input:?}");
+        }
     }
 }
