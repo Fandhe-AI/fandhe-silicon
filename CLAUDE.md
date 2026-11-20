@@ -215,7 +215,7 @@ fandhe-silicon/
 ├── docs/cuda-profile-returns.md  # CUDA の背後実装の `CpuOnly`・`Graphics` の要求と鍵の一覧の外の機能 ID の返し（TASK-169）の所在と、本リポの現状の事実・プロファイルと所有形態の組の拒否と一覧の外の機能 ID（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/cuda-device-drop.md  # CUDA の背後実装の device の破棄（TASK-191）の所在と、本リポの現状の事実・device の明示の破棄の口（1/5）・`Drop` の同期と解放（2/5）・明示の破棄（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 70ab958）
 ├── docs/cuda-device-reach.md  # CUDA の背後実装の device の口の到達（TASK-166）の所在と、本リポの現状の事実・compute の口（1/3）・確保と記録先の作成の device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base 70ab958）
-├── docs/cuda-create-pipeline-checked.md  # CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 85bc0dbc）・PTX の入力で宣言の照らしを通る device の要る試験（5/6）
+├── docs/cuda-create-pipeline-checked.md  # CUDA の背後実装の宣言を照らしてからのパイプラインの生成（TASK-457）の所在と、本リポの現状の事実・宣言を照らしてから作る口（1/4）・次元数の照らしと作成の失敗の受け渡し（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 85bc0dbc）・PTX の入力で宣言の照らしを通る device の要る試験（5/6）・完了の条件の確かめ（6/6）
 ├── docs/cuda-upload-download.md  # CUDA の背後実装の upload・download_blocking の用途と範囲の検査（TASK-342）の所在と、本リポの現状の事実・用途の検査（1/4）・境界の入力の試験（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
 ├── docs/cuda-on-complete.md  # CUDA の背後実装の完了の通知と検証の報告の受け口（TASK-607）の所在と、本リポの現状の事実・検証の報告の受け口の登録（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・門で止めた投入に登録した callback の device の要る試験（4/5）・完了の条件の確かめ（5/5）
 ├── docs/cuda-fault-gate.md  # CUDA の背後実装の試験用の門（TASK-345）の所在と、本リポの現状の事実・門の仕込みと開け（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・解放の保留の数（4/6）・解放の保留の数の device の要る試験（5/6）・完了の条件の確かめ（6/6）
