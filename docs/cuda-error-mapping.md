@@ -73,9 +73,134 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 2 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-291。ポインタのみ）。
+
+時点のコミット: `298023ca`。`docs/spec` の gitlink は `96476a8254c0c1fba240acf062644b4433123e99`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `298023ca` の `crates/contract/src/backend_cuda.rs` の 2 つの module に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | `git grep -n` で 5 本の名前を 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `git grep -n` で `classify_pipeline_input`・`backend_failure`・`allocation_failure`・`artifact_failure`・`nvrtc_failure`・`pipeline_driver_calls` を 1 つずつ引く | 出力 (3) |
+| (4) | 理由の文 | `grep -cF` と、1/3・2/3 の squash の `git diff --numstat` | 出力 (4) |
+| (5) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 2 つの実行 | 出力 (5) |
+| (6) | 依存の差 | `3dd568de^ 298023ca` の差と `make deps-check` | 出力 (6) |
+| (7) | unsafe の数と差 | `3dd568de^ 298023ca` の差と `unsafe` の行の数 | 出力 (7) |
+| (8) | CI | 2/3 のマージの後の main の push の run | 出力 (8) |
+
+`3dd568de^` は 1/3 の squash `3dd568de` の親。(5) の `cargo test` と (6) の `make deps-check` は作業木で流した。
+
+出力 (1):
+
+```text
+$ git show 298023ca:crates/contract/src/backend_cuda.rs | awk '/^mod pipeline_error_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+3
+$ git show 298023ca:crates/contract/src/backend_cuda.rs | awk '/^mod pipeline_error_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show 298023ca:crates/contract/src/backend_cuda.rs | awk '/^mod pipeline_error_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+2
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn unsupported_inputs_name_the_variant_and_the_accepted_inputs(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:8604:    fn unsupported_inputs_name_the_variant_and_the_accepted_inputs() {
+$ git grep -n "fn driver_failures_carry_the_call_name_and_the_debug_text(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:8676:    fn driver_failures_carry_the_call_name_and_the_debug_text() {
+$ git grep -n "fn artifact_failures_carry_the_call_name_and_the_debug_text(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:8701:    fn artifact_failures_carry_the_call_name_and_the_debug_text() {
+$ git grep -n "fn unsupported_inputs_are_rejected_without_entering_nvrtc_or_the_driver(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:8886:    fn unsupported_inputs_are_rejected_without_entering_nvrtc_or_the_driver() {
+$ git grep -n "fn artifact_failures_name_the_failed_call_and_add_no_pipeline(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:8992:    fn artifact_failures_name_the_failed_call_and_add_no_pipeline() {
+```
+
+出力 (3):
+
+```text
+$ git grep -n "fn classify_pipeline_input" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:833:fn classify_pipeline_input<'a>(
+$ git grep -n "fn backend_failure(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:791:fn backend_failure(op: &'static str, e: impl std::fmt::Debug) -> ContractError {
+$ git grep -n "fn allocation_failure(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:782:fn allocation_failure(op: &'static str, requested_bytes: u64, e: DriverError) -> ContractError {
+$ git grep -n "fn artifact_failure(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:962:fn artifact_failure(
+$ git grep -n "fn nvrtc_failure(" 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:1004:fn nvrtc_failure(e: CompileError) -> ContractError {
+$ git grep -n "pipeline_driver_calls: AtomicU64," 298023ca -- crates/contract/src/backend_cuda.rs
+298023ca:crates/contract/src/backend_cuda.rs:2101:    pipeline_driver_calls: AtomicU64,
+```
+
+出力 (4):
+
+```text
+$ git show 298023ca:crates/contract/src/backend_cuda.rs | grep -cF 'is Metal-only and'
+3
+$ git diff --numstat 3dd568de^ 3dd568de -- crates/contract/src/backend_cuda.rs
+175	9	crates/contract/src/backend_cuda.rs
+$ git diff --numstat 298023ca^ 298023ca -- crates/contract/src/backend_cuda.rs
+306	0	crates/contract/src/backend_cuda.rs
+```
+
+出力 (5):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::pipeline_error 2>&1 | grep -E '^(running|test result:)'
+running 5 tests
+test result: ok. 3 passed; 0 failed; 2 ignored; 0 measured; 132 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count 2>&1 | grep -E '^(running|test result:)'
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (6):
+
+```text
+$ git diff --stat 3dd568de^ 298023ca -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml
+$ make deps-check; echo exit=$?
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+exit=0
+```
+
+出力 (7):
+
+```text
+$ git diff --stat 3dd568de^ 298023ca -- crates/contract/tests/backend_cuda_unsafe_count.rs crates/core
+$ git show 3dd568de^:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show 298023ca:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+```
+
+出力 (8):
+
+```text
+$ gh run list --branch main --event push --commit 298023cab4e686ba9487b1ad9264083c5df99782 --workflow ci.yml --json databaseId --jq '.[].databaseId'
+44700838580
+$ gh run view 44700838580 --json conclusion,headSha,jobs --jq '.conclusion, .headSha, (.jobs[]|select(.name|test("^make (verify|deny)"))|"\(.name): \(.conclusion)")'
+success
+298023cab4e686ba9487b1ad9264083c5df99782
+make deny (cargo-deny): success
+make verify + build-profiles (macos-latest): success
+make verify (fmt + clippy + test): success
+$ gh run view 44700838580 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId'
+136168551924
+$ gh run view 44700838580 --job 136168551924 --log | grep -oE 'test backend_cuda::pipeline_error(_device)?_tests::[a-z_]+ \.\.\. (ok|ignored, requires a CUDA device)' | sort | uniq -c
+      6 test backend_cuda::pipeline_error_device_tests::artifact_failures_name_the_failed_call_and_add_no_pipeline ... ignored, requires a CUDA device
+      6 test backend_cuda::pipeline_error_device_tests::unsupported_inputs_are_rejected_without_entering_nvrtc_or_the_driver ... ignored, requires a CUDA device
+      6 test backend_cuda::pipeline_error_tests::artifact_failures_carry_the_call_name_and_the_debug_text ... ok
+      6 test backend_cuda::pipeline_error_tests::driver_failures_carry_the_call_name_and_the_debug_text ... ok
+      6 test backend_cuda::pipeline_error_tests::unsupported_inputs_name_the_variant_and_the_accepted_inputs ... ok
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 受け付けない入力の理由に Metal 専用を載せる形と失敗の写しの値の試験を足す | #4152 |
 | 2/3 | 受け付けない入力と成果物の生成の失敗の device の要る試験を ignore 付きで足す | #4153 |
+| 3/3 | 完了の条件の確かめ | #4154 |
