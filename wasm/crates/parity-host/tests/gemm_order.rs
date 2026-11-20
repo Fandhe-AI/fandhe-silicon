@@ -13,8 +13,8 @@ use fandhe_silicon_core::parity::gemm_inputs::{
 };
 use fandhe_silicon_core::parity::tolerance::{T1, compare_f32};
 use wasm_parity_host::{
-    GEMM_ORDER_CASES, GemmCase, build_cases, build_order_cases, gemm_cpu_reference, generate,
-    simd128_order,
+    GEMM_ORDER_CASES, GemmCase, GemmCaseSource, GemmCaseSpec, GenError, build_case, build_cases,
+    build_order_cases, gemm_cpu_reference, generate, simd128_order,
 };
 
 /// 試験ごとの一時ディレクトリ。破棄で消す。
@@ -196,6 +196,30 @@ fn simd128_order_rejects_bad_lengths() {
         b: vec![0.0; 6],
     };
     assert!(simd128_order(&case).is_err());
+}
+
+#[test]
+fn simd128_order_rejects_unallocatable_output() {
+    let case = GemmCase {
+        name: "huge",
+        m: usize::MAX,
+        k: 0,
+        n: 1,
+        a: Vec::new(),
+        b: Vec::new(),
+    };
+    assert_eq!(simd128_order(&case).unwrap_err(), GenError::InputFailed);
+}
+
+#[test]
+fn square_from_rejects_unallocatable_inputs() {
+    // 要素数（1 辺の 2 乗）は usize に収まり、f32 のバイト数は isize::MAX を超える寸法。
+    let size = 1usize << (usize::BITS / 2 - 1);
+    let spec = GemmCaseSpec {
+        name: "huge",
+        source: GemmCaseSource::SquareFrom(size, 0),
+    };
+    assert_eq!(build_case(&spec).unwrap_err(), GenError::InputFailed);
 }
 
 #[test]

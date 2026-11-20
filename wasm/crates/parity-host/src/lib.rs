@@ -151,6 +151,16 @@ fn square_values(rng: &mut SplitMix64, len: usize) -> Vec<f32> {
     (0..len).map(|_| rng.next_signed_unit_f32()).collect()
 }
 
+/// 生成器から `len` 個の値を取る。確保できなければ入力を作れないものとして扱う。
+fn try_square_values(rng: &mut SplitMix64, len: usize) -> Result<Vec<f32>, GenError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(len)
+        .map_err(|_| GenError::InputFailed)?;
+    values.extend((0..len).map(|_| rng.next_signed_unit_f32()));
+    Ok(values)
+}
+
 /// 表の 1 行から入力を作る。
 pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
     match spec.source {
@@ -172,8 +182,8 @@ pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
             let len = checked_len(size, size)?;
             let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
             rng.skip(skip);
-            let a = square_values(&mut rng, len);
-            let b = square_values(&mut rng, len);
+            let a = try_square_values(&mut rng, len)?;
+            let b = try_square_values(&mut rng, len)?;
             Ok(GemmCase {
                 name: spec.name,
                 m: size,
@@ -227,6 +237,7 @@ pub fn build_order_cases() -> Result<Vec<GemmCase>, GenError> {
 /// 各出力を、k を 4 つずつ 4 レーンの積と和（別の演算）で積み、4 レーンを先頭から順に足し、端数の k は昇順の
 /// `f32::mul_add` で足した値（m×n）を host で返す（spec TASK-2447 のポインタ）。
 /// 製品の `cpu_ops` を呼ばずに書いた式で、wasm32 の simd128 のビルドの `gemm_simd` の出力と語ごとのビットで比べる参照。
+/// 長さが合わない入力は `Err`、出力を確保できない寸法は `Err(GenError::InputFailed)`。
 pub fn simd128_order(case: &GemmCase) -> Result<Vec<f32>, GenError> {
     let (m, k, n) = (case.m, case.k, case.n);
     let out_len = checked_len(m, n)?;
@@ -234,7 +245,10 @@ pub fn simd128_order(case: &GemmCase) -> Result<Vec<f32>, GenError> {
         return Err(GenError::InputFailed);
     }
     let k4 = k - k % 4;
-    let mut out = vec![0.0f32; out_len];
+    let mut out = Vec::new();
+    out.try_reserve_exact(out_len)
+        .map_err(|_| GenError::InputFailed)?;
+    out.resize(out_len, 0.0f32);
     for i in 0..m {
         for j in 0..n {
             let mut lanes = [0.0f32; 4];

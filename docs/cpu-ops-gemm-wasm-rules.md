@@ -63,7 +63,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 項目 | 内容 |
 | ---- | ---- |
 | host 側の道具 | `wasm/crates/parity-host/src/lib.rs` の `GEMM_ORDER_CASES`・`build_order_cases`・`simd128_order`・`gemm_cpu_reference`、`GemmCaseSource::SquareFrom`。`wasm-parity-host gen <dir>` が 3 ケースの `.a.bin`・`.b.bin`・`.native-scalar.bin`・`.cpu-reference.bin`・`.simd128-order.bin` と manifest の 3 要素（種類 `gemm-order`）を書く |
-| 試験 | `wasm/crates/parity-host/tests/gemm_order.rs`（8 本）、`wasm/crates/parity-host/tests/recount_expected.rs` の `order_simd_rows_equal_to_native_reference_fail` |
+| 試験 | `wasm/crates/parity-host/tests/gemm_order.rs`（10 本）、`wasm/crates/parity-host/tests/recount_expected.rs` の `order_simd_rows_equal_to_native_reference_fail` |
 | 照合の入力 | `wasm/node/cases.json` の行 9 行と `cases` の欄の 3 要素 |
 
 ### 3 ケース
@@ -94,6 +94,8 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | `order_cases_share_inputs_with_existing_cases_except_256` | 64³ と 37×41×53 の入力が `build_cases` の同じケースと同じ、256³ は違う |
 | `simd128_order_hand_case` | m=1・k=6・n=1、`a` が `1.0e8`・`3.0` × 5、`b` が `1.0` × 6 で `simd128_order` が `1.0e8`。4 レーンの和を 3 番から足す式は `100000008.0`。`a` が `1.0e8`・`0.0` × 3・`4.0`・`5.0` で `100000008.0`。m=1・k=5・n=1、`a` が `-1.0`・`0.0` × 3・1 + 2^-12、`b` が `1.0` × 4・1 + 2^-12 で 2^-11 + 2^-24 |
 | `simd128_order_rejects_bad_lengths` | `a` の長さが m×k でなければ `Err` |
+| `simd128_order_rejects_unallocatable_output` | m=`usize::MAX`・k=0・n=1（`a`・`b` は空）で `simd128_order` が `Err(GenError::InputFailed)` |
+| `square_from_rejects_unallocatable_inputs` | 1 辺の 2 乗は `usize` に収まり f32 のバイト数が `isize::MAX` を超える `GemmCaseSource::SquareFrom` で `build_case` が `Err(GenError::InputFailed)` |
 | `cpu_reference_matches_core_and_default_scalar` | `gemm_cpu_reference` が `reference_gemm_f32` と `DefaultCpuOps::gemm_scalar` とビットまで同じ |
 | `simd128_order_differs_from_cpu_reference_within_t1` | 3 ケースとも `simd128_order` は `gemm_cpu_reference` とビットの違う語を持ち、`compare_f32(.., T1)` は `is_match()` |
 | `variants_differ_from_simd128_order_by_bits` | レーンの積和を `mul_add` にした式・4 レーンを 3 番から足す式・(0 番 + 1 番) + (2 番 + 3 番) の式は 3 ケースとも `simd128_order` とビットの違う語を持つ。端数を足さない式は k が 4 の倍数のケースで同じ、37×41×53 で全語違う |
@@ -108,7 +110,7 @@ cargo test --manifest-path wasm/Cargo.toml -p wasm-parity-host --test recount_ex
 make test-wasm-node-check
 ```
 
-観測した結果は `8 passed; 0 failed; 0 ignored`・`5 passed; 0 failed; 0 ignored`・`passed: 720, failed: 0`。
+観測した結果は `10 passed; 0 failed; 0 ignored`・`5 passed; 0 failed; 0 ignored`・`passed: 720, failed: 0`。
 
 ## 段
 
