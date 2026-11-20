@@ -212,6 +212,20 @@ fn simd128_order_rejects_unallocatable_output() {
 }
 
 #[test]
+fn simd128_order_returns_empty_output_without_iterating_rows() {
+    // 出力の要素数が 0（k = n = 0）なら、m が巨大でも行を繰り返さず空の出力をすぐ返す。
+    let case = GemmCase {
+        name: "empty-output",
+        m: usize::MAX,
+        k: 0,
+        n: 0,
+        a: Vec::new(),
+        b: Vec::new(),
+    };
+    assert_eq!(simd128_order(&case).unwrap(), Vec::<f32>::new());
+}
+
+#[test]
 fn square_from_rejects_unallocatable_inputs() {
     // 要素数（1 辺の 2 乗）は usize に収まり、f32 のバイト数は isize::MAX を超える寸法。
     let size = 1usize << (usize::BITS / 2 - 1);

@@ -147,8 +147,12 @@ fn checked_len(x: usize, y: usize) -> Result<usize, GenError> {
     x.checked_mul(y).ok_or(GenError::InputFailed)
 }
 
-fn square_values(rng: &mut SplitMix64, len: usize) -> Vec<f32> {
-    (0..len).map(|_| rng.next_signed_unit_f32()).collect()
+/// 値 `value` を `len` 個並べた列を作る。確保できなければ `err` を返す（確保の失敗で panic しない）。
+fn try_filled<T: Copy>(value: T, len: usize, err: GenError) -> Result<Vec<T>, GenError> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).map_err(|_| err)?;
+    v.resize(len, value);
+    Ok(v)
 }
 
 /// 生成器から `len` 個の値を取る。確保できなければ入力を作れないものとして扱う。
@@ -167,8 +171,8 @@ pub fn build_case(spec: &GemmCaseSpec) -> Result<GemmCase, GenError> {
         GemmCaseSource::Square(size) => {
             let len = checked_len(size, size)?;
             let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
-            let a = square_values(&mut rng, len);
-            let b = square_values(&mut rng, len);
+            let a = try_square_values(&mut rng, len)?;
+            let b = try_square_values(&mut rng, len)?;
             Ok(GemmCase {
                 name: spec.name,
                 m: size,
@@ -244,11 +248,12 @@ pub fn simd128_order(case: &GemmCase) -> Result<Vec<f32>, GenError> {
     if case.a.len() != checked_len(m, k)? || case.b.len() != checked_len(k, n)? {
         return Err(GenError::InputFailed);
     }
+    if out_len == 0 {
+        // 出力が空なら繰り返す行が無い（m が巨大でも k = n = 0 などで空の出力をすぐ返す）。
+        return Ok(Vec::new());
+    }
     let k4 = k - k % 4;
-    let mut out = Vec::new();
-    out.try_reserve_exact(out_len)
-        .map_err(|_| GenError::InputFailed)?;
-    out.resize(out_len, 0.0f32);
+    let mut out = try_filled(0.0f32, out_len, GenError::InputFailed)?;
     for i in 0..m {
         for j in 0..n {
             let mut lanes = [0.0f32; 4];
@@ -276,7 +281,7 @@ pub fn gemm_cpu_reference(case: &GemmCase) -> Result<Vec<f32>, GenError> {
 
 /// `DefaultCpuOps::gemm_scalar` の出力（m×n）を返す。
 pub fn native_scalar(case: &GemmCase) -> Result<Vec<f32>, GenError> {
-    let mut out = vec![0.0f32; checked_len(case.m, case.n)?];
+    let mut out = try_filled(0.0f32, checked_len(case.m, case.n)?, GenError::NativeFailed)?;
     DefaultCpuOps
         .gemm_scalar(&case.a, &case.b, case.m, case.k, case.n, &mut out)
         .map_err(|_| GenError::NativeFailed)?;
@@ -287,7 +292,11 @@ pub fn native_scalar(case: &GemmCase) -> Result<Vec<f32>, GenError> {
 /// （`native-neon` の参照。TASK-995）。
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub fn native_neon(case: &GemmCase) -> Result<Vec<f32>, GenError> {
-    let mut out = vec![0.0f32; checked_len(case.m, case.n)?];
+    let mut out = try_filled(
+        0.0f32,
+        checked_len(case.m, case.n)?,
+        GenError::NativeNeonFailed,
+    )?;
     DefaultCpuOps
         .gemm_simd(&case.a, &case.b, case.m, case.k, case.n, &mut out)
         .map_err(|_| GenError::NativeNeonFailed)?;
@@ -298,7 +307,7 @@ pub fn native_neon(case: &GemmCase) -> Result<Vec<f32>, GenError> {
 /// aarch64 で `neon` が有効なビルドでだけ `Some` を返す。
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn neon_reference(case: &GemmCase) -> Result<Option<(OutFile, [String; 2])>, GenError> {
-    let bytes = f32_le_bytes(&native_neon(case)?);
+    let bytes = f32_le_bytes(&native_neon(case)?)?;
     let name = format!("{}.native-neon.bin", case.name);
     let lines = [
         format!("      \"native_neon_file\": \"{name}\""),
@@ -385,7 +394,7 @@ const NON_FINITE_SLOTS: [(usize, u32); 4] = [
 pub fn build_topk_case(spec: &TopkCaseSpec) -> Result<TopkCase, GenError> {
     let mut rng = SplitMix64::new(GEMM_INPUT_SEED);
     let mut scores: Vec<f32> = match spec.input {
-        TopkInput::Batch | TopkInput::NonFinite => square_values(&mut rng, spec.len),
+        TopkInput::Batch | TopkInput::NonFinite => try_square_values(&mut rng, spec.len)?,
         TopkInput::Ties => (0..spec.len)
             .map(|i| {
                 if i % 10 == 3 {
@@ -506,7 +515,7 @@ pub fn build_signed_zero_cases() -> Result<Vec<TopkCase>, GenError> {
 
 /// `DefaultCpuOps::topk_partial_scalar` の出力（長さ k の（スロット番号, スコア））を返す。
 pub fn native_topk(case: &TopkCase) -> Result<Vec<(u32, f32)>, GenError> {
-    let mut out = vec![(0_u32, 0.0_f32); case.k];
+    let mut out = try_filled((0_u32, 0.0_f32), case.k, GenError::NativeTopkFailed)?;
     DefaultCpuOps
         .topk_partial_scalar(&case.scores, case.k, &mut out)
         .map_err(|_| GenError::NativeTopkFailed)?;
@@ -703,7 +712,7 @@ pub fn build_elementwise_cases() -> Result<Vec<ElementwiseCase>, GenError> {
 
 /// `DefaultCpuOps::elementwise_scalar` の出力（入力と同じ長さ）を返す。
 pub fn native_elementwise(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> {
-    let mut out = vec![0.0_f32; case.input.len()];
+    let mut out = try_filled(0.0_f32, case.input.len(), GenError::NativeElementwiseFailed)?;
     DefaultCpuOps
         .elementwise_scalar(case.op, &case.input, &mut out)
         .map_err(|_| GenError::NativeElementwiseFailed)?;
@@ -714,7 +723,11 @@ pub fn native_elementwise(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> 
 /// （要素ごと演算の `native-neon` の参照。TASK-997）。
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub fn native_elementwise_neon(case: &ElementwiseCase) -> Result<Vec<f32>, GenError> {
-    let mut out = vec![0.0_f32; case.input.len()];
+    let mut out = try_filled(
+        0.0_f32,
+        case.input.len(),
+        GenError::NativeElementwiseNeonFailed,
+    )?;
     DefaultCpuOps
         .elementwise_simd(case.op, &case.input, &mut out)
         .map_err(|_| GenError::NativeElementwiseNeonFailed)?;
@@ -727,7 +740,7 @@ pub fn native_elementwise_neon(case: &ElementwiseCase) -> Result<Vec<f32>, GenEr
 fn elementwise_neon_reference(
     case: &ElementwiseCase,
 ) -> Result<Option<(OutFile, [String; 2])>, GenError> {
-    let bytes = f32_le_bytes(&native_elementwise_neon(case)?);
+    let bytes = f32_le_bytes(&native_elementwise_neon(case)?)?;
     let name = format!("{}.native-neon.bin", case.name);
     let lines = [
         format!("      \"native_neon_file\": \"{name}\""),
@@ -910,8 +923,17 @@ pub fn topk_record_bytes(records: &[(u32, f32)]) -> Vec<u8> {
 }
 
 /// f32 の列を、添字の順のリトルエンディアンのバイト列にする。
-pub fn f32_le_bytes(values: &[f32]) -> Vec<u8> {
-    values.iter().flat_map(|v| v.to_le_bytes()).collect()
+/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::InputFailed)`。
+pub fn f32_le_bytes(values: &[f32]) -> Result<Vec<u8>, GenError> {
+    let len = checked_len(values.len(), 4)?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(len)
+        .map_err(|_| GenError::InputFailed)?;
+    for v in values {
+        bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    Ok(bytes)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -935,9 +957,9 @@ fn case_output(case: &GemmCase) -> Result<CaseOutput, GenError> {
     let a_file = format!("{}.a.bin", case.name);
     let b_file = format!("{}.b.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
-    let a_bytes = f32_le_bytes(&case.a);
-    let b_bytes = f32_le_bytes(&case.b);
-    let n_bytes = f32_le_bytes(&native);
+    let a_bytes = f32_le_bytes(&case.a)?;
+    let b_bytes = f32_le_bytes(&case.b)?;
+    let n_bytes = f32_le_bytes(&native)?;
     let mut lines = vec![
         format!("      \"name\": \"{}\"", case.name),
         "      \"kind\": \"gemm\"".to_string(),
@@ -999,10 +1021,10 @@ fn gemm_special_case_output(spec: &GemmSpecialCaseSpec) -> Result<CaseOutput, Ge
     let b_file = format!("{}.b.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
     let r_file = format!("{}.cpu-reference.bin", case.name);
-    let a_bytes = f32_le_bytes(&case.a);
-    let b_bytes = f32_le_bytes(&case.b);
-    let n_bytes = f32_le_bytes(&native);
-    let r_bytes = f32_le_bytes(&reference);
+    let a_bytes = f32_le_bytes(&case.a)?;
+    let b_bytes = f32_le_bytes(&case.b)?;
+    let n_bytes = f32_le_bytes(&native)?;
+    let r_bytes = f32_le_bytes(&reference)?;
     let entry = [
         "    {".to_string(),
         format!("      \"name\": \"{}\",", case.name),
@@ -1059,11 +1081,11 @@ fn gemm_order_case_output(case: &GemmCase) -> Result<CaseOutput, GenError> {
     let n_file = format!("{}.native-scalar.bin", case.name);
     let r_file = format!("{}.cpu-reference.bin", case.name);
     let o_file = format!("{}.simd128-order.bin", case.name);
-    let a_bytes = f32_le_bytes(&case.a);
-    let b_bytes = f32_le_bytes(&case.b);
-    let n_bytes = f32_le_bytes(&native);
-    let r_bytes = f32_le_bytes(&reference);
-    let o_bytes = f32_le_bytes(&order);
+    let a_bytes = f32_le_bytes(&case.a)?;
+    let b_bytes = f32_le_bytes(&case.b)?;
+    let n_bytes = f32_le_bytes(&native)?;
+    let r_bytes = f32_le_bytes(&reference)?;
+    let o_bytes = f32_le_bytes(&order)?;
     let entry = [
         "    {".to_string(),
         format!("      \"name\": \"{}\",", case.name),
@@ -1124,7 +1146,7 @@ fn topk_case_output(case: &TopkCase) -> Result<CaseOutput, GenError> {
     let native = native_topk(case)?;
     let scores_file = format!("{}.scores.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
-    let scores_bytes = f32_le_bytes(&case.scores);
+    let scores_bytes = f32_le_bytes(&case.scores)?;
     let n_bytes = topk_record_bytes(&native);
     let entry = [
         "    {".to_string(),
@@ -1164,8 +1186,8 @@ fn elementwise_case_output(case: &ElementwiseCase) -> Result<CaseOutput, GenErro
     let native = native_elementwise(case)?;
     let input_file = format!("{}.input.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
-    let input_bytes = f32_le_bytes(&case.input);
-    let n_bytes = f32_le_bytes(&native);
+    let input_bytes = f32_le_bytes(&case.input)?;
+    let n_bytes = f32_le_bytes(&native)?;
     let neon = elementwise_neon_reference(case)?;
     let mut lines = vec![
         format!("      \"name\": \"{}\"", case.name),
@@ -1219,9 +1241,9 @@ fn elementwise_special_case_output(
     let input_file = format!("{}.input.bin", case.name);
     let n_file = format!("{}.native-scalar.bin", case.name);
     let r_file = format!("{}.cpu-reference.bin", case.name);
-    let input_bytes = f32_le_bytes(&case.input);
-    let n_bytes = f32_le_bytes(&native);
-    let r_bytes = f32_le_bytes(&reference);
+    let input_bytes = f32_le_bytes(&case.input)?;
+    let n_bytes = f32_le_bytes(&native)?;
+    let r_bytes = f32_le_bytes(&reference)?;
     let entry = [
         "    {".to_string(),
         format!("      \"name\": \"{}\",", case.name),

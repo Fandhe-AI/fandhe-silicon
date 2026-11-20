@@ -85,7 +85,7 @@ fn file(dir: &Path, name: &str, bytes: &[u8]) -> String {
 /// 参照ファイルの鍵の断片（特殊値の種類だけ。ほかは空）。
 fn cpu_part(dir: &Path, shape: Shape, cpu: &[f32]) -> String {
     if matches!(shape, Shape::GemmSpecial | Shape::ElementwiseSpecial) {
-        let sha = file(dir, "c.cpu-reference.bin", &f32_le_bytes(cpu));
+        let sha = file(dir, "c.cpu-reference.bin", &f32_le_bytes(cpu).unwrap());
         format!(
             ", \"cpu_reference_file\": \"c.cpu-reference.bin\", \"cpu_reference_sha256\": \"{sha}\""
         )
@@ -97,12 +97,12 @@ fn cpu_part(dir: &Path, shape: Shape, cpu: &[f32]) -> String {
 /// ケース `c`（語数はネイティブの語数）の保存の形を `dir` に書く。`cpu` は特殊値の種類だけが使う。
 fn write_form(dir: &Path, shape: Shape, native: &[f32], cpu: &[f32], rows: &[Row]) {
     let len = native.len();
-    let nat_sha = file(dir, "c.native-scalar.bin", &f32_le_bytes(native));
+    let nat_sha = file(dir, "c.native-scalar.bin", &f32_le_bytes(native).unwrap());
     let cpu_part = cpu_part(dir, shape, cpu);
     let manifest = match shape {
         Shape::Gemm | Shape::GemmSpecial => {
-            let a_sha = file(dir, "c.a.bin", &f32_le_bytes(&[1.0]));
-            let b_sha = file(dir, "c.b.bin", &f32_le_bytes(&vec![1.0; len]));
+            let a_sha = file(dir, "c.a.bin", &f32_le_bytes(&[1.0]).unwrap());
+            let b_sha = file(dir, "c.b.bin", &f32_le_bytes(&vec![1.0; len]).unwrap());
             let kind = if shape == Shape::Gemm {
                 "gemm"
             } else {
@@ -123,7 +123,7 @@ fn write_form(dir: &Path, shape: Shape, native: &[f32], cpu: &[f32], rows: &[Row
             )
         }
         Shape::Elementwise | Shape::ElementwiseSpecial => {
-            let in_sha = file(dir, "c.input.bin", &f32_le_bytes(&vec![1.0; len]));
+            let in_sha = file(dir, "c.input.bin", &f32_le_bytes(&vec![1.0; len]).unwrap());
             let kind = if shape == Shape::Elementwise {
                 "elementwise"
             } else {
@@ -216,7 +216,7 @@ fn rows_for(combos: &[Combo], actual: &[f32]) -> Vec<Row> {
             export,
             build,
             case: "c".to_string(),
-            bytes: f32_le_bytes(actual),
+            bytes: f32_le_bytes(actual).unwrap(),
         })
         .collect()
 }

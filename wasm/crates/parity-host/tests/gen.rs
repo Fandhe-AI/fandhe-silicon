@@ -162,7 +162,7 @@ fn manifest_hashes_match_files() {
             );
         }
     }
-    let a_bytes = f32_le_bytes(&cases[0].a);
+    let a_bytes = f32_le_bytes(&cases[0].a).unwrap();
     assert_eq!(fs::read(dir.path().join("gemm-64.a.bin")).unwrap(), a_bytes);
 }
 
@@ -504,7 +504,7 @@ fn topk_manifest_entries_match_files() {
         let native_bytes = fs::read(dir.path().join(native_file)).unwrap();
         assert_eq!(scores_bytes.len(), case.scores.len() * 4);
         assert_eq!(native_bytes.len(), case.k * 8);
-        assert_eq!(scores_bytes, f32_le_bytes(&case.scores));
+        assert_eq!(scores_bytes, f32_le_bytes(&case.scores).unwrap());
         assert_eq!(
             manifest_values(&text, "scores_sha256")[j],
             hex(&sha256_bytes(&scores_bytes))
@@ -608,7 +608,7 @@ fn native_elementwise_matches_default_cpu_ops() {
             .unwrap();
         let written =
             fs::read(dir.path().join(format!("{}.native-scalar.bin", spec.name))).unwrap();
-        assert!(written == f32_le_bytes(&out), "{}", spec.name);
+        assert!(written == f32_le_bytes(&out).unwrap(), "{}", spec.name);
         assert!(native_elementwise(&case).unwrap() == out, "{}", spec.name);
     }
 }
@@ -708,7 +708,7 @@ fn elementwise_manifest_entries_match_files() {
         let native_bytes = fs::read(dir.path().join(native_file)).unwrap();
         assert_eq!(input_bytes.len(), case.input.len() * 4);
         assert_eq!(native_bytes.len(), case.input.len() * 4);
-        assert!(input_bytes == f32_le_bytes(&case.input));
+        assert!(input_bytes == f32_le_bytes(&case.input).unwrap());
         assert_eq!(
             manifest_values(&text, "input_sha256")[j],
             hex(&sha256_bytes(&input_bytes))
@@ -966,7 +966,7 @@ fn signed_zero_manifest_entries_match_files() {
         let native_bytes = fs::read(dir.path().join(native_file)).unwrap();
         assert_eq!(scores_bytes.len(), case.scores.len() * 4);
         assert_eq!(native_bytes.len(), case.k * 8);
-        assert_eq!(scores_bytes, f32_le_bytes(&case.scores));
+        assert_eq!(scores_bytes, f32_le_bytes(&case.scores).unwrap());
         assert_eq!(
             manifest_values(&text, "scores_sha256")[scores_index],
             hex(&sha256_bytes(&scores_bytes))
@@ -1781,7 +1781,7 @@ fn native_neon_reference_is_written() {
         DefaultCpuOps
             .gemm_simd(&case.a, &case.b, case.m, case.k, case.n, &mut expected)
             .unwrap();
-        assert_eq!(bytes, f32_le_bytes(&expected), "{}", case.name);
+        assert_eq!(bytes, f32_le_bytes(&expected).unwrap(), "{}", case.name);
         let scalar = fs::read(dir.path().join(format!("{}.native-scalar.bin", case.name))).unwrap();
         assert_ne!(bytes, scalar, "{}", case.name);
     }
@@ -1815,7 +1815,7 @@ fn native_neon_elementwise_reference_is_written() {
         DefaultCpuOps
             .elementwise_simd(case.op, &case.input, &mut expected)
             .unwrap();
-        assert_eq!(bytes, f32_le_bytes(&expected), "{}", case.name);
+        assert_eq!(bytes, f32_le_bytes(&expected).unwrap(), "{}", case.name);
         let scalar = fs::read(dir.path().join(format!("{}.native-scalar.bin", case.name))).unwrap();
         assert_eq!(bytes, scalar, "{}", case.name);
     }

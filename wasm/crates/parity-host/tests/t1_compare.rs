@@ -45,10 +45,10 @@ fn hex(bytes: &[u8]) -> String {
 /// 参照と実測を `m=1`・`k=1`・`n=<長さ>` の `gemm` のケースの保存の形で書き、`--recount` の終了コードと標準出力を返す。
 fn recount(tag: &str, reference: &[f32], actual: &[f32]) -> (i32, String) {
     let dir = TempDir::new(tag);
-    let a = f32_le_bytes(&[1.0]);
-    let b = f32_le_bytes(&vec![1.0; reference.len()]);
-    let want = f32_le_bytes(reference);
-    let row = f32_le_bytes(actual);
+    let a = f32_le_bytes(&[1.0]).unwrap();
+    let b = f32_le_bytes(&vec![1.0; reference.len()]).unwrap();
+    let want = f32_le_bytes(reference).unwrap();
+    let row = f32_le_bytes(actual).unwrap();
     let files: [(&str, &[u8]); 4] = [
         ("c.a.bin", &a),
         ("c.b.bin", &b),
