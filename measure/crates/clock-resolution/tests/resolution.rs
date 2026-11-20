@@ -166,3 +166,28 @@ fn run_writes_one_line_with_the_full_reading_count() {
     assert!(text.contains("\"readings\":1000000,"));
     assert!(text.contains("\"session_ref\":\"_none\""));
 }
+
+#[test]
+fn reading_an_unallocatable_count_returns_an_error_instead_of_panicking() {
+    assert!(read_cpu_clock(usize::MAX).is_err());
+}
+
+#[test]
+fn wall_clock_going_backwards_is_invalid_time() {
+    use measure_clock_resolution::check_time_order;
+    assert_eq!(check_time_order(10, 10), Ok(()));
+    assert_eq!(check_time_order(10, 11), Ok(()));
+    assert_eq!(check_time_order(11, 10), Err(ResolutionError::InvalidTime));
+}
+
+#[cfg(unix)]
+#[test]
+fn bin_rejects_a_non_utf8_argument_with_exit_code_2() {
+    use std::os::unix::ffi::OsStrExt;
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_clock-resolution"))
+        .arg(std::ffi::OsStr::from_bytes(&[0x66, 0xff, 0x6f]))
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+}

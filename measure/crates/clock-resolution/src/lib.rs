@@ -145,7 +145,10 @@ pub fn read_cpu_clock(count: usize) -> Result<Vec<u64>, ResolutionError> {
     if count < 2 {
         return Err(ResolutionError::Empty);
     }
-    let mut readings: Vec<Instant> = Vec::with_capacity(count);
+    let mut readings: Vec<Instant> = Vec::new();
+    readings
+        .try_reserve_exact(count)
+        .map_err(|_| ResolutionError::Overflow)?;
     for _ in 0..count {
         readings.push(Instant::now());
     }
@@ -264,20 +267,30 @@ pub fn summary_json(
     out
 }
 
-/// 現在の UTC 時刻。
-fn now_utc() -> Result<UtcTime, ResolutionError> {
+/// 現在の UNIX 秒と、その UTC 時刻。
+fn now_utc() -> Result<(u64, UtcTime), ResolutionError> {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| ResolutionError::Clock)?
         .as_secs();
-    UtcTime::from_unix_secs(secs).map_err(|_| ResolutionError::Clock)
+    let t = UtcTime::from_unix_secs(secs).map_err(|_| ResolutionError::Clock)?;
+    Ok((secs, t))
+}
+
+/// 終わりの UNIX 秒が始まりより前（壁時計の逆行）なら [`ResolutionError::InvalidTime`]。
+pub fn check_time_order(started_secs: u64, ended_secs: u64) -> Result<(), ResolutionError> {
+    if ended_secs < started_secs {
+        return Err(ResolutionError::InvalidTime);
+    }
+    Ok(())
 }
 
 /// CPU の時計を [`CPU_READINGS`] 回読み、結果の 1 行を `out` に書く。
 pub fn run(config: &Config, out: &mut impl Write) -> Result<(), ResolutionError> {
-    let started = now_utc()?;
+    let (started_secs, started) = now_utc()?;
     let readings = read_cpu_clock(CPU_READINGS)?;
-    let ended = now_utc()?;
+    let (ended_secs, ended) = now_utc()?;
+    check_time_order(started_secs, ended_secs)?;
     let r = cpu_resolution(&readings)?;
     let line = summary_json(config, &started, &ended, CLOCK_CPU, &r);
     writeln!(out, "{line}").map_err(|_| ResolutionError::Output)
