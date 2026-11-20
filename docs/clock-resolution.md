@@ -1,6 +1,6 @@
 # 時刻の分解能の測定（TASK-2950）の所在と本リポの現状
 
-TASK-2950 の作業のうち、CPU の時計と GPU の時計の分解能を測る道具の所在と、本リポで観測できる事実を置く。
+TASK-2950 の作業のうち、CPU の時計の分解能を測る道具（段ごとに追加）の所在と、本リポで観測できる事実を置く。
 spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-confidentiality.md)）。
 
 ## 記録の所在
