@@ -182,7 +182,8 @@ $ gh run view 44660780805 --json jobs --jq '.jobs[]|select(.name|test("verify|de
 make verify (fmt + clippy + test)	success
 make verify + build-profiles (macos-latest)	success
 make deny (cargo-deny)	success
-$ gh run view 44660780805 --log --job <make verify (fmt + clippy + test) の job> | grep -oE 'test backend_cuda::ptx_(pipeline_device|input)_tests::[a-z_]+ \.\.\. .*' | sort | uniq -c
+$ JOB=$(gh run view 44660780805 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId')
+$ gh run view 44660780805 --log --job "$JOB" | grep -oE 'test backend_cuda::ptx_(pipeline_device|input)_tests::[a-z_]+ \.\.\. .*' | sort | uniq -c
       6 test backend_cuda::ptx_input_tests::cuda_c_input_calls_the_compiler_once_with_the_source ... ok
       6 test backend_cuda::ptx_input_tests::nul_bytes_are_rejected_before_the_module_text_is_made ... ok
       6 test backend_cuda::ptx_input_tests::ptx_input_becomes_the_module_text_without_calling_the_compiler ... ok
