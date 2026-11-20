@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 /// 試験 1 本の上限。
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// 門を開けた後に、解放の保留の数が 0 になるのを待つ上限。
-const RELEASE_LIMIT: Duration = Duration::from_secs(10);
+/// 門を仕込んでから、解放の保留の数が 0 になるまでの上限。門の自動解除（500 ms）より短くして、
+/// 自動解除ではなく `open_gate` で回収が進んだことを示す。
+const RELEASE_DEADLINE: Duration = Duration::from_millis(450);
 
 /// 門で止めた投入の後に、保留の数を照らし終えるまでの上限。
 const WINDOW: Duration = Duration::from_millis(250);
@@ -80,15 +81,6 @@ fn allocate(memory: &dyn MemoryOps) -> BufferHandle {
     }
 }
 
-/// 印の写しを返す。
-fn copy_of(token: &SubmitToken) -> SubmitToken {
-    SubmitToken::__backend_new(
-        token.generation,
-        token.sequence,
-        token.__backend_device_id(),
-    )
-}
-
 /// 門を仕込み、`src` から `dst` へのコピーを記録して投入する。
 fn submit_gated_copy(device: &dyn Device, src: &BufferHandle, dst: &BufferHandle) -> SubmitToken {
     assert_eq!(hooks(device).arm_gate(), Ok(()));
@@ -107,17 +99,16 @@ fn submit_gated_copy(device: &dyn Device, src: &BufferHandle, dst: &BufferHandle
 }
 
 /// `token` の `poll` を 1 ms 間隔で繰り返し、解放の保留の数が 0 になるまで待つ。`poll` はどの回も `Lost`。
-/// `RELEASE_LIMIT` で失敗とする。
-fn poll_until_released(device: &dyn Device, token: &SubmitToken) {
-    let start = Instant::now();
+/// `since` から `RELEASE_DEADLINE` を過ぎたら失敗とする。
+fn poll_until_released(device: &dyn Device, token: SubmitToken, since: Instant) {
     loop {
-        assert_eq!(device.queue().poll(copy_of(token)), CompletionState::Lost);
+        assert_eq!(device.queue().poll(token), CompletionState::Lost);
         if device.memory().pending_release_count() == Some(0) {
             return;
         }
         assert!(
-            start.elapsed() < RELEASE_LIMIT,
-            "held buffers were not released in time"
+            since.elapsed() < RELEASE_DEADLINE,
+            "held buffers were not released before the gate would expire"
         );
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -155,14 +146,14 @@ fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes() {
             submitted.elapsed() < WINDOW,
             "the loss and the frees took too long"
         );
-        assert_eq!(d.queue().poll(copy_of(&token)), CompletionState::Lost);
+        assert_eq!(d.queue().poll(token), CompletionState::Lost);
         assert_eq!(memory.pending_release_count(), Some(2));
         assert!(
             submitted.elapsed() < WINDOW,
             "the reads after the loss took too long"
         );
         assert_eq!(hooks(d).open_gate(), Ok(()));
-        poll_until_released(d, &token);
+        poll_until_released(d, token, submitted);
         assert_eq!(memory.pending_release_count(), Some(0));
     });
 }

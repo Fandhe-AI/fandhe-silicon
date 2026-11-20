@@ -18,11 +18,11 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 
 ## device の要る試験（1/2）
 
-公開の口（`Device::memory`・`Device::queue`・`Device::fault_hooks`）だけを呼ぶ統合の試験。印の写しは `SubmitToken::__backend_new` で作る。本体を別のスレッドで流し、30 秒で打ち切る。
+公開の口（`Device::memory`・`Device::queue`・`Device::fault_hooks`）だけを呼ぶ統合の試験。印は `Copy` なので、ロストの前の印をそのまま `poll` に渡す。本体を別のスレッドで流し、30 秒で打ち切る。
 
 | 試験 | 呼ぶ口 | 照らす値 |
 | ---- | ------ | -------- |
-| `buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes` | 3 つ確保して 1 つ目に書き、門を仕込んで 1 つ目から 2 つ目へのコピーを投入し、`simulate_device_lost` の後に 3 つ目・1 つ目・2 つ目を `free` し、`pending_release_count` を読み、ロストの前の印で `poll` を呼び、`open_gate` の後に `poll` を繰り返す | `simulate_device_lost` は `Ok(())`。`free` の後の数は `Some(2)` で、`poll` は `Lost`、その後も `Some(2)`。`free` の後と 2 回目の数の読みの後の、投入からの経過は 250 ms より短い。`open_gate` の後の `poll` はどの回も `Lost` で、数は 10 秒より前に `Some(0)` になる |
+| `buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes` | 3 つ確保して 1 つ目に書き、門を仕込んで 1 つ目から 2 つ目へのコピーを投入し、`simulate_device_lost` の後に 3 つ目・1 つ目・2 つ目を `free` し、`pending_release_count` を読み、ロストの前の印で `poll` を呼び、`open_gate` の後に `poll` を繰り返す | `simulate_device_lost` は `Ok(())`。投入に使っていないバッファの `free` の後の数は `Some(0)`、元の `free` の後は `Some(1)`、先の `free` の後は `Some(2)` で、`poll` は `Lost`、その後も `Some(2)`。計測の起点は門を仕込む前で、`free` の後と 2 回目の数の読みの後の、起点からの経過は 250 ms より短い。`open_gate` の後の `poll` はどの回も `Lost` で、数は起点から 450 ms（門の自動解除の 500 ms より前）までに `Some(0)` になる。投入に使っていないバッファが実際に解放されたことは、公開の口からは観測せず、保留に入らないこと（`Some(0)`）だけを照らす |
 
 | 項目 | 値 |
 | ---- | -- |
