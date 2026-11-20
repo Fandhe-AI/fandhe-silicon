@@ -6237,6 +6237,66 @@ mod checked_pipeline_device_tests {
         assert_eq!(h.__backend_device_id(), d.id);
         assert_eq!(table_len(&d), before + 1);
     }
+
+    /// `within` の上限。
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    /// `ADD_ONE` を `compile_cuda_c` で PTX のテキストにする。device の NVRTC の呼び出し口を通らない。
+    fn add_one_ptx(d: &CudaDevice) -> String {
+        compile_cuda_c(ADD_ONE, d.compute_capability)
+            .expect("NVRTC")
+            .to_src()
+    }
+
+    // BIND-15
+    /// 照らしを通る宣言と `Ptx` の入力は、この device のパイプラインを 1 つ作って表に足す。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn matching_declaration_with_ptx_input_creates_a_pipeline_of_this_device() {
+        within(|| {
+            let d = device();
+            let text = add_one_ptx(&d);
+            assert!(text.contains(".entry add_one"));
+            let before = table_len(&d);
+            let declared = [
+                spec(0, DType::F32, &[4], &[1]),
+                spec(1, DType::F32, &[4], &[1]),
+                spec(2, DType::U32, &[1], &[1]),
+            ];
+            let input = PipelineInput::Ptx {
+                source: &text,
+                entry_point: "add_one",
+            };
+            let h = d
+                .create_pipeline_checked(input, &BindingLayout::new(vec![0, 1, 2]), &declared)
+                .expect("pipeline");
+            assert_eq!(h.__backend_device_id(), d.id);
+            assert_eq!(table_len(&d), before + 1);
+        });
+    }
 }
 
 /// CUDA の device に触る、`on_complete` と検証の報告の受け口の試験（TASK-607 のポインタ）。
