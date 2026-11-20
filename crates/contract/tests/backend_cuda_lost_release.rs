@@ -99,17 +99,19 @@ fn submit_gated_copy(device: &dyn Device, src: &BufferHandle, dst: &BufferHandle
 }
 
 /// `token` の `poll` を 1 ms 間隔で繰り返し、解放の保留の数が 0 になるまで待つ。`poll` はどの回も `Lost`。
-/// `since` から `RELEASE_DEADLINE` を過ぎたら失敗とする。
+/// `since` から `RELEASE_DEADLINE` を過ぎたら、数が 0 になった回でも失敗とする。
 fn poll_until_released(device: &dyn Device, token: SubmitToken, since: Instant) {
     loop {
         assert_eq!(device.queue().poll(token), CompletionState::Lost);
-        if device.memory().pending_release_count() == Some(0) {
-            return;
-        }
+        let released = device.memory().pending_release_count() == Some(0);
+        // 数が 0 になった回も期限を照らし、門の自動解除の後の回収では成功にしない。
         assert!(
             since.elapsed() < RELEASE_DEADLINE,
             "held buffers were not released before the gate would expire"
         );
+        if released {
+            return;
+        }
         std::thread::sleep(Duration::from_millis(1));
     }
 }
