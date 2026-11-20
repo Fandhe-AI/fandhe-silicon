@@ -55,7 +55,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 ## device の要る試験（2/3）
 
-device に触る試験は `crates/contract/src/backend_cuda.rs` の `ptx_pipeline_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、30 秒で打ち切る。試験のビルドの device は `compile_with_nvrtc` に入った回数を持ち、試験はその回数を読む。PTX のテキストは、試験が CUDA C のカーネルを、`--gpu-architecture=compute_<major><minor>` と `--frandom-seed=0x5eed` を付けて NVRTC で作る（device の `compile_with_nvrtc` を通らない）。
+device に触る試験は `crates/contract/src/backend_cuda.rs` の `ptx_pipeline_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、完了の通知を最大 30 秒待つ。過ぎると待つ側が panic で落ちるだけで、本体のスレッドは中断されない。試験のビルドの device は `compile_with_nvrtc` に入った回数を持ち、試験はその回数を読む。PTX のテキストは、試験が CUDA C のカーネルを、`--gpu-architecture=compute_<major><minor>` を付けて NVRTC で作る（device の `compile_with_nvrtc` を通らない）。
 
 | 試験 | 呼ぶ口 | 照らす値 |
 | ---- | ------ | -------- |
@@ -75,7 +75,11 @@ device に触る試験は `crates/contract/src/backend_cuda.rs` の `ptx_pipelin
 cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::ptx_pipeline_device_tests
 ```
 
-3 件が `ignored` と数えられる。
+3 件が `ignored` と数えられる。CUDA の device・ドライバ・NVRTC のある機材で流すときは末尾に `-- --ignored` を付ける。
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::ptx_pipeline_device_tests -- --ignored
+```
 
 ## 段
 
