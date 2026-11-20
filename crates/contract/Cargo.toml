@@ -282,6 +282,10 @@ name = "cpu_ops_gemm_scalar_rules"
 required-features = ["cpu-ops", "test-support"]
 
 [[test]]
+name = "cpu_ops_gemm_neon_rules"
+required-features = ["cpu-ops", "test-support"]
+
+[[test]]
 name = "cpu_ops_add_scalar_nonfinite"
 required-features = ["cpu-ops"]
 
