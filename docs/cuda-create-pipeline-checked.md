@@ -220,12 +220,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 出力 (7):
 
 ```text
-$ gh run view 44673617794 --json status,conclusion,headSha
+$ gh run view 44673617794 --json status,conclusion,headSha,jobs --jq '"\(.status) \(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make deny (cargo-deny)" or .name=="make verify + build-profiles (macos-latest)")|"\(.name) \(.conclusion)")'
 completed success 5809c267b810109b9cd23ddad8a2ca30b083dd4f
 make verify (fmt + clippy + test) success
 make deny (cargo-deny) success
 make verify + build-profiles (macos-latest) success
-$ gh run view --job <make verify のジョブ> --log | grep -E 'checked_pipeline_device_tests::.*ignored' | sort | uniq -c
+$ gh run view --job 136080128689 --log | grep -E 'checked_pipeline_device_tests::.*ignored' | sed 's/.*\(test backend_cuda\)/\1/' | sort | uniq -c
       6 test backend_cuda::checked_pipeline_device_tests::declared_count_mismatch_is_rejected_and_adds_no_pipeline ... ignored, requires a CUDA device
       6 test backend_cuda::checked_pipeline_device_tests::dimension_mismatch_is_rejected_and_adds_no_pipeline ... ignored, requires a CUDA device
       6 test backend_cuda::checked_pipeline_device_tests::matching_declaration_creates_a_pipeline_of_this_device ... ignored, requires a CUDA device
