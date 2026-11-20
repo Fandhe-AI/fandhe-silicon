@@ -23,7 +23,9 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | CPU 参照の比べ（`cpu-count:` の行） | 全部の行 |
 | 欄 `bits` | simd128 のビルドの `gemm_simd` は `simd128_order_file`、scalar のビルドの `gemm_simd`・`gemm_scalar` は `cpu_reference_file` |
 
-欄 `bits` に (export, build) の組を持つ行は、wasm の出力をその参照と 4 バイトの語ごとのビットで比べ、`bits-count: <行> mismatches=<件数> n=<語数>` の行を `cpu-count:` の行の後に出す。件数が 0 でなければ行は `mismatch` で、`row:` の行の括弧の中は `bits-reference mismatches <件数>/<語数>`。保存の形の数え直しは `recount-bits:` の行を `recount-cpu:` の行の後に出し、件数が 0 でない行を `recount-summary:` の `nonzero` に数える。ほかの 5 つの種類の欄 `bits` は空で、`bits-count:`・`recount-bits:` の行を出さない。
+欄 `bits` に (export, build) の組を持つ行は、wasm の出力をその参照と 4 バイトの語ごとのビットで比べ、`bits-count: <行> mismatches=<件数> n=<語数>` の行を `cpu-count:` の行の後に出す。件数が 0 でなければ行は `mismatch` になる。`row:` の行の括弧の中は優先順で決まり、通常の参照の比べ・CPU 参照の比べの不一致があればその件数（`mismatches <件数>/<語数>`）が先に出て、それらが 0 のときだけ `bits-reference mismatches <件数>/<語数>` になる。ビットの不一致の件数は常に `bits-count:` の行で確かめられる。保存の形の数え直しは `recount-bits:` の行を `recount-cpu:` の行の後に出し、件数が 0 でない行を `recount-summary:` の `nonzero` に数える。ほかの 5 つの種類の欄 `bits` は空で、`bits-count:`・`recount-bits:` の行を出さない。
+
+この段で足したのは照合側の対応だけで、`wasm-parity-host gen` はまだ種類 `gemm-order` の manifest を出力しない。そのため通常の `wasm-node-check.sh --cases` の経路にはこの種類の行は現れず、回帰テストは合成の manifest で流す。
 
 ### 回帰テスト
 
@@ -35,7 +37,7 @@ private spec 側の記録に従う（ポインタのみ）。`docs/spec/05-tasks
 | 133 | CPU 参照の 1 語だけがネイティブの参照と違うケース | scalar のビルドの 2 行が `mismatch (bits-reference mismatches 1/4)`、`cpu-count:` は 0 |
 | 134 | 1 語に番兵 `7fc0dead` が残った出力 | `mismatch (mismatches 1/4)`、`bits-count:`・`cpu-count:` も 1 |
 | 135 | manifest の `simd128_order_file` の鍵を消す・sha256 を変える・ファイルを 1 語縮める | 終了コード 2、`row:` の行を出さない |
-| 136 | 保存の形の `simd128-order` のファイルの 1 語を書き換える | 数え直しの `recount-bits:` が 1、終了コード 1 |
+| 136 | 保存の形の `simd128-order` のファイルの 1 語を書き換え、manifest の `simd128_order_sha256` も書き換え後の値に更新する（更新しないと SHA-256 の照合で終了コード 2 になり `recount-bits:` を出さない） | 数え直しの `recount-bits:` が 1、終了コード 1 |
 | 137 | 種類 `gemm-special` の行 | `bits-count:`・`recount-bits:` の行を出さない |
 
 ### 確かめ方
