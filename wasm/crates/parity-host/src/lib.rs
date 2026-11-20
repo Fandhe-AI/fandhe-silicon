@@ -107,6 +107,8 @@ pub enum GenError {
     WriteFailed,
     /// 入力を作れなかった。
     InputFailed,
+    /// 出力・入力の列をバイト列に変換できなかった（長さの溢れか確保の失敗）。
+    EncodeFailed,
     /// 参照の計算が `Err` を返した。
     NativeFailed,
     /// `gemm_simd` の参照の計算が `Err` を返した。
@@ -129,6 +131,7 @@ impl fmt::Display for GenError {
             GenError::FileExists => "error: output file already exists",
             GenError::WriteFailed => "error: cannot write output file",
             GenError::InputFailed => "error: cannot generate inputs",
+            GenError::EncodeFailed => "error: cannot encode outputs",
             GenError::NativeFailed => "error: native gemm_scalar failed",
             GenError::NativeNeonFailed => "error: native gemm_simd failed",
             GenError::NativeTopkFailed => "error: native topk_partial_scalar failed",
@@ -921,13 +924,13 @@ pub fn build_topk_sentinel_cases() -> Result<Vec<TopkCase>, GenError> {
 
 /// 部分 Top-k の出力を、1 件ごとにスロット番号の 4 バイト、スコアのビット列の 4 バイトの順の
 /// リトルエンディアンのバイト列にする。
-/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::InputFailed)`。
+/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::EncodeFailed)`。
 pub fn topk_record_bytes(records: &[(u32, f32)]) -> Result<Vec<u8>, GenError> {
-    let len = checked_len(records.len(), 8)?;
+    let len = checked_len(records.len(), 8).map_err(|_| GenError::EncodeFailed)?;
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(len)
-        .map_err(|_| GenError::InputFailed)?;
+        .map_err(|_| GenError::EncodeFailed)?;
     for (slot, score) in records {
         bytes.extend_from_slice(&slot.to_le_bytes());
         bytes.extend_from_slice(&score.to_bits().to_le_bytes());
@@ -936,13 +939,13 @@ pub fn topk_record_bytes(records: &[(u32, f32)]) -> Result<Vec<u8>, GenError> {
 }
 
 /// f32 の列を、添字の順のリトルエンディアンのバイト列にする。
-/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::InputFailed)`。
+/// 長さの掛け算が溢れるか確保できなければ `Err(GenError::EncodeFailed)`。
 pub fn f32_le_bytes(values: &[f32]) -> Result<Vec<u8>, GenError> {
-    let len = checked_len(values.len(), 4)?;
+    let len = checked_len(values.len(), 4).map_err(|_| GenError::EncodeFailed)?;
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(len)
-        .map_err(|_| GenError::InputFailed)?;
+        .map_err(|_| GenError::EncodeFailed)?;
     for v in values {
         bytes.extend_from_slice(&v.to_le_bytes());
     }

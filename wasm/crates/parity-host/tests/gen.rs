@@ -1846,6 +1846,14 @@ fn native_neon_error_text() {
 }
 
 #[test]
+fn encode_error_text() {
+    assert_eq!(
+        GenError::EncodeFailed.to_string(),
+        "error: cannot encode outputs"
+    );
+}
+
+#[test]
 fn native_elementwise_neon_error_text() {
     assert_eq!(
         GenError::NativeElementwiseNeonFailed.to_string(),
