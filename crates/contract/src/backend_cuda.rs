@@ -8328,3 +8328,184 @@ mod ptx_input_tests {
         }
     }
 }
+
+/// `Ptx` の入力のパイプラインの生成と、device の NVRTC の呼び出し口に入った回数の、CUDA の device に触る試験。
+/// device の無い環境では流さない（TASK-804 のポインタ）。
+#[cfg(test)]
+mod ptx_pipeline_device_tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 要素に 1 を足す小さなカーネル。
+    const ADD_ONE: &str = "extern \"C\" __global__ void add_one(float* out, const float* inp, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] + 1.0f; } }";
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn table_len(d: &CudaDevice) -> usize {
+        d.pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .len()
+    }
+
+    /// device の NVRTC の呼び出し口に入った回数。
+    fn nvrtc_calls(d: &CudaDevice) -> u64 {
+        d.nvrtc_calls.load(Ordering::SeqCst)
+    }
+
+    /// `ADD_ONE` を、`compile_options` の `--gpu-architecture` に `--frandom-seed=0x5eed` を足して NVRTC で PTX のテキストにする。
+    /// device の NVRTC の呼び出し口を通らない。
+    fn nvrtc_ptx(capability: (i32, i32)) -> String {
+        let mut options = compile_options(capability).expect("options");
+        options.options.push("--frandom-seed=0x5eed".to_string());
+        cudarc::nvrtc::compile_ptx_with_opts(ADD_ONE, options)
+            .expect("NVRTC")
+            .to_src()
+    }
+
+    fn add_one_cuda_c() -> PipelineInput<'static> {
+        PipelineInput::CudaC {
+            source: ADD_ONE,
+            entry_point: "add_one",
+        }
+    }
+
+    // COMP-23
+    /// NVRTC で作った PTX のテキストを `Ptx` で渡すと、この device のパイプラインが作られて表に 1 件足される。
+    /// 2 回作ると識別子が異なる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn nvrtc_ptx_text_creates_a_pipeline_of_this_device() {
+        within(|| {
+            let d = device();
+            let text = nvrtc_ptx(d.compute_capability);
+            assert!(text.contains(".entry add_one"));
+            let layout = BindingLayout::new(vec![0, 1, 2]);
+            let before = table_len(&d);
+            let a = d
+                .create_pipeline(
+                    PipelineInput::Ptx {
+                        source: &text,
+                        entry_point: "add_one",
+                    },
+                    &layout,
+                )
+                .expect("first pipeline");
+            assert_eq!(a.__backend_device_id(), d.id);
+            assert_eq!(table_len(&d), before + 1);
+            let b = d
+                .create_pipeline(
+                    PipelineInput::Ptx {
+                        source: &text,
+                        entry_point: "add_one",
+                    },
+                    &layout,
+                )
+                .expect("second pipeline");
+            assert_eq!(b.__backend_device_id(), d.id);
+            assert_ne!(a.__backend_id(), b.__backend_id());
+            assert_eq!(table_len(&d), before + 2);
+        });
+    }
+
+    // COMP-91
+    /// `Ptx` の生成は NVRTC の呼び出し口に入らない。同じ device の `CudaC` の生成は 1 回だけ入る。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn ptx_creation_does_not_enter_the_nvrtc_call_site() {
+        within(|| {
+            let d = device();
+            let text = nvrtc_ptx(d.compute_capability);
+            let layout = BindingLayout::new(vec![0, 1, 2]);
+            assert_eq!(nvrtc_calls(&d), 0);
+            for _ in 0..2 {
+                d.create_pipeline(
+                    PipelineInput::Ptx {
+                        source: &text,
+                        entry_point: "add_one",
+                    },
+                    &layout,
+                )
+                .expect("ptx pipeline");
+            }
+            assert_eq!(nvrtc_calls(&d), 0);
+            d.create_pipeline(add_one_cuda_c(), &layout)
+                .expect("cuda c pipeline");
+            assert_eq!(nvrtc_calls(&d), 1);
+        });
+    }
+
+    // COMP-91
+    /// 読み込めない `Ptx` は `ArtifactRejected` で、表に足さず、NVRTC の呼び出し口に入らない。
+    /// 読めないテキストと NUL のバイトを含むテキストは `module`、無い入口名と NUL のバイトを含む入口名は `function`。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn ptx_load_failures_are_artifact_rejected_without_entering_the_nvrtc_call_site() {
+        within(|| {
+            let d = device();
+            let text = nvrtc_ptx(d.compute_capability);
+            let with_nul = format!("{text}\0");
+            let layout = BindingLayout::new(vec![0, 1, 2]);
+            let before = table_len(&d);
+            let cases: [(&str, &str, &str); 4] = [
+                ("this is not PTX", "add_one", "module"),
+                (&with_nul, "add_one", "module"),
+                (&text, "absent", "function"),
+                (&text, "add\0one", "function"),
+            ];
+            for (source, entry_point, expected) in cases {
+                let r = d.create_pipeline(
+                    PipelineInput::Ptx {
+                        source,
+                        entry_point,
+                    },
+                    &layout,
+                );
+                assert!(
+                    matches!(&r, Err(ContractError::ArtifactRejected { kind, .. }) if *kind == expected),
+                    "{expected}: {entry_point:?}"
+                );
+                assert_eq!(table_len(&d), before);
+            }
+            assert_eq!(nvrtc_calls(&d), 0);
+            d.create_pipeline(add_one_cuda_c(), &layout)
+                .expect("cuda c pipeline");
+            assert_eq!(nvrtc_calls(&d), 1);
+        });
+    }
+}
