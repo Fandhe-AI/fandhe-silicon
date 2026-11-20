@@ -198,7 +198,7 @@ make deny (cargo-deny): success
 
 ## 今の値の補い（base 85bc0dbc）
 
-記録時点の表と既存の節は書き換えない。以下は base `85bc0dbc` に対するこの変更の後の今の値。所在は [cuda-create-pipeline-ptx](cuda-create-pipeline-ptx.md) の 1/3 の節（TASK-804）。
+記録時点の表と既存の節は書き換えない。以下は base `85bc0dbc` で確かめた今の値。所在は [cuda-create-pipeline-ptx](cuda-create-pipeline-ptx.md) の 1/3 の節（TASK-804）。
 
 | 表の行 | 前の値 → 今の値 | 照らす試験 |
 | ------ | --------------- | ---------- |
