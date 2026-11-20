@@ -8388,10 +8388,11 @@ mod ptx_pipeline_device_tests {
         d.nvrtc_calls.load(Ordering::SeqCst)
     }
 
-    /// `ADD_ONE` を、`compile_options` のオプションで NVRTC により PTX のテキストにする。
+    /// `ADD_ONE` を、`compile_options` の `--gpu-architecture` に `--frandom-seed=0x5eed` を足して NVRTC で PTX のテキストにする。
     /// device の NVRTC の呼び出し口を通らない。
     fn nvrtc_ptx(capability: (i32, i32)) -> String {
-        let options = compile_options(capability).expect("options");
+        let mut options = compile_options(capability).expect("options");
+        options.options.push("--frandom-seed=0x5eed".to_string());
         cudarc::nvrtc::compile_ptx_with_opts(ADD_ONE, options)
             .expect("NVRTC")
             .to_src()
