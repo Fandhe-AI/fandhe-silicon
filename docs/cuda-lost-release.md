@@ -50,8 +50,8 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection --
 | (2) | 受け手の試験の名前 | `git grep -n "fn <名前>" -- crates` で引き、`git ls-files` で置き場を引く | 出力 (2) |
 | (3) | 照らしの口の所在 | `git grep -n` で `free`・`hold_or_release`・`release_finished`・`poll`・`simulate_device_lost` を 1 つずつ引く | 出力 (3) |
 | (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 2 つの実行 | 出力 (4) |
-| (5) | 依存と `[[test]]` の 1 節 | `e45dc446` の親から e45dc446 までの差と `make deps-check` | 出力 (5) |
-| (6) | unsafe の数と本体の差 | `e45dc446` の親から e45dc446 までの差と `unsafe` の行の数 | 出力 (6) |
+| (5) | 依存と `[[test]]` の 1 節 | `5809c267..e45dc446` の差と `make deps-check` | 出力 (5) |
+| (6) | unsafe の数と本体の差 | `5809c267..e45dc446` の差と `unsafe` の行の数 | 出力 (6) |
 | (7) | CI | 1/2 のマージの後の main の push の run | 出力 (7) |
 
 (5)・(6) の `e45dc446` の親は `5809c267`。1/2 の 1 つ前のコミット。
@@ -111,7 +111,7 @@ $ git diff -U0 5809c267..e45dc446 -- crates/contract/Cargo.toml | grep '^[-+]' |
 +required-features = ["backend-cuda", "fault-injection"]
 +
 $ make deps-check
-終了コード 0
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
 ```
 
 出力 (6):
@@ -127,13 +127,12 @@ $ git show e45dc446:crates/contract/src/backend_cuda.rs | grep -c unsafe
 出力 (7):
 
 ```text
-$ gh run view 44675328056 --json conclusion,headSha,jobs
-conclusion: success
-headSha: e45dc446d1bfe96e7c1049a27accd8aa141fd7ef
-make verify (fmt + clippy + test): success
-make verify + build-profiles (macos-latest): success
-make deny (cargo-deny): success
-$ gh run view 44675328056 --job <verify のジョブ> --log | grep -oE 'test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes \.\.\. ignored, requires a CUDA device' | sort | uniq -c
+$ gh run view 44675328056 --json conclusion,headSha,jobs --jq '"\(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make verify + build-profiles (macos-latest)" or .name=="make deny (cargo-deny)")|"\(.name) \(.conclusion)")'
+success e45dc446d1bfe96e7c1049a27accd8aa141fd7ef
+make verify + build-profiles (macos-latest) success
+make verify (fmt + clippy + test) success
+make deny (cargo-deny) success
+$ gh run view 44675328056 --job 136085675961 --log | grep -oE 'test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes \.\.\. ignored, requires a CUDA device' | sort | uniq -c
       2 test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes ... ignored, requires a CUDA device
 ```
 
