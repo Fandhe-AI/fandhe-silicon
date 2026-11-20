@@ -48,8 +48,34 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 1 つ目は 3 件、2 つ目は 1 件が通る。
 
+## device の要る試験（2/3）
+
+device に触る試験は `crates/contract/src/backend_cuda.rs` の `pipeline_error_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。試験のビルドの device は、`compile_with_nvrtc` に入った回数と、`create_pipeline` が `bind_to_thread`・モジュールの読み込み・関数の取り出しを呼ぶ前に 1 ずつ足す回数（欄 `pipeline_driver_calls`）を持ち、試験はその 2 つの回数を読む。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `unsupported_inputs_are_rejected_without_entering_nvrtc_or_the_driver` | `Msl`・`MslSpecialized`・`MslWithOptions`・`MslSpecializedWithOptions`・`SpirV`・`Dxil` の入力で `create_pipeline` を 1 回ずつ、続けて `CudaC` の入力で 1 回 | 6 つとも `ArtifactRejected { kind: "unsupported-input" }` で、理由は受けた variant の名前と `CudaC`・`Ptx` を含み、`Metal` の語は `MslSpecializedWithOptions` の理由だけが含む。6 つの後も表の件数は増えず、2 つの回数は 0。`CudaC` の 1 回の後は `compile_with_nvrtc` に入った回数が 1、もう 1 つの回数が 3 で、表の件数が 1 増える |
+| `artifact_failures_name_the_failed_call_and_add_no_pipeline` | コンパイルできない `CudaC`・無い入口名の `CudaC`・読めないテキストの `Ptx` の入力で `create_pipeline` を 1 回ずつ | 順に `ArtifactRejected` の `cuda-c`・`function`・`module` で、理由は `nvrtcCompileProgram: `・`cuModuleGetFunction: `・`cuModuleLoadData: ` で始まる。表の件数は増えない。`compile_with_nvrtc` に入った回数は順に 1・2・2、もう 1 つの回数は順に 0・3・5 |
+
+`Msl` 系の入力のソースは Metal の背後実装の試験の `KERNEL`・`SPECIALIZED_KERNEL` と同じ文字列で、`SpirV` の入力は何もしない compute の入口 `k` の語の列、`Dxil` の入力は DXBC のコンテナの見出しだけの 32 バイト。
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `crates/contract/src/backend_cuda.rs` の `pipeline_error_device_tests` |
+| feature | `backend-cuda` |
+| `#[ignore]` | `requires a CUDA device` |
+
+確かめ:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::pipeline_error_device_tests
+```
+
+2 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 受け付けない入力の理由に Metal 専用を載せる形と失敗の写しの値の試験を足す | #4152 |
+| 2/3 | 受け付けない入力と成果物の生成の失敗の device の要る試験を ignore 付きで足す | #4153 |
