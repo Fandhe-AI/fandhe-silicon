@@ -77,9 +77,124 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 3 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-804。ポインタのみ）。
+
+時点のコミット: `b745ad06`。`docs/spec` の gitlink は `96476a8254c0c1fba240acf062644b4433123e99`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| 1 | 試験の宣言 | `ptx_input_tests` と `ptx_pipeline_device_tests` を `awk` で切り出し、`#[test]` と `#[ignore` の行頭の数を `grep -c` で数える | 出力 (1) |
+| 2 | 受け手の試験の名前 | 7 本の関数を `git grep -n "fn <名前>" -- crates` で 1 つずつ引く | 出力 (2) |
+| 3 | NVRTC の呼び出し口 | `mod tests {` の行より前を `grep -n` で絞る | 出力 (3) |
+| 4 | device に触らない試験 | `ptx_input_tests`・`ptx_pipeline_device_tests`・`backend_cuda_unsafe_count` の `cargo test` | 出力 (4) |
+| 5 | 依存 | `bb70bb12` から HEAD までの `git diff --stat` と `make deps-check` | 出力 (5) |
+| 6 | unsafe の数 | 同じ範囲の `backend_cuda_unsafe_count.rs` の差と、`unsafe` の語を含む行の数 | 出力 (6) |
+| 7 | CI | 2/3 のマージの後の main の push の run | 出力 (7) |
+
+(5)・(6) の `bb70bb12` は、1/3 の 1 つ前のコミット。
+
+出力 (1)
+
+```text
+$ awk '/^mod ptx_input_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[test\]'
+3
+$ awk '/^mod ptx_input_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[ignore'
+0
+$ awk '/^mod ptx_pipeline_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[test\]'
+3
+$ awk '/^mod ptx_pipeline_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[ignore'
+3
+```
+
+出力 (2)
+
+```text
+$ git grep -n "fn ptx_input_becomes_the_module_text_without_calling_the_compiler" -- crates
+crates/contract/src/backend_cuda.rs:8230:    fn ptx_input_becomes_the_module_text_without_calling_the_compiler() {
+$ git grep -n "fn cuda_c_input_calls_the_compiler_once_with_the_source" -- crates
+crates/contract/src/backend_cuda.rs:8249:    fn cuda_c_input_calls_the_compiler_once_with_the_source() {
+$ git grep -n "fn nul_bytes_are_rejected_before_the_module_text_is_made" -- crates
+crates/contract/src/backend_cuda.rs:8282:    fn nul_bytes_are_rejected_before_the_module_text_is_made() {
+$ git grep -n "fn nvrtc_ptx_text_creates_a_pipeline_of_this_device" -- crates
+crates/contract/src/backend_cuda.rs:8413:    fn nvrtc_ptx_text_creates_a_pipeline_of_this_device() {
+$ git grep -n "fn ptx_creation_does_not_enter_the_nvrtc_call_site" -- crates
+crates/contract/src/backend_cuda.rs:8450:    fn ptx_creation_does_not_enter_the_nvrtc_call_site() {
+$ git grep -n "fn ptx_load_failures_are_artifact_rejected_without_entering_the_nvrtc_call_site" -- crates
+crates/contract/src/backend_cuda.rs:8478:    fn ptx_load_failures_are_artifact_rejected_without_entering_the_nvrtc_call_site() {
+$ git grep -n "fn cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified" -- crates
+crates/contract/src/backend_cuda.rs:4697:    fn cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified() {
+```
+
+出力 (3)
+
+```text
+$ awk '/^mod tests \{$/{exit} {print}' crates/contract/src/backend_cuda.rs | grep -n 'compile_cuda_c(\|compile_with_nvrtc(\|compile_ptx_with_opts\|Ptx::from_src'
+1025:fn compile_cuda_c(source: &str, capability: (i32, i32)) -> Result<Ptx, ContractError> {
+1034:        cudarc::nvrtc::compile_ptx_with_opts(source, options).map_err(nvrtc_failure)
+1058:            Ok((Ptx::from_src(source), entry_point))
+2250:    fn compile_with_nvrtc(&self, source: &str) -> Result<Ptx, ContractError> {
+2253:        compile_cuda_c(source, self.compute_capability)
+3142:        let (ptx, entry_point) = module_input(accepted, |source| self.compile_with_nvrtc(source))?;
+```
+
+出力 (4)
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::ptx_input_tests
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 128 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::ptx_pipeline_device_tests
+running 3 tests
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 128 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5)
+
+```text
+$ git diff --stat bb70bb12..HEAD -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml crates/core
+$ make deps-check; echo $?
+0
+```
+
+出力 (6)
+
+```text
+$ git diff --stat bb70bb12..HEAD -- crates/contract/tests/backend_cuda_unsafe_count.rs
+$ git show bb70bb12:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (7)
+
+```text
+$ gh run view 44660780805 --json conclusion,headSha --jq '.conclusion+" "+.headSha'
+success b745ad065d90c0e61842106eba50a537f1b3748e
+$ gh run view 44660780805 --json jobs --jq '.jobs[]|select(.name|test("verify|deny"))|"\(.name)\t\(.conclusion)"'
+make verify (fmt + clippy + test)	success
+make verify + build-profiles (macos-latest)	success
+make deny (cargo-deny)	success
+$ gh run view 44660780805 --log --job <make verify (fmt + clippy + test) の job> | grep -oE 'test backend_cuda::ptx_(pipeline_device|input)_tests::[a-z_]+ \.\.\. .*' | sort | uniq -c
+      6 test backend_cuda::ptx_input_tests::cuda_c_input_calls_the_compiler_once_with_the_source ... ok
+      6 test backend_cuda::ptx_input_tests::nul_bytes_are_rejected_before_the_module_text_is_made ... ok
+      6 test backend_cuda::ptx_input_tests::ptx_input_becomes_the_module_text_without_calling_the_compiler ... ok
+      6 test backend_cuda::ptx_pipeline_device_tests::nvrtc_ptx_text_creates_a_pipeline_of_this_device ... ignored, requires a CUDA device
+      6 test backend_cuda::ptx_pipeline_device_tests::ptx_creation_does_not_enter_the_nvrtc_call_site ... ignored, requires a CUDA device
+      6 test backend_cuda::ptx_pipeline_device_tests::ptx_load_failures_are_artifact_rejected_without_entering_the_nvrtc_call_site ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | PTX の入力を NVRTC を呼ばずに読み込む形と NVRTC の呼び出し口を実装する | #5721 |
 | 2/3 | PTX の入力のパイプラインの生成の device の要る試験を ignore 付きで足す | #5722 |
+| 3/3 | 完了の条件の確かめ | #5723 |
