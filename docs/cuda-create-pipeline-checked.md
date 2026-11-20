@@ -126,6 +126,113 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 5 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（6/6）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-457。ポインタのみ）。
+
+時点のコミット: `5809c267`。`docs/spec` の gitlink は `96476a8254c0c1fba240acf062644b4433123e99`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `checked_pipeline_device_tests` の module を `awk` で切り出して `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | 5/6 の 1 本と既存の 4 本を名前で 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `create_pipeline_checked`・`create_pipeline`・`module_input`・`Ptx::from_src` を引く | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test` の 3 つの実行 | 出力 (4) |
+| (5) | 依存 | 5/6 のコミットの 1 つ前のコミットからの差と `make deps-check` | 出力 (5) |
+| (6) | unsafe の数と本体の差 | 5/6 のコミットの 1 つ前のコミットからの差と `unsafe` の行の数 | 出力 (6) |
+| (7) | CI | 5/6 のマージの後の main の push の run | 出力 (7) |
+
+(5)・(6) の `5809c267b810109b9cd23ddad8a2ca30b083dd4f^` は、5/6 のコミットの 1 つ前のコミット。
+
+出力 (1):
+
+```text
+$ awk '/^mod checked_pipeline_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[test\]'
+5
+$ awk '/^mod checked_pipeline_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' crates/contract/src/backend_cuda.rs | grep -c '^[[:space:]]*#\[ignore'
+5
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn matching_declaration_with_ptx_input_creates_a_pipeline_of_this_device" -- crates
+crates/contract/src/backend_cuda.rs:6278:    fn matching_declaration_with_ptx_input_creates_a_pipeline_of_this_device() {
+$ git grep -n "fn declared_count_mismatch_is_rejected_and_adds_no_pipeline" -- crates
+crates/contract/src/backend_cuda.rs:6179:    fn declared_count_mismatch_is_rejected_and_adds_no_pipeline() {
+$ git grep -n "fn dimension_mismatch_is_rejected_and_adds_no_pipeline" -- crates
+crates/contract/src/backend_cuda.rs:6192:    fn dimension_mismatch_is_rejected_and_adds_no_pipeline() {
+$ git grep -n "fn rejection_comes_before_the_input_is_classified" -- crates
+crates/contract/src/backend_cuda.rs:6209:    fn rejection_comes_before_the_input_is_classified() {
+$ git grep -n "fn matching_declaration_creates_a_pipeline_of_this_device" -- crates
+crates/contract/src/backend_cuda.rs:6226:    fn matching_declaration_creates_a_pipeline_of_this_device() {
+```
+
+出力 (3):
+
+```text
+$ git grep -n "fn create_pipeline_checked" -- crates/core/src/execution/compute.rs
+crates/core/src/execution/compute.rs:262:    fn create_pipeline_checked(
+$ awk '/^mod tests \{$/{exit} {print}' crates/contract/src/backend_cuda.rs | grep -n 'fn create_pipeline(\|fn module_input\|Ptx::from_src'
+1041:fn module_input<'a>(
+1058:            Ok((Ptx::from_src(source), entry_point))
+3135:    fn create_pipeline(
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::checked_pipeline_device_tests
+running 5 tests
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 127 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-core --test compute_create_pipeline_checked
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat "5809c267b810109b9cd23ddad8a2ca30b083dd4f^" 5809c267b810109b9cd23ddad8a2ca30b083dd4f -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml crates/core
+$ make deps-check
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+$ echo $?
+0
+```
+
+出力 (6):
+
+```text
+$ git diff --stat "5809c267b810109b9cd23ddad8a2ca30b083dd4f^" 5809c267b810109b9cd23ddad8a2ca30b083dd4f -- crates/contract/tests/backend_cuda_unsafe_count.rs
+$ git diff --numstat "5809c267b810109b9cd23ddad8a2ca30b083dd4f^" 5809c267b810109b9cd23ddad8a2ca30b083dd4f -- crates/contract/src/backend_cuda.rs
+60	0	crates/contract/src/backend_cuda.rs
+$ git show "5809c267b810109b9cd23ddad8a2ca30b083dd4f^":crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ git show 5809c267b810109b9cd23ddad8a2ca30b083dd4f:crates/contract/src/backend_cuda.rs | grep -c unsafe
+6
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (7):
+
+```text
+$ gh run view 44673617794 --json status,conclusion,headSha,jobs --jq '"\(.status) \(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make deny (cargo-deny)" or .name=="make verify + build-profiles (macos-latest)")|"\(.name) \(.conclusion)")'
+completed success 5809c267b810109b9cd23ddad8a2ca30b083dd4f
+make verify (fmt + clippy + test) success
+make deny (cargo-deny) success
+make verify + build-profiles (macos-latest) success
+$ gh run view --job 136080128689 --log | grep -E 'checked_pipeline_device_tests::.*ignored' | sed 's/.*\(test backend_cuda\)/\1/' | sort | uniq -c
+      6 test backend_cuda::checked_pipeline_device_tests::declared_count_mismatch_is_rejected_and_adds_no_pipeline ... ignored, requires a CUDA device
+      6 test backend_cuda::checked_pipeline_device_tests::dimension_mismatch_is_rejected_and_adds_no_pipeline ... ignored, requires a CUDA device
+      6 test backend_cuda::checked_pipeline_device_tests::matching_declaration_creates_a_pipeline_of_this_device ... ignored, requires a CUDA device
+      6 test backend_cuda::checked_pipeline_device_tests::matching_declaration_with_ptx_input_creates_a_pipeline_of_this_device ... ignored, requires a CUDA device
+      6 test backend_cuda::checked_pipeline_device_tests::rejection_comes_before_the_input_is_classified ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -135,6 +242,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 | 3/4 | device の要る宣言の照らしの試験を ignore 付きで足す | #4853 |
 | 4/4 | 完了の条件の確かめ | #4854 |
 | 5/6 | PTX の入力で宣言の照らしを通る device の要る試験を ignore 付きで足す | #8397 |
+| 6/6 | 完了の条件の確かめ | #8398 |
 
 ## 今の値の補い（base 85bc0dbc）
 

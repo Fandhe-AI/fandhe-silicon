@@ -1,11 +1,13 @@
 //! 時刻の分解能の純粋な関数と、CPU の時計の測定・出力の形の試験（TASK-2950 のポインタ）。device に触れない。
 
 use measure_clock_resolution::{
-    CPU_READINGS, Config, ResolutionError, adjacent_differences, cpu_resolution,
-    distinct_differences, histogram, min_distinct_difference, min_nonzero, parse_args,
-    read_cpu_clock, run, seconds_span_to_ns, summary_json,
+    CPU_READINGS, Config, ResolutionError, adjacent_differences, args_from_os, check_time_order,
+    cpu_resolution, distinct_differences, elapsed_ns, histogram, min_distinct_difference,
+    min_nonzero, parse_args, read_cpu_clock, seconds_span_to_ns, summary_json, write_summary,
 };
 use measure_perf::record::{Id, SessionRef, UtcTime};
+use std::io::Write;
+use std::time::{Duration, Instant};
 
 fn args(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| (*s).to_owned()).collect()
@@ -48,8 +50,9 @@ fn histogram_counts_each_value_in_ascending_order() {
 fn distinct_differences_use_sorted_distinct_values() {
     assert_eq!(
         distinct_differences(&[125, 42, 125, 0, 83]),
-        vec![42, 41, 42]
+        Ok(vec![42, 41, 42])
     );
+    assert_eq!(distinct_differences(&[7, 7, 7]), Ok(Vec::new()));
     assert_eq!(min_distinct_difference(&[125, 42, 125, 0, 83]), Ok(41));
     assert_eq!(
         min_distinct_difference(&[7, 7, 7]),
@@ -155,14 +158,126 @@ fn summary_json_has_fixed_fields_and_order() {
     );
 }
 
+/// 書いたバイトと flush の回数を数える出力。`fail_flush` なら flush を失敗にする。
+#[derive(Default)]
+struct Sink {
+    bytes: Vec<u8>,
+    flushes: usize,
+    fail_flush: bool,
+}
+
+impl Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.flushes += 1;
+        if self.fail_flush {
+            return Err(std::io::Error::other("flush"));
+        }
+        Ok(())
+    }
+}
+
 #[test]
-fn run_writes_one_line_with_the_full_reading_count() {
+fn write_summary_writes_one_fixed_line_and_flushes() {
     let config = parse_args(&args(&["--run-id", "r1"])).unwrap();
-    let mut out = Vec::new();
-    run(&config, &mut out).unwrap();
-    let text = String::from_utf8(out).unwrap();
-    assert_eq!(text.lines().count(), 1);
-    assert!(text.ends_with('\n'));
-    assert!(text.contains("\"readings\":1000000,"));
-    assert!(text.contains("\"session_ref\":\"_none\""));
+    let start = Duration::new(1_795_132_800, 600_000_000);
+    let end = Duration::new(1_795_132_801, 200_000_000);
+    let mut out = Sink::default();
+    write_summary(&config, start, end, &[0, 41, 41, 83], &mut out).unwrap();
+    assert_eq!(
+        String::from_utf8(out.bytes).unwrap(),
+        "{\"task_id\":\"TASK-2950\",\"run_id\":\"r1\",\"session_ref\":\"_none\",\"started_utc\":\"2026-11-20T00:00:00Z\",\"ended_utc\":\"2026-11-20T00:00:01Z\",\"repo_commit\":null,\"clock\":\"cpu-instant\",\"readings\":4,\"resolution_ns\":41,\"differences\":[[0,1],[41,1],[42,1]]}\n"
+    );
+    assert_eq!(out.flushes, 1);
+}
+
+#[test]
+fn write_summary_rejects_a_wall_clock_going_back_within_a_second() {
+    let config = parse_args(&args(&["--run-id", "r1"])).unwrap();
+    let mut out = Sink::default();
+    assert_eq!(
+        write_summary(
+            &config,
+            Duration::new(1_795_132_800, 600_000_000),
+            Duration::new(1_795_132_800, 500_000_000),
+            &[0, 41],
+            &mut out
+        ),
+        Err(ResolutionError::InvalidTime)
+    );
+    assert!(out.bytes.is_empty());
+    let mut failing = Sink {
+        fail_flush: true,
+        ..Sink::default()
+    };
+    assert_eq!(
+        write_summary(
+            &config,
+            Duration::new(1_795_132_800, 0),
+            Duration::new(1_795_132_800, 0),
+            &[0, 41],
+            &mut failing
+        ),
+        Err(ResolutionError::Output)
+    );
+}
+
+#[test]
+fn wall_clock_order_is_compared_below_a_second() {
+    let d = |s: u64, ms: u32| Duration::new(s, ms * 1_000_000);
+    assert_eq!(check_time_order(d(10, 0), d(10, 0)), Ok(()));
+    assert_eq!(check_time_order(d(10, 500), d(10, 600)), Ok(()));
+    assert_eq!(
+        check_time_order(d(11, 0), d(10, 0)),
+        Err(ResolutionError::InvalidTime)
+    );
+    assert_eq!(
+        check_time_order(d(10, 600), d(10, 500)),
+        Err(ResolutionError::InvalidTime)
+    );
+}
+
+#[test]
+fn elapsed_ns_compares_each_reading_with_the_previous_one() {
+    let t0 = Instant::now();
+    let ns = Duration::from_nanos;
+    assert_eq!(elapsed_ns(&[t0, t0, t0 + ns(41)]), Ok(vec![0, 0, 41]));
+    assert_eq!(
+        elapsed_ns(&[t0, t0 + ns(80), t0 + ns(60)]),
+        Err(ResolutionError::InvalidTime)
+    );
+    assert_eq!(elapsed_ns(&[t0]), Err(ResolutionError::Empty));
+}
+
+#[test]
+fn reading_an_unallocatable_count_is_an_allocation_error() {
+    assert_eq!(read_cpu_clock(usize::MAX), Err(ResolutionError::Allocation));
+    assert_eq!(
+        ResolutionError::Allocation.to_string(),
+        "cannot allocate memory"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_non_utf8_argument_is_a_usage_error_with_exit_code_2() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    assert_eq!(
+        args_from_os([std::ffi::OsString::from_vec(vec![0x66, 0xff, 0x6f])]),
+        Err(ResolutionError::Usage("invalid value"))
+    );
+    assert_eq!(
+        args_from_os(["--run-id".into(), "r1".into()]),
+        Ok(args(&["--run-id", "r1"]))
+    );
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_clock-resolution"))
+        .arg(std::ffi::OsStr::from_bytes(&[0x66, 0xff, 0x6f]))
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert_eq!(out.stderr, b"error: usage: invalid value\n");
 }
