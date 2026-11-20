@@ -202,7 +202,7 @@ make deny (cargo-deny): success
 
 | 表の行 | 前の値 → 今の値 | 照らす試験 |
 | ------ | --------------- | ---------- |
-| 「入力ごとの返す値と試験」の `Ptx` の行（`Ptx`・`Wgsl`・知らない variant） | `Ptx` は `Unsupported` → `Ptx` は通る（`AcceptedInput::Ptx`）。`Wgsl`・知らない variant は `Unsupported { op: "create_pipeline", backend: Cuda }` のまま | `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified` |
+| 「入力ごとの返す値と試験」の `Ptx` の行（`Ptx`・`Wgsl`・知らない variant） | `Ptx` は `Unsupported` → `Ptx` は通る（`AcceptedInput::Ptx`）。`Wgsl`・知らない variant は `Unsupported { op: "create_pipeline", backend: Cuda }` のまま（知らない variant は `classify_pipeline_input` の `_` の分岐で、この試験は通らない） | `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified`（入力は `CudaC`・`Ptx`・`Wgsl` などの列挙した variant） |
 | 同じ表の `CudaC` の行・`Msl` などの行の試験の名前 | `only_cuda_c_is_accepted_and_other_inputs_are_classified` → `cuda_c_and_ptx_are_accepted_and_other_inputs_are_classified` | 同上 |
 | 「device の要る試験（3/4）」の表の `ptx_is_unsupported_and_msl_is_unsupported_input` の行 | `ptx_is_unsupported_and_msl_is_unsupported_input`（PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`）→ `wgsl_is_unsupported_and_msl_is_unsupported_input`（WGSL は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`） | `wgsl_is_unsupported_and_msl_is_unsupported_input`（device の要る試験） |
 | 「入力の分類と配置の検査（1/4）」の順 3（ソースと入口名の NUL のバイト） | `check_no_nul` → `module_input` が `CudaC` では `check_no_nul`、`Ptx` では `check_ptx_no_nul` を呼ぶ（`Ptx` のテキストの NUL は `ArtifactRejected { kind: "module" }`） | `nul_bytes_are_rejected_before_compilation`・`nul_bytes_are_rejected_before_the_module_text_is_made` |
