@@ -826,10 +826,12 @@ enum AcceptedInput<'a> {
 
 /// `create_pipeline` の入力を分類し、受け付ける `CudaC`・`Ptx` の入力を返す。
 /// device にも下位の API にも触らない。`ComputeOps::create_pipeline` から最初に呼ばれる。
+/// `Msl` 系・`SpirV`・`Dxil` は `ArtifactRejected { kind: "unsupported-input" }` で、理由に受け取った variant と
+/// 受け付ける `CudaC`・`Ptx` を載せる（`MslSpecializedWithOptions` は Metal 専用であることも載せる）。
 fn classify_pipeline_input<'a>(
     input: &PipelineInput<'a>,
 ) -> Result<AcceptedInput<'a>, ContractError> {
-    let variant = match input {
+    let (variant, note) = match input {
         PipelineInput::CudaC {
             source,
             entry_point,
@@ -854,12 +856,14 @@ fn classify_pipeline_input<'a>(
                 backend: BACKEND,
             });
         }
-        PipelineInput::Msl { .. } => "Msl",
-        PipelineInput::SpirV { .. } => "SpirV",
-        PipelineInput::Dxil { .. } => "Dxil",
-        PipelineInput::MslSpecialized { .. } => "MslSpecialized",
-        PipelineInput::MslWithOptions { .. } => "MslWithOptions",
-        PipelineInput::MslSpecializedWithOptions { .. } => "MslSpecializedWithOptions",
+        PipelineInput::Msl { .. } => ("Msl", ""),
+        PipelineInput::SpirV { .. } => ("SpirV", ""),
+        PipelineInput::Dxil { .. } => ("Dxil", ""),
+        PipelineInput::MslSpecialized { .. } => ("MslSpecialized", ""),
+        PipelineInput::MslWithOptions { .. } => ("MslWithOptions", ""),
+        PipelineInput::MslSpecializedWithOptions { .. } => {
+            ("MslSpecializedWithOptions", " is Metal-only and")
+        }
         _ => {
             return Err(ContractError::Unsupported {
                 op: "create_pipeline",
@@ -870,7 +874,7 @@ fn classify_pipeline_input<'a>(
     Err(ContractError::ArtifactRejected {
         kind: "unsupported-input",
         reason: format!(
-            "pipeline input {variant} is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
+            "pipeline input {variant}{note} is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
         ),
     })
 }
@@ -4791,7 +4795,7 @@ mod tests {
         };
         assert_eq!(
             reason,
-            "pipeline input MslSpecializedWithOptions is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
+            "pipeline input MslSpecializedWithOptions is Metal-only and is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx"
         );
     }
 
@@ -8567,5 +8571,167 @@ mod ptx_pipeline_device_tests {
                 .expect("cuda c pipeline");
             assert_eq!(nvrtc_calls(&d), 1);
         });
+    }
+}
+
+/// `create_pipeline` の受け付けない入力の理由と、失敗の写しの関数が返す値の、device に触らない試験（TASK-291 のポインタ）。
+#[cfg(test)]
+mod pipeline_error_tests {
+    use super::*;
+    use fandhe_silicon_core::execution::{
+        FunctionConstant, FunctionConstantValue, MslFloatFunctions, MslMathMode,
+    };
+
+    /// 入力のソースの字句。理由の文に載らないことを照らす。
+    const SOURCE: &str = "SOURCE-TEXT-OF-THE-INPUT";
+
+    // ERR-7
+    /// 受け付けない 6 つの入力は `unsupported-input` で、理由に受け取った variant と受け付ける `CudaC`・`Ptx` を載せる。
+    /// `MslSpecializedWithOptions` の理由だけが Metal 専用であることを載せる。入力のソースは理由に載らない。
+    #[test]
+    fn unsupported_inputs_name_the_variant_and_the_accepted_inputs() {
+        let constants = [FunctionConstant {
+            index: 0,
+            value: FunctionConstantValue::U32(4),
+        }];
+        let words = [0x0723_0203_u32];
+        let bytes = [0x44_u8];
+        let cases = [
+            (
+                PipelineInput::Msl {
+                    source: SOURCE,
+                    entry_point: "k",
+                },
+                "pipeline input Msl is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+            (
+                PipelineInput::MslSpecialized {
+                    source: SOURCE,
+                    entry_point: "k",
+                    function_constants: &constants,
+                },
+                "pipeline input MslSpecialized is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+            (
+                PipelineInput::MslWithOptions {
+                    source: SOURCE,
+                    entry_point: "k",
+                    math_mode: MslMathMode::Safe,
+                },
+                "pipeline input MslWithOptions is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+            (
+                PipelineInput::MslSpecializedWithOptions {
+                    source: SOURCE,
+                    entry_point: "k",
+                    function_constants: &constants,
+                    math_mode: MslMathMode::Safe,
+                    float_functions: MslFloatFunctions::Precise,
+                },
+                "pipeline input MslSpecializedWithOptions is Metal-only and is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+            (
+                PipelineInput::SpirV {
+                    words: &words,
+                    entry_point: "k",
+                },
+                "pipeline input SpirV is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+            (
+                PipelineInput::Dxil {
+                    bytes: &bytes,
+                    entry_point: "k",
+                },
+                "pipeline input Dxil is not accepted by the CUDA backend; accepted inputs are CudaC and Ptx",
+            ),
+        ];
+        for (input, expected) in &cases {
+            let Err(ContractError::ArtifactRejected { kind, reason }) =
+                classify_pipeline_input(input)
+            else {
+                panic!("{input:?} is not ArtifactRejected");
+            };
+            assert_eq!(kind, "unsupported-input", "{input:?}");
+            assert_eq!(reason, *expected, "{input:?}");
+            assert!(!reason.contains(SOURCE), "{input:?}: {reason}");
+        }
+    }
+
+    // ERR-11
+    /// ドライバの呼び出しの失敗は、呼び出しの名前と `Debug` の文字列を載せた `BackendFailure` になる。
+    /// `allocate` のメモリ不足は `AllocationFailed` で、要求したバイト数を載せる。
+    #[test]
+    fn driver_failures_carry_the_call_name_and_the_debug_text() {
+        assert_eq!(
+            backend_failure("memcpy_htod", "detail"),
+            ContractError::BackendFailure {
+                op: "memcpy_htod",
+                backend: BackendKind::Cuda,
+                detail: "\"detail\"".to_string(),
+            }
+        );
+        assert_eq!(
+            allocation_failure(
+                "alloc_zeros",
+                64,
+                DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)
+            ),
+            ContractError::AllocationFailed {
+                requested_bytes: 64
+            }
+        );
+    }
+
+    // ERR-63
+    /// 成果物の読み込みの失敗は、入力の成果物に原因があれば `ArtifactRejected` で理由に呼び出しの名前と `Debug` の文字列を載せ、
+    /// ほかは `BackendFailure` で `op` に呼び出しの名前を載せる。NVRTC のコンパイルの失敗は `cuda-c` で `nvrtcCompileProgram` を載せる。
+    #[test]
+    fn artifact_failures_carry_the_call_name_and_the_debug_text() {
+        for (kind, call) in [
+            ("module", "cuModuleLoadData"),
+            ("function", "cuModuleGetFunction"),
+        ] {
+            assert_eq!(
+                artifact_failure(kind, call, true, "detail"),
+                ContractError::ArtifactRejected {
+                    kind,
+                    reason: format!("{call}: \"detail\""),
+                }
+            );
+            assert_eq!(
+                artifact_failure(kind, call, false, "detail"),
+                ContractError::BackendFailure {
+                    op: call,
+                    backend: BackendKind::Cuda,
+                    detail: "\"detail\"".to_string(),
+                }
+            );
+        }
+        use cudarc::nvrtc::result::NvrtcError;
+        use cudarc::nvrtc::sys::nvrtcResult;
+        let compile = CompileError::CompileError {
+            nvrtc: NvrtcError(nvrtcResult::NVRTC_ERROR_COMPILATION),
+            options: vec![],
+            log: std::ffi::CString::new("log").unwrap(),
+        };
+        let expected = format!("nvrtcCompileProgram: {compile:?}");
+        assert_eq!(
+            nvrtc_failure(compile),
+            ContractError::ArtifactRejected {
+                kind: "cuda-c",
+                reason: expected,
+            }
+        );
+        let out_of_memory =
+            CompileError::CreationError(NvrtcError(nvrtcResult::NVRTC_ERROR_OUT_OF_MEMORY));
+        let detail = format!("{out_of_memory:?}");
+        assert_eq!(
+            nvrtc_failure(out_of_memory),
+            ContractError::BackendFailure {
+                op: "nvrtcCreateProgram",
+                backend: BackendKind::Cuda,
+                detail,
+            }
+        );
     }
 }
