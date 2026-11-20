@@ -60,7 +60,7 @@
 //! device の NVRTC の呼び出し口 `compile_with_nvrtc` に渡し、試験のビルドの device はその呼び出し口に入った回数を持つ（TASK-804）。
 //!
 //! `dispatch_ex`（簡易版の `dispatch` を含む）は記録の時点に記録先・パイプライン・束縛のバッファ・slot・定数・共有メモリの合計を
-//! 照らして記録先に積み、束縛のバッファの識別子・世代・offset と定数の bytes を記録する。投入の時は記録したバッファの解放済みの確かめの後に、利用者のカーネルを
+//! 照らして記録先に積み、束縛のバッファの識別子・世代・offset と定数の bytes を記録する。投入の時は記録したバッファの解放済みの確かめと各記録の範囲の照らし（`plan_transfers`。範囲の外は `InvalidArgument`）の後に、利用者のカーネルを
 //! 走らせる門（`DISPATCH_EXECUTION_ENABLED`）に照らし、閉じていれば dispatch の記録を含む記録先を `Unsupported` で拒んで
 //! 何も積まない（TASK-805）。
 
