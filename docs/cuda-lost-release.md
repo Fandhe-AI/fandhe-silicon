@@ -269,6 +269,19 @@ $ gh run view 44685328418 --job 136118174664 --log | grep -oE 'test buffers_free
       2 test buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes ... ignored, requires a CUDA device
 ```
 
+## 3/4 の経過の照らしの点の補い
+
+上の「device の要る試験の強め（3/4）」の表の「3 つ目の `free` の後の数の読みの後」は、3 回目の `free`（コピーの先）の後に `pending_release_count` を読んだ直後を指す。試験では `memory.free(dst)` に続く `after_dst` の読みの後の `started.elapsed() < WINDOW` が 1 か所目の照らし。
+
+```text
+$ git grep -n -A4 "memory.free(dst);" afb35b2a -- crates/contract/tests/backend_cuda_lost_release.rs
+afb35b2a:crates/contract/tests/backend_cuda_lost_release.rs:141:        memory.free(dst);
+afb35b2a:crates/contract/tests/backend_cuda_lost_release.rs-142-        let after_dst = memory.pending_release_count();
+afb35b2a:crates/contract/tests/backend_cuda_lost_release.rs-143-        assert!(
+afb35b2a:crates/contract/tests/backend_cuda_lost_release.rs-144-            started.elapsed() < WINDOW,
+afb35b2a:crates/contract/tests/backend_cuda_lost_release.rs-145-            "the loss and the frees took too long"
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
