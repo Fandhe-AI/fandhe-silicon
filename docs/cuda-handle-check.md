@@ -164,13 +164,12 @@ $ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
 出力 (7):
 
 ```text
-$ gh run view 44636054418 --json conclusion,headSha,jobs
-conclusion: success
-headSha: 1b44e060cb441ee30b4580820508052029207907
-make verify (fmt + clippy + test): success
-make verify + build-profiles (macos-latest): success
-make deny (cargo-deny): success
-$ gh run view 44636054418 --job <verify のジョブ> --log | grep -E 'test <3 本の名前> \.\.\. ignored, requires a CUDA device' | sort | uniq -c
+$ gh run view 44636054418 --json conclusion,headSha,jobs --jq '"\(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make verify + build-profiles (macos-latest)" or .name=="make deny (cargo-deny)")|"\(.name) \(.conclusion)")'
+success 1b44e060cb441ee30b4580820508052029207907
+make verify (fmt + clippy + test) success
+make verify + build-profiles (macos-latest) success
+make deny (cargo-deny) success
+$ gh run view 44636054418 --job 135954730527 --log | grep -oE 'test (another_devices_buffer_is_rejected_by_download_async_and_the_same_id_stays_intact|freeing_unknown_or_forged_handles_is_ignored_and_keeps_own_buffers|unknown_or_forged_handles_are_rejected_by_upload_and_both_downloads) \.\.\. ignored, requires a CUDA device' | sort | uniq -c
       2 test another_devices_buffer_is_rejected_by_download_async_and_the_same_id_stays_intact ... ignored, requires a CUDA device
       2 test freeing_unknown_or_forged_handles_is_ignored_and_keeps_own_buffers ... ignored, requires a CUDA device
       2 test unknown_or_forged_handles_are_rejected_by_upload_and_both_downloads ... ignored, requires a CUDA device
