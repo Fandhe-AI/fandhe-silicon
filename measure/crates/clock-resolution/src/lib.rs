@@ -70,6 +70,16 @@ impl fmt::Display for ResolutionError {
 
 impl std::error::Error for ResolutionError {}
 
+impl ResolutionError {
+    /// bin の終了コード。引数の誤り（[`ResolutionError::Usage`]）は 2、ほかの失敗は 1。
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Self::Usage(_) => 2,
+            _ => 1,
+        }
+    }
+}
+
 /// 続けて読んだ時刻（先頭からの ns）の、隣り合う値の差の列を返す。
 ///
 /// 長さ `n` の入力から長さ `n − 1` の列を返す。入力が 2 つ未満なら [`ResolutionError::Empty`]、
@@ -465,6 +475,33 @@ pub fn run(config: &Config, out: &mut impl Write) -> Result<(), ResolutionError>
     let readings = read_cpu_clock(CPU_READINGS)?;
     let ended = wall_now()?;
     write_summary(config, started, ended, &readings, out)
+}
+
+/// 失敗の文言を `err` に `error: <文言>` の 1 行で書いて flush し、`code` を返す。
+///
+/// 書けない・flush できないときも `code` を返す（診断の出力の失敗で終了コードを変えない）。
+pub fn report_error(err: &mut impl Write, error: &impl fmt::Display, code: u8) -> u8 {
+    match writeln!(err, "error: {error}").and_then(|()| err.flush()) {
+        Ok(()) | Err(_) => code,
+    }
+}
+
+/// bin `clock-resolution` の本体。引数（プログラム名を除く）を解析して [`run`] で `out` に書き、終了コードを返す。
+///
+/// 成功は 0。失敗は [`report_error`] で `err` に 1 行を書き、[`ResolutionError::exit_code`]
+/// （引数の誤りは 2、ほかは 1）を返す。
+pub fn run_main<I>(args: I, out: &mut impl Write, err: &mut impl Write) -> u8
+where
+    I: IntoIterator<Item = OsString>,
+    I::IntoIter: ExactSizeIterator,
+{
+    match args_from_os(args)
+        .and_then(|args| parse_args(&args))
+        .and_then(|config| run(&config, out))
+    {
+        Ok(()) => 0,
+        Err(e) => report_error(err, &e, e.exit_code()),
+    }
 }
 
 #[cfg(test)]

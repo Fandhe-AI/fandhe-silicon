@@ -13,7 +13,7 @@ spec の本文は転記しない（[spec-confidentiality](../.claude/rules/spec-
 | ---- | ---- | -------- |
 | crate | `measure/crates/clock-resolution`（package `measure-clock-resolution`。測定の別 workspace `measure/` の member） | `grep -n 'crates/clock-resolution' measure/Cargo.toml` |
 | 純粋な関数 | `src/lib.rs` の `adjacent_differences`・`min_nonzero`・`histogram`・`runs`・`distinct_differences`・`min_distinct_difference`・`seconds_span_to_ns`・`elapsed_ns`・`cpu_resolution`・`args_from_os`・`check_time_order`・`write_summary` | `grep -n '^pub fn' measure/crates/clock-resolution/src/lib.rs` |
-| bin | `clock-resolution`（`src/main.rs`） | `grep -n 'name = "clock-resolution"' measure/crates/clock-resolution/Cargo.toml` |
+| bin | `clock-resolution`（`src/main.rs`。終了コードと失敗の 1 行は `src/lib.rs` の `run_main`・`report_error`・`ResolutionError::exit_code`） | `grep -n 'name = "clock-resolution"' measure/crates/clock-resolution/Cargo.toml` |
 | 試験 | `measure/crates/clock-resolution/tests/resolution.rs`・`src/lib.rs` の単体試験 | 下の「CPU の時計の分解能（1/4）」 |
 
 ## CPU の時計の分解能（1/4）
@@ -25,7 +25,7 @@ bin `clock-resolution` は `Instant::now()` を 1,000,000 回続けて読み、�
 | 引数 | `--run-id <ID>`（必須）・`--session-ref <回の ID>`・`--repo-commit <commit>`。UTF-8 でない引数・未知の引数・重複・値の欠け・形に合わない値は、標準出力に書かず、標準エラーに 1 行を出して終了コード 2 |
 | 出力の欄（この順） | `task_id`（`TASK-2950`）・`run_id`・`session_ref`（`--session-ref` が無ければ `_none`）・`started_utc`・`ended_utc`・`repo_commit`（無ければ `null`）・`clock`（`cpu-instant`）・`readings`（1000000）・`resolution_ns`・`differences` |
 | `differences` | `[差の ns, 回数]` の組を、差の昇順に並べた列。差が 0 の組も含む |
-| 失敗 | 0 でない差が無い・CPU の時計の値が直前の値より前・壁時計の終わりが始まりより前（秒未満まで比べる）・値が `u64` の ns に収まらない・列の領域を確保できない（`cannot allocate memory`）ときは、値を出さず標準エラーに 1 行を出して終了コード 1。標準出力に書けない・flush できないときも終了コード 1 |
+| 失敗 | 0 でない差が無い・CPU の時計の値が直前の値より前・壁時計の終わりが始まりより前（秒未満まで比べる）・値が `u64` の ns に収まらない・列の領域を確保できない（`cannot allocate memory`）ときは、値を出さず標準エラーに 1 行を出して終了コード 1。標準出力に書けない・flush できないときも終了コード 1。標準エラーに書けないときも、終了コードは変えない |
 | 時刻の欄 | `started_utc`・`ended_utc` は壁時計の秒未満を切り捨てた UTC |
 
 | 試験 | 照らす値 |
@@ -48,8 +48,11 @@ bin `clock-resolution` は `Instant::now()` を 1,000,000 回続けて読み、�
 | `distinct_differences_return_a_failure_to_allocate_the_differences`（`src/lib.rs`） | 差の列の領域を確保できないと `Allocation`。確保を求めた長さは `[5, 3]` |
 | `adjacent_differences_return_a_failure_to_allocate_the_differences`（`src/lib.rs`） | 差の列の領域を確保できないと `Allocation`。確保を求めた長さは `[2]` |
 | `json_strings_are_written_with_the_same_bytes_as_push_string`（`src/lib.rs`） | 出力へ直に書く文字列は、引用符・逆斜線・制御文字・非 ASCII を含めて `measure_perf::json::push_string` と同じバイト |
-| `the_summary_line_of_fixed_readings_has_fixed_bytes` | 1 万個の固定の読みの 1 行は 431 バイトで、sha256 は `4bbbcf2b2dacedbc34881cc84d283c20bd3800673dd4d25ef79711b803b93680` |
+| `the_summary_line_of_fixed_readings_is_the_fixed_text` | 1 万個の固定の読みの 1 行を、全文の字句と末尾の改行で照らす |
 | `an_unallocatable_argument_count_is_an_allocation_error` | 長さ `usize::MAX` を名乗る引数の列は、panic せずに `Allocation` |
+| `usage_errors_exit_with_2_and_other_failures_with_1` | `Usage` の終了コードは 2、ほかの 8 つの列挙子は 1 |
+| `run_main_returns_the_exit_code_of_each_failure_and_writes_one_line` | 未知の引数は 2 で標準エラーに `error: usage: unknown argument` の 1 行、確保できない引数の列は 1 で `error: cannot allocate memory` の 1 行、標準出力に書けないときは 1。どれも標準出力は空。成功は 0 で、標準出力に 1 行、標準エラーは空 |
+| `a_failure_to_write_the_diagnostic_keeps_the_exit_code` | 標準エラーに書けない・flush できないときも、引数の誤りは 2、確保の失敗は 1 |
 | `a_non_utf8_argument_is_a_usage_error_with_exit_code_2` | UTF-8 でない引数は `args_from_os` で `Usage`（`invalid value`）。bin に渡すと終了コード 2、標準出力は空、標準エラーは `error: usage: invalid value` の 1 行（Unix だけ） |
 
 ## 確かめ方

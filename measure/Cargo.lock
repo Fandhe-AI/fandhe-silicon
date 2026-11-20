@@ -37,7 +37,6 @@ version = "0.0.0"
 name = "measure-clock-resolution"
 version = "0.0.0"
 dependencies = [
- "fandhe-silicon-core",
  "measure-perf",
 ]
 

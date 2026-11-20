@@ -127,13 +127,12 @@ $ git show HEAD:crates/contract/src/backend_cuda.rs | grep -c unsafe
 出力 (7):
 
 ```text
-$ gh run view 44592557580 --json conclusion,headSha,jobs
-conclusion: success
-headSha: 1fc504680d26d423e96e367508a17ad01d84dca9
-make verify (fmt + clippy + test): success
-make verify + build-profiles (macos-latest): success
-make deny (cargo-deny): success
-$ gh run view 44592557580 --job <verify のジョブ> --log | grep -E 'test <5 本の名前> \.\.\. ignored, requires a CUDA device' | sort | uniq -c
+$ gh run view 44592557580 --json conclusion,headSha,jobs --jq '"\(.conclusion) \(.headSha)", (.jobs[]|select(.name=="make verify (fmt + clippy + test)" or .name=="make verify + build-profiles (macos-latest)" or .name=="make deny (cargo-deny)")|"\(.name) \(.conclusion)")'
+success 1fc504680d26d423e96e367508a17ad01d84dca9
+make deny (cargo-deny) success
+make verify (fmt + clippy + test) success
+make verify + build-profiles (macos-latest) success
+$ gh run view 44592557580 --job 135802130013 --log | grep -oE 'test (a_finished_submission_polls_complete_through_both_calls|a_gated_submission_polls_pending_without_blocking|a_reclaimed_token_polls_complete_while_a_later_one_is_gated|tokens_from_before_a_simulated_loss_poll_lost|unissued_sequences_poll_lost) \.\.\. ignored, requires a CUDA device' | sort | uniq -c
       2 test a_finished_submission_polls_complete_through_both_calls ... ignored, requires a CUDA device
       2 test a_gated_submission_polls_pending_without_blocking ... ignored, requires a CUDA device
       2 test a_reclaimed_token_polls_complete_while_a_later_one_is_gated ... ignored, requires a CUDA device

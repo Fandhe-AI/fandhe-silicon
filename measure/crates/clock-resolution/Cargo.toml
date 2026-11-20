@@ -1,5 +1,5 @@
 # clock-resolution: 時刻の分解能を測り、結果を 1 行の JSON で出す測定の bin（TASK-2950 のポインタ）。
-# 向きは測定 → 製品の一方向だけで、lib と bin は製品の crate に依存しない。
+# 向きは測定 → 製品の一方向だけで、製品の crate には依存しない。
 [package]
 name = "measure-clock-resolution"
 version = "0.0.0"
@@ -15,10 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 measure-perf = { path = "../perf" }
-
-[dev-dependencies]
-# 試験だけが core の SHA-256 で出力のバイトを照らす。lib（src/）と bin は core に依存しない。
-fandhe-silicon-core = { path = "../../../crates/core" }
 
 [lints]
 workspace = true

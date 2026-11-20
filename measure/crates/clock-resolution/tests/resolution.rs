@@ -1,11 +1,10 @@
 //! 時刻の分解能の純粋な関数と、CPU の時計の測定・出力の形の試験（TASK-2950 のポインタ）。device に触れない。
 
-use fandhe_silicon_core::hash::sha256_bytes;
 use measure_clock_resolution::{
     CPU_READINGS, Config, ResolutionError, adjacent_differences, args_from_os, check_time_order,
     cpu_resolution, distinct_differences, elapsed_ns, histogram, min_distinct_difference,
-    min_nonzero, parse_args, read_cpu_clock, runs, seconds_span_to_ns, write_summary,
-    write_summary_json,
+    min_nonzero, parse_args, read_cpu_clock, report_error, run_main, runs, seconds_span_to_ns,
+    write_summary, write_summary_json,
 };
 use measure_perf::record::{CommitSha, Id, SessionRef, UtcTime};
 use std::io::Write;
@@ -300,12 +299,8 @@ fn fixed_readings() -> Vec<u64> {
     readings
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 #[test]
-fn the_summary_line_of_fixed_readings_has_fixed_bytes() {
+fn the_summary_line_of_fixed_readings_is_the_fixed_text() {
     let config = Config {
         run_id: Id::parse("run-2950-a").unwrap(),
         session_ref: SessionRef::Session(Id::parse("s-20261120-01").unwrap()),
@@ -315,10 +310,9 @@ fn the_summary_line_of_fixed_readings_has_fixed_bytes() {
     let end = Duration::new(1_795_132_861, 250_000_000);
     let mut out = Sink::default();
     write_summary(&config, start, end, &fixed_readings(), &mut out).unwrap();
-    assert_eq!(out.bytes.len(), 431);
     assert_eq!(
-        hex(&sha256_bytes(&out.bytes)),
-        "4bbbcf2b2dacedbc34881cc84d283c20bd3800673dd4d25ef79711b803b93680"
+        String::from_utf8(out.bytes).unwrap(),
+        r#"{"task_id":"TASK-2950","run_id":"run-2950-a","session_ref":"s-20261120-01","started_utc":"2026-11-20T00:00:00Z","ended_utc":"2026-11-20T00:01:01Z","repo_commit":"0123456789abcdef0123456789abcdef01234567","clock":"cpu-instant","readings":10000,"resolution_ns":1,"differences":[[0,667],[1,666],[2,666],[41,1000],[42,1667],[43,1666],[44,667],[83,334],[84,333],[85,333],[125,333],[126,333],[127,334],[1000,333],[1001,333],[1002,334]]}"#.to_owned() + "\n"
     );
 }
 
@@ -340,4 +334,97 @@ impl ExactSizeIterator for HugeArgs {}
 #[test]
 fn an_unallocatable_argument_count_is_an_allocation_error() {
     assert_eq!(args_from_os(HugeArgs), Err(ResolutionError::Allocation));
+}
+
+/// 書き込みも flush も失敗する出力。
+struct Broken;
+
+impl Write for Broken {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("write"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::other("flush"))
+    }
+}
+
+#[test]
+fn usage_errors_exit_with_2_and_other_failures_with_1() {
+    assert_eq!(ResolutionError::Usage("unknown argument").exit_code(), 2);
+    for e in [
+        ResolutionError::Empty,
+        ResolutionError::NoNonzeroDifference,
+        ResolutionError::NoDistinctPair,
+        ResolutionError::InvalidTime,
+        ResolutionError::Overflow,
+        ResolutionError::Clock,
+        ResolutionError::Output,
+        ResolutionError::Allocation,
+    ] {
+        assert_eq!(e.exit_code(), 1);
+    }
+}
+
+#[test]
+fn run_main_returns_the_exit_code_of_each_failure_and_writes_one_line() {
+    let mut out = Sink::default();
+    let mut err = Sink::default();
+    assert_eq!(
+        run_main(["--bogus".into(), "x".into()], &mut out, &mut err),
+        2
+    );
+    assert_eq!(out.bytes, b"");
+    assert_eq!(
+        String::from_utf8(err.bytes).unwrap(),
+        "error: usage: unknown argument\n"
+    );
+    assert_eq!(err.flushes, 1);
+
+    let mut out = Sink::default();
+    let mut err = Sink::default();
+    assert_eq!(run_main(HugeArgs, &mut out, &mut err), 1);
+    assert_eq!(out.bytes, b"");
+    assert_eq!(
+        String::from_utf8(err.bytes).unwrap(),
+        "error: cannot allocate memory\n"
+    );
+
+    // 標準出力に書けないときは 1（測る間に壁時計が戻ったときも 1 なので、文言は照らさない）。
+    let mut err = Sink::default();
+    assert_eq!(
+        run_main(["--run-id".into(), "r1".into()], &mut Broken, &mut err),
+        1
+    );
+    assert_eq!(err.bytes.iter().filter(|b| **b == b'\n').count(), 1);
+
+    // 成功は 0 で、標準出力に 1 行、標準エラーは空（実の時計を読む）。
+    let mut out = Sink::default();
+    let mut err = Sink::default();
+    assert_eq!(
+        run_main(["--run-id".into(), "r1".into()], &mut out, &mut err),
+        0
+    );
+    assert_eq!(out.bytes.iter().filter(|b| **b == b'\n').count(), 1);
+    assert!(
+        out.bytes
+            .starts_with(b"{\"task_id\":\"TASK-2950\",\"run_id\":\"r1\",")
+    );
+    assert_eq!(err.bytes, b"");
+}
+
+#[test]
+fn a_failure_to_write_the_diagnostic_keeps_the_exit_code() {
+    assert_eq!(
+        report_error(&mut Broken, &ResolutionError::Allocation, 1),
+        1
+    );
+    assert_eq!(
+        run_main(
+            ["--bogus".into(), "x".into()],
+            &mut Sink::default(),
+            &mut Broken
+        ),
+        2
+    );
+    assert_eq!(run_main(HugeArgs, &mut Sink::default(), &mut Broken), 1);
 }

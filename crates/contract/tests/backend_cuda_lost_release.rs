@@ -19,10 +19,7 @@ use std::time::{Duration, Instant};
 /// 試験 1 本の上限。
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// 門を開けた後に、解放の保留の数が 0 になるのを待つ上限。
-const RELEASE_LIMIT: Duration = Duration::from_secs(10);
-
-/// 門で止めた投入の後に、保留の数を照らし終えるまでの上限。
+/// 門を仕込む前から、解放の保留の数を読み終え、門を開けた後に数が 0 になるのを見るまでの上限。
 const WINDOW: Duration = Duration::from_millis(250);
 
 /// 確保の長さ。
@@ -80,15 +77,6 @@ fn allocate(memory: &dyn MemoryOps) -> BufferHandle {
     }
 }
 
-/// 印の写しを返す。
-fn copy_of(token: &SubmitToken) -> SubmitToken {
-    SubmitToken::__backend_new(
-        token.generation,
-        token.sequence,
-        token.__backend_device_id(),
-    )
-}
-
 /// 門を仕込み、`src` から `dst` へのコピーを記録して投入する。
 fn submit_gated_copy(device: &dyn Device, src: &BufferHandle, dst: &BufferHandle) -> SubmitToken {
     assert_eq!(hooks(device).arm_gate(), Ok(()));
@@ -107,25 +95,27 @@ fn submit_gated_copy(device: &dyn Device, src: &BufferHandle, dst: &BufferHandle
 }
 
 /// `token` の `poll` を 1 ms 間隔で繰り返し、解放の保留の数が 0 になるまで待つ。`poll` はどの回も `Lost`。
-/// `RELEASE_LIMIT` で失敗とする。
-fn poll_until_released(device: &dyn Device, token: &SubmitToken) {
-    let start = Instant::now();
+/// 回ごとに `poll` と数を読んだ後で `started` からの経過を照らし、数が 0 の回も `WINDOW` を過ぎていれば失敗とする。
+fn poll_until_released(device: &dyn Device, token: SubmitToken, started: Instant) {
     loop {
-        assert_eq!(device.queue().poll(copy_of(token)), CompletionState::Lost);
-        if device.memory().pending_release_count() == Some(0) {
-            return;
-        }
+        let state = device.queue().poll(token);
+        let count = device.memory().pending_release_count();
         assert!(
-            start.elapsed() < RELEASE_LIMIT,
+            started.elapsed() < WINDOW,
             "held buffers were not released in time"
         );
+        assert_eq!(state, CompletionState::Lost);
+        if count == Some(0) {
+            return;
+        }
         std::thread::sleep(Duration::from_millis(1));
     }
 }
 
 // MEM-30
-/// 模擬のロストの後に、投入に使っていないバッファと、門で止めたコピーの元と先を `free` すると、保留の数は 2 になり、
+/// 模擬のロストの後に、投入に使っていないバッファ、門で止めたコピーの元、先の順に `free` すると、保留の数は 0・1・2 と進み、
 /// ロストの前の印の `poll` が `Lost` を返しても 2 のまま。門を開けてから `poll` を繰り返すと数は 0 になる。
+/// 経過は門を仕込む前から計り、数を読んだ後に、その数より先に照らす。
 #[test]
 #[ignore = "requires a CUDA device"]
 fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes() {
@@ -138,28 +128,35 @@ fn buffers_freed_after_a_loss_stay_held_until_the_gated_copy_completes() {
         let unused = allocate(memory);
         assert_eq!(memory.upload(&src, 0, &[0x5A; LEN as usize]), Ok(()));
         assert_eq!(memory.pending_release_count(), Some(0));
+        let started = Instant::now();
         let token = submit_gated_copy(d, &src, &dst);
-        let submitted = Instant::now();
         assert_eq!(
             hooks(d).simulate_device_lost(DeviceLostReason::Unknown),
             Ok(())
         );
         memory.free(unused);
+        let after_unused = memory.pending_release_count();
         memory.free(src);
+        let after_src = memory.pending_release_count();
         memory.free(dst);
+        let after_dst = memory.pending_release_count();
         assert!(
-            submitted.elapsed() < WINDOW,
+            started.elapsed() < WINDOW,
             "the loss and the frees took too long"
         );
-        assert_eq!(memory.pending_release_count(), Some(2));
-        assert_eq!(d.queue().poll(copy_of(&token)), CompletionState::Lost);
-        assert_eq!(memory.pending_release_count(), Some(2));
+        assert_eq!(after_unused, Some(0));
+        assert_eq!(after_src, Some(1));
+        assert_eq!(after_dst, Some(2));
+        let state = d.queue().poll(token);
+        let after_poll = memory.pending_release_count();
         assert!(
-            submitted.elapsed() < WINDOW,
+            started.elapsed() < WINDOW,
             "the reads after the loss took too long"
         );
+        assert_eq!(state, CompletionState::Lost);
+        assert_eq!(after_poll, Some(2));
         assert_eq!(hooks(d).open_gate(), Ok(()));
-        poll_until_released(d, &token);
+        poll_until_released(d, token, started);
         assert_eq!(memory.pending_release_count(), Some(0));
     });
 }

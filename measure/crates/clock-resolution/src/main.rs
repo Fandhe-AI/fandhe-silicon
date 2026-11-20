@@ -1,25 +1,15 @@
-//! `clock-resolution` の入口。引数を `measure_clock_resolution::args_from_os` と
-//! `measure_clock_resolution::parse_args` に渡し、CPU の時計の分解能を測って結果の 1 行を標準出力に書く。
-//! 失敗は標準エラーに英語 1 行を出して非ゼロで終える（値を黙って採らない）。
+//! `clock-resolution` の入口。標準出力と標準エラーを `measure_clock_resolution::run_main` に渡し、
+//! 返った終了コードで終える。引数の解析・測定・結果の 1 行・失敗の 1 行と終了コード（引数の誤りは 2、
+//! ほかの失敗は 1）は `run_main` が受け持つ（値を黙って採らない）。
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let config = match measure_clock_resolution::args_from_os(std::env::args_os().skip(1))
-        .and_then(|args| measure_clock_resolution::parse_args(&args))
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-    };
     let mut stdout = std::io::stdout().lock();
-    match measure_clock_resolution::run(&config, &mut stdout) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
-    }
+    let mut stderr = std::io::stderr().lock();
+    ExitCode::from(measure_clock_resolution::run_main(
+        std::env::args_os().skip(1),
+        &mut stdout,
+        &mut stderr,
+    ))
 }
