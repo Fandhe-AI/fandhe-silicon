@@ -10427,3 +10427,327 @@ mod dispatch_check_tests {
         }
     }
 }
+
+/// dispatch の記録の時点の拒否の、CUDA の device に触る試験。拒んだ呼び出しが記録先の記録を変えないことを照らし、
+/// 通った記録は投入して結果を読む。device の無い環境では流さない（TASK-806 のポインタ）。
+#[cfg(all(test, feature = "native-blocking-wait"))]
+mod dispatch_check_device_tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 各スレッドが `out[0]` に 1 を足す。`out` の先頭の 1 語だけを使う。
+    const COUNT: &str =
+        "extern \"C\" __global__ void count(unsigned int* out) { atomicAdd(out, 1u); }";
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    /// `COUNT` のパイプライン。配置は slot 0 だけ。
+    fn count_pipeline(d: &CudaDevice) -> PipelineHandle {
+        d.create_pipeline(
+            PipelineInput::CudaC {
+                source: COUNT,
+                entry_point: "count",
+            },
+            &BindingLayout::new(vec![0]),
+        )
+        .expect("pipeline")
+    }
+
+    /// 0 で始まる 4 バイトの数え先。
+    fn counter(d: &CudaDevice) -> BufferHandle {
+        let h = d.allocate(4, usage()).expect("allocate");
+        d.upload(&h, 0, &[0; 4]).expect("upload");
+        h
+    }
+
+    fn read_count(d: &CudaDevice, h: &BufferHandle) -> u32 {
+        let bytes = d.download_blocking(h, 0, 4).expect("download");
+        let (words, rest) = bytes.as_chunks::<4>();
+        assert!(rest.is_empty());
+        assert_eq!(words.len(), 1);
+        u32::from_ne_bytes(words[0])
+    }
+
+    fn records_of(d: &CudaDevice, encoder: &CommandEncoder) -> usize {
+        d.open
+            .lock()
+            .get(&encoder.__backend_id())
+            .map_or(0, Vec::len)
+    }
+
+    /// `InvalidArgument` で、理由の文が `expected` と全文で同じことを照らす。
+    fn assert_invalid(result: Result<(), ContractError>, expected: &str) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => assert_eq!(msg, expected),
+            other => panic!("expected InvalidArgument {expected:?}, got {other:?}"),
+        }
+    }
+
+    // COMP-77
+    /// 内部 id 999,999 の偽造したパイプラインを渡す `dispatch` と `dispatch_ex` は `dispatch_ex: unknown pipeline` で、
+    /// 記録先の前の記録を変えない。偽造したパイプラインは、0 を含む `dispatch_dims` より先に当たる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_reject_a_forged_pipeline_before_recording() {
+        within(|| {
+            let d = device();
+            let p = count_pipeline(&d);
+            assert_ne!(p.__backend_id(), 999_999);
+            let forged = PipelineHandle::__backend_new(999_999, d.id);
+            let out = counter(&d);
+            let mut e = d.create_encoder();
+            d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1])
+                .expect("dispatch");
+            assert_invalid(
+                d.dispatch(&mut e, &forged, &[Binding::new(0, &out, 0)], [4, 1, 1]),
+                "dispatch_ex: unknown pipeline",
+            );
+            assert_invalid(
+                d.dispatch_ex(
+                    &mut e,
+                    &forged,
+                    &[Binding::new(0, &out, 0)],
+                    &[],
+                    [0, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                ),
+                "dispatch_ex: unknown pipeline",
+            );
+            assert_eq!(records_of(&d, &e), 1);
+            d.submit(e, &[]).expect("submit");
+            assert_eq!(read_count(&d, &out), 4);
+        });
+    }
+
+    // COMP-78
+    /// 別の device で作った、自 device のパイプラインと同じ内部 id のパイプラインを渡す `dispatch` と `dispatch_ex` は
+    /// `DeviceMismatch` で、記録先の前の記録を変えない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_with_the_same_id() {
+        within(|| {
+            let d = device();
+            let other = device();
+            let p = count_pipeline(&d);
+            let q = count_pipeline(&other);
+            assert_eq!(q.__backend_id(), p.__backend_id());
+            assert_ne!(q.__backend_device_id(), p.__backend_device_id());
+            let out = counter(&d);
+            let mut e = d.create_encoder();
+            d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1])
+                .expect("dispatch");
+            assert_eq!(
+                d.dispatch(&mut e, &q, &[Binding::new(0, &out, 0)], [4, 1, 1]),
+                Err(ContractError::DeviceMismatch)
+            );
+            assert_eq!(
+                d.dispatch_ex(
+                    &mut e,
+                    &q,
+                    &[Binding::new(0, &out, 0)],
+                    &[],
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                ),
+                Err(ContractError::DeviceMismatch)
+            );
+            assert_eq!(records_of(&d, &e), 1);
+            d.submit(e, &[]).expect("submit");
+            assert_eq!(read_count(&d, &out), 4);
+        });
+    }
+
+    // COMP-89
+    /// 作っていない記録先・投入した記録先と同じ id の値・別の device の記録先を渡す `dispatch` と `dispatch_ex` は
+    /// `encoder is not open on this device` で、どの記録先にも記録しない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_reject_an_encoder_that_is_not_open() {
+        within(|| {
+            let d = device();
+            let other = device();
+            let p = count_pipeline(&d);
+            let out = counter(&d);
+            let mut done = d.create_encoder();
+            let done_id = done.__backend_id();
+            d.dispatch(&mut done, &p, &[Binding::new(0, &out, 0)], [4, 1, 1])
+                .expect("dispatch");
+            d.submit(done, &[]).expect("submit");
+            let mut forged = CommandEncoder::__backend_new(u64::MAX, None);
+            let mut stale = CommandEncoder::__backend_new(done_id, None);
+            let mut foreign = other.create_encoder();
+            for e in [&mut forged, &mut stale, &mut foreign] {
+                assert_invalid(
+                    d.dispatch(e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1]),
+                    "encoder is not open on this device",
+                );
+                assert_invalid(
+                    d.dispatch_ex(
+                        e,
+                        &p,
+                        &[Binding::new(0, &out, 0)],
+                        &[],
+                        [4, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    "encoder is not open on this device",
+                );
+                assert_eq!(records_of(&d, e), 0);
+            }
+            assert_eq!(records_of(&other, &foreign), 0);
+            assert_eq!(read_count(&d, &out), 4);
+        });
+    }
+
+    // COMP-82
+    /// どれかの軸が 0 の `dispatch_dims` を渡す `dispatch` と `dispatch_ex` は `dispatch_dims contains zero` で、
+    /// 記録先の前の記録を変えない。未知のバッファは 0 より先に、0 は配置にあって渡されない slot より先に当たる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_reject_dispatch_dims_with_a_zero_before_recording() {
+        within(|| {
+            let d = device();
+            let p = count_pipeline(&d);
+            let out = counter(&d);
+            let unknown =
+                BufferHandle::__backend_new(d.current_generation(), 999_999, d.id, 4, usage());
+            let mut e = d.create_encoder();
+            d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1])
+                .expect("dispatch");
+            for dims in [[0, 1, 1], [1, 0, 1], [1, 1, 0]] {
+                assert_invalid(
+                    d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], dims),
+                    "dispatch_dims contains zero",
+                );
+                assert_invalid(
+                    d.dispatch_ex(
+                        &mut e,
+                        &p,
+                        &[Binding::new(0, &out, 0)],
+                        &[],
+                        dims,
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    "dispatch_dims contains zero",
+                );
+            }
+            assert_invalid(
+                d.dispatch_ex(
+                    &mut e,
+                    &p,
+                    &[Binding::new(0, &unknown, 0)],
+                    &[],
+                    [0, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                ),
+                "dispatch_ex: unknown buffer handle",
+            );
+            assert_invalid(
+                d.dispatch_ex(&mut e, &p, &[], &[], [0, 1, 1], [1, 1, 1], &[]),
+                "dispatch_dims contains zero",
+            );
+            assert_eq!(records_of(&d, &e), 1);
+            d.submit(e, &[]).expect("submit");
+            assert_eq!(read_count(&d, &out), 4);
+        });
+    }
+
+    // COMP-86
+    /// y・z が 65,535 の `dispatch_dims` は記録して起動し、y・z の 65,536 と、x が `limits().max_dispatch_dims` の x を
+    /// 1 超える値は `dispatch_dims exceeds the limit` で記録しない。上限の超過は、配置にあって渡されない slot より先に当たる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_record_the_y_and_z_limit_and_reject_one_more() {
+        within(|| {
+            let d = device();
+            assert_eq!(d.limits().max_dispatch_dims[1], 65_535);
+            assert_eq!(d.limits().max_dispatch_dims[2], 65_535);
+            let p = count_pipeline(&d);
+            let y = counter(&d);
+            let z = counter(&d);
+            let mut e = d.create_encoder();
+            d.dispatch(&mut e, &p, &[Binding::new(0, &y, 0)], [1, 65_535, 1])
+                .expect("dispatch");
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &z, 0)],
+                &[],
+                [1, 1, 65_535],
+                [1, 1, 1],
+                &[],
+            )
+            .expect("dispatch_ex");
+            let x = d.limits().max_dispatch_dims[0] + 1;
+            for dims in [[x, 1, 1], [1, 65_536, 1], [1, 1, 65_536]] {
+                assert_invalid(
+                    d.dispatch(&mut e, &p, &[Binding::new(0, &y, 0)], dims),
+                    "dispatch_dims exceeds the limit",
+                );
+                assert_invalid(
+                    d.dispatch_ex(
+                        &mut e,
+                        &p,
+                        &[Binding::new(0, &z, 0)],
+                        &[],
+                        dims,
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    "dispatch_dims exceeds the limit",
+                );
+            }
+            assert_invalid(
+                d.dispatch_ex(&mut e, &p, &[], &[], [1, 65_536, 1], [1, 1, 1], &[]),
+                "dispatch_dims exceeds the limit",
+            );
+            assert_eq!(records_of(&d, &e), 2);
+            d.submit(e, &[]).expect("submit");
+            assert_eq!(read_count(&d, &y), 65_535);
+            assert_eq!(read_count(&d, &z), 65_535);
+        });
+    }
+}
