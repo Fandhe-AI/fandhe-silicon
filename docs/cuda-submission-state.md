@@ -55,8 +55,120 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 
 どちらも 2 件が `ignored` になる。
 
+## 完了の条件の確かめ（2/2）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-347。ポインタのみ）。
+
+時点のコミット: `d06c4fc9`。`docs/spec` の gitlink は `ac56f928301ffca0c15d857b56302916a3cce0fb`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `d06c4fc9` の統合の試験のファイルと `submission_state_device_tests` に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | `git grep -n` で 4 つの関数名を 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `git grep -n -F` で 4 つの字句を 1 つずつ引く | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 3 つの実行 | 出力 (4) |
+| (5) | 依存と crates の差 | `d06c4fc9^ d06c4fc9` の差 | 出力 (5) |
+| (6) | CI | 1/2 のマージの後の main の push の run | 出力 (6) |
+
+`d06c4fc9^` は 1/2 の squash `d06c4fc9` の親。(4) の `cargo test` は作業木で流した。
+
+出力 (1):
+
+```text
+$ git show d06c4fc9:crates/contract/tests/backend_cuda_submission_state.rs | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show d06c4fc9:crates/contract/tests/backend_cuda_submission_state.rs | grep -c '^[[:space:]]*#\[ignore'
+2
+$ git show d06c4fc9:crates/contract/src/backend_cuda.rs | awk '/^mod submission_state_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show d06c4fc9:crates/contract/src/backend_cuda.rs | awk '/^mod submission_state_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+2
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn a_timeout_keeps_the_freed_source_of_a_gated_copy_held(" d06c4fc9 -- crates/contract/tests/backend_cuda_submission_state.rs
+d06c4fc9:crates/contract/tests/backend_cuda_submission_state.rs:135:fn a_timeout_keeps_the_freed_source_of_a_gated_copy_held() {
+$ git grep -n "fn sources_behind_a_gated_copy_stay_held_until_completion_is_observed(" d06c4fc9 -- crates/contract/tests/backend_cuda_submission_state.rs
+d06c4fc9:crates/contract/tests/backend_cuda_submission_state.rs:174:fn sources_behind_a_gated_copy_stay_held_until_completion_is_observed() {
+$ git grep -n "fn dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing(" d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:11537:    fn dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing() {
+$ git grep -n "fn a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held(" d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:11574:    fn a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held() {
+```
+
+出力 (3):
+
+```text
+$ git grep -n -F 'fn pending_release_count(&self) -> Option<u64> {' d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:3590:    fn pending_release_count(&self) -> Option<u64> {
+$ git grep -n -F 'const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);' d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:1764:const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);
+$ git grep -n -F '    fn test_submitted_count(&self) -> u64 {' d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:2635:    fn test_submitted_count(&self) -> u64 {
+$ git grep -n -F '    fn test_open_encoder_count(&self) -> usize {' d06c4fc9 -- crates/contract/src/backend_cuda.rs
+d06c4fc9:crates/contract/src/backend_cuda.rs:2641:    fn test_open_encoder_count(&self) -> usize {
+$ git grep -n 'fn poll_ex' d06c4fc9 -- crates/contract/src/backend_cuda.rs | wc -l
+0
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --test backend_cuda_submission_state 2>&1 | grep -E '^(running|test result:)|\.\.\. ignored, requires a CUDA device$'
+running 2 tests
+test a_timeout_keeps_the_freed_source_of_a_gated_copy_held ... ignored, requires a CUDA device
+test sources_behind_a_gated_copy_stay_held_until_completion_is_observed ... ignored, requires a CUDA device
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,native-blocking-wait --lib backend_cuda::submission_state_device_tests 2>&1 | grep -E '^(running|test result:)|\.\.\. ignored, requires a CUDA device$'
+running 2 tests
+test backend_cuda::submission_state_device_tests::a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held ... ignored, requires a CUDA device
+test backend_cuda::submission_state_device_tests::dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing ... ignored, requires a CUDA device
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 233 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_unsafe_count 2>&1 | grep -E '^(running|test result:)'
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat d06c4fc9^ d06c4fc9 -- Cargo.lock deps-approved.toml Cargo.toml crates/core crates/contract/tests/backend_cuda_unsafe_count.rs
+$ git diff -U0 d06c4fc9^ d06c4fc9 -- crates/contract/Cargo.toml | grep '^[-+]' | grep -v -e '^+++ ' -e '^--- '
++[[test]]
++name = "backend_cuda_submission_state"
++required-features = ["backend-cuda", "fault-injection", "native-blocking-wait"]
++
+$ git diff --name-only d06c4fc9^ d06c4fc9 -- crates
+crates/contract/Cargo.toml
+crates/contract/src/backend_cuda.rs
+crates/contract/tests/backend_cuda_submission_state.rs
+```
+
+出力 (6):
+
+```text
+$ gh run list --branch main --event push --commit d06c4fc90d771de0e16647cc441b37ff22f45356 --workflow ci.yml --json databaseId --jq '.[].databaseId'
+44931362033
+$ gh run view 44931362033 --json conclusion,headSha,jobs --jq '.conclusion, .headSha, (.jobs[]|select(.name|test("^make (verify|deny)"))|"\(.name): \(.conclusion)")'
+success
+d06c4fc90d771de0e16647cc441b37ff22f45356
+make verify (fmt + clippy + test): success
+make verify + build-profiles (macos-latest): success
+make deny (cargo-deny): success
+$ gh run view 44931362033 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId'
+136928486672
+$ gh run view 44931362033 --job 136928486672 --log | grep -oE 'test [a-z_:]*(a_timeout_keeps_the_freed_source_of_a_gated_copy_held|sources_behind_a_gated_copy_stay_held_until_completion_is_observed|dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing|a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held) \.\.\. (ok|ignored, requires a CUDA device)' | sort | uniq -c
+      2 test a_timeout_keeps_the_freed_source_of_a_gated_copy_held ... ignored, requires a CUDA device
+      2 test backend_cuda::submission_state_device_tests::a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held ... ignored, requires a CUDA device
+      2 test backend_cuda::submission_state_device_tests::dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing ... ignored, requires a CUDA device
+      2 test sources_behind_a_gated_copy_stay_held_until_completion_is_observed ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/2 | 投入状態と資源の寿命の device の要る試験を ignore 付きで足す | #4469 |
+| 2/2 | 完了の条件の確かめ | #4470 |
