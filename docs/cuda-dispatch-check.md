@@ -39,7 +39,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 device に触る試験は `crates/contract/src/backend_cuda.rs` の `dispatch_check_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。カーネルは試験が CUDA C で渡し（各スレッドが数え先に 1 を足す）、`create_pipeline` が NVRTC で PTX にする。
 
-どの試験も、拒む呼び出しの前に同じ記録先へ通る dispatch を記録し、拒んだ後の記録先の記録の件数と、投入した後の数え先の値を照らす。
+記録先の試験のほかは、拒む呼び出しの前に同じ記録先へ通る dispatch を記録し、拒んだ後の記録先の記録の件数と、投入した後の数え先の値を照らす。記録先の試験は、別の記録先へ通る dispatch を記録して投入してから開いていない記録先を渡し、渡した記録先の記録が 0 件であることと数え先の値を照らす。
 
 | 試験 | 呼ぶ口と入力 | 照らす値 |
 | ---- | ------------ | -------- |
