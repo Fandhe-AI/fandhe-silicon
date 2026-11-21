@@ -126,6 +126,10 @@ name = "backend_cuda_request_no_other_provider"
 required-features = ["backend-cuda", "backend-vulkan", "fault-injection"]
 
 [[test]]
+name = "backend_cuda_submission_state"
+required-features = ["backend-cuda", "fault-injection", "native-blocking-wait"]
+
+[[test]]
 name = "backend_cuda_submit"
 required-features = ["backend-cuda"]
 

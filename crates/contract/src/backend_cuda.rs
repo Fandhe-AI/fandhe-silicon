@@ -11417,3 +11417,194 @@ mod lost_pipeline_device_tests {
         });
     }
 }
+
+/// CUDA の device に触る、dispatch を記録した記録先の破棄と、門で止めた dispatch に束縛したバッファの解放の保留の試験（TASK-347）。
+/// device の無い環境では流さない。
+#[cfg(all(test, feature = "native-blocking-wait", feature = "fault-injection"))]
+mod submission_state_device_tests {
+    use super::*;
+    use fandhe_silicon_core::error::CompletionStateEx;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 各スレッドが `out[threadIdx.x]` に `value` を書く。
+    const FILL: &str = "extern \"C\" __global__ void fill(unsigned int* out, unsigned int value) { out[threadIdx.x] = value; }";
+
+    /// 各スレッドが `inp[threadIdx.x]` を `out[threadIdx.x]` に写す。
+    const COPY: &str = "extern \"C\" __global__ void copy_words(unsigned int* out, const unsigned int* inp) { out[threadIdx.x] = inp[threadIdx.x]; }";
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    fn pipeline(d: &CudaDevice, source: &'static str, entry: &'static str) -> PipelineHandle {
+        d.create_pipeline(
+            PipelineInput::CudaC {
+                source,
+                entry_point: entry,
+            },
+            &BindingLayout::new(vec![0, 1]),
+        )
+        .expect("pipeline")
+    }
+
+    fn words(d: &CudaDevice, values: &[u32]) -> BufferHandle {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        let h = d.allocate(bytes.len() as u64, usage()).expect("allocate");
+        d.upload(&h, 0, &bytes).expect("upload");
+        h
+    }
+
+    fn read_words(d: &CudaDevice, h: &BufferHandle) -> Vec<u32> {
+        let bytes = d.download_blocking(h, 0, h.size()).expect("download");
+        let (chunks, rest) = bytes.as_chunks::<4>();
+        assert!(rest.is_empty());
+        chunks.iter().map(|w| u32::from_ne_bytes(*w)).collect()
+    }
+
+    fn records_of(d: &CudaDevice, encoder: &CommandEncoder) -> usize {
+        d.open
+            .lock()
+            .get(&encoder.__backend_id())
+            .map_or(0, Vec::len)
+    }
+
+    /// 印の写しを返す。
+    fn copy_of(t: &SubmitToken) -> SubmitToken {
+        SubmitToken::__backend_new(t.generation, t.sequence, t.__backend_device_id())
+    }
+
+    /// `out` の 4 語に `value` を書く dispatch を `encoder` に記録する。
+    fn record_fill(
+        d: &CudaDevice,
+        encoder: &mut CommandEncoder,
+        p: &PipelineHandle,
+        out: &BufferHandle,
+        value: &[u8],
+    ) {
+        d.dispatch_ex(
+            encoder,
+            p,
+            &[Binding::new(0, out, 0)],
+            &[ConstantBinding::new(1, value)],
+            [1, 1, 1],
+            [4, 1, 1],
+            &[],
+        )
+        .expect("dispatch_ex");
+    }
+
+    // MEM-26
+    /// dispatch を記録した記録先を投入せずに捨てると、開いている数は 0 → 1 → 0 で、投入の回数と解放の保留の数は変わらない。
+    /// 記録の後も捨てた後の空の投入の後も出力は書かれず、同じ dispatch を記録した別の記録先を投入すると書かれる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dropping_an_encoder_with_a_recorded_dispatch_submits_and_launches_nothing() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, FILL, "fill");
+            let out = words(&d, &[0; 4]);
+            let value = 7_u32.to_ne_bytes();
+            let submitted = d.test_submitted_count();
+            assert_eq!(d.test_open_encoder_count(), 0);
+            let mut dropped = d.create_encoder();
+            record_fill(&d, &mut dropped, &p, &out, &value);
+            assert_eq!(records_of(&d, &dropped), 1);
+            assert_eq!(d.test_open_encoder_count(), 1);
+            assert_eq!(read_words(&d, &out), vec![0; 4]);
+            drop(dropped);
+            assert_eq!(d.test_open_encoder_count(), 0);
+            assert_eq!(d.test_submitted_count(), submitted);
+            assert_eq!(d.pending_release_count(), Some(0));
+            let t = d.submit(d.create_encoder(), &[]).expect("submit");
+            assert_eq!(d.wait_blocking(t, None), Ok(()));
+            assert_eq!(read_words(&d, &out), vec![0; 4]);
+            assert_eq!(d.pending_release_count(), Some(0));
+            let mut kept = d.create_encoder();
+            record_fill(&d, &mut kept, &p, &out, &value);
+            let t = d.submit(kept, &[]).expect("submit");
+            assert_eq!(d.wait_blocking(t, None), Ok(()));
+            assert_eq!(read_words(&d, &out), vec![7; 4]);
+            assert_eq!(d.test_submitted_count(), submitted + 2);
+            assert_eq!(d.test_open_encoder_count(), 0);
+            d.free(out);
+        });
+    }
+
+    // MEM-21
+    /// 門で止めた dispatch に束縛した入力を `free` すると数が 1 になり、期限 100 ms の待ちが `Timeout` を返した後も 1 のままで、
+    /// 状態は `Pending`。門を開けて待ち終えると 0 で、出力は入力の写しになる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_timeout_keeps_a_freed_buffer_bound_to_a_gated_dispatch_held() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, COPY, "copy_words");
+            let inp = words(&d, &[1, 2, 3, 4]);
+            let out = words(&d, &[0; 4]);
+            assert_eq!(d.pending_release_count(), Some(0));
+            assert_eq!(d.arm_gate(), Ok(()));
+            let mut e = d.create_encoder();
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &out, 0), Binding::new(1, &inp, 0)],
+                &[],
+                [1, 1, 1],
+                [4, 1, 1],
+                &[],
+            )
+            .expect("dispatch_ex");
+            let t = d.submit(e, &[]).expect("submit");
+            d.free(inp);
+            assert_eq!(d.pending_release_count(), Some(1));
+            assert_eq!(
+                d.wait_blocking(copy_of(&t), Some(Duration::from_millis(100))),
+                Err(ContractError::Timeout)
+            );
+            assert_eq!(d.pending_release_count(), Some(1));
+            assert_eq!(d.poll_ex(copy_of(&t)), CompletionStateEx::Pending);
+            assert_eq!(d.pending_release_count(), Some(1));
+            assert_eq!(d.open_gate(), Ok(()));
+            assert_eq!(d.wait_blocking(copy_of(&t), None), Ok(()));
+            assert_eq!(d.pending_release_count(), Some(0));
+            assert_eq!(read_words(&d, &out), vec![1, 2, 3, 4]);
+            d.free(out);
+        });
+    }
+}
