@@ -218,6 +218,18 @@ $ gh run view 44888466640 --job 136798832873 --log | grep -oE 'test [a-z_:]*(los
       2 test the_listed_operations_are_lost_through_the_public_device ... ignored, requires a CUDA device
 ```
 
+## device の要る試験の強め（4/5）
+
+上の「device の要る試験（2/3）」の節の表と文は記録時点の値で、書き換えていない。4/5 の後の `a_wait_that_spans_the_loss_returns_device_lost` の形は次のとおり。本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。
+
+| 試験 | 置き場 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | ------ | -------- |
+| `a_wait_that_spans_the_loss_returns_device_lost` | `lost_invalidation_device_tests` | 具体型の device の `arm_gate`・`submit`・`wait_blocking`・`fault_hooks`・`open_gate`・`poll` と、投入済みの表にある完了の印の持ち手の数を読む補助 `event_holders` | 門を仕込んだ空の投入の後の持ち手の数が `Some(1)`。別のスレッドで `wait_blocking` を呼び、持ち手の数が `Some(2)` になるまで待ちが終わらない。門を仕込む前からの経過が、模擬のロストの前に `GATE_EXPIRY / 2` より短い。模擬のロストの後に門を開けると、待ちが `Err(DeviceLost { generation: generation() })` を返す。同じ印の `poll` は `Lost` |
+
+`crates/contract/src/backend_cuda.rs` の module の `//!` は、`download_blocking`・`wait_blocking` が feature `native-blocking-wait` も有効なビルドにあると書く。feature `native-blocking-wait` の無いビルドでは、`crates/contract/src/cfg_gate_doctest.rs` の `DownloadBlockingGate`・`WaitBlockingGate` の doctest が `compile_fail` になる。
+
+確かめのコマンドは上の「device の要る試験（2/3）」の節の通常の確認と同じで、1 つ目は 4 件、2 つ目は 2 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -225,3 +237,4 @@ $ gh run view 44888466640 --job 136798832873 --log | grep -oE 'test [a-z_:]*(los
 | 1/3 | 模擬のロストの後の操作の拒否を実装する | #3834 |
 | 2/3 | device の要る試験を足す | #3835 |
 | 3/3 | 完了の条件の確かめ | #3836 |
+| 4/5 | device の要る試験を強める | #8436 |

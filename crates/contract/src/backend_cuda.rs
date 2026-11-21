@@ -73,7 +73,7 @@
 //! `copy_buffer_to_buffer`・`clear_buffer` の開いていない記録先、`dispatch_ex` の開いていない記録先と 0 の要素、`submit` の
 //! 空でない `wait`、空の `submit_many` でも同じ値を返す。`poll`・`poll_ex` はロストの前の印に、`poll` は今の世代の印にも
 //! `Lost` を返す。`arm_gate` で止めた投入を待っている間に模擬のロストが起き、`open_gate` で門を開けると、`wait_blocking` は
-//! `DeviceLost` を返す（TASK-188）。
+//! `DeviceLost` を返す。`download_blocking`・`wait_blocking` は feature `native-blocking-wait` も有効なビルドにある（TASK-188）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::c_void;
@@ -10911,6 +10911,14 @@ mod lost_invalidation_device_tests {
         d.open.lock().get(&encoder.__backend_id()).map(Vec::len)
     }
 
+    /// 投入済みの表にある通し番号の完了の印の持ち手の数。表に無い番号は `None`。
+    fn event_holders(d: &CudaDevice, sequence: u64) -> Option<usize> {
+        d.lock_submissions()
+            .pending
+            .get(&sequence)
+            .map(Arc::strong_count)
+    }
+
     // DEV-139
     // DEV-140
     /// 2 回の模擬のロストでも通知は 1 回で、世代は 1 回目にだけ進む。
@@ -11088,18 +11096,27 @@ mod lost_invalidation_device_tests {
     }
 
     // DEV-141
-    /// 門で止めた投入を待っている間に模擬のロストが起き、門を開けて投入が終わると、待ちは呼んだ後の世代の `DeviceLost` を返す。
+    /// 門で止めた投入の待ちに入ったこと（完了の印の持ち手が 2 つになること）を見てから模擬のロストを起こし、門を開けて
+    /// 投入が終わると、待ちは呼んだ後の世代の `DeviceLost` を返す。
     #[test]
     #[ignore = "requires a CUDA device"]
     fn a_wait_that_spans_the_loss_returns_device_lost() {
         within(|| {
             let d = device();
+            let started = Instant::now();
             assert_eq!(d.arm_gate(), Ok(()));
             let token = d.submit(d.create_encoder(), &[]).expect("submit");
+            assert_eq!(event_holders(&d, token.sequence), Some(1));
             std::thread::scope(|s| {
                 let waiter = s.spawn(|| d.wait_blocking(token, Some(Duration::from_secs(10))));
-                std::thread::sleep(Duration::from_millis(100));
-                assert!(!waiter.is_finished());
+                while event_holders(&d, token.sequence) != Some(2) {
+                    assert!(!waiter.is_finished(), "the wait ended before the loss");
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(
+                    started.elapsed() < GATE_EXPIRY / 2,
+                    "the wait was reached too late"
+                );
                 lose(&d);
                 assert_eq!(d.open_gate(), Ok(()));
                 assert_eq!(
