@@ -207,3 +207,11 @@ make deny (cargo-deny): success
 | 「device の要る試験（3/4）」の表の `ptx_is_unsupported_and_msl_is_unsupported_input` の行 | `ptx_is_unsupported_and_msl_is_unsupported_input`（PTX は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`）→ `wgsl_is_unsupported_and_msl_is_unsupported_input`（WGSL は `Unsupported`、MSL は `ArtifactRejected { kind: "unsupported-input" }`） | `wgsl_is_unsupported_and_msl_is_unsupported_input`（device の要る試験） |
 | 「入力の分類と配置の検査（1/4）」の順 3（ソースと入口名の NUL のバイト） | `check_no_nul` → `module_input` が `CudaC` では `check_no_nul`、`Ptx` では `check_ptx_no_nul` を呼ぶ（`Ptx` のテキストの NUL は `ArtifactRejected { kind: "module" }`） | `nul_bytes_are_rejected_before_compilation`・`nul_bytes_are_rejected_before_the_module_text_is_made` |
 | 「NVRTC のコンパイルとパイプラインの表（2/4）」の順 4（`CudaC` のソースを PTX にコンパイルする） | `compile_cuda_c` を呼ぶ → `CudaC` は device の `compile_with_nvrtc`（中で `compile_cuda_c`）を 1 回呼ぶ。`Ptx` はこの手順を通らず、テキストをそのまま PTX にして順 5 へ進む。NVRTC のライブラリが無いときの `Unsupported` は `compile_cuda_c` の中で返すので、`CudaC` の入力だけに当たる | `cuda_c_input_calls_the_compiler_once_with_the_source`・`ptx_input_becomes_the_module_text_without_calling_the_compiler`・`absent_nvrtc_library_is_unsupported_without_panicking` |
+
+## 今の値の補い（base bfd3834b）
+
+記録時点の表と既存の節は書き換えない。以下は base `bfd3834b` で確かめた今の値。所在は [cuda-lost-pipeline](cuda-lost-pipeline.md) の 1/2 の節（TASK-561）。
+
+| 表の行 | 前の値 → 今の値 | 照らす試験 |
+| ------ | --------------- | ---------- |
+| 「入力の分類と配置の検査（1/4）」の `create_pipeline` が照らす順 | 順 1 は入力の分類 → 入力の分類の前に `check_not_lost` を呼ぶ。模擬のロストの後は、呼んだ時点の世代の `DeviceLost { generation }` を返し、入力の分類・`layout.slots` の重複・NUL のバイトの照らしと NVRTC のコンパイルに入らない | `create_pipeline_after_the_loss_returns_device_lost_without_compiling`（device の要る試験） |
