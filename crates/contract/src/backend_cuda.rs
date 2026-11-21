@@ -74,6 +74,10 @@
 //! 空でない `wait`、空の `submit_many` でも同じ値を返す。`poll`・`poll_ex` はロストの前の印に、`poll` は今の世代の印にも
 //! `Lost` を返す。`arm_gate` で止めた投入を待っている間に模擬のロストが起き、`open_gate` で門を開けると、`wait_blocking` は
 //! `DeviceLost` を返す。`download_blocking`・`wait_blocking` は feature `native-blocking-wait` も有効なビルドにある（TASK-188）。
+//!
+//! feature `fault-injection` のビルドで模擬のロストの後は、`create_pipeline` と、引数の宣言が合う `create_pipeline_checked` も、
+//! 呼んだ時点の世代を載せた `DeviceLost` を返し、NVRTC の呼び出し口とモジュールの読み込みに入らない。模擬のロストは、理由に
+//! `Unknown`・`Unrecoverable` のどちらを指定してもその理由で通知し、検証の報告の受け口に登録した関数を呼ばない（TASK-561）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::c_void;
@@ -3594,11 +3598,13 @@ impl ComputeOps for CudaDevice {
     /// 関数と配置の写しを device のパイプラインの表に登録してハンドルを返す。
     /// NVRTC のライブラリが無ければ `Unsupported`。
     /// 通った `Ptx` はテキストをそのまま読み込み、NVRTC の呼び出し口を通らない。
+    /// feature `fault-injection` のビルドで模擬のロストの後は、入力を照らす前に、呼んだ時点の世代を載せた `DeviceLost` を返す。
     fn create_pipeline(
         &self,
         input: PipelineInput<'_>,
         layout: &BindingLayout,
     ) -> Result<PipelineHandle, ContractError> {
+        self.check_not_lost()?;
         let accepted = classify_pipeline_input(&input)?;
         check_unique_slots(&layout.slots)?;
         let (ptx, entry_point) = module_input(accepted, |source| self.compile_with_nvrtc(source))?;
@@ -11180,6 +11186,234 @@ mod lost_invalidation_device_tests {
                     generation: lost_device.generation()
                 })
             );
+        });
+    }
+}
+
+/// CUDA の device に触る、模擬のロストの後のパイプラインの生成とロストの理由の試験（TASK-561）。device の無い環境では流さない。
+#[cfg(all(test, feature = "fault-injection"))]
+mod lost_pipeline_device_tests {
+    use super::*;
+    use fandhe_silicon_core::execution::{DType, OperandSpec};
+    use fandhe_silicon_core::fault::{HookFault, inject};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 各スレッドが `out[0]` に 1 を足す。`out` の先頭の 1 語だけを使う。
+    const COUNT: &str =
+        "extern \"C\" __global__ void count(unsigned int* out) { atomicAdd(out, 1u); }";
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn lose(d: &dyn Device, reason: DeviceLostReason) {
+        inject(d.fault_hooks(), HookFault::DeviceLost(reason)).expect("loss");
+    }
+
+    /// `COUNT` の入力。
+    fn count() -> PipelineInput<'static> {
+        PipelineInput::CudaC {
+            source: COUNT,
+            entry_point: "count",
+        }
+    }
+
+    /// パイプラインの表の件数と次の識別子。
+    fn pipelines_of(d: &CudaDevice) -> (usize, u64) {
+        let pipelines = d
+            .pipelines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (pipelines.map.len(), pipelines.next_id)
+    }
+
+    /// NVRTC の呼び出し口に入った回数と、パイプラインの生成が下位の呼び出しの前に数えた回数。
+    fn calls_of(d: &CudaDevice) -> (u64, u64) {
+        (
+            d.nvrtc_calls.load(Ordering::SeqCst),
+            d.pipeline_driver_calls.load(Ordering::SeqCst),
+        )
+    }
+
+    // ERR-55
+    /// ロストの後は、`create_pipeline` が `CudaC`・`Ptx`・`Msl`・`Wgsl`・ソースに NUL のバイトを持つ `CudaC`・重複した slot の
+    /// どれにも呼んだ時点の世代の `DeviceLost` を返し、NVRTC の呼び出し口と下位の呼び出しに入らず、パイプラインの表を変えない。
+    /// 引数の宣言が合う `create_pipeline_checked` と、`Device::compute` から呼んでも同じ。2 回繰り返しても同じで、世代は変わらない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn create_pipeline_after_the_loss_returns_device_lost_without_compiling() {
+        within(|| {
+            let d = device();
+            let layout = BindingLayout::new(vec![0]);
+            let calls_at_open = calls_of(&d);
+            d.create_pipeline(count(), &layout)
+                .expect("pipeline before the loss");
+            let pipelines_before = pipelines_of(&d);
+            let calls_before = calls_of(&d);
+            assert!(calls_before.0 > calls_at_open.0);
+            assert!(calls_before.1 > calls_at_open.1);
+
+            lose(&d, DeviceLostReason::Unknown);
+            let generation = d.generation();
+            let lost = || Err(ContractError::DeviceLost { generation });
+            let shape = [1_u64];
+            let stride = [1_i64];
+            let declared = [OperandSpec {
+                slot: 0,
+                dtype: DType::U32,
+                shape: &shape,
+                stride: &stride,
+                alignment: 4,
+            }];
+
+            for _ in 0..2 {
+                assert_eq!(d.create_pipeline(count(), &layout).map(|_| ()), lost());
+                assert_eq!(
+                    d.create_pipeline(
+                        PipelineInput::Ptx {
+                            source: "",
+                            entry_point: "count",
+                        },
+                        &layout,
+                    )
+                    .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.create_pipeline(
+                        PipelineInput::Msl {
+                            source: "",
+                            entry_point: "count",
+                        },
+                        &layout,
+                    )
+                    .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.create_pipeline(
+                        PipelineInput::Wgsl {
+                            source: "",
+                            entry_point: "count",
+                        },
+                        &layout,
+                    )
+                    .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.create_pipeline(
+                        PipelineInput::CudaC {
+                            source: "\0",
+                            entry_point: "count",
+                        },
+                        &layout,
+                    )
+                    .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.create_pipeline(count(), &BindingLayout::new(vec![0, 0]))
+                        .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.create_pipeline_checked(count(), &layout, &declared)
+                        .map(|_| ()),
+                    lost()
+                );
+                let compute = (&d as &dyn Device).compute().expect("compute");
+                assert_eq!(
+                    compute.create_pipeline(count(), &layout).map(|_| ()),
+                    lost()
+                );
+                assert_eq!(d.generation(), generation);
+            }
+
+            assert_eq!(pipelines_of(&d), pipelines_before);
+            assert_eq!(calls_of(&d), calls_before);
+        });
+    }
+
+    // ERR-34
+    /// 理由に `Unknown`・`Unrecoverable` を指定した模擬のロストは、通知にその理由で 1 回届く。検証の報告の受け口に登録した
+    /// 関数は、報告を模す差し込み（`UnsupportedExtensionDefault` を返し、ロストもしない）でも、模擬のロストでも呼ばれない。
+    /// ロストの後の `create_pipeline` は、呼んだ時点の世代の `DeviceLost` を返す。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_simulated_loss_keeps_its_reason_and_calls_no_validation_callback() {
+        within(|| {
+            for reason in [
+                DeviceLostReason::Unknown,
+                DeviceLostReason::Unrecoverable("injected".into()),
+            ] {
+                let d = device();
+                let notified = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&notified);
+                d.set_lost_callback(Box::new(move |r| sink.lock().unwrap().push(r)));
+                let reports = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&reports);
+                ValidationIntake::set_validation_callback(
+                    &d,
+                    Box::new(move |e| sink.lock().unwrap().push(e)),
+                );
+                let before = d.generation();
+
+                assert_eq!(
+                    d.simulate_validation_report("injected".into()),
+                    Err(ContractError::UnsupportedExtensionDefault {
+                        op: "simulate_validation_report"
+                    })
+                );
+                assert!(!d.lost.is_lost());
+                assert_eq!(d.generation(), before);
+
+                lose(&d, reason.clone());
+                assert_eq!(*notified.lock().unwrap(), vec![reason]);
+                assert!(d.generation() > before);
+                assert!(reports.lock().unwrap().is_empty());
+                assert_eq!(d.validation.delivered_count(), 0);
+                assert_eq!(d.validation.undelivered_count(), 0);
+                assert_eq!(
+                    d.create_pipeline(count(), &BindingLayout::new(vec![0]))
+                        .map(|_| ()),
+                    Err(ContractError::DeviceLost {
+                        generation: d.generation()
+                    })
+                );
+            }
         });
     }
 }
