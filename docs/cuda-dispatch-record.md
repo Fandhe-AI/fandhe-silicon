@@ -83,9 +83,41 @@ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
 
 1 つ目は 2 件、2 つ目と 3 つ目は 1 件ずつが通る。
 
+## device の要る試験（3/4）
+
+device に触る試験は `crates/contract/src/backend_cuda.rs` の `dispatch_device_tests` module にあり、どれも `#[ignore = "requires a CUDA device"]` を付けている。どの試験も本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。カーネルは試験が CUDA C で渡し、`create_pipeline` が NVRTC で PTX にする。
+
+| 試験 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | -------- |
+| `dispatch_ex_passes_bindings_and_constants_and_launches_the_grid` | 束縛 2 つ・定数 3 つを slot の順と違う並びで渡す `dispatch_ex`（グリッド `[2, 1, 1]`・ブロック `[32, 1, 1]`）と `submit` | 出力の 50 要素が `inp * 3 + 0.5` とビットで同じ。残りの要素は 0 のまま |
+| `dispatch_ex_launches_with_the_sum_of_threadgroup_memory_as_dynamic_shared_memory` | 動的な共有メモリを使うカーネルに、同じ `index` の 128 バイトを 2 つ渡す `dispatch_ex` | 2 つのブロックそれぞれで、64 要素が逆順に書き戻される |
+| `dispatch_launches_blocks_of_one_thread` | 簡易版の `dispatch`（`[4, 1, 1]`） | 各スレッドが書くブロックの番号は 0〜3、ブロックの大きさは 1 |
+| `dispatches_run_in_record_order_and_see_earlier_writes` | 同じ記録先に dispatch・クリア・dispatch を記録して 1 回の `submit` | 後の dispatch の出力が前の dispatch の出力から計算した値と同じ。クリアは前の dispatch の後に効く |
+| `dispatch_ex_adds_the_offset_to_the_pointer_without_an_upper_check` | 同じバッファを `offset` 0 と 16・4096 で束縛する `dispatch_ex` | カーネルが書く 2 つのポインタの差が `offset` と同じ（長さ 64 のバッファに 4096 を足しても拒まない。カーネルはポインタの先を読まない） |
+| `dispatch_ex_rejects_an_empty_constant_before_recording` | 空の定数を含む `dispatch_ex` | `dispatch_ex: constant slot 3 is empty`。記録先の記録は 0 件のまま |
+| `dispatch_ex_rejects_an_omitted_slot_before_recording` | 1 回目は全 slot、2 回目は slot 1 を省いた `dispatch_ex` | 2 回目は `dispatch_ex: slot 1 of the binding layout is not provided`。記録は 1 件のまま |
+| `submit_rejects_a_bound_buffer_freed_before_submit_and_enqueues_nothing` | クリアと dispatch を記録し、束縛のバッファを `free` してから `submit` | `a bound buffer was freed before submit (binding slot 1)`。先に記録したクリアも効いていない |
+| `submit_rejects_a_parameter_count_mismatch_and_enqueues_nothing` | 仮引数 2 つのカーネルに 3 つの引数を、仮引数 3 つのカーネルに 2 つの引数を記録して、それぞれ `submit` | `submit: the kernel takes 2 parameters but 3 were recorded` と `submit: the kernel takes more than the 2 recorded parameters`。どちらも先に記録したクリアが効いていない |
+| `dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_before_recording` | 別の device で作ったパイプラインを渡す `dispatch` と `dispatch_ex` | どちらも `DeviceMismatch`。記録先の記録は 0 件のまま |
+
+| 項目 | 値 |
+| ---- | -- |
+| module | `crates/contract/src/backend_cuda.rs` の `dispatch_device_tests` |
+| feature | `backend-cuda`・`native-blocking-wait` |
+| `#[ignore]` | `requires a CUDA device` |
+
+確かめ:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --lib backend_cuda::dispatch_device_tests
+```
+
+10 件が `ignored` と数えられる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | dispatch の記録の時点の照らしと投入の門を実装する | #5727 |
 | 2/4 | dispatch のカーネルの起動と仮引数の照らしを実装する | #5728 |
+| 3/4 | dispatch の記録と投入の device の要る試験を ignore 付きで足す | #5729 |

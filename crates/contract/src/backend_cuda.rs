@@ -9834,3 +9834,498 @@ mod dispatch_record_tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "native-blocking-wait"))]
+mod dispatch_device_tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// `out[i] = inp[i] * k + bias` を n 要素で書く。引数の順は slot 0〜4。
+    const SCALE: &str = "extern \"C\" __global__ void scale(float* out, const float* inp, float k, float bias, unsigned int n) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { out[i] = inp[i] * k + bias; } }";
+
+    /// ブロックごとに動的な共有メモリへ写し、ブロックの中で逆順に書き戻す。
+    const REVERSE: &str = "extern \"C\" __global__ void reverse(float* out, const float* inp) { extern __shared__ float tile[]; unsigned int t = threadIdx.x; unsigned int base = blockIdx.x * blockDim.x; tile[t] = inp[base + t]; __syncthreads(); out[base + t] = tile[blockDim.x - 1 - t]; }";
+
+    /// 各スレッドが、ブロックの番号とブロックの大きさを書く。
+    const SHAPE: &str = "extern \"C\" __global__ void shape(unsigned int* out) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; out[2 * i] = blockIdx.x; out[2 * i + 1] = blockDim.x; }";
+
+    /// 2 つのポインタの差を書く。ポインタの先は読まない。
+    const DIFF: &str = "extern \"C\" __global__ void diff(unsigned long long* out, const char* a, const char* b) { out[0] = (unsigned long long)(b - a); }";
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        })
+        .expect("CUDA device")
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    fn pipeline(
+        d: &CudaDevice,
+        source: &'static str,
+        entry: &'static str,
+        slots: Vec<u32>,
+    ) -> PipelineHandle {
+        d.create_pipeline(
+            PipelineInput::CudaC {
+                source,
+                entry_point: entry,
+            },
+            &BindingLayout::new(slots),
+        )
+        .expect("pipeline")
+    }
+
+    fn floats(d: &CudaDevice, values: &[f32]) -> BufferHandle {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        let h = d.allocate(bytes.len() as u64, usage()).expect("allocate");
+        d.upload(&h, 0, &bytes).expect("upload");
+        h
+    }
+
+    fn read_floats(d: &CudaDevice, h: &BufferHandle) -> Vec<f32> {
+        let bytes = d.download_blocking(h, 0, h.size()).expect("download");
+        let (words, rest) = bytes.as_chunks::<4>();
+        assert!(rest.is_empty());
+        words.iter().map(|w| f32::from_ne_bytes(*w)).collect()
+    }
+
+    fn records_of(d: &CudaDevice, encoder: &CommandEncoder) -> usize {
+        d.open
+            .lock()
+            .get(&encoder.__backend_id())
+            .map_or(0, Vec::len)
+    }
+
+    // COMP-3
+    // COMP-4
+    // COMP-26
+    // COMP-27
+    // COMP-32
+    // COMP-6
+    /// 束縛と定数を slot の順にカーネル引数として渡し、グリッドとブロックの大きさで起動した結果が CPU 参照と一致する。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_passes_bindings_and_constants_and_launches_the_grid() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, SCALE, "scale", vec![0, 1, 2, 3, 4]);
+            let input: Vec<f32> = (0..50).map(|i| i as f32).collect();
+            let inp = floats(&d, &input);
+            let out = floats(&d, &[0.0; 64]);
+            let (k, bias, n) = (
+                3.0_f32.to_ne_bytes(),
+                0.5_f32.to_ne_bytes(),
+                50_u32.to_ne_bytes(),
+            );
+            let mut e = d.create_encoder();
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(1, &inp, 0), Binding::new(0, &out, 0)],
+                &[
+                    ConstantBinding::new(4, &n),
+                    ConstantBinding::new(2, &k),
+                    ConstantBinding::new(3, &bias),
+                ],
+                [2, 1, 1],
+                [32, 1, 1],
+                &[],
+            )
+            .expect("dispatch_ex");
+            d.submit(e, &[]).expect("submit");
+            let got = read_floats(&d, &out);
+            for (i, value) in got.iter().enumerate() {
+                let expected = if i < 50 { input[i] * 3.0 + 0.5 } else { 0.0 };
+                assert_eq!(value.to_bits(), expected.to_bits(), "element {i}");
+            }
+        });
+    }
+
+    // COMP-33
+    /// `ThreadgroupMemory` の `bytes` の合計を動的な共有メモリとして起動し、`index` は使わない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_launches_with_the_sum_of_threadgroup_memory_as_dynamic_shared_memory() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, REVERSE, "reverse", vec![0, 1]);
+            let input: Vec<f32> = (0..128).map(|i| i as f32).collect();
+            let inp = floats(&d, &input);
+            let out = floats(&d, &[0.0; 128]);
+            let mut e = d.create_encoder();
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &out, 0), Binding::new(1, &inp, 0)],
+                &[],
+                [2, 1, 1],
+                [64, 1, 1],
+                &[
+                    ThreadgroupMemory::new(7, 128),
+                    ThreadgroupMemory::new(7, 128),
+                ],
+            )
+            .expect("dispatch_ex");
+            d.submit(e, &[]).expect("submit");
+            let got = read_floats(&d, &out);
+            let expected: Vec<f32> = (0..2)
+                .flat_map(|block| (0..64).rev().map(move |t| (block * 64 + t) as f32))
+                .collect();
+            assert_eq!(got, expected);
+        });
+    }
+
+    // COMP-34
+    /// 簡易版の `dispatch` は、ブロックの大きさ `[1, 1, 1]` で起動する。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_launches_blocks_of_one_thread() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, SHAPE, "shape", vec![0]);
+            let out = d.allocate(32, usage()).expect("allocate");
+            d.upload(&out, 0, &[0xff; 32]).expect("upload");
+            let mut e = d.create_encoder();
+            d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1])
+                .expect("dispatch");
+            d.submit(e, &[]).expect("submit");
+            let bytes = d.download_blocking(&out, 0, 32).expect("download");
+            let got: Vec<u32> = bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|w| u32::from_ne_bytes(*w))
+                .collect();
+            assert_eq!(got, vec![0, 1, 1, 1, 2, 1, 3, 1]);
+        });
+    }
+
+    // COMP-36
+    /// 同じ記録先に記録した 2 つの dispatch とクリアは記録の順に走り、後の dispatch は前の書き込みを読む。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatches_run_in_record_order_and_see_earlier_writes() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, SCALE, "scale", vec![0, 1, 2, 3, 4]);
+            let input: Vec<f32> = (0..32).map(|i| i as f32).collect();
+            let a = floats(&d, &input);
+            let b = floats(&d, &[0.0; 32]);
+            let c = floats(&d, &[0.0; 32]);
+            let n = 32_u32.to_ne_bytes();
+            let (two, one, zero) = (
+                2.0_f32.to_ne_bytes(),
+                1.0_f32.to_ne_bytes(),
+                0.0_f32.to_ne_bytes(),
+            );
+            let mut e = d.create_encoder();
+            // b = a * 2 + 1
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &b, 0), Binding::new(1, &a, 0)],
+                &[
+                    ConstantBinding::new(2, &two),
+                    ConstantBinding::new(3, &one),
+                    ConstantBinding::new(4, &n),
+                ],
+                [1, 1, 1],
+                [32, 1, 1],
+                &[],
+            )
+            .expect("first");
+            // a の先頭 16 バイトを 0 にする。
+            d.clear_buffer(&mut e, &a, 0, 16).expect("clear");
+            // c = b * 2 + 0
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &c, 0), Binding::new(1, &b, 0)],
+                &[
+                    ConstantBinding::new(2, &two),
+                    ConstantBinding::new(3, &zero),
+                    ConstantBinding::new(4, &n),
+                ],
+                [1, 1, 1],
+                [32, 1, 1],
+                &[],
+            )
+            .expect("second");
+            d.submit(e, &[]).expect("submit");
+            let expected: Vec<f32> = input.iter().map(|x| (x * 2.0 + 1.0) * 2.0).collect();
+            assert_eq!(read_floats(&d, &c), expected);
+            let mut cleared = input.clone();
+            cleared[..4].fill(0.0);
+            assert_eq!(read_floats(&d, &a), cleared);
+        });
+    }
+
+    // COMP-88
+    /// 束縛のポインタには `offset` を足し、`offset` はバッファの長さと比べない（ポインタの先は読まない）。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_adds_the_offset_to_the_pointer_without_an_upper_check() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, DIFF, "diff", vec![0, 1, 2]);
+            let out = d.allocate(8, usage()).expect("allocate");
+            let target = d.allocate(64, usage()).expect("allocate");
+            for offset in [16_u64, 4096] {
+                let mut e = d.create_encoder();
+                d.dispatch_ex(
+                    &mut e,
+                    &p,
+                    &[
+                        Binding::new(0, &out, 0),
+                        Binding::new(1, &target, 0),
+                        Binding::new(2, &target, offset),
+                    ],
+                    &[],
+                    [1, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                )
+                .expect("dispatch_ex");
+                d.submit(e, &[]).expect("submit");
+                let got = d.download_blocking(&out, 0, 8).expect("download");
+                assert_eq!(u64::from_ne_bytes(got.try_into().expect("8 bytes")), offset);
+            }
+        });
+    }
+
+    // COMP-29
+    /// 空の定数は記録の時点で slot を含む `InvalidArgument` で、記録先に何も足さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_rejects_an_empty_constant_before_recording() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, SCALE, "scale", vec![0, 1, 2, 3, 4]);
+            let a = floats(&d, &[0.0; 4]);
+            let four = [0_u8; 4];
+            let mut e = d.create_encoder();
+            let result = d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &a, 0), Binding::new(1, &a, 0)],
+                &[
+                    ConstantBinding::new(2, &four),
+                    ConstantBinding::new(3, &[]),
+                    ConstantBinding::new(4, &four),
+                ],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            );
+            match result {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert_eq!(msg, "dispatch_ex: constant slot 3 is empty")
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+            assert_eq!(records_of(&d, &e), 0);
+        });
+    }
+
+    // COMP-35
+    /// 配置にある slot を省いた dispatch は、記録の時点で欠けた slot を含む `InvalidArgument` で、記録先に何も足さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_ex_rejects_an_omitted_slot_before_recording() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, REVERSE, "reverse", vec![0, 1]);
+            let a = floats(&d, &[0.0; 4]);
+            let mut e = d.create_encoder();
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &a, 0), Binding::new(1, &a, 0)],
+                &[],
+                [1, 1, 1],
+                [4, 1, 1],
+                &[ThreadgroupMemory::new(0, 16)],
+            )
+            .expect("first");
+            let result = d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &a, 0)],
+                &[],
+                [1, 1, 1],
+                [4, 1, 1],
+                &[ThreadgroupMemory::new(0, 16)],
+            );
+            match result {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert_eq!(
+                        msg,
+                        "dispatch_ex: slot 1 of the binding layout is not provided"
+                    )
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+            assert_eq!(records_of(&d, &e), 1);
+        });
+    }
+
+    // COMP-39
+    /// 束縛したバッファを投入の前に `free` すると、投入は slot を含む `InvalidArgument` で、同じ記録先の前のクリアも積まない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn submit_rejects_a_bound_buffer_freed_before_submit_and_enqueues_nothing() {
+        within(|| {
+            let d = device();
+            let p = pipeline(&d, REVERSE, "reverse", vec![0, 1]);
+            let kept = floats(&d, &[5.0; 4]);
+            let freed = floats(&d, &[1.0; 4]);
+            let mut e = d.create_encoder();
+            d.clear_buffer(&mut e, &kept, 0, 16).expect("clear");
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &kept, 0), Binding::new(1, &freed, 0)],
+                &[],
+                [1, 1, 1],
+                [4, 1, 1],
+                &[ThreadgroupMemory::new(0, 16)],
+            )
+            .expect("dispatch_ex");
+            d.free(freed);
+            match d.submit(e, &[]) {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert_eq!(
+                        msg,
+                        "a bound buffer was freed before submit (binding slot 1)"
+                    )
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+            assert_eq!(read_floats(&d, &kept), vec![5.0; 4]);
+        });
+    }
+
+    /// カーネルの仮引数と記録した引数の数が食い違うと（記録が多い・少ないのどちらも）、投入は `InvalidArgument` で、
+    /// 同じ記録先の前のクリアも積まない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn submit_rejects_a_parameter_count_mismatch_and_enqueues_nothing() {
+        within(|| {
+            let d = device();
+            // カーネルの仮引数は 2 つで、配置は 3 つの slot を宣言する。
+            let p = pipeline(&d, REVERSE, "reverse", vec![0, 1, 2]);
+            let kept = floats(&d, &[5.0; 4]);
+            let four = 4_u32.to_ne_bytes();
+            let mut e = d.create_encoder();
+            d.clear_buffer(&mut e, &kept, 0, 16).expect("clear");
+            d.dispatch_ex(
+                &mut e,
+                &p,
+                &[Binding::new(0, &kept, 0), Binding::new(1, &kept, 0)],
+                &[ConstantBinding::new(2, &four)],
+                [1, 1, 1],
+                [4, 1, 1],
+                &[ThreadgroupMemory::new(0, 16)],
+            )
+            .expect("dispatch_ex");
+            match d.submit(e, &[]) {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert_eq!(
+                        msg,
+                        "submit: the kernel takes 2 parameters but 3 were recorded"
+                    )
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+            assert_eq!(read_floats(&d, &kept), vec![5.0; 4]);
+            // カーネルの仮引数は 3 つで、配置は 2 つの slot を宣言する。
+            let short = pipeline(&d, DIFF, "diff", vec![0, 1]);
+            let mut e = d.create_encoder();
+            d.clear_buffer(&mut e, &kept, 0, 16).expect("clear");
+            d.dispatch_ex(
+                &mut e,
+                &short,
+                &[Binding::new(0, &kept, 0), Binding::new(1, &kept, 0)],
+                &[],
+                [1, 1, 1],
+                [1, 1, 1],
+                &[],
+            )
+            .expect("dispatch_ex");
+            match d.submit(e, &[]) {
+                Err(ContractError::InvalidArgument(msg)) => {
+                    assert_eq!(
+                        msg,
+                        "submit: the kernel takes more than the 2 recorded parameters"
+                    )
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+            assert_eq!(read_floats(&d, &kept), vec![5.0; 4]);
+        });
+    }
+
+    // COMP-3
+    /// 別の device のパイプラインを渡した `dispatch` と `dispatch_ex` は `DeviceMismatch` で、記録先に何も足さない。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_before_recording() {
+        within(|| {
+            let d = device();
+            let other = device();
+            let p = pipeline(&other, SHAPE, "shape", vec![0]);
+            let out = d.allocate(32, usage()).expect("allocate");
+            let mut e = d.create_encoder();
+            assert_eq!(
+                d.dispatch(&mut e, &p, &[Binding::new(0, &out, 0)], [4, 1, 1]),
+                Err(ContractError::DeviceMismatch)
+            );
+            assert_eq!(
+                d.dispatch_ex(
+                    &mut e,
+                    &p,
+                    &[Binding::new(0, &out, 0)],
+                    &[],
+                    [4, 1, 1],
+                    [1, 1, 1],
+                    &[],
+                ),
+                Err(ContractError::DeviceMismatch)
+            );
+            assert_eq!(records_of(&d, &e), 0);
+        });
+    }
+}
