@@ -75,9 +75,153 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wa
 
 1 つ目は 4 件、2 つ目は 2 件が `ignored` になる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-188。ポインタのみ）。
+
+時点のコミット: `55723d7c`。`docs/spec` の gitlink は `ac56f928301ffca0c15d857b56302916a3cce0fb`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `55723d7c` の `crates/contract/src/backend_cuda.rs` の `lost_check_tests`・`lost_invalidation_device_tests` と `crates/contract/tests/backend_cuda_device_lost.rs` に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | `git grep -n` で 9 本の名前を 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `git grep -n -F` で `fn lost_result(`・`fn check_not_lost(`・`let result = self.check_not_lost().and(result);`・`if self.is_lost() {` を 1 つずつ引き、`self.check_not_lost()` の行の数を数える | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 4 つの実行 | 出力 (4) |
+| (5) | 依存の差と `[[test]]` の 1 節 | `2edc2327^ 55723d7c` の差と `make deps-check` | 出力 (5) |
+| (6) | `backend_cuda_unsafe_count` の試験のファイルと core の差 | `2edc2327^ 55723d7c` の差 | 出力 (6) |
+| (7) | CI | 2/3 のマージの後の main の push の run | 出力 (7) |
+
+`2edc2327^` は 1/3 の squash `2edc2327` の親。(4) の `cargo test` と (5) の `make deps-check` は作業木で流した。
+
+出力 (1):
+
+```text
+$ git show 55723d7c:crates/contract/src/backend_cuda.rs | awk '/^mod lost_check_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show 55723d7c:crates/contract/src/backend_cuda.rs | awk '/^mod lost_check_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+0
+$ git show 55723d7c:crates/contract/src/backend_cuda.rs | awk '/^mod lost_invalidation_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+4
+$ git show 55723d7c:crates/contract/src/backend_cuda.rs | awk '/^mod lost_invalidation_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+4
+$ git show 55723d7c:crates/contract/tests/backend_cuda_device_lost.rs | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show 55723d7c:crates/contract/tests/backend_cuda_device_lost.rs | grep -c '^[[:space:]]*#\[ignore'
+2
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn lost_result_passes_when_not_lost(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:10803:    fn lost_result_passes_when_not_lost() {
+55723d7c:crates/contract/src/backend_metal.rs:14840:    fn lost_result_passes_when_not_lost() {
+$ git grep -n "fn lost_result_carries_the_given_generation_when_lost(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:10810:    fn lost_result_carries_the_given_generation_when_lost() {
+55723d7c:crates/contract/src/backend_metal.rs:14847:    fn lost_result_carries_the_given_generation_when_lost() {
+$ git grep -n "fn two_losses_call_the_callback_once_and_move_the_generation_once(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:10919:    fn two_losses_call_the_callback_once_and_move_the_generation_once() {
+55723d7c:crates/contract/src/backend_metal.rs:10420:        fn two_losses_call_the_callback_once_and_move_the_generation_once() {
+$ git grep -n "fn the_listed_operations_issue_nothing_after_the_loss(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:10941:    fn the_listed_operations_issue_nothing_after_the_loss() {
+55723d7c:crates/contract/src/backend_metal.rs:10435:        fn the_listed_operations_issue_nothing_after_the_loss() {
+$ git grep -n "fn a_wait_that_spans_the_loss_returns_device_lost(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:11094:    fn a_wait_that_spans_the_loss_returns_device_lost() {
+$ git grep -n "fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:11121:    fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back() {
+55723d7c:crates/contract/src/backend_metal.rs:10564:        fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back() {
+$ git grep -n "fn the_listed_operations_are_lost_through_the_public_device(" 55723d7c -- crates/contract
+55723d7c:crates/contract/tests/backend_cuda_device_lost.rs:100:fn the_listed_operations_are_lost_through_the_public_device() {
+55723d7c:crates/contract/tests/backend_metal_device_lost.rs:79:fn the_listed_operations_are_lost_through_the_public_device() {
+$ git grep -n "fn a_new_request_after_the_loss_round_trips_through_a_copy(" 55723d7c -- crates/contract
+55723d7c:crates/contract/tests/backend_cuda_device_lost.rs:171:fn a_new_request_after_the_loss_round_trips_through_a_copy() {
+$ git grep -n "fn a_handle_from_before_the_loss_can_still_be_freed_once(" 55723d7c -- crates/contract
+55723d7c:crates/contract/src/backend_cuda.rs:5665:        fn a_handle_from_before_the_loss_can_still_be_freed_once() {
+55723d7c:crates/contract/src/backend_metal.rs:9295:            fn a_handle_from_before_the_loss_can_still_be_freed_once() {
+```
+
+出力 (3):
+
+```text
+$ git grep -n -F "fn lost_result(" 55723d7c -- crates/contract/src/backend_cuda.rs
+55723d7c:crates/contract/src/backend_cuda.rs:2042:fn lost_result(lost: bool, generation: u64) -> Result<(), ContractError> {
+$ git grep -n -F "fn check_not_lost(" 55723d7c -- crates/contract/src/backend_cuda.rs
+55723d7c:crates/contract/src/backend_cuda.rs:2568:    fn check_not_lost(&self) -> Result<(), ContractError> {
+$ git grep -n -F "let result = self.check_not_lost().and(result);" 55723d7c -- crates/contract/src/backend_cuda.rs
+55723d7c:crates/contract/src/backend_cuda.rs:3829:        let result = self.check_not_lost().and(result);
+$ git grep -n -F "if self.is_lost() {" 55723d7c -- crates/contract/src/backend_cuda.rs
+55723d7c:crates/contract/src/backend_cuda.rs:3744:        if self.is_lost() {
+$ git grep -n -F "self.check_not_lost()" 55723d7c -- crates/contract/src/backend_cuda.rs | wc -l
+9
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::lost_check_tests 2>&1 | grep -E '^(running|test result:)'
+running 2 tests
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 149 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::lost_invalidation_device_tests 2>&1 | grep -E '^(running|test result:)'
+running 4 tests
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 227 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --test backend_cuda_device_lost 2>&1 | grep -E '^(running|test result:)'
+running 2 tests
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_unsafe_count 2>&1 | grep -E '^(running|test result:)'
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat 2edc2327^ 55723d7c -- Cargo.lock deps-approved.toml Cargo.toml
+$ git diff -U0 2edc2327^ 55723d7c -- crates/contract/Cargo.toml | grep '^[-+]' | grep -v -e '^+++ ' -e '^--- '
++[[test]]
++name = "backend_cuda_device_lost"
++required-features = ["backend-cuda", "native-blocking-wait", "fault-injection"]
++
+$ make deps-check; echo exit=$?
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+exit=0
+```
+
+出力 (6):
+
+```text
+$ git diff --stat 2edc2327^ 55723d7c -- crates/contract/tests/backend_cuda_unsafe_count.rs crates/core
+```
+
+出力 (7):
+
+```text
+$ gh run list --branch main --event push --commit 55723d7c27fd3c991f43827183759ab458ab2b09 --workflow ci.yml --json databaseId --jq '.[].databaseId'
+44888466640
+$ gh run view 44888466640 --json conclusion,headSha,jobs --jq '.conclusion, .headSha, (.jobs[]|select(.name|test("^make (verify|deny)"))|"\(.name): \(.conclusion)")'
+success
+55723d7c27fd3c991f43827183759ab458ab2b09
+make verify + build-profiles (macos-latest): success
+make deny (cargo-deny): success
+make verify (fmt + clippy + test): success
+$ gh run view 44888466640 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId'
+136798832873
+$ gh run view 44888466640 --job 136798832873 --log | grep -oE 'test [a-z_:]*(lost_result_passes_when_not_lost|lost_result_carries_the_given_generation_when_lost|two_losses_call_the_callback_once_and_move_the_generation_once|the_listed_operations_issue_nothing_after_the_loss|a_wait_that_spans_the_loss_returns_device_lost|a_new_request_after_the_loss_runs_a_dispatch_and_reads_back|the_listed_operations_are_lost_through_the_public_device|a_new_request_after_the_loss_round_trips_through_a_copy) \.\.\. (ok|ignored, requires a CUDA device)' | sort | uniq -c
+      2 test a_new_request_after_the_loss_round_trips_through_a_copy ... ignored, requires a CUDA device
+      6 test backend_cuda::lost_check_tests::lost_result_carries_the_given_generation_when_lost ... ok
+      6 test backend_cuda::lost_check_tests::lost_result_passes_when_not_lost ... ok
+      2 test backend_cuda::lost_invalidation_device_tests::a_new_request_after_the_loss_runs_a_dispatch_and_reads_back ... ignored, requires a CUDA device
+      2 test backend_cuda::lost_invalidation_device_tests::a_wait_that_spans_the_loss_returns_device_lost ... ignored, requires a CUDA device
+      2 test backend_cuda::lost_invalidation_device_tests::the_listed_operations_issue_nothing_after_the_loss ... ignored, requires a CUDA device
+      2 test backend_cuda::lost_invalidation_device_tests::two_losses_call_the_callback_once_and_move_the_generation_once ... ignored, requires a CUDA device
+      8 test backend_metal::lost_check_tests::lost_result_carries_the_given_generation_when_lost ... ok
+      8 test backend_metal::lost_check_tests::lost_result_passes_when_not_lost ... ok
+      2 test the_listed_operations_are_lost_through_the_public_device ... ignored, requires a CUDA device
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 模擬のロストの後の操作の拒否を実装する | #3834 |
 | 2/3 | device の要る試験を足す | #3835 |
+| 3/3 | 完了の条件の確かめ | #3836 |
