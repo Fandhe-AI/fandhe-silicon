@@ -230,6 +230,121 @@ $ gh run view 44888466640 --job 136798832873 --log | grep -oE 'test [a-z_:]*(los
 
 確かめのコマンドは上の「device の要る試験（2/3）」の節の通常の確認と同じで、1 つ目は 4 件、2 つ目は 2 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（5/5）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-188。ポインタのみ）。
+
+時点のコミット: `a833fe26`。`docs/spec` の gitlink は `ac56f928301ffca0c15d857b56302916a3cce0fb`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `a833fe26` の `crates/contract/src/backend_cuda.rs` の `lost_invalidation_device_tests` と `crates/contract/tests/backend_cuda_device_lost.rs` に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験と補助の名前 | `git grep -n` で `a_wait_that_spans_the_loss_returns_device_lost`・`event_holders` を 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `git grep -n -F` で 4 つの字句を 1 つずつ引く | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 4 つの実行 | 出力 (4) |
+| (5) | 句を受ける doctest | `cargo test -p fandhe-silicon-contract --doc Blocking` の 2 つの実行 | 出力 (5) |
+| (6) | 依存と crates の差 | `a833fe26^ a833fe26` の差 | 出力 (6) |
+| (7) | CI | 4/5 のマージの後の main の push の run | 出力 (7) |
+
+`a833fe26^` は 4/5 の squash `a833fe26` の親。(4)・(5) の `cargo test` は作業木で流した。
+
+出力 (1):
+
+```text
+$ git show a833fe26:crates/contract/src/backend_cuda.rs | awk '/^mod lost_invalidation_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+4
+$ git show a833fe26:crates/contract/src/backend_cuda.rs | awk '/^mod lost_invalidation_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+4
+$ git show a833fe26:crates/contract/tests/backend_cuda_device_lost.rs | grep -c '^[[:space:]]*#\[test\]'
+2
+$ git show a833fe26:crates/contract/tests/backend_cuda_device_lost.rs | grep -c '^[[:space:]]*#\[ignore'
+2
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn a_wait_that_spans_the_loss_returns_device_lost(" a833fe26 -- crates/contract
+a833fe26:crates/contract/src/backend_cuda.rs:11103:    fn a_wait_that_spans_the_loss_returns_device_lost() {
+$ git grep -n "fn event_holders(" a833fe26 -- crates/contract
+a833fe26:crates/contract/src/backend_cuda.rs:10915:    fn event_holders(d: &CudaDevice, sequence: u64) -> Option<usize> {
+```
+
+出力 (3):
+
+```text
+$ git grep -n -F 'WaitStep::Wait => subs.pending.get(&token.sequence).cloned(),' a833fe26 -- crates/contract/src/backend_cuda.rs
+a833fe26:crates/contract/src/backend_cuda.rs:3816:                WaitStep::Wait => subs.pending.get(&token.sequence).cloned(),
+$ git grep -n -F 'let result = self.check_not_lost().and(result);' a833fe26 -- crates/contract/src/backend_cuda.rs
+a833fe26:crates/contract/src/backend_cuda.rs:3829:        let result = self.check_not_lost().and(result);
+$ git grep -n -F 'check_wait_token(self.is_lost(), &token, self.id, self.current_generation())?;' a833fe26 -- crates/contract/src/backend_cuda.rs
+a833fe26:crates/contract/src/backend_cuda.rs:3810:        check_wait_token(self.is_lost(), &token, self.id, self.current_generation())?;
+$ git grep -n -F 'も有効なビルドにある（TASK-188）。' a833fe26 -- crates/contract/src/backend_cuda.rs
+a833fe26:crates/contract/src/backend_cuda.rs:76://! `DeviceLost` を返す。`download_blocking`・`wait_blocking` は feature `native-blocking-wait` も有効なビルドにある（TASK-188）。
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::lost_invalidation_device_tests 2>&1 | grep -E '^(running|test result:)|\.\.\. ignored, requires a CUDA device$'
+running 4 tests
+test backend_cuda::lost_invalidation_device_tests::a_new_request_after_the_loss_runs_a_dispatch_and_reads_back ... ignored, requires a CUDA device
+test backend_cuda::lost_invalidation_device_tests::a_wait_that_spans_the_loss_returns_device_lost ... ignored, requires a CUDA device
+test backend_cuda::lost_invalidation_device_tests::the_listed_operations_issue_nothing_after_the_loss ... ignored, requires a CUDA device
+test backend_cuda::lost_invalidation_device_tests::two_losses_call_the_callback_once_and_move_the_generation_once ... ignored, requires a CUDA device
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 227 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --test backend_cuda_device_lost 2>&1 | grep -E '^(running|test result:)'
+running 2 tests
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::wait_blocking_tests 2>&1 | grep -E '^(running|test result:)'
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 144 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --test backend_cuda_unsafe_count 2>&1 | grep -E '^(running|test result:)'
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --doc Blocking 2>&1 | grep -E 'cfg_gate_doctest::(DownloadBlockingGate|WaitBlockingGate)|^test result:'
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::WaitBlockingGate (line 43) - compile fail ... ok
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::DownloadBlockingGate (line 31) - compile fail ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.03s
+$ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait --doc Blocking 2>&1 | grep -E 'cfg_gate_doctest::(DownloadBlockingGate|WaitBlockingGate)|^test result:'
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::WaitBlockingGate (line 43) ... ok
+test crates/contract/src/cfg_gate_doctest.rs - cfg_gate_doctest::DownloadBlockingGate (line 31) ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+```
+
+出力 (6):
+
+```text
+$ git diff --stat a833fe26^ a833fe26 -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml crates/core crates/contract/tests
+$ git diff --name-only a833fe26^ a833fe26 -- crates
+crates/contract/src/backend_cuda.rs
+```
+
+出力 (7):
+
+```text
+$ gh run list --branch main --event push --commit a833fe261eeaf82f5f37a59429a9e588f76eb4f1 --workflow ci.yml --json databaseId --jq '.[].databaseId'
+44897887185
+$ gh run view 44897887185 --json conclusion,headSha,jobs --jq '.conclusion, .headSha, (.jobs[]|select(.name|test("^make (verify|deny)"))|"\(.name): \(.conclusion)")'
+success
+a833fe261eeaf82f5f37a59429a9e588f76eb4f1
+make deny (cargo-deny): success
+make verify + build-profiles (macos-latest): success
+make verify (fmt + clippy + test): success
+$ gh run view 44897887185 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId'
+136827333610
+$ gh run view 44897887185 --job 136827333610 --log | grep -oE 'test [a-z_:]*(a_wait_that_spans_the_loss_returns_device_lost|lost_is_checked_before_the_owner_and_the_generation) \.\.\. (ok|ignored, requires a CUDA device)' | sort | uniq -c
+      2 test backend_cuda::lost_invalidation_device_tests::a_wait_that_spans_the_loss_returns_device_lost ... ignored, requires a CUDA device
+      6 test backend_cuda::wait_blocking_tests::lost_is_checked_before_the_owner_and_the_generation ... ok
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
@@ -238,3 +353,4 @@ $ gh run view 44888466640 --job 136798832873 --log | grep -oE 'test [a-z_:]*(los
 | 2/3 | device の要る試験を足す | #3835 |
 | 3/3 | 完了の条件の確かめ | #3836 |
 | 4/5 | device の要る試験を強める | #8436 |
+| 5/5 | 完了の条件の確かめ | #8437 |
