@@ -327,8 +327,7 @@ impl LostState {
         drop(old);
     }
 
-    /// 模擬のロストが起きたか。単体の試験と `wait_blocking` が読む。
-    #[cfg(any(test, feature = "native-blocking-wait"))]
+    /// 模擬のロストが起きたか。device の操作の照らし（`CudaDevice::is_lost`）と単体の試験が読む。
     fn is_lost(&self) -> bool {
         self.lock().reason.is_some()
     }
@@ -2029,6 +2028,16 @@ fn check_token_owner(
     Ok(())
 }
 
+/// ロスト済みなら、渡した世代を載せた `DeviceLost` を返す。device に触らない。
+///
+/// `CudaDevice::check_not_lost` が device の状態と呼んだ時点の世代を渡して呼ぶ。
+fn lost_result(lost: bool, generation: u64) -> Result<(), ContractError> {
+    if lost {
+        return Err(ContractError::DeviceLost { generation });
+    }
+    Ok(())
+}
+
 /// 空でない `wait` を、何も投入せずに `Unsupported` で拒む。
 fn reject_wait(op: &'static str, wait: &[ImportedSemaphoreHandle]) -> Result<(), ContractError> {
     if wait.is_empty() {
@@ -2536,13 +2545,21 @@ impl CudaDevice {
     }
 
     /// 模擬のロスト済みか。`fault-injection` の無いビルドでは常に偽。
-    #[cfg(feature = "native-blocking-wait")]
     fn is_lost(&self) -> bool {
         #[cfg(feature = "fault-injection")]
         let lost = self.lost.is_lost();
         #[cfg(not(feature = "fault-injection"))]
         let lost = false;
         lost
+    }
+
+    /// 模擬のロスト済みなら、呼んだ時点の世代を載せた `DeviceLost` を返す。`fault-injection` の無いビルドでは常に通る。
+    ///
+    /// 世代はロストの照らしの後に読む。照らしの前に読んだ世代は、照らしが通ればロストの前の値である
+    /// （模擬のロストは、ロストの状態の錠の中で世代を書いてから理由を置く）。
+    fn check_not_lost(&self) -> Result<(), ContractError> {
+        let lost = self.is_lost();
+        lost_result(lost, self.current_generation())
     }
 
     /// 投入済みの表にある通し番号の完了を待つ。錠を持たずに呼ぶ。`wait_blocking` から呼ばれる。
@@ -3098,6 +3115,7 @@ impl CudaDevice {
         offset: u64,
         len: u64,
     ) -> Result<Vec<u8>, ContractError> {
+        self.check_not_lost()?;
         let buffers = self.lock();
         let (start, end) = self.range(
             op,
@@ -3358,6 +3376,7 @@ impl MemoryOps for CudaDevice {
         dst_offset: u64,
         size: u64,
     ) -> Result<(), ContractError> {
+        self.check_not_lost()?;
         self.ensure_encoder_open(encoder)?;
         let (src_operand, dst_operand) = {
             let buffers = self.lock();
@@ -3382,6 +3401,7 @@ impl MemoryOps for CudaDevice {
         offset: u64,
         size: u64,
     ) -> Result<(), ContractError> {
+        self.check_not_lost()?;
         self.ensure_encoder_open(encoder)?;
         let operand = {
             let buffers = self.lock();
@@ -3391,6 +3411,9 @@ impl MemoryOps for CudaDevice {
     }
 
     fn allocate(&self, byte_len: u64, usage: BufferUsage) -> Result<BufferHandle, ContractError> {
+        // 世代はロストの照らしの前に読み、照らしが通ればハンドルと表の項目にその値を使う。
+        let generation = self.current_generation();
+        self.check_not_lost()?;
         if byte_len == 0 {
             return Err(ContractError::InvalidArgument(
                 "allocation length must not be zero".into(),
@@ -3438,7 +3461,6 @@ impl MemoryOps for CudaDevice {
                     (slice, buffers.next_slot)
                 }
             };
-        let generation = self.current_generation();
         self.lock().map.insert(
             id,
             BufferEntry {
@@ -3460,6 +3482,7 @@ impl MemoryOps for CudaDevice {
         dst_offset: u64,
         bytes: &[u8],
     ) -> Result<(), ContractError> {
+        self.check_not_lost()?;
         let mut buffers = self.lock();
         let (start, end) = self.range(
             "upload",
@@ -3653,7 +3676,8 @@ impl CommandQueue for CudaDevice {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
             let generation = self.current_generation();
-            reject_wait("submit(wait)", wait)
+            self.check_not_lost()
+                .and_then(|()| reject_wait("submit(wait)", wait))
                 .and_then(|()| self.open.claim(&[commands.__backend_id()]))
                 .and_then(|records| self.plan(&buffers.map, &records))
                 .and_then(|jobs| {
@@ -3683,7 +3707,10 @@ impl CommandQueue for CudaDevice {
             let mut subs = self.lock_submissions();
             subs.reclaim(event_state);
             let generation = self.current_generation();
-            precheck_submit_many(commands.len(), after, wait, self.id, generation)
+            self.check_not_lost()
+                .and_then(|()| {
+                    precheck_submit_many(commands.len(), after, wait, self.id, generation)
+                })
                 .and_then(|()| {
                     let ids: Vec<u64> = commands.iter().map(CommandEncoder::__backend_id).collect();
                     self.open.claim(&ids)
@@ -3706,6 +3733,9 @@ impl CommandQueue for CudaDevice {
     /// 回収のあとで、終端になった登録済みの callback を錠の外で呼ぶ。
     fn poll(&self, token: SubmitToken) -> CompletionState {
         self.release_finished();
+        if self.is_lost() {
+            return CompletionState::Lost;
+        }
         if check_token_owner(&token, self.id, self.current_generation()).is_err() {
             return CompletionState::Lost;
         }
@@ -3788,6 +3818,7 @@ impl CommandQueue for CudaDevice {
             WaitStep::Done => Ok(()),
             WaitStep::Wait => self.wait_issued(token.sequence, event, timeout),
         };
+        let result = self.check_not_lost().and(result);
         self.release_finished();
         self.drive_callbacks();
         result
@@ -3808,6 +3839,7 @@ impl CommandQueue for CudaDevice {
         threads_per_threadgroup: [u32; 3],
         threadgroup_memory: &[ThreadgroupMemory],
     ) -> Result<(), ContractError> {
+        self.check_not_lost()?;
         self.ensure_encoder_open(encoder)?;
         if pipeline.__backend_device_id() != self.id {
             return Err(ContractError::DeviceMismatch);
@@ -5630,10 +5662,12 @@ mod device_tests {
                 HookFault::DeviceLost(DeviceLostReason::Unknown),
             )
             .expect("loss");
-            assert!(matches!(
+            assert_eq!(
                 d.upload(&h, 0, &[1]),
-                Err(ContractError::InvalidArgument(_))
-            ));
+                Err(ContractError::DeviceLost {
+                    generation: d.generation()
+                })
+            );
             assert_eq!(d.lock().map.len(), 1);
 
             let again = BufferHandle::__backend_new(
@@ -10749,5 +10783,28 @@ mod dispatch_check_device_tests {
             assert_eq!(read_count(&d, &y), 65_535);
             assert_eq!(read_count(&d, &z), 65_535);
         });
+    }
+}
+
+/// ロストの後の操作の照らし `lost_result` の、device に触らない試験（TASK-188）。
+#[cfg(test)]
+mod lost_check_tests {
+    use super::*;
+
+    #[test]
+    fn lost_result_passes_when_not_lost() {
+        for g in [1_u64, 7, u64::MAX] {
+            assert_eq!(lost_result(false, g), Ok(()));
+        }
+    }
+
+    #[test]
+    fn lost_result_carries_the_given_generation_when_lost() {
+        for g in [1_u64, 7, u64::MAX] {
+            assert_eq!(
+                lost_result(true, g),
+                Err(ContractError::DeviceLost { generation: g })
+            );
+        }
     }
 }
