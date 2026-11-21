@@ -65,7 +65,7 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,fault-injection,na
 | - | ------------ | ---- | ---- |
 | (1) | 試験の宣言 | `d06c4fc9` の統合の試験のファイルと `submission_state_device_tests` に `grep -c` を当てる | 出力 (1) |
 | (2) | 受け手の試験の名前 | `git grep -n` で 4 つの関数名を 1 つずつ引く | 出力 (2) |
-| (3) | 口の所在 | `git grep -n -F` で 4 つの字句を 1 つずつ引く | 出力 (3) |
+| (3) | 口の所在 | `git grep -n -F` で 4 つの字句を 1 つずつ引き、`fn poll_ex` の定義が 0 件であること（`poll_ex` の上書きを持たない）を数える | 出力 (3) |
 | (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 3 つの実行 | 出力 (4) |
 | (5) | 依存と crates の差 | `d06c4fc9^ d06c4fc9` の差 | 出力 (5) |
 | (6) | CI | 1/2 のマージの後の main の push の run | 出力 (6) |
