@@ -34,6 +34,13 @@ name = "fandhe-silicon-core"
 version = "0.0.0"
 
 [[package]]
+name = "measure-clock-resolution"
+version = "0.0.0"
+dependencies = [
+ "measure-perf",
+]
+
+[[package]]
 name = "measure-cpu-ops-arm"
 version = "0.0.0"
 dependencies = [

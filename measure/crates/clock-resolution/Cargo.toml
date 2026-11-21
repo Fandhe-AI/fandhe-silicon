@@ -1,0 +1,20 @@
+# clock-resolution: 時刻の分解能を測り、結果を 1 行の JSON で出す測定の bin（TASK-2950 のポインタ）。
+# 向きは測定 → 製品の一方向だけで、製品の crate には依存しない。
+[package]
+name = "measure-clock-resolution"
+version = "0.0.0"
+description = "時刻の分解能を測り、結果を 1 行の JSON で出す測定の bin"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "clock-resolution"
+path = "src/main.rs"
+
+[dependencies]
+measure-perf = { path = "../perf" }
+
+[lints]
+workspace = true
