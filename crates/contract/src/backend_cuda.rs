@@ -66,12 +66,6 @@
 //! 記録の順に起動する（TASK-805）。
 //! `dispatch_ex` は束縛のバッファの後・slot の前に、`dispatch_dims` の 0 と `limits().max_dispatch_dims` を超える要素も
 //! 記録の時点に照らす（TASK-806）。
-//!
-//! feature `fault-injection` のビルドで模擬のロストの後は、`allocate`・`upload`・`download_blocking`・`download_async`・
-//! `copy_buffer_to_buffer`・`clear_buffer`・`dispatch_ex`・`submit`・`submit_many`・`wait_blocking` が、ほかの照らしより前に
-//! 呼んだ時点の世代を載せた `DeviceLost` を返す。`poll`（`poll_ex` を含む）は解放を保留したバッファを回した後に、印によらず
-//! `Lost` を返す。`allocate`・`submit`・`submit_many` は世代を読んだ後にロストを照らし、通った呼び出しはその世代で払い出す。
-//! `wait_blocking` は待った後にもう 1 回照らす（TASK-188）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::c_void;
