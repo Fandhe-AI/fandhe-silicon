@@ -263,7 +263,7 @@ wgpu 系（`wgpu`・`wgpu-core`・`wgpu-hal`・`wgpu-types`）と `naga` は `de
 | `docs/cuda-error-mapping.md` | CUDA の背後実装のエラーの写し方（TASK-291）の所在と、本リポの現状の事実・受け付けない入力の理由と失敗の写し（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base f3990c4c） |
 | `docs/cuda-dispatch-record.md` | CUDA の背後実装の dispatch の記録と投入（TASK-805）の所在と、本リポの現状の事実・記録の時点の照らしと投入の門（1/4）・カーネルの起動と仮引数の照らし（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4） |
 | `docs/cuda-dispatch-check.md` | CUDA の背後実装の dispatch の記録時の照らし（TASK-806）の所在と、本リポの現状の事実・dispatch_dims の 0 と上限の照らし（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3） |
-| `docs/cuda-device-lost.md` | CUDA の背後実装の模擬のロストの後の操作の拒否と作り直し（TASK-188）の所在と、本リポの現状の事実・ロストの後の操作の拒否（1/3） |
+| `docs/cuda-device-lost.md` | CUDA の背後実装の模擬のロストの後の操作の拒否と作り直し（TASK-188）の所在と、本リポの現状の事実・ロストの後の操作の拒否（1/3）・device の要る試験（2/3） |
 | `docs/vulkan-device-request.md` | Vulkan の背後実装の device の取得・診断（TASK-159）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得と診断（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5） |
 | `docs/vulkan-request-no-fallback.md` | Vulkan の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-284）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3） |
 | `docs/session-record.example.json` | 回ごとの記録のダミーの記入例（値はすべてダミー） |

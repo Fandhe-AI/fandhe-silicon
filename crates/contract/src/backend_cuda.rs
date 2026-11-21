@@ -66,6 +66,14 @@
 //! 記録の順に起動する（TASK-805）。
 //! `dispatch_ex` は束縛のバッファの後・slot の前に、`dispatch_dims` の 0 と `limits().max_dispatch_dims` を超える要素も
 //! 記録の時点に照らす（TASK-806）。
+//!
+//! feature `fault-injection` のビルドで模擬のロストの後は、`allocate`・`upload`・`download_blocking`・`download_async`・
+//! `copy_buffer_to_buffer`・`clear_buffer`・`dispatch_ex`・`submit`・`submit_many`・`wait_blocking` が、呼んだ時点の世代を
+//! 載せた `DeviceLost` を返す（`download_async` は callback に渡す）。`allocate` の 0 の長さ、`upload` の表に無いハンドル、
+//! `copy_buffer_to_buffer`・`clear_buffer` の開いていない記録先、`dispatch_ex` の開いていない記録先と 0 の要素、`submit` の
+//! 空でない `wait`、空の `submit_many` でも同じ値を返す。`poll`・`poll_ex` はロストの前の印に、`poll` は今の世代の印にも
+//! `Lost` を返す。`arm_gate` で止めた投入を待っている間に模擬のロストが起き、`open_gate` で門を開けると、`wait_blocking` は
+//! `DeviceLost` を返す（TASK-188）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::c_void;
@@ -10806,5 +10814,355 @@ mod lost_check_tests {
                 Err(ContractError::DeviceLost { generation: g })
             );
         }
+    }
+}
+
+/// CUDA の device に触る、模擬のロストの後の操作の拒否と作り直した device の試験（TASK-188）。device の無い環境では流さない。
+#[cfg(all(test, feature = "native-blocking-wait", feature = "fault-injection"))]
+mod lost_invalidation_device_tests {
+    use super::*;
+    use fandhe_silicon_core::error::CompletionStateEx;
+    use fandhe_silicon_core::execution::{DType, OperandSpec};
+    use fandhe_silicon_core::fault::{HookFault, inject};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// 各試験の上限。
+    const LIMIT: Duration = Duration::from_secs(30);
+
+    /// 各スレッドが `out[0]` に 1 を足す。`out` の先頭の 1 語だけを使う。
+    const COUNT: &str =
+        "extern \"C\" __global__ void count(unsigned int* out) { atomicAdd(out, 1u); }";
+
+    /// 確保の長さ。
+    const LEN: u64 = 64;
+
+    /// `download_async` の callback が受けた結果を溜める入れ物。
+    type Received = Arc<Mutex<Vec<Result<Vec<u8>, ContractError>>>>;
+
+    /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
+    fn within(body: impl FnOnce() + Send + 'static) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            body();
+            let _ = sender.send(());
+        });
+        match receiver.recv_timeout(LIMIT) {
+            Ok(()) => {
+                let _ = handle.join();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = handle.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                panic!("the test body ended without reporting");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("the test body did not end within {LIMIT:?}")
+            }
+        }
+    }
+
+    fn request() -> DeviceRequest {
+        DeviceRequest {
+            backend: BACKEND,
+            profile: Profile::ComputeOnly,
+            ownership: DeviceOwnership::ProductIndependent,
+        }
+    }
+
+    fn device() -> CudaDevice {
+        open_device(request()).expect("CUDA device")
+    }
+
+    fn usage() -> BufferUsage {
+        BufferUsage::STORAGE | BufferUsage::UPLOAD | BufferUsage::DOWNLOAD
+    }
+
+    fn lose(d: &dyn Device) {
+        inject(
+            d.fault_hooks(),
+            HookFault::DeviceLost(DeviceLostReason::Unknown),
+        )
+        .expect("loss");
+    }
+
+    /// `COUNT` のパイプライン。配置は slot 0 だけ。
+    fn count_pipeline(compute: &dyn ComputeOps) -> PipelineHandle {
+        compute
+            .create_pipeline(
+                PipelineInput::CudaC {
+                    source: COUNT,
+                    entry_point: "count",
+                },
+                &BindingLayout::new(vec![0]),
+            )
+            .expect("pipeline")
+    }
+
+    fn pattern() -> Vec<u8> {
+        (0..LEN)
+            .map(|i| (i as u8).wrapping_mul(7).wrapping_add(3))
+            .collect()
+    }
+
+    /// 開いている記録先の記録の数。集合に無い記録先は `None`。
+    fn records_of(d: &CudaDevice, encoder: &CommandEncoder) -> Option<usize> {
+        d.open.lock().get(&encoder.__backend_id()).map(Vec::len)
+    }
+
+    // DEV-139
+    // DEV-140
+    /// 2 回の模擬のロストでも通知は 1 回で、世代は 1 回目にだけ進む。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn two_losses_call_the_callback_once_and_move_the_generation_once() {
+        within(|| {
+            let d = device();
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            d.set_lost_callback(Box::new(move |r| sink.lock().unwrap().push(r)));
+            let before = d.generation();
+            lose(&d);
+            let after = d.generation();
+            lose(&d);
+            assert_eq!(*seen.lock().unwrap(), vec![DeviceLostReason::Unknown]);
+            assert!(after > before);
+            assert_eq!(d.generation(), after);
+        });
+    }
+
+    // DEV-141
+    /// ロストの後は、並べた操作が呼んだ時点の世代の `DeviceLost`（`poll`・`poll_ex` は `Lost`）を返し、何も記録・投入・払い出しをしない。
+    /// 0 の長さ・表に無いハンドル・開いていない記録先・0 の要素・空でない `wait`・空の `submit_many` も `DeviceLost` になる。
+    /// 2 回繰り返しても同じで、世代は変わらない。ロスト前のバッファは `free` で表から外れる。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn the_listed_operations_issue_nothing_after_the_loss() {
+        within(|| {
+            let d = device();
+            let a = d.allocate(LEN, usage()).expect("allocate a");
+            let b = d.allocate(LEN, usage()).expect("allocate b");
+            let c = d.allocate(4, usage()).expect("allocate c");
+            d.upload(&a, 0, &pattern()).expect("upload");
+            let issued = d.submit(d.create_encoder(), &[]).expect("submit");
+            d.wait_blocking(issued, None).expect("wait_blocking");
+            let p = count_pipeline(&d);
+            let recorded = |count: usize| -> Vec<CommandEncoder> {
+                (0..count)
+                    .map(|_| {
+                        let mut e = d.create_encoder();
+                        d.dispatch(&mut e, &p, &[Binding::new(0, &c, 0)], [4, 1, 1])
+                            .expect("dispatch");
+                        e
+                    })
+                    .collect()
+            };
+            let mut for_submit = recorded(2);
+            let mut for_many = recorded(2);
+            let mut empties = [d.create_encoder(), d.create_encoder()];
+            let buffers_before = {
+                let guard = d.lock();
+                (guard.map.len(), guard.next_id)
+            };
+            let sequence_before = d.lock_submissions().next_sequence;
+
+            lose(&d);
+            let generation = d.generation();
+            let lost = || Err(ContractError::DeviceLost { generation });
+            let forged = BufferHandle::__backend_new(generation, 999_999, d.id, LEN, usage());
+            let shape = [1_u64];
+            let stride = [1_i64];
+            let declared = [OperandSpec {
+                slot: 0,
+                dtype: DType::U32,
+                shape: &shape,
+                stride: &stride,
+                alignment: 4,
+            }];
+
+            for empty in &mut empties {
+                assert_eq!(d.allocate(LEN, usage()).map(|_| ()), lost());
+                assert_eq!(d.allocate(0, usage()).map(|_| ()), lost());
+                assert_eq!(d.upload(&a, 0, &pattern()), lost());
+                assert_eq!(d.upload(&forged, 0, &[1]), lost());
+                assert_eq!(d.download_blocking(&a, 0, LEN).map(|_| ()), lost());
+                let got: Received = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&got);
+                d.download_async(&a, 0, LEN, Box::new(move |r| sink.lock().unwrap().push(r)));
+                assert_eq!(*got.lock().unwrap(), vec![lost().map(|()| Vec::new())]);
+                let started = Instant::now();
+                assert_eq!(
+                    d.wait_blocking(issued, Some(Duration::from_secs(5))),
+                    lost()
+                );
+                assert!(started.elapsed() < Duration::from_secs(5));
+                assert_eq!(
+                    d.dispatch(empty, &p, &[Binding::new(0, &c, 0)], [4, 1, 1]),
+                    lost()
+                );
+                assert_eq!(
+                    d.dispatch_ex(
+                        &mut CommandEncoder::__backend_new(u64::MAX, None),
+                        &p,
+                        &[Binding::new(0, &c, 0)],
+                        &[],
+                        [0, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    lost()
+                );
+                assert_eq!(
+                    d.dispatch_checked(
+                        empty,
+                        &p,
+                        &[Binding::new(0, &c, 0)],
+                        &[],
+                        &declared,
+                        [4, 1, 1],
+                        [1, 1, 1],
+                        &[],
+                    ),
+                    lost()
+                );
+                assert_eq!(d.copy_buffer_to_buffer(empty, &a, 0, &b, 0, LEN), lost());
+                assert_eq!(d.clear_buffer(empty, &a, 0, LEN), lost());
+                assert_eq!(
+                    d.copy_buffer_to_buffer(
+                        &mut CommandEncoder::__backend_new(u64::MAX, None),
+                        &a,
+                        0,
+                        &b,
+                        0,
+                        LEN
+                    ),
+                    lost()
+                );
+                assert_eq!(
+                    d.clear_buffer(
+                        &mut CommandEncoder::__backend_new(u64::MAX, None),
+                        &a,
+                        0,
+                        LEN
+                    ),
+                    lost()
+                );
+                assert_eq!(d.submit(for_submit.remove(0), &[]).map(|_| ()), lost());
+                assert_eq!(
+                    d.submit(
+                        d.create_encoder(),
+                        &[ImportedSemaphoreHandle::__backend_new(1)]
+                    )
+                    .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(
+                    d.submit_many(vec![for_many.remove(0)], &[], &[])
+                        .map(|_| ()),
+                    lost()
+                );
+                assert_eq!(d.submit_many(Vec::new(), &[], &[]).map(|_| ()), lost());
+                assert_eq!(d.poll(issued), CompletionState::Lost);
+                assert_eq!(d.poll_ex(issued), CompletionStateEx::Lost);
+                assert_eq!(
+                    d.poll(SubmitToken::__backend_new(
+                        generation,
+                        issued.sequence,
+                        d.id
+                    )),
+                    CompletionState::Lost
+                );
+                assert_eq!(records_of(&d, empty), Some(0));
+                assert_eq!(d.generation(), generation);
+            }
+
+            {
+                let guard = d.lock();
+                assert_eq!((guard.map.len(), guard.next_id), buffers_before);
+            }
+            assert_eq!(d.lock_submissions().next_sequence, sequence_before);
+            d.free(a);
+            assert_eq!(d.lock().map.len(), buffers_before.0 - 1);
+        });
+    }
+
+    // DEV-141
+    /// 門で止めた投入を待っている間に模擬のロストが起き、門を開けて投入が終わると、待ちは呼んだ後の世代の `DeviceLost` を返す。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_wait_that_spans_the_loss_returns_device_lost() {
+        within(|| {
+            let d = device();
+            assert_eq!(d.arm_gate(), Ok(()));
+            let token = d.submit(d.create_encoder(), &[]).expect("submit");
+            std::thread::scope(|s| {
+                let waiter = s.spawn(|| d.wait_blocking(token, Some(Duration::from_secs(10))));
+                std::thread::sleep(Duration::from_millis(100));
+                assert!(!waiter.is_finished());
+                lose(&d);
+                assert_eq!(d.open_gate(), Ok(()));
+                assert_eq!(
+                    waiter.join().expect("waiter"),
+                    Err(ContractError::DeviceLost {
+                        generation: d.generation()
+                    })
+                );
+            });
+            assert_eq!(d.poll(token), CompletionState::Lost);
+        });
+    }
+
+    // DEV-147
+    /// ロストの後に `request` で得た新しい device は、確保・upload・コピーと dispatch の投入・読み戻しが通る。
+    /// ロストした device は作り直されず、`allocate` は `DeviceLost` のまま。
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn a_new_request_after_the_loss_runs_a_dispatch_and_reads_back() {
+        within(|| {
+            let lost_device = device();
+            let before = lost_device.generation();
+            lose(&lost_device);
+            let after = lost_device.generation();
+
+            let fresh = CudaDeviceProvider::request(request()).expect("request");
+            assert!(fresh.generation() > before);
+            assert!(fresh.generation() > after);
+            let memory = fresh.memory();
+            let queue = fresh.queue();
+            let src = memory.allocate(LEN, usage()).expect("allocate src");
+            let dst = memory.allocate(LEN, usage()).expect("allocate dst");
+            let counter = memory.allocate(4, usage()).expect("allocate counter");
+            memory.upload(&src, 0, &pattern()).expect("upload");
+            memory.upload(&counter, 0, &[0; 4]).expect("upload counter");
+            let p = count_pipeline(fresh.compute().expect("compute"));
+            let mut e = queue.create_encoder();
+            memory
+                .copy_buffer_to_buffer(&mut e, &src, 0, &dst, 0, LEN)
+                .expect("copy");
+            queue
+                .dispatch(&mut e, &p, &[Binding::new(0, &counter, 0)], [16, 1, 1])
+                .expect("dispatch");
+            let token = queue.submit(e, &[]).expect("submit");
+            queue
+                .wait_blocking(token, Some(Duration::from_secs(10)))
+                .expect("wait_blocking");
+            assert_eq!(
+                memory.download_blocking(&dst, 0, LEN).expect("download"),
+                pattern()
+            );
+            assert_eq!(
+                memory
+                    .download_blocking(&counter, 0, 4)
+                    .expect("download counter"),
+                16_u32.to_ne_bytes()
+            );
+            assert_eq!(
+                lost_device.allocate(LEN, usage()).map(|_| ()),
+                Err(ContractError::DeviceLost {
+                    generation: lost_device.generation()
+                })
+            );
+        });
     }
 }

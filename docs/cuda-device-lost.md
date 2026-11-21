@@ -35,8 +35,49 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 2 件が通る。
 
+## device の要る試験（2/3）
+
+どの試験も CUDA の device に触るので `#[ignore]` を付け、通常の確認では走らず `ignored` になる。どの試験も本体を別のスレッドで流し、30 秒以内に終わらなければ失敗とする。
+
+| 試験 | 置き場 | 呼ぶ口 | 照らす値 |
+| ---- | ------ | ------ | -------- |
+| `two_losses_call_the_callback_once_and_move_the_generation_once` | `lost_invalidation_device_tests` | 具体型の device の `set_lost_callback` と `fault_hooks` | 通知の列が `[Unknown]` の 1 件。1 回目の後に世代が進み、2 回目の後は同じ値 |
+| `the_listed_operations_issue_nothing_after_the_loss` | `lost_invalidation_device_tests` | 具体型の device | 並べた操作が `Err(DeviceLost { generation: generation() })`、`poll`・`poll_ex` は `Lost`。0 の長さ・表に無いハンドル・開いていない記録先・0 の要素・空でない `wait`・空の `submit_many` も同じ。2 回繰り返しても同じで、バッファの表の件数・次の識別子・投入済みの表の次の通し番号は変わらず、空の記録先の記録の数は 0 のまま。ロスト前のバッファの `free` は表から外れる |
+| `a_wait_that_spans_the_loss_returns_device_lost` | `lost_invalidation_device_tests` | 具体型の device の `arm_gate`・`open_gate` | 門で止めた投入を待っている間に模擬のロストを起こし、門を開けると、待ちが `Err(DeviceLost { generation: generation() })` を返す。同じ印の `poll` は `Lost` |
+| `a_new_request_after_the_loss_runs_a_dispatch_and_reads_back` | `lost_invalidation_device_tests` | `CudaDeviceProvider::request` の新しい device | 世代がロストの前後のどちらよりも大きい。確保・`upload`・コピーと dispatch を記録した記録先の投入・読み戻しが期待と一致。ロストした device の `allocate` は `DeviceLost` のまま |
+| `the_listed_operations_are_lost_through_the_public_device` | `crates/contract/tests/backend_cuda_device_lost.rs` | 公開の `Device` の `memory()`・`queue()`・`compute()` | 並べた操作が `DeviceLost`、`poll`・`poll_ex` は `Lost`。dispatch を記録した記録先の `submit`・`submit_many` も `Unsupported` ではなく `DeviceLost` |
+| `a_new_request_after_the_loss_round_trips_through_a_copy` | `crates/contract/tests/backend_cuda_device_lost.rs` | 公開の `Device` | 世代がロストした device の後の値より大きい。確保・`upload`・コピーを記録した記録先の `submit`・読み戻しが一致。ロストした device の `allocate` は `DeviceLost` のまま |
+
+| 置き場 | cfg・feature |
+| ------ | ------------ |
+| `crates/contract/src/backend_cuda.rs` の `lost_invalidation_device_tests` | `test`・`native-blocking-wait`・`fault-injection` |
+| `crates/contract/tests/backend_cuda_device_lost.rs` | `[[test]]` の `required-features` は `backend-cuda`・`native-blocking-wait`・`fault-injection` |
+
+上の 2 本目・3 本目と統合の試験の 1 本目が照らす、ロストの後の値は次のとおり。`generation` は呼んだ時点の `generation()` の値。
+
+| 操作 | ロストの後に返す値 | 2 本目で同じ値を照らす入力 |
+| ---- | ------------------ | -------------------------- |
+| `allocate` | `Err(DeviceLost { generation })` | 0 の長さ |
+| `upload` | `Err(DeviceLost { generation })` | 表に無いハンドル |
+| `download_blocking`・`download_async` | `Err(DeviceLost { generation })`（`download_async` は callback に渡す） | — |
+| `copy_buffer_to_buffer`・`clear_buffer` | `Err(DeviceLost { generation })` | 開いていない記録先 |
+| `dispatch`・`dispatch_ex`・`dispatch_checked` | `Err(DeviceLost { generation })`（`dispatch_checked` は宣言が合う入力） | 開いていない記録先と 0 の要素（`dispatch_ex`） |
+| `submit`・`submit_many` | `Err(DeviceLost { generation })` | dispatch を記録した記録先、空でない `wait`（`submit`）、空の `submit_many` |
+| `wait_blocking` | `Err(DeviceLost { generation })`（待っている間のロストを含む。3 本目） | — |
+| `poll`・`poll_ex` | `Lost` | ロストの前の印（`poll`・`poll_ex`）と、今の世代の印（`poll`） |
+
+通常の確認:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --lib backend_cuda::lost_invalidation_device_tests
+cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wait,fault-injection --test backend_cuda_device_lost
+```
+
+1 つ目は 4 件、2 つ目は 2 件が `ignored` になる。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | 模擬のロストの後の操作の拒否を実装する | #3834 |
+| 2/3 | device の要る試験を足す | #3835 |

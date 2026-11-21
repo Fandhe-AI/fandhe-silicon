@@ -70,6 +70,10 @@ name = "backend_cuda_device"
 required-features = ["backend-cuda", "native-blocking-wait"]
 
 [[test]]
+name = "backend_cuda_device_lost"
+required-features = ["backend-cuda", "native-blocking-wait", "fault-injection"]
+
+[[test]]
 name = "backend_cuda_ext_interop"
 required-features = ["backend-cuda", "ext-interop"]
 
