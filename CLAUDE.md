@@ -84,7 +84,7 @@ fandhe-silicon/
 ├── docs/contract-submit-types.md  # 投入まわりの公開の型と `CommandQueue` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-588）
 ├── docs/contract-interop-types.md  # 相互運用の公開の型と `ExternalInterop` の所在と、本リポの現状の事実・対応するテスト・確かめ方（TASK-717）
 ├── docs/contract-buffer-query.md  # バッファの大きさ・用途の問合せの所在と、本リポの現状の事実・現状の形（2/6・3/6）・試験（4/6）・方針の整理（5/6）・完了の条件の確かめ（6/6）（TASK-310）
-├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）・完了不明の投入を再試行しないことの試験（TASK-274）・能力の問合せの値の差し替え（TASK-921 の 1/6）・今の値の補い（base 48025c6）・今の値の補い（base 3e32680）・今の値の補い（base 1c25605）
+├── docs/contract-fault-injection.md  # 故障の差し込みの部品の所在と、本リポの現状の事実・現状の形（2/8〜6/8）・試験（7/8）・使い分けの手順（8/8）・完了の条件の確かめ（8/8）（TASK-271）・完了不明の投入を再試行しないことの試験（TASK-274）・能力の問合せの値の差し替え（TASK-921 の 1/6）・今の値の補い（base 48025c6）・今の値の補い（base 3e32680）・今の値の補い（base 1c25605）・今の値の補い（base 075fb6da）
 ├── docs/validation-intake.md  # 検証レイヤーの不正の受け口と失敗の種類の入口の所在と、本リポの現状の事実・現状の形・段の表・確かめ方（TASK-554）
 ├── docs/device-lost-notify.md  # ロストの通知先の関数の型を native と wasm32 で確かめる試験の所在と、本リポの現状の事実・確かめ方（TASK-138）
 ├── docs/failure-class-contract-test.md  # 失敗の種類を戻り値だけで区別する共通の契約テストの所在と、本リポの現状の事実・値の出どころ・対応する試験・段の表・確かめ方（TASK-272）
@@ -188,7 +188,7 @@ fandhe-silicon/
 ├── docs/metal-compile-options.md  # Metal の `create_pipeline` のコンパイルのオプション（TASK-774）の所在と、本リポの現状の事実・オプション付きの入力の生成（1/3）・device の要る生成の試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base da4f3d1）
 ├── docs/metal-pipeline-reflection.md  # Metal のパイプラインの reflection の取り出し（TASK-493）の所在と、本リポの現状の事実・値の型と対応表（1/4）・reflection の取り出し（2/4）・device の要る試験（2/4・3/4）・完了の条件の確かめ（4/4）・段の表・今の値の補い（base 3cd4a0c）
 ├── docs/metal-artifact-hooks.md  # Metal の成果物の検査の口（`artifact-inspection` の裏の `ArtifactHooks`）の所在と、本リポの現状の事実・共通の crate の口（1/8）・パスとファイルの部品（2/8）・Metal の上書き（3/8）・device の要る試験（3/8〜7/8）・完了の条件の確かめ（8/8）・段の表（TASK-492）
-├── docs/metal-dispatch-record.md  # Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base f433877）・今の値の補い（base 2847d3c）
+├── docs/metal-dispatch-record.md  # Metal の dispatch の記録（TASK-775）の所在と、本リポの現状の事実・記録の前の検査（1/5）・最後に使った投入と解放の保留（2/5）・記録と積み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base f433877）・今の値の補い（base 2847d3c）・今の値の補い（base 075fb6da）
 ├── docs/metal-dispatch-checked.md  # Metal の投入の前の検査の上書き（TASK-436）の所在と、本リポの現状の事実・上書きの振る舞い（1/5）・宣言の照らしの関数の試験（2/5）・device の要る試験（3/5・4/5）・完了の条件の確かめ（5/5）・段の表・今の値の補い（base 2847d3c）
 ├── docs/metal-gemm-arm.md  # 測定の別 workspace の Metal 直接の GEMM の腕の crate（TASK-1008）の所在と、本リポの現状の事実・カーネルのソースの取得と照合（2/5）・Metal 直接の GEMM の腕（3/5）・門の run の device の試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base ae152fb）・今の値の補い（base 2847d3c）
 ├── docs/metal-coopmat-gemm-arm.md  # 測定の別 workspace の Metal 直接の cooperative matrix の GEMM の腕（TASK-1009）の所在と、本リポの現状の事実・MSL と起動の形（1/4）・metallib の作成と腕の手順（2/4）・門の run の device の試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 2847d3c）
@@ -199,13 +199,14 @@ fandhe-silicon/
 ├── docs/metal-offscreen-target-formats.md  # Metal の背後実装の `Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（TASK-380）の所在と、本リポの現状の事実・`Bgra8Unorm`・`Rgba32Float` の描画先の作成の試験（1/2）・完了の条件の確かめ（2/2）
 ├── docs/metal-capability-query.md  # Metal の背後実装の能力の問合せ（TASK-173）の所在と、本リポの現状の事実・能力の表と問合せ（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base c5c2151）
 ├── docs/metal-poll-lost.md  # Metal の背後実装の模擬のロストの後の `poll`・`poll_ex` の試験（TASK-593）の所在と、本リポの現状の事実・模擬のロストの後の `poll`・`poll_ex` の device の要る試験（1/2）・完了の条件の確かめ（2/2）
-├── docs/metal-device-drop.md  # Metal の背後実装の device の破棄（TASK-189）の所在と、本リポの現状の事実・`Drop` の待ちと記録先の破棄（1/4）・明示の破棄（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）
+├── docs/metal-device-drop.md  # Metal の背後実装の device の破棄（TASK-189）の所在と、本リポの現状の事実・`Drop` の待ちと記録先の破棄（1/4）・明示の破棄（2/4）・device の要る試験（3/4）・完了の条件の確かめ（4/4）・今の値の補い（base 075fb6da）
 ├── docs/metal-allocate-sizes.md  # Metal の背後実装の確保と往復の大きさの試験（TASK-314）の所在と、本リポの現状の事実・確保と往復の大きさの試験（1/2）・完了の条件の確かめ（2/2）
 ├── docs/metal-gpu-timing-lost.md  # Metal の背後実装の模擬のロストの後の `gpu_timing` の試験（TASK-596）の所在と、本リポの現状の事実・模擬のロストの後の `gpu_timing` の device の要る試験（1/2）・完了の条件の確かめ（2/2）
 ├── docs/metal-upload-download.md  # Metal の背後実装の `upload`・`download_*` の用途の検査（TASK-316）の所在と、本リポの現状の事実・`upload`・`download_*` の用途の検査（1/3）・用途の検査の device の要る試験（2/3）・完了の条件の確かめ（3/3）・用途で拒むときの下位の API の呼び出し
 ├── docs/metal-buffer-copy-clear.md  # バッファのコピーとクリアの記録の操作と Metal の背後実装（TASK-610）の所在と、本リポの現状の事実・記録の操作の口（1/4）・Metal の記録と投入（2/4）・device の要る試験（3/4）・用途で拒むときの下位の API の呼び出し・完了の条件の確かめ（4/4）・今の値の補い（base 925c4f7）・今の値の補い（base 5b71dda）
 ├── docs/metal-cache-key-fields.md  # Metal のキャッシュキーの function constant の値と版の欄の試験（TASK-502）の所在と、本リポの現状の事実・キャッシュキーの function constant の値と版の欄の試験（1/2）・完了の条件の確かめ（2/2）
 ├── docs/metal-device-lost.md  # Metal の背後実装の模擬のロストの後の操作の拒否と作り直し（TASK-186）の所在と、本リポの現状の事実・ロストの後の操作の拒否（1/3）・device の要る試験（2/3）・完了の条件の確かめ（3/3）・今の値の補い（base c1cf679）
+├── docs/metal-fault-gate.md  # Metal の背後実装の試験用の門と遅延解放の試験（TASK-319）の所在と、本リポの現状の事実・門の仕込みと開け（1/4）
 ├── docs/cuda-device-request.md  # CUDA の背後実装の device の取得・診断・確保（TASK-160）の所在と、本リポの現状の事実・request の検査（1/5）・device の取得・診断・確保（2/5）・初期化の失敗の差し込み（3/5）・device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）
 ├── docs/cuda-request-no-fallback.md  # CUDA の背後実装の request の組み合わせの検査と、ほかの背後実装の provider を呼ばないことの試験（TASK-290）の所在と、本リポの現状の事実・組み合わせの検査の試験（1/3）・ほかの背後実装の provider を呼ばないことの試験（2/3）・完了の条件の確かめ（3/3）
 ├── docs/cuda-command-submit.md  # CUDA の背後実装の投入（TASK-604）の所在と、本リポの現状の事実・記録先の集合と submit（1/5）・投入の完了の問い合わせ（2/5）・複数の記録先の一括投入（3/5）・投入の device の要る試験（4/5）・完了の条件の確かめ（5/5）・今の値の補い（base 1417dc5）・今の値の補い（base 70ab958）・今の値の補い（base 5b71dda）・今の値の補い（base 90b8b4e）・今の値の補い（base 25769d1）

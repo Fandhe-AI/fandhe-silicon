@@ -28,6 +28,12 @@
 //! `submit`・`submit_many`・`wait_blocking` は、ほかの照らしより前に、呼んだ時点の `generation()` を載せた `DeviceLost` を返し、
 //! `poll`・`poll_ex` は `Lost` を返す（TASK-186）。
 //!
+//! feature `fault-injection` のビルドでは、`FaultHooks::arm_gate` が、次に確定する投入の先頭に門の待ち（共有の event の
+//! 値の待ち）を積む門を仕込み、`open_gate`・device の `Drop`・`Device::destroy` が積んだ門を全部開ける（TASK-319 のポインタ）。
+//! 積んだ門は、積んでから 500 ms が過ぎると門の上限の見張りのスレッドが開ける。このスレッドは門の錠と event だけに触り、
+//! バッファ・投入済みの表・callback には触らない。門は投入の完了を遅らせるだけで、`free` の保留・読み書きの照らし・回収は、
+//! 最後に使った投入の完了の状態で決まる。
+//!
 //! 製品のビルドでは、記録のある投入は `Unsupported` で拒む（`DISPATCH_EXECUTION_ENABLED`）。カーネルが触る範囲の保証が
 //! 入るまで、safe な経路から任意の MSL を走らせない。積み込みの形は単体試験のビルドだけが確かめる。
 //!
@@ -1117,6 +1123,82 @@ impl LostState {
             callback(reason);
         }
         Ok(true)
+    }
+}
+
+/// 門の待ちの上限。積んでからこの時間が過ぎると、門が閉じたままでも門を開け、投入が先へ進む。
+#[cfg(feature = "fault-injection")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const GATE_EXPIRY: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// 門の待ちの値が尽きて、次の門を積めないことを表す。状態は変わっていない。
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct GateValueExhausted;
+
+/// 試験用の門の値の状態（TASK-319）。仕込みの有無・積んだ門の最大の値・開けた値を持つ。
+///
+/// 門は共有の event の値で表す。値 `n` の門は event の値が `n` 以上になると開く。開けた値は下げない。
+/// device に触らない純粋な型で、`MetalDevice` が錠の中に 1 つ持つ。event への書き込みは呼び出し側が、
+/// 返された値で行う。
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct GateValues {
+    /// 門が仕込まれているか。次に確定する投入が積んで外す。
+    armed: bool,
+    /// 積んだ門の最大の値。0 は 1 つも積んでいない。
+    issued: u64,
+    /// event に書いた最大の値。
+    opened: u64,
+}
+
+#[cfg(feature = "fault-injection")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl GateValues {
+    /// 門を仕込む。仕込み済みなら何もしない。
+    fn arm(&mut self) {
+        self.armed = true;
+    }
+
+    /// 仕込みがあれば、次に積む門の値を返す。仕込みは外さない（確定の後に `issue` で外す）。
+    /// 仕込みが無ければ `Ok(None)`。値が尽きていたら `Err`。
+    fn next_wait(&self) -> Result<Option<u64>, GateValueExhausted> {
+        if !self.armed {
+            return Ok(None);
+        }
+        self.issued
+            .checked_add(1)
+            .map(Some)
+            .ok_or(GateValueExhausted)
+    }
+
+    /// 値 `value` の門を積んだとして、仕込みを外す。
+    fn issue(&mut self, value: u64) {
+        self.armed = false;
+        self.issued = value;
+    }
+
+    /// 仕込みを外し、積んだ門を全部開ける値を返す。開ける門が無ければ `None`。
+    fn open_all(&mut self) -> Option<u64> {
+        self.armed = false;
+        self.raise(self.issued)
+    }
+
+    /// 上限の過ぎた値 `value` の門を開ける値を返す。もう開いていれば `None`。
+    fn expire(&mut self, value: u64) -> Option<u64> {
+        self.raise(value)
+    }
+
+    /// 開けた値を `value` まで上げる。上がったときだけ `Some(value)`。下げない。
+    fn raise(&mut self, value: u64) -> Option<u64> {
+        if value > self.opened {
+            self.opened = value;
+            Some(value)
+        } else {
+            None
+        }
     }
 }
 
@@ -3073,6 +3155,8 @@ mod imp {
         MTLFunctionConstantValues, MTLGPUFamily, MTLLibrary, MTLMathFloatingPointFunctions,
         MTLMathMode, MTLPipelineOption, MTLResourceOptions, MTLSize,
     };
+    #[cfg(feature = "fault-injection")]
+    use objc2_metal::{MTLEvent, MTLSharedEvent};
     #[cfg(feature = "graphics")]
     use objc2_metal::{
         MTLPixelFormat, MTLStorageMode, MTLTexture, MTLTextureDescriptor, MTLTextureType,
@@ -3429,6 +3513,89 @@ mod imp {
         /// 製品のビルドには存在しない。
         #[cfg(test)]
         commit_hold: Mutex<Option<Vec<CommandBuffer>>>,
+        /// 試験用の門の値と共有の event（TASK-319）。門の上限の見張りのスレッドと共有する。
+        #[cfg(feature = "fault-injection")]
+        gate: Arc<Mutex<GateInner>>,
+    }
+
+    /// 試験用の門の錠の中身。値の状態と、最初の `arm_gate` で作る共有の event。
+    #[cfg(feature = "fault-injection")]
+    #[derive(Default)]
+    struct GateInner {
+        values: super::GateValues,
+        event: Option<Retained<ProtocolObject<dyn MTLSharedEvent>>>,
+    }
+
+    /// 積んだ門を全部開ける。仕込みも外す。event の値は上げるだけで下げない。
+    #[cfg(feature = "fault-injection")]
+    fn open_gates(inner: &mut GateInner) {
+        if let Some(value) = inner.values.open_all()
+            && let Some(event) = inner.event.as_ref()
+        {
+            event.setSignaledValue(value);
+        }
+    }
+
+    /// 上限の過ぎた値 `value` の門を開ける。もう開いていれば何もしない。
+    #[cfg(feature = "fault-injection")]
+    fn expire_gate(inner: &mut GateInner, value: u64) {
+        if let Some(value) = inner.values.expire(value)
+            && let Some(event) = inner.event.as_ref()
+        {
+            event.setSignaledValue(value);
+        }
+    }
+
+    /// 門が仕込まれていれば、コマンドバッファに門の待ちを積み、その値を返す。仕込みは外さない。
+    ///
+    /// `commit_records` が、どの encoder も開く前に呼ぶ。仕込みが無ければ何も積まずに `Ok(None)`。
+    /// 値が尽きているか event が無いときは、何も積まずに `BackendFailure` を返す。
+    #[cfg(feature = "fault-injection")]
+    fn encode_gate_wait(
+        inner: &GateInner,
+        buffer: &CommandBuffer,
+    ) -> Result<Option<u64>, ContractError> {
+        let failure = |detail: &str| ContractError::BackendFailure {
+            op: "submit",
+            backend: BACKEND,
+            detail: detail.into(),
+        };
+        let Some(value) = inner
+            .values
+            .next_wait()
+            .map_err(|_| failure("gate value space is exhausted"))?
+        else {
+            return Ok(None);
+        };
+        let event = inner
+            .event
+            .as_ref()
+            .ok_or_else(|| failure("gate event is missing"))?;
+        let event: &ProtocolObject<dyn MTLEvent> = ProtocolObject::from_ref(&**event);
+        buffer.encodeWaitForEvent_value(event, value);
+        Ok(Some(value))
+    }
+
+    /// 値 `value` の門の上限の見張りを、別のスレッドで始める。
+    ///
+    /// スレッドは `GATE_EXPIRY` だけ眠り、門の錠だけを取って `expire_gate` を呼んで終わる。バッファ・投入済みの表・
+    /// callback には触らない。スレッドを始められなければ `BackendFailure` を返す（呼び出し側は確定しない）。
+    #[cfg(feature = "fault-injection")]
+    fn spawn_gate_expiry(gate: &Arc<Mutex<GateInner>>, value: u64) -> Result<(), ContractError> {
+        let shared = Arc::clone(gate);
+        std::thread::Builder::new()
+            .name("metal-gate-expiry".into())
+            .spawn(move || {
+                std::thread::sleep(super::GATE_EXPIRY);
+                let mut inner = shared.lock().unwrap_or_else(|e| e.into_inner());
+                expire_gate(&mut inner, value);
+            })
+            .map(drop)
+            .map_err(|e| ContractError::BackendFailure {
+                op: "submit",
+                backend: BACKEND,
+                detail: format!("gate expiry thread could not start: {e}"),
+            })
     }
 
     /// 投入した 1 つのコマンドバッファ。
@@ -3744,6 +3911,18 @@ mod imp {
             self.submissions.lock().unwrap_or_else(|e| e.into_inner())
         }
 
+        /// 試験用の門の錠を取る。汚れていても中身を使う。錠の順は投入済みの表の錠の後、`commit_hold` の前。
+        #[cfg(feature = "fault-injection")]
+        fn lock_gate(&self) -> MutexGuard<'_, GateInner> {
+            self.gate.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// 積んだ門を全部開ける。`open_gate`・`Drop`・`Device::destroy` が呼ぶ。取る錠は門の錠だけ。
+        #[cfg(feature = "fault-injection")]
+        fn open_all_gates(&self) {
+            open_gates(&mut self.lock_gate());
+        }
+
         /// 記録を、バッファの確かめ・積み・確定・登録の順で投入し、通し番号の印を返す。
         ///
         /// `submit`・`submit_many` が共有する。`records` は記録先ごとの記録の列（渡した順）。
@@ -3752,7 +3931,7 @@ mod imp {
         /// 記録の順に、続く dispatch は compute encoder、続くコピー・クリアは blit encoder を 1 つ開いて積んで閉じ、確定し、
         /// 使った各バッファの最後に使った投入を払い出した通し番号にする。記録がまったく無いときは encoder を開かず、
         /// 空の command buffer を確定する。
-        /// 錠の順は バッファの表 -> パイプラインの表 -> 投入済みの表 -> `commit_hold`。
+        /// 錠の順は バッファの表 -> パイプラインの表 -> 投入済みの表 -> 門（`fault-injection`）-> `commit_hold`。
         /// 錠の中の `commandBuffer()` は、キューの未完了の上限に当たると確定済みの仕事の進みを待つだけで戻る。
         /// 製品の経路では、確定していないコマンドバッファを錠の中で溜めない（溜めると戻らなくなる）。
         /// 試験ビルドだけ、`commit_or_hold` で確定を遅らせて溜めることがある（数個まで。上限には届かない）。
@@ -3838,6 +4017,11 @@ mod imp {
                         backend: BACKEND,
                         detail: "commandBuffer returned None".into(),
                     })?;
+            // 門が仕込まれていれば、どの encoder よりも前に門の待ちを積む。仕込みは確定の後に外す。
+            #[cfg(feature = "fault-injection")]
+            let mut gate = self.lock_gate();
+            #[cfg(feature = "fault-injection")]
+            let gate_wait = encode_gate_wait(&gate, &buffer)?;
             for step in steps {
                 match step {
                     Step::Compute(runs) => {
@@ -3866,10 +4050,21 @@ mod imp {
                     }
                 }
             }
+            // 門の上限の見張りを始めてから確定する。始められなければ確定せず、仕込みも残す。
+            #[cfg(feature = "fault-injection")]
+            if let Some(value) = gate_wait {
+                spawn_gate_expiry(&self.gate, value)?;
+            }
             #[cfg(not(test))]
             buffer.commit();
             #[cfg(test)]
             self.commit_or_hold(&buffer);
+            #[cfg(feature = "fault-injection")]
+            if let Some(value) = gate_wait {
+                gate.values.issue(value);
+            }
+            #[cfg(feature = "fault-injection")]
+            drop(gate);
             subs.next_sequence = next;
             subs.pending.insert(sequence, vec![buffer]);
             for id in touched_ids {
@@ -3919,6 +4114,8 @@ mod imp {
                 targets: Mutex::new(TargetTable::new()),
                 #[cfg(test)]
                 commit_hold: Mutex::new(None),
+                #[cfg(feature = "fault-injection")]
+                gate: Arc::new(Mutex::new(GateInner::default())),
             }
         }
 
@@ -4240,11 +4437,15 @@ mod imp {
 
     impl Drop for MetalDevice {
         /// 開いている記録先の記録を投入せずに捨て、投入済みの列を登録の有無に関わらず全部待つ。
+        /// `fault-injection` のビルドでは、待つ前に試験用の門を全部開ける。
         ///
         /// そのあと残りの callback を `poll` と同じ判定の値で 1 回ずつ呼び、最後に欄を解放する。
         /// ロストの通知は呼ばない。待ちに上限は無く、確定済みの command buffer が終わるまで戻らない。
         /// callback の panic は捨てる。本体は `finish_all`。
         fn drop(&mut self) {
+            // 積んだ門を先に開ける（門の上限まで待たないため）。
+            #[cfg(feature = "fault-injection")]
+            self.open_all_gates();
             // 溜めた確定を先に流す（確定されない列を待たないため）。
             #[cfg(test)]
             self.release_held_commits();
@@ -4304,10 +4505,10 @@ mod imp {
         }
     }
 
-    /// 模擬のロストだけを持つ故障の差し込みの口。実際の故障ではない。
+    /// 模擬のロストと試験用の門を持つ故障の差し込みの口。実際の故障ではない。
     ///
-    /// `arm_gate`・`open_gate`・`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま
-    /// （`UnsupportedExtensionDefault`）。ロストの後の操作の拒否は `Device` の各操作の先頭の `check_not_lost` が持つ。
+    /// `simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま（`UnsupportedExtensionDefault`）。
+    /// ロストの後の操作の拒否は `Device` の各操作の先頭の `check_not_lost` が持つ。
     #[cfg(feature = "fault-injection")]
     impl FaultHooks for MetalDevice {
         /// 1 回目は理由を記録し、世代を取り直し、登録されたコールバックを錠の外で 1 回呼ぶ。2 回目以降は何もせず `Ok`。
@@ -4330,6 +4531,33 @@ mod imp {
                     |callback: Callback, state| callback(state),
                 );
             }
+            Ok(())
+        }
+
+        /// 次に確定する投入の先頭に積む門を仕込む。仕込み済みなら何もしない。
+        ///
+        /// 門の共有の event は最初の呼び出しで作る。作れなければ状態を変えずに `BackendFailure` を返す。
+        /// 積んだ門は `open_gate` か、積んでから `GATE_EXPIRY` が過ぎると開く。
+        fn arm_gate(&self) -> Result<(), ContractError> {
+            let mut inner = self.lock_gate();
+            if inner.event.is_none() {
+                let event =
+                    self.device
+                        .newSharedEvent()
+                        .ok_or_else(|| ContractError::BackendFailure {
+                            op: "arm_gate",
+                            backend: BACKEND,
+                            detail: "newSharedEvent returned None".into(),
+                        })?;
+                inner.event = Some(event);
+            }
+            inner.values.arm();
+            Ok(())
+        }
+
+        /// 仕込みを外し、積んだ門を全部開ける。何度呼んでもよい。常に `Ok`。
+        fn open_gate(&self) -> Result<(), ContractError> {
+            self.open_all_gates();
             Ok(())
         }
     }
@@ -4392,6 +4620,7 @@ mod imp {
         }
 
         /// 登録済みの完了の callback を待たずに `Lost` で呼び切り、投入済みの列を全部待つ。
+        /// `fault-injection` のビルドでは、待つ前に試験用の門を全部開ける。
         ///
         /// `fault-injection` のビルドではロストの通知を `Destroyed` で 1 回呼んでから解放する。
         /// callback と通知先の最初の panic は、解放の後に再送出する。本体は `destroy_in_order`。
@@ -4405,6 +4634,8 @@ mod imp {
                 )
             };
             let wait = |d: &Self| {
+                #[cfg(feature = "fault-injection")]
+                d.open_all_gates();
                 #[cfg(test)]
                 d.release_held_commits();
                 d.lock_submissions().wait_pending(|group| {
@@ -9245,9 +9476,9 @@ mod imp {
             fn the_hooks_are_present_and_only_the_loss_is_overridden() {
                 let device = new_device();
                 assert!(device.fault_hooks().is_some());
+                assert_eq!(inject(device.fault_hooks(), HookFault::ArmGate), Ok(()));
+                assert_eq!(inject(device.fault_hooks(), HookFault::OpenGate), Ok(()));
                 for fault in [
-                    HookFault::ArmGate,
-                    HookFault::OpenGate,
                     HookFault::RuntimeError("x".into()),
                     HookFault::ValidationReport("x".into()),
                 ] {
@@ -13945,6 +14176,103 @@ mod lost_state_tests {
             .lose(DeviceLostReason::Unknown, &generation, &source)
             .unwrap();
         assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+mod gate_tests {
+    //! 試験用の門の値の状態 `GateValues` の固定（device に触らない。どの OS でも流れる。TASK-319）。
+    use super::*;
+
+    fn issued(values: &mut GateValues) -> u64 {
+        values.arm();
+        let value = values.next_wait().expect("next_wait").expect("armed");
+        values.issue(value);
+        value
+    }
+
+    /// 仕込みの無いときは積む値が無く、仕込むと積んだ最大の値の次の値になる。2 回仕込んでも同じ値。
+    #[test]
+    fn arming_gives_the_next_wait_value() {
+        let mut values = GateValues::default();
+        assert_eq!(values.next_wait(), Ok(None));
+        values.arm();
+        assert_eq!(values.next_wait(), Ok(Some(1)));
+        values.arm();
+        assert_eq!(values.next_wait(), Ok(Some(1)));
+    }
+
+    /// `next_wait` は仕込みを外さない。確定しなかった投入の後も、次の投入が同じ値で積む。
+    #[test]
+    fn reading_the_wait_value_keeps_the_arming() {
+        let mut values = GateValues::default();
+        values.arm();
+        assert_eq!(values.next_wait(), Ok(Some(1)));
+        assert_eq!(values.next_wait(), Ok(Some(1)));
+        assert!(values.armed);
+    }
+
+    /// `issue` は仕込みを外し、次の仕込みは 1 つ大きい値で積む。
+    #[test]
+    fn issuing_consumes_the_arming() {
+        let mut values = GateValues::default();
+        assert_eq!(issued(&mut values), 1);
+        assert_eq!(values.next_wait(), Ok(None));
+        assert_eq!(issued(&mut values), 2);
+    }
+
+    /// `open_all` は仕込みを外し、積んだ最大の値まで開ける。2 回目は何も開けない。
+    #[test]
+    fn opening_all_raises_to_the_highest_issued_value_once() {
+        let mut values = GateValues::default();
+        issued(&mut values);
+        issued(&mut values);
+        values.arm();
+        assert_eq!(values.open_all(), Some(2));
+        assert_eq!(values.next_wait(), Ok(None));
+        assert_eq!(values.open_all(), None);
+    }
+
+    /// 積んだ門が無いときの `open_all` は何も開けず、仕込みだけを外す。
+    #[test]
+    fn opening_without_an_issued_gate_only_disarms() {
+        let mut values = GateValues::default();
+        values.arm();
+        assert_eq!(values.open_all(), None);
+        assert_eq!(values.next_wait(), Ok(None));
+    }
+
+    /// 上限の過ぎた門はその値まで開け、開けた値を下げない。
+    #[test]
+    fn expiry_opens_up_to_its_value_and_never_lowers() {
+        let mut values = GateValues::default();
+        issued(&mut values);
+        issued(&mut values);
+        assert_eq!(values.expire(1), Some(1));
+        assert_eq!(values.expire(1), None);
+        assert_eq!(values.open_all(), Some(2));
+        assert_eq!(values.expire(2), None);
+        assert_eq!(values.expire(1), None);
+        assert_eq!(values.opened, 2);
+    }
+
+    /// 値が尽きていたら `Err` を返し、状態を変えない。
+    #[test]
+    fn an_exhausted_value_is_an_error_and_keeps_the_state() {
+        let values = GateValues {
+            armed: true,
+            issued: u64::MAX,
+            opened: 0,
+        };
+        let before = values;
+        assert_eq!(values.next_wait(), Err(GateValueExhausted));
+        assert_eq!(values, before);
+    }
+
+    /// 門の待ちの上限は 500 ms。
+    #[test]
+    fn the_gate_expiry_is_500_ms() {
+        assert_eq!(GATE_EXPIRY, std::time::Duration::from_millis(500));
     }
 }
 

@@ -328,3 +328,12 @@ feature `fault-injection` の下で、3 つの背後実装の module（`backend_
 - 「Metal の `fault_hooks`（TASK-2932）」の節の「ロストの後の操作の拒否はこの段では持たない」は、今のコードと違う。今の Metal の背後実装は、模擬のロストの後に、`allocate`・`upload`・`download_*`・`dispatch_ex`・`dispatch_checked`・コピー・クリア・`submit`・`submit_many`・`wait_blocking` を、ほかの照らしより前に、呼んだ時点の `generation()` を載せた `DeviceLost` で拒み、`poll`・`poll_ex` は `Lost` を返す。`free` はこの照らしを持たない。所在と試験は [metal-device-lost](metal-device-lost.md)
 - 同じ節の `free` の項（ロスト前のハンドルで 1 回だけ表から外れる）と、`upload`・`download_*` がロスト前のハンドルを拒む項は、今も変わらない（拒む値は `DeviceLost`）
 - 確かめ方: `grep -n 'self.check_not_lost()' crates/contract/src/backend_metal.rs`（15 行）、`grep -n 'fn check_not_lost' crates/contract/src/backend_metal.rs`（1 行）
+
+## 今の値の補い（base 075fb6da）
+
+記録時点の表と既存の節は書き換えない。以下は base `075fb6da` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「Metal の `fault_hooks`（TASK-2932）」の節の `FaultHooks` の項 | `simulate_device_lost` だけを上書きし、ほかの 4 操作は既定の本体のまま → `simulate_device_lost`・`arm_gate`・`open_gate` を上書きし、`simulate_runtime_error`・`simulate_validation_report` は既定の本体のまま（所在は [metal-fault-gate](metal-fault-gate.md)） | `grep -n 'fn arm_gate\|fn open_gate\|fn simulate_device_lost' crates/contract/src/backend_metal.rs` |
+| 同じ節の device に触る試験の項（`device_tests::lost` と `fault_hooks_are_present_and_the_loss_moves_the_generation_once`） | `arm_gate`・`open_gate` が既定の本体を返すこと → `arm_gate`・`open_gate` が `Ok(())`、`simulate_runtime_error`・`simulate_validation_report` が既定の本体を返すこと | `grep -n 'HookFault::' crates/contract/tests/backend_metal_fault.rs`、`grep -n 'fn the_hooks_are_present_and_only_the_loss_is_overridden' -A12 crates/contract/src/backend_metal.rs` |
