@@ -61,11 +61,11 @@
 //!
 //! `dispatch_ex`（簡易版の `dispatch` を含む）は記録の時点に記録先・パイプライン・束縛のバッファ・slot・定数・共有メモリの合計を
 //! 照らして記録先に積み、束縛のポインタは投入の時に解決する。投入は記録したバッファの解放済みの確かめの後に、利用者のカーネルを
-//! 走らせる門（`DISPATCH_EXECUTION_ENABLED`）に照らし、閉じていれば dispatch の記録を含む記録先を `Unsupported` で拒んで
-//! 何も積まない（TASK-805）。
+//! 走らせる門（`DISPATCH_EXECUTION_ENABLED`。単体の試験のビルドだけで開く）に照らし、閉じていれば dispatch の記録を含む記録先を
+//! `Unsupported` で拒んで何も積まない。開いていれば、全 dispatch のポインタの解決とカーネルの仮引数の大きさの照らしを積む前に済ませ、
+//! 記録の順に起動する（TASK-805）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-#[cfg(feature = "fault-injection")]
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,7 +76,7 @@ use std::sync::{Condvar, PoisonError};
 use std::time::Duration;
 
 use cudarc::driver::{
-    CudaContext, CudaEvent, CudaFunction, CudaModule, CudaSlice, CudaStream, DriverError,
+    CudaContext, CudaEvent, CudaFunction, CudaModule, CudaSlice, CudaStream, DevicePtr, DriverError,
 };
 use cudarc::nvrtc::{CompileError, CompileOptions, Ptx};
 use fandhe_silicon_core::capability::{
@@ -1700,7 +1700,7 @@ enum TransferJob {
         buffer: u64,
         range: (usize, usize),
     },
-    /// 照らしを通った dispatch 1 件。門が閉じているので、stream には積まない。
+    /// 照らしを通った dispatch 1 件。ポインタの解決は積む前に `prepare_launches` が全件まとめて行う。
     Dispatch(DispatchRecord),
 }
 
@@ -1722,8 +1722,8 @@ impl TransferJob {
     }
 }
 
-/// 利用者のカーネルを走らせる門。どのビルドでも閉じ、dispatch の記録を含む投入を `Unsupported` で拒む。
-const DISPATCH_EXECUTION_ENABLED: bool = false;
+/// 利用者のカーネルを走らせる門。単体の試験のビルドだけで開き、ほかのビルドでは dispatch の記録を含む投入を `Unsupported` で拒む。
+const DISPATCH_EXECUTION_ENABLED: bool = cfg!(test);
 
 /// dispatch の記録を含む記録先の列を、カーネルを走らせる門に照らす。門が閉じていれば `Unsupported`（`op` は `submit`）。
 ///
@@ -1740,6 +1740,86 @@ fn check_dispatch_gate(jobs: &[TransferJob], enabled: bool) -> Result<(), Contra
         });
     }
     Ok(())
+}
+
+/// カーネルの仮引数の数と大きさを、記録した引数のバイト数と照らす。device に触らない。
+///
+/// `query(i)` は i 番目の仮引数の大きさを返し、仮引数が無ければ `None`。引数の数と同じ番号まで問い、数・大きさの
+/// どちらかが食い違えば `submit: ` を前置した `InvalidArgument`。問う回数は引数の数 + 1 以下。
+fn check_kernel_params(
+    arg_lens: &[usize],
+    mut query: impl FnMut(usize) -> Result<Option<usize>, ContractError>,
+) -> Result<(), ContractError> {
+    let invalid = |msg: String| Err(ContractError::InvalidArgument(format!("submit: {msg}")));
+    for (index, len) in arg_lens.iter().enumerate() {
+        match query(index)? {
+            Some(size) if size == *len => {}
+            Some(size) => {
+                return invalid(format!(
+                    "kernel parameter {index} takes {size} bytes but {len} were recorded"
+                ));
+            }
+            None => {
+                return invalid(format!(
+                    "the kernel takes {index} parameters but {} were recorded",
+                    arg_lens.len()
+                ));
+            }
+        }
+    }
+    if query(arg_lens.len())?.is_some() {
+        return invalid(format!(
+            "the kernel takes more than the {} recorded parameters",
+            arg_lens.len()
+        ));
+    }
+    Ok(())
+}
+
+/// `function` の `index` 番目の仮引数の大きさを driver に問う。仮引数が無ければ（`CUDA_ERROR_INVALID_VALUE`）`None`。
+///
+/// ほかの driver の失敗と、driver に関数が無いときの panic は `BackendFailure`（`op` は `cuFuncGetParamInfo`）。
+fn kernel_param_size(
+    function: &CudaFunction,
+    index: usize,
+) -> Result<Option<usize>, ContractError> {
+    guard_memory_panic("cuFuncGetParamInfo", || {
+        let mut offset = 0_usize;
+        let mut size = 0_usize;
+        // SAFETY: `function` は読み込まれたモジュールの関数で、呼ぶ側がモジュールの `Arc` を持つ `CudaFunction` を借りている。
+        // 2 つの出力のポインタは、この呼び出しの間生きるこの関数の局所の `usize` を指し、driver はそこへ書くだけで保持しない。
+        let result = unsafe {
+            cudarc::driver::sys::cuFuncGetParamInfo(
+                function.cu_function(),
+                index,
+                &raw mut offset,
+                &raw mut size,
+            )
+        };
+        match result {
+            cudarc::driver::sys::CUresult::CUDA_SUCCESS => Ok(Some(size)),
+            cudarc::driver::sys::CUresult::CUDA_ERROR_INVALID_VALUE => Ok(None),
+            other => Err(backend_failure("cuFuncGetParamInfo", other)),
+        }
+    })
+}
+
+/// 起動 1 件の引数 1 つ。`kernelParams` の各要素はこの値を指す。
+enum LaunchArg<'a> {
+    /// 束縛のポインタ。解決と `offset` の足し算を終えた値。
+    Pointer(cudarc::driver::sys::CUdeviceptr),
+    /// 定数。件の bytes を借りる。
+    Bytes(&'a [u8]),
+}
+
+/// 投入の時に積む前に組み立てた起動 1 件。引数はカーネルの引数の並びの順。
+struct PreparedLaunch<'a> {
+    /// 関数。モジュールの参照を持つので、起動の間モジュールは読み込まれたまま。
+    function: CudaFunction,
+    args: Vec<LaunchArg<'a>>,
+    grid: [u32; 3],
+    block: [u32; 3],
+    shared_mem_bytes: u32,
 }
 
 /// `[offset, offset + size)` がバッファの長さ `len` に収まるかをあふれなく照らし、`usize` の範囲に直す。
@@ -2546,12 +2626,13 @@ impl CudaDevice {
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
     ) -> Result<SubmitToken, ContractError> {
+        let mut launches = self.prepare_launches(map, jobs)?;
         let sequence = subs.issue(|| {
             #[cfg(feature = "fault-injection")]
             self.gate.attach_with(|latch| {
                 guard_memory_panic("launch_host_function", || self.launch_gate(latch))
             })?;
-            self.launch_transfers(map, jobs)?;
+            self.launch_transfers(map, jobs, &mut launches)?;
             guard_memory_panic("record_event", || {
                 self.stream
                     .record_event(None)
@@ -2570,12 +2651,13 @@ impl CudaDevice {
     /// 記録の順に、コピー・クリアを stream へ積む。host は待たない。
     ///
     /// 範囲は件ごとに積む前に `try_slice`・`try_slice_mut` で切り、外れれば `InvalidArgument`。
-    /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`）で、積んだ分は戻さない。
-    /// dispatch の件は門（`check_dispatch_gate`）が手前で拒むので、ここに来れば何も積まずに `Unsupported`。
+    /// driver の失敗と panic は `BackendFailure`（`op` は `memcpy_dtod`・`memset_zeros`・`cuLaunchKernel`）で、積んだ分は戻さない。
+    /// dispatch の件は `launches` の先頭から順に 1 件ずつ取って起動する。
     fn launch_transfers(
         &self,
         map: &mut BTreeMap<u64, BufferEntry>,
         jobs: &[TransferJob],
+        launches: &mut std::vec::IntoIter<PreparedLaunch<'_>>,
     ) -> Result<(), ContractError> {
         let unknown = || ContractError::InvalidArgument("unknown buffer handle".into());
         for job in jobs {
@@ -2614,14 +2696,159 @@ impl CudaDevice {
                     })?;
                 }
                 TransferJob::Dispatch(_) => {
-                    return Err(ContractError::Unsupported {
-                        op: "submit",
-                        backend: BACKEND,
-                    });
+                    let mut launch =
+                        launches
+                            .next()
+                            .ok_or_else(|| ContractError::BackendFailure {
+                                op: "cuLaunchKernel",
+                                backend: BACKEND,
+                                detail: "the dispatch has no prepared launch".into(),
+                            })?;
+                    guard_memory_panic("cuLaunchKernel", || self.launch_kernel(&mut launch))?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// 投入の時に、dispatch の全件について、パイプラインの関数を引いてカーネルの仮引数と照らし、束縛のポインタを解決する。
+    ///
+    /// コピー・クリア・カーネルを stream に積む前に呼ぶ。1 件でも引けない・食い違う・解決できなければ、コピー・クリア・カーネルを
+    /// 何も積まずに `InvalidArgument` を返す（all-or-nothing）。先に全件の関数と仮引数を照らし（ポインタは 8 バイトの引数として数える）、
+    /// その後で全件のポインタを解決する。ポインタと `offset` の和があふれる場合も `InvalidArgument`。和がバッファの長さを超えるかは
+    /// 照らさない。ポインタの解決は cudarc の event の待ち・記録を stream に積むことがあり、その失敗は解決の後に `BackendFailure`
+    /// （`op` は `device_ptr`）で返す。錠は呼ぶ側が持つ「バッファの表 → 投入済みの表」の後に、パイプラインの表を取る。
+    fn prepare_launches<'a>(
+        &self,
+        map: &BTreeMap<u64, BufferEntry>,
+        jobs: &'a [TransferJob],
+    ) -> Result<std::vec::IntoIter<PreparedLaunch<'a>>, ContractError> {
+        let dispatches: Vec<&DispatchRecord> = jobs
+            .iter()
+            .filter_map(|job| match job {
+                TransferJob::Dispatch(dispatch) => Some(dispatch),
+                _ => None,
+            })
+            .collect();
+        if dispatches.is_empty() {
+            return Ok(Vec::new().into_iter());
+        }
+        guard_memory_panic("bind_to_thread", || {
+            self.stream
+                .context()
+                .bind_to_thread()
+                .map_err(|e| backend_failure("bind_to_thread", e))
+        })?;
+        let functions = {
+            let pipelines = self
+                .pipelines
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut functions = Vec::with_capacity(dispatches.len());
+            for dispatch in &dispatches {
+                let function = pipelines
+                    .map
+                    .get(&dispatch.pipeline)
+                    .map(|entry| entry._function.clone())
+                    .ok_or_else(|| {
+                        ContractError::InvalidArgument("submit: unknown pipeline".into())
+                    })?;
+                let lens: Vec<usize> = dispatch
+                    .args
+                    .iter()
+                    .map(|arg| match arg {
+                        RecordedArg::Buffer { .. } => {
+                            std::mem::size_of::<cudarc::driver::sys::CUdeviceptr>()
+                        }
+                        RecordedArg::Constant { bytes, .. } => bytes.len(),
+                    })
+                    .collect();
+                check_kernel_params(&lens, |index| kernel_param_size(&function, index))?;
+                functions.push(function);
+            }
+            functions
+        };
+        let mut launches = Vec::with_capacity(dispatches.len());
+        for (dispatch, function) in dispatches.into_iter().zip(functions) {
+            let mut args = Vec::with_capacity(dispatch.args.len());
+            for arg in &dispatch.args {
+                match arg {
+                    RecordedArg::Buffer {
+                        slot,
+                        buffer,
+                        offset,
+                    } => {
+                        let entry = map.get(&buffer.buffer_id).ok_or_else(|| {
+                            ContractError::InvalidArgument(format!(
+                                "submit: bound buffer of slot {slot} is not resolvable"
+                            ))
+                        })?;
+                        let base = guard_memory_panic("device_ptr", || {
+                            let (base, _record) = entry.slice.device_ptr(&self.stream);
+                            Ok(base)
+                        })?;
+                        let pointer = base.checked_add(*offset).ok_or_else(|| {
+                            ContractError::InvalidArgument(format!(
+                                "submit: pointer of slot {slot} plus offset overflows"
+                            ))
+                        })?;
+                        args.push(LaunchArg::Pointer(pointer));
+                    }
+                    RecordedArg::Constant { bytes, .. } => args.push(LaunchArg::Bytes(bytes)),
+                }
+            }
+            launches.push(PreparedLaunch {
+                function,
+                args,
+                grid: dispatch.grid,
+                block: dispatch.block,
+                shared_mem_bytes: dispatch.shared_mem_bytes,
+            });
+        }
+        self.stream
+            .context()
+            .check_err()
+            .map_err(|e| backend_failure("device_ptr", e))?;
+        Ok(launches.into_iter())
+    }
+
+    /// 組み立てた起動 1 件を stream に積む。host は待たない。driver の失敗は `BackendFailure`（`op` は `cuLaunchKernel`）。
+    fn launch_kernel(&self, launch: &mut PreparedLaunch<'_>) -> Result<(), ContractError> {
+        let mut params: Vec<*mut c_void> = launch
+            .args
+            .iter_mut()
+            .map(|arg| match arg {
+                LaunchArg::Pointer(pointer) => std::ptr::from_mut(pointer).cast::<c_void>(),
+                LaunchArg::Bytes(bytes) => bytes.as_ptr().cast_mut().cast::<c_void>(),
+            })
+            .collect();
+        let [gx, gy, gz] = launch.grid;
+        let [bx, by, bz] = launch.block;
+        // SAFETY: `function` は `PreparedLaunch` が持つ `CudaFunction` の clone で、そのモジュールの `Arc` を持つ。
+        // パイプラインの表もモジュールの `Arc` を持ち、表から外すのは device の `Drop` が stream の同期を確かめた後だけ
+        // （確かめられなければ解放しない）なので、積んだカーネルが走り終えるまで読み込みは外されない。context は `prepare_launches` でこのスレッドに結び、stream は `self` が持つ。
+        // `params` の要素数は `args` と同じで、`prepare_launches` の `check_kernel_params` が、関数の仮引数の数と各仮引数の
+        // 大きさが `args` の数と各要素のバイト数（ポインタは 8 バイト、定数は件の bytes の長さ）にちょうど等しいことを確かめた
+        // （driver が host 側で読む範囲は各要素が指す値の中に収まる）。`args`・件の bytes・`params` はこの呼び出しが戻るまで生き、
+        // driver は呼び出しの中で値を写して書かない（定数の要素は共有の借用から作ったポインタ）。束縛のポインタは同じ
+        // `submit` の錠の中で解放済みでないと確かめたバッファの先頭に `offset` を足した値で、そのバッファは `issue_event` が
+        // 最後に使った投入をこの投入にするので、この投入が終わるまで `free` は解放を保留する。後の件を積むのに失敗して
+        // この投入が番号を持たずに終わるときは保留しないが、`free` の後のゼロ化と解放（`free_async` か stream の同期の後の解放）も
+        // 同じ stream に積むか stream を待つので、積んだカーネルより先には走らない。この device のバッファに触る命令は
+        // device を作るときに作った stream 1 本だけに積むので、前後のコピー・クリア・読み戻しとの順は stream の順で決まる。カーネルが範囲の外に触れるかは
+        // `offset` を照らさないので保証しない。その経路は `DISPATCH_EXECUTION_ENABLED` の門が単体の試験のビルドの外では閉じる。
+        // ポインタの解決で cudarc が記録した event は起動より前の点を指すが、命令は stream 1 本だけに積むので順は崩れない。
+        unsafe {
+            cudarc::driver::result::launch_kernel(
+                launch.function.cu_function(),
+                (gx, gy, gz),
+                (bx, by, bz),
+                launch.shared_mem_bytes,
+                self.stream.cu_stream(),
+                &mut params,
+            )
+        }
+        .map_err(|e| backend_failure("cuLaunchKernel", e))
     }
 
     /// ハンドル 1 本について、記録の時点の照らしに渡す事実を表から引く。driver を呼ばない。
@@ -9563,5 +9790,47 @@ mod dispatch_record_tests {
         assert_eq!(check_dispatch_gate(&jobs, true), Ok(()));
         let clear_only = plan_transfers(&[clear], table, GEN).expect("plan");
         assert_eq!(check_dispatch_gate(&clear_only, false), Ok(()));
+    }
+
+    /// 仮引数の数と大きさが記録した引数とちょうど同じなら通り、問う回数は引数の数 + 1。
+    #[test]
+    fn kernel_params_pass_when_count_and_sizes_match() {
+        let sizes = [8_usize, 4, 8];
+        let mut asked = Vec::new();
+        let result = check_kernel_params(&[8, 4, 8], |index| {
+            asked.push(index);
+            Ok(sizes.get(index).copied())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(asked, vec![0, 1, 2, 3]);
+        assert_eq!(check_kernel_params(&[], |_| Ok(None)), Ok(()));
+    }
+
+    /// 大きさの食い違い・仮引数が少ない・仮引数が多いは `InvalidArgument` で、問い合わせの失敗はそのまま返す。
+    #[test]
+    fn kernel_params_reject_size_and_count_mismatches() {
+        let sizes = [8_usize, 4];
+        let query = |index: usize| Ok(sizes.get(index).copied());
+        assert_invalid(
+            check_kernel_params(&[8, 8], query),
+            "submit: kernel parameter 1 takes 4 bytes but 8 were recorded",
+        );
+        assert_invalid(
+            check_kernel_params(&[8, 4, 4], query),
+            "submit: the kernel takes 2 parameters but 3 were recorded",
+        );
+        assert_invalid(
+            check_kernel_params(&[8], query),
+            "submit: the kernel takes more than the 1 recorded parameters",
+        );
+        let failure = ContractError::BackendFailure {
+            op: "cuFuncGetParamInfo",
+            backend: BACKEND,
+            detail: "x".into(),
+        };
+        assert_eq!(
+            check_kernel_params(&[8], |_| Err(failure.clone())),
+            Err(failure)
+        );
     }
 }

@@ -51,8 +51,41 @@ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda
 
 1 つ目は 5 件、2 つ目と 3 つ目は 1 件ずつが通る。
 
+## カーネルの起動と仮引数の照らし（2/4）
+
+門 `DISPATCH_EXECUTION_ENABLED` は `cfg!(test)` で、単体の試験のビルドだけで開く。ほかのビルドでは、dispatch の記録を含む投入は解放済みの確かめの後に `Unsupported` で拒まれ、何も積まれない。門の字句は `crates/contract/tests/backend_cuda_dispatch_gate.rs` がソースの文字列で守る。
+
+門が開いていれば、投入はコピー・クリア・カーネルを stream に積む前に、dispatch の全件について次を済ませる（`prepare_launches`）。
+
+1. パイプラインの関数を表から引く。
+2. 関数の仮引数の数と各仮引数の大きさを、記録した引数（束縛のポインタは 8 バイト、定数は bytes の長さ）と照らす（`check_kernel_params`）。
+3. 束縛のポインタを解決して `offset` を足す。和がバッファの長さを超えるかは照らさない。
+
+その後で、記録の順にコピー・クリア・カーネルを積む。
+
+`check_kernel_params` が返す値と試験:
+
+| 入力 | 返す値 | 試験 |
+| ---- | ------ | ---- |
+| 数と大きさがちょうど同じ | 通る。問う回数は引数の数 + 1 | `kernel_params_pass_when_count_and_sizes_match` |
+| 大きさが違う | `submit: kernel parameter <i> takes <size> bytes but <len> were recorded` | `kernel_params_reject_size_and_count_mismatches` |
+| 仮引数が少ない | `submit: the kernel takes <n> parameters but <m> were recorded` | 同上 |
+| 仮引数が多い | `submit: the kernel takes more than the <m> recorded parameters` | 同上 |
+| 問い合わせの失敗 | そのまま返す | 同上 |
+
+確かめ:
+
+```sh
+cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_record_tests::kernel_params_
+cargo test -p fandhe-silicon-contract --test backend_cuda_dispatch_gate
+cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count
+```
+
+1 つ目は 2 件、2 つ目と 3 つ目は 1 件ずつが通る。
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/4 | dispatch の記録の時点の照らしと投入の門を実装する | #5727 |
+| 2/4 | dispatch のカーネルの起動と仮引数の照らしを実装する | #5728 |
