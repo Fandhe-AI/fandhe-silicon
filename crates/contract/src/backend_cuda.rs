@@ -64,6 +64,8 @@
 //! 走らせる門（`DISPATCH_EXECUTION_ENABLED`。単体の試験のビルドだけで開く）に照らし、閉じていれば dispatch の記録を含む記録先を
 //! `Unsupported` で拒んで何も積まない。開いていれば、全 dispatch のポインタの解決とカーネルの仮引数の大きさの照らしを積む前に済ませ、
 //! 記録の順に起動する（TASK-805）。
+//! `dispatch_ex` は束縛のバッファの後・slot の前に、`dispatch_dims` の 0 と `limits().max_dispatch_dims` を超える要素も
+//! 記録の時点に照らす（TASK-806）。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::c_void;
@@ -1524,6 +1526,31 @@ fn check_dispatch_record(
         block: threads_per_threadgroup,
         shared_mem_bytes,
     })
+}
+
+/// `dispatch_ex` の記録の時点の、`dispatch_dims` の照らし。device に触らない。
+///
+/// どれかの要素が 0 なら `dispatch_dims contains zero`、0 を含まずにどれかの要素が `max_dispatch_dims` の
+/// 同じ軸の値を超えれば `dispatch_dims exceeds the limit` の `InvalidArgument` を返す（TASK-806）。
+fn check_dispatch_dims(
+    dispatch_dims: [u32; 3],
+    max_dispatch_dims: [u32; 3],
+) -> Result<(), ContractError> {
+    if dispatch_dims.contains(&0) {
+        return Err(ContractError::InvalidArgument(
+            "dispatch_dims contains zero".into(),
+        ));
+    }
+    if dispatch_dims
+        .iter()
+        .zip(max_dispatch_dims)
+        .any(|(dim, max)| *dim > max)
+    {
+        return Err(ContractError::InvalidArgument(
+            "dispatch_dims exceeds the limit".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// コピー・クリアの記録の時点で、表から引いたバッファ 1 本の事実。
@@ -3769,6 +3796,7 @@ impl CommandQueue for CudaDevice {
     ///
     /// 照らす順は、記録先（開いていなければ `InvalidArgument`）、パイプライン（別の device は `DeviceMismatch`、
     /// 表に無ければ `InvalidArgument`）、束縛の各バッファ（`copy_buffer_to_buffer` と同じ device・世代・表・大きさ）、
+    /// `dispatch_dims`（`check_dispatch_dims`。0 と `limits().max_dispatch_dims` の超過）、
     /// slot・定数・共有メモリ（`check_dispatch_record`）。拒否は記録先を変えない。定数の bytes は記録の時点に写す。
     fn dispatch_ex(
         &self,
@@ -3820,6 +3848,7 @@ impl CommandQueue for CudaDevice {
                 })
                 .collect::<Result<Vec<_>, _>>()?
         };
+        check_dispatch_dims(dispatch_dims, self.limits.max_dispatch_dims)?;
         let const_args: Vec<(u32, &[u8])> = consts.iter().map(|c| (c.slot, c.bytes)).collect();
         let memory: Vec<u32> = threadgroup_memory.iter().map(|m| m.bytes).collect();
         let record = check_dispatch_record(
@@ -10327,5 +10356,74 @@ mod dispatch_device_tests {
             );
             assert_eq!(records_of(&d, &e), 0);
         });
+    }
+}
+
+#[cfg(test)]
+mod dispatch_check_tests {
+    use super::*;
+
+    /// 試験の上限。x は 2^31 - 1、y・z は 65,535。
+    const MAX: [u32; 3] = [2_147_483_647, 65_535, 65_535];
+
+    /// `InvalidArgument` で、理由の文が `expected` と全文で同じことを照らす。
+    fn assert_invalid(result: Result<(), ContractError>, expected: &str) {
+        match result {
+            Err(ContractError::InvalidArgument(msg)) => assert_eq!(msg, expected),
+            other => panic!("expected InvalidArgument {expected:?}, got {other:?}"),
+        }
+    }
+
+    // COMP-86
+    /// 各軸が上限ちょうどまでの `dispatch_dims` は通る。
+    #[test]
+    fn dispatch_dims_pass_up_to_the_limit_on_each_axis() {
+        for dims in [
+            [1, 1, 1],
+            [2_147_483_647, 1, 1],
+            [1, 65_535, 1],
+            [1, 1, 65_535],
+            [2_147_483_647, 65_535, 65_535],
+        ] {
+            assert_eq!(check_dispatch_dims(dims, MAX), Ok(()), "{dims:?}");
+        }
+        assert_eq!(check_dispatch_dims([u32::MAX; 3], [u32::MAX; 3]), Ok(()));
+    }
+
+    // COMP-82
+    /// どれかの軸が 0 なら、上限を超える軸があっても 0 の文を返す。
+    #[test]
+    fn dispatch_dims_reject_a_zero_on_any_axis_before_the_limit() {
+        for dims in [
+            [0, 1, 1],
+            [1, 0, 1],
+            [1, 1, 0],
+            [0, 0, 0],
+            [0, 65_536, 1],
+            [2_147_483_648, 1, 0],
+        ] {
+            assert_invalid(
+                check_dispatch_dims(dims, MAX),
+                "dispatch_dims contains zero",
+            );
+        }
+    }
+
+    // COMP-86
+    /// どれかの軸が上限を 1 でも超えれば、上限の文を返す。
+    #[test]
+    fn dispatch_dims_reject_one_more_than_the_limit_on_each_axis() {
+        for (dims, max) in [
+            ([2_147_483_648, 1, 1], MAX),
+            ([1, 65_536, 1], MAX),
+            ([1, 1, 65_536], MAX),
+            ([u32::MAX, u32::MAX, u32::MAX], MAX),
+            ([5, 1, 1], [4, 4, 4]),
+        ] {
+            assert_invalid(
+                check_dispatch_dims(dims, max),
+                "dispatch_dims exceeds the limit",
+            );
+        }
     }
 }
