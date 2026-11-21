@@ -62,6 +62,10 @@ name = "backend_cuda_capability"
 required-features = ["backend-cuda", "test-support"]
 
 [[test]]
+name = "backend_cuda_capability_insufficient"
+required-features = ["backend-cuda", "fault-injection"]
+
+[[test]]
 name = "backend_cuda_destroy"
 required-features = ["backend-cuda"]
 
