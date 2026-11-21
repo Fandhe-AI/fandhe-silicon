@@ -9853,8 +9853,8 @@ mod dispatch_device_tests {
     /// 各スレッドが、ブロックの番号とブロックの大きさを書く。
     const SHAPE: &str = "extern \"C\" __global__ void shape(unsigned int* out) { unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; out[2 * i] = blockIdx.x; out[2 * i + 1] = blockDim.x; }";
 
-    /// 2 つのポインタの差を書く。ポインタの先は読まない。
-    const DIFF: &str = "extern \"C\" __global__ void diff(unsigned long long* out, const char* a, const char* b) { out[0] = (unsigned long long)(b - a); }";
+    /// 2 つのポインタのアドレスを整数にしてから差を書く。ポインタの先は読まない。
+    const DIFF: &str = "extern \"C\" __global__ void diff(unsigned long long* out, const char* a, const char* b) { out[0] = (unsigned long long)b - (unsigned long long)a; }";
 
     /// `body` を別のスレッドで流し、`LIMIT` を過ぎたら失敗とする。`body` の panic はそのまま送り直す。
     fn within(body: impl FnOnce() + Send + 'static) {
