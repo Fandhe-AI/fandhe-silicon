@@ -63,9 +63,116 @@ cargo test -p fandhe-silicon-contract --features backend-cuda,native-blocking-wa
 
 5 件が `ignored` と数えられる。
 
+## 完了の条件の確かめ（3/3）
+
+記録の正は private spec 側にある（`docs/spec/05-tasks.md` の TASK-806。ポインタのみ）。
+
+時点のコミット: `acf00420`。`docs/spec` の gitlink は `ac56f928301ffca0c15d857b56302916a3cce0fb`。
+
+| # | 確かめる項目 | 方法 | 結果 |
+| - | ------------ | ---- | ---- |
+| (1) | 試験の宣言 | `acf00420` の `crates/contract/src/backend_cuda.rs` の `dispatch_check_tests`・`dispatch_check_device_tests` に `grep -c` を当てる | 出力 (1) |
+| (2) | 受け手の試験の名前 | `git grep -n` で 8 本の名前を 1 つずつ引く | 出力 (2) |
+| (3) | 口の所在 | `git grep -n -F` で `fn check_dispatch_dims(`・`check_dispatch_dims(dispatch_dims, self.limits.max_dispatch_dims)?;`・`max_dispatch_dims: grid_dims,`・`fn ensure_encoder_open(` を 1 つずつ引く | 出力 (3) |
+| (4) | device に触らない試験 | `cargo test -p fandhe-silicon-contract` の 2 つの実行 | 出力 (4) |
+| (5) | 依存の差 | `6ea39955^ acf00420` の差と `make deps-check` | 出力 (5) |
+| (6) | CI | 2/3 のマージの後の main の push の run | 出力 (6) |
+
+`6ea39955^` は 1/3 の squash `6ea39955` の親。(4) の `cargo test` と (5) の `make deps-check` は作業木で流した。
+
+出力 (1):
+
+```text
+$ git show acf00420:crates/contract/src/backend_cuda.rs | awk '/^mod dispatch_check_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+3
+$ git show acf00420:crates/contract/src/backend_cuda.rs | awk '/^mod dispatch_check_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[test\]'
+5
+$ git show acf00420:crates/contract/src/backend_cuda.rs | awk '/^mod dispatch_check_device_tests \{$/{f=1} f{print} f&&/^}$/{exit}' | grep -c '^[[:space:]]*#\[ignore'
+5
+```
+
+出力 (2):
+
+```text
+$ git grep -n "fn dispatch_dims_pass_up_to_the_limit_on_each_axis(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10380:    fn dispatch_dims_pass_up_to_the_limit_on_each_axis() {
+$ git grep -n "fn dispatch_dims_reject_a_zero_on_any_axis_before_the_limit(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10396:    fn dispatch_dims_reject_a_zero_on_any_axis_before_the_limit() {
+$ git grep -n "fn dispatch_dims_reject_one_more_than_the_limit_on_each_axis(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10415:    fn dispatch_dims_reject_one_more_than_the_limit_on_each_axis() {
+$ git grep -n "fn dispatch_and_dispatch_ex_reject_a_forged_pipeline_before_recording(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10529:    fn dispatch_and_dispatch_ex_reject_a_forged_pipeline_before_recording() {
+$ git grep -n "fn dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_with_the_same_id(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10566:    fn dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_with_the_same_id() {
+$ git grep -n "fn dispatch_and_dispatch_ex_reject_an_encoder_that_is_not_open(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10605:    fn dispatch_and_dispatch_ex_reject_an_encoder_that_is_not_open() {
+$ git grep -n "fn dispatch_and_dispatch_ex_reject_dispatch_dims_with_a_zero_before_recording(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10648:    fn dispatch_and_dispatch_ex_reject_dispatch_dims_with_a_zero_before_recording() {
+$ git grep -n "fn dispatch_and_dispatch_ex_record_the_y_and_z_limit_and_reject_one_more(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:10703:    fn dispatch_and_dispatch_ex_record_the_y_and_z_limit_and_reject_one_more() {
+```
+
+出力 (3):
+
+```text
+$ git grep -n -F "fn check_dispatch_dims(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:1535:fn check_dispatch_dims(
+$ git grep -n -F "check_dispatch_dims(dispatch_dims, self.limits.max_dispatch_dims)?;" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:3851:        check_dispatch_dims(dispatch_dims, self.limits.max_dispatch_dims)?;
+$ git grep -n -F "max_dispatch_dims: grid_dims," acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:578:                max_dispatch_dims: grid_dims,
+$ git grep -n -F "fn ensure_encoder_open(" acf00420 -- crates/contract/src/backend_cuda.rs
+acf00420:crates/contract/src/backend_cuda.rs:2916:    fn ensure_encoder_open(&self, encoder: &CommandEncoder) -> Result<(), ContractError> {
+```
+
+出力 (4):
+
+```text
+$ cargo test -p fandhe-silicon-contract --features backend-cuda --lib backend_cuda::dispatch_check_tests 2>&1 | grep -E '^(running|test result:)'
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 146 filtered out; finished in 0.00s
+$ cargo test -p fandhe-silicon-contract --test backend_cuda_unsafe_count 2>&1 | grep -E '^(running|test result:)'
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+出力 (5):
+
+```text
+$ git diff --stat 6ea39955^ acf00420 -- Cargo.lock deps-approved.toml Cargo.toml crates/contract/Cargo.toml crates/core
+$ make deps-check; echo exit=$?
+[deps-check.sh] ok: all dependency requirements are pinned to =x.y.z and match deps-approved.toml
+exit=0
+```
+
+出力 (6):
+
+```text
+$ gh run list --branch main --event push --commit acf00420de903ab09e872972b242d564509530be --workflow ci.yml --json databaseId --jq '.[].databaseId'
+44868855660
+$ gh run view 44868855660 --json conclusion,headSha,jobs --jq '.conclusion, .headSha, (.jobs[]|select(.name|test("^make (verify|deny)"))|"\(.name): \(.conclusion)")'
+success
+acf00420de903ab09e872972b242d564509530be
+make verify (fmt + clippy + test): success
+make deny (cargo-deny): success
+make verify + build-profiles (macos-latest): success
+$ gh run view 44868855660 --json jobs --jq '.jobs[]|select(.name=="make verify (fmt + clippy + test)")|.databaseId'
+136738592394
+$ gh run view 44868855660 --job 136738592394 --log | grep -oE 'test backend_cuda::dispatch_check_(device_)?tests::[a-z_]+ \.\.\. (ok|ignored, requires a CUDA device)' | sort | uniq -c
+      2 test backend_cuda::dispatch_check_device_tests::dispatch_and_dispatch_ex_record_the_y_and_z_limit_and_reject_one_more ... ignored, requires a CUDA device
+      2 test backend_cuda::dispatch_check_device_tests::dispatch_and_dispatch_ex_reject_a_forged_pipeline_before_recording ... ignored, requires a CUDA device
+      2 test backend_cuda::dispatch_check_device_tests::dispatch_and_dispatch_ex_reject_a_pipeline_of_another_device_with_the_same_id ... ignored, requires a CUDA device
+      2 test backend_cuda::dispatch_check_device_tests::dispatch_and_dispatch_ex_reject_an_encoder_that_is_not_open ... ignored, requires a CUDA device
+      2 test backend_cuda::dispatch_check_device_tests::dispatch_and_dispatch_ex_reject_dispatch_dims_with_a_zero_before_recording ... ignored, requires a CUDA device
+      6 test backend_cuda::dispatch_check_tests::dispatch_dims_pass_up_to_the_limit_on_each_axis ... ok
+      6 test backend_cuda::dispatch_check_tests::dispatch_dims_reject_a_zero_on_any_axis_before_the_limit ... ok
+      6 test backend_cuda::dispatch_check_tests::dispatch_dims_reject_one_more_than_the_limit_on_each_axis ... ok
+```
+
 ## 段
 
 | 段 | 内容 | Issue |
 | -- | ---- | ----- |
 | 1/3 | dispatch の dispatch_dims の 0 と上限の照らしを実装する | #5735 |
 | 2/3 | dispatch の記録時の照らしの device の要る試験を ignore 付きで足す | #5736 |
+| 3/3 | 完了の条件の確かめ | #5737 |
