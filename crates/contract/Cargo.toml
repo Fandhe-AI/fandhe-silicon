@@ -51,8 +51,8 @@ backend-dx12-compute = ["contract-core"]
 # テスト・診断専用（本番ビルドに含めない）
 # test-support は core の同名 feature（検証用の道具）へ転送する（説明は docs/parity-tool.md の「所在」）。
 test-support = ["fandhe-silicon-core/test-support"]
-# fault-injection は core の同名 feature（故障の差し込み口）へ転送する（説明は docs/contract-fault-injection.md）。
-fault-injection = ["fandhe-silicon-core/fault-injection"]
+# fault-injection は core の同名 feature（故障の差し込み口）へ転送し、Metal の背後実装の試験用の門のために objc2-metal の 1 つの header の feature を有効にする（説明は docs/contract-fault-injection.md・docs/metal-fault-gate.md）。
+fault-injection = ["fandhe-silicon-core/fault-injection", "objc2-metal?/MTLEvent"]
 artifact-inspection = ["backend-metal", "fandhe-silicon-core/artifact-inspection", "objc2-metal?/MTLBinaryArchive"]
 # pvrtc-probe も backend-metal を要求し、Metal の device で PVRTC の形式のテクスチャの作成を試みる単体試験のために objc2-metal の 2 つの header の feature を有効にする（説明は docs/metal-pvrtc-create-check.md）。
 pvrtc-probe = ["backend-metal", "objc2-metal?/MTLPixelFormat", "objc2-metal?/MTLTexture"]

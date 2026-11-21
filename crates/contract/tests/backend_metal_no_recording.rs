@@ -4,6 +4,8 @@
 //! 持つのは compute の dispatch の記録（compute encoder の生成・バッファ・定数・共有メモリの設定・dispatch）と、
 //! バッファのコピー・クリアの記録（blit encoder の生成・バッファ間のコピー・0 埋め）。
 //! 描画・イベント・完了ハンドラに当たる呼び出しがコード本体に現れたら落とす。
+//! ただし feature `fault-injection` の試験用の門の待ちを積む 1 行（`encode_gate_wait` の中）だけは除き、
+//! その行がコード本体にちょうど 1 つで、門の関数の中にあることを別の試験で照らす（TASK-319 のポインタ）。
 //! `contents()` 越しの `copy_nonoverlapping` による読み書きの 2 つの `// SAFETY:` は、最後に使った投入が
 //! 完了していることの確かめに根拠を置く。compute encoder へ設定する 3 つの `unsafe` ブロックの `// SAFETY:` は、
 //! 呼ぶメソッドごとに 1 つずつあり、CPU 側で確かめた前提の語句を保つ。関数の定数の設定の SAFETY
@@ -41,6 +43,13 @@ const FORBIDDEN_FEATURES: &[&str] = &[
 
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
+/// `FORBIDDEN_WORDS` の照らしから除く、試験用の門の待ちを積む 1 行（前後の空白を除いた字句）。
+const GATE_WAIT_LINE: &str = "buffer.encodeWaitForEvent_value(event, value);";
+
+/// `GATE_WAIT_LINE` を持ってよい関数の宣言の行と、その直前に置く cfg の行。
+const GATE_WAIT_FN: &str = "fn encode_gate_wait(";
+const GATE_WAIT_CFG: &str = "#[cfg(feature = \"fault-injection\")]";
+
 /// `contents()` の 2 つの `// SAFETY:` が含んでいなければならない、根拠の語句。
 const SAFETY_RATIONALE: &[&str] = &["最後に使った投入", "完了していること", "表の錠"];
 
@@ -64,6 +73,9 @@ fn backend_metal_code_has_no_words_beyond_compute_dispatch() {
     let mut hits = Vec::new();
     for (no, line) in code_lines() {
         for word in FORBIDDEN_WORDS {
+            if *word == "encodeWaitForEvent" && line.trim() == GATE_WAIT_LINE {
+                continue;
+            }
             if line.to_lowercase().contains(&word.to_lowercase()) {
                 hits.push(format!(
                     "src/backend_metal.rs:{no}: `{word}` in `{}`",
@@ -77,6 +89,39 @@ fn backend_metal_code_has_no_words_beyond_compute_dispatch() {
         "backend_metal.rs must only record compute dispatches and buffer copy/clear:\n{}\n{FIX_HINT}",
         hits.join("\n")
     );
+}
+
+/// 門の待ちの行はコード本体にちょうど 1 つで、`fault-injection` の cfg の付いた `encode_gate_wait` の中にある。
+#[test]
+fn the_gate_wait_is_the_only_event_wait_and_sits_in_the_fault_injection_gate() {
+    let code: Vec<(usize, &str)> = code_lines().collect();
+    let waits: Vec<usize> = code
+        .iter()
+        .filter(|(_, line)| line.trim() == GATE_WAIT_LINE)
+        .map(|(i, _)| *i)
+        .collect();
+    assert_eq!(waits.len(), 1, "gate wait lines: {waits:?}\n{FIX_HINT}");
+    let fns: Vec<usize> = code
+        .iter()
+        .filter(|(_, line)| line.trim_start().starts_with(GATE_WAIT_FN))
+        .map(|(i, _)| *i)
+        .collect();
+    assert_eq!(fns.len(), 1, "gate fn lines: {fns:?}\n{FIX_HINT}");
+    let (start, wait) = (fns[0], waits[0]);
+    let between = code
+        .iter()
+        .filter(|(i, line)| *i > start && *i < wait && line.contains("fn "))
+        .count();
+    assert!(
+        start < wait && between == 0,
+        "gate wait is outside {GATE_WAIT_FN}\n{FIX_HINT}"
+    );
+    let cfg = code
+        .iter()
+        .rev()
+        .find(|(i, line)| *i < start && line.trim_start().starts_with("#["))
+        .map(|(_, line)| line.trim());
+    assert_eq!(cfg, Some(GATE_WAIT_CFG), "{FIX_HINT}");
 }
 
 #[test]

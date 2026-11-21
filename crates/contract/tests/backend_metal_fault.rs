@@ -198,11 +198,8 @@ fn fault_hooks_are_present_and_the_loss_moves_the_generation_once() {
     ))
     .expect("request");
     assert!(device.fault_hooks().is_some());
-    let gate = inject(device.fault_hooks(), HookFault::ArmGate);
-    assert!(
-        matches!(gate, Err(ContractError::UnsupportedExtensionDefault { .. })),
-        "{gate:?}"
-    );
+    assert_eq!(inject(device.fault_hooks(), HookFault::ArmGate), Ok(()));
+    assert_eq!(inject(device.fault_hooks(), HookFault::OpenGate), Ok(()));
 
     let before = device.generation();
     inject(

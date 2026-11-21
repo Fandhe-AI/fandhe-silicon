@@ -224,3 +224,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 | ------ | --------------- | -------------- |
 | 「今の値の補い（base f433877）」の行頭の `#[ignore` の件数（`crates/contract/src/backend_metal.rs`） | 62 → 85 | `grep -cE '^\s*#\[ignore' crates/contract/src/backend_metal.rs` |
 | 同じ行の `crates/contract/tests/backend_metal_device.rs` | 59 → 59（変わらない） | `grep -cE '^\s*#\[ignore' crates/contract/tests/backend_metal_device.rs` |
+
+## 今の値の補い（base 075fb6da）
+
+記録時点の表と既存の節は書き換えない。以下は base `075fb6da` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「記録と積み（3/5）」の `backend_metal_no_recording.rs` の表の `backend_metal_code_has_no_words_beyond_compute_dispatch` の行 | コード本体に、イベントに当たる語が無い → 試験用の門の待ちを積む 1 行（`buffer.encodeWaitForEvent_value(event, value);`）だけを照らしの外にし、ほかは同じ | `grep -n 'GATE_WAIT_LINE' crates/contract/tests/backend_metal_no_recording.rs` |
+| `backend_metal_no_recording.rs` の試験の数 | 8 → 9（足したのは `the_gate_wait_is_the_only_event_wait_and_sits_in_the_fault_injection_gate`: 門の待ちの行がコード本体にちょうど 1 つで、`#[cfg(feature = "fault-injection")]` の付いた `encode_gate_wait` の中にある。所在は [metal-fault-gate](metal-fault-gate.md)） | `grep -c '^#\[test\]' crates/contract/tests/backend_metal_no_recording.rs` |

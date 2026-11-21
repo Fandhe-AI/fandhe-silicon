@@ -176,3 +176,12 @@ ok: 2 public API document(s) checked, no blocking-wait names, pipeline input ok,
 | 2/4 | 明示の破棄 | #3843 |
 | 3/4 | device の要る試験 | #3844 |
 | 4/4 | 完了の条件の確かめ | #3845 |
+
+## 今の値の補い（base 075fb6da）
+
+記録時点の表と既存の節は書き換えない。以下は base `075fb6da` に対するこの変更の後の今の値。
+
+| 表の行 | 前の値 → 今の値 | 測ったコマンド |
+| ------ | --------------- | -------------- |
+| 「`Drop` の待ちと記録先の破棄（1/4）」の順の表 | 1 から始まる → feature `fault-injection` のビルドでは、1 の前に積んだ試験用の門を全部開ける（所在は [metal-fault-gate](metal-fault-gate.md)） | `grep -n 'impl Drop for MetalDevice' -A12 crates/contract/src/backend_metal.rs` |
+| 「明示の破棄（2/4）」の順の表の 2 | 投入済みの列を全部待つ → feature `fault-injection` のビルドでは、積んだ試験用の門を全部開けてから、投入済みの列を全部待つ | `grep -n 'let wait = |d: &Self|' -A4 crates/contract/src/backend_metal.rs` |
